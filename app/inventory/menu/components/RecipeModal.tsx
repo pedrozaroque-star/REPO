@@ -14,6 +14,7 @@ import { useState, useEffect } from 'react'
 import { X, Plus, Trash2, Save, Search, AlertCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
+import { getPartyTrayDozenCounts, getPartyTrayFoodTrayAllocation, isPartyTrayMenuItem, PARTY_TRAY_GUIDELINES, resolvePartyTraySizeWithChannel } from '@/lib/inventory/party-tray-guidelines'
 
 interface RecipeModalProps {
     isOpen: boolean
@@ -412,6 +413,28 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                         <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
                     ) : (
                         <>
+                            {item && isPartyTrayMenuItem(item.name, item.guid) && (() => {
+                                const ptSize = resolvePartyTraySizeWithChannel({ itemName: item.name, toastGuid: item.guid })
+                                const ptGuide = PARTY_TRAY_GUIDELINES[ptSize]
+                                const ptDozens = getPartyTrayDozenCounts(ptGuide)
+                                const ptTrays = getPartyTrayFoodTrayAllocation(ptGuide)
+                                const trayDesc = ptTrays.lines
+                                    .map((l) => `${l.quantity}× ${l.panSize === 'full' ? 'Charola Completa (RC1174+RL990)' : l.panSize === 'half' ? 'Charola Mediana 1/2 (RC1150+RL970)' : 'Charola 1/3 (RC1124+RL940)'}`)
+                                    .join(' + ')
+                                return (
+                                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800/60 dark:bg-emerald-950/30 text-xs text-emerald-950 dark:text-emerald-100 space-y-1.5">
+                                        <p className="font-bold text-sm">🍱 Guía Oficial Party Tray ({ptSize} Personas — Receta Virtual Dinámica)</p>
+                                        <p>
+                                            <strong>Alimentos y Bebidas:</strong> {ptGuide.meatLbs} lbs Carne a elegir · {ptGuide.riceLbs} lbs Arroz · {ptGuide.beansLbs} lbs Frijol · {ptGuide.aguaGallons} Galones Agua Fresca ·{' '}
+                                            <strong>{ptDozens.cornDozens} docenas Maíz ({ptGuide.cornPacks} paq)</strong> o <strong>{ptDozens.flourDozens} docenas Harina 8&quot; ({ptGuide.flourPacks} paq)</strong>.
+                                        </p>
+                                        <p>
+                                            <strong>Charolas y Desechables:</strong> {trayDesc} · RC478+709DO (1 par / 60 tortillas) · {ptGuide.salsaRojaPacks} Salsa Roja · {ptGuide.salsaVerdePacks} Salsa Verde · {ptGuide.mixtaBags} Mixta · {ptGuide.limeBags} Limón · {ptGuide.jalapenoOz} oz Jalapeño · {ptGuide.plates} Platos · {ptGuide.forks} Tenedores · {ptGuide.spoons} Cucharas · {ptGuide.cups} Vasos · {ptGuide.napkinPacks} paq Servilletas.
+                                        </p>
+                                    </div>
+                                )
+                            })()}
+
                             {/* N/A Toggle */}
                             <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
                                 <input

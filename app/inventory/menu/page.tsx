@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { RecipeModal } from './components/RecipeModal'
 import { ArrowUpDown, ArrowUp, ArrowDown, Info, X } from 'lucide-react'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
+import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { useLanguage } from '@/lib/i18n'
 
 export default function MenuCatalogPage() {
@@ -41,22 +42,28 @@ export default function MenuCatalogPage() {
 
         // 2. Fetch Recipes with Ingredients and Costs
         console.log("Fetching recipes...")
-        const { data: recipes, error: recipeError } = await supabase
-            .from('recipes')
-            .select(`
-                toast_menu_item_guid,
-                quantity,
-                unit,
-                type,
-                inventory_items (
-                    purchase_unit_cost,
-                    quantity_per_unit,
-                    yield_percent,
-                    unit_measure,
-                    unit_type
-                )
-            `)
-            .limit(20000)
+        const [{ data: recipes, error: recipeError }, { data: allInventoryItems }] = await Promise.all([
+            supabase
+                .from('recipes')
+                .select(`
+                    toast_menu_item_guid,
+                    quantity,
+                    unit,
+                    type,
+                    inventory_items (
+                        purchase_unit_cost,
+                        quantity_per_unit,
+                        yield_percent,
+                        unit_measure,
+                        unit_type
+                    )
+                `)
+                .limit(20000),
+            supabase
+                .from('inventory_items')
+                .select('id, name, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, unit_type')
+        ])
+        const invMap = new Map<string, any>((allInventoryItems || []).map((inv: any) => [inv.id, inv]))
 
         if (recipeError) console.error("Recipe Fetch Error:", recipeError)
         console.log(`Recipes Loaded: ${recipes?.length}`)
@@ -97,14 +104,46 @@ export default function MenuCatalogPage() {
         if (!error && menuItems) {
             // Merge status
             const items = menuItems.map(i => {
-                const cost = itemCosts[i.guid] || 0
+                const isPartyTray = !i.is_modifier && isPartyTrayMenuItem(i.name, i.guid)
+                let cost = itemCosts[i.guid] || 0
+                let itemCogsDineIn = cogsDineIn[i.guid] || 0
+                let itemCogsTakeout = cogsTakeout[i.guid] || 0
+                let itemCogsDelivery = cogsDelivery[i.guid] || 0
+                let ingCount = ingredientCounts[i.guid] || 0
+
+                if (isPartyTray && invMap.size > 0) {
+                    const groupLower = String(i.group_name || '').toLowerCase()
+                    const virtualParty = buildPartyTrayVirtualIngredients({
+                        itemName: String(i.name || ''),
+                        unitPrice: Number(i.price) || 0,
+                        toastGuid: i.guid,
+                        isDeliveryChannel: groupLower.includes('3rd party') || groupLower.includes('delivery'),
+                        inventoryItems: allInventoryItems || [],
+                    })
+                    let vFood = 0
+                    let vTakeout = 0
+                    let vCount = 0
+                    virtualParty.ingredients.forEach(vIng => {
+                        const inv = invMap.get(vIng.inventory_item_id)
+                        if (!inv) return
+                        const c = calculateIngredientCost(vIng.quantity, vIng.unit, inv, vIng.type)
+                        if (vIng.type === 'cogs_takeout') {
+                            vTakeout += c
+                        } else if (!vIng.type.startsWith('cogs_')) {
+                            vFood += c
+                            vCount += 1
+                        }
+                    })
+                    cost = vFood
+                    itemCogsTakeout = vTakeout
+                    itemCogsDelivery = vTakeout
+                    ingCount = vCount
+                }
+
                 const price = i.price || 0
                 const isNa = !!i.recipe_na
 
-                // To measure global baseline profitability without over-complicating this specific table, 
-                // we'll calculate the 'blended' UI display using ONLY pure food cost first. 
-                // But let's expose the worst-case (Uber delivery) to show if an item is bleeding money.
-                const worstCogs = Math.max(cogsDineIn[i.guid] || 0, cogsTakeout[i.guid] || 0, cogsDelivery[i.guid] || 0)
+                const worstCogs = Math.max(itemCogsDineIn, itemCogsTakeout, itemCogsDelivery)
                 const totalWorstCost = cost + worstCogs
 
                 const margin = (price > 0 && cost > 0 && !isNa) ? ((price - totalWorstCost) / price) * 100 : null
@@ -113,13 +152,13 @@ export default function MenuCatalogPage() {
 
                 return {
                     ...i,
-                    hasRecipe: !!ingredientCounts[i.guid] || isNa, // Complete if has recipe OR marked N/A
+                    hasRecipe: ingCount > 0 || isNa,
                     isNa,
-                    ingredientCount: ingredientCounts[i.guid] || 0,
+                    ingredientCount: ingCount,
                     recipeCost: cost,
-                    cogsDineIn: cogsDineIn[i.guid] || 0,
-                    cogsTakeout: cogsTakeout[i.guid] || 0,
-                    cogsDelivery: cogsDelivery[i.guid] || 0,
+                    cogsDineIn: itemCogsDineIn,
+                    cogsTakeout: itemCogsTakeout,
+                    cogsDelivery: itemCogsDelivery,
                     marginPercent: margin, // can be null
                     foodCostPercent,      // can be null
                     netProfit             // can be null

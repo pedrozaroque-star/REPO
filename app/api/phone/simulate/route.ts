@@ -199,12 +199,12 @@ export async function POST(request: NextRequest) {
               }
 
               const ins = await insertPromise
-              if (ins.error) {
-                console.error('[api/phone/simulate start] Error al insertar llamada:', ins.error.message)
+              if (ins.error || !ins.data) {
+                throw ins.error || new Error('No se pudo registrar la llamada en phone_calls')
               }
               send({
                 type: 'done',
-                callId: ins.data?.id || null,
+                callId: ins.data.id,
                 totalFirstAudioMs: firstAudioMs,
                 fromCache
               })
@@ -272,31 +272,43 @@ export async function POST(request: NextRequest) {
     if (action === 'end') {
       const callSid = String(body?.callSid || '')
       if (callSid.startsWith('SIM_')) {
-        const { data: existing } = await supabaseAdmin
+        const { data: existing, error: findErr } = await supabaseAdmin
           .from('phone_calls')
-          .select('id, store_id, status, started_at, turns_count')
+          .select('id, store_id, status, started_at, ended_at, turns_count')
           .eq('call_sid', callSid)
           .maybeSingle()
+        if (findErr) throw findErr
 
         if (existing) {
           if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(existing.store_id))) {
             return NextResponse.json({ error: 'Acceso denegado a esta llamada' }, { status: 403 })
           }
-          const startedMs = existing.started_at ? new Date(existing.started_at).getTime() : Date.now()
-          const durationSeconds = Math.min(1800, Math.max(5, Math.round((Date.now() - startedMs) / 1000)))
-          const preservedStatus =
-            existing.status === 'callback_requested' || existing.status === 'transferred'
-              ? existing.status
-              : 'completed'
-          const updateObj: Record<string, any> = {
-            status: preservedStatus,
-            duration_seconds: durationSeconds,
-            ended_at: new Date().toISOString()
+          const normStatus = String(existing.status || '').toLowerCase()
+          const alreadyTerminated =
+            Boolean(existing.ended_at) ||
+            ['completed', 'canceled', 'busy', 'failed', 'no-answer'].includes(normStatus)
+          if (!alreadyTerminated) {
+            const startedMs = existing.started_at ? new Date(existing.started_at).getTime() : Date.now()
+            const durationSeconds = Math.min(1800, Math.max(5, Math.round((Date.now() - startedMs) / 1000)))
+            const preservedStatus =
+              existing.status === 'callback_requested' || existing.status === 'transferred'
+                ? existing.status
+                : 'completed'
+            const updateObj: Record<string, any> = {
+              status: preservedStatus,
+              duration_seconds: durationSeconds,
+              ended_at: new Date().toISOString()
+            }
+            if (Number(existing.turns_count || 0) === 0 || preservedStatus !== 'completed') {
+              updateObj.resolved_by_ai = false
+            }
+            const { error: endUpdErr } = await supabaseAdmin
+              .from('phone_calls')
+              .update(updateObj)
+              .eq('id', existing.id)
+              .is('ended_at', null)
+            if (endUpdErr) throw endUpdErr
           }
-          if (Number(existing.turns_count || 0) === 0 || preservedStatus !== 'completed') {
-            updateObj.resolved_by_ai = false
-          }
-          await supabaseAdmin.from('phone_calls').update(updateObj).eq('id', existing.id)
         }
       }
       return NextResponse.json({ ok: true })
@@ -306,11 +318,12 @@ export async function POST(request: NextRequest) {
     const rawCallSid = String(body?.callSid || '').trim()
     const callSid = rawCallSid.startsWith('SIM_') ? rawCallSid : `SIM_${storeId}_${Date.now()}`
     if (rawCallSid.startsWith('SIM_')) {
-      const { data: ownerCheck } = await supabaseAdmin
+      const { data: ownerCheck, error: ownerErr } = await supabaseAdmin
         .from('phone_calls')
         .select('store_id')
         .eq('call_sid', callSid)
         .maybeSingle()
+      if (ownerErr) throw ownerErr
       if (ownerCheck && Number(ownerCheck.store_id) !== storeId) {
         if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(ownerCheck.store_id))) {
           return NextResponse.json({ error: 'Acceso denegado a esta llamada simulada' }, { status: 403 })
@@ -326,10 +339,12 @@ export async function POST(request: NextRequest) {
     if (rawUserText === '9') {
       const reqStart = Date.now()
       const switchedLang: PhoneLang = lang === 'en' ? 'es' : 'en'
-      const [ctx, { data: existing }] = await Promise.all([
+      const [ctx, existingRes] = await Promise.all([
         getStorePhoneContext(storeId),
-        supabaseAdmin.from('phone_calls').select('id, store_id, transcript, turns_count').eq('call_sid', callSid).maybeSingle()
+        supabaseAdmin.from('phone_calls').select('id, store_id, status, ended_at, transcript, turns_count').eq('call_sid', callSid).maybeSingle()
       ])
+      if (existingRes.error) throw existingRes.error
+      const existing = existingRes.data
       const voiceId: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
       const isMidCall = Boolean(existing && Number(existing.turns_count || 0) >= 1)
       const switchedReply = isMidCall
@@ -353,7 +368,7 @@ export async function POST(request: NextRequest) {
 
       const dbUpdatePromise = (async () => {
         if (existing) {
-          await supabaseAdmin
+          const { error: updErr } = await supabaseAdmin
             .from('phone_calls')
             .update({
               language: switchedLang,
@@ -361,9 +376,10 @@ export async function POST(request: NextRequest) {
               transcript: nextTranscript
             })
             .eq('id', existing.id)
+          if (updErr) throw updErr
           return existing.id
         }
-        const { data: createdRow } = await supabaseAdmin
+        const { error: insErr } = await supabaseAdmin
           .from('phone_calls')
           .upsert(
             {
@@ -381,11 +397,16 @@ export async function POST(request: NextRequest) {
               business_date: getCaliforniaBusinessDate(),
               shift: getCaliforniaShift()
             },
-            { onConflict: 'call_sid' }
+            { onConflict: 'call_sid', ignoreDuplicates: true }
           )
+        if (insErr) throw insErr
+        const { data: createdRow, error: fetchRowErr } = await supabaseAdmin
+          .from('phone_calls')
           .select('id')
-          .maybeSingle()
-        return createdRow?.id || null
+          .eq('call_sid', callSid)
+          .single()
+        if (fetchRowErr || !createdRow) throw fetchRowErr || new Error('No se encontró llamada tras cambio de idioma')
+        return createdRow.id
       })()
 
       if (useStream) {

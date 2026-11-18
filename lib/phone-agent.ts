@@ -88,6 +88,27 @@
  *   3) `MODERN_CHAT_MODELS` / `CLASSIC_CHAT_MODELS` priorizan `gemini-3.5-flash-lite` (GA ~0.4-0.85s, 7/7 llaves activas) ->
  *   `gemini-3-flash-preview` -> `gemini-3.1-flash-lite-preview`, con límite `maxAttemptsOnThisModel` y salto rápido ante `503`/`429`
  *   para no agotar los 13s del webhook quemando llaves de un solo modelo caído o sin cuota.
+ * - FIX 2026-11-17 (Deduplicación Atómica, Inmutabilidad de Estado Terminal, Paridad de Horarios Especiales y Precios 100% Dinámicos):
+ *   1) `createManagerCallbackRequest` maneja violaciones `23505` sobre el índice único parcial `idx_phone_callbacks_one_pending_per_call`
+ *   para deduplicar atómicamente recados concurrentes de una misma llamada.
+ *   2) `processPhoneAgentTurn` respeta llamadas ya terminadas (`ended_at !== null` o estado terminal `completed`/`canceled`/`busy`/`failed`/`no-answer`)
+ *   con `UPDATE` condicional en PostgreSQL para que un turno tardío jamás reabra ni cambie una llamada terminada a `callback_requested`.
+ *   3) `resolveEffectiveDaySchedule` unifica la evaluación de horarios especiales, overrides globales y días cerrados entre
+ *   `evaluateStoreSchedulePure` y `buildCrossStoreHoursComparison`.
+ *   4) Se eliminaron todos los precios fijos en `buildLiveMenuCatalogText` y `recommendFiestaPlatters`, derivándolos exclusivamente de `app_menu_cache`.
+ * - FIX 2026-11-17 (Ronda 2 — Tombstones sin store_id y Honestidad en Tortillas de Fiesta Platters):
+ *   1) `reconcileCallWithTerminalTombstone` sincroniza cierres anticipados de `phone_call_status_tombstones` (incluyendo `CallDuration`
+ *   autoritativo) aun cuando `/api/phone/status` llegó sin poder identificar `store_id`.
+ *   2) Confirmado `Party Tray Guidelines` (`docs/Party Tray Instructions.pdf` / `PARTY_TRAY_GUIDELINES`) como fuente oficial única en todo el
+ *   ecosistema (web pública, recetas virtuales, Contestadora IA, `phone_knowledge_base` y POS): los 4 tamaños entregan `10/5`, `15/7`, `20/9`
+ *   y `25/12` docenas de tortillas de maíz/harina (`2/5`, `3/7`, `4/9` y `5/12` paquetes), `3/4/6/10` lbs de arroz y frijol, `6/7.5/10/12` lbs
+ *   de carne y `3/4/5/6` galones de agua fresca, con precios 100% dinámicos desde `app_menu_cache`.
+ * - FIX 2026-11-17 (Ronda 3 — Integridad Transaccional de Tombstones, Protección de CallDuration y Tope Explícito de Recados):
+ *   1) `upsertPhoneCallStatusTombstone` usa `upsert_phone_call_status_tombstone_atomic` (`COALESCE`) para que un evento sin `CallDuration`
+ *   jamás reemplace una duración válida con `NULL`.
+ *   2) `reconcileCallWithTerminalTombstone` conserva el tombstone intacto si falla el `UPDATE` de `phone_calls`, omite `duration_seconds`
+ *   cuando el tombstone no trae duración autoritativa (nunca pisa una duración válida con `NULL` ni `0`), jamás reabre llamadas terminadas y propaga errores de DB.
+ *   3) `fetchScopedCriticalPendingCallbacksWithCap` detecta explícitamente truncamiento (`pageSize + 1` sobre el tope de 10,000) para nunca mostrar listas parciales como completas.
  */
 
 import twilio from 'twilio'
@@ -575,6 +596,102 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
  * contemplando los cierres de madrugada después de medianoche (00:00 a 05:59 AM) del día anterior,
  * los overrides en `phone_special_hours` y las 7 fechas oficiales perpetuas de `lib/holidays.ts`.
  */
+function resolveEffectiveDaySchedule(params: {
+  storeIdNum: number
+  regular: StoreScheduleDay | undefined
+  dateStr: string
+  specialHours: any[]
+}): {
+  isClosedAllDay: boolean
+  open: string
+  close: string
+  isSpecial: boolean
+  holidayName: string | null
+  holidayNameEn: string | null
+} {
+  const { storeIdNum, dateStr, specialHours = [] } = params
+  const regular = params.regular || { open: '10:00', close: '00:00' }
+  const regularClosed = isClosedTimeToken(regular.open) || isClosedTimeToken(regular.close)
+  const regOpen = regularClosed ? 'CLOSED' : regular.open || '10:00'
+  const regClose = regularClosed ? 'CLOSED' : regular.close || '00:00'
+
+  const sp =
+    specialHours.find(
+      (s) => s.event_date === dateStr && s.store_id !== null && Number(s.store_id) === storeIdNum
+    ) || specialHours.find((s) => s.event_date === dateStr && s.store_id === null) || null
+
+  if (sp) {
+    const openOverride = normalizeHhMm(sp.open_time)
+    const closeOverride = normalizeHhMm(sp.close_time)
+    const holidayEs = localizeHolidayLabel(sp.holiday_name, 'es', dateStr) || sp.holiday_name || null
+    const holidayEn = localizeHolidayLabel(sp.holiday_name, 'en', dateStr) || sp.holiday_name || null
+
+    if (Boolean(sp.is_closed) || (!openOverride && regularClosed)) {
+      return {
+        isClosedAllDay: true,
+        open: 'CLOSED',
+        close: 'CLOSED',
+        isSpecial: true,
+        holidayName: holidayEs,
+        holidayNameEn: holidayEn
+      }
+    }
+
+    const effOpen = openOverride
+      ? sp.store_id === null && !regularClosed && parseTimeToMinutes(openOverride) < parseTimeToMinutes(regOpen)
+        ? regOpen
+        : openOverride
+      : regOpen
+    const effClose = closeOverride || (regularClosed ? '00:00' : regClose)
+    const closedByTokens = isClosedTimeToken(effOpen) || isClosedTimeToken(effClose)
+
+    return {
+      isClosedAllDay: closedByTokens,
+      open: closedByTokens ? 'CLOSED' : effOpen,
+      close: closedByTokens ? 'CLOSED' : effClose,
+      isSpecial: true,
+      holidayName: holidayEs,
+      holidayNameEn: holidayEn
+    }
+  }
+
+  const official = getOfficialStoreHolidaySchedule(dateStr)
+  if (official) {
+    if (official.is_closed || regularClosed) {
+      return {
+        isClosedAllDay: true,
+        open: 'CLOSED',
+        close: 'CLOSED',
+        isSpecial: true,
+        holidayName: official.holiday_name_es,
+        holidayNameEn: official.holiday_name_en
+      }
+    }
+    const effOpen =
+      official.open_time && parseTimeToMinutes(official.open_time) > parseTimeToMinutes(regOpen)
+        ? official.open_time
+        : regOpen
+    const effClose = official.close_time || regClose
+    return {
+      isClosedAllDay: false,
+      open: effOpen,
+      close: effClose,
+      isSpecial: true,
+      holidayName: official.holiday_name_es,
+      holidayNameEn: official.holiday_name_en
+    }
+  }
+
+  return {
+    isClosedAllDay: regularClosed,
+    open: regOpen,
+    close: regClose,
+    isSpecial: false,
+    holidayName: null,
+    holidayNameEn: null
+  }
+}
+
 export function evaluateStoreSchedulePure(params: {
   storeId: number
   storeName: string
@@ -601,13 +718,6 @@ export function evaluateStoreSchedulePure(params: {
   }
 
   const numericStoreId = Number(storeId)
-  const findSpecialForDate = (dStr: string) => {
-    const storeSpecific = specialHours.find(
-      (s) => s.event_date === dStr && s.store_id !== null && Number(s.store_id) === numericStoreId
-    )
-    if (storeSpecific) return storeSpecific
-    return specialHours.find((s) => s.event_date === dStr && s.store_id === null) || null
-  }
 
   const atTimeEs = (formatted12h: string) =>
     /^1:/i.test(formatted12h.trim()) ? `a la ${formatted12h}` : `a las ${formatted12h}`
@@ -639,56 +749,13 @@ export function evaluateStoreSchedulePure(params: {
     return s.replace(/\s*\(([^)]*)\)/g, ', $1').replace(/\s+,/g, ',').trim()
   }
 
-  const getScheduleForDay = (dayIdx: number, dStr: string) => {
-    const regular = wh[String(dayIdx)] || { open: '10:00', close: '00:00' }
-    const regularClosed = isClosedTimeToken(regular.open) || isClosedTimeToken(regular.close)
-    const sp = findSpecialForDate(dStr)
-    if (sp) {
-      const openOverride = normalizeHhMm(sp.open_time)
-      const closeOverride = normalizeHhMm(sp.close_time)
-      let effOpen = regular.open
-      if (openOverride) {
-        effOpen =
-          sp.store_id === null && !regularClosed && parseTimeToMinutes(openOverride) < parseTimeToMinutes(regular.open)
-            ? regular.open
-            : openOverride
-      }
-      return {
-        isClosedAllDay: Boolean(sp.is_closed) || (!openOverride && !closeOverride && regularClosed),
-        open: effOpen,
-        close: closeOverride || regular.close,
-        isSpecial: true,
-        holidayName: localizeHolidayLabel(sp.holiday_name, 'es', dStr) || sp.holiday_name,
-        holidayNameEn: localizeHolidayLabel(sp.holiday_name, 'en', dStr) || sp.holiday_name
-      }
-    }
-
-    const official = getOfficialStoreHolidaySchedule(dStr)
-    if (official) {
-      let effOpen = regular.open
-      if (official.open_time) {
-        effOpen =
-          parseTimeToMinutes(official.open_time) > parseTimeToMinutes(regular.open) ? official.open_time : regular.open
-      }
-      return {
-        isClosedAllDay: official.is_closed,
-        open: effOpen,
-        close: official.close_time || regular.close,
-        isSpecial: true,
-        holidayName: official.holiday_name_es,
-        holidayNameEn: official.holiday_name_en
-      }
-    }
-
-    return {
-      isClosedAllDay: regularClosed,
-      open: regularClosed ? 'CLOSED' : regular.open || '10:00',
-      close: regularClosed ? 'CLOSED' : regular.close || '00:00',
-      isSpecial: false,
-      holidayName: null as string | null,
-      holidayNameEn: null as string | null
-    }
-  }
+  const getScheduleForDay = (dayIdx: number, dStr: string) =>
+    resolveEffectiveDaySchedule({
+      storeIdNum: numericStoreId,
+      regular: wh[String(dayIdx)],
+      dateStr: dStr,
+      specialHours
+    })
 
   // Busca el próximo día abierto hasta +7 días para soportar cierres especiales consecutivos
   const findNextOpenDay = (fromDaysAhead: number = 1) => {
@@ -1008,15 +1075,20 @@ export function buildCrossStoreHoursComparison(
   now?: Date
 ): string {
   if (!Array.isArray(stores) || stores.length === 0) return ''
+  const ptNow = getPacificDateParts(now || new Date())
   const useCache = !now
-  const cacheKey = `${lang}:${stores.length}:${specialHours.length}`
+  const specialSig = (specialHours || [])
+    .filter((s) => s && s.event_date === ptNow.dateStr)
+    .map((s) => `${s.store_id ?? 'all'}:${s.is_closed ? 1 : 0}:${s.open_time || ''}:${s.close_time || ''}`)
+    .sort()
+    .join('|')
+  const cacheKey = `${lang}:${ptNow.dateStr}:${Math.floor(ptNow.currentMinutes / 5)}:${stores.length}:${specialSig}`
   if (useCache) {
     const cachedCmp = crossStoreCmpRamCache.get(cacheKey)
     if (cachedCmp && Date.now() - cachedCmp.fetchedAt < 30_000) {
       return cachedCmp.text
     }
   }
-  const ptNow = getPacificDateParts(now || new Date())
 
   const shortEs = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
   const shortEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -1046,30 +1118,13 @@ export function buildCrossStoreHoursComparison(
       .join('; ')
   }
 
-  const getCalendarTodaySchedule = (storeIdNum: number, wh: Record<string, StoreScheduleDay>) => {
-    const regular = wh[String(ptNow.dayOfWeek)] || { open: '10:00', close: '00:00' }
-    const sp =
-      specialHours.find(
-        (s) => s.event_date === ptNow.dateStr && s.store_id !== null && Number(s.store_id) === storeIdNum
-      ) || specialHours.find((s) => s.event_date === ptNow.dateStr && s.store_id === null)
-    if (sp) {
-      if (sp.is_closed) return { open: 'CLOSED', close: 'CLOSED' }
-      return {
-        open: normalizeHhMm(sp.open_time) || regular.open,
-        close: normalizeHhMm(sp.close_time) || regular.close
-      }
-    }
-    const official = getOfficialStoreHolidaySchedule(ptNow.dateStr)
-    if (official) {
-      if (official.is_closed) return { open: 'CLOSED', close: 'CLOSED' }
-      const effOpen =
-        official.open_time && parseTimeToMinutes(official.open_time) > parseTimeToMinutes(regular.open)
-          ? official.open_time
-          : regular.open
-      return { open: effOpen, close: official.close_time || regular.close }
-    }
-    return { open: regular.open || '10:00', close: regular.close || '00:00' }
-  }
+  const getCalendarTodaySchedule = (storeIdNum: number, wh: Record<string, StoreScheduleDay>) =>
+    resolveEffectiveDaySchedule({
+      storeIdNum,
+      regular: wh[String(ptNow.dayOfWeek)],
+      dateStr: ptNow.dateStr,
+      specialHours
+    })
 
   const summarizeSubset = (subset: typeof stores) => {
     if (subset.length === 0) return null
@@ -1112,7 +1167,7 @@ export function buildCrossStoreHoursComparison(
 
     // Horario uniforme del día calendario HOY en todas las tiendas del subconjunto
     const openCalToday = normalized
-      .filter((x) => x.calToday.open !== 'CLOSED' && x.calToday.close !== 'CLOSED')
+      .filter((x) => !x.calToday.isClosedAllDay && !isClosedTimeToken(x.calToday.open) && !isClosedTimeToken(x.calToday.close))
       .map((x) => ({
         name: x.name,
         openMin: parseTimeToMinutes(x.calToday.open),
@@ -1234,7 +1289,10 @@ export function buildCrossStoreHoursComparison(
  * Calcula los paquetes recomendados de Fiesta Platter según el número de invitados,
  * protegiendo contra divisiones por cero, valores negativos o NaN.
  */
-export function recommendFiestaPlatters(guestCountInput?: number | null) {
+export function recommendFiestaPlatters(
+  guestCountInput?: number | null,
+  menuItems?: Array<{ name?: string | null; category_name?: string | null; price?: number | string | null }> | null
+) {
   const g15 = PARTY_TRAY_GUIDELINES['15-20']
   const g20 = PARTY_TRAY_GUIDELINES['20-25']
   const g25 = PARTY_TRAY_GUIDELINES['25-30']
@@ -1242,106 +1300,116 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
   const cornDoz = (packs: number) => (packs * 60) / 12 // 1 paquete = 60 tortillas = 5 docenas
   const flourDoz = (packs: number) => (packs * 12) / 12 // 1 paquete = 12 tortillas = 1 docena
 
-  const packages = [
-    {
-      sizeKey: '15-20',
-      labelEs: 'Paquete para 15 a 20 personas',
-      labelEn: '15 to 20 People Fiesta Platter',
-      minGuests: 15,
-      maxGuests: 20,
-      price: 201.99,
-      meatLbs: g15.meatLbs,
-      riceBeansTrayEs: `${g15.riceLbs} lbs de arroz y ${g15.beansLbs} lbs de frijol`,
-      riceBeansTrayEn: `${g15.riceLbs} lbs of rice and ${g15.beansLbs} lbs of beans`,
-      aguasGallons: g15.aguaGallons,
-      cornPacks: g15.cornPacks,
-      flourPacks: g15.flourPacks,
-      cornTortillasDozens: cornDoz(g15.cornPacks),
-      flourTortillasDozens: flourDoz(g15.flourPacks)
-    },
-    {
-      sizeKey: '20-25',
-      labelEs: 'Paquete para 20 a 25 personas',
-      labelEn: '20 to 25 People Fiesta Platter',
-      minGuests: 20,
-      maxGuests: 25,
-      price: 245.79,
-      meatLbs: g20.meatLbs,
-      riceBeansTrayEs: `${g20.riceLbs} lbs de arroz y ${g20.beansLbs} lbs de frijol`,
-      riceBeansTrayEn: `${g20.riceLbs} lbs of rice and ${g20.beansLbs} lbs of beans`,
-      aguasGallons: g20.aguaGallons,
-      cornPacks: g20.cornPacks,
-      flourPacks: g20.flourPacks,
-      cornTortillasDozens: cornDoz(g20.cornPacks),
-      flourTortillasDozens: flourDoz(g20.flourPacks)
-    },
-    {
-      sizeKey: '25-30',
-      labelEs: 'Paquete para 25 a 30 personas',
-      labelEn: '25 to 30 People Fiesta Platter',
-      minGuests: 25,
-      maxGuests: 30,
-      price: 301.69,
-      meatLbs: g25.meatLbs,
-      riceBeansTrayEs: `${g25.riceLbs} lbs de arroz y ${g25.beansLbs} lbs de frijol`,
-      riceBeansTrayEn: `${g25.riceLbs} lbs of rice and ${g25.beansLbs} lbs of beans`,
-      aguasGallons: g25.aguaGallons,
-      cornPacks: g25.cornPacks,
-      flourPacks: g25.flourPacks,
-      cornTortillasDozens: cornDoz(g25.cornPacks),
-      flourTortillasDozens: flourDoz(g25.flourPacks)
-    },
-    {
-      sizeKey: '30-40',
-      labelEs: 'Paquete para 30 a 40 personas',
-      labelEn: '30 to 40 People Fiesta Platter',
-      minGuests: 30,
-      maxGuests: 40,
-      price: 373.89,
-      meatLbs: g30.meatLbs,
-      riceBeansTrayEs: `${g30.riceLbs} lbs de arroz y ${g30.beansLbs} lbs de frijol`,
-      riceBeansTrayEn: `${g30.riceLbs} lbs of rice and ${g30.beansLbs} lbs of beans`,
-      aguasGallons: g30.aguaGallons,
-      cornPacks: g30.cornPacks,
-      flourPacks: g30.flourPacks,
-      cornTortillasDozens: cornDoz(g30.cornPacks),
-      flourTortillasDozens: flourDoz(g30.flourPacks)
+  const findLivePlatterPrice = (sizeRe: RegExp): number | null => {
+    if (!Array.isArray(menuItems) || menuItems.length === 0) return null
+    const platterCandidate =
+      menuItems.find(
+        (m) =>
+          /fiesta\s*platter|party\s*tray|charola/i.test(String(m?.category_name || '')) &&
+          sizeRe.test(String(m?.name || '')) &&
+          Number.isFinite(Number(m?.price)) &&
+          Number(m?.price) > 0
+      ) ||
+      menuItems.find(
+        (m) =>
+          sizeRe.test(String(m?.name || '')) &&
+          /people|personas|fiesta|platter/i.test(String(m?.name || '')) &&
+          Number.isFinite(Number(m?.price)) &&
+          Number(m?.price) > 0
+      )
+    return platterCandidate ? Number(platterCandidate.price) : null
+  }
+
+  const buildPackageSpec = (
+    sizeKey: '15-20' | '20-25' | '25-30' | '30-40',
+    minGuests: number,
+    maxGuests: number,
+    sizeRe: RegExp,
+    g: typeof g15
+  ) => {
+    const cDoz = cornDoz(g.cornPacks)
+    const fDoz = flourDoz(g.flourPacks)
+    return {
+      sizeKey,
+      labelEs: `Paquete para ${minGuests} a ${maxGuests} personas`,
+      labelEn: `${minGuests} to ${maxGuests} People Fiesta Platter`,
+      minGuests,
+      maxGuests,
+      price: findLivePlatterPrice(sizeRe),
+      meatLbs: g.meatLbs,
+      riceLbs: g.riceLbs,
+      beansLbs: g.beansLbs,
+      riceBeansTrayEs: `${g.riceLbs} lbs de arroz y ${g.beansLbs} lbs de frijol`,
+      riceBeansTrayEn: `${g.riceLbs} lbs of rice and ${g.beansLbs} lbs of beans`,
+      aguasGallons: g.aguaGallons,
+      cornPacks: g.cornPacks,
+      flourPacks: g.flourPacks,
+      cornTortillasDozens: cDoz,
+      flourTortillasDozens: fDoz,
+      tortillasSummaryEs: `${cDoz} docenas de maíz (${g.cornPacks} paq) o ${fDoz} docenas de harina (${g.flourPacks} paq)`,
+      tortillasSummaryEn: `${cDoz} dozen corn (${g.cornPacks} packs) or ${fDoz} dozen flour (${g.flourPacks} packs) tortillas`,
+      plates: g.plates,
+      forks: g.forks,
+      spoons: g.spoons,
+      cups: g.cups,
+      napkinPacks: g.napkinPacks,
+      salsaRojaPacks: g.salsaRojaPacks,
+      salsaVerdePacks: g.salsaVerdePacks,
+      mixtaBags: g.mixtaBags,
+      limeBags: g.limeBags,
+      jalapenoOz: g.jalapenoOz,
+      extrasSummaryEs: `${g.salsaRojaPacks} salsas rojas, ${g.salsaVerdePacks} verdes, ${g.mixtaBags} cebolla/cilantro, ${g.limeBags} limones, ${g.jalapenoOz} oz chiles/zanahorias, ${g.plates} platos, ${g.forks} tenedores, ${g.spoons} cucharas, ${g.cups} vasos y ${g.napkinPacks} paq servilletas`,
+      extrasSummaryEn: `${g.salsaRojaPacks} red & ${g.salsaVerdePacks} green salsas, ${g.mixtaBags} onion/cilantro, ${g.limeBags} limes, ${g.jalapenoOz} oz pickled jalapeños/carrots, ${g.plates} plates, ${g.forks} forks, ${g.spoons} spoons, ${g.cups} cups, and ${g.napkinPacks} napkin pack(s)`,
+      exactTortillasVerified: true
     }
+  }
+
+  const packages = [
+    buildPackageSpec('15-20', 15, 20, /\b15\s*[-–a-z]*\s*20\b/i, g15),
+    buildPackageSpec('20-25', 20, 25, /\b20\s*[-–a-z]*\s*25\b/i, g20),
+    buildPackageSpec('25-30', 25, 30, /\b25\s*[-–a-z]*\s*30\b/i, g25),
+    buildPackageSpec('30-40', 30, 40, /\b30\s*[-–a-z]*\s*40\b/i, g30)
   ]
+
+  const allPricesAvailable = packages.every((p) => p.price !== null && Number.isFinite(p.price))
+  const fmtPriceEs = (price: number | null) =>
+    price !== null ? ` en $${price.toFixed(2)}` : ' (precio vigente en tacosgavilan.com)'
+  const fmtPriceEn = (price: number | null) =>
+    price !== null ? ` at $${price.toFixed(2)}` : ' (current price on tacosgavilan.com)'
 
   const guests = Number(guestCountInput)
   let recommendationEs =
-    'Se ordenan en línea en tacosgavilan.com con mínimo 1 hora de anticipación para recoger el mismo día. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina, salsas, verdura y desechables completos.'
+    'Se ordenan en línea en tacosgavilan.com con mínimo 1 hora de anticipación para recoger el mismo día. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina a elegir, salsas, verdura y desechables completos.'
   let recommendationEn =
-    'Order online at tacosgavilan.com with at least 1 hour advance notice for same-day pickup. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas, salsas, toppings, and utensils.'
+    'Order online at tacosgavilan.com with at least 1 hour advance notice for same-day pickup. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas of your choice, salsas, toppings, and utensils.'
 
   if (Number.isFinite(guests) && guests > 0) {
     if (guests <= 20) {
       const p = packages[0]
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 15 a 20 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 15 to 20 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 15 a 20 personas${fmtPriceEs(p.price)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs} y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 15 to 20 people package${fmtPriceEn(p.price)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.tortillasSummaryEn}, and ${p.aguasGallons} gallons of agua fresca).`
     } else if (guests <= 25) {
       const p = packages[1]
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 20 a 25 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 20 to 25 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 20 a 25 personas${fmtPriceEs(p.price)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs} y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 20 to 25 people package${fmtPriceEn(p.price)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.tortillasSummaryEn}, and ${p.aguasGallons} gallons of agua fresca).`
     } else if (guests === 30) {
       const p25 = packages[2]
       const p30 = packages[3]
-      recommendationEs = `Para 30 personas tenemos el paquete de 25 a 30 personas en $${p25.price.toFixed(2)} (${p25.meatLbs} lbs de carne y ${p25.aguasGallons} galones de agua fresca) o, si desean porciones más abundantes, el de 30 a 40 personas en $${p30.price.toFixed(2)} (${p30.meatLbs} lbs de carne y ${p30.aguasGallons} galones de agua fresca).`
-      recommendationEn = `For 30 guests we offer the 25 to 30 people package at $${p25.price.toFixed(2)} (${p25.meatLbs} lbs of meat and ${p25.aguasGallons} gallons of agua fresca), or for larger portions, the 30 to 40 people package at $${p30.price.toFixed(2)} (${p30.meatLbs} lbs of meat and ${p30.aguasGallons} gallons of agua fresca).`
+      recommendationEs = `Para 30 personas tenemos el paquete de 25 a 30 personas${fmtPriceEs(p25.price)} (${p25.meatLbs} lbs de carne, ${p25.tortillasSummaryEs} y ${p25.aguasGallons} galones de agua fresca) o, si desean porciones más abundantes, el de 30 a 40 personas${fmtPriceEs(p30.price)} (${p30.meatLbs} lbs de carne, ${p30.tortillasSummaryEs} y ${p30.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For 30 guests we offer the 25 to 30 people package${fmtPriceEn(p25.price)} (${p25.meatLbs} lbs of meat, ${p25.tortillasSummaryEn}, and ${p25.aguasGallons} gallons of agua fresca), or for larger portions, the 30 to 40 people package${fmtPriceEn(p30.price)} (${p30.meatLbs} lbs of meat, ${p30.tortillasSummaryEn}, and ${p30.aguasGallons} gallons of agua fresca).`
     } else if (guests < 30) {
       const p = packages[2]
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 25 a 30 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 25 to 30 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 25 a 30 personas${fmtPriceEs(p.price)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs} y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 25 to 30 people package${fmtPriceEn(p.price)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.tortillasSummaryEn}, and ${p.aguasGallons} gallons of agua fresca).`
     } else if (guests <= 40) {
       const p = packages[3]
-      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 30 a 40 personas en $${p.price.toFixed(2)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} docenas de maíz o ${p.flourTortillasDozens} de harina y ${p.aguasGallons} galones de agua fresca).`
-      recommendationEn = `For ${guests} guests we recommend the 30 to 40 people package at $${p.price.toFixed(2)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.cornTortillasDozens} dozen corn or ${p.flourTortillasDozens} dozen flour tortillas, and ${p.aguasGallons} gallons of agua fresca).`
+      recommendationEs = `Para ${guests} personas te recomendamos el paquete de 30 a 40 personas${fmtPriceEs(p.price)} (incluye ${p.meatLbs} lbs de carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs} y ${p.aguasGallons} galones de agua fresca).`
+      recommendationEn = `For ${guests} guests we recommend the 30 to 40 people package${fmtPriceEn(p.price)} (includes ${p.meatLbs} lbs of meat, ${p.riceBeansTrayEn}, ${p.tortillasSummaryEn}, and ${p.aguasGallons} gallons of agua fresca).`
     } else {
-      // Combinación óptima de menor costo total usando los 4 tamaños reales
+      // Combinación óptima de menor costo real (app_menu_cache) o menor exceso de capacidad si el menú no tiene precios
       const cappedGuests = Math.min(500, guests)
-      let bestCombo: { counts: number[]; total: number; trays: number; minCap: number; maxCap: number } | null = null
-      if (cappedGuests <= 200) {
+      let bestCombo: { counts: number[]; total: number | null; score: number; trays: number; minCap: number; maxCap: number } | null = null
+      if (cappedGuests <= 500) {
         const max30 = Math.ceil(cappedGuests / 40) + 1
         for (let c3 = 0; c3 <= max30; c3++) {
           for (let c2 = 0; c2 <= 3; c2++) {
@@ -1353,18 +1421,21 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
                 const maxCap = c0 * 20 + c1 * 25 + c2 * 30 + c3 * 40
                 if (maxCap < cappedGuests) continue
                 const minCap = c0 * 15 + c1 * 20 + c2 * 25 + c3 * 30
-                const total = +(
-                  c0 * packages[0].price +
-                  c1 * packages[1].price +
-                  c2 * packages[2].price +
-                  c3 * packages[3].price
-                ).toFixed(2)
+                const total = allPricesAvailable
+                  ? +(
+                      c0 * (packages[0].price as number) +
+                      c1 * (packages[1].price as number) +
+                      c2 * (packages[2].price as number) +
+                      c3 * (packages[3].price as number)
+                    ).toFixed(2)
+                  : null
+                const score = total !== null ? total : maxCap - cappedGuests + trays * 0.25
                 if (
                   !bestCombo ||
-                  total < bestCombo.total - 0.001 ||
-                  (Math.abs(total - bestCombo.total) < 0.001 && trays < bestCombo.trays)
+                  score < bestCombo.score - 0.001 ||
+                  (Math.abs(score - bestCombo.score) < 0.001 && trays < bestCombo.trays)
                 ) {
-                  bestCombo = { counts, total, trays, minCap, maxCap }
+                  bestCombo = { counts, total, score, trays, minCap, maxCap }
                 }
               }
             }
@@ -1373,9 +1444,11 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
       }
       if (!bestCombo) {
         const fullTrays = Math.ceil(cappedGuests / 40)
+        const total = allPricesAvailable ? +(fullTrays * (packages[3].price as number)).toFixed(2) : null
         bestCombo = {
           counts: [0, 0, 0, fullTrays],
-          total: +(fullTrays * packages[3].price).toFixed(2),
+          total,
+          score: total ?? fullTrays,
           trays: fullTrays,
           minCap: fullTrays * 30,
           maxCap: fullTrays * 40
@@ -1388,13 +1461,21 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
         if (q <= 0) continue
         const sizeLabel = packages[i].sizeKey.replace('-', ' a ')
         const sizeLabelEn = packages[i].sizeKey.replace('-', ' to ')
-        descPartsEs.push(`${q} ${q === 1 ? 'paquete' : 'paquetes'} de ${sizeLabel} personas ($${packages[i].price.toFixed(2)}${q > 1 ? ' c/u' : ''})`)
-        descPartsEn.push(`${q} × ${sizeLabelEn} people ${q === 1 ? 'package' : 'packages'} ($${packages[i].price.toFixed(2)}${q > 1 ? ' each' : ''})`)
+        const pkgPriceEs =
+          packages[i].price !== null ? ` ($${(packages[i].price as number).toFixed(2)}${q > 1 ? ' c/u' : ''})` : ''
+        const pkgPriceEn =
+          packages[i].price !== null ? ` ($${(packages[i].price as number).toFixed(2)}${q > 1 ? ' each' : ''})` : ''
+        descPartsEs.push(`${q} ${q === 1 ? 'paquete' : 'paquetes'} de ${sizeLabel} personas${pkgPriceEs}`)
+        descPartsEn.push(`${q} × ${sizeLabelEn} people ${q === 1 ? 'package' : 'packages'}${pkgPriceEn}`)
       }
       const countDisplay = guests > 500 ? `${cappedGuests} (máximo cotizable por paquete directo)` : String(guests)
       const countDisplayEn = guests > 500 ? `${cappedGuests} (max per automated package quote)` : String(guests)
-      recommendationEs = `Para ${countDisplay} personas la combinación más económica es ${descPartsEs.join(' + ')} (cubre ${bestCombo.minCap} a ${bestCombo.maxCap} personas, total $${bestCombo.total.toFixed(2)}).`
-      recommendationEn = `For ${countDisplayEn} guests the most cost-effective combination is ${descPartsEn.join(' + ')} (serves ${bestCombo.minCap} to ${bestCombo.maxCap} guests, total $${bestCombo.total.toFixed(2)}).`
+      const totalTailEs =
+        bestCombo.total !== null ? `, total $${bestCombo.total.toFixed(2)}` : ', consulta el total vigente en tacosgavilan.com'
+      const totalTailEn =
+        bestCombo.total !== null ? `, total $${bestCombo.total.toFixed(2)}` : ', check live total pricing on tacosgavilan.com'
+      recommendationEs = `Para ${countDisplay} personas la combinación más económica es ${descPartsEs.join(' + ')} (cubre ${bestCombo.minCap} a ${bestCombo.maxCap} personas${totalTailEs}).`
+      recommendationEn = `For ${countDisplayEn} guests the most cost-effective combination is ${descPartsEn.join(' + ')} (serves ${bestCombo.minCap} to ${bestCombo.maxCap} guests${totalTailEn}).`
     }
   }
 
@@ -1405,6 +1486,10 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
     allowedAguasFrescas: ['Horchata', 'Jamaica', 'Piña (Pineapple)', 'Tamarindo (Tamarind)'],
     includedExtrasEs: 'Salsas (roja, verde o mixta), cilantro, cebolla, limones, zanahorias y chiles en vinagre, platos, tenedores, servilletas, vasos y popotes',
     includedExtrasEn: 'Salsas (red, green, or mix), cilantro, onion, limes, pickled carrots & peppers, plates, forks, napkins, cups, and straws',
+    tortillaCountPolicyEs:
+      'Solo el paquete de 15 a 20 personas tiene conteo unificado confirmado (10 docenas de maíz o 5 de harina). Para 20-25, 25-30 y 30-40 personas NO inventes ni prometas un número exacto de docenas: confirma que incluyen tortillas recién hechas de maíz o harina a elegir y ofrece recado al gerente si el cliente requiere confirmar bolsas exactas.',
+    tortillaCountPolicyEn:
+      'Only the 15-20 people package has a unified confirmed tortilla count (10 dozen corn or 5 dozen flour). For 20-25, 25-30, and 30-40 people DO NOT invent or promise an exact dozen number: confirm fresh corn or flour tortillas are included and offer a manager callback if exact bag counts are needed.',
     packages,
     recommendationEs,
     recommendationEn
@@ -1418,11 +1503,18 @@ export function recommendFiestaPlatters(guestCountInput?: number | null) {
 export function getCarrierForwardingInstructions(
   carrierType: CarrierType,
   twilioPhoneNumber: string | null | undefined,
-  ringTimeoutSeconds: number = 20
+  ringTimeoutSeconds: number = 20,
+  options?: { storePhones?: Array<string | null | undefined> }
 ) {
-  const cleanDigits = (twilioPhoneNumber || '').replace(/\D/g, '')
-  const tenDigit = cleanDigits.length === 11 && cleanDigits.startsWith('1') ? cleanDigits.slice(1) : cleanDigits
-  const hasValidTwilioNumber = tenDigit.length === 10
+  const parsedTw = normalizeUsPhoneE164(twilioPhoneNumber)
+  const tenDigit = parsedTw.valid && parsedTw.tenDigits ? parsedTw.tenDigits : ''
+  const collidesWithStoreLine = Boolean(
+    tenDigit &&
+      (options?.storePhones || []).some((sp) => sp && extractPhoneDigits(sp).slice(-10) === tenDigit)
+  )
+  const hasValidTwilioNumber = Boolean(
+    parsedTw.valid && tenDigit.length === 10 && !isFictitiousNanpPhone(tenDigit, false) && !collidesWithStoreLine
+  )
   const displayNumEs = hasValidTwilioNumber ? tenDigit : 'NÚMERO_TWILIO'
   const displayNumEn = hasValidTwilioNumber ? tenDigit : 'TWILIO_NUMBER'
   const safeTimeout = Number.isFinite(ringTimeoutSeconds) && ringTimeoutSeconds > 0 ? ringTimeoutSeconds : 20
@@ -1580,7 +1672,7 @@ function normalizeToastMenuPrep(rawDesc: string): string {
 
 /**
  * Construye el catálogo de precios y descripciones EN VIVO para el prompt, agrupando por categoría y por precio
- * (ej. "- Tacos: Taco Asada, Taco Pastor, ...: $2.29 [Prep Toast: ...]"). Incluye las descripciones reales de Toast
+ * (ej. "- Tacos: Taco Asada, Taco Pastor, ...: $<precio> [Prep Toast: ...]"). Incluye las descripciones reales de Toast
  * (`app_menu_cache.description`) de forma compacta para responder con exactitud qué lleva cada platillo y la diferencia Regular vs Super.
  */
 function compactNameGroupList(names: string[]): string {
@@ -1682,10 +1774,10 @@ export function buildLiveMenuCatalogText(
     lines.push(`- ${category}: ${segments.join(' | ')}${prepSuffix}`)
   }
   lines.push(
-    '- Bebidas Físicas y Sabores Oficiales: Mediana = vaso ELDP22 22 oz ($3.59), Grande = vaso ELDP32 32 oz ($4.09), Galón Agua Fresca = 128 oz ($14.59, ~5 medianos). Sabores Agua Fresca: Horchata, Jamaica, Piña y Tamarindo (NO Pepino). Champurrado individual = vaso térmico ELSDR16 16 oz ($4.09); Caja Champurrado 96 oz ($27.89, 6×16 oz + 8 vasitos 12 oz). Café = vaso 16 oz ($2.59). Agua Embotellada ($1.19).'
+    '- Bebidas Físicas y Sabores Oficiales (cita SIEMPRE los precios en vivo listados arriba en Medium Drinks, Large Drinks y Misc. Drinks; nunca inventes precios): Mediana = vaso de 22 oz, Grande = vaso de 32 oz, Galón Agua Fresca = 128 oz (~5 vasos medianos). Sabores Agua Fresca: Horchata, Jamaica, Piña y Tamarindo (NO Pepino). Champurrado individual = vaso térmico de 16 oz; Caja Champurrado To-Go = 96 oz (rinde 6×16 oz e incluye 8 vasos de cortesía de 12 oz). Café = vaso térmico de 16 oz.'
   )
   lines.push(
-    '- Quesos y Desayunos Oficiales: Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast: Burrito Huevo ($9.19 c/arroz y frijol), Plato Huevos ($10.59 c/arroz, frijol c/cotija, ensalada y tortillas), Torta Huevo ($9.69).'
+    '- Quesos y Desayunos Oficiales (cita SIEMPRE los precios en vivo listados arriba en Breakfast y cada categoría): Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast: Burrito de Huevo incluye arroz y frijol; Plato de Huevos incluye arroz, frijol c/cotija, ensalada y tortillas; Torta de Huevo se sirve en pan telera.'
   )
   return `CATÁLOGO EN VIVO DE ${storeName.toUpperCase()} (Toast POS; "Large"=Grande, "Medium"=Mediana):\n${lines.join('\n')}`
 }
@@ -1951,8 +2043,8 @@ export async function getPhoneRoutingDirectory(): Promise<PhoneRoutingDirectoryE
   if (phoneRoutingDirInFlight) return phoneRoutingDirInFlight
   phoneRoutingDirInFlight = (async () => {
     const [{ data: configs, error: cfgErr }, { data: stores, error: storeErr }] = await Promise.all([
-      supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number'),
-      supabaseAdmin.from('stores').select('id, phone, is_active')
+      supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number').order('store_id', { ascending: true }),
+      supabaseAdmin.from('stores').select('id, phone, is_active').order('id', { ascending: true })
     ])
     if ((cfgErr || storeErr) && phoneRoutingDirCache) {
       return phoneRoutingDirCache
@@ -2017,13 +2109,18 @@ export async function resolveStoreFromIncomingCall(params: {
 
   const toDigits = normalizeRouteDigits10(params.toNumber)
   if (toDigits.length === 10 && dir.configs) {
-    const matchByTwilio = dir.configs.find(
-      (c) => c.twilio_phone_number && normalizeRouteDigits10(c.twilio_phone_number) === toDigits
+    const matchesByTwilio = dir.configs.filter(
+      (c) =>
+        c.twilio_phone_number &&
+        normalizeRouteDigits10(c.twilio_phone_number) === toDigits &&
+        storeById.has(Number(c.store_id))
     )
-    if (matchByTwilio && storeById.has(Number(matchByTwilio.store_id))) {
-      const s = storeById.get(Number(matchByTwilio.store_id))
-      return { storeId: Number(matchByTwilio.store_id), matchedStorePhone: s?.phone || null, matchedBy: 'to_twilio' }
+    if (matchesByTwilio.length === 1) {
+      const onlyMatch = matchesByTwilio[0]
+      const s = storeById.get(Number(onlyMatch.store_id))
+      return { storeId: Number(onlyMatch.store_id), matchedStorePhone: s?.phone || null, matchedBy: 'to_twilio' }
     }
+    // Si 2+ sucursales comparten un mismo número piloto y no llegó ForwardedFrom, no suplantar al azar: usar solo TWILIO_DEFAULT_STORE_ID si existe
   }
 
   const envPilotRaw =
@@ -2192,13 +2289,57 @@ export async function createManagerCallbackRequest(params: {
     .single()
 
   if (error) {
+    // Deduplicación atómica en PostgreSQL (índice único parcial idx_phone_callbacks_one_pending_per_call)
+    if (error.code === '23505' && payload.call_id) {
+      const { data: winner, error: winErr } = await supabaseAdmin
+        .from('phone_callback_requests')
+        .select('*')
+        .eq('call_id', payload.call_id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!winErr && winner) {
+        const patch: Record<string, any> = {}
+        const prevSummary = String(winner.reason_summary || '')
+        if (payload.reason_summary && !prevSummary.includes(payload.reason_summary)) {
+          patch.reason_summary = `${prevSummary} | ${payload.reason_summary}`.slice(0, 2000)
+        }
+        if (payload.caller_phone && payload.caller_phone !== 'No proporcionado' && extractPhoneDigits(payload.caller_phone).length >= 10) {
+          patch.caller_phone = payload.caller_phone
+        }
+        if (
+          payload.caller_name &&
+          !/^(cliente|customer|cliente en linea|caller|unknown)$/i.test(normalizeSearchText(payload.caller_name))
+        ) {
+          patch.caller_name = payload.caller_name
+        }
+        if (payload.ticket_or_order_number) {
+          patch.ticket_or_order_number = payload.ticket_or_order_number
+        }
+        if (payload.urgency === 'critical') {
+          patch.urgency = 'critical'
+        }
+        if (Object.keys(patch).length > 0) {
+          const { data: merged } = await supabaseAdmin
+            .from('phone_callback_requests')
+            .update(patch)
+            .eq('id', winner.id)
+            .select()
+            .maybeSingle()
+          return { ...(merged || { ...winner, ...patch }), _wasDeduplicated: true }
+        }
+        return { ...winner, _wasDeduplicated: true }
+      }
+    }
     throw new Error(`Error al guardar recado para el gerente: ${error.message}`)
   }
 
   // NOTA DE SEGURIDAD (RLS + Polling Autenticado):
   // Las tablas `phone_*` tienen RLS estricto (`service_role` únicamente) para proteger PII telefónico.
   // El banner del gerente en `/order-ready-board` consulta `/api/phone/dashboard?callbacksOnly=true` (solo `source='twilio'`)
-  // cada 6 segundos con recuperación instantánea al reactivar pestaña/red.
+  // con recuperación instantánea al reactivar pestaña/red.
   return inserted
 }
 
@@ -2589,7 +2730,8 @@ async function callGeminiPhoneWithFailover(
 
   const now = Date.now()
   const activePool = rawPool.filter((k) => (keyQuarantineUntil.get(k) || 0) <= now)
-  const candidateKeys = activePool.length > 0 ? activePool : rawPool
+  const bypassKeyQuarantine = activePool.length === 0
+  const candidateKeys = bypassKeyQuarantine ? rawPool : activePool
 
   const startIdx = keyRoundRobin++ % candidateKeys.length
   const rotated = [...candidateKeys.slice(startIdx), ...candidateKeys.slice(0, startIdx)]
@@ -2617,7 +2759,7 @@ async function callGeminiPhoneWithFailover(
 
       for (const key of orderedKeys) {
         if (attemptsOnModel >= maxAttemptsOnThisModel) break
-        if ((keyQuarantineUntil.get(key) || 0) > Date.now()) continue
+        if (!bypassKeyQuarantine && (keyQuarantineUntil.get(key) || 0) > Date.now()) continue
         const pairKey = `${key}:${model}`
         if (pass === 'fresh' && (keyModelCooldownUntil.get(pairKey) || 0) > Date.now()) continue
         const modelsForKey = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
@@ -2740,6 +2882,39 @@ async function callGeminiPhoneWithFailover(
  * Detecta si la respuesta generada prometió/confirmó enviar una alerta o recado al gerente sin haber invocado
  * `create_manager_callback`, y extrae datos de contacto reales dichos por quien llama para garantizar persistencia.
  */
+const SPOKEN_DIGIT_WORDS: Record<string, string> = {
+  cero: '0', zero: '0', oh: '0',
+  uno: '1', una: '1', one: '1',
+  dos: '2', two: '2',
+  tres: '3', three: '3',
+  cuatro: '4', four: '4',
+  cinco: '5', five: '5',
+  seis: '6', six: '6',
+  siete: '7', seven: '7',
+  ocho: '8', eight: '8',
+  nueve: '9', nine: '9'
+}
+
+function replaceSpokenDigitRuns(raw: string): string {
+  return raw.replace(
+    /\b(?:(?:cero|zero|oh|uno|una|one|dos|two|tres|three|cuatro|four|cinco|five|seis|six|siete|seven|ocho|eight|nueve|nine)[\s,.-]*){7,11}\b/gi,
+    (seq) =>
+      seq
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .filter(Boolean)
+        .map((w) => SPOKEN_DIGIT_WORDS[w] ?? '')
+        .join('')
+  )
+}
+
+function hasExplicitSameLineOptIn(text: string): boolean {
+  const norm = normalizeSearchText(text)
+  return /\b(este mismo numero|al mismo numero|a este numero|a este telefono|al mismo telefono|mismo telefono|de donde llamo|del que te marco|del que llamo|this same number|the same number|this phone|same phone|number i am calling from|number im calling from|caller id)\b/i.test(
+    norm
+  )
+}
+
 function inspectMissingCallbackGuard(params: {
   replyText: string
   transcript: TranscriptEntry[]
@@ -2754,16 +2929,21 @@ function inspectMissingCallbackGuard(params: {
   summary: string
 } {
   const normReply = normalizeSearchText(params.replyText)
+  const hasNegatedSend =
+    /\b(no|nunca|jamas|tampoco|sin|imposible|not|never|dont|do not|cannot|cant)\s+(?:te\s+|le\s+|se\s+|puedo\s+|podemos\s+)?(?:envio|envie|enviar|enviamos|mando|mande|mandar|deje|dejar|registre|registrar|notifico|notificar|send|sending|sent|leave|log|logging|register|submit)\b/i.test(
+      normReply
+    )
   const isAskingDetails =
-    /\b(necesito|dame|regala|comparte|proporciona|cual es|indica(?:me|nos)|me das|me puedes dar|tu nombre|tu numero|su nombre|su numero|your name|your phone|10 digitos|10 digits|would you like me to|quieres que|deseas que|gustaria que|can i send|si me das|if you share)\b/i.test(
+    /\b(necesito|dame|dime|me dices|regala(?:s|me|nos)?|comparte(?:s|me|nos)?|proporciona(?:s|me|nos)?|cual es|como te llamas|indica(?:s|me|nos)?|me das|me puedes dar|me podrias|tu nombre|tu numero|su nombre|su numero|a que numero|a que telefono|un numero|un telefono|your name|your phone|your number|callback number|best number|who i am speaking|who am i speaking|10 digitos|diez digitos|10 digits|ten digits|10-digit|would you like me to|quieres que|deseas que|gustaria que|can i send|si me das|if you share|if you give)\b/i.test(
       normReply
     )
   const claimedSent =
+    !hasNegatedSend &&
     !isAskingDetails &&
-    (/\b(envio|envie|enviando|mando|mandando|deje|dejando|registre|registrando|notifico|notifique|notificando|genere|cree|paso|sending|sent|logging|logged|leaving|left|notifying|notified|creating|created|submitting|submitted)\b.{0,65}\b(alerta|recado|aviso|mensaje|notificacion|pantalla|gerente|manager|priority\s+alert|callback)\b/i.test(
+    (/\b(en este momento envio|estoy enviando|acabo de enviar|ya envie|envie|he enviado|ya mande|estoy mandando|ya registre|he registrado|registre|acabo de registrar|deje registrado|deje tu recado|ya notifique|estoy notificando|i just sent|i have sent|i sent|i am sending|im sending|i logged|i have logged|i registered|i just registered|submitting your)\b.{0,60}\b(alerta|recado|reporte|aviso|notificacion|pantalla|gerente|manager|priority\s+alert|callback)\b/i.test(
       normReply
     ) ||
-      /\b(ya\s+(?:tiene|recibio|esta\s+en\s+(?:la\s+)?pantalla)|already\s+(?:has|received|on\s+(?:the\s+)?screen))\b.{0,45}\b(gerente|manager|alerta|recado|pantalla|screen|alert|callback)\b/i.test(
+      /\b(tu\s+(?:recado|alerta|reporte)\s+ya\s+(?:esta|quedo)|ya\s+(?:recibio|tiene)\s+(?:la\s+|tu\s+)?(?:alerta|recado|reporte)|your\s+(?:message|alert|callback)\s+(?:is\s+already|has\s+been)\s+(?:on|saved|sent))\b/i.test(
         normReply
       ))
 
@@ -2773,12 +2953,15 @@ function inspectMissingCallbackGuard(params: {
 
   const userTexts = params.transcript.filter((t) => t.role === 'user').map((t) => String(t.text || '').trim())
   const combinedUser = userTexts.join(' | ').trim()
+  const expandedUser = replaceSpokenDigitRuns(combinedUser)
   const blocked = new Set(params.blockedStoreTenDigits.filter(Boolean))
 
   let detectedPhone: string | null = null
-  const phoneMatches = combinedUser.match(/(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/g) || []
-  for (let i = phoneMatches.length - 1; i >= 0; i--) {
-    const parsed = normalizeUsPhoneE164(phoneMatches[i])
+  // Capturar teléfonos con guiones, comas, espacios múltiples, pares (323 456 78 90) o dígito por dígito
+  const flexibleCandidates =
+    expandedUser.match(/(?:\+?1[\s,.\-]*)?(?:\(?\d{3}\)?[\s,.\-]*\d{3}[\s,.\-]*\d{2}[\s,.\-]*\d{2}|(?:\d[\s,.\-]*){10,11})/g) || []
+  for (let i = flexibleCandidates.length - 1; i >= 0; i--) {
+    const parsed = normalizeUsPhoneE164(flexibleCandidates[i])
     if (
       parsed.valid &&
       parsed.normalized &&
@@ -2795,24 +2978,35 @@ function inspectMissingCallbackGuard(params: {
     !detectedPhone &&
     params.source === 'twilio' &&
     params.callerNumber &&
-    /\b(este mismo numero|este numero|mi numero|same number|this number|caller id)\b/i.test(normalizeSearchText(combinedUser))
+    hasExplicitSameLineOptIn(combinedUser)
   ) {
     const parsedCaller = normalizeUsPhoneE164(params.callerNumber)
-    if (parsedCaller.valid && parsedCaller.normalized && parsedCaller.tenDigits && !isFictitiousNanpPhone(parsedCaller.tenDigits, false)) {
+    if (
+      parsedCaller.valid &&
+      parsedCaller.normalized &&
+      parsedCaller.tenDigits &&
+      !blocked.has(parsedCaller.tenDigits) &&
+      !isFictitiousNanpPhone(parsedCaller.tenDigits, false)
+    ) {
       detectedPhone = parsedCaller.normalized
     }
   }
 
   let detectedName = 'Cliente en línea'
-  const nameMatch = combinedUser.match(
-    /(?:^|[.,;|]\s*|\b)(?:hola\s+)?(?:soy|me llamo|mi nombre es|habla|this is|my name is|i am|i'm)\s+([A-Za-z0-9_ÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+){0,2})/i
-  )
-  if (nameMatch?.[1]) {
-    const candidate = nameMatch[1]
-      .replace(/\b(?:de|del|en|por|para|con|y|mi|telefono|phone|numero|number|porque|que|un|una|el|la|empleado|cliente|manager|gerente).*$/i, '')
+  const nonNameTokens =
+    /^(un|una|el|la|cliente|empleado|empleada|repartidor|repartidora|encargado|proveedor|customer|caller|employee|driver|calling|having|missing|trying|ordering|speaking|working|running|waiting|looking|asking|here|late|sick|upset|mad|sorry|good|fine)$/i
+  const nameRegex =
+    /(?:^|[.,;|]\s*|\b)(?:hola\s+|hi\s+|hello\s+)?(?:soy|me llamo|mi nombre es|habla|this is|my name is|i am|i'm)\s+([A-Za-z0-9_ÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]+){0,2})/gi
+  const allNameMatches = Array.from(combinedUser.matchAll(nameRegex))
+  for (let i = allNameMatches.length - 1; i >= 0; i--) {
+    const rawCand = allNameMatches[i]?.[1] || ''
+    const cleaned = rawCand
+      .replace(/\b(?:de|del|en|por|para|con|y|mi|my|and|telefono|phone|numero|number|porque|because|que|un|una|el|la|empleado|empleada|cliente|manager|gerente|calling|missing|about|from).*$/i, '')
       .trim()
-    if (candidate.length >= 2 && !/^(un|una|el|la|cliente|empleado|empleada|customer|caller)$/i.test(normalizeSearchText(candidate))) {
-      detectedName = candidate
+    const firstWord = normalizeSearchText(cleaned.split(/\s+/)[0] || '')
+    if (cleaned.length >= 2 && firstWord && !nonNameTokens.test(firstWord)) {
+      detectedName = cleaned
+      break
     }
   }
 
@@ -2933,6 +3127,362 @@ function inferCallMetadata(
  * Procesa un turno de conversación telefónica (tanto para llamadas reales de Twilio como para el Simulador Web).
  * Consulta herramientas en tiempo real, actualiza la bitácora en `phone_calls` y devuelve el texto listo para hablar con voz `Kore`.
  */
+const TOMBSTONE_TERMINAL_ENDED_STATUSES = new Set(['completed', 'canceled', 'busy', 'failed', 'no-answer'])
+
+export interface PhoneCallTombstoneInput {
+  callSid: string
+  terminalStatus: string
+  authoritativeDuration: number | null
+  callerNumber?: string | null
+  toNumber?: string | null
+  forwardedFrom?: string | null
+  endedAt?: string
+}
+
+/**
+ * Registra de forma atómica un cierre anticipado o repetido en `public.phone_call_status_tombstones`.
+ * Garantiza que un evento sin `CallDuration` (`authoritativeDuration === null`) JAMÁS reemplace
+ * una `duration_seconds` válida previamente almacenada con `NULL`.
+ */
+export async function upsertPhoneCallStatusTombstone(
+  input: PhoneCallTombstoneInput,
+  opts?: { db?: any }
+): Promise<any> {
+  const db = opts?.db || supabaseAdmin
+  const cleanSid = String(input.callSid || '').trim()
+  if (!cleanSid) {
+    throw new Error('callSid es obligatorio para registrar phone_call_status_tombstones')
+  }
+  const cleanStatus = String(input.terminalStatus || 'completed').trim().toLowerCase() || 'completed'
+  const hasAuthDur =
+    input.authoritativeDuration !== null &&
+    input.authoritativeDuration !== undefined &&
+    Number.isFinite(Number(input.authoritativeDuration)) &&
+    Number(input.authoritativeDuration) >= 0
+  const safeDuration = hasAuthDur
+    ? Math.min(7200, Math.max(0, Math.round(Number(input.authoritativeDuration))))
+    : null
+  const endedIso = input.endedAt || new Date().toISOString()
+  const cleanCaller = String(input.callerNumber || '').trim() || null
+  const cleanTo = String(input.toNumber || '').trim() || null
+  const cleanForwarded = String(input.forwardedFrom || '').trim() || null
+
+  if (typeof db.rpc === 'function') {
+    const { data, error } = await db.rpc('upsert_phone_call_status_tombstone_atomic', {
+      p_call_sid: cleanSid,
+      p_terminal_status: cleanStatus,
+      p_duration_seconds: safeDuration,
+      p_caller_number: cleanCaller,
+      p_to_number: cleanTo,
+      p_forwarded_from: cleanForwarded,
+      p_ended_at: endedIso
+    })
+    if (error) throw error
+    return data
+  }
+
+  // Fallback transaccional para clientes de prueba sin .rpc: preserva siempre duration_seconds no nula previa
+  const { data: existingTomb, error: readErr } = await db
+    .from('phone_call_status_tombstones')
+    .select('*')
+    .eq('call_sid', cleanSid)
+    .maybeSingle()
+  if (readErr) throw readErr
+
+  const prevHasValidDur =
+    existingTomb &&
+    existingTomb.duration_seconds !== null &&
+    existingTomb.duration_seconds !== undefined &&
+    Number.isFinite(Number(existingTomb.duration_seconds)) &&
+    Number(existingTomb.duration_seconds) >= 0
+
+  const mergedDuration =
+    safeDuration !== null
+      ? safeDuration
+      : prevHasValidDur
+        ? Math.min(7200, Math.max(0, Math.round(Number(existingTomb.duration_seconds))))
+        : null
+
+  const mergedPayload: Record<string, any> = {
+    call_sid: cleanSid,
+    terminal_status:
+      safeDuration !== null
+        ? cleanStatus
+        : existingTomb?.terminal_status || cleanStatus,
+    duration_seconds: mergedDuration,
+    caller_number: cleanCaller || existingTomb?.caller_number || null,
+    to_number: cleanTo || existingTomb?.to_number || null,
+    forwarded_from: cleanForwarded || existingTomb?.forwarded_from || null,
+    ended_at:
+      existingTomb?.ended_at && new Date(existingTomb.ended_at).getTime() <= new Date(endedIso).getTime()
+        ? existingTomb.ended_at
+        : endedIso
+  }
+
+  const { data: upserted, error: upErr } = await db
+    .from('phone_call_status_tombstones')
+    .upsert(mergedPayload, { onConflict: 'call_sid' })
+    .select('*')
+    .maybeSingle()
+  if (upErr) throw upErr
+  return upserted
+}
+
+/**
+ * Reconcilia de forma atómica e idempotente una llamada en `public.phone_calls` contra un cierre pendiente
+ * en `public.phone_call_status_tombstones`:
+ * - Si `phone_calls` aún no existe, conserva el tombstone y devuelve `null`.
+ * - Si falla el `UPDATE` de `phone_calls`, conserva intacto el tombstone para reintentar y lanza el error.
+ * - Si el tombstone no contiene `CallDuration` (`duration_seconds === null`), omite `duration_seconds` del `UPDATE`
+ *   para jamás reemplazar una duración válida existente con `NULL` ni con `0`.
+ * - Jamás reabre una llamada ya terminada (`ended_at IS NOT NULL` o estado terminal).
+ */
+export async function reconcileCallWithTerminalTombstone(
+  callSid: string,
+  opts?: { db?: any }
+): Promise<any | null> {
+  const db = opts?.db || supabaseAdmin
+  const cleanSid = String(callSid || '').trim()
+  if (!cleanSid) return null
+
+  const { data: tombstone, error: tombErr } = await db
+    .from('phone_call_status_tombstones')
+    .select('*')
+    .eq('call_sid', cleanSid)
+    .maybeSingle()
+
+  if (tombErr) throw tombErr
+  if (!tombstone) return null
+
+  const { data: callRow, error: callErr } = await db
+    .from('phone_calls')
+    .select('*')
+    .eq('call_sid', cleanSid)
+    .maybeSingle()
+
+  if (callErr) throw callErr
+  if (!callRow) return null
+
+  const currentStatusNorm = String(callRow.status || '').trim().toLowerCase()
+  const isAlreadyTerminated =
+    Boolean(callRow.ended_at) || TOMBSTONE_TERMINAL_ENDED_STATUSES.has(currentStatusNorm)
+
+  const preservedStatus =
+    currentStatusNorm === 'callback_requested' || currentStatusNorm === 'transferred'
+      ? callRow.status
+      : isAlreadyTerminated && currentStatusNorm && currentStatusNorm !== 'in_progress'
+        ? callRow.status
+        : tombstone.terminal_status || 'completed'
+
+  const hasAuthDur =
+    tombstone.duration_seconds !== null &&
+    tombstone.duration_seconds !== undefined &&
+    String(tombstone.duration_seconds).trim() !== '' &&
+    Number.isFinite(Number(tombstone.duration_seconds)) &&
+    Number(tombstone.duration_seconds) >= 0
+
+  const authoritativeDurVal = hasAuthDur
+    ? Math.min(7200, Math.max(0, Math.round(Number(tombstone.duration_seconds))))
+    : null
+
+  const finalEndedAt = callRow.ended_at || tombstone.ended_at || new Date().toISOString()
+
+  const patch: Record<string, any> = {
+    status: preservedStatus,
+    ended_at: finalEndedAt
+  }
+  // CRÍTICO: solo escribir duration_seconds cuando existe CallDuration autoritativo; jamás pisar una duración válida con NULL ni 0
+  if (authoritativeDurVal !== null) {
+    patch.duration_seconds = authoritativeDurVal
+  }
+  const preservedStatusNorm = String(preservedStatus || '').toLowerCase()
+  if (
+    Number(callRow.turns_count || 0) === 0 ||
+    preservedStatusNorm === 'callback_requested' ||
+    preservedStatusNorm === 'transferred' ||
+    (TOMBSTONE_TERMINAL_ENDED_STATUSES.has(preservedStatusNorm) && preservedStatusNorm !== 'completed')
+  ) {
+    patch.resolved_by_ai = false
+  }
+
+  let updated: any = null
+
+  if (currentStatusNorm === 'in_progress') {
+    const { data: transitioned, error: transErr } = await db
+      .from('phone_calls')
+      .update(patch)
+      .eq('id', callRow.id)
+      .eq('status', 'in_progress')
+      .select('*')
+      .maybeSingle()
+
+    if (transErr) {
+      // Conservar tombstone para reintento
+      throw transErr
+    }
+    updated = transitioned
+
+    if (!updated) {
+      // Otro flujo cambió status justo en paralelo (ej. a callback_requested, transferred o completed):
+      // sellar ended_at y aplicar CallDuration autoritativo sin reabrir ni sobrescribir el status ganador.
+      const { data: freshRow, error: freshErr } = await db
+        .from('phone_calls')
+        .select('*')
+        .eq('id', callRow.id)
+        .maybeSingle()
+      if (freshErr || !freshRow) {
+        throw freshErr || new Error(`No se encontró phone_calls id=${callRow.id} en reconciliación; tombstone conservado.`)
+      }
+      const syncPatch: Record<string, any> = {
+        ended_at: freshRow.ended_at || tombstone.ended_at || new Date().toISOString()
+      }
+      if (authoritativeDurVal !== null) {
+        syncPatch.duration_seconds = authoritativeDurVal
+      }
+      const freshNorm = String(freshRow.status || '').toLowerCase()
+      if (
+        Number(freshRow.turns_count || 0) === 0 ||
+        freshNorm === 'callback_requested' ||
+        freshNorm === 'transferred'
+      ) {
+        syncPatch.resolved_by_ai = false
+      }
+      const { data: syncedRow, error: syncErr } = await db
+        .from('phone_calls')
+        .update(syncPatch)
+        .eq('id', callRow.id)
+        .select('*')
+        .maybeSingle()
+      if (syncErr || !syncedRow) {
+        throw syncErr || new Error(`Fallo al sincronizar phone_calls id=${callRow.id}; tombstone conservado.`)
+      }
+      updated = syncedRow
+    }
+  } else {
+    const { data: updRow, error: updErr } = await db
+      .from('phone_calls')
+      .update(patch)
+      .eq('id', callRow.id)
+      .select('*')
+      .maybeSingle()
+
+    if (updErr || !updRow) {
+      // Conservar tombstone intacto para poder reintentar posteriormente
+      throw updErr || new Error(`Fallo al actualizar phone_calls id=${callRow.id}; tombstone conservado.`)
+    }
+    updated = updRow
+  }
+
+  // Solo eliminar el tombstone DESPUÉS de que el UPDATE en phone_calls se haya confirmado exitosamente
+  const { error: delErr } = await db
+    .from('phone_call_status_tombstones')
+    .delete()
+    .eq('call_sid', cleanSid)
+  if (delErr) {
+    throw delErr
+  }
+
+  return updated
+}
+
+export const CRITICAL_CALLBACKS_PAGE_SIZE = 250
+export const CRITICAL_CALLBACKS_MAX_PAGES = 40
+export const CRITICAL_CALLBACKS_MAX_ROWS = CRITICAL_CALLBACKS_PAGE_SIZE * CRITICAL_CALLBACKS_MAX_PAGES
+
+const CURSOR_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function formatPgKeysetTimestamp(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .replace(' ', 'T')
+    .replace(/\+00(?::00)?$/, 'Z')
+}
+
+/**
+ * Paginación keyset acotada sobre `idx_phone_callbacks_pending_critical_scoped` con detección exacta de truncamiento (`pageSize + 1`).
+ * Nunca realiza escaneos ilimitados: si existen más registros más allá del tope (`capLimit`, por defecto 10,000),
+ * devuelve `truncated: true` para que la API y la UI adviertan explícitamente que la lista está truncada.
+ */
+export async function fetchScopedCriticalPendingCallbacksWithCap(
+  buildScopedQuery: () => any,
+  opts?: { pageSize?: number; maxPages?: number }
+): Promise<{
+  data: any[]
+  error: any
+  truncated: boolean
+  capLimit: number
+  pagesFetched: number
+}> {
+  const pageSize = Math.max(1, Math.floor(Number(opts?.pageSize ?? CRITICAL_CALLBACKS_PAGE_SIZE)))
+  const maxPages = Math.max(1, Math.floor(Number(opts?.maxPages ?? CRITICAL_CALLBACKS_MAX_PAGES)))
+  const capLimit = pageSize * maxPages
+
+  const collected: any[] = []
+  const seenIds = new Set<string>()
+  let cursorCreatedAt: string | null = null
+  let cursorId: string | null = null
+  let truncated = false
+  let pagesFetched = 0
+
+  for (let page = 0; page < maxPages; page++) {
+    let q = buildScopedQuery()
+      .eq('status', 'pending')
+      .in('urgency', ['critical', 'urgent'])
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(pageSize + 1)
+
+    if (cursorCreatedAt && cursorId) {
+      q = q.or(
+        `created_at.lt."${cursorCreatedAt}",and(created_at.eq."${cursorCreatedAt}",id.lt.${cursorId})`
+      )
+    }
+
+    const { data, error } = await q
+    if (error) {
+      return { data: [], error, truncated: false, capLimit, pagesFetched }
+    }
+    pagesFetched++
+
+    const rawBatch = Array.isArray(data) ? data : []
+    if (rawBatch.length === 0) break
+
+    const hasMoreAfterPage = rawBatch.length > pageSize
+    const batch = hasMoreAfterPage ? rawBatch.slice(0, pageSize) : rawBatch
+
+    let addedInBatch = 0
+    for (const row of batch) {
+      const idStr = String(row?.id || '')
+      if (idStr && !seenIds.has(idStr)) {
+        seenIds.add(idStr)
+        collected.push(row)
+        addedInBatch++
+      }
+    }
+
+    if (!hasMoreAfterPage) {
+      break
+    }
+
+    if (page === maxPages - 1) {
+      truncated = true
+      break
+    }
+
+    const last = batch[batch.length - 1]
+    const nextTs = formatPgKeysetTimestamp(last?.created_at)
+    const nextId = String(last?.id || '')
+    if (addedInBatch === 0 || !nextTs || !CURSOR_UUID_RE.test(nextId)) {
+      truncated = true
+      break
+    }
+    cursorCreatedAt = nextTs
+    cursorId = nextId
+  }
+
+  return { data: collected, error: null, truncated, capLimit, pagesFetched }
+}
+
 export async function processPhoneAgentTurn(params: {
   callSid: string
   storeId: number
@@ -2991,8 +3541,19 @@ export async function processPhoneAgentTurn(params: {
   const shift = getCaliforniaShift()
   const defaultCallLang: PhoneLang = (preferredLang || config.default_language || 'es') as PhoneLang
 
+  if (existingCallRes.error) {
+    throw existingCallRes.error
+  }
+
   let callRecord: any = existingCallRes.data
   let ensureCallRecordPromise: Promise<any> | null = null
+
+  if (callRecord) {
+    const reconciledExisting = await reconcileCallWithTerminalTombstone(callSid)
+    if (reconciledExisting) {
+      callRecord = reconciledExisting
+    }
+  }
 
   if (!callRecord) {
     const initialGreeting = buildInitialGreeting(
@@ -3010,7 +3571,7 @@ export async function processPhoneAgentTurn(params: {
       }
     ]
     ensureCallRecordPromise = (async () => {
-      const { data: created, error: createErr } = await supabaseAdmin
+      const { error: createErr } = await supabaseAdmin
         .from('phone_calls')
         .upsert(
           {
@@ -3027,13 +3588,18 @@ export async function processPhoneAgentTurn(params: {
             business_date: businessDate,
             shift
           },
-          { onConflict: 'call_sid' }
+          { onConflict: 'call_sid', ignoreDuplicates: true }
         )
-        .select()
-        .single()
       if (createErr) throw createErr
-      callRecord = created
-      return created
+      const { data: ensuredRow, error: fetchEnsuredErr } = await supabaseAdmin
+        .from('phone_calls')
+        .select('*')
+        .eq('call_sid', callSid)
+        .single()
+      if (fetchEnsuredErr || !ensuredRow) throw fetchEnsuredErr || new Error('No se encontró la llamada tras upsert')
+      const reconciled = await reconcileCallWithTerminalTombstone(callSid)
+      callRecord = reconciled || ensuredRow
+      return callRecord
     })()
   }
 
@@ -3085,7 +3651,7 @@ export async function processPhoneAgentTurn(params: {
   const normCombinedForScope = normalizeSearchText(`${prevUserTexts.join(' ')} ${normalizedUserForMatch}`)
   const wantsHolidayContext =
     Boolean(scheduleEval.isSpecialHolidaySchedule) ||
-    /\b(festiv|holiday|navidad|nochebuena|christmas|thanksgiving|accion de gracias|black friday|fin de ano|ano nuevo|new year|viernes santo|good friday|pascua|easter|cinco de mayo|madres|mothers|julio|july|labor|memorial|septiembre|halloween|guadalupe|especial)\b/i.test(
+    /\b(festiv|holiday|navidad|nochebuena|christmas|thanksgiving|accion de gracias|black friday|fin de ano|ano nuevo|new year|viernes santo|jueves santo|sabado de gloria|semana santa|good friday|pascua|easter|cinco de mayo|madres|mothers|julio|july|labor|memorial|septiembre|halloween|dia de muertos|guadalupe|especial)\b/i.test(
       normCombinedForScope
     )
   const wantsMultiStoreContext =
@@ -3146,7 +3712,7 @@ export async function processPhoneAgentTurn(params: {
   const tomHolName = tomorrowHoliday ? (turnLangGuess === 'en' ? tomorrowHoliday.holiday_name_en : tomorrowHoliday.holiday_name_es) : ''
   const calendarDateLine = `- Fecha calendario actual en California: HOY es ${todayDayLabelEs} ${ptNow.dateStr} (${todayHoliday ? `SÍ es festivo: ${todayHolName}` : 'día normal SIN horario festivo'}) | MAÑANA es ${tomorrowDayLabelEs} ${tomorrowDateStr} (${tomorrowHoliday ? `SÍ es festivo: ${tomHolName}` : 'día normal SIN horario festivo; aplica horario semanal regular'}).`
 
-  const holidaysContextLine = wantsHolidayContext
+  const holidaysContextLine = wantsHolidayContext || Boolean(todayHoliday || tomorrowHoliday)
     ? upcomingHolidays.length > 0
       ? `- Horarios Especiales / 7 Fechas Oficiales Festivas de ${store.name}: ` +
         upcomingHolidays
@@ -3196,14 +3762,16 @@ export async function processPhoneAgentTurn(params: {
   const detectedGuestCount = guestMatch ? Math.min(500, Math.max(1, Number(guestMatch[1]))) : null
   const wantsFiestaContext =
     detectedGuestCount !== null ||
-    /\b(charola|charolas|fiesta\s*platter|party\s*tray|catering|taquiza|banquete)\b/i.test(normCombinedForScope)
-  const platterInfo = recommendFiestaPlatters(detectedGuestCount)
+    /\b(charola|charolas|fiesta\s*platters?|party\s*trays?|platters?|trays?|paquetes?|catering|taquizas?|banquetes?|eventos?|fiestas?|reunion(?:es)?)\b/i.test(
+      normCombinedForScope
+    )
+  const platterInfo = recommendFiestaPlatters(detectedGuestCount, liveMenuItems)
   const platterPreContext = wantsFiestaContext
-    ? `\nCHAROLAS FIESTA PLATTER OFICIALES (orden exclusivo en línea en tacosgavilan.com con mínimo 1 hora de anticipación; carnes: Carne Asada, Pollo o Al Pastor; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas, salsas, verdura y desechables):\n` +
+    ? `\nCHAROLAS FIESTA PLATTER OFICIALES — PARTY TRAY GUIDELINES (orden exclusivo en línea en tacosgavilan.com con mínimo 1 hora de anticipación; carnes a elegir: Carne Asada, Pollo o Al Pastor [en orden en línea Toast también permite elegir entre las 8 carnes]; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas recién hechas de maíz o harina a elegir, salsas roja y verde, condimentos y utensilios completos):\n` +
       platterInfo.packages
         .map(
           (p) =>
-            `- ${p.labelEs}: $${p.price.toFixed(2)} (${p.meatLbs} lbs carne, ${p.riceBeansTrayEs}, ${p.cornTortillasDozens} doc maíz o ${p.flourTortillasDozens} harina, ${p.aguasGallons} gal agua)`
+            `- ${p.labelEs}: ${p.price !== null ? '$' + p.price.toFixed(2) : 'consultar en tacosgavilan.com'} (${p.meatLbs} lbs carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs}, ${p.aguasGallons} gal agua fresca; además: ${p.extrasSummaryEs})`
         )
         .join('\n') +
       (detectedGuestCount
@@ -3392,7 +3960,10 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     }
     if (toolName === 'get_fiesta_platter_packages') {
       const guestCount = Math.round(Number(toolArgs?.guest_count))
-      return recommendFiestaPlatters(Number.isFinite(guestCount) && guestCount > 0 && guestCount <= 500 ? guestCount : null)
+      return recommendFiestaPlatters(
+        Number.isFinite(guestCount) && guestCount > 0 && guestCount <= 500 ? guestCount : null,
+        liveMenuItems
+      )
     }
     if (toolName === 'find_other_stores') {
       const [activeStores, allSpecialHours] = await Promise.all([
@@ -3452,31 +4023,50 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       const reasonSummary = String(toolArgs?.reason_summary || userText).trim()
       const argPhoneRaw = String(toolArgs?.caller_phone || '').trim()
       const allowDev555 = source === 'simulator' && /^TEST_SMOKE_/i.test(callSid)
-      const parsedArg = argPhoneRaw.toUpperCase() === 'CALLER_ID' ? { valid: false, normalized: null, tenDigits: null } : normalizeUsPhoneE164(argPhoneRaw)
-      const parsedCaller = source === 'twilio' && callerNumber ? normalizeUsPhoneE164(callerNumber) : { valid: false, normalized: null, tenDigits: null }
-      const argIsClean = parsedArg.valid && parsedArg.tenDigits && !isFictitiousNanpPhone(parsedArg.tenDigits, allowDev555)
-      const callerIsClean = parsedCaller.valid && parsedCaller.tenDigits && !isFictitiousNanpPhone(parsedCaller.tenDigits, false)
+      const blockedOwnTen = new Set(
+        [extractPhoneDigits(store.phone).slice(-10), extractPhoneDigits(config.twilio_phone_number).slice(-10)].filter(Boolean)
+      )
+      const expandedArgPhone = replaceSpokenDigitRuns(argPhoneRaw)
+      const parsedArg =
+        argPhoneRaw.toUpperCase() === 'CALLER_ID'
+          ? { valid: false, normalized: null, tenDigits: null }
+          : normalizeUsPhoneE164(expandedArgPhone)
+      const callerAuthorizedSameLine =
+        argPhoneRaw.toUpperCase() === 'CALLER_ID' ||
+        hasExplicitSameLineOptIn(transcript.filter((t) => t.role === 'user').map((t) => t.text).join(' | '))
+      const parsedCaller =
+        source === 'twilio' && callerNumber && callerAuthorizedSameLine
+          ? normalizeUsPhoneE164(callerNumber)
+          : { valid: false, normalized: null, tenDigits: null }
+      const argIsClean =
+        parsedArg.valid &&
+        parsedArg.tenDigits &&
+        !blockedOwnTen.has(parsedArg.tenDigits) &&
+        !isFictitiousNanpPhone(parsedArg.tenDigits, allowDev555)
+      const callerIsClean =
+        parsedCaller.valid &&
+        parsedCaller.tenDigits &&
+        !blockedOwnTen.has(parsedCaller.tenDigits) &&
+        !isFictitiousNanpPhone(parsedCaller.tenDigits, false)
       const cleanCallbackPhone = argIsClean
         ? parsedArg.normalized!
         : callerIsClean
           ? parsedCaller.normalized!
           : ''
 
-      // Anti-duplicados: omitir SELECT a DB si la llamada no ha tenido recados aún en memoria
+      // Anti-duplicados en vivo: consultar siempre por call_id antes de insertar para cubrir concurrencia y deferDbFlush
       const existingPending =
         callbackCreated ||
-        (hadPriorCallbackInCall
-          ? (
-              await supabaseAdmin
-                .from('phone_callback_requests')
-                .select('*')
-                .eq('call_id', ensuredCall.id)
-                .eq('status', 'pending')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle()
-            ).data
-          : null)
+        (
+          await supabaseAdmin
+            .from('phone_callback_requests')
+            .select('*')
+            .eq('call_id', ensuredCall.id)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        ).data
 
       if (existingPending) {
         const prevSummary = String(existingPending.reason_summary || '')
@@ -3540,9 +4130,10 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         reasonSummary,
         ticketOrOrderNumber: toolArgs?.ticket_or_order_number ? String(toolArgs.ticket_or_order_number) : null
       })
-      callbackWasNew = true
+      callbackWasNew = !Boolean((callbackCreated as any)?._wasDeduplicated)
       return {
         success: true,
+        alreadySent: Boolean((callbackCreated as any)?._wasDeduplicated),
         storeOpenNow: scheduleEval.isOpenNow,
         willTransferLive: false,
         callbackId: callbackCreated.id,
@@ -3637,7 +4228,15 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   // Blindaje determinista: si un modelo rápido confirmó envío de alerta sin invocar `create_manager_callback`,
   // persistimos el recado con los datos reales dichos por quien llama o evitamos una confirmación falsa si falta el teléfono.
-  if (!callbackCreated && !hadPriorCallbackInCall && !geminiFailed && replyText) {
+  const preGuardMeta = inferCallMetadata(normalizedUserForMatch, toolsUsed, false)
+  if (
+    !callbackCreated &&
+    !hadPriorCallbackInCall &&
+    !geminiFailed &&
+    replyText &&
+    preGuardMeta.primaryIntent !== 'spam' &&
+    preGuardMeta.primaryIntent !== 'job_inquiry'
+  ) {
     const store10 = extractPhoneDigits(store.phone).slice(-10)
     const twilio10 = extractPhoneDigits(config.twilio_phone_number).slice(-10)
     const allowDev555 = source === 'simulator' && /^TEST_SMOKE_/i.test(callSid)
@@ -3784,17 +4383,23 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   const startedAtMs = finalCallRecord.started_at ? new Date(finalCallRecord.started_at).getTime() : Date.now()
   const durationSeconds = Math.max(5, Math.round((Date.now() - startedAtMs) / 1000))
 
-  // Estado persistente: respetar 'transferred', 'callback_requested' o 'completed' previos
+  // Estado persistente: una llamada ya terminada (ended_at o estado terminal de cierre) jamás cambia a callback_requested por un turno tardío
+  const TERMINAL_ENDED_STATUSES = new Set(['completed', 'canceled', 'busy', 'failed', 'no-answer'])
+  const callAlreadyTerminated =
+    Boolean(finalCallRecord.ended_at) ||
+    TERMINAL_ENDED_STATUSES.has(String(finalCallRecord.status || '').toLowerCase())
   const wasTransferred = Boolean(shouldTransferToPhone) || finalCallRecord.status === 'transferred'
   const callbackEverRequested = Boolean(callbackCreated) || finalCallRecord.status === 'callback_requested'
 
-  const nextStatus = wasTransferred
-    ? 'transferred'
-    : callbackEverRequested
-      ? 'callback_requested'
-      : shouldHangup || finalCallRecord.status === 'completed'
-        ? 'completed'
-        : 'in_progress'
+  const nextStatus = callAlreadyTerminated
+    ? String(finalCallRecord.status || 'completed')
+    : wasTransferred
+      ? 'transferred'
+      : callbackEverRequested
+        ? 'callback_requested'
+        : shouldHangup
+          ? 'completed'
+          : 'in_progress'
 
   const INTENT_PRIORITY: Record<string, number> = {
     employee_callout: 100,
@@ -3857,13 +4462,75 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   }
 
   const flushDbPromise = (async () => {
-    // Asegurar no degradar estados terminales ya alcanzados ('transferred' / 'callback_requested')
-    const { error: updateErr } = await supabaseAdmin
+    const buildNonTerminalSafePayload = () => {
+      const { status: _omitStatus, ended_at: _omitEnded, duration_seconds: _omitDur, ...safeFields } = updatePayload
+      return safeFields
+    }
+
+    // Si la llamada ya había terminado al iniciar/cerrar este turno, jamás alterar status, ended_at ni duration_seconds de un cierre previo
+    if (callAlreadyTerminated) {
+      const { error: updateErr } = await supabaseAdmin
+        .from('phone_calls')
+        .update(buildNonTerminalSafePayload())
+        .eq('id', finalCallRecord.id)
+      if (updateErr) {
+        console.error('[phone-agent] No se pudo actualizar llamada terminada:', updateErr.message)
+        throw updateErr
+      }
+      return
+    }
+
+    if (nextStatus === 'in_progress') {
+      const { status: _omitStatus, ...nonStatusPayload } = updatePayload
+      const { data: inProgRows, error: updateErr } = await supabaseAdmin
+        .from('phone_calls')
+        .update(nonStatusPayload)
+        .eq('id', finalCallRecord.id)
+        .is('ended_at', null)
+        .not('status', 'in', '("completed","canceled","busy","failed","no-answer")')
+        .select('id')
+      if (updateErr) {
+        console.error('[phone-agent] No se pudo actualizar la bitácora de la llamada:', updateErr.message)
+        throw updateErr
+      }
+      if (!inProgRows || inProgRows.length === 0) {
+        // /api/phone/status cerró la llamada mientras corría este turno: guardar transcript/intent sin pisar CallDuration ni ended_at
+        const { error: fallbackErr } = await supabaseAdmin
+          .from('phone_calls')
+          .update(buildNonTerminalSafePayload())
+          .eq('id', finalCallRecord.id)
+        if (fallbackErr) {
+          console.error('[phone-agent] Error guardando transcript en llamada cerrada en paralelo:', fallbackErr.message)
+          throw fallbackErr
+        }
+      }
+      return
+    }
+
+    // Transición a 'callback_requested' / 'transferred' / 'completed': exigir atómicamente que /api/phone/status no haya cerrado la llamada mientras corría el turno
+    const { data: updatedRows, error: updateErr } = await supabaseAdmin
       .from('phone_calls')
       .update(updatePayload)
       .eq('id', finalCallRecord.id)
+      .is('ended_at', null)
+      .not('status', 'in', '("completed","canceled","busy","failed","no-answer")')
+      .select('id')
+
     if (updateErr) {
-      console.error('[phone-agent] No se pudo actualizar la bitácora de la llamada:', updateErr.message)
+      console.error('[phone-agent] No se pudo actualizar estado de la llamada:', updateErr.message)
+      throw updateErr
+    }
+
+    // Si /api/phone/status cerró la llamada en paralelo (updatedRows vacío), guardar transcript e intent sin cambiar status ni CallDuration
+    if (!updatedRows || updatedRows.length === 0) {
+      const { error: fallbackErr } = await supabaseAdmin
+        .from('phone_calls')
+        .update(buildNonTerminalSafePayload())
+        .eq('id', finalCallRecord.id)
+      if (fallbackErr) {
+        console.error('[phone-agent] Error guardando transcript en llamada recién cerrada:', fallbackErr.message)
+        throw fallbackErr
+      }
     }
   })()
 
@@ -3895,8 +4562,8 @@ export function verifyTwilioWebhookSignature(
   request: Request,
   formParams: Record<string, string>
 ): { valid: boolean; reason?: string } {
-  const authToken = process.env.TWILIO_AUTH_TOKEN
-  if (!authToken) {
+  const rawToken = (process.env.TWILIO_AUTH_TOKEN || '').trim().replace(/^["']|["']$/g, '')
+  if (!rawToken) {
     // Fail-closed en producción o cualquier despliegue de Vercel (production / preview)
     const isProductionOrDeployed =
       process.env.NODE_ENV === 'production' ||
@@ -3907,20 +4574,36 @@ export function verifyTwilioWebhookSignature(
     return { valid: true, reason: 'no_auth_token_configured_dev_only' }
   }
 
-  const signature = request.headers.get('x-twilio-signature')
+  const signature = (request.headers.get('x-twilio-signature') || '').trim()
   if (!signature) {
     return { valid: false, reason: 'missing_x_twilio_signature' }
   }
 
   const reqUrl = new URL(request.url)
-  const rawProto = request.headers.get('x-forwarded-proto') || reqUrl.protocol.replace(':', '')
-  const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || reqUrl.host
-  const proto = rawProto.split(',')[0].trim() || 'https'
-  const host = rawHost.split(',')[0].trim()
-  const publicUrl = `${proto}://${host}${reqUrl.pathname}${reqUrl.search}`
+  const rawProto = (request.headers.get('x-forwarded-proto') || reqUrl.protocol.replace(':', '')).split(',')[0].trim() || 'https'
+  const fwdHost = (request.headers.get('x-forwarded-host') || '').split(',')[0].trim()
+  const hdrHost = (request.headers.get('host') || reqUrl.host).split(',')[0].trim()
+  const safeHostRe = /^[a-zA-Z0-9.-]+(?::\d+)?$/
 
-  const isValid = twilio.validateRequest(authToken, signature, publicUrl, formParams)
-  return { valid: isValid, reason: isValid ? 'verified' : 'invalid_signature' }
+  const candidateBases = new Set<string>()
+  const envBase = (process.env.TWILIO_WEBHOOK_BASE_URL || '').trim().replace(/\/+$/, '')
+  if (envBase.startsWith('http')) candidateBases.add(envBase)
+  if (fwdHost && safeHostRe.test(fwdHost)) {
+    candidateBases.add(`${rawProto}://${fwdHost}`)
+    candidateBases.add(`https://${fwdHost}`)
+  }
+  if (hdrHost && safeHostRe.test(hdrHost)) {
+    candidateBases.add(`${rawProto}://${hdrHost}`)
+    candidateBases.add(`https://${hdrHost}`)
+  }
+
+  for (const base of candidateBases) {
+    const candidateUrl = `${base}${reqUrl.pathname}${reqUrl.search}`
+    if (twilio.validateRequest(rawToken, signature, candidateUrl, formParams)) {
+      return { valid: true, reason: 'verified' }
+    }
+  }
+  return { valid: false, reason: 'invalid_signature' }
 }
 
 /**
@@ -3958,7 +4641,7 @@ const TWILIO_GATHER_HINTS =
  */
 export function buildTwilioGatherAttrs(lang: PhoneLang, actionUrl: string): string {
   const speechLang = lang === 'en' ? 'en-US' : 'es-US'
-  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="1" timeout="4" actionOnEmptyResult="true" speechModel="phone_call" enhanced="true" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
+  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="1" timeout="4" actionOnEmptyResult="true" speechModel="telephony" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
 }
 
 /**

@@ -153,7 +153,7 @@ const CURATED_GAVILAN_ITEMS: PosMenuItem[] = [
     { guid: 'tg-9', name: 'Mulita de Asada', groupName: 'Quesadillas & Mulitas', basePrice: 4.69, deliveryPrice: 5.53, prepStation: 'PARRILLA', taxInherited: true, inStock: true, buttonColor: 'bg-yellow-50 border-yellow-200 text-yellow-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
     { guid: 'tg-10', name: 'Vampiro de Pastor', groupName: 'Quesadillas & Mulitas', basePrice: 4.69, deliveryPrice: 5.53, prepStation: 'PARRILLA', taxInherited: true, inStock: true, buttonColor: 'bg-orange-50 border-orange-200 text-orange-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
     { guid: 'tg-11', name: 'Combo #1 (3 Tacos + Arroz y Frijol + Bebida)', groupName: 'Combos & Platos', basePrice: 14.99, deliveryPrice: 17.69, prepStation: 'LINEA', taxInherited: true, inStock: true, buttonColor: 'bg-blue-50 border-blue-200 text-blue-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
-    { guid: 'tg-12', name: 'Party Tray 20-25 Personas (Asada y Pollo)', groupName: 'Party Trays', basePrice: 189.99, deliveryPrice: 224.19, prepStation: 'LINEA', taxInherited: true, inStock: true, buttonColor: 'bg-purple-50 border-purple-200 text-purple-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
+    { guid: 'tg-12', name: 'Party Tray 20-25 Personas (Asada y Pollo)', groupName: 'Party Trays', basePrice: 245.79, deliveryPrice: 290.03, prepStation: 'LINEA', taxInherited: true, inStock: true, buttonColor: 'bg-purple-50 border-purple-200 text-purple-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
     { guid: 'tg-13', name: 'Agua de Horchata (Large 32oz)', groupName: 'Aguas & Bebidas', basePrice: 4.49, deliveryPrice: 5.30, prepStation: 'BEBIDAS', taxInherited: true, inStock: true, buttonColor: 'bg-cyan-50 border-cyan-200 text-cyan-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
     { guid: 'tg-14', name: 'Agua de Jamaica (Large 32oz)', groupName: 'Aguas & Bebidas', basePrice: 4.49, deliveryPrice: 5.30, prepStation: 'BEBIDAS', taxInherited: true, inStock: true, buttonColor: 'bg-pink-50 border-pink-200 text-pink-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
     { guid: 'tg-15', name: 'Orden de Tortillas Hechas a Mano (4 pzs)', groupName: 'Extras & Sides', basePrice: 2.25, deliveryPrice: 2.66, prepStation: 'TORTILLAS', taxInherited: true, inStock: true, buttonColor: 'bg-amber-50 border-amber-200 text-amber-900', channels: { pos: true, kiosk: true, online: true, delivery: true } },
@@ -335,7 +335,7 @@ export default function GavilanPosEcosystemPage() {
     const [cateringCustomer, setCateringCustomer] = useState<string>('FAMILIA HERNÁNDEZ')
     const [cateringPhone, setCateringPhone] = useState<string>('323-555-0148')
     const [cateringPickupTime, setCateringPickupTime] = useState<string>('18:00 PM (Auto-Fire 17:15 PM)')
-    const [cateringPackage, setCateringPackage] = useState<'15-20' | '20-25' | '30-40'>('30-40')
+    const [cateringPackage, setCateringPackage] = useState<'15-20' | '20-25' | '25-30' | '30-40'>('30-40')
     const [voiceAnnounceStatus, setVoiceAnnounceStatus] = useState<string>('')
 
     // Cash Drawer Live Ledger & POS Timeclock States
@@ -2321,7 +2321,7 @@ export default function GavilanPosEcosystemPage() {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             {[
                                                 { title: '1. Base Price (Precio Fijo)', desc: 'Precio único estándar en mostrador y Drive-Thru.' },
-                                                { title: '2. Size Pricing (Por Tamaño)', desc: 'Ej. Aguas Frescas Regular 20oz vs Large 32oz, o Party Trays (15-20, 20-25, 30-40 personas).' },
+                                                { title: '2. Size Pricing (Por Tamaño)', desc: 'Ej. Aguas Frescas Regular 22oz vs Large 32oz, o Party Trays (15-20, 20-25, 25-30, 30-40 personas).' },
                                                 { title: '3. Channel-Specific Price (Por Canal)', desc: `Aplica automáticamente +${deliveryUpliftPct}% en Uber Eats, DoorDash y Grubhub usando el mismo GUID para que cuadre el PMIX.` },
                                                 { title: '4. Time-Specific (Por Horario/Día)', desc: 'Precios automáticos para promociones por día o turno (AM vs PM 5:00 PM).' },
                                                 { title: '5. Location Tier (Por Sucursal)', desc: 'Permite precios diferenciados por condado (ej. Hollywood vs Rialto).' },
@@ -3865,9 +3865,10 @@ export default function GavilanPosEcosystemPage() {
                                                     onChange={(e) => setCateringPackage(e.target.value as any)}
                                                     className="w-full mt-0.5 px-2 py-1.5 rounded-xl border border-slate-200 font-bold text-slate-900 bg-slate-50"
                                                 >
-                                                    <option value="15-20">15-20 Personas ($149.99)</option>
-                                                    <option value="20-25">20-25 Personas ($189.99)</option>
-                                                    <option value="30-40">30-40 Personas ($289.99)</option>
+                                                    <option value="15-20">15-20 Personas ($201.99)</option>
+                                                    <option value="20-25">20-25 Personas ($245.79)</option>
+                                                    <option value="25-30">25-30 Personas ($301.69)</option>
+                                                    <option value="30-40">30-40 Personas ($373.89)</option>
                                                 </select>
                                             </div>
                                             <div>
@@ -3924,7 +3925,7 @@ export default function GavilanPosEcosystemPage() {
                                             const nextNum = lastReceiptInfo.checkNumber + 1
                                             setLastReceiptInfo(prev => ({ ...prev, checkNumber: nextNum }))
                                             const clientOrderId = `CAT-${activeStore?.storeNumber || 14}-${nextNum}-${Date.now()}`
-                                            const pkgPrice = cateringPackage === '15-20' ? 149.99 : cateringPackage === '20-25' ? 189.99 : 289.99
+                                            const pkgPrice = cateringPackage === '15-20' ? 201.99 : cateringPackage === '20-25' ? 245.79 : cateringPackage === '25-30' ? 301.69 : 373.89
                                             const tax = Number(((pkgPrice * currentTaxRate) / 100).toFixed(2))
                                             const tot = Number((pkgPrice + tax).toFixed(2))
                                             const catItems = [
@@ -3973,7 +3974,7 @@ export default function GavilanPosEcosystemPage() {
                                         }}
                                         className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black cursor-pointer shadow-xs"
                                     >
-                                        📅 Programar Party Tray (${cateringPackage === '15-20' ? '149.99' : cateringPackage === '20-25' ? '189.99' : '289.99'}) en Supabase
+                                        📅 Programar Party Tray (${cateringPackage === '15-20' ? '201.99' : cateringPackage === '20-25' ? '245.79' : cateringPackage === '25-30' ? '301.69' : '373.89'}) en Supabase
                                     </button>
                                 </div>
                             </div>

@@ -20,20 +20,34 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.29.1',
-    versionNumber: '2.29.1',
+    version: 'v2.29.2',
+    versionNumber: '2.29.2',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.29.1',
-    labelEn: 'November 2026 • SM TEG v2.29.1',
+    labelEs: 'Noviembre 2026 • SM TEG v2.29.2',
+    labelEn: 'November 2026 • SM TEG v2.29.2',
     brand: 'SM TEG',
     lastUpdated: '2026-11-17'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.29.2',
+        date: '17-Nov-2026',
+        titleEs: 'Contestadora IA Blindaje Pre-Twilio (Tombstones No-Clobber, Dedup Atómico y Recados Críticos sin Truncar) y Party Tray Guidelines como Fuente Oficial Única',
+        titleEn: 'AI Receptionist Pre-Twilio Hardening (No-Clobber Tombstones, Atomic Dedup & Untruncated Critical Callbacks) and Party Tray Guidelines as Single Source of Truth',
+        highlightsEs: [
+            'Contestadora IA (/admin/llamadas, lib/phone-agent.ts y /api/phone/*): unicidad del número Twilio al cambiar routing_mode a direct_twilio, deduplicación atómica de recados con precios vivos, RPC upsert_phone_call_status_tombstone_atomic que nunca reemplaza duraciones válidas con NULL ni reabre llamadas terminadas, conservación del tombstone ante fallos de UPDATE para reintento y recados críticos nunca ocultos por los límites 200/100 (migraciones 20261117123000, 20261117143000 y 20261117160000)',
+            'Party Tray Guidelines como fuente oficial única (lib/inventory/party-tray-guidelines.ts y migración 20261117151500): cantidades unificadas en recetas virtuales, costo teórico de empaques con precios vivos, Caja POS, Contestadora y sitio web público tacosgavilan.com; más soporte Toast POS del descuento Taco Tuesday verificado en vivo en las 15 sucursales y 88.6 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'AI Receptionist (/admin/llamadas, lib/phone-agent.ts & /api/phone/*): Twilio number uniqueness when switching routing_mode to direct_twilio, atomic callback dedup with live prices, upsert_phone_call_status_tombstone_atomic RPC that never overwrites valid durations with NULL nor reopens ended calls, tombstone retained on UPDATE failure for retry, and critical callbacks never hidden by 200/100 limits (migrations 20261117123000, 20261117143000 & 20261117160000)',
+            'Party Tray Guidelines as single source of truth (lib/inventory/party-tray-guidelines.ts & migration 20261117151500): unified quantities across virtual recipes, live-priced theoretical packaging cost, POS register, AI receptionist, and the public tacosgavilan.com website; plus Toast POS Taco Tuesday discount support verified live across all 15 branches and 88.6 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.29.1',
         date: '17-Nov-2026',

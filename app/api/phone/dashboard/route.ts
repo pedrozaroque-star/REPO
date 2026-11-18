@@ -25,6 +25,11 @@
  *   y soporte completo `PATCH` para `special_hours`.
  * - Blindaje 2026-11-12: limpieza de sesiones colgadas con throttle 5 min en RAM, ordenamiento de recados `pending` por urgencia (`critical`>`high`>`normal`),
  *   `resolvedByAiPct` real sobre llamadas Twilio, validación estricta UUID/fecha/tienda/anti-bucle de `stores.phone` y rechazo 400/409 limpio.
+ * - Blindaje 2026-11-17: validación de unicidad `twilio_phone_number` también cuando cambia únicamente `routing_mode` a `direct_twilio`;
+ *   atribución de `resolved_by` exclusiva desde sesión autenticada (ignora `resolved_by_name` de cliente); paginación keyset acotada O(log N)
+ *   sobre `idx_phone_callbacks_pending_critical_scoped` con tope de seguridad (10,000 registros) y detección explícita de truncamiento
+ *   (`callbacksPagination.criticalPendingTruncated` / `pendingTruncated`) para nunca presentar una lista truncada como completa;
+ *   y propagación explícita HTTP 500 en el panel.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -38,8 +43,10 @@ import {
 } from '@/lib/phone-agent-access'
 import {
   CarrierType,
+  CRITICAL_CALLBACKS_MAX_ROWS,
   cleanPhoneStoreName,
   evaluateStoreSchedulePure,
+  fetchScopedCriticalPendingCallbacksWithCap,
   getCarrierForwardingInstructions,
   invalidatePhoneRoutingDirectoryCache,
   invalidateStorePhoneContextCache
@@ -82,6 +89,93 @@ function parseOptionalStoreIdParam(raw: string | null): { valid: boolean; value:
   return { valid: true, value: n }
 }
 
+function callbackUrgencyRank(u: string | null | undefined): number {
+  const norm = String(u || '').toLowerCase()
+  if (norm === 'critical') return 0
+  if (norm === 'urgent') return 1
+  if (norm === 'high') return 2
+  if (norm === 'medium') return 3
+  if (norm === 'normal') return 4
+  return 5
+}
+
+export interface CallbacksPaginationMeta {
+  criticalPendingCap: number
+  criticalPendingReturned: number
+  criticalPendingTotal: number
+  criticalPendingTruncated: boolean
+  nonCriticalPendingCap: number
+  pendingReturned: number
+  pendingTotal: number
+  pendingTruncated: boolean
+  hasMorePending: boolean
+}
+
+function buildCallbacksPaginationMeta(params: {
+  sortedCallbacks: any[]
+  criticalCapLimit: number
+  criticalCapTruncated: boolean
+  criticalExactTotal: number | null
+  pendingExactTotal: number | null
+  nonCriticalPendingCap: number
+  wantsPendingIncluded: boolean
+}): CallbacksPaginationMeta {
+  const criticalPendingReturned = params.sortedCallbacks.filter(
+    (cb: any) => cb?.status === 'pending' && (cb?.urgency === 'critical' || cb?.urgency === 'urgent')
+  ).length
+  const pendingReturned = params.sortedCallbacks.filter((cb: any) => cb?.status === 'pending').length
+
+  const criticalPendingTotal = params.wantsPendingIncluded
+    ? Math.max(criticalPendingReturned, Number(params.criticalExactTotal ?? 0))
+    : criticalPendingReturned
+  const pendingTotal = params.wantsPendingIncluded
+    ? Math.max(pendingReturned, Number(params.pendingExactTotal ?? 0))
+    : pendingReturned
+
+  const criticalPendingTruncated = Boolean(
+    params.wantsPendingIncluded &&
+      (params.criticalCapTruncated || criticalPendingTotal > criticalPendingReturned)
+  )
+  const pendingTruncated = Boolean(
+    params.wantsPendingIncluded &&
+      (criticalPendingTruncated || pendingTotal > pendingReturned)
+  )
+
+  return {
+    criticalPendingCap: params.criticalCapLimit || CRITICAL_CALLBACKS_MAX_ROWS,
+    criticalPendingReturned,
+    criticalPendingTotal,
+    criticalPendingTruncated,
+    nonCriticalPendingCap: params.nonCriticalPendingCap,
+    pendingReturned,
+    pendingTotal,
+    pendingTruncated,
+    hasMorePending: pendingTruncated
+  }
+}
+
+function mergeAndSortCallbacks(lists: Array<any[] | null | undefined>): any[] {
+  const byId = new Map<string, any>()
+  for (const list of lists) {
+    for (const row of list || []) {
+      if (row && row.id && !byId.has(String(row.id))) {
+        byId.set(String(row.id), sanitizeNestedStore(row))
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((a: any, b: any) => {
+    const aPend = a.status === 'pending' ? 0 : 1
+    const bPend = b.status === 'pending' ? 0 : 1
+    if (aPend !== bPend) return aPend - bPend
+    if (aPend === 0) {
+      const ua = callbackUrgencyRank(a.urgency)
+      const ub = callbackUrgencyRank(b.urgency)
+      if (ua !== ub) return ua - ub
+    }
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  })
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -102,44 +196,93 @@ export async function GET(request: NextRequest) {
         return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
       }
 
-      let cbQuery = supabaseAdmin
-        .from('phone_callback_requests')
-        .select('*, stores(id, name)')
-        .order('created_at', { ascending: false })
-        .limit(50)
-
-      if (searchParams.get('includeSimulator') !== 'true') {
-        cbQuery = cbQuery.eq('source', 'twilio')
-      }
-
-      if (parsedStoreParam && Number.isFinite(parsedStoreParam)) {
-        cbQuery = cbQuery.eq('store_id', parsedStoreParam)
-      } else if (!auth.user.isGlobalAdmin) {
-        cbQuery = cbQuery.in('store_id', auth.user.allowedStoreIds)
-      }
-
+      const cbViewer = auth.user
+      const includeSim = searchParams.get('includeSimulator') === 'true'
       const statusFilter = searchParams.get('status')
-      if (statusFilter) {
-        cbQuery = cbQuery.eq('status', statusFilter)
+
+      const applyCbScope = (q: any) => {
+        if (!includeSim) {
+          q = q.eq('source', 'twilio')
+        }
+        if (parsedStoreParam && Number.isFinite(parsedStoreParam)) {
+          q = q.eq('store_id', parsedStoreParam)
+        } else if (!cbViewer.isGlobalAdmin) {
+          q = q.in('store_id', cbViewer.allowedStoreIds)
+        }
+        return q
       }
 
-      const { data: callbacks, error: cbErr } = await cbQuery
-      if (cbErr) throw cbErr
-      const urgencyRank = (u: string | null | undefined) => (u === 'critical' || u === 'urgent' ? 0 : u === 'high' ? 1 : 2)
-      const sortedCallbacks = (callbacks || [])
-        .map(sanitizeNestedStore)
-        .sort((a: any, b: any) => {
-          const aPend = a.status === 'pending' ? 0 : 1
-          const bPend = b.status === 'pending' ? 0 : 1
-          if (aPend !== bPend) return aPend - bPend
-          if (aPend === 0) {
-            const ua = urgencyRank(a.urgency)
-            const ub = urgencyRank(b.urgency)
-            if (ua !== ub) return ua - ub
-          }
-          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-        })
-      return NextResponse.json({ callbacks: sortedCallbacks })
+      const buildScopedCbQuery = () =>
+        applyCbScope(supabaseAdmin.from('phone_callback_requests').select('*, stores(id, name)'))
+
+      const buildScopedCbCountQuery = () =>
+        applyCbScope(supabaseAdmin.from('phone_callback_requests').select('id', { count: 'exact', head: true }))
+
+      const wantsPendingIncluded = !statusFilter || statusFilter === 'pending'
+      const [
+        criticalPendingRes,
+        pendingBatchRes,
+        recentCbRes,
+        scopedCriticalCountRes,
+        scopedPendingCountRes
+      ] = await Promise.all([
+        wantsPendingIncluded
+          ? fetchScopedCriticalPendingCallbacksWithCap(buildScopedCbQuery)
+          : Promise.resolve({
+              data: [] as any[],
+              error: null,
+              truncated: false,
+              capLimit: CRITICAL_CALLBACKS_MAX_ROWS,
+              pagesFetched: 0
+            }),
+        wantsPendingIncluded
+          ? buildScopedCbQuery()
+              .eq('status', 'pending')
+              .not('urgency', 'in', '("critical","urgent")')
+              .order('created_at', { ascending: false })
+              .limit(100)
+          : Promise.resolve({ data: [] as any[], error: null }),
+        (() => {
+          let q = buildScopedCbQuery()
+          if (statusFilter) q = q.eq('status', statusFilter)
+          return q.order('created_at', { ascending: false }).limit(50)
+        })(),
+        wantsPendingIncluded
+          ? buildScopedCbCountQuery().eq('status', 'pending').in('urgency', ['critical', 'urgent'])
+          : Promise.resolve({ count: 0, error: null }),
+        wantsPendingIncluded
+          ? buildScopedCbCountQuery().eq('status', 'pending')
+          : Promise.resolve({ count: 0, error: null })
+      ])
+
+      const cbQueryErr =
+        criticalPendingRes.error ||
+        pendingBatchRes.error ||
+        recentCbRes.error ||
+        scopedCriticalCountRes.error ||
+        scopedPendingCountRes.error
+      if (cbQueryErr) {
+        return NextResponse.json(
+          { error: `Error al consultar recados telefónicos: ${cbQueryErr.message}` },
+          { status: 500 }
+        )
+      }
+
+      const sortedCallbacks = mergeAndSortCallbacks([
+        criticalPendingRes.data,
+        pendingBatchRes.data,
+        recentCbRes.data
+      ])
+      const callbacksPagination = buildCallbacksPaginationMeta({
+        sortedCallbacks,
+        criticalCapLimit: criticalPendingRes.capLimit,
+        criticalCapTruncated: criticalPendingRes.truncated,
+        criticalExactTotal: scopedCriticalCountRes.count ?? 0,
+        pendingExactTotal: scopedPendingCountRes.count ?? 0,
+        nonCriticalPendingCap: 100,
+        wantsPendingIncluded
+      })
+      return NextResponse.json({ callbacks: sortedCallbacks, callbacksPagination })
     }
 
     // Filtros independientes de la pestaña Bitácora (Tab 4): no alteran los KPIs globales ni las preguntas de Tab 2
@@ -176,11 +319,17 @@ export async function GET(request: NextRequest) {
     if (sweepNow - lastStaleSweepAt >= STALE_SWEEP_INTERVAL_MS) {
       lastStaleSweepAt = sweepNow
       const staleCutoffIso = new Date(sweepNow - 25 * 60 * 1000).toISOString()
+      const oldTombstoneCutoffIso = new Date(sweepNow - 24 * 60 * 60 * 1000).toISOString()
       void supabaseAdmin
         .from('phone_calls')
         .update({ status: 'completed', ended_at: new Date(sweepNow).toISOString() })
         .eq('status', 'in_progress')
         .lt('started_at', staleCutoffIso)
+        .then(() => null, () => null)
+      void supabaseAdmin
+        .from('phone_call_status_tombstones')
+        .delete()
+        .lt('created_at', oldTombstoneCutoffIso)
         .then(() => null, () => null)
     }
 
@@ -191,6 +340,8 @@ export async function GET(request: NextRequest) {
       specialRes,
       callsRes,
       callbacksRes,
+      pendingCriticalCbRes,
+      pendingAllCbRes,
       unansweredRes,
       realCallsCountRes,
       realEvaluatedCallsCountRes,
@@ -199,7 +350,9 @@ export async function GET(request: NextRequest) {
       resolvedCallsCountRes,
       realResolvedCallsCountRes,
       pendingRealCbCountRes,
-      pendingSimCbCountRes
+      pendingSimCbCountRes,
+      scopedCriticalCbCountRes,
+      scopedPendingCbCountRes
     ] = await Promise.all([
       (() => {
         let q = supabaseAdmin
@@ -241,6 +394,28 @@ export async function GET(request: NextRequest) {
         let q = supabaseAdmin
           .from('phone_callback_requests')
           .select('*, stores(id, name)')
+          .order('created_at', { ascending: false })
+          .limit(120)
+        q = applyStoreScope(q, filterCallsStoreId)
+        if (callsSourceFilter === 'twilio' || callsSourceFilter === 'simulator') {
+          q = q.eq('source', callsSourceFilter)
+        }
+        return q
+      })(),
+      fetchScopedCriticalPendingCallbacksWithCap(() => {
+        let q = supabaseAdmin.from('phone_callback_requests').select('*, stores(id, name)')
+        q = applyStoreScope(q, filterCallsStoreId)
+        if (callsSourceFilter === 'twilio' || callsSourceFilter === 'simulator') {
+          q = q.eq('source', callsSourceFilter)
+        }
+        return q
+      }),
+      (() => {
+        let q = supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores(id, name)')
+          .eq('status', 'pending')
+          .not('urgency', 'in', '("critical","urgent")')
           .order('created_at', { ascending: false })
           .limit(120)
         q = applyStoreScope(q, filterCallsStoreId)
@@ -307,8 +482,62 @@ export async function GET(request: NextRequest) {
           .eq('status', 'pending')
           .eq('source', 'simulator'),
         null
-      )
+      ),
+      (() => {
+        let q = supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .in('urgency', ['critical', 'urgent'])
+        q = applyStoreScope(q, filterCallsStoreId)
+        if (callsSourceFilter === 'twilio' || callsSourceFilter === 'simulator') {
+          q = q.eq('source', callsSourceFilter)
+        }
+        return q
+      })(),
+      (() => {
+        let q = supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+        q = applyStoreScope(q, filterCallsStoreId)
+        if (callsSourceFilter === 'twilio' || callsSourceFilter === 'simulator') {
+          q = q.eq('source', callsSourceFilter)
+        }
+        return q
+      })()
     ])
+
+    const dashboardChecks: Array<[string, any]> = [
+      ['stores', storesRes.error],
+      ['phone_agent_config', configsRes.error],
+      ['phone_knowledge_base', kbRes.error],
+      ['phone_special_hours', specialRes.error],
+      ['phone_calls', callsRes.error],
+      ['phone_callback_requests', callbacksRes.error],
+      ['pending_critical_callbacks', pendingCriticalCbRes.error],
+      ['pending_callbacks', pendingAllCbRes.error],
+      ['unanswered_questions', unansweredRes.error],
+      ['kpi_real_calls', realCallsCountRes.error],
+      ['kpi_real_evaluated_calls', realEvaluatedCallsCountRes.error],
+      ['kpi_simulator_calls', simCallsCountRes.error],
+      ['kpi_evaluated_calls', evaluatedCallsCountRes.error],
+      ['kpi_resolved_calls', resolvedCallsCountRes.error],
+      ['kpi_real_resolved_calls', realResolvedCallsCountRes.error],
+      ['kpi_pending_real_callbacks', pendingRealCbCountRes.error],
+      ['kpi_pending_simulator_callbacks', pendingSimCbCountRes.error],
+      ['scoped_critical_callbacks_count', scopedCriticalCbCountRes.error],
+      ['scoped_pending_callbacks_count', scopedPendingCbCountRes.error]
+    ]
+    const failedQuery = dashboardChecks.find(([, err]) => Boolean(err))
+    if (failedQuery) {
+      const [label, qErr] = failedQuery
+      console.error(`[api/phone/dashboard] Query failed (${label}):`, qErr)
+      return NextResponse.json(
+        { error: `Error en consulta del panel (${label}): ${qErr.message || String(qErr)}` },
+        { status: 500 }
+      )
+    }
 
     const stores = (storesRes.data || []).filter((s: any) => s.is_active !== false)
     const configs = configsRes.data || []
@@ -349,7 +578,8 @@ export async function GET(request: NextRequest) {
       const forwardingGuide = getCarrierForwardingInstructions(
         (cfg.carrier_type || 'att_wireless') as CarrierType,
         cfg.twilio_phone_number,
-        Number(cfg.ring_timeout_seconds || 20)
+        Number(cfg.ring_timeout_seconds || 20),
+        { storePhones: stores.map((st: any) => st.phone).filter(Boolean) }
       )
 
       return {
@@ -365,20 +595,20 @@ export async function GET(request: NextRequest) {
     })
 
     const calls = (callsRes.data || []).map(sanitizeNestedStore)
-    const urgencyRank = (u: string | null | undefined) => (u === 'critical' || u === 'urgent' ? 0 : u === 'high' ? 1 : 2)
-    const callbacks = (callbacksRes.data || [])
-      .map(sanitizeNestedStore)
-      .sort((a: any, b: any) => {
-        const aPend = a.status === 'pending' ? 0 : 1
-        const bPend = b.status === 'pending' ? 0 : 1
-        if (aPend !== bPend) return aPend - bPend
-        if (aPend === 0) {
-          const ua = urgencyRank(a.urgency)
-          const ub = urgencyRank(b.urgency)
-          if (ua !== ub) return ua - ub
-        }
-        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-      })
+    const callbacks = mergeAndSortCallbacks([
+      pendingCriticalCbRes.data,
+      pendingAllCbRes.data,
+      callbacksRes.data
+    ])
+    const callbacksPagination = buildCallbacksPaginationMeta({
+      sortedCallbacks: callbacks,
+      criticalCapLimit: pendingCriticalCbRes.capLimit,
+      criticalCapTruncated: pendingCriticalCbRes.truncated,
+      criticalExactTotal: scopedCriticalCbCountRes.count ?? 0,
+      pendingExactTotal: scopedPendingCbCountRes.count ?? 0,
+      nonCriticalPendingCap: 120,
+      wantsPendingIncluded: true
+    })
 
     const realCallsCount = Number(realCallsCountRes.count || 0)
     const realEvaluatedCallsCount = Number(realEvaluatedCallsCountRes.count || 0)
@@ -436,6 +666,7 @@ export async function GET(request: NextRequest) {
       specialHours: visibleSpecialHours,
       calls,
       callbacks,
+      callbacksPagination,
       unansweredQuestions,
       twilioIntegration: {
         authTokenConfigured: Boolean(process.env.TWILIO_AUTH_TOKEN?.trim()),
@@ -484,7 +715,10 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
         return { ok: false, res: NextResponse.json({ error: 'store_id inválido' }, { status: 400 }) }
       }
-      const { data: st } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+      const { data: st, error: stErr } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+      if (stErr) {
+        return { ok: false, res: NextResponse.json({ error: `Error validando sucursal: ${stErr.message}` }, { status: 500 }) }
+      }
       if (!st) {
         return { ok: false, res: NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 }) }
       }
@@ -576,7 +810,8 @@ export async function POST(request: NextRequest) {
       const findExisting = async () => {
         let q = supabaseAdmin.from('phone_special_hours').select('id').eq('event_date', eventDate)
         q = storeId === null ? q.is('store_id', null) : q.eq('store_id', storeId)
-        const { data } = await q.limit(1).maybeSingle()
+        const { data, error: findErr } = await q.limit(1).maybeSingle()
+        if (findErr) throw findErr
         return data
       }
 
@@ -669,7 +904,8 @@ export async function PATCH(request: NextRequest) {
       const rawStatus = String(body?.status || 'resolved').trim().toLowerCase()
       const status = allowedStatuses.has(rawStatus) ? rawStatus : 'resolved'
 
-      const resolverIdentity = String(body?.resolved_by_name || auth.user.name || auth.user.email || 'Manager').trim().slice(0, 120)
+      // Seguridad anti-suplantación: atribuir exclusivamente al usuario autenticado de la sesión (ignorar body.resolved_by_name)
+      const resolverIdentity = String(auth.user.name || auth.user.email || 'Manager').trim().slice(0, 120)
       const updates: Record<string, any> = {
         status,
         resolved_by: status === 'pending' ? null : resolverIdentity,
@@ -715,10 +951,14 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
       }
 
-      const [{ data: allStores }, { data: allConfigs }] = await Promise.all([
+      const [allStoresRes, allConfigsRes] = await Promise.all([
         supabaseAdmin.from('stores').select('id, name, phone'),
         supabaseAdmin.from('phone_agent_config').select('*')
       ])
+      if (allStoresRes.error) throw allStoresRes.error
+      if (allConfigsRes.error) throw allConfigsRes.error
+      const allStores = allStoresRes.data || []
+      const allConfigs = allConfigsRes.data || []
 
       const storeExists = (allStores || []).some((s: any) => Number(s.id) === storeId)
       if (!storeExists) {
@@ -761,10 +1001,18 @@ export async function PATCH(request: NextRequest) {
         }
       }
 
-      // Validar y normalizar `twilio_phone_number` + unicidad entre las 15 tiendas
+      // Validar y normalizar `twilio_phone_number` + unicidad entre las 15 tiendas (incluyendo cuando cambia solo `routing_mode` a `direct_twilio`)
+      const effectiveRoutingMode = updates.routing_mode || prevCfg?.routing_mode || 'conditional_forward'
+      const candidateTwilioRaw =
+        body.twilio_phone_number !== undefined ? body.twilio_phone_number : prevCfg?.twilio_phone_number ?? null
       let effectiveTwilioPhone: string | null = prevCfg?.twilio_phone_number || null
-      if (body.twilio_phone_number !== undefined) {
-        const parsedTw = normalizeUsPhoneE164(body.twilio_phone_number)
+
+      const shouldValidateTwilio =
+        body.twilio_phone_number !== undefined ||
+        (body.routing_mode !== undefined && candidateTwilioRaw !== null && String(candidateTwilioRaw).trim() !== '')
+
+      if (shouldValidateTwilio) {
+        const parsedTw = normalizeUsPhoneE164(candidateTwilioRaw)
         if (!parsedTw.valid) {
           return NextResponse.json({ error: `Número Twilio inválido: ${parsedTw.error}` }, { status: 400 })
         }
@@ -775,7 +1023,7 @@ export async function PATCH(request: NextRequest) {
           )
         }
         if (parsedTw.tenDigits) {
-          const storeConflict = (allStores || []).find(
+          const storeConflict = allStores.find(
             (s: any) => s.phone && extractPhoneDigits(s.phone).slice(-10) === parsedTw.tenDigits
           )
           if (storeConflict) {
@@ -786,8 +1034,7 @@ export async function PATCH(request: NextRequest) {
               { status: 400 }
             )
           }
-          const effectiveRoutingMode = updates.routing_mode || prevCfg?.routing_mode || 'conditional_forward'
-          const duplicateDirectCfg = (allConfigs || []).find(
+          const duplicateDirectCfg = allConfigs.find(
             (c: any) =>
               Number(c.store_id) !== storeId &&
               c.twilio_phone_number &&
@@ -797,28 +1044,40 @@ export async function PATCH(request: NextRequest) {
           if (duplicateDirectCfg) {
             return NextResponse.json(
               {
-                error: `Ese número Twilio ya está en modo directo en la sucursal #${duplicateDirectCfg.store_id}. Para compartir un número piloto usa modo Desvío Condicional (ForwardedFrom).`
+                error: `Ese número Twilio ya está asignado a la sucursal #${duplicateDirectCfg.store_id} y el modo directo (direct_twilio) exige un número exclusivo por tienda. Para compartir un número piloto usa Desvío Condicional (ForwardedFrom).`
               },
-              { status: 400 }
+              { status: 409 }
             )
           }
         }
-        updates.twilio_phone_number = parsedTw.normalized
         effectiveTwilioPhone = parsedTw.normalized
 
-        const prevDigits = extractPhoneDigits(prevCfg?.twilio_phone_number).slice(-10)
-        if ((parsedTw.tenDigits || '') !== prevDigits && body.forwarding_status === undefined) {
-          updates.forwarding_status = 'pending'
-          updates.forwarding_verified_at = null
+        if (body.twilio_phone_number !== undefined) {
+          updates.twilio_phone_number = parsedTw.normalized
+          const prevDigits = extractPhoneDigits(prevCfg?.twilio_phone_number).slice(-10)
+          const nextDigits = parsedTw.tenDigits || ''
+          if (!effectiveTwilioPhone || nextDigits !== prevDigits) {
+            updates.forwarding_status = 'pending'
+            updates.forwarding_verified_at = null
+          }
         }
       }
 
-      if (body.forwarding_status !== undefined) {
+      if (body.forwarding_status !== undefined && updates.forwarding_status !== 'pending') {
         if (body.forwarding_status === 'verified') {
           const twCheck = normalizeUsPhoneE164(effectiveTwilioPhone)
-          if (!twCheck.valid || !twCheck.normalized) {
+          const storeSelfConflict =
+            twCheck.tenDigits &&
+            allStores.some((s: any) => s.phone && extractPhoneDigits(s.phone).slice(-10) === twCheck.tenDigits)
+          if (
+            !twCheck.valid ||
+            !twCheck.normalized ||
+            !twCheck.tenDigits ||
+            isFictitiousNanpPhone(twCheck.tenDigits, false) ||
+            storeSelfConflict
+          ) {
             return NextResponse.json(
-              { error: 'Primero guarda un número Twilio válido de 10 dígitos antes de marcar el desvío como verificado.' },
+              { error: 'Primero guarda un número Twilio real válido de 10 dígitos de EE. UU. antes de marcar el desvío como verificado.' },
               { status: 400 }
             )
           }
@@ -857,7 +1116,8 @@ export async function PATCH(request: NextRequest) {
           if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
             return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
           }
-          const { data: stExists } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+          const { data: stExists, error: stLookupErr } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+          if (stLookupErr) throw stLookupErr
           if (!stExists) {
             return NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 })
           }
@@ -930,7 +1190,8 @@ export async function PATCH(request: NextRequest) {
           if (!Number.isFinite(n) || n <= 0 || Math.trunc(n) !== n) {
             return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
           }
-          const { data: stExists } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+          const { data: stExists, error: stLookupErr } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
+          if (stLookupErr) throw stLookupErr
           if (!stExists) {
             return NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 })
           }

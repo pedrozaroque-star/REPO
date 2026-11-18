@@ -121,7 +121,7 @@ export async function POST(request: Request) {
 
     const currentLang = (reqUrl.searchParams.get('lang') === 'en' ? 'en' : 'es') as PhoneLang
     const isRetry = reqUrl.searchParams.get('retry') === '1'
-    const isPreconsent = reqUrl.searchParams.get('preconsent') === '1'
+    const isTurn0 = reqUrl.searchParams.get('turn0') === '1'
     const isDialFallback = reqUrl.searchParams.get('dialFallback') === '1'
 
     const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
@@ -222,81 +222,90 @@ export async function POST(request: Request) {
       )
     }
 
-    // Blindaje CIPA durante el aviso inicial (`preconsent=1`):
-    // - Si presionó `9`: cambia de idioma y reproduce el aviso legal CIPA completo en el nuevo idioma sin abrir `speech`.
-    // - Si presionó cualquier otra tecla durante el aviso inicial: termina de reproducir el aviso legal CIPA completo
-    //   sin interrupción (`<Play>` fuera de `<Gather>`) antes de activar `input="speech"`.
-    if (isPreconsent) {
-      const targetLang: PhoneLang = digits === '9' ? (currentLang === 'en' ? 'es' : 'en') : currentLang
-      const includeHint = digits !== '9'
-      const fullDisclosure = buildInitialGreeting(
-        ctx.store.name,
-        targetLang,
-        ctx.config.custom_greeting_es,
-        ctx.config.custom_greeting_en,
-        { omitTrailingQuestion: true, includeLanguageSwitchHint: includeHint }
-      )
-      const postQuestion = getPostDisclosurePrompt(targetLang, ctx.scheduleEval)
-      const fullGreeting = buildInitialGreeting(
-        ctx.store.name,
-        targetLang,
-        ctx.config.custom_greeting_es,
-        ctx.config.custom_greeting_en,
-        { includeLanguageSwitchHint: includeHint, scheduleEval: ctx.scheduleEval }
-      )
+    // Cambio de idioma con tecla 9:
+    // - En turno inicial (`turn0=1`): reproduce el aviso legal CIPA completo + estado abierto/cerrado en el nuevo idioma antes de escuchar voz.
+    // - A mitad de llamada: confirma brevemente y continúa sin repetir todo el aviso inicial.
+    if (digits === '9') {
+      const switchedLang: PhoneLang = currentLang === 'en' ? 'es' : 'en'
+      const swSayVoice = switchedLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+      const swSayLang = switchedLang === 'en' ? 'en-US' : 'es-MX'
+      const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${switchedLang}`
 
-      if (digits === '9') {
-        await supabaseAdmin
-          .from('phone_calls')
-          .update({
-            language: targetLang,
-            transcript: [
-              {
-                role: 'assistant',
-                text: fullGreeting,
-                timestamp: new Date().toISOString()
-              }
-            ]
-          })
-          .eq('call_sid', callSid)
-      }
+      if (isTurn0) {
+        const fullDisclosure = buildInitialGreeting(
+          ctx.store.name,
+          switchedLang,
+          ctx.config.custom_greeting_es,
+          ctx.config.custom_greeting_en,
+          { omitTrailingQuestion: true, includeLanguageSwitchHint: false }
+        )
+        const postQuestion = getPostDisclosurePrompt(switchedLang, ctx.scheduleEval)
+        const fullGreeting = buildInitialGreeting(
+          ctx.store.name,
+          switchedLang,
+          ctx.config.custom_greeting_es,
+          ctx.config.custom_greeting_en,
+          { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
+        )
 
-      scheduleBackgroundTask(async () => {
-        await Promise.all([
-          getPhoneAgentSpeech(fullDisclosure, targetLang, voice, false, { awaitStoragePersist: true }),
-          getPhoneAgentSpeech(postQuestion, targetLang, voice, false, { awaitStoragePersist: true })
-        ])
-      })
+        let discTag: string
+        let qTag: string
+        try {
+          await Promise.all([
+            getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3600 }),
+            getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3600 })
+          ])
+          discTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, fullDisclosure, switchedLang, voice))}</Play>`
+          qTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQuestion, switchedLang, voice))}</Play>`
+        } catch {
+          discTag = `<Say voice="${swSayVoice}" language="${swSayLang}">${escapeXml(fullDisclosure)}</Say>`
+          qTag = `<Say voice="${swSayVoice}" language="${swSayLang}">${escapeXml(postQuestion)}</Say>`
+        }
 
-      const discUrl = buildPhoneTtsUrl(baseUrl, fullDisclosure, targetLang, voice)
-      const qUrl = buildPhoneTtsUrl(baseUrl, postQuestion, targetLang, voice)
-      const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${targetLang}`
+        scheduleBackgroundTask(async () => {
+          await Promise.all([
+            getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, { awaitStoragePersist: true }).catch(() => null),
+            getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, { awaitStoragePersist: true }).catch(() => null),
+            supabaseAdmin
+              .from('phone_calls')
+              .update({
+                language: switchedLang,
+                transcript: [{ role: 'assistant', text: fullGreeting, timestamp: new Date().toISOString() }]
+              })
+              .eq('call_sid', callSid)
+          ])
+        })
 
-      return new Response(
-        `<?xml version="1.0" encoding="UTF-8"?>
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${escapeXml(discUrl)}</Play>
-  <Gather ${buildTwilioGatherAttrs(targetLang, nextUrl)}>
-    <Play>${escapeXml(qUrl)}</Play>
+  ${discTag}
+  <Gather ${buildTwilioGatherAttrs(switchedLang, nextUrl)}>
+    ${qTag}
   </Gather>
   <Redirect method="POST">${escapeXml(nextUrl)}&amp;silence=1</Redirect>
 </Response>`,
-        { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
-      )
-    }
+          { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+        )
+      }
 
-    // Cambio de idioma con tecla 9 a mitad de llamada: el aviso CIPA ya sonó al inicio, responder de forma ágil y cálida
-    if (digits === '9') {
-      const switchedLang: PhoneLang = currentLang === 'en' ? 'es' : 'en'
       const conciseSwitchReply =
         switchedLang === 'en'
           ? 'Of course, we can continue in English! How can I help you today?'
           : 'Con gusto continuamos en español. ¿En qué te puedo ayudar?'
 
+      let switchTag: string
+      try {
+        await getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        switchTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, conciseSwitchReply, switchedLang, voice))}</Play>`
+      } catch {
+        switchTag = `<Say voice="${swSayVoice}" language="${swSayLang}">${escapeXml(conciseSwitchReply)}</Say>`
+      }
+
       scheduleBackgroundTask(async () => {
         const [{ data: existingCall }] = await Promise.all([
           supabaseAdmin.from('phone_calls').select('id, transcript, turns_count').eq('call_sid', callSid).maybeSingle(),
-          getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, { awaitStoragePersist: true })
+          getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, { awaitStoragePersist: true }).catch(() => null)
         ])
         if (existingCall) {
           const prevTr = Array.isArray(existingCall.transcript) ? existingCall.transcript : []
@@ -315,14 +324,11 @@ export async function POST(request: Request) {
         }
       })
 
-      const switchUrl = buildPhoneTtsUrl(baseUrl, conciseSwitchReply, switchedLang, voice)
-      const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${switchedLang}`
-
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather ${buildTwilioGatherAttrs(switchedLang, nextUrl)}>
-    <Play>${escapeXml(switchUrl)}</Play>
+    ${switchTag}
   </Gather>
   <Redirect method="POST">${escapeXml(nextUrl)}&amp;silence=1</Redirect>
 </Response>`,
@@ -421,47 +427,49 @@ export async function POST(request: Request) {
     })
 
     const { firstChunk, restChunk } = splitPhoneReplyForStreaming(turn.replyText)
-    // Pre-iniciar inflight TTS dinámico antes de emitir TwiML (Twilio comparte el mismo Promise ~50ms después vía &dyn=1)
-    void getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
-      skipStorageLookup: true,
-      skipStoragePersist: true,
-      maxTotalMs: 8200
-    }).catch(() => null)
-    if (restChunk) {
-      void getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
-        skipStorageLookup: true,
-        skipStoragePersist: true,
-        maxTotalMs: 8200
-      }).catch(() => null)
+    const turnSayVoice = turn.language === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+    const turnSayLang = turn.language === 'en' ? 'en-US' : 'es-MX'
+
+    // Pre-sintetizar `firstChunk` con presupuesto acotado (4.0s): si está listo queda en RAM/Storage (0ms en <Play>),
+    // y si Gemini TTS falla o expira, cae limpiamente a <Say> para que Twilio jamás corte la llamada con HTTP 502 (Error 11200).
+    let playTags: string
+    try {
+      await getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
+        skipStorageLookup: false,
+        skipStoragePersist: false,
+        skipSseAttempt: true,
+        maxTotalMs: 4000
+      })
+      const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
+        rate: 8000,
+        dynamic: false
+      })
+      const restAudioUrl = restChunk
+        ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, { rate: 8000, dynamic: false })
+        : null
+      playTags = restAudioUrl
+        ? `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
+        : `    <Play>${escapeXml(firstAudioUrl)}</Play>`
+    } catch {
+      playTags = `    <Say voice="${turnSayVoice}" language="${turnSayLang}">${escapeXml(turn.replyText)}</Say>`
     }
 
     scheduleBackgroundTask(async () => {
-      await (turn.flushDbPromise || Promise.resolve())
+      await Promise.all([
+        (turn.flushDbPromise || Promise.resolve()).catch((err) => {
+          console.error('[api/phone/respond] Error en flushDbPromise diferido:', err?.message || err)
+        }),
+        restChunk
+          ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
+              skipStorageLookup: false,
+              skipStoragePersist: false,
+              skipSseAttempt: true,
+              awaitStoragePersist: true,
+              maxTotalMs: 6500
+            }).catch(() => null)
+          : Promise.resolve()
+      ])
     })
-
-    const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
-      rate: 8000,
-      dynamic: true
-    })
-    const restAudioUrl = restChunk
-      ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, { rate: 8000, dynamic: true })
-      : null
-    const playTags = restAudioUrl
-      ? `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
-      : `    <Play>${escapeXml(firstAudioUrl)}</Play>`
-
-    if (turn.shouldTransferToPhone) {
-      const ringTimeout = Math.min(45, Math.max(10, Number(ctx.config.ring_timeout_seconds) || 20))
-      const dialFallbackUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${turn.language}&dialFallback=1`
-      return new Response(
-        `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-${playTags}
-  <Dial timeout="${ringTimeout}" action="${escapeXml(dialFallbackUrl)}" method="POST">${escapeXml(turn.shouldTransferToPhone)}</Dial>
-</Response>`,
-        { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
-      )
-    }
 
     if (turn.shouldHangup) {
       return new Response(
@@ -488,10 +496,21 @@ ${playTags}
     )
   } catch (err: any) {
     console.error('[api/phone/respond] Error:', err)
+    const isEnReq = (() => {
+      try {
+        return new URL(request.url).searchParams.get('lang') === 'en'
+      } catch {
+        return false
+      }
+    })()
+    const errSay = isEnReq
+      ? `<Say voice="Polly.Joanna-Neural" language="en-US">Sorry, we had a brief technical issue. You can find all our menu and store hours at tacosgavilan dot com.</Say>`
+      : `<Say voice="Polly.Mia-Neural" language="es-MX">Disculpa, tuvimos un inconveniente técnico. Puedes consultar toda nuestra información en tacosgavilan punto com.</Say>`
     return new Response(
       `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Mia-Neural" language="es-MX">Disculpa, tuvimos un inconveniente técnico. Puedes consultar toda nuestra información en tacosgavilan punto com.</Say>
+  ${errSay}
+  <Hangup/>
 </Response>`,
       { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
     )

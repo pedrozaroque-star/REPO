@@ -46,7 +46,7 @@
     },
     {
       "source": "/fiesta-platter/fiesta-platter-pdf/",
-      "destination": "/Gavilan-Party-Tray-Brochure-WEB.pdf",
+      "destination": "/fiesta-platter/",
       "permanent": true
     },
     {

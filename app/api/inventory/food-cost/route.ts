@@ -28,13 +28,16 @@
  *   - [2026-06-01] net_sales en cache se toma de sales_daily_cache (no del PMIX) para paridad con Ventas.
  *   - [2026-09-10] FIX: Write-through cache restricted to storeId='all' to prevent partial 1-store cache poisoning.
  *   - La normalización defensiva de modifiers (cap qty) protege contra cache corrupto antiguo.
+ *   - [2026-11-17] Unificado con `buildPartyTrayVirtualIngredients` (`Party Tray Guidelines`), corrigiendo
+ *     tortilla de harina a `358_9604BT Tortilla Regular 8 in` (`1df90372-7648-4ec1-9a6c-fca4032095a6`),
+ *     respetando `Fiesta Platters` Delivery como `15-20` y aislando Party Trays de `parseProteinAllocation`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseClient, getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { normalizeToLbs } from '@/lib/inventory/conversions'
-import { getPartyTrayTortillaAllocation, PARTY_TRAY_FOOD_TRAY_ITEMS, PARTY_TRAY_GUIDELINES, PARTY_TRAY_NAPKINS_PER_PACK, resolvePartyTraySize } from '@/lib/inventory/party-tray-guidelines'
+import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
 import { Recipe, InventoryItem } from '@/types/inventory'
 
@@ -269,128 +272,27 @@ export async function GET(request: NextRequest) {
             const isPartyTray25Name = (parentNameLower.includes('25') && parentNameLower.includes('30')) || parentNameLower.includes('25-30') || parentNameLower.includes('25 - 30');
             const isPartyTray30Name = (parentNameLower.includes('30') && parentNameLower.includes('40')) || parentNameLower.includes('30-40') || parentNameLower.includes('30 - 40');
             
-            const isPartyTray = hasPartyTrayKeywords || isPartyTray15Name || isPartyTray20Name || isPartyTray25Name || isPartyTray30Name;
+            const isPartyTray = isPartyTrayMenuItem(item.name, item.guid) || hasPartyTrayKeywords || isPartyTray15Name || isPartyTray20Name || isPartyTray25Name || isPartyTray30Name;
 
             if (isPartyTray) {
-                    // Calculate unit price to handle Grubhub/Delivery items like "Fiesta Platters ($240.99)" missing "20-25 People" in name
-                    const unitPrice = (item.price && item.price > 0) ? item.price : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0);
-                    const guideline = PARTY_TRAY_GUIDELINES[resolvePartyTraySize(item.name, unitPrice)]
-                    const { meatLbs, riceLbs, beansLbs: beanLbs, salsaRojaPacks: salsaR, salsaVerdePacks: salsaV,
-                        mixtaBags: onionLimonPts, jalapenoOz, plates, forks, spoons, cups,
-                        napkinPacks: napkins, aguaGallons: aguaGals } = guideline
+                const unitPrice = (item.price && item.price > 0) ? item.price : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0);
+                const groupLower = String(item.group_name || '').toLowerCase()
+                const isDeliveryGroup = groupLower.includes('uber') || groupLower.includes('door') || groupLower.includes('grub') || groupLower.includes('delivery') || groupLower.includes('3rd party')
+                const virtualParty = buildPartyTrayVirtualIngredients({
+                    itemName: item.name,
+                    unitPrice,
+                    toastGuid: item.guid,
+                    isDeliveryChannel: isDeliveryGroup,
+                    inventoryItems: (inventoryData || []) as InventoryItem[],
+                })
 
-                    const virtualIngredients: any[] = [];
-                    
-                    // --- DYNAMIC MODIFIER PARSING ---
-                    // Extract modifiers from names like "15 - 20 People (Tamarindo, Jamaica, Piña, Pollo, Maiz, Asada)"
-                    const modsArr = parentNameLower.match(/\(([^)]+)\)/) ? parentNameLower.match(/\(([^)]+)\)/)![1].split(',').map((s: string)=>s.trim()) : [];
-                    
-                    const meatsFound: string[] = [];
-                    const aguasFound: string[] = [];
-                    const meatMapOpts: Record<string, string> = {
-                        'asada': 'fab9d589-8ae8-4381-87da-85f836068996',
-                        'pollo': '4ea7ef9c-986e-4fc1-a363-7200ca558aab',
-                        'pastor': 'ad7e3703-2701-4a05-aa97-77866c8c717e',
-                        'carnit': '14990e85-0d90-467c-ad9d-362e6ed4f1cd', 
-                        'buche': 'baac1d41-3b80-4f80-acfc-7a19f46e03c2',
-                        'cabeza': '511e341b-ca42-44ed-89df-a4a84b51a619',
-                        'lengua': '0fb87578-1185-41a9-a318-97428db20a5d',
-                        'chorizo': '1e4c43b6-4e1b-4e51-8617-e127b89467f1'
-                    };
-                    const aguaMapOpts: Record<string, string> = {
-                        'tamarindo': 'b6f3f5de-c554-4650-b0df-09dd5d3ca053',
-                        'horchata': '085ecb0d-c711-4134-ae1a-f7630a22759c',
-                        'piña': '9851a32c-dc35-4653-a1e4-b2cf7bac9009',
-                        'pina': '9851a32c-dc35-4653-a1e4-b2cf7bac9009',
-                        'jamaica': '6051e960-7564-41f6-9a52-ff79ed7c6353'
-                    };
-
-                    let exclusiveMeatId: string | null = null;
-                    let exclusiveAguaId: string | null = null;
-                    const exclusivePrefixes = ['todo', 'toda', 'solo', 'pura', 'puro', 'only', 'all'];
-
-                    if (modsArr.length > 0) {
-                        modsArr.forEach((mod: string) => {
-                            // Detect exclusive intent (e.g. "todo asada", "solo carnitas")
-                            exclusivePrefixes.forEach(prefix => {
-                                Object.keys(meatMapOpts).forEach(meatKey => {
-                                    if (mod.includes(`${prefix} ${meatKey}`) || mod.includes(`${prefix}${meatKey}`) || mod.includes(`${prefix} de ${meatKey}`)) {
-                                        exclusiveMeatId = meatMapOpts[meatKey];
-                                    }
-                                });
-                                Object.keys(aguaMapOpts).forEach(aguaKey => {
-                                    if (mod.includes(`${prefix} ${aguaKey}`) || mod.includes(`${prefix}${aguaKey}`) || mod.includes(`${prefix} de ${aguaKey}`)) {
-                                        exclusiveAguaId = aguaMapOpts[aguaKey];
-                                    }
-                                });
-                            });
-                            
-                            Object.keys(meatMapOpts).forEach(k => { if (mod.includes(k)) meatsFound.push(meatMapOpts[k]); });
-                            Object.keys(aguaMapOpts).forEach(k => { if (mod.includes(k)) aguasFound.push(aguaMapOpts[k]); });
-                        });
-                    }
-
-                    if (exclusiveMeatId) {
-                        meatsFound.length = 0; // Override any mixed selection
-                        meatsFound.push(exclusiveMeatId);
-                    }
-                    if (exclusiveAguaId) {
-                        aguasFound.length = 0; // Override any mixed selection
-                        aguasFound.push(exclusiveAguaId);
-                    }
-
-                    // Fallbacks to default blended average if nothing found in name
-                    if (meatsFound.length === 0) meatsFound.push(...['fab9d589-8ae8-4381-87da-85f836068996', '4ea7ef9c-986e-4fc1-a363-7200ca558aab', 'ad7e3703-2701-4a05-aa97-77866c8c717e', '14990e85-0d90-467c-ad9d-362e6ed4f1cd', 'baac1d41-3b80-4f80-acfc-7a19f46e03c2', '511e341b-ca42-44ed-89df-a4a84b51a619', '0fb87578-1185-41a9-a318-97428db20a5d', '1e4c43b6-4e1b-4e51-8617-e127b89467f1']);
-                    if (aguasFound.length === 0) aguasFound.push(...['b6f3f5de-c554-4650-b0df-09dd5d3ca053', '085ecb0d-c711-4134-ae1a-f7630a22759c', '9851a32c-dc35-4653-a1e4-b2cf7bac9009', '6051e960-7564-41f6-9a52-ff79ed7c6353']);
-
-                    // Append proportions based on exactly how many choices were made
-                    meatsFound.forEach(mId => {
-                        virtualIngredients.push({ inventory_item_id: mId, quantity: meatLbs / meatsFound.length, unit: 'lb', type: 'cooked' });
-                    });
-                    aguasFound.forEach(aId => {
-                        virtualIngredients.push({ inventory_item_id: aId, quantity: aguaGals / aguasFound.length, unit: 'gal', type: 'raw' });
-                    });
-                    const gallonEmptyItem = (inventoryData as InventoryItem[]).find(inventoryItem =>
-                        inventoryItem.name.toLowerCase().includes('galones vacios')
-                    )
-                    if (gallonEmptyItem) {
-                        virtualIngredients.push({ inventory_item_id: gallonEmptyItem.id, quantity: aguaGals, unit: 'pza', type: 'raw' })
-                    }
-
-                    // Core Ingredients
-                    virtualIngredients.push({ inventory_item_id: 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562', quantity: riceLbs, unit: 'lb', type: 'raw' }); // Arroz
-                    virtualIngredients.push({ inventory_item_id: '557d9414-c769-4399-a6cc-15bb81cba85f', quantity: beanLbs, unit: 'lb', type: 'raw' }); // Frijol Molido
-                    virtualIngredients.push({ inventory_item_id: 'a639ad41-81bf-4de6-8dbc-0291005654ad', quantity: salsaR, unit: 'pza', type: 'raw' }); // Salsa Roja Pack
-                    virtualIngredients.push({ inventory_item_id: '6c0a3378-8309-48c9-a438-15313cabd9d8', quantity: salsaV, unit: 'pza', type: 'raw' }); // Salsa Verde Pack
-                    virtualIngredients.push({ inventory_item_id: '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb', quantity: onionLimonPts, unit: 'pza', type: 'raw' }); // 1 oz Bolsa de Mixta
-                    virtualIngredients.push({ inventory_item_id: 'f73fe7a6-105c-4624-a87b-07d5f78c09ea', quantity: onionLimonPts, unit: 'pza', type: 'raw' }); // Lima Bolsita
-                    virtualIngredients.push({ inventory_item_id: 'd56d8df8-d30c-4964-a425-9aa25d962364', quantity: jalapenoOz / 16, unit: 'lb', type: 'raw' }); // Rajas y zanahorias a granel
-
-                    const tortillas = getPartyTrayTortillaAllocation(item.name, guideline)
-                    const foodTrays = PARTY_TRAY_FOOD_TRAY_ITEMS[guideline.foodTraySize]
-                    if (tortillas.cornTortillas > 0) virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: tortillas.cornTortillas, unit: 'pza', type: 'raw' })
-                    if (tortillas.flourTortillas > 0) virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: tortillas.flourTortillas, unit: 'pza', type: 'raw' })
-                    virtualIngredients.push({ inventory_item_id: '85533c59-b2df-4af3-bf2b-e684d3d6c125', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' }) // RC478
-                    virtualIngredients.push({ inventory_item_id: 'eba87715-ea18-4f9c-8f22-44c745e86572', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' }) // 709DO
-                    virtualIngredients.push({ inventory_item_id: foodTrays.containerId, quantity: 3, unit: 'pza', type: 'raw' }) // Arroz, frijol y carne
-                    virtualIngredients.push({ inventory_item_id: foodTrays.lidId, quantity: 3, unit: 'pza', type: 'raw' })
-                    
-                    // Paperworks
-                    virtualIngredients.push({ inventory_item_id: 'ca959b14-fcef-4900-ae71-2388e4ac023c', quantity: plates, unit: 'pza', type: 'raw' }); // 9" Plate
-                    virtualIngredients.push({ inventory_item_id: 'd920800f-e0ca-4799-8434-fea7712f7e98', quantity: forks, unit: 'pza', type: 'raw' }); // Fork
-                    virtualIngredients.push({ inventory_item_id: 'd11c55da-7bd1-4133-883c-f28eb9a31936', quantity: spoons, unit: 'pza', type: 'raw' }); // Spoon
-                    virtualIngredients.push({ inventory_item_id: 'e48fbf27-ba61-414b-8bab-2a299e02f61a', quantity: cups, unit: 'pza', type: 'raw' }); // 12PR cup
-                    virtualIngredients.push({ inventory_item_id: '44272ca2-4891-43ec-abd8-2bf917363edb', quantity: 1, unit: 'pza', type: 'raw' }); // EL1CS2G for white cutlery
-                    virtualIngredients.push({ inventory_item_id: '328d996f-fed0-4731-b7eb-0b930e126dc4', quantity: napkins * PARTY_TRAY_NAPKINS_PER_PACK, unit: 'pza', type: 'raw' }); // DX900GE: 250 servilletas por paquete
-
-                    recipe = {
-                        id: 'virtual-party-tray',
-                        toast_menu_item_guid: item.guid,
-                        ingredients: virtualIngredients
-                    };
-                    
-                    skipModCostCalculation = true;
-                    console.log(`[FoodCostAPI] 🛠️ Virtual Recipe Generated for Party Tray: "${item.name}"`)
+                recipe = {
+                    id: 'virtual-party-tray',
+                    toast_menu_item_guid: item.guid,
+                    ingredients: virtualParty.ingredients
+                };
+                skipModCostCalculation = true;
+                console.log(`[FoodCostAPI] 🛠️ Virtual Recipe Generated for Party Tray (${virtualParty.size}): "${item.name}"`)
             } else if (!recipe) {
                 // If it's not a party tray, and we still have no recipe
             }
@@ -443,7 +345,7 @@ export async function GET(request: NextRequest) {
                 parentNameLower.includes('half buche') || parentNameLower.includes('half cabeza') ||
                 parentNameLower.includes('half lengua') || parentNameLower.includes('half chorizo')
 
-            const proteinAllocation = recipe ? parseProteinAllocation(item.name, recipe.ingredients) : null
+            const proteinAllocation = !isPartyTray && recipe ? parseProteinAllocation(item.name, recipe.ingredients) : null
             const activeProteinIds = new Set<string>(Object.values(ACTIVE_PROTEIN_IDS))
             const primaryProteinIngredient = recipe?.ingredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
             const recipeForCost = proteinAllocation && recipe

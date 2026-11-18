@@ -438,6 +438,13 @@ function ensureWav(data: Buffer, sampleRate = 24000, channels = 1, bitDepth = 16
       hdr.writeUInt32LE(cleanPcm.length, 40)
       return Buffer.concat([hdr, cleanPcm])
     }
+    if ((dataSz === 0 || dataSz === 0xffffffff) && inner.length > 44) {
+      const cleanPcm = inner.subarray(44)
+      const hdr = Buffer.from(inner.subarray(0, 44))
+      hdr.writeUInt32LE(36 + cleanPcm.length, 4)
+      hdr.writeUInt32LE(cleanPcm.length, 40)
+      return Buffer.concat([hdr, cleanPcm])
+    }
     return inner
   }
   return pcmToWav(data, sampleRate, channels, bitDepth)
@@ -569,7 +576,8 @@ async function generateTextWithGemini(
 
   const tryModelKey = async (model: string, key: string): Promise<Buffer | null> => {
     const kmKey = `${key}:${model}`
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const maxKeyTries = (opts?.attemptTimeoutMs ?? 18000) <= 5000 ? 1 : 2
+    for (let attempt = 0; attempt < maxKeyTries; attempt++) {
       if (opts?.signal?.aborted) return null
       try {
         const promptText = model.includes('3.8')
@@ -658,8 +666,11 @@ async function generateTextWithGemini(
         }
       } catch (fetchErr: any) {
         lastErr = `${model}: ${fetchErr.message}`
-        if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 600))
+        if (attempt + 1 < maxKeyTries && !opts?.signal?.aborted) {
+          await new Promise<void>((r) => {
+            const t = setTimeout(r, 400)
+            opts?.signal?.addEventListener('abort', () => { clearTimeout(t); r() }, { once: true })
+          })
           continue
         }
         break
@@ -949,11 +960,11 @@ export function splitPhoneReplyForStreaming(text: string): {
     if (abbrevBeforePeriod.test(prefix)) {
       continue
     }
-    if (endPos >= 24 && endPos <= 88) {
+    if (endPos >= 24 && endPos <= 145) {
       splitIdx = endPos
       break
     }
-    if (endPos > 88) {
+    if (endPos > 145) {
       break
     }
   }
@@ -964,11 +975,11 @@ export function splitPhoneReplyForStreaming(text: string): {
     let clauseMatch: RegExpExecArray | null
     while ((clauseMatch = clauseRegex.exec(clean)) !== null) {
       const candidateIdx = clauseMatch.index + clauseMatch[0].length
-      if (candidateIdx >= 26 && candidateIdx <= 88 && clean.length - candidateIdx >= 20) {
+      if (candidateIdx >= 26 && candidateIdx <= 96 && clean.length - candidateIdx >= 20) {
         splitIdx = candidateIdx
         break
       }
-      if (candidateIdx > 88) break
+      if (candidateIdx > 96) break
     }
   }
 
@@ -1135,7 +1146,8 @@ export async function* streamPhoneAgentSpeechPcm(
   const allKeys = await getGeminiKeyPoolWithRemote()
   const now = Date.now()
   const unblocked = allKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
-  const candidatePool = unblocked.length > 0 ? unblocked : allKeys
+  const bypassEmergencyBlock = unblocked.length === 0
+  const candidatePool = bypassEmergencyBlock ? allKeys : unblocked
   const startIdx = candidatePool.length > 0 ? (poolIndex++) % candidatePool.length : 0
   const rotated = [...candidatePool.slice(startIdx), ...candidatePool.slice(0, startIdx)]
   const aqKeys = rotated.filter((k) => k.startsWith('AQ.'))
@@ -1173,19 +1185,19 @@ export async function* streamPhoneAgentSpeechPcm(
       if ((modelAttempts.get(model) || 0) >= 2) {
         continue
       }
-      if ((keyBlockedUntil.get(key) || 0) > Date.now()) {
+      if (!bypassEmergencyBlock && (keyBlockedUntil.get(key) || 0) > Date.now()) {
         continue
       }
       const kmKey = `${key}:${model}`
       const blockedUntil = keyBlockedUntil.get(kmKey) || 0
-      if (blockedUntil > Date.now()) {
+      if (!bypassEmergencyBlock && blockedUntil > Date.now()) {
         if (pass === 0) recordStreamRpmCandidate(model, key, blockedUntil)
         continue
       }
 
       modelAttempts.set(model, (modelAttempts.get(model) || 0) + 1)
       const timeoutCtrl = new AbortController()
-      const timer = setTimeout(() => timeoutCtrl.abort(), 5800)
+      const timer = setTimeout(() => timeoutCtrl.abort(), 4500)
       const onExternalAbort = () => timeoutCtrl.abort()
       options?.signal?.addEventListener('abort', onExternalAbort, { once: true })
 
@@ -1542,7 +1554,7 @@ export async function getPhoneAgentSpeech(
       const stylePrompt = getPhoneStylePrompt(lang)
       const attemptTimeoutMs =
         typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
-          ? Math.min(4200, Math.max(1800, Math.floor(options.maxTotalMs / 2)))
+          ? Math.min(3400, Math.max(1700, Math.floor(options.maxTotalMs * 0.44)))
           : 5500
       const wav = await generateTextWithGemini(clean, lang, selectedVoice, stylePrompt, {
         skipRpmWait: true,

@@ -51,7 +51,7 @@
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
  * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
- *   Party Tray guidance: selected water flavor consumes the listed gallons plus one Galón Vacío each; absent water flavor in Party Trays and Gallon Agua/Agua Fresca uses same-store history (eight matching weekdays, then 28 recent days, then equal split); 20 oz salsa without color uses 10 oz Roja + 10 oz Verde, and with explicit color uses 20 oz of that color. 20 oz salsa also consumes RC478, 709DO, and currently ELTSBALA pending channel-specific bag validation; corn/flour split 50/50 when both are selected; 60 tortillas consume one RC478 + 709DO pair; Party Tray jalapeños are bulk; every tray uses three food-pan/lid pairs sized 1/3 (15-20), 1/2 (20-30), or full (30-40), 12PR cups, one EL1CS2G to group white cutlery, and DX900GE napkin packs of 250 each. Ticket packaging reads preserved Toast channel metadata (dining option, source and delivery service) rather than guessing from API labels.
+ *   Party Tray guidance: selected water flavor consumes the listed gallons plus one Galón Vacío each; absent water flavor in Party Trays and Gallon Agua/Agua Fresca uses same-store history (eight matching weekdays, then 28 recent days, then equal split); 20 oz salsa without color uses 10 oz Roja + 10 oz Verde, and with explicit color uses 20 oz of that color. 20 oz salsa also consumes RC478, 709DO, and currently ELTSBALA pending channel-specific bag validation; official Party Tray Guidelines unified across kitchen, recipes, website, AI Phone Receptionist, and POS (15-20: 6 lb meat, 3 lb rice/beans, 3 gal agua, 10/5 dz corn/flour [2/5 pk]; 20-25: 7.5 lb meat, 4 lb rice/beans, 4 gal agua, 15/7 dz [3/7 pk]; 25-30: 10 lb meat, 6 lb rice/beans, 5 gal agua, 20/9 dz [4/9 pk]; 30-40: 12 lb meat, 10 lb rice/beans, 6 gal agua, 25/12 dz [5/12 pk], using 358_9604BT 8-in flour tortillas); corn/flour split 50/50 when both are selected; 60 tortillas consume one RC478 + 709DO pair; Party Tray jalapeños are bulk; every tray uses three food-pan/lid pairs sized 1/3 (15-20), 1/2 (20-30), or full (30-40), 12PR cups, one EL1CS2G to group white cutlery, and DX900GE napkin packs of 250 each. Ticket packaging reads preserved Toast channel metadata (dining option, source and delivery service) rather than guessing from API labels.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -3706,7 +3706,7 @@ async function queryTrainingAcademyTool(args: any): Promise<string> {
 async function queryPhoneAgentStatusTool(args: any): Promise<string> {
   try {
     const todayIso = getCaliforniaDate();
-    const [{ data: configs }, { data: kb }, { data: specialHours }, { data: calls }, { data: callbacks }] = await Promise.all([
+    const [{ data: configs }, { data: kb }, { data: specialHours }, { data: calls }, { data: criticalCbs }, { data: callbacks }, { count: exactRealPendingCount }, { count: exactRealCriticalCount }] = await Promise.all([
       supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id'),
       supabaseAdmin.from('phone_knowledge_base').select('id, title, category, store_id, is_active').eq('is_active', true),
       supabaseAdmin
@@ -3724,8 +3724,27 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
         .from('phone_callback_requests')
         .select('*, stores(name)')
         .eq('status', 'pending')
+        .in('urgency', ['critical', 'urgent'])
         .order('created_at', { ascending: false })
-        .limit(30),
+        .limit(250),
+      supabaseAdmin
+        .from('phone_callback_requests')
+        .select('*, stores(name)')
+        .eq('status', 'pending')
+        .not('urgency', 'in', '("critical","urgent")')
+        .order('created_at', { ascending: false })
+        .limit(150),
+      supabaseAdmin
+        .from('phone_callback_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+        .eq('source', 'twilio'),
+      supabaseAdmin
+        .from('phone_callback_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+        .eq('source', 'twilio')
+        .in('urgency', ['critical', 'urgent']),
     ]);
 
     let rows = configs || [];
@@ -3758,7 +3777,8 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
       ? (kb || []).filter((r: any) => r.store_id == null || matchedStoreIds!.has(Number(r.store_id)))
       : kb || [];
 
-    const filteredCallbacks = (callbacks || []).filter((cb: any) => {
+    const mergedCallbacks = [...(criticalCbs || []), ...(callbacks || [])];
+    const filteredCallbacks = mergedCallbacks.filter((cb: any) => {
       if (cb.source === 'simulator') return false;
       if (matchedStoreIds && !matchedStoreIds.has(Number(cb.store_id))) return false;
       return true;
@@ -3799,7 +3819,16 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
     out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
     out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
     out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realPct}% resueltas por la IA en llamadas con conversación) | **Pruebas en Simulador**: ${simCalls.length}\n`;
-    out += `• **Recados Reales Pendientes de Gerente**: ${filteredCallbacks.length} (${urgentOrCritical} urgentes/críticos)\n\n`;
+    const totalRealPending = !matchedStoreIds && typeof exactRealPendingCount === 'number'
+      ? Math.max(filteredCallbacks.length, exactRealPendingCount)
+      : filteredCallbacks.length;
+    const totalRealCritical = !matchedStoreIds && typeof exactRealCriticalCount === 'number'
+      ? Math.max(urgentOrCritical, exactRealCriticalCount)
+      : urgentOrCritical;
+    const truncatedNote = totalRealPending > filteredCallbacks.length
+      ? ` [⚠️ Lista truncada: mostrando ${filteredCallbacks.length} de ${totalRealPending} totales; críticos mostrados ${urgentOrCritical} de ${totalRealCritical}]`
+      : '';
+    out += `• **Recados Reales Pendientes de Gerente**: ${totalRealPending} (${totalRealCritical} urgentes/críticos)${truncatedNote}\n\n`;
 
     if (mergedHolidays.length > 0) {
       out += `**Próximos Horarios Festivos Oficiales:**\n`;

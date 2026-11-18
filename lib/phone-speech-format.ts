@@ -151,28 +151,35 @@ const DIRECTIONAL_MAP: Record<string, string> = {
   SW: 'Southwest',
 }
 
+const SENTENCE_NEXT_WORD_LOOKAHEAD =
+  String.raw`(?=\s+(?:Hoy|Mañana|También|Además|Si|Sí|No|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Contamos|Nuestro|Nuestra|Nuestros|Nuestras|En|Aquí|Abrimos|Cerramos|Visítanos|Aceptamos|Llama|Para|Estamos|Tenemos|Today|Tomorrow|We|Our|You|Please|Thank|If|Yes|No|Open|Closed|Stop|Call|Visit|Here|Right)\b|\s*[¡¿]|\s*$)`
+
 const STREET_TYPE_ENTRIES: Array<[RegExp, string]> = [
-  [/\bAve\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Avenue.'],
+  [new RegExp(String.raw`\bAve\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Avenue.'],
   [/\bAve\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Avenue'],
   [/\bAve(?=\s*[,;:.!?)]|\s+(?:in|en|suite|ste|apt|unit|local|[A-Z])|$)/g, 'Avenue'],
-  [/\bBlvd\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Boulevard.'],
+  [new RegExp(String.raw`\bBlvd\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Boulevard.'],
   [/\bBlvd\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Boulevard'],
   [/\bBlvd(?=\s*[,;:.!?)]|\s|$)/gi, 'Boulevard'],
-  [/\bRd\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Road.'],
+  [new RegExp(String.raw`\bRd\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Road.'],
   [/\bRd\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Road'],
   [/\bRd(?=\s*[,;:.!?)]|\s|$)/g, 'Road'],
-  [/\bHwy\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Highway.'],
+  [new RegExp(String.raw`\bHwy\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Highway.'],
   [/\bHwy\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Highway'],
   [/\bHwy(?=\s*[,;:.!?)]|\s|$)/gi, 'Highway'],
-  [/\bPkwy\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Parkway.'],
+  [new RegExp(String.raw`\bPkwy\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Parkway.'],
   [/\bPkwy\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Parkway'],
   [/\bPkwy(?=\s*[,;:.!?)]|\s|$)/gi, 'Parkway'],
-  [/\bFwy\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Recuerda|Puedes|Abierto|Cerrado|Today|Tomorrow|We|Our|You|Please|Thank|If|Open|Closed)\b|\s*$)/gi, 'Freeway.'],
+  [new RegExp(String.raw`\bFwy\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Freeway.'],
   [/\bFwy\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Freeway'],
   [/\bFwy(?=\s*[,;:.!?)]|\s|$)/gi, 'Freeway'],
+  [new RegExp(String.raw`\bLn\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Lane.'],
   [/\bLn\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Lane'],
+  [new RegExp(String.raw`\bCt\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Court.'],
   [/\bCt\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Court'],
+  [new RegExp(String.raw`\bCir\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Circle.'],
   [/\bCir\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Circle'],
+  [new RegExp(String.raw`\bPl\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'gi'), 'Place.'],
   [/\bPl\.(?=\s*[,;:.!?)]|\s|$)/gi, 'Place'],
   [/\bBldg\.(?=\s|$)/gi, 'Building'],
 ]
@@ -223,7 +230,7 @@ export function expandStreetAbbreviationsInText(
 
   // 4. Expandir `St.` / `St` ÚNICAMENTE cuando va DESPUÉS del nombre u ordinal de calle (no "St. Jude")
   out = out.replace(
-    /\b(\d{1,3}(?:st|nd|rd|th)|[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.(?=\s+(?:Hoy|Mañana|También|Además|Si|Por|Gracias|Today|Tomorrow|We|Our|You|Please|Thank)\b|\s*$)/g,
+    new RegExp(String.raw`\b(\d{1,3}(?:st|nd|rd|th)|[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'g'),
     '$1 Street.'
   )
   out = out.replace(
@@ -240,6 +247,10 @@ export function expandStreetAbbreviationsInText(
   )
 
   // 5. Expandir `Dr.` / `Dr` cuando va DESPUÉS del nombre de la calle (ej. "100 Harbor Dr.,", nunca al inicio "Dr. Pérez")
+  out = out.replace(
+    new RegExp(String.raw`\b(\d{1,6}\s+(?:(?:North|South|East|West|Northeast|Northwest|Southeast|Southwest)\s+)?[A-Z][a-zA-Z0-9'-]+)\s+Dr\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'g'),
+    '$1 Drive.'
+  )
   out = out.replace(
     /\b(\d{1,6}\s+(?:(?:North|South|East|West|Northeast|Northwest|Southeast|Southwest)\s+)?[A-Z][a-zA-Z0-9'-]+)\s+Dr\.(?=\s*[,;:.!?)]|\s|$)/g,
     '$1 Drive'

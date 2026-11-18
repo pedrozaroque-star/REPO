@@ -132,8 +132,15 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
     }
   }
 
-  // Validar código de área NPA y central NXX (ambos inician en 2-9) + bloqueo anti-Toll-Fraud (900/976/islas NANP)
-  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(tenDigits)) {
+  // Validar código de área NPA y central NXX (ambos inician en 2-9, sin códigos de servicio N11 como 911/311/411 ni NPA 555)
+  const areaCode = tenDigits.slice(0, 3)
+  const centralOffice = tenDigits.slice(3, 6)
+  if (
+    !/^[2-9]\d{2}[2-9]\d{6}$/.test(tenDigits) ||
+    areaCode.slice(1) === '11' ||
+    centralOffice.slice(1) === '11' ||
+    areaCode === '555'
+  ) {
     return {
       valid: false,
       normalized: null,
@@ -141,7 +148,6 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
       error: 'Código de área o central inválido para EE. UU.'
     }
   }
-  const areaCode = tenDigits.slice(0, 3)
   if (BLOCKED_NANP_AREA_CODES.has(areaCode)) {
     return {
       valid: false,
@@ -159,7 +165,7 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
 }
 
 /**
- * Detecta teléfonos ficticios o reservables de prueba NANP (555-XXXX, dígitos repetidos, prefijos 000/111/999)
+ * Detecta teléfonos ficticios o reservables de prueba NANP (555-XXXX, N11, dígitos repetidos, sufijos 0000000)
  * o códigos de tarificación especial prohibidos para evitar guardar recados o desvíos no enrutables en producción.
  */
 export function isFictitiousNanpPhone(rawPhoneOrDigits: string | null | undefined, allowDevTest555 = false): boolean {
@@ -168,11 +174,12 @@ export function isFictitiousNanpPhone(rawPhoneOrDigits: string | null | undefine
   if (d.length !== 10) return true
   if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(d)) return true
   if (/^(\d)\1{9}$/.test(d)) return true
-  if (d.endsWith('0000') && d.startsWith('000')) return true
-  if (/^(?:000|111|999)/.test(d) || d.slice(3) === '0000000') return true
+  if (d.slice(3) === '0000000') return true
   const areaCode = d.slice(0, 3)
+  const centralOffice = d.slice(3, 6)
+  if (areaCode.slice(1) === '11' || centralOffice.slice(1) === '11' || areaCode === '555') return true
   if (BLOCKED_NANP_AREA_CODES.has(areaCode)) return true
-  if (d.slice(3, 6) === '555') {
+  if (centralOffice === '555') {
     if (allowDevTest555 && /^01\d\d$/.test(d.slice(6))) return false
     return true
   }
@@ -220,8 +227,8 @@ export function validateNoForwardingLoop(
   return { safe: true }
 }
 
-const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor'])
-const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'asistente', 'assistant'])
+const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor', 'regional_manager'])
+const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'gerente', 'asistente', 'assistant'])
 
 async function getCachedActiveStores() {
   const now = Date.now()

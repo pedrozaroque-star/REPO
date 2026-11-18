@@ -1773,7 +1773,7 @@ export const MONTHLY_REPORTS: Record<'noviembre' | 'octubre' | 'septiembre' | 'a
     "id": "noviembre",
     "monthName": "Noviembre",
     "monthYear": "Noviembre 2026",
-    "totalHours": 84.5,
+    "totalHours": 88.6,
     "totalTasks": 27,
     "completedTasks": 19,
     "inProgressTasks": 4,
@@ -1996,48 +1996,51 @@ export const MONTHLY_REPORTS: Record<'noviembre' | 'octubre' | 'septiembre' | 'a
         },
         {
             "date": "17-Nov-2026",
-            "time": "10:39 AM - 11:02 AM",
-            "hours": 0.4,
+            "time": "10:39 AM - 11:02 AM & 11:04 AM - 12:30 PM & 1:35 PM - 4:15 PM",
+            "hours": 4.5,
             "badges": [
                 "Despacho Confirmado Orden Imprenta 575 Piezas a ON Graphics (14.85 MB MIME < 20 MB @me.com)",
                 "Auditoría Matemática Píxel por Píxel 32/32 Artes (0.00 Diff Clear Vinyl 600 DPI & JPG 4:4:4 PSNR ~47 dB)",
-                "Consolidación Multi-Chat SM TEG v2.29.1 & Reporte Noviembre 2026",
+                "Consolidación Multi-Chat SM TEG v2.29.1 / v2.29.2 & Reporte Noviembre 2026",
+                "Contestadora IA Blindaje Pre-Twilio: Tombstones No-Clobber, Dedup Atómico de Recados & Recados Críticos sin Truncar",
+                "Party Tray Guidelines como Fuente Oficial Única (Web, Recetas Virtuales, Food Cost, POS & Contestadora)",
+                "Soporte Toast POS Taco Tuesday 15 Tiendas (Separador sin Descuento, Verificado en Vivo)",
                 "IT en La Bodega"
             ],
-            "descEs": "• <strong>Confirmación de Envío SMTP (575 Piezas — 14.85 MB MIME &lt; 20 MB @me.com) y Auditoría Matemática Píxel por Píxel de los 32 Artes Maestros para ON Graphics</strong>: Verificación sin rebotes del despacho oficial de producción a ON Graphics (oscarneri@me.com con copia a Operaciones) detallando especificaciones de sustrato, regla de Mirror en RIP exclusiva para Grupos 1 y 2, guía de entrecalles de LOS ANGELES y matriz de empaque en 15 kits por sucursal para entrega en Lynwood; más prueba matemática píxel por píxel entre el paquete enviado (9.59 MB) y el respaldo bruto PNG (54.35 MB) certificando 0% pérdida de resolución/DPI en los 32 archivos (diferencia 0.00/255 bit por bit en los 11 artes transparentes Clear Vinyl a 600 DPI, PNG indexado sin pérdida de filo en QRs/Horarios y preprensa JPG 4:4:4 con PSNR ~47 dB en los 4 pósters fotográficos).<br>• <strong>Auditoría Multi-Chat y Multi-Repositorio, Respaldo Git de los 192 Archivos de Imprenta y Lanzamiento SM TEG v2.29.1</strong>: Escaneo completo de repositorios y conversaciones, validación en vivo en Supabase MCP (196/196 tablas públicas con RLS activo), versionado en Git de las carpetas definitivas docs/orden-imprenta-oscar-neri/*, docs/stickers-aguas-frescas/*, docs/carteles-delivery-drivers/* y exports/door-stickers-2026/* (excluidas de las funciones Serverless vía outputFileTracingExcludes), chequeo npm run preflight:cloud con 0 errores y consolidación de 84.5 hrs en Noviembre 2026.",
-            "descEn": "• <strong>Confirmed SMTP Dispatch (575 Pieces — 14.85 MB MIME &lt; 20 MB @me.com) &amp; Mathematical Pixel-by-Pixel Quality Audit Across All 32 Master Print Artworks for ON Graphics</strong>: Verified bounce-free delivery of the 575-piece production order to ON Graphics (oscarneri@me.com CC Operations) with full substrate specs, Group 1 &amp; 2 exclusive RIP mirror rules, LOS ANGELES cross-street guide, and 15-branch kitting matrix for Lynwood delivery; plus executed a pixel-by-pixel mathematical comparison between the emailed archive (9.59 MB) and raw PNG master archive (54.35 MB), certifying 0% resolution/DPI loss across all 32 files (0.00/255 bit-identical fidelity on all 11 600 DPI Clear Vinyl artworks, razor-sharp indexed PNGs on QRs/Hours, and ~47 dB PSNR 4:4:4 prepress JPGs on the 4 photo posters).<br>• <strong>Multi-Chat &amp; Multi-Repo Audit, Git Backup of All 192 Print Production Files &amp; SM TEG v2.29.1 Release</strong>: Completed full repository and conversation scan, verified 196/196 RLS-enabled public tables live in Supabase MCP, committed all final print production assets in docs/orden-imprenta-oscar-neri/*, docs/stickers-aguas-frescas/*, docs/carteles-delivery-drivers/*, and exports/door-stickers-2026/* (isolated from Serverless bundles via outputFileTracingExcludes), passed npm run preflight:cloud with 0 errors, and consolidated 84.5 hrs in November 2026."
+            "descEs": "• <strong>Confirmación de Envío SMTP (575 Piezas — 14.85 MB MIME &lt; 20 MB @me.com) y Auditoría Matemática Píxel por Píxel de los 32 Artes Maestros para ON Graphics</strong>: Verificación sin rebotes del despacho oficial de producción a ON Graphics (oscarneri@me.com con copia a Operaciones) detallando especificaciones de sustrato, regla de Mirror en RIP exclusiva para Grupos 1 y 2, guía de entrecalles de LOS ANGELES y matriz de empaque en 15 kits por sucursal para entrega en Lynwood; más prueba matemática píxel por píxel entre el paquete enviado (9.59 MB) y el respaldo bruto PNG (54.35 MB) certificando 0% pérdida de resolución/DPI en los 32 archivos (diferencia 0.00/255 bit por bit en los 11 artes transparentes Clear Vinyl a 600 DPI, PNG indexado sin pérdida de filo en QRs/Horarios y preprensa JPG 4:4:4 con PSNR ~47 dB en los 4 pósters fotográficos).<br>• <strong>Auditoría Multi-Chat y Multi-Repositorio, Respaldo Git de los 192 Archivos de Imprenta y Lanzamiento SM TEG v2.29.1</strong>: Escaneo completo de repositorios y conversaciones, validación en vivo en Supabase MCP (196/196 tablas públicas con RLS activo), versionado en Git de las carpetas definitivas docs/orden-imprenta-oscar-neri/*, docs/stickers-aguas-frescas/*, docs/carteles-delivery-drivers/* y exports/door-stickers-2026/* (excluidas de las funciones Serverless vía outputFileTracingExcludes), chequeo npm run preflight:cloud con 0 errores y consolidación de 84.5 hrs en Noviembre 2026.<br>• <strong>Contestadora IA Multi-Sucursal — Blindaje Integral Pre-Twilio (/admin/llamadas, lib/phone-agent.ts, lib/phone-agent-access.ts, lib/phone-speech-format.ts, lib/order-ready-tts.ts, components/PhoneCallbackAlertBanner.tsx y /api/phone/*)</strong>: Auditoría forense con 4 subagentes y corrección quirúrgica de hallazgos sin contratar ni configurar telefonía real: unicidad del número Twilio también al cambiar solo routing_mode a direct_twilio; deduplicación atómica de recados y precios vivos (migración 20261117123000); tombstones de cierre anticipado con índice de recados críticos (20261117143000) y RPC upsert_phone_call_status_tombstone_atomic que jamás reemplaza una duración válida con NULL ni reabre llamadas terminadas (20261117160000); conservación del tombstone si falla el UPDATE de phone_calls para reintento; y garantía de que ningún recado crítico pendiente quede oculto por los límites de 200/100 registros (bandera truncated con aislamiento estricto por sucursal), certificado con simulaciones reales en Supabase (83s/49s preservados, 7/7 recados críticos y 0 residuos de prueba).<br>• <strong>Party Tray Guidelines como Fuente Oficial Única (lib/inventory/party-tray-guidelines.ts, lib/inventory/usage-sync.ts, /api/inventory/food-cost, /api/inventory/costs, /api/inventory/recipe-detail, /inventory/menu, /gavilan-pos, /nueva-web, tacosgavilan-web y migración 20261117151500)</strong>: Unificación de cantidades de Party Trays / Fiesta Platters conforme al documento oficial (docs/Party Tray Instructions.pdf) en recetas virtuales, costo teórico de empaques con precios vivos de inventory_items (paridad In-Store vs Delivery y conversión 1/24 de caja DX900GE), base de conocimiento de la Contestadora, Caja POS y sitio web público (fiesta-platter, blog Thanksgiving y Taquiza, js/main.js), con espejo idéntico en public/tacosgavilan-web.<br>• <strong>Soporte Toast POS — Descuento Taco Tuesday en las 15 Sucursales</strong>: Diagnóstico vía API de Toast sobre órdenes reales (#268 Lynwood) demostrando que el separador seguía recibiendo descuento al apuntar el grupo Tacos (In Store), y guía paso a paso para reconfigurar el descuento con los 9 artículos individuales unidos por OR sin separador (sin afectar el grupo Kiosk Taco Tuesday), verificado en vivo con órdenes reales posteriores a la publicación de las 3:05 PM en toda la cadena; más lanzamiento de SM TEG v2.29.2 (88.6 hrs en Noviembre 2026).",
+            "descEn": "• <strong>Confirmed SMTP Dispatch (575 Pieces — 14.85 MB MIME &lt; 20 MB @me.com) &amp; Mathematical Pixel-by-Pixel Quality Audit Across All 32 Master Print Artworks for ON Graphics</strong>: Verified bounce-free delivery of the 575-piece production order to ON Graphics (oscarneri@me.com CC Operations) with full substrate specs, Group 1 &amp; 2 exclusive RIP mirror rules, LOS ANGELES cross-street guide, and 15-branch kitting matrix for Lynwood delivery; plus executed a pixel-by-pixel mathematical comparison between the emailed archive (9.59 MB) and raw PNG master archive (54.35 MB), certifying 0% resolution/DPI loss across all 32 files (0.00/255 bit-identical fidelity on all 11 600 DPI Clear Vinyl artworks, razor-sharp indexed PNGs on QRs/Hours, and ~47 dB PSNR 4:4:4 prepress JPGs on the 4 photo posters).<br>• <strong>Multi-Chat &amp; Multi-Repo Audit, Git Backup of All 192 Print Production Files &amp; SM TEG v2.29.1 Release</strong>: Completed full repository and conversation scan, verified 196/196 RLS-enabled public tables live in Supabase MCP, committed all final print production assets in docs/orden-imprenta-oscar-neri/*, docs/stickers-aguas-frescas/*, docs/carteles-delivery-drivers/*, and exports/door-stickers-2026/* (isolated from Serverless bundles via outputFileTracingExcludes), passed npm run preflight:cloud with 0 errors, and consolidated 84.5 hrs in November 2026.<br>• <strong>Multi-Store AI Phone Receptionist — Full Pre-Twilio Hardening (/admin/llamadas, lib/phone-agent.ts, lib/phone-agent-access.ts, lib/phone-speech-format.ts, lib/order-ready-tts.ts, components/PhoneCallbackAlertBanner.tsx &amp; /api/phone/*)</strong>: 4-subagent forensic audit and surgical fixes with no live telephony configured: Twilio number uniqueness enforced even when only routing_mode changes to direct_twilio; atomic callback dedup and live prices (migration 20261117123000); early-hangup tombstones with critical-callback index (20261117143000) and upsert_phone_call_status_tombstone_atomic RPC that never overwrites a valid duration with NULL nor reopens ended calls (20261117160000); tombstone preserved for retry when the phone_calls UPDATE fails; and no pending critical callback ever hidden by the 200/100 row limits (truncated flag with strict per-store isolation), certified with real Supabase simulations (83s/49s preserved, 7/7 critical callbacks, 0 test residue).<br>• <strong>Party Tray Guidelines as the Single Source of Truth (lib/inventory/party-tray-guidelines.ts, lib/inventory/usage-sync.ts, /api/inventory/food-cost, /api/inventory/costs, /api/inventory/recipe-detail, /inventory/menu, /gavilan-pos, /nueva-web, tacosgavilan-web &amp; migration 20261117151500)</strong>: Unified Party Tray / Fiesta Platter quantities per the official document (docs/Party Tray Instructions.pdf) across virtual recipes, theoretical packaging cost with live inventory_items prices (In-Store vs Delivery parity and 1/24 case DX900GE conversion), AI receptionist knowledge base, POS register, and the public website (fiesta-platter, Thanksgiving and Taquiza blog posts, js/main.js), mirrored byte-identical in public/tacosgavilan-web.<br>• <strong>Toast POS Support — Taco Tuesday Discount Across All 15 Branches</strong>: Diagnosed via Toast API on real orders (#268 Lynwood) that the separator kept getting discounted while targeting the Tacos (In Store) group, and guided reconfiguration to the 9 individual items joined by OR with no separator (without affecting the Kiosk Taco Tuesday group), verified live on real orders chain-wide after the 3:05 PM publish; plus released SM TEG v2.29.2 (88.6 hrs in November 2026)."
         }
     ],
     "effortSummary": [
         {
-            "name": "App Móvil V1/V2, Sistema de Monitoreo (noreply@), Entrenamiento SOP, Optimización Vercel & Orden Maestra Imprenta 575 Pzas (15 Tiendas)",
-            "hours": 20,
-            "percent": 23.7
+            "name": "App Móvil V1/V2, Sistema de Monitoreo (noreply@), Entrenamiento SOP, Optimización Vercel, Soporte Toast POS & Orden Maestra Imprenta 575 Pzas",
+            "hours": 20.5,
+            "percent": 23.1
+        },
+        {
+            "name": "Contestadora IA Multi-Sucursal (/admin/llamadas, phone_v7 sfo1, Blindaje Pre-Twilio, Tombstones No-Clobber & 15 Tiendas)",
+            "hours": 19.6,
+            "percent": 22.1
         },
         {
             "name": "Conciliar Delivery Plataformas (Cron 3 Lotes, Exportar XLSX, Uber getNetSalesByOrder, Grubhub Auto-Renew & Pólizas CPA) y Contabilidad (166/166)",
             "hours": 19.6,
-            "percent": 23.2
+            "percent": 22.1
         },
         {
-            "name": "Contestadora IA Multi-Sucursal (/admin/llamadas, phone_v7 Baja Latencia sfo1, Cero Desvíos Personales & 15 Tiendas)",
-            "hours": 16.6,
-            "percent": 19.6
-        },
-        {
-            "name": "Orden Diaria Automática 15 Tiendas (auto_order_visible, Sobrante Teórico, Facturas QBO & Balance de Masas)",
-            "hours": 10.6,
-            "percent": 12.5
+            "name": "Orden Diaria Automática 15 Tiendas & Party Tray Guidelines Oficial (auto_order_visible, Sobrante Teórico, Food Cost & Balance de Masas)",
+            "hours": 11.2,
+            "percent": 12.7
         },
         {
             "name": "Tableta Preparador, TFS4, Descansos Motor V31 Universal & Order Ready (Playback ACK, Mute Audit & Triple Blindaje)",
             "hours": 10.1,
-            "percent": 12
+            "percent": 11.4
         },
         {
             "name": "Contabilidad Externa (Wave P0/P1 Zero-Trust, Paridad 1:1 QBO 8 Empresas, Reconcile 537 Sesiones & Cron 15m)",
             "hours": 7.6,
-            "percent": 9
+            "percent": 8.6
         }
     ],
     "parallelActivities": [

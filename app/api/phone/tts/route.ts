@@ -45,9 +45,9 @@ async function renderWav(
   const safeText = text.length > MAX_TTS_ROUTE_CHARS ? normalizePhoneTtsInput(text, lang, MAX_TTS_ROUTE_CHARS) : text
   const rawWav = await getPhoneAgentSpeech(safeText, lang, voice, false, {
     skipStorageLookup: isDynamic,
-    skipStoragePersist: isDynamic,
+    skipStoragePersist: false,
     skipSseAttempt: isDynamic,
-    maxTotalMs: rate === 8000 || isDynamic ? 8200 : undefined,
+    maxTotalMs: rate === 8000 || isDynamic ? 7800 : undefined,
     signal
   })
   const wav = rate === 8000 ? downsampleWav24kTo8k(rawWav) : rawWav

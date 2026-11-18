@@ -1589,7 +1589,7 @@ export default function NuevaWebPage() {
 
                             <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
                                 <a
-                                    href="https://tacosgavilan.com/docs/Tacos-Gavilan-Fiesta-Platter-Brochure.pdf"
+                                    href="https://tacosgavilan.com/fiesta-platter/"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700 text-xs font-semibold tracking-normal transition-colors min-w-0"

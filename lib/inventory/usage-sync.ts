@@ -27,13 +27,25 @@
  *   - [2026-09-27] Unificación con motor determinista de CODEX (calculateDailyOrderConsumption):
  *     Asegura paridad exacta de recetas, rendimientos de carne (Asada 61.5%, Pastor 61.5%, etc.)
  *     y ensamblajes (Taco Plate, Burritos, Mulitas, Teleras, Party Trays) para todos los insumos de bodega.
+ *   - [2026-11-17] Sincronizadas charolas de aluminio por componente (`getPartyTrayFoodTrayAllocation` según
+ *     `docs/Party Tray Instructions.pdf`: `25-30` usa `2 × RC1150+RL970` + `1 × RC1174+RL990`; `15-20` usa `3 × RC1150+RL970`)
+ *     y anclados UUIDs canónicos de `DX900GE` (`6,000 pzas/CS`) y `358_9604BT` (`8 in` harina).
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getProductMix, ProductMixItem } from '@/lib/toast-pmix'
 import { calculateRawUsage, calculateInventoryUsage } from './conversions'
 import { InventoryItem, Recipe } from '@/types/inventory'
-import { getPartyTrayTortillaAllocation, PARTY_TRAY_FOOD_TRAY_ITEMS, PARTY_TRAY_GUIDELINES, PARTY_TRAY_NAPKINS_PER_PACK, resolvePartyTraySize } from './party-tray-guidelines'
+import {
+  getPartyTrayFoodTrayAllocation,
+  getPartyTrayTortillaAllocation,
+  PARTY_TRAY_EMPTY_GALLON_ITEM_ID,
+  PARTY_TRAY_FLOUR_TORTILLA_ITEM_ID,
+  PARTY_TRAY_GUIDELINES,
+  PARTY_TRAY_NAPKIN_ITEM_ID,
+  PARTY_TRAY_NAPKINS_PER_PACK,
+  resolvePartyTraySize,
+} from './party-tray-guidelines'
 import { calculateHistoricalAllocation, type HistoricalOrder } from './historical-allocation'
 import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from './meat-allocation'
 import { calculateDailyOrderConsumption, type RawToastTicket } from './daily-order-consumption-engine'
@@ -55,7 +67,7 @@ function getPartyTrayVirtualRecipe(
   businessDate: string,
 ): { itemId: string; qty: number; unit: string }[] {
   const nameLower = itemName.toLowerCase()
-  if (!nameLower.includes('party tray') && !nameLower.includes('tray')) return []
+  if (!/party\s*tray|fiesta\s*platter|\d+\s*-\s*\d+\s*people|\btray\b/.test(nameLower)) return []
 
   // Helper para buscar ítems por coincidencia de nombre
   const findItem = (term: string) => {
@@ -79,13 +91,14 @@ function getPartyTrayVirtualRecipe(
   const arrozItem = findItem('arroz')
   const frijolItem = findItem('frijol molido') || findItem('frijol entero')
   const tortillaCornItem = findItem('1100 tortilla')
-  const tortillaFlourItem = findItem('358_9604bt') || findItem('flour tortilla')
+  const tortillaFlourItem =
+    itemsMap.get(PARTY_TRAY_FLOUR_TORTILLA_ITEM_ID) || findItem('358_9604bt') || findItem('flour tortilla')
   const salsaRojaItem = findItem('1.5 oz salsa roja pack')
   const salsaVerdeItem = findItem('1.5 oz salsa verde pack')
   const mixtaItem = findItem('1 oz bolsa de mixta')
   const limaItem = findItem('lima bolsita')
   const jalapeñoItem = findItem('rajas y zanahorias')
-  const galonesVaciosItem = findItem('galones vacios')
+  const galonesVaciosItem = itemsMap.get(PARTY_TRAY_EMPTY_GALLON_ITEM_ID) || findItem('galones vacios')
   const waterItems = [
     { keys: ['tamarindo'], item: findItem('tamarindo') },
     { keys: ['horchata'], item: findItem('horchata') },
@@ -93,18 +106,23 @@ function getPartyTrayVirtualRecipe(
     { keys: ['piña', 'pina'], item: findItem('piña') || findItem('pina') },
   ]
   const platoItem = findItem('plato #3') || findItem('plato ovalado')
-  const tenedorItem = findItem('heavy duty plastic fork')
-  const cucharaItem = findItem('heavy duty plastic spoon')
+  const tenedorItem = findItem('heavy duty plastic fork') || findItem('fork, heavy white')
+  const cucharaItem = findItem('heavy duty plastic spoon') || findItem('spoon, heavy white')
   const vasoItem = findItem('water cup, 12 oz')
-  const servilletaItem = findItemBySku('DX900GE')
+  const servilletaItem =
+    itemsMap.get(PARTY_TRAY_NAPKIN_ITEM_ID) ||
+    Array.from(itemsMap.values()).find(
+      (item) => (item as InventoryItem & { sku?: string }).sku === 'DX900GE' && Number(item.quantity_per_unit || 0) >= 250
+    ) ||
+    findItemBySku('DX900GE')
   const cutleryBagItem = findItem('bag, 7x15+2.5 seal2go')
-  const tortillaContainerItem = findItem('aluminum container, 9\" round')
-  const tortillaContainerLidItem = findItem('container dome lid, 9\" round')
+  const tortillaContainerItem = findItem('aluminum container, 9" round')
+  const tortillaContainerLidItem = findItem('container dome lid, 9" round')
 
   // Determinar tamaño de Party Tray
   const config = PARTY_TRAY_GUIDELINES[resolvePartyTraySize(itemName)]
   const tortillas = getPartyTrayTortillaAllocation(itemName, config)
-  const foodTrays = PARTY_TRAY_FOOD_TRAY_ITEMS[config.foodTraySize]
+  const trayAllocation = getPartyTrayFoodTrayAllocation(config)
   const selectedWaterItems = waterItems
     .filter(({ keys, item }) => item && keys.some(key => nameLower.includes(key)))
     .map(({ item }) => item!)
@@ -126,8 +144,10 @@ function getPartyTrayVirtualRecipe(
   if (tortillaFlourItem && tortillas.flourTortillas > 0) ingredients.push({ itemId: tortillaFlourItem.id, qty: tortillas.flourTortillas, unit: 'pza' })
   if (tortillaContainerItem) ingredients.push({ itemId: tortillaContainerItem.id, qty: tortillas.containerPairs, unit: 'pza' })
   if (tortillaContainerLidItem) ingredients.push({ itemId: tortillaContainerLidItem.id, qty: tortillas.containerPairs, unit: 'pza' })
-  ingredients.push({ itemId: foodTrays.containerId, qty: 3, unit: 'pza' })
-  ingredients.push({ itemId: foodTrays.lidId, qty: 3, unit: 'pza' })
+  for (const trayLine of trayAllocation.lines) {
+    ingredients.push({ itemId: trayLine.containerId, qty: trayLine.quantity, unit: 'pza' })
+    ingredients.push({ itemId: trayLine.lidId, qty: trayLine.quantity, unit: 'pza' })
+  }
   if (salsaRojaItem) ingredients.push({ itemId: salsaRojaItem.id, qty: config.salsaRojaPacks, unit: 'pza' })
   if (salsaVerdeItem) ingredients.push({ itemId: salsaVerdeItem.id, qty: config.salsaVerdePacks, unit: 'pza' })
   if (mixtaItem) ingredients.push({ itemId: mixtaItem.id, qty: config.mixtaBags, unit: 'pza' })
