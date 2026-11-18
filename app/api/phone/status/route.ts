@@ -40,7 +40,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 15
 export const preferredRegion = 'sfo1'
 
-const NON_TERMINAL_TWILIO_STATUSES = new Set(['queued', 'initiated', 'ringing', 'in-progress'])
+const TERMINAL_TWILIO_STATUSES = new Set(['completed', 'busy', 'failed', 'no-answer', 'canceled', 'cancelled'])
 
 export async function POST(request: Request) {
   try {
@@ -60,8 +60,8 @@ export async function POST(request: Request) {
     const callSid = (params.CallSid || '').trim()
     const callStatus = (params.CallStatus || '').trim().toLowerCase()
 
-    if (!callSid || NON_TERMINAL_TWILIO_STATUSES.has(callStatus)) {
-      return NextResponse.json({ ok: true, ignored: Boolean(callStatus) })
+    if (!callSid || !TERMINAL_TWILIO_STATUSES.has(callStatus)) {
+      return NextResponse.json({ ok: true, ignored: true })
     }
 
     const rawDuration = params.CallDuration ?? params.Duration
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     const authoritativeDuration = hasAuthoritativeDuration
       ? Math.min(7200, Math.max(0, Math.round(parsedDuration)))
       : null
-    const terminalStatus = callStatus === 'completed' ? 'completed' : callStatus || 'completed'
+    const terminalStatus = callStatus === 'cancelled' ? 'canceled' : callStatus
     const endedIso = new Date().toISOString()
 
     const rawSeq =

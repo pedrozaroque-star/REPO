@@ -9013,7 +9013,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             callbacks_empty: 'No pending callback requests right now.',
             callbacks_mark_resolved: 'Mark Resolved',
             calls_history_title: 'Call History & Transcripts',
-            calls_empty: 'No calls recorded yet for this filter.',
+            calls_empty: 'No calls logged yet for this filter.',
             holidays_title: 'Special Hours & Holiday Overrides (Real-Time)',
             holidays_subtitle: 'Automatically backed by Tacos Gavilan perpetual holiday rules (Good Friday & Christmas closed; Thanksgiving, Christmas Eve & New Year’s Eve 4:00 PM early close; New Year’s Day & Black Friday 11:00 AM late open). Customize any date globally or per store.',
             holidays_field_store: 'Store',

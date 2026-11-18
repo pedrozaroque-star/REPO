@@ -369,8 +369,10 @@ function normalizeStoreLookupToken(raw: string | null | undefined): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/^tacos\s+(?:el\s+)?gavilan\s*[-—:]?\s*/i, '')
+    .replace(/^tacos\s+(?:el\s+)?gavilan\s*[-–—:]?\s*/i, '')
     .replace(/\(\s*l\.?a\.?\s*\)/gi, '')
+    .replace(/^#?\d+\s+(?=[a-z])/i, '')
+    .replace(/^(?:sucursal|tienda|ubicacion|store|location|branch)\s+(?:de\s+)?/i, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
 }
@@ -423,10 +425,10 @@ function resolveCustomerStoreMetaByTokens(
   if (tok.includes('slauson') || tok.includes('5833')) {
     return CANONICAL_CUSTOMER_STORES_BY_ID[7]
   }
-  if (tok.includes('vernon') || tok === 'broadway' || tok === 'la broadway' || tok === 'los angeles broadway' || tok.includes('4380')) {
+  if (tok.includes('vernon') || /\bbroadway\b/.test(tok) || tok.includes('4380')) {
     return CANONICAL_CUSTOMER_STORES_BY_ID[5]
   }
-  if (tok.includes('washington') || tok === 'central' || tok === 'la central' || tok === 'los angeles central' || tok.includes('1900')) {
+  if (tok.includes('washington') || /\bcentral\b/.test(tok) || tok.includes('1900')) {
     return CANONICAL_CUSTOMER_STORES_BY_ID[6]
   }
 
@@ -471,9 +473,10 @@ export function formatCustomerStoreName(
       : typeof store === 'object' && store !== null
         ? String(store.name || store.code || '')
         : String(store ?? '')
-  return raw
-    .replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-—:]?\s*/i, '')
+  const cleaned = raw
+    .replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-–—:]?\s*/i, '')
     .trim()
+  return sanitizeCustomerStoreReferencesInText(cleaned, lang)
 }
 
 /**
@@ -517,16 +520,25 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
   let out = String(rawText)
 
   if (lang === 'en') {
-    // 1. Prefijos internos "LA Broadway", "LA Central", "LA Slauson"
+    // 1. Prefijos internos "LA Broadway", "LA Central", "LA Slauson" (protegiendo vialidades reales)
     out = out
-      .replace(/\bL\.?A\.?\s+Broadway\b(?!\s*(?:&|and)\s*Vernon)/gi, 'Los Angeles (Vernon and Broadway)')
-      .replace(/\bL\.?A\.?\s+Central\b(?!\s*(?:&|and)\s*Washington)/gi, 'Los Angeles (Central and Washington)')
-      .replace(/\bL\.?A\.?\s+Slauson\b(?!\s*(?:&|and)\s*Broadway)/gi, 'Los Angeles (Slauson and Broadway)')
+      .replace(
+        /\bL\.?A\.?\s+Broadway\b(?!\s*(?:&|and)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        'Los Angeles (Vernon and Broadway)'
+      )
+      .replace(
+        /\bL\.?A\.?\s+Central\b(?!\s*(?:&|and)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        'Los Angeles (Central and Washington)'
+      )
+      .replace(
+        /\bL\.?A\.?\s+Slauson\b(?!\s*(?:&|and)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        'Los Angeles (Slauson and Broadway)'
+      )
       .replace(/\b(Central)\s*\(\s*L\.?A\.?\s*\)/gi, 'Los Angeles (Central and Washington)')
       .replace(/\b(Broadway)\s*\(\s*L\.?A\.?\s*\)/gi, 'Los Angeles (Vernon and Broadway)')
       .replace(/\b(Slauson)\s*\(\s*L\.?A\.?\s*\)/gi, 'Los Angeles (Slauson and Broadway)')
 
-    // 2. "our Central/Broadway/Slauson location/store/branch" (sin entrecalles ni nombre de calle postal)
+    // 2. "our Central/Broadway/Slauson location/store/branch" y "Tacos Gavilan Central/Broadway/Slauson"
     out = out
       .replace(
         /\b(our|the)\s+Central\s+(location|store|branch)\b/gi,
@@ -540,32 +552,66 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
         /\b(our|the)\s+Slauson\s+(location|store|branch)\b/gi,
         '$1 Los Angeles $2 at Slauson and Broadway'
       )
+      .replace(
+        /\bTacos\s+Gavil[aá]n\s+(?:in\s+|at\s+)?Central\b(?!\s*(?:&|and)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        'Tacos Gavilan in Los Angeles (Central and Washington)'
+      )
+      .replace(
+        /\bTacos\s+Gavil[aá]n\s+(?:in\s+|at\s+)?Broadway\b(?!\s*(?:&|and)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        'Tacos Gavilan in Los Angeles (Vernon and Broadway)'
+      )
+      .replace(
+        /\bTacos\s+Gavil[aá]n\s+(?:in\s+|at\s+)?Slauson\b(?!\s*(?:&|and)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        'Tacos Gavilan in Los Angeles (Slauson and Broadway)'
+      )
     return out
   }
 
   // Español:
   // 1. Prefijos internos "LA Broadway", "LA Central", "LA Slauson" o "(LA)"
-  out = out
-    .replace(/\bL\.?A\.?\s+Broadway\b(?!\s*(?:&|y)\s*Vernon)/gi, 'Los Ángeles (Vernon y Broadway)')
-    .replace(/\bL\.?A\.?\s+Central\b(?!\s*(?:&|y)\s*Washington)/gi, 'Los Ángeles (Central y Washington)')
-    .replace(/\bL\.?A\.?\s+Slauson\b(?!\s*(?:&|y)\s*Broadway)/gi, 'Los Ángeles (Slauson y Broadway)')
-    .replace(/\bCentral\s*\(\s*L\.?A\.?\s*\)/gi, 'Los Ángeles (Central y Washington)')
-    .replace(/\bBroadway\s*\(\s*L\.?A\.?\s*\)/gi, 'Los Ángeles (Vernon y Broadway)')
-    .replace(/\bSlauson\s*\(\s*L\.?A\.?\s*\)/gi, 'Los Ángeles (Slauson y Broadway)')
-
-  // 2. "sucursal (de )?Central / Broadway / Slauson" cuando NO incluye ya la entrecalle ni es dirección vial
+  //    (sin flag /i sobre "LA" para NO mutilar el artículo español "la" en "la Central Avenue", "la central de autobuses", etc.)
   out = out
     .replace(
-      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Central\b(?!\s*(?:&|y|and|con|esquina)\s*Washington|\s+(?:Ave|Avenue))/gi,
+      /\b(?:LA|[Ll]\.[Aa]\.)\s+Broadway\b(?!\s*(?:&|y)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/g,
+      'Los Ángeles (Vernon y Broadway)'
+    )
+    .replace(
+      /\b(?:LA|[Ll]\.[Aa]\.)\s+Central\b(?!\s*(?:&|y)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/g,
+      'Los Ángeles (Central y Washington)'
+    )
+    .replace(
+      /\b(?:LA|[Ll]\.[Aa]\.)\s+Slauson\b(?!\s*(?:&|y)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/g,
+      'Los Ángeles (Slauson y Broadway)'
+    )
+    .replace(/\bCentral\s*\(\s*(?:LA|[Ll]\.[Aa]\.)\s*\)/g, 'Los Ángeles (Central y Washington)')
+    .replace(/\bBroadway\s*\(\s*(?:LA|[Ll]\.[Aa]\.)\s*\)/g, 'Los Ángeles (Vernon y Broadway)')
+    .replace(/\bSlauson\s*\(\s*(?:LA|[Ll]\.[Aa]\.)\s*\)/g, 'Los Ángeles (Slauson y Broadway)')
+
+  // 2. "sucursal (de )?Central / Broadway / Slauson" y "Tacos Gavilan Central/Broadway/Slauson"
+  out = out
+    .replace(
+      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Central\b(?!\s*(?:&|y|and|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       '$1 de Los Ángeles en la esquina de Central y Washington'
     )
     .replace(
-      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Broadway\b(?!\s*(?:&|y|and|con|esquina)\s*(?:Vernon|Slauson))/gi,
+      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Broadway\b(?!\s*(?:&|y|and|con|esquina)\s*(?:Vernon|Slauson)|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       '$1 de Los Ángeles en la esquina de Vernon y Broadway'
     )
     .replace(
-      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Slauson\b(?!\s*(?:&|y|and|con|esquina)\s*Broadway|\s+(?:Ave|Avenue))/gi,
+      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Slauson\b(?!\s*(?:&|y|and|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       '$1 de Los Ángeles en la esquina de Slauson y Broadway'
+    )
+    .replace(
+      /\bTacos\s+Gavil[aá]n\s+(?:en\s+|de\s+)?Central\b(?!\s*(?:&|y|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      'Tacos Gavilan en Los Ángeles (Central y Washington)'
+    )
+    .replace(
+      /\bTacos\s+Gavil[aá]n\s+(?:en\s+|de\s+)?Broadway\b(?!\s*(?:&|y|con|esquina)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      'Tacos Gavilan en Los Ángeles (Vernon y Broadway)'
+    )
+    .replace(
+      /\bTacos\s+Gavil[aá]n\s+(?:en\s+|de\s+)?Slauson\b(?!\s*(?:&|y|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      'Tacos Gavilan en Los Ángeles (Slauson y Broadway)'
     )
 
   return out

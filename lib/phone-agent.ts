@@ -570,7 +570,7 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
     if (dbMatch) {
       const openOverride = normalizeHhMm(dbMatch.open_time)
       const closeOverride = normalizeHhMm(dbMatch.close_time)
-      const isClosed = Boolean(dbMatch.is_closed) || (!openOverride && !closeOverride && regularClosed)
+      const isClosed = Boolean(dbMatch.is_closed) || (!openOverride && regularClosed)
       let effectiveOpen = regular.open
       if (!isClosed && openOverride) {
         effectiveOpen =
@@ -902,12 +902,20 @@ export function evaluateStoreSchedulePure(params: {
       todayOpenFormattedEn: 'Closed',
       todayCloseFormattedEn: 'Closed',
       isAfterMidnightSpillover: false,
-      isSpecialHolidaySchedule: true,
+      isSpecialHolidaySchedule: todaySched.isSpecial,
       specialHolidayName: todaySched.holidayName,
-      statusMessageEs: `Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la ${branchNounEs} permanece cerrada todo el día por día festivo.${reopenTailEs}`,
-      statusMessageEn: `Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) ${ourLocLowEn} is closed all day for the holiday.${reopenTailEn}`,
-      closedGreetingPromptEs: `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
-      closedGreetingPromptEn: `Our location is currently closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`,
+      statusMessageEs: todaySched.isSpecial
+        ? `Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la ${branchNounEs} permanece cerrada todo el día por día festivo.${reopenTailEs}`
+        : `Hoy (${dayEs}) la ${branchNounEs} permanece cerrada todo el día.${reopenTailEs}`,
+      statusMessageEn: todaySched.isSpecial
+        ? `Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) ${ourLocLowEn} is closed all day for the holiday.${reopenTailEn}`
+        : `Today (${dayEn}) ${ourLocLowEn} is closed all day.${reopenTailEn}`,
+      closedGreetingPromptEs: todaySched.isSpecial
+        ? `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`
+        : `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
+      closedGreetingPromptEn: todaySched.isSpecial
+        ? `Our location is currently closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`
+        : `Our location is currently closed all day${reopenSpokenEn}. How can I help you?`,
       weeklySummaryEs: buildWeeklySummary(wh, 'es'),
       weeklySummaryEn: buildWeeklySummary(wh, 'en')
     }
@@ -1524,12 +1532,12 @@ export function recommendFiestaPlatters(
     advanceNoticeRuleEn: 'Minimum 1 hour advance notice, ordered exclusively online at tacosgavilan.com',
     allowedMeats: ['Carne Asada', 'Pollo (Chicken)', 'Al Pastor'],
     allowedAguasFrescas: ['Horchata', 'Jamaica', 'Piña (Pineapple)', 'Tamarindo (Tamarind)'],
-    includedExtrasEs: 'Salsas (roja, verde o mixta), cilantro, cebolla, limones, zanahorias y chiles en vinagre, platos, tenedores, servilletas, vasos y popotes',
-    includedExtrasEn: 'Salsas (red, green, or mix), cilantro, onion, limes, pickled carrots & peppers, plates, forks, napkins, cups, and straws',
+    includedExtrasEs: 'Salsa roja y verde, cebolla con cilantro, limones, chiles jalapeños y zanahorias en vinagre, platos, tenedores, cucharas, vasos y servilletas',
+    includedExtrasEn: 'Red and green salsa, chopped onion & cilantro, limes, pickled jalapeños & carrots, plates, forks, spoons, cups, and napkins',
     tortillaCountPolicyEs:
-      'Solo el paquete de 15 a 20 personas tiene conteo unificado confirmado (10 docenas de maíz o 5 de harina). Para 20-25, 25-30 y 30-40 personas NO inventes ni prometas un número exacto de docenas: confirma que incluyen tortillas recién hechas de maíz o harina a elegir y ofrece recado al gerente si el cliente requiere confirmar bolsas exactas.',
+      'Conteos oficiales confirmados (Party Tray Guidelines) según tamaño: 15-20 personas = 10 docenas de maíz (2 paquetes) o 5 docenas de harina (5 paquetes); 20-25 personas = 15 docenas de maíz (3 paquetes) o 7 docenas de harina (7 paquetes); 25-30 personas = 20 docenas de maíz (4 paquetes) o 9 docenas de harina (9 paquetes); 30-40 personas = 25 docenas de maíz (5 paquetes) o 12 docenas de harina (12 paquetes). Al ordenar en línea en tacosgavilan.com también pueden elegir mitad maíz y mitad harina (aprox. 50%/50%).',
     tortillaCountPolicyEn:
-      'Only the 15-20 people package has a unified confirmed tortilla count (10 dozen corn or 5 dozen flour). For 20-25, 25-30, and 30-40 people DO NOT invent or promise an exact dozen number: confirm fresh corn or flour tortillas are included and offer a manager callback if exact bag counts are needed.',
+      'Confirmed official tortilla counts (Party Tray Guidelines) by size: 15-20 guests = 10 dozen corn (2 packs) or 5 dozen flour (5 packs); 20-25 guests = 15 dozen corn (3 packs) or 7 dozen flour (7 packs); 25-30 guests = 20 dozen corn (4 packs) or 9 dozen flour (9 packs); 30-40 guests = 25 dozen corn (5 packs) or 12 dozen flour (12 packs). When ordering online at tacosgavilan.com guests can also choose half corn and half flour (approx. 50%/50%).',
     packages,
     recommendationEs,
     recommendationEn
@@ -2089,8 +2097,9 @@ export async function getPhoneRoutingDirectory(): Promise<PhoneRoutingDirectoryE
       supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number').order('store_id', { ascending: true }),
       supabaseAdmin.from('stores').select('id, phone, is_active').order('id', { ascending: true })
     ])
-    if ((cfgErr || storeErr) && phoneRoutingDirCache) {
-      return phoneRoutingDirCache
+    if (cfgErr || storeErr) {
+      if (phoneRoutingDirCache) return phoneRoutingDirCache
+      throw cfgErr || storeErr
     }
     const entry: PhoneRoutingDirectoryEntry = {
       fetchedAt: Date.now(),
@@ -2457,9 +2466,11 @@ export function buildInitialGreeting(
         customEn.trim().replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
         'en'
       )
-        .replace(/\brecorded\s+and\s+(?=transcrib)/gi, '')
-        .replace(/\s+and\s+recorded\b/gi, '')
-        .replace(/\brecorded\s+line\b/gi, 'transcribed line')
+        .replace(/\b(?:may\s+be|can\s+be|might\s+be|will\s+be|is(?:\s+being)?|are(?:\s+being)?)\s+recorded\s+(?:and|or)\s+(?=transcrib)/gi, 'is ')
+        .replace(/\brecorded\s+(?:and|or)\s+(?=transcrib)/gi, '')
+        .replace(/\s+(?:and|or)\s+recorded\b/gi, '')
+        .replace(/\b(?:may\s+be|can\s+be|might\s+be|will\s+be|is(?:\s+being)?|are(?:\s+being)?)\s+recorded\b/gi, 'is transcribed')
+        .replace(/\brecorded\s+(line|call|conversation)\b/gi, 'transcribed $1')
         .replace(/\s*how can i (help|assist) you( today)?\??\s*$/i, '')
         .trim()
       if (!/[.!?]$/.test(baseEn)) baseEn += '.'
@@ -2475,8 +2486,8 @@ export function buildInitialGreeting(
       if (options?.omitTrailingQuestion) {
         return baseEn.trim()
       }
-      if (options?.scheduleEval && !options.scheduleEval.isOpenNow && !/\bclosed\b/i.test(baseEn)) {
-        return `${baseEn} ${getPostDisclosurePrompt('en', options.scheduleEval)}`.trim()
+      if (options?.scheduleEval && !options.scheduleEval.isOpenNow && /\bclosed\b/i.test(baseEn)) {
+        return `${baseEn} ${getPostDisclosurePrompt('en', null)}`.trim()
       }
       return `${baseEn}${postPrompt}`.trim()
     }
@@ -2490,9 +2501,11 @@ export function buildInitialGreeting(
       customEs.trim().replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
       'es'
     )
-      .replace(/\bgrabad[oa]s?\s+y\s+(?=transcrit)/gi, '')
-      .replace(/\s+y\s+grabad[oa]s?\b/gi, '')
-      .replace(/\b(llamada|l[ií]nea)\s+grabad[oa]\b/gi, '$1 transcrita')
+      .replace(/\b(?:puede\s+ser|pueda\s+ser|es|est[aá](?:\s+siendo)?|ser[aá])\s+grabad[oa]s?\s+(?:y|o)\s+(?=transcrit)/gi, 'es ')
+      .replace(/\bgrabad[oa]s?\s+(?:y|o)\s+(?=transcrit)/gi, '')
+      .replace(/\s+(?:y|o|ni)\s+grabad[oa]s?\b/gi, '')
+      .replace(/\b(?:puede\s+ser|pueda\s+ser|es|est[aá](?:\s+siendo)?|ser[aá])\s+grabad[oa]s?\b/gi, 'es transcrita')
+      .replace(/\b(llamada|l[ií]nea|conversaci[oó]n)\s+grabad[oa]\b/gi, '$1 transcrita')
       .replace(/\s*¿?en qu[eé] te (?:puedo ayudar|ayudo)( hoy)?\??\s*$/i, '')
       .trim()
     if (!/[.!?]$/.test(baseEs)) baseEs += '.'
@@ -2508,8 +2521,8 @@ export function buildInitialGreeting(
     if (options?.omitTrailingQuestion) {
       return baseEs.trim()
     }
-    if (options?.scheduleEval && !options.scheduleEval.isOpenNow && !/\bcerrad[oa]s?\b/i.test(baseEs)) {
-      return `${baseEs} ${getPostDisclosurePrompt('es', options.scheduleEval)}`.trim()
+    if (options?.scheduleEval && !options.scheduleEval.isOpenNow && /\bcerrad[oa]s?\b/i.test(baseEs)) {
+      return `${baseEs} ${getPostDisclosurePrompt('es', null)}`.trim()
     }
     return `${baseEs}${postPrompt}`.trim()
   }
@@ -3321,12 +3334,25 @@ export async function upsertPhoneCallStatusTombstone(
     Number.isFinite(Number(existingTomb.duration_seconds)) &&
     Number(existingTomb.duration_seconds) >= 0
 
+  const existingTombSeq =
+    existingTomb?.sequence_number !== null && existingTomb?.sequence_number !== undefined
+      ? Number(existingTomb.sequence_number)
+      : null
+  const existingTombTsMs =
+    existingTomb?.event_timestamp && !Number.isNaN(new Date(existingTomb.event_timestamp).getTime())
+      ? new Date(existingTomb.event_timestamp).getTime()
+      : null
+  const incomingTsMs =
+    safeEventTimestamp && !Number.isNaN(new Date(safeEventTimestamp).getTime())
+      ? new Date(safeEventTimestamp).getTime()
+      : null
   const isStaleBySeq =
     prevHasValidDur &&
-    existingTomb.sequence_number !== null &&
-    existingTomb.sequence_number !== undefined &&
-    safeSequenceNumber !== null &&
-    safeSequenceNumber < Number(existingTomb.sequence_number)
+    ((existingTombSeq !== null && safeSequenceNumber !== null && safeSequenceNumber < existingTombSeq) ||
+      ((existingTombSeq === null || safeSequenceNumber === null) &&
+        existingTombTsMs !== null &&
+        incomingTsMs !== null &&
+        incomingTsMs < existingTombTsMs))
 
   const mergedDuration = isStaleBySeq
     ? Math.min(7200, Math.max(0, Math.round(Number(existingTomb.duration_seconds))))
@@ -3466,9 +3492,31 @@ export async function reconcileCallWithTerminalTombstone(
     Number.isFinite(Number(tombstone.duration_seconds)) &&
     Number(tombstone.duration_seconds) >= 0
 
-  const authoritativeDurVal = hasAuthDur
-    ? Math.min(7200, Math.max(0, Math.round(Number(tombstone.duration_seconds))))
-    : null
+  const callSeq =
+    callRow.last_status_sequence !== null && callRow.last_status_sequence !== undefined
+      ? Number(callRow.last_status_sequence)
+      : null
+  const tombSeq =
+    tombstone.sequence_number !== null && tombstone.sequence_number !== undefined
+      ? Number(tombstone.sequence_number)
+      : null
+  const callTsMs =
+    callRow.last_status_event_at && !Number.isNaN(new Date(callRow.last_status_event_at).getTime())
+      ? new Date(callRow.last_status_event_at).getTime()
+      : null
+  const tombTsMs =
+    tombstone.event_timestamp && !Number.isNaN(new Date(tombstone.event_timestamp).getTime())
+      ? new Date(tombstone.event_timestamp).getTime()
+      : null
+  const isStaleDur =
+    hasAuthDur &&
+    ((callSeq !== null && tombSeq !== null && tombSeq < callSeq) ||
+      ((callSeq === null || tombSeq === null) && callTsMs !== null && tombTsMs !== null && tombTsMs < callTsMs))
+
+  const authoritativeDurVal =
+    hasAuthDur && !isStaleDur
+      ? Math.min(7200, Math.max(0, Math.round(Number(tombstone.duration_seconds))))
+      : null
 
   const finalEndedAt = callRow.ended_at || tombstone.ended_at || new Date().toISOString()
 
@@ -3479,6 +3527,8 @@ export async function reconcileCallWithTerminalTombstone(
   // CRÍTICO: solo escribir duration_seconds cuando existe CallDuration autoritativo; jamás pisar una duración válida con NULL ni 0
   if (authoritativeDurVal !== null) {
     patch.duration_seconds = authoritativeDurVal
+    if (tombSeq !== null) patch.last_status_sequence = tombSeq
+    if (tombstone.event_timestamp) patch.last_status_event_at = tombstone.event_timestamp
   }
   const preservedStatusNorm = String(preservedStatus || '').toLowerCase()
   if (
@@ -3523,12 +3573,15 @@ export async function reconcileCallWithTerminalTombstone(
       }
       if (authoritativeDurVal !== null) {
         syncPatch.duration_seconds = authoritativeDurVal
+        if (tombSeq !== null) syncPatch.last_status_sequence = tombSeq
+        if (tombstone.event_timestamp) syncPatch.last_status_event_at = tombstone.event_timestamp
       }
       const freshNorm = String(freshRow.status || '').toLowerCase()
       if (
         Number(freshRow.turns_count || 0) === 0 ||
         freshNorm === 'callback_requested' ||
-        freshNorm === 'transferred'
+        freshNorm === 'transferred' ||
+        (TOMBSTONE_TERMINAL_ENDED_STATUSES.has(freshNorm) && freshNorm !== 'completed')
       ) {
         syncPatch.resolved_by_ai = false
       }
@@ -3940,6 +3993,7 @@ export async function processPhoneAgentTurn(params: {
       callRecord = reconciled || ensuredRow
       return callRecord
     })()
+    void ensureCallRecordPromise.catch(() => null)
   }
 
   const ensureCallRecord = async () => {
@@ -4016,7 +4070,7 @@ export async function processPhoneAgentTurn(params: {
         turnLangGuess === 'en' && rule.answer_en && String(rule.answer_en).trim()
           ? String(rule.answer_en).trim()
           : String(rule.answer_es || '').trim()
-      return `${idx + 1}. [${rule.category.toUpperCase()}${rule.store_id ? ` - SOLO ${store.name}` : ' - GLOBAL'}] ${rule.title}: ${ruleText}`
+      return `${idx + 1}. [${rule.category.toUpperCase()}${rule.store_id ? ` - SOLO ${formatCustomerStoreName(store, turnLangGuess, { style: 'display' })}` : ' - GLOBAL'}] ${rule.title}: ${ruleText}`
     })
     .join('\n')
 
@@ -4053,7 +4107,7 @@ export async function processPhoneAgentTurn(params: {
 
   const holidaysContextLine = wantsHolidayContext || Boolean(todayHoliday || tomorrowHoliday)
     ? upcomingHolidays.length > 0
-      ? `- Horarios Especiales / 7 Fechas Oficiales Festivas de ${store.name}: ` +
+      ? `- Horarios Especiales / 7 Fechas Oficiales Festivas de ${formatCustomerStoreName(store, turnLangGuess, { style: 'display' })}: ` +
         upcomingHolidays
           .slice(0, 7)
           .map((h) => {
@@ -4128,12 +4182,9 @@ export async function processPhoneAgentTurn(params: {
     : scheduleEval.isSpecialHolidaySchedule && scheduleEval.specialHolidayName
       ? `hoy ${scheduleEval.activeDayLabelEs.toLowerCase()} por ${scheduleEval.specialHolidayName} cerramos en horario especial ${atTimePromptEs(scheduleEval.todayCloseFormattedEs)}`
       : `hoy ${scheduleEval.activeDayLabelEs.toLowerCase()} cerramos ${atTimePromptEs(scheduleEval.todayCloseFormattedEs)}`
-  const customerBranchDisplay = formatCustomerStoreName(store, turnLangGuess, { style: 'display' })
-  const customerBranchSpoken = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken' })
-  const customerBranchCrossStreets = getCustomerStoreCrossStreets(store, turnLangGuess)
   const hoursExampleBranchEs = resolveCustomerStoreMeta(store)?.isLosAngelesCrossStreetStore
     ? `la ${formatCustomerStoreName(store, 'es', { style: 'spoken' }).replace(/^Los Ángeles,\s*/i, 'sucursal de Los Ángeles ')}`
-    : `la sucursal ${store.name}`
+    : `la sucursal ${formatCustomerStoreName(store, 'es', { style: 'display' })}`
   const hoursExampleEs = scheduleEval.isOpenNow
     ? store.has_drive_thru
       ? `"En este momento estamos abiertos aquí en ${hoursExampleBranchEs}, contamos con servicio de Drive-Thru y ${closingPhraseEs}. ¿Te puedo ayudar con algo más?"`
@@ -4147,8 +4198,11 @@ export async function processPhoneAgentTurn(params: {
     .filter(Boolean)
     .join('\n')
 
+  const customerBranchDisplay = formatCustomerStoreName(store, turnLangGuess, { style: 'display' })
+  const customerBranchSpoken = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken' })
+  const customerBranchCrossStreets = getCustomerStoreCrossStreets(store, turnLangGuess)
   const priorCallbackNote = hadPriorCallbackInCall
-    ? `\nESTADO DE ESTA LLAMADA: En un turno previo de esta misma llamada YA quedó registrado el recado prioritario para el gerente de ${store.name}. NO vuelvas a pedir nombre ni teléfono; solo llama \`create_manager_callback\` si la persona desea agregar información nueva al recado.`
+    ? `\nESTADO DE ESTA LLAMADA: En un turno previo de esta misma llamada YA quedó registrado el recado prioritario para el gerente de ${customerBranchDisplay}. NO vuelvas a pedir nombre ni teléfono; solo llama \`create_manager_callback\` si la persona desea agregar información nueva al recado.`
     : ''
 
   const callbackOutcomeInstruction = scheduleEval.isOpenNow
@@ -4231,7 +4285,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 4. **Pedidos por Teléfono**:
    - Explica amablemente que por políticas de Tacos Gavilan no tomamos pedidos por teléfono, e invítalo a ordenar en línea en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o pedir directamente en caja o por el Drive-Thru' : ' o pedir directamente en caja'}.
 5. **Repartidores de Delivery (DoorDash, Uber Eats, Grubhub)**:
-   - ${store.has_drive_thru ? `En esta sucursal (${store.name}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${store.name}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
+   - ${store.has_drive_thru ? `En esta sucursal (${customerBranchDisplay}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${customerBranchDisplay}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
    - Si quien llama es un CLIENTE con un problema en su pedido de DoorDash/Uber Eats (faltantes, cobro, orden equivocada), trátalo como reclamo (regla 6), no como repartidor.
 6. **Reclamos de Órdenes, Cobros, Objetos Olvidados, Empleados (Retardos/Faltas), Proveedores o "quiero hablar con el gerente"**:
    - **ACCIÓN OBLIGATORIA CON HERRAMIENTA**: Si la persona YA dio su nombre y teléfono real de 10 dígitos (o en llamada Twilio pidió marcarle a su Caller ID), **EJECUTA PRIMERO \`create_manager_callback\`** con EXACTAMENTE esos datos antes de responder. **PROHIBIDO** decir en texto que "envías / dejaste / registraste una alerta o recado" sin haber invocado \`create_manager_callback\`.
@@ -4310,7 +4364,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     if (toolName === 'search_menu_item_price') {
       const q = String(toolArgs?.query || '')
       const matches = rankMenuItemsForPrompt(liveMenuItems, q, 8)
-      return { storeName: store.name, query: q, matchesFound: matches.length, items: matches }
+      return { storeName: customerBranchDisplay, query: q, matchesFound: matches.length, items: matches }
     }
     if (toolName === 'get_fiesta_platter_packages') {
       const guestCount = Math.round(Number(toolArgs?.guest_count))
@@ -4460,7 +4514,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
           success: true,
           alreadySent: true,
           callbackId: existingPending.id,
-          message: `El gerente de ${store.name} ya tiene la alerta de esta llamada; se actualizó el detalle.`
+          message: `El gerente de ${customerBranchDisplay} ya tiene la alerta de esta llamada; se actualizó el detalle.`
         }
       }
 
@@ -4496,19 +4550,19 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         willTransferLive: false,
         callbackId: callbackCreated.id,
         message: scheduleEval.isOpenNow
-          ? `Alerta enviada en vivo a la pantalla del Manager en la sucursal ${store.name} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará enseguida desde la tienda.`
-          : `Recado prioritario registrado para el Manager de ${store.name}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
+          ? `Alerta enviada en vivo a la pantalla del Manager en ${customerBranchDisplay} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará enseguida desde la tienda.`
+          : `Recado prioritario registrado para el Manager de ${customerBranchDisplay}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
       }
     }
     if (toolName === 'flag_unanswered_question') {
       const qRaw = String(toolArgs?.question_text || userText).slice(0, 300)
-      const isOffTopicTrivia = /\b(chiste|joke|cancion|canta|song|sing|banda|rock|heroes del silencio|futbol|soccer|nfl|nba|clima|weather|presidente|politica)\b/i.test(
+      const isIgnoredTopic = /\b(chiste|joke|cancion|canta|song|sing|banda|rock|heroes del silencio|futbol|soccer|nfl|nba|clima|weather|presidente|politica|menudo|birria|pozole|suadero|tripa|cerveza|alcohol|beer|pastel(?:es)?|birthday\s*cakes?|churros?)\b/i.test(
         normalizeSearchText(`${userText} ${qRaw}`)
       )
-      if (!isOffTopicTrivia) {
+      if (!isIgnoredTopic) {
         unansweredFlagged = qRaw
       }
-      return { recorded: !isOffTopicTrivia }
+      return { recorded: !isIgnoredTopic }
     }
     return { error: `Herramienta desconocida: ${toolName}` }
   }
@@ -4645,8 +4699,18 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
             timestamp: new Date().toISOString(),
             toolName: 'create_manager_callback'
           })
+          if (!forcedRes?.success) {
+            replyText =
+              turnLangGuess === 'en'
+                ? 'I ran into an issue saving your callback request. Could you please confirm your full name and 10-digit phone number so I can try again?'
+                : 'Tuve un inconveniente técnico al guardar tu recado. ¿Me confirmas tu nombre completo y teléfono de 10 dígitos para intentarlo de nuevo?'
+          }
         } catch (cbErr) {
           console.error('[phone-agent] Error en blindaje de recado obligatorio:', cbErr)
+          replyText =
+            turnLangGuess === 'en'
+              ? 'I had a technical issue saving your callback alert right now. Could you repeat your 10-digit phone number so we can log it?'
+              : 'Tuve un inconveniente técnico al registrar la alerta ahorita. ¿Me repites tu teléfono de 10 dígitos para volver a intentarlo?'
         }
       } else {
         replyText =
@@ -4825,7 +4889,13 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   const flushDbPromise = (async () => {
     const buildNonTerminalSafePayload = () => {
-      const { status: _omitStatus, ended_at: _omitEnded, duration_seconds: _omitDur, ...safeFields } = updatePayload
+      const {
+        status: _omitStatus,
+        ended_at: _omitEnded,
+        duration_seconds: _omitDur,
+        resolved_by_ai: _omitResolved,
+        ...safeFields
+      } = updatePayload
       return safeFields
     }
 
@@ -4898,6 +4968,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   if (!deferDbFlush) {
     await flushDbPromise
+  } else {
+    void flushDbPromise.catch(() => null)
   }
 
   return {
@@ -4976,16 +5048,23 @@ function getPhoneTtsSigningSecret(): string {
   return process.env.PHONE_TTS_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 }
 
-export function signPhoneTtsParams(text: string, lang: string, voice: string): string {
+export function signPhoneTtsParams(text: string, lang: string, voice: string, isDynamic = false): string {
   const secret = getPhoneTtsSigningSecret()
   if (!secret) return ''
   const cleanText = String(text || '').trim()
-  return createHmac('sha256', secret).update(`${lang}|${voice}|${cleanText}`).digest('hex').slice(0, 32)
+  const dynSuffix = isDynamic ? '|dyn=1' : ''
+  return createHmac('sha256', secret).update(`${lang}|${voice}|${cleanText}${dynSuffix}`).digest('hex').slice(0, 32)
 }
 
-export function verifyPhoneTtsSignature(text: string, lang: string, voice: string, sig: string | null | undefined): boolean {
+export function verifyPhoneTtsSignature(
+  text: string,
+  lang: string,
+  voice: string,
+  sig: string | null | undefined,
+  isDynamic = false
+): boolean {
   const cleanText = String(text || '').trim()
-  const expected = signPhoneTtsParams(cleanText, lang, voice)
+  const expected = signPhoneTtsParams(cleanText, lang, voice, isDynamic)
   if (!expected || !sig || sig.length !== expected.length) return false
   try {
     return timingSafeEqual(Buffer.from(expected), Buffer.from(sig))
@@ -5018,9 +5097,9 @@ export function buildPhoneTtsUrl(
   rateOrOpts?: 8000 | 24000 | { rate?: 8000 | 24000; dynamic?: boolean }
 ): string {
   const cleanText = String(text || '').trim()
-  const sig = signPhoneTtsParams(cleanText, lang, voice)
   const rateOpt = typeof rateOrOpts === 'number' ? rateOrOpts : rateOrOpts?.rate
   const isDynamic = typeof rateOrOpts === 'object' ? Boolean(rateOrOpts?.dynamic) : false
+  const sig = signPhoneTtsParams(cleanText, lang, voice, isDynamic)
   const effectiveRate = rateOpt ?? (baseUrl ? 8000 : 24000)
   const rateParam = effectiveRate === 8000 ? '&rate=8000' : ''
   const dynParam = isDynamic ? '&dyn=1' : ''

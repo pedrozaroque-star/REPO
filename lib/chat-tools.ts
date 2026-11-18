@@ -656,7 +656,7 @@ export const TOOL_DECLARATIONS = [
 ]
 
 // ── Tool Executor ──
-export async function executeTool(name: string, rawArgs: any): Promise<string> {
+export async function executeTool(name: string, rawArgs: any, viewerUser?: any): Promise<string> {
   try {
     const args: any = { ...(rawArgs || {}) }
     if (args.date_from && !args.start_date) args.start_date = args.date_from
@@ -725,7 +725,7 @@ export async function executeTool(name: string, rawArgs: any): Promise<string> {
       case 'query_delivery_handoffs': return await queryDeliveryHandoffs(args)
       case 'query_delivery_reconciliation': return await queryDeliveryReconciliationTool(args)
       case 'query_training_academy': return await queryTrainingAcademyTool(args)
-      case 'query_phone_agent_status': return await queryPhoneAgentStatusTool(args)
+      case 'query_phone_agent_status': return await queryPhoneAgentStatusTool(args, viewerUser)
       case 'query_bean_cooking_logs': return await queryBeanCookingLogsTool(args)
       default: return `Tool "${name}" not found.`
     }
@@ -3703,11 +3703,71 @@ async function queryTrainingAcademyTool(args: any): Promise<string> {
 /**
  * Consulta la Contestadora IA Multi-Sucursal (/admin/llamadas): estado de las 15 sucursales, Base de Conocimiento Editable, festivos dinámicos, llamadas reales vs simulador y recados prioritarios.
  */
-async function queryPhoneAgentStatusTool(args: any): Promise<string> {
+async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<string> {
   try {
+    // RBAC por sucursal cuando la herramienta es invocada desde /api/support-chat con sesión humana
+    let scopedAllowedIds: number[] | null = null;
+    if (viewerUser) {
+      const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor', 'regional_manager']);
+      const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'gerente', 'asistente', 'assistant']);
+      const numericId = Number(viewerUser.id);
+      let userRow: any = null;
+      if (Number.isFinite(numericId) && numericId > 0) {
+        const { data, error } = await supabaseAdmin
+          .from('users')
+          .select('id, role, store_id, store_scope, is_active')
+          .eq('id', numericId)
+          .maybeSingle();
+        if (error) throw error;
+        userRow = data;
+      }
+      if (!userRow && viewerUser.email) {
+        const safeEmail = String(viewerUser.email).trim().replace(/[\\%_]/g, '\\$&');
+        const { data, error } = await supabaseAdmin
+          .from('users')
+          .select('id, role, store_id, store_scope, is_active')
+          .ilike('email', safeEmail)
+          .maybeSingle();
+        if (error) throw error;
+        userRow = data;
+      }
+      if (!userRow || userRow.is_active === false) {
+        return 'Acceso denegado: Usuario inactivo o sin padrón administrativo para consultar la Contestadora IA.';
+      }
+      const liveRole = String(userRow.role || '').trim().toLowerCase();
+      if (!GLOBAL_ADMIN_ROLES.has(liveRole)) {
+        if (!STORE_SCOPED_ROLES.has(liveRole)) {
+          return `Acceso denegado: El rol '${liveRole}' no tiene autorización para consultar llamadas o recados de la Contestadora IA.`;
+        }
+        const { data: activeStoresData, error: stErr } = await supabaseAdmin
+          .from('stores')
+          .select('id, is_active')
+          .order('id', { ascending: true });
+        if (stErr) throw stErr;
+        const activeIdSet = new Set(
+          (activeStoresData || []).filter((s: any) => s.is_active !== false).map((s: any) => Number(s.id))
+        );
+        const allowedSet = new Set<number>();
+        const assignedNum = Number(userRow.store_id);
+        if (Number.isFinite(assignedNum) && activeIdSet.has(assignedNum)) allowedSet.add(assignedNum);
+        if (Array.isArray(userRow.store_scope)) {
+          for (const rawItem of userRow.store_scope) {
+            const n = Number(rawItem);
+            if (Number.isFinite(n) && activeIdSet.has(n)) allowedSet.add(n);
+          }
+        }
+        if (allowedSet.size === 0) {
+          return 'Acceso denegado: Tu cuenta no tiene ninguna sucursal activa asignada.';
+        }
+        scopedAllowedIds = Array.from(allowedSet);
+      }
+    }
+
     const todayIso = getCaliforniaDate();
+    const applyScope = (q: any) => (scopedAllowedIds ? q.in('store_id', scopedAllowedIds) : q);
+
     const [{ data: configs }, { data: kb }, { data: specialHours }, { data: calls }, { data: criticalCbs }, { data: callbacks }, { count: exactRealPendingCount }, { count: exactRealCriticalCount }] = await Promise.all([
-      supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id'),
+      applyScope(supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id')),
       supabaseAdmin.from('phone_knowledge_base').select('id, title, category, store_id, is_active').eq('is_active', true),
       supabaseAdmin
         .from('phone_special_hours')
@@ -3715,40 +3775,53 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
         .gte('event_date', todayIso)
         .order('event_date')
         .limit(20),
-      supabaseAdmin
-        .from('phone_calls')
-        .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
-        .order('started_at', { ascending: false })
-        .limit(100),
-      supabaseAdmin
-        .from('phone_callback_requests')
-        .select('*, stores(name)')
-        .eq('status', 'pending')
-        .in('urgency', ['critical', 'urgent'])
-        .order('created_at', { ascending: false })
-        .limit(250),
-      supabaseAdmin
-        .from('phone_callback_requests')
-        .select('*, stores(name)')
-        .eq('status', 'pending')
-        .not('urgency', 'in', '("critical","urgent")')
-        .order('created_at', { ascending: false })
-        .limit(150),
-      supabaseAdmin
-        .from('phone_callback_requests')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending')
-        .eq('source', 'twilio'),
-      supabaseAdmin
-        .from('phone_callback_requests')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending')
-        .eq('source', 'twilio')
-        .in('urgency', ['critical', 'urgent']),
+      applyScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
+          .order('started_at', { ascending: false })
+          .limit(100)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores(name)')
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .in('urgency', ['critical', 'urgent'])
+          .order('created_at', { ascending: false })
+          .limit(250)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores(name)')
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .not('urgency', 'in', '("critical","urgent")')
+          .order('created_at', { ascending: false })
+          .limit(150)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .in('urgency', ['critical', 'urgent'])
+      ),
     ]);
 
     let rows = configs || [];
-    let matchedStoreIds: Set<number> | null = null;
+    const allowedStoreSet = scopedAllowedIds ? new Set(scopedAllowedIds) : null;
+    let matchedStoreIds: Set<number> | null = allowedStoreSet;
     if (args?.store_name) {
       const q = normText(args.store_name);
       rows = rows.filter((r: any) => {
@@ -3759,19 +3832,24 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
         return normText(r.stores?.name || '').includes(q) || normText(cleanLabel).includes(q);
       });
       matchedStoreIds = new Set(rows.map((r: any) => Number(r.store_id)));
+      if (allowedStoreSet) {
+        matchedStoreIds = new Set([...matchedStoreIds].filter((id) => allowedStoreSet.has(id)));
+      }
     }
 
     const filteredCalls = matchedStoreIds
       ? (calls || []).filter((c: any) => matchedStoreIds!.has(Number(c.store_id)))
       : calls || [];
 
-    const isSimCall = (c: any) => c.source === 'simulator' || String(c.call_sid || '').startsWith('SIM-');
+    const isSimCall = (c: any) => c.source === 'simulator' || String(c.call_sid || '').startsWith('SIM');
     const realCalls = filteredCalls.filter((c: any) => !isSimCall(c));
     const simCalls = filteredCalls.filter((c: any) => isSimCall(c));
     const realCallsWithTurns = realCalls.filter((c: any) => Number(c.turns_count || 0) > 0);
     const resolvedReal = realCallsWithTurns.filter((c: any) => Boolean(c.resolved_by_ai)).length;
-    const realPct =
-      realCallsWithTurns.length > 0 ? ((resolvedReal / realCallsWithTurns.length) * 100).toFixed(1) : '100.0';
+    const realStatsSummary =
+      realCallsWithTurns.length > 0
+        ? `${((resolvedReal / realCallsWithTurns.length) * 100).toFixed(1)}% resueltas por la IA en llamadas con conversación`
+        : 'Sin llamadas reales con conversación aún';
 
     const filteredKb = matchedStoreIds
       ? (kb || []).filter((r: any) => r.store_id == null || matchedStoreIds!.has(Number(r.store_id)))
@@ -3814,11 +3892,11 @@ async function queryPhoneAgentStatusTool(args: any): Promise<string> {
 
     const urgentOrCritical = filteredCallbacks.filter((cb: any) => cb.urgency === 'critical' || cb.urgency === 'urgent').length;
     let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
-    out += `• **Voz y Arquitectura Baja Latencia**: Kore 3.8 (\`gemini-3.8-flash-lite-tts\` #1, región \`sfo1\`, caché \`phone_v6\`, filtro FIR 9-taps WAV \`8kHz\` telefonía + \`&dyn=1\` / PCM \`24kHz\` simulador)\n`;
+    out += `• **Voz y Arquitectura Baja Latencia**: Kore 3.8 (\`gemini-3.8-flash-tts\` #1 seguido de \`gemini-3.8-flash-lite-tts\`, región \`sfo1\`, caché \`phone_kore38_v6\`, filtro FIR 9-taps WAV \`8kHz\` telefonía + \`&dyn=1\` / PCM \`24kHz\` simulador)\n`;
     out += `• **Sucursales Consultadas**: ${rows.length} (Cadena: 4 líneas fijas Spectrum Business y 11 celulares Android AT&T; soporta piloto Twilio de 1 número vía \`ForwardedFrom\`)\n`;
     out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
     out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
-    out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realPct}% resueltas por la IA en llamadas con conversación) | **Pruebas en Simulador**: ${simCalls.length}\n`;
+    out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realStatsSummary}) | **Pruebas en Simulador**: ${simCalls.length}\n`;
     const totalRealPending = !matchedStoreIds && typeof exactRealPendingCount === 'number'
       ? Math.max(filteredCallbacks.length, exactRealPendingCount)
       : filteredCallbacks.length;

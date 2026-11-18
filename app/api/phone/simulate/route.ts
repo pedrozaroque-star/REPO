@@ -295,12 +295,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'end') {
-      const callSid = String(body?.callSid || '')
+      const callSid = String(body?.callSid || '').trim()
       if (callSid.startsWith('SIM_')) {
         const { data: existing, error: findErr } = await supabaseAdmin
           .from('phone_calls')
           .select('id, store_id, status, started_at, ended_at, turns_count')
           .eq('call_sid', callSid)
+          .eq('source', 'simulator')
           .maybeSingle()
         if (findErr) throw findErr
 
@@ -341,18 +342,26 @@ export async function POST(request: NextRequest) {
 
     // Default: action === 'turn'
     const rawCallSid = String(body?.callSid || '').trim()
-    const callSid = rawCallSid.startsWith('SIM_') ? rawCallSid : `SIM_${storeId}_${Date.now()}`
+    let callSid = rawCallSid.startsWith(`SIM_${storeId}_`) ? rawCallSid : `SIM_${storeId}_${Date.now()}`
     if (rawCallSid.startsWith('SIM_')) {
       const { data: ownerCheck, error: ownerErr } = await supabaseAdmin
         .from('phone_calls')
         .select('store_id')
-        .eq('call_sid', callSid)
+        .eq('call_sid', rawCallSid)
+        .eq('source', 'simulator')
         .maybeSingle()
       if (ownerErr) throw ownerErr
-      if (ownerCheck && Number(ownerCheck.store_id) !== storeId) {
+      if (ownerCheck) {
         if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(ownerCheck.store_id))) {
           return NextResponse.json({ error: 'Acceso denegado a esta llamada simulada' }, { status: 403 })
         }
+        if (Number(ownerCheck.store_id) !== storeId) {
+          return NextResponse.json(
+            { error: 'La llamada simulada pertenece a otra sucursal; inicia una nueva llamada.' },
+            { status: 409 }
+          )
+        }
+        callSid = rawCallSid
       }
     }
     const rawUserText = String(body?.userText || '').trim().slice(0, 1000)

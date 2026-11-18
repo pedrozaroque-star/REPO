@@ -326,26 +326,52 @@ export async function GET(request: NextRequest) {
       lastStaleSweepAt = sweepNow
       const staleCutoffIso = new Date(sweepNow - 25 * 60 * 1000).toISOString()
       const oldTombstoneCutoffIso = new Date(sweepNow - 24 * 60 * 60 * 1000).toISOString()
+      const sweepEndedIso = new Date(sweepNow).toISOString()
       void (async () => {
         try {
-          const { data: staleCalls } = await supabaseAdmin
+          const { data: staleCalls, error: staleErr } = await supabaseAdmin
             .from('phone_calls')
-            .select('call_sid')
+            .select('id, call_sid, turns_count')
             .eq('status', 'in_progress')
             .lt('started_at', staleCutoffIso)
+            .order('started_at', { ascending: true })
             .limit(100)
-          if (Array.isArray(staleCalls) && staleCalls.length > 0) {
+          if (!staleErr && Array.isArray(staleCalls) && staleCalls.length > 0) {
+            const zeroTurnIds: string[] = []
+            const multiTurnIds: string[] = []
             for (const sc of staleCalls) {
-              if (sc?.call_sid) {
-                await reconcileCallWithTerminalTombstone(sc.call_sid).catch(() => null)
+              if (!sc?.id || !sc?.call_sid) continue
+              let recFailed = false
+              const reconciled = await reconcileCallWithTerminalTombstone(sc.call_sid).catch(() => {
+                recFailed = true
+                return null
+              })
+              // Solo cerrar como completed por antigüedad si no hubo error al revisar tombstone y no existía tombstone aplicado/pendiente
+              if (!recFailed && reconciled === null) {
+                if (Number(sc.turns_count || 0) === 0) {
+                  zeroTurnIds.push(sc.id)
+                } else {
+                  multiTurnIds.push(sc.id)
+                }
               }
             }
+            if (zeroTurnIds.length > 0) {
+              await supabaseAdmin
+                .from('phone_calls')
+                .update({ status: 'completed', ended_at: sweepEndedIso, resolved_by_ai: false })
+                .in('id', zeroTurnIds)
+                .eq('status', 'in_progress')
+                .is('ended_at', null)
+            }
+            if (multiTurnIds.length > 0) {
+              await supabaseAdmin
+                .from('phone_calls')
+                .update({ status: 'completed', ended_at: sweepEndedIso })
+                .in('id', multiTurnIds)
+                .eq('status', 'in_progress')
+                .is('ended_at', null)
+            }
           }
-          await supabaseAdmin
-            .from('phone_calls')
-            .update({ status: 'completed', ended_at: new Date(sweepNow).toISOString() })
-            .eq('status', 'in_progress')
-            .lt('started_at', staleCutoffIso)
           await cleanupOrReconcileExpiredTombstones({ olderThanIso: oldTombstoneCutoffIso })
         } catch {
           // Ignorar errores transitorios en barrido de mantenimiento; todo tombstone pendiente permanece intacto
@@ -798,10 +824,17 @@ export async function POST(request: NextRequest) {
       const eventDate = String(body?.event_date || '').trim()
       const holidayName = String(body?.holiday_name || '').trim().slice(0, 140)
       const isClosed = Boolean(body?.is_closed)
-      const rawOpen = body?.open_time ? String(body.open_time).trim().slice(0, 5) : ''
-      const rawClose = body?.close_time ? String(body.close_time).trim().slice(0, 5) : ''
-      const openTime = isClosed ? null : rawOpen || null
-      const closeTime = isClosed ? null : rawClose || null
+      const RAW_TIME_INPUT_RE = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/
+      const rawOpenStr = body?.open_time ? String(body.open_time).trim() : ''
+      const rawCloseStr = body?.close_time ? String(body.close_time).trim() : ''
+      if (
+        (!isClosed && rawOpenStr && !RAW_TIME_INPUT_RE.test(rawOpenStr)) ||
+        (!isClosed && rawCloseStr && !RAW_TIME_INPUT_RE.test(rawCloseStr))
+      ) {
+        return NextResponse.json({ error: 'Formato de hora inválido (usa HH:MM en 24h)' }, { status: 400 })
+      }
+      const openTime = isClosed ? null : rawOpenStr ? rawOpenStr.slice(0, 5) : null
+      const closeTime = isClosed ? null : rawCloseStr ? rawCloseStr.slice(0, 5) : null
 
       if (!isRealCalendarDate(eventDate) || !holidayName) {
         return NextResponse.json({ error: 'Fecha calendario válida (YYYY-MM-DD) y nombre del día festivo son requeridos' }, { status: 400 })
@@ -815,6 +848,18 @@ export async function POST(request: NextRequest) {
       if ((openTime && !TIME_HHMM_RE.test(openTime)) || (closeTime && !TIME_HHMM_RE.test(closeTime))) {
         return NextResponse.json({ error: 'Formato de hora inválido (usa HH:MM en 24h)' }, { status: 400 })
       }
+      if (!isClosed && openTime && closeTime) {
+        const [oh, om] = openTime.split(':').map(Number)
+        const [ch, cm] = closeTime.split(':').map(Number)
+        const openMin = oh * 60 + om
+        const closeMin = ch * 60 + cm
+        if (openTime === closeTime || (closeMin >= 360 && closeMin <= openMin)) {
+          return NextResponse.json(
+            { error: 'La hora de cierre debe ser posterior a la hora de apertura (cierres de madrugada solo 00:00–05:59)' },
+            { status: 400 }
+          )
+        }
+      }
 
       const payload = {
         store_id: storeId,
@@ -823,8 +868,8 @@ export async function POST(request: NextRequest) {
         is_closed: isClosed,
         open_time: openTime,
         close_time: closeTime,
-        notes_es: body?.notes_es || null,
-        notes_en: body?.notes_en || null
+        notes_es: body?.notes_es ? String(body.notes_es).trim().slice(0, 500) || null : null,
+        notes_en: body?.notes_en ? String(body.notes_en).trim().slice(0, 500) || null : null
       }
 
       const findExisting = async () => {
@@ -988,6 +1033,18 @@ export async function PATCH(request: NextRequest) {
       const prevCfg = (allConfigs || []).find((c: any) => Number(c.store_id) === storeId) || null
 
       const updates: Record<string, any> = {
+        ...(!prevCfg
+          ? {
+              is_enabled: false,
+              routing_mode: 'conditional_forward',
+              carrier_type: [1, 8, 14, 16].includes(storeId) ? 'spectrum_landline' : 'att_wireless',
+              forwarding_status: 'pending',
+              ring_timeout_seconds: 20,
+              voice_id: 'Kore',
+              default_language: 'es',
+              accepts_ebt: ![1, 9].includes(storeId)
+            }
+          : {}),
         updated_at: new Date().toISOString(),
         updated_by: auth.user.email || String(auth.user.id || 'admin')
       }
@@ -1233,10 +1290,15 @@ export async function PATCH(request: NextRequest) {
       const nextClosed = body.is_closed !== undefined ? Boolean(body.is_closed) : Boolean(currentSh.is_closed)
       if (body.is_closed !== undefined) updates.is_closed = nextClosed
 
+      const RAW_TIME_INPUT_RE = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/
       let nextOpen = currentSh.open_time ? String(currentSh.open_time).slice(0, 5) : null
       let nextClose = currentSh.close_time ? String(currentSh.close_time).slice(0, 5) : null
       if (body.open_time !== undefined) {
-        const o = body.open_time ? String(body.open_time).trim().slice(0, 5) : null
+        const rawO = body.open_time ? String(body.open_time).trim() : ''
+        if (rawO && !RAW_TIME_INPUT_RE.test(rawO)) {
+          return NextResponse.json({ error: 'Hora de apertura inválida (HH:MM)' }, { status: 400 })
+        }
+        const o = rawO ? rawO.slice(0, 5) : null
         if (o && !TIME_HHMM_RE.test(o)) {
           return NextResponse.json({ error: 'Hora de apertura inválida (HH:MM)' }, { status: 400 })
         }
@@ -1244,7 +1306,11 @@ export async function PATCH(request: NextRequest) {
         updates.open_time = o
       }
       if (body.close_time !== undefined) {
-        const c = body.close_time ? String(body.close_time).trim().slice(0, 5) : null
+        const rawC = body.close_time ? String(body.close_time).trim() : ''
+        if (rawC && !RAW_TIME_INPUT_RE.test(rawC)) {
+          return NextResponse.json({ error: 'Hora de cierre inválida (HH:MM)' }, { status: 400 })
+        }
+        const c = rawC ? rawC.slice(0, 5) : null
         if (c && !TIME_HHMM_RE.test(c)) {
           return NextResponse.json({ error: 'Hora de cierre inválida (HH:MM)' }, { status: 400 })
         }
@@ -1256,10 +1322,25 @@ export async function PATCH(request: NextRequest) {
         updates.close_time = null
       } else if (!nextOpen && !nextClose) {
         return NextResponse.json({ error: 'Si no está cerrado todo el día, indica hora de apertura o cierre especial' }, { status: 400 })
+      } else if (nextOpen && nextClose) {
+        const [oh, om] = nextOpen.split(':').map(Number)
+        const [ch, cm] = nextClose.split(':').map(Number)
+        const openMin = oh * 60 + om
+        const closeMin = ch * 60 + cm
+        if (nextOpen === nextClose || (closeMin >= 360 && closeMin <= openMin)) {
+          return NextResponse.json(
+            { error: 'La hora de cierre debe ser posterior a la hora de apertura (cierres de madrugada solo 00:00–05:59)' },
+            { status: 400 }
+          )
+        }
       }
 
-      if (body.notes_es !== undefined) updates.notes_es = body.notes_es || null
-      if (body.notes_en !== undefined) updates.notes_en = body.notes_en || null
+      if (body.notes_es !== undefined) {
+        updates.notes_es = body.notes_es ? String(body.notes_es).trim().slice(0, 500) || null : null
+      }
+      if (body.notes_en !== undefined) {
+        updates.notes_en = body.notes_en ? String(body.notes_en).trim().slice(0, 500) || null : null
+      }
 
       const { data: updated, error } = await supabaseAdmin
         .from('phone_special_hours')

@@ -347,6 +347,7 @@ export default function PhoneCallbackAlertBanner({
         delete next[id]
         return next
       })
+      void fetchPending()
     } catch {
       setErrorMsg(t('phone_agent.banner_resolve_error'))
     } finally {
@@ -425,10 +426,13 @@ export default function PhoneCallbackAlertBanner({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          void navigator.clipboard?.writeText(cb.caller_phone).then(() => {
-                            setCopiedPhoneId(cb.id)
-                            setTimeout(() => setCopiedPhoneId((cur) => (cur === cb.id ? null : cur)), 1800)
-                          })
+                          void navigator.clipboard
+                            ?.writeText(cb.caller_phone)
+                            ?.then(() => {
+                              setCopiedPhoneId(cb.id)
+                              setTimeout(() => setCopiedPhoneId((cur) => (cur === cb.id ? null : cur)), 1800)
+                            })
+                            .catch(() => {})
                         }}
                         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 text-[10px] font-bold transition"
                       >

@@ -238,14 +238,32 @@ export function expandStreetAbbreviationsInText(
     out = out.replace(pattern, replacement)
   }
 
-  // 4. Expandir `St.` / `St` ÚNICAMENTE cuando va DESPUÉS del nombre u ordinal de calle (no "St. Jude")
+  // 4. Expandir `St.` / `St` ÚNICAMENTE en direcciones viales reales (no en santos/hospitales como "St. Francis" o "St. Jude")
+  const NON_STREET_PREFIX_WORDS = new Set([
+    'en', 'de', 'a', 'por', 'con', 'sin', 'para', 'del', 'al', 'la', 'el',
+    'near', 'at', 'in', 'by', 'from', 'to', 'the', 'our', 'visit', 'opposite', 'across', 'hospital'
+  ])
   out = out.replace(
-    new RegExp(String.raw`\b(\d{1,3}(?:st|nd|rd|th)|[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'g'),
+    new RegExp(
+      String.raw`\b(\d{1,3}(?:st|nd|rd|th)|\d{1,6}\s+(?:(?:North|South|East|West|Northeast|Northwest|Southeast|Southwest)\s+)?[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.` +
+        SENTENCE_NEXT_WORD_LOOKAHEAD,
+      'g'
+    ),
     '$1 Street.'
   )
   out = out.replace(
-    /\b(\d{1,3}(?:st|nd|rd|th)|[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.(?=\s*[,;:.!?)]|\s|$)/g,
+    /\b(\d{1,3}(?:st|nd|rd|th)|\d{1,6}\s+(?:(?:North|South|East|West|Northeast|Northwest|Southeast|Southwest)\s+)?[A-Z][a-zA-Z0-9'-]{1,24})\s+St\.(?=\s*[,;:.!?)]|\s|$)/g,
     '$1 Street'
+  )
+  out = out.replace(
+    new RegExp(String.raw`\b([A-Z][a-zA-Z0-9'-]{1,24})\s+St\.` + SENTENCE_NEXT_WORD_LOOKAHEAD, 'g'),
+    (full, streetWord: string) =>
+      NON_STREET_PREFIX_WORDS.has(streetWord.toLowerCase()) ? full : `${streetWord} Street.`
+  )
+  out = out.replace(
+    /\b([A-Z][a-zA-Z0-9'-]{1,24})\s+St\.(?=\s*[,;:!?)]|\s+[a-záéíóúñ]|\s*$)/g,
+    (full, streetWord: string) =>
+      NON_STREET_PREFIX_WORDS.has(streetWord.toLowerCase()) ? full : `${streetWord} Street`
   )
   out = out.replace(
     /\b(\d{1,3}(?:st|nd|rd|th))\s+St\b/gi,
@@ -273,9 +291,9 @@ export function expandStreetAbbreviationsInText(
   // 6. Expandir `Ste.` / `Ste` seguido de identificador de local (ej. "Ste. 104", "Ste B")
   out = out.replace(/\bSte\.?\s+([A-Za-z0-9-]+)\b/gi, 'Suite $1')
 
-  // 7. Expandir ordinales viales en inglés (`17th Street` -> `Seventeenth Street`, `1st Avenue` -> `First Avenue`)
+  // 7. Expandir ordinales viales en inglés (`17th Street` -> `Seventeenth Street`, `17th y Grand` -> `Seventeenth y Grand`)
   out = out.replace(
-    /\b(\d{1,3})(st|nd|rd|th)\b(?=\s+(?:Street|Avenue|Boulevard|Road|Drive|Place|Lane|Way|Court|Circle)\b)/gi,
+    /\b(\d{1,3})(st|nd|rd|th)\b(?=\s+(?:Street|Avenue|Boulevard|Road|Drive|Place|Lane|Way|Court|Circle)\b|\s+(?:y|and|&)\s+[A-Z])/gi,
     (full, digits: string) => {
       const word = numberToEnglishOrdinalWords(Number(digits))
       return word || full
@@ -455,7 +473,7 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
 
   // 5b. Convertir horarios de 12 horas (`11:00 AM a 3:00 AM`, `10:00 AM-1:00 AM`, `4:00 PM`, `12:00 AM`) a locución hablada
   //     100% explícita para impedir que Gemini TTS invierta el segundo `"AM"` en `"pe eme"` (`3 PM`) en cierres nocturnos.
-  const MERIDIEM_TOKEN = String.raw`(?:([AaPp])\.[Mm]\.(?=\s+[a-záéíóúñ]|\s*[,;:])|([AaPp])\.[Mm](?=\.)|([AaPp])\s*[Mm]\b)`
+  const MERIDIEM_TOKEN = String.raw`(?:([AaPp])\.[Mm]\.(?=\s+[a-záéíóúñ]|\s*[,;:!?)]|\s*$)|([AaPp])\.[Mm](?=\.)|([AaPp])\s*[Mm]\b)`
   text = text.replace(
     new RegExp(String.raw`(\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:[AaPp]\.[Mm]\.?|[AaPp]\s*[Mm]\b))\s*[-–]\s*(?=(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*[AaPp])`, 'g'),
     lang === 'es' ? '$1 a ' : '$1 to '
@@ -488,7 +506,7 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
       new RegExp(
         String.raw`\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*` +
           MERIDIEM_TOKEN +
-          String.raw`(?!\s+(?:in\s+the\s+(?:morning|afternoon|evening)|at\s+night|midnight|noon))`,
+          String.raw`(?!\s*(?:midnight|noon))(?:\s+in\s+the\s+(?:morning|afternoon|evening)|\s+at\s+night)?`,
         'g'
       ),
       (_m, hourStr: string, minStr: string | undefined, m1?: string, m2?: string, m3?: string) => {

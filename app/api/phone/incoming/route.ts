@@ -203,7 +203,15 @@ export async function POST(request: Request) {
         lang === 'en'
           ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
           : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
-      const ttsUrl = buildPhoneTtsUrl(baseUrl, disabledMsg, lang, voice)
+      const sayVoiceDisabled = lang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+      const sayLangDisabled = lang === 'en' ? 'en-US' : 'es-MX'
+      let disabledTag = `<Say voice="${sayVoiceDisabled}" language="${sayLangDisabled}">${escapeXml(disabledMsg)}</Say>`
+      try {
+        await getPhoneAgentSpeech(disabledMsg, lang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        disabledTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disabledMsg, lang, voice))}</Play>`
+      } catch {
+        // Fallback seguro a <Say> para jamás devolver HTTP 502 si TTS falla cuando la sucursal está apagada
+      }
       scheduleBackgroundTask(async () => {
         await Promise.all([
           getPhoneAgentSpeech(disabledMsg, lang, voice, false, { awaitStoragePersist: true }).catch(() => null),
@@ -219,7 +227,7 @@ export async function POST(request: Request) {
 
       const twimlDisabled = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${escapeXml(ttsUrl)}</Play>
+  ${disabledTag}
   <Hangup/>
 </Response>`
       return new Response(twimlDisabled, {

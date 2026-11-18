@@ -97,11 +97,15 @@ interface ForwardingGuide {
   carrierLabelEn: string
   hasValidTwilioNumber?: boolean
   activateNoAnswerCode: string
+  activateNoAnswerCodeEn: string
   deactivateNoAnswerCode: string
   activateBusyCode: string
+  activateBusyCodeEn: string
   deactivateBusyCode: string
   activateUnreachableCode?: string
+  activateUnreachableCodeEn?: string
   deactivateAllCode: string
+  deactivateAllCodeEn: string
   stepsEs: string[]
   stepsEn: string[]
   gotchaEs: string
@@ -213,7 +217,7 @@ interface CallbackRow {
 }
 
 const CLIENT_BLOCKED_NANP_AREA_CODES = new Set([
-  '900', '976',
+  '456', '500', '600', '622', '700', '900', '976',
   '242', '246', '264', '268', '284', '345', '441', '473',
   '649', '658', '664', '721', '758', '767', '784',
   '809', '829', '849', '868', '869', '876'
@@ -228,7 +232,8 @@ function validateClientTwilioNumber(
 ): { valid: boolean; isEmpty: boolean; tenDigits: string } {
   const trimmed = String(rawTwilioNumber ?? '').trim()
   if (!trimmed) return { valid: false, isEmpty: true, tenDigits: '' }
-  if (trimmed.startsWith('+') && !trimmed.startsWith('+1')) {
+  const strippedLeading = trimmed.replace(/^[\s(]+/, '')
+  if (trimmed.includes('+') && !/^\+1(?:\D|\d|$)/.test(strippedLeading)) {
     return { valid: false, isEmpty: false, tenDigits: '' }
   }
   const digits = trimmed.replace(/\D/g, '')
@@ -238,10 +243,10 @@ function validateClientTwilioNumber(
 
   const areaCode = tenDigits.slice(0, 3)
   const centralOffice = tenDigits.slice(3, 6)
-  const subscriber = Number(tenDigits.slice(6, 10))
   const isFictitious =
     areaCode === '555' ||
     centralOffice === '555' ||
+    centralOffice === '976' ||
     tenDigits.slice(3) === '0000000' ||
     /^(\d)\1{9}$/.test(tenDigits) ||
     /^(\d)\1{6}$/.test(tenDigits.slice(3)) ||
@@ -294,26 +299,29 @@ function computeClientForwardingGuide(
       carrierLabelEn: 'Spectrum Business Voice (Landline)',
       hasValidTwilioNumber,
       activateNoAnswerCode: `*92${target10Es}`,
+      activateNoAnswerCodeEn: `*92${target10En}`,
       deactivateNoAnswerCode: '*93',
       activateBusyCode: `*90${target10Es}`,
+      activateBusyCodeEn: `*90${target10En}`,
       deactivateBusyCode: '*91',
       deactivateAllCode: '*93 y *91',
+      deactivateAllCodeEn: '*93 & *91',
       stepsEs: [
-        '1. Levanta el auricular del teléfono fijo de la sucursal y espera tono.',
-        `2. Marca *92${target10Es} (o *71${target10Es}) y espera el tono de confirmación para activar desvío cuando nadie conteste.`,
+        '1. Levanta el auricular del teléfono fijo Spectrum Business de la tienda y espera tono de marcar.',
+        `2. Marca *92${target10Es} y espera el tono de confirmación para desviar ÚNICAMENTE cuando la tienda no conteste en ${clampedSec}s.`,
         `3. Cuelga, vuelve a levantar y marca *90${target10Es} para desviar también si la línea está ocupada.`,
-        '4. Opcional desde oficina: entra a voice.spectrum.com -> Call Forwarding -> "When Busy or No Answer" -> ingresa el número Twilio.'
+        '4. Opcional desde oficina: entra a SpectrumBusiness.net -> Voice Manager -> Call Forwarding -> "When Busy or No Answer" -> ingresa el número Twilio.'
       ],
       stepsEn: [
-        '1. Pick up the store landline handset and wait for a dial tone.',
-        `2. Dial *92${target10En} (or *71${target10En}) and wait for confirmation tone to forward when unanswered.`,
+        '1. Pick up the store Spectrum Business landline handset and wait for a dial tone.',
+        `2. Dial *92${target10En} and wait for the confirmation tone to forward ONLY when unanswered within ${clampedSec}s.`,
         `3. Hang up, pick up again, and dial *90${target10En} to also forward when the line is busy.`,
-        '4. Optional remote setup: log into voice.spectrum.com -> Call Forwarding -> "When Busy or No Answer".'
+        '4. Optional remote setup: log into SpectrumBusiness.net -> Voice Manager -> Call Forwarding -> "When Busy or No Answer".'
       ],
       gotchaEs:
-        'Importante: Desactiva el Buzón de Voz de Spectrum (Voice Portal) o ponlo en más de 5 timbrazos para que no gane la llamada antes que la IA.',
+        'Importante: NO uses *72 (desvío inmediato) porque el teléfono de tienda dejaría de sonar. En Spectrum, el tiempo antes de desviar (~20s) y desactivar Buzón de Voz se ajustan en SpectrumBusiness.net -> Voice Manager.',
       gotchaEn:
-        'Important: Disable Spectrum Voicemail or set rings higher so voicemail does not intercept before the AI.'
+        'Important: DO NOT use *72 (unconditional forwarding) or the store phone will stop ringing. In Spectrum, disable Voicemail or adjust ring timeout in SpectrumBusiness.net -> Voice Manager.'
     }
   }
 
@@ -322,11 +330,15 @@ function computeClientForwardingGuide(
     carrierLabelEn: 'Android Cellphone on AT&T Wireless',
     hasValidTwilioNumber,
     activateNoAnswerCode: `**61*+1${target10Es}**${clampedSec}#`,
+    activateNoAnswerCodeEn: `**61*+1${target10En}**${clampedSec}#`,
     deactivateNoAnswerCode: '##61#',
     activateBusyCode: `**67*+1${target10Es}#`,
+    activateBusyCodeEn: `**67*+1${target10En}#`,
     deactivateBusyCode: '##67#',
     activateUnreachableCode: `**62*+1${target10Es}#`,
+    activateUnreachableCodeEn: `**62*+1${target10En}#`,
     deactivateAllCode: '##002#',
+    deactivateAllCodeEn: '##002#',
     stepsEs: [
       '1. En el celular Android de la tienda, desactiva temporalmente "Llamadas Wi-Fi" (Wi-Fi Calling) para que AT&T acepte códigos GSM.',
       `2. Abre el teclado de llamadas y marca **61*+1${target10Es}**${clampedSec}# y presiona Llamar (desvía a la IA tras ${clampedSec}s sin contestar).`,
@@ -741,6 +753,9 @@ export default function ContestadoraIaPage() {
   const cbAlertInitializedRef = useRef(false)
   const deferredInitialCbChimeRef = useRef(false)
   const realPendingCbCountRef = useRef(0)
+  const realPendingKpiCountRef = useRef(0)
+  const feedbackTimerRef = useRef<number | null>(null)
+  const savingStoreIdsRef = useRef<Set<number>>(new Set())
   const simSpeakingRef = useRef(false)
   simSpeakingRef.current = simSpeaking
   const simActiveRef = useRef(false)
@@ -790,6 +805,9 @@ export default function ContestadoraIaPage() {
   const [selectedStoreIdForForwarding, setSelectedStoreIdForForwarding] = useState<number | null>(null)
   const [expandedStoreId, setExpandedStoreId] = useState<number | null>(null)
   const [savingStoreId, setSavingStoreId] = useState<number | null>(null)
+  const [savingHoliday, setSavingHoliday] = useState(false)
+  const [resolvingCallbackId, setResolvingCallbackId] = useState<string | null>(null)
+  const [dismissingCallId, setDismissingCallId] = useState<string | null>(null)
   const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null)
   const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null)
   const [deletingHolidayId, setDeletingHolidayId] = useState<string | null>(null)
@@ -805,10 +823,16 @@ export default function ContestadoraIaPage() {
   const isGlobalAdmin = viewer ? viewer.isGlobalAdmin : false
 
   const showFeedback = useCallback((kind: 'ok' | 'err', text: string) => {
+    if (feedbackTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(feedbackTimerRef.current)
+    }
     setFeedbackBanner({ kind, text })
-    setTimeout(() => {
-      setFeedbackBanner((prev) => (prev?.text === text ? null : prev))
-    }, 5000)
+    if (typeof window !== 'undefined') {
+      feedbackTimerRef.current = window.setTimeout(() => {
+        setFeedbackBanner(null)
+        feedbackTimerRef.current = null
+      }, 5000)
+    }
   }, [])
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
@@ -895,7 +919,10 @@ export default function ContestadoraIaPage() {
         const realPendingList = loadedCallbacks.filter(
           (cb) => cb.status === 'pending' && cb.source !== 'simulator'
         )
-        realPendingCbCountRef.current = realPendingList.length
+        const globalRealPendingKpi = Number(data.kpis?.pendingCallbacksCount ?? realPendingList.length)
+        const prevKpiCount = realPendingKpiCountRef.current
+        realPendingKpiCountRef.current = globalRealPendingKpi
+        realPendingCbCountRef.current = Math.max(realPendingList.length, globalRealPendingKpi)
         let hasBrandNewRealPending = false
         for (const cb of realPendingList) {
           if (!seenRealCallbackIdsRef.current.has(cb.id)) {
@@ -905,9 +932,13 @@ export default function ContestadoraIaPage() {
         }
         const wasCbInit = cbAlertInitializedRef.current
         cbAlertInitializedRef.current = true
-        if (realPendingList.length === 0) {
+        if (globalRealPendingKpi === 0 && realPendingList.length === 0) {
           deferredInitialCbChimeRef.current = false
-        } else if ((!wasCbInit && realPendingList.length > 0) || hasBrandNewRealPending) {
+        } else if (
+          (!wasCbInit && realPendingCbCountRef.current > 0) ||
+          hasBrandNewRealPending ||
+          (wasCbInit && globalRealPendingKpi > prevKpiCount)
+        ) {
           deferredInitialCbChimeRef.current = true
         }
         setUnansweredQuestions(data.unansweredQuestions || [])
@@ -1094,41 +1125,43 @@ export default function ContestadoraIaPage() {
     }
   }, [editingRule])
 
-  const speakWithFemaleBrowserVoice = useCallback((text: string, lang: 'es' | 'en', onDone?: () => void) => {
-    if (simMutedRef.current || typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      setSimSpeaking(false)
-      onDone?.()
-      return
-    }
-    const mySeq = ++voicePlaySeqRef.current
-    try {
-      window.speechSynthesis.cancel()
-    } catch {}
-    const preferredFemale = pickStrictFemaleBrowserVoice(window.speechSynthesis.getVoices(), lang)
-    // PROHIBICIÓN ABSOLUTA DE VOZ MASCULINA: si el sistema operativo (ej. Windows sin voz femenina en español)
-    // no tiene una voz femenina explícitamente verificada, NO invocar `speechSynthesis.speak`, ya que Windows
-    // usaría por defecto `Microsoft David` (masculina).
-    if (!preferredFemale) {
-      setSimSpeaking(false)
-      onDone?.()
-      return
-    }
-    const normalized = normalizeTextForPhoneSpeech(text, lang)
-    const sentences = (normalized.match(/[^.!?]+[.!?]*/g) || [normalized])
-      .map((s) => s.trim())
-      .filter(Boolean)
-    if (sentences.length === 0) {
-      setSimSpeaking(false)
-      onDone?.()
-      return
-    }
-    setSimSpeaking(true)
-    let idx = 0
-    const speakNext = () => {
-      if (mySeq !== voicePlaySeqRef.current || simMutedRef.current) {
-        if (mySeq === voicePlaySeqRef.current) setSimSpeaking(false)
+  const speakWithFemaleBrowserVoice = useCallback(
+    (text: string, lang: 'es' | 'en', onDone?: () => void, options?: { ignoreMute?: boolean }) => {
+      if ((!options?.ignoreMute && simMutedRef.current) || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        setSimSpeaking(false)
+        onDone?.()
         return
       }
+      const mySeq = ++voicePlaySeqRef.current
+      try {
+        window.speechSynthesis.cancel()
+      } catch {}
+      const preferredFemale = pickStrictFemaleBrowserVoice(window.speechSynthesis.getVoices(), lang)
+      // PROHIBICIÓN ABSOLUTA DE VOZ MASCULINA: si el sistema operativo (ej. Windows sin voz femenina en español)
+      // no tiene una voz femenina explícitamente verificada, NO invocar `speechSynthesis.speak`, ya que Windows
+      // usaría por defecto `Microsoft David` (masculina).
+      if (!preferredFemale) {
+        setSimSpeaking(false)
+        onDone?.()
+        return
+      }
+      const normalized = normalizeTextForPhoneSpeech(text, lang)
+      const sentences = normalized
+        .split(/(?<=[.!?])(?!\d)\s+/g)
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (sentences.length === 0) {
+        setSimSpeaking(false)
+        onDone?.()
+        return
+      }
+      setSimSpeaking(true)
+      let idx = 0
+      const speakNext = () => {
+        if (mySeq !== voicePlaySeqRef.current || (!options?.ignoreMute && simMutedRef.current)) {
+          if (mySeq === voicePlaySeqRef.current) setSimSpeaking(false)
+          return
+        }
       if (idx >= sentences.length) {
         setSimSpeaking(false)
         onDone?.()
@@ -1140,10 +1173,12 @@ export default function ContestadoraIaPage() {
       utter.voice = preferredFemale
       utter.onend = () => speakNext()
       utter.onerror = () => speakNext()
-      window.speechSynthesis.speak(utter)
-    }
-    setTimeout(speakNext, 45)
-  }, [])
+        window.speechSynthesis.speak(utter)
+      }
+      setTimeout(speakNext, 45)
+    },
+    []
+  )
 
   const stopAllSimAudio = useCallback((abortStream = false) => {
     // Invalidar cualquier continuación asíncrona de playVoiceUrl y, si abortStream=true, cualquier lector NDJSON previo
@@ -1225,6 +1260,10 @@ export default function ContestadoraIaPage() {
     }
     setSimSpeaking(false)
     setSimSynthesizingAudio(false)
+    if (abortStream) {
+      simBusyRef.current = false
+      setSimBusy(false)
+    }
   }, [])
 
   // Limpiar audio y micrófono al desmontar la página o cambiar de pestaña
@@ -1261,21 +1300,26 @@ export default function ContestadoraIaPage() {
   const createPcmStreamPlayer = useCallback(
     (onPlaybackComplete?: () => void) => {
       stopAllSimAudio(false)
+      const playerSeq = voicePlaySeqRef.current
       const ctx = ensureUnlockedAudioCtx()
       let streamFinished = false
       let playedAny = false
       let isFirstChunk = true
       let completedNotified = false
+      let resumePending = false
+      const pendingResumeQueue: Array<{ floats: Float32Array; sampleRate: number }> = []
+
+      const isPlayerCancelled = () => playerSeq !== voicePlaySeqRef.current || simMutedRef.current
 
       const notifyDoneOnce = () => {
-        if (!completedNotified) {
+        if (!completedNotified && !isPlayerCancelled()) {
           completedNotified = true
           onPlaybackComplete?.()
         }
       }
 
       const scheduleDecodedFloats = (floats: Float32Array, sampleRate: number) => {
-        if (simMutedRef.current || !ctx) return
+        if (isPlayerCancelled() || !ctx) return
         const hadUnderrun = nextPlayTimeRef.current < ctx.currentTime + 0.005
         if (isFirstChunk || hadUnderrun) {
           isFirstChunk = false
@@ -1307,7 +1351,11 @@ export default function ContestadoraIaPage() {
           if (activeSourceRef.current === source) {
             activeSourceRef.current = scheduledSourcesRef.current[0] || null
           }
-          if (streamFinished && scheduledSourcesRef.current.length === 0) {
+          if (isPlayerCancelled()) {
+            if (playerSeq === voicePlaySeqRef.current) setSimSpeaking(false)
+            return
+          }
+          if (streamFinished && pendingResumeQueue.length === 0 && scheduledSourcesRef.current.length === 0) {
             setSimSpeaking(false)
             notifyDoneOnce()
           }
@@ -1316,8 +1364,23 @@ export default function ContestadoraIaPage() {
         source.start(startAt)
       }
 
+      const flushPendingQueue = () => {
+        while (pendingResumeQueue.length > 0 && !isPlayerCancelled() && String(ctx?.state || '') === 'running') {
+          const item = pendingResumeQueue.shift()!
+          scheduleDecodedFloats(item.floats, item.sampleRate)
+        }
+        if (isPlayerCancelled()) {
+          pendingResumeQueue.length = 0
+          return
+        }
+        if (streamFinished && pendingResumeQueue.length === 0 && scheduledSourcesRef.current.length === 0) {
+          setSimSpeaking(false)
+          if (playedAny) notifyDoneOnce()
+        }
+      }
+
       const pushPcmBase64 = (pcmBase64: string, sampleRate = 24000) => {
-        if (simMutedRef.current || !ctx || !pcmBase64) return
+        if (isPlayerCancelled() || !ctx || !pcmBase64) return
         const binary = window.atob(pcmBase64)
         const byteLen = binary.length - (binary.length % 2)
         if (byteLen < 2) return
@@ -1335,14 +1398,25 @@ export default function ContestadoraIaPage() {
 
         const st = String(ctx.state || '')
         if (st === 'suspended' || st === 'interrupted') {
-          void ctx
-            .resume()
-            .then(() => {
-              if (!simMutedRef.current && String(ctx.state || '') === 'running') {
-                scheduleDecodedFloats(floats, sampleRate)
-              }
-            })
-            .catch(() => {})
+          pendingResumeQueue.push({ floats, sampleRate })
+          if (!resumePending) {
+            resumePending = true
+            void ctx
+              .resume()
+              .then(() => {
+                resumePending = false
+                flushPendingQueue()
+              })
+              .catch(() => {
+                resumePending = false
+                pendingResumeQueue.length = 0
+              })
+          }
+          return
+        }
+        if (pendingResumeQueue.length > 0) {
+          pendingResumeQueue.push({ floats, sampleRate })
+          flushPendingQueue()
           return
         }
         scheduleDecodedFloats(floats, sampleRate)
@@ -1350,7 +1424,11 @@ export default function ContestadoraIaPage() {
 
       const finish = () => {
         streamFinished = true
-        if (!playedAny || scheduledSourcesRef.current.length === 0) {
+        if (isPlayerCancelled()) {
+          pendingResumeQueue.length = 0
+          return
+        }
+        if (pendingResumeQueue.length === 0 && (!playedAny || scheduledSourcesRef.current.length === 0)) {
           setSimSpeaking(false)
           if (playedAny) notifyDoneOnce()
         }
@@ -1368,7 +1446,7 @@ export default function ContestadoraIaPage() {
   // Pre-calentar en RAM el contexto, menú en vivo y saludo SOLO antes de iniciar llamada (jamás competir con una llamada activa)
   const hasSimStoreLoaded = stores.some((s) => s.id === simStoreId)
   useEffect(() => {
-    if (loading || activeTab !== 'simulator' || !hasSimStoreLoaded || simActive) return
+    if (loading || activeTab !== 'simulator' || !hasSimStoreLoaded || simActive || simBusy) return
     const ctrl = new AbortController()
     const timer = window.setTimeout(() => {
       fetch('/api/phone/simulate', {
@@ -1386,7 +1464,7 @@ export default function ContestadoraIaPage() {
       window.clearTimeout(timer)
       ctrl.abort()
     }
-  }, [loading, activeTab, simStoreId, simLang, simActive, hasSimStoreLoaded, getAuthHeaders])
+  }, [loading, activeTab, simStoreId, simLang, simActive, simBusy, hasSimStoreLoaded, getAuthHeaders])
 
   const playVoiceUrl = useCallback(
     async (
@@ -1394,9 +1472,10 @@ export default function ContestadoraIaPage() {
       fallbackText: string,
       lang: 'es' | 'en',
       nextAudioUrl?: string | null,
-      onComplete?: () => void
+      onComplete?: () => void,
+      options?: { voice?: VoiceId; ignoreMute?: boolean }
     ) => {
-      if (simMutedRef.current) {
+      if (simMutedRef.current && !options?.ignoreMute) {
         stopAllSimAudio(false)
         onComplete?.()
         return
@@ -1407,7 +1486,9 @@ export default function ContestadoraIaPage() {
         voicePlayAbortRef.current = playCtrl
         const myPlaySeq = voicePlaySeqRef.current
         const isInterrupted = () =>
-          playCtrl.signal.aborted || myPlaySeq !== voicePlaySeqRef.current || simMutedRef.current
+          playCtrl.signal.aborted ||
+          myPlaySeq !== voicePlaySeqRef.current ||
+          (!options?.ignoreMute && simMutedRef.current)
 
         const buildFetchSignal = (timeoutMs: number): AbortSignal => {
           if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).any === 'function') {
@@ -1441,7 +1522,7 @@ export default function ContestadoraIaPage() {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 signal: buildFetchSignal(11500),
-                body: JSON.stringify({ text: fallbackText, lang, voice: 'Kore' })
+                body: JSON.stringify({ text: fallbackText, lang, voice: options?.voice || 'Kore' })
               })
               if (postRes.ok && !isInterrupted()) {
                 const arrayBuf = await postRes.arrayBuffer()
@@ -1557,6 +1638,10 @@ export default function ContestadoraIaPage() {
           }
 
           audio.onended = () => {
+            if (isInterrupted()) {
+              finish()
+              return
+            }
             if (preloadedNext) {
               audioRef.current = preloadedNext
               preloadedNext.onended = finish
@@ -1567,10 +1652,18 @@ export default function ContestadoraIaPage() {
             }
           }
           audio.onerror = () => {
-            speakWithFemaleBrowserVoice(fallbackText, lang, finish)
+            if (isInterrupted()) {
+              finish()
+              return
+            }
+            speakWithFemaleBrowserVoice(fallbackText, lang, finish, { ignoreMute: options?.ignoreMute })
           }
           audio.play().catch(() => {
-            speakWithFemaleBrowserVoice(fallbackText, lang, finish)
+            if (isInterrupted()) {
+              finish()
+              return
+            }
+            speakWithFemaleBrowserVoice(fallbackText, lang, finish, { ignoreMute: options?.ignoreMute })
           })
         })
       } catch {
@@ -1582,10 +1675,12 @@ export default function ContestadoraIaPage() {
   )
 
   const handleStartSimCall = async () => {
+    if (simBusyRef.current) return
     ensureUnlockedAudioCtx()
     stopMicrophone()
     stopAllSimAudio(true)
     const reqId = ++simReqIdRef.current
+    simBusyRef.current = true
     setSimErrorBanner(null)
     setSimAutoEndedNotice(false)
     setSimTransferPhone(null)
@@ -1651,18 +1746,18 @@ export default function ContestadoraIaPage() {
             clientFirstAudioMs = Math.round(performance.now() - clickStart)
           }
           pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
-        } else if (evt.type === 'tts_fallback_required') {
+        } else if (evt.type === 'tts_fallback_required' || evt.type === 'audio_stream_truncated') {
+          if (evt.type === 'audio_stream_truncated') {
+            stopAllSimAudio(false)
+          }
           setSimSynthesizingAudio(false)
           handledFallbackSpeech = true
+          const fullText = evt.text || startMeta?.greetingText || ''
+          const clipLang = evt.language === 'en' ? 'en' : 'es'
           if (startMeta?.audioUrl) {
-            void playVoiceUrl(
-              startMeta.audioUrl,
-              evt.text || startMeta.greetingText || '',
-              evt.language === 'en' ? 'en' : 'es',
-              null
-            )
+            void playVoiceUrl(startMeta.audioUrl, fullText, clipLang, null)
           } else {
-            speakWithFemaleBrowserVoice(evt.text || startMeta?.greetingText || '', evt.language === 'en' ? 'en' : 'es')
+            speakWithFemaleBrowserVoice(fullText, clipLang)
           }
         } else if (evt.type === 'done') {
           setSimSynthesizingAudio(false)
@@ -1712,7 +1807,9 @@ export default function ContestadoraIaPage() {
           }
         }
       } finally {
-        pcmPlayer.finish()
+        if (!handledFallbackSpeech) {
+          pcmPlayer.finish()
+        }
         if (activeStreamReaderRef.current === reader) {
           activeStreamReaderRef.current = null
         }
@@ -1731,6 +1828,7 @@ export default function ContestadoraIaPage() {
       }
     } finally {
       if (reqId === simReqIdRef.current) {
+        simBusyRef.current = false
         setSimBusy(false)
         setSimSynthesizingAudio(false)
       }
@@ -1772,16 +1870,19 @@ export default function ContestadoraIaPage() {
     setSimBusy(true)
     setSimSynthesizingAudio(false)
 
-    const startingFreshFromScenario = !simActive && simTranscript.length === 0
+    const startingNewCallSession = !simActive || !simCallSid
     let activeSid = simCallSid
-    if (!simActive || !activeSid) {
+    if (startingNewCallSession) {
       activeSid = `SIM_${simStoreId}_${Date.now()}`
       setSimCallSid(activeSid)
       setSimActive(true)
+      setSimLastTools([])
+      setSimLastCallback(null)
+      setSimTransferPhone(null)
     }
 
     setSimTranscript((prev) => {
-      if (startingFreshFromScenario && prev.length === 0) {
+      if (startingNewCallSession) {
         const storeObj = stores.find((s) => s.id === simStoreId)
         const greetingTarget = formatCustomerGreetingTarget({ id: simStoreId, name: storeObj?.name || `#${simStoreId}` }, simLang)
         const syntheticGreeting =
@@ -1876,21 +1977,26 @@ export default function ContestadoraIaPage() {
             clientFirstAudioMs = Math.round(performance.now() - turnStart)
           }
           pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
-        } else if (evt.type === 'tts_fallback_required') {
+        } else if (evt.type === 'tts_fallback_required' || evt.type === 'audio_stream_truncated') {
+          if (evt.type === 'audio_stream_truncated') {
+            stopAllSimAudio(false)
+          }
           setSimSynthesizingAudio(false)
           handledFallbackSpeech = true
+          const fullText = evt.text || turnMeta?.replyText || ''
+          const clipLang = evt.language === 'en' ? 'en' : 'es'
           if (turnMeta?.audioUrl) {
             void playVoiceUrl(
               turnMeta.audioUrl,
-              evt.text || turnMeta.replyText || '',
-              evt.language === 'en' ? 'en' : 'es',
+              fullText,
+              clipLang,
               null,
               finalizeAutoHangupIfNeeded
             )
           } else {
             speakWithFemaleBrowserVoice(
-              evt.text || turnMeta?.replyText || '',
-              evt.language === 'en' ? 'en' : 'es',
+              fullText,
+              clipLang,
               finalizeAutoHangupIfNeeded
             )
           }
@@ -1946,7 +2052,9 @@ export default function ContestadoraIaPage() {
           }
         }
       } finally {
-        pcmPlayer.finish()
+        if (!handledFallbackSpeech) {
+          pcmPlayer.finish()
+        }
         if (activeStreamReaderRef.current === reader) {
           activeStreamReaderRef.current = null
         }
@@ -2058,9 +2166,9 @@ export default function ContestadoraIaPage() {
     setReplayingMsgIdx(idx)
     const callLang: 'es' | 'en' = String(langStr || '').toLowerCase() === 'en' ? 'en' : 'es'
     const msgLang: 'es' | 'en' =
-      /[¿¡áéíóúñ]|(\b(gracias|hola|abierto|cerrado|tienda|sucursal|precio|cuesta|tacos)\b)/i.test(text)
+      /[¿¡áéíóúñ]|(\b(gracias|hola|abierto|cerrado|tienda|sucursal|precio|cuesta|estamos|tenemos|horario|d[oó]lares)\b)/i.test(text)
         ? 'es'
-        : /\b(thank you|we are|open|closed|price|how can i|tacos gavilan|address|dollars)\b/i.test(text)
+        : /\b(thank you|thanks|we are|open|closed|price|how can i|tacos gavilan|address|dollars)\b/i.test(text)
           ? 'en'
           : callLang
     const storeVoice = stores.find((s) => s.id === storeId)?.config.voice_id || 'Kore'
@@ -2083,10 +2191,13 @@ export default function ContestadoraIaPage() {
       if (!res.ok) throw new Error('TTS failed')
       const blob = await res.blob()
       blobUrl = URL.createObjectURL(blob)
-      await playVoiceUrl(blobUrl, text, msgLang, null)
+      await playVoiceUrl(blobUrl, text, msgLang, null, undefined, {
+        voice: storeVoice as VoiceId,
+        ignoreMute: true
+      })
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
-        speakWithFemaleBrowserVoice(text, msgLang)
+        speakWithFemaleBrowserVoice(text, msgLang, undefined, { ignoreMute: true })
       }
     } finally {
       if (blobUrl) URL.revokeObjectURL(blobUrl)
@@ -2096,7 +2207,7 @@ export default function ContestadoraIaPage() {
 
   // Knowledge Base handlers
   const handleSaveKnowledgeRule = async () => {
-    if (!editingRule?.title || !editingRule?.answer_es) return
+    if (savingRule || !editingRule?.title?.trim() || !editingRule?.answer_es?.trim()) return
     setSavingRule(true)
     try {
       const isEdit = Boolean(editingRule.id)
@@ -2106,6 +2217,8 @@ export default function ContestadoraIaPage() {
         body: JSON.stringify({
           entity: 'knowledge_base',
           ...editingRule,
+          title: editingRule.title.trim(),
+          answer_es: editingRule.answer_es.trim(),
           priority: Number(editingRule.priority ?? 80),
           resolveCallId: isEdit ? null : resolveCallIdForRule
         })
@@ -2126,6 +2239,8 @@ export default function ContestadoraIaPage() {
   }
 
   const handleDismissUnanswered = async (callId: string) => {
+    if (dismissingCallId === callId) return
+    setDismissingCallId(callId)
     try {
       const res = await fetch('/api/phone/dashboard', {
         method: 'PATCH',
@@ -2139,9 +2254,14 @@ export default function ContestadoraIaPage() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || 'Error')
       }
+      if (resolveCallIdForRule === callId) {
+        setResolveCallIdForRule(null)
+      }
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
+    } finally {
+      setDismissingCallId((cur) => (cur === callId ? null : cur))
     }
   }
 
@@ -2185,6 +2305,10 @@ export default function ContestadoraIaPage() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || 'Error')
       }
+      if (editingRule?.id === id) {
+        setEditingRule(null)
+        setResolveCallIdForRule(null)
+      }
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
@@ -2206,22 +2330,24 @@ export default function ContestadoraIaPage() {
   }
 
   const handleSaveHoliday = async () => {
-    if (!newHoliday.event_date || !newHoliday.holiday_name.trim()) return
-    if (
-      newHoliday.mode === 'custom' &&
-      newHoliday.open_time &&
-      newHoliday.close_time &&
-      newHoliday.open_time === newHoliday.close_time
-    ) {
-      showFeedback('err', t('phone_agent.holidays_invalid_range'))
-      return
-    }
+    if (savingHoliday || !newHoliday.event_date || !newHoliday.holiday_name.trim()) return
     const isClosed = newHoliday.mode === 'closed'
     const openTime =
       newHoliday.mode === 'late_open' || newHoliday.mode === 'custom' ? newHoliday.open_time : null
     const closeTime =
       newHoliday.mode === 'early_close' || newHoliday.mode === 'custom' ? newHoliday.close_time : null
 
+    if (
+      !isClosed &&
+      ((newHoliday.mode === 'late_open' && !openTime) ||
+        (newHoliday.mode === 'early_close' && !closeTime) ||
+        (newHoliday.mode === 'custom' && (!openTime || !closeTime || openTime === closeTime)))
+    ) {
+      showFeedback('err', t('phone_agent.holidays_invalid_range'))
+      return
+    }
+
+    setSavingHoliday(true)
     try {
       const res = await fetch('/api/phone/dashboard', {
         method: editingHolidayId ? 'PATCH' : 'POST',
@@ -2254,6 +2380,8 @@ export default function ContestadoraIaPage() {
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
+    } finally {
+      setSavingHoliday(false)
     }
   }
 
@@ -2308,6 +2436,8 @@ export default function ContestadoraIaPage() {
     customUpdates?: Record<string, any>,
     onlyCustomUpdates = false
   ): Promise<boolean> => {
+    if (savingStoreIdsRef.current.has(storeRow.id)) return false
+    savingStoreIdsRef.current.add(storeRow.id)
     setSavingStoreId(storeRow.id)
     try {
       const payload = onlyCustomUpdates
@@ -2366,6 +2496,11 @@ export default function ContestadoraIaPage() {
       } else {
         dirtyStoreFieldsRef.current.delete(storeRow.id)
         syncDirtyStoresSnapshot()
+        if (savedBody?.config) {
+          setStores((prev) =>
+            prev.map((s) => (s.id === storeRow.id ? { ...s, config: { ...s.config, ...savedBody.config } } : s))
+          )
+        }
       }
       showFeedback(
         'ok',
@@ -2379,7 +2514,8 @@ export default function ContestadoraIaPage() {
       showFeedback('err', e.message)
       return false
     } finally {
-      setSavingStoreId(null)
+      savingStoreIdsRef.current.delete(storeRow.id)
+      setSavingStoreId((cur) => (cur === storeRow.id ? null : cur))
     }
   }
 
@@ -2397,6 +2533,8 @@ export default function ContestadoraIaPage() {
   }
 
   const handleResolveCallback = async (cb: CallbackRow) => {
+    if (resolvingCallbackId === cb.id) return
+    setResolvingCallbackId(cb.id)
     try {
       const note = (callbackNotes[cb.id] || '').trim()
       const res = await fetch('/api/phone/dashboard', {
@@ -2421,13 +2559,21 @@ export default function ContestadoraIaPage() {
       await fetchDashboard(true)
     } catch (e: any) {
       showFeedback('err', e.message)
+    } finally {
+      setResolvingCallbackId((cur) => (cur === cb.id ? null : cur))
     }
   }
 
   const copyToClipboard = (code: string) => {
-    navigator.clipboard.writeText(code)
-    setCopiedCode(code)
-    setTimeout(() => setCopiedCode(null), 2000)
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard
+        .writeText(code)
+        .then(() => {
+          setCopiedCode(code)
+          setTimeout(() => setCopiedCode((cur) => (cur === code ? null : cur)), 2000)
+        })
+        .catch(() => {})
+    }
   }
 
   const getCallerTypeLabel = (callerType: string): string => {
@@ -2579,7 +2725,7 @@ export default function ContestadoraIaPage() {
         {/* GLOBAL FEEDBACK BANNER (Floating high-z toast visible across scrolled tabs) */}
         {feedbackBanner && (
           <div
-            className={`fixed top-4 right-4 z-[60] max-w-md rounded-2xl border px-4 py-3 flex items-center justify-between gap-3 text-xs font-bold shadow-xl ${
+            className={`fixed top-4 right-4 z-[130] max-w-md rounded-2xl border px-4 py-3 flex items-center justify-between gap-3 text-xs font-bold shadow-xl ${
               feedbackBanner.kind === 'ok'
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
                 : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
@@ -2614,7 +2760,7 @@ export default function ContestadoraIaPage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2 flex-wrap">
               <span className="text-2xl font-black text-slate-900 dark:text-white">
-                {kpis.activeStoresCount} / {stores.length || 15}
+                {kpis.activeStoresCount ?? 0} / {stores.length || (isGlobalAdmin ? 15 : 1)}
               </span>
               <span className="text-xs text-slate-500">
                 ({kpis.verifiedForwardingCount} {t('phone_agent.kpi_carriers_summary')})
@@ -2847,12 +2993,12 @@ export default function ContestadoraIaPage() {
                       </span>
                       <span
                         className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
-                          currentSimStore.scheduleEval.isOpenNow
+                          currentSimStore.scheduleEval?.isOpenNow
                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                             : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
                         }`}
                       >
-                        {currentSimStore.scheduleEval.isOpenNow
+                        {currentSimStore.scheduleEval?.isOpenNow
                           ? t('phone_agent.sim_open_now')
                           : t('phone_agent.sim_closed_now')}
                       </span>
@@ -2867,8 +3013,8 @@ export default function ContestadoraIaPage() {
                     <div className="text-xs text-slate-600 dark:text-slate-300">
                       🕐{' '}
                       {isEn
-                        ? currentSimStore.scheduleEval.statusMessageEn
-                        : currentSimStore.scheduleEval.statusMessageEs}
+                        ? currentSimStore.scheduleEval?.statusMessageEn
+                        : currentSimStore.scheduleEval?.statusMessageEs}
                     </div>
 
                     <div className="flex flex-wrap gap-1.5 pt-1">
@@ -3057,7 +3203,7 @@ export default function ContestadoraIaPage() {
                     onClick={() => {
                       const next = !simMutedRef.current
                       simMutedRef.current = next
-                      if (next) stopAllSimAudio(true)
+                      if (next) stopAllSimAudio(false)
                       setSimMuted(next)
                     }}
                     title={simMuted ? t('phone_agent.sim_unmute_voice') : t('phone_agent.sim_mute_voice')}
@@ -3101,7 +3247,9 @@ export default function ContestadoraIaPage() {
                           <span className="text-[11px] font-black uppercase opacity-75">
                             {msg.role === 'user'
                               ? t('phone_agent.sim_caller_label')
-                              : `${t('phone_agent.sim_assistant_label')} (${currentSimStore?.name || ''})`}
+                              : currentSimStore?.name
+                                ? `${t('phone_agent.sim_assistant_label')} (${currentSimStore.name})`
+                                : t('phone_agent.sim_assistant_label')}
                           </span>
                           <div className="flex items-center gap-2">
                             {typeof msg.firstAudioMs === 'number' && msg.firstAudioMs > 0 && (
@@ -3276,8 +3424,9 @@ export default function ContestadoraIaPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={dismissingCallId === uq.callId}
                           onClick={() => void handleDismissUnanswered(uq.callId)}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-600 dark:text-slate-300 text-xs font-bold"
                           title={t('phone_agent.kb_dismiss_unanswered')}
                         >
                           {t('phone_agent.kb_dismiss_unanswered')}
@@ -3422,7 +3571,7 @@ export default function ContestadoraIaPage() {
                         onChange={(e) =>
                           setEditingRule({
                             ...editingRule,
-                            priority: Math.max(0, Math.min(100, Number(e.target.value || 0)))
+                            priority: Math.max(0, Math.min(100, Number(e.target.value) || 0))
                           })
                         }
                         className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold"
@@ -3471,7 +3620,7 @@ export default function ContestadoraIaPage() {
                     <button
                       type="button"
                       onClick={() => void handleSaveKnowledgeRule()}
-                      disabled={savingRule || !editingRule.title || !editingRule.answer_es}
+                      disabled={savingRule || !editingRule.title?.trim() || !editingRule.answer_es?.trim()}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black"
                     >
                       <Save size={14} />
@@ -3681,8 +3830,9 @@ export default function ContestadoraIaPage() {
                 <div className="lg:col-span-1 flex gap-1.5">
                   <button
                     type="button"
+                    disabled={savingHoliday || !newHoliday.event_date || !newHoliday.holiday_name.trim()}
                     onClick={() => void handleSaveHoliday()}
-                    className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black whitespace-nowrap"
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black whitespace-nowrap"
                   >
                     {editingHolidayId ? <Save size={14} /> : <Plus size={14} />}
                     {editingHolidayId
@@ -3750,6 +3900,7 @@ export default function ContestadoraIaPage() {
                           type="button"
                           disabled={deletingHolidayId === sh.id}
                           onClick={() => void handleDeleteHoliday(sh.id)}
+                          title={t('phone_agent.kb_delete')}
                           className="text-rose-600 hover:text-rose-700 disabled:opacity-40"
                         >
                           <X size={14} />
@@ -3890,10 +4041,11 @@ export default function ContestadoraIaPage() {
 
                       <button
                         type="button"
+                        disabled={savingStoreId === s.id}
                         onClick={() =>
                           void handleSaveStoreConfig(s, { is_enabled: !s.config.is_enabled }, true)
                         }
-                        className={`px-2.5 py-1 rounded-lg text-xs font-black shrink-0 ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-black shrink-0 disabled:opacity-50 ${
                           s.config.is_enabled
                             ? 'bg-emerald-600 text-white'
                             : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
@@ -4214,7 +4366,7 @@ export default function ContestadoraIaPage() {
                           {t('phone_agent.stores_code_no_answer')}
                         </div>
                         <div className="text-sm font-black font-mono text-emerald-600 truncate">
-                          {liveForwardingGuide.activateNoAnswerCode}
+                          {isEn ? liveForwardingGuide.activateNoAnswerCodeEn : liveForwardingGuide.activateNoAnswerCode}
                         </div>
                       </div>
                       <button
@@ -4222,11 +4374,13 @@ export default function ContestadoraIaPage() {
                         disabled={!canCopySelectedForwardingCodes}
                         onClick={() => {
                           if (!canCopySelectedForwardingCodes) return
-                          copyToClipboard(liveForwardingGuide.activateNoAnswerCode)
+                          copyToClipboard(
+                            isEn ? liveForwardingGuide.activateNoAnswerCodeEn : liveForwardingGuide.activateNoAnswerCode
+                          )
                         }}
                         className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        {copiedCode === liveForwardingGuide.activateNoAnswerCode ? (
+                        {copiedCode === (isEn ? liveForwardingGuide.activateNoAnswerCodeEn : liveForwardingGuide.activateNoAnswerCode) ? (
                           <Check size={14} className="text-emerald-600" />
                         ) : (
                           <Copy size={14} />
@@ -4240,7 +4394,7 @@ export default function ContestadoraIaPage() {
                           {t('phone_agent.stores_code_busy')}
                         </div>
                         <div className="text-sm font-black font-mono text-blue-600 truncate">
-                          {liveForwardingGuide.activateBusyCode}
+                          {isEn ? liveForwardingGuide.activateBusyCodeEn : liveForwardingGuide.activateBusyCode}
                         </div>
                       </div>
                       <button
@@ -4248,11 +4402,13 @@ export default function ContestadoraIaPage() {
                         disabled={!canCopySelectedForwardingCodes}
                         onClick={() => {
                           if (!canCopySelectedForwardingCodes) return
-                          copyToClipboard(liveForwardingGuide.activateBusyCode)
+                          copyToClipboard(
+                            isEn ? liveForwardingGuide.activateBusyCodeEn : liveForwardingGuide.activateBusyCode
+                          )
                         }}
                         className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        {copiedCode === liveForwardingGuide.activateBusyCode ? (
+                        {copiedCode === (isEn ? liveForwardingGuide.activateBusyCodeEn : liveForwardingGuide.activateBusyCode) ? (
                           <Check size={14} className="text-emerald-600" />
                         ) : (
                           <Copy size={14} />
@@ -4267,7 +4423,9 @@ export default function ContestadoraIaPage() {
                             {t('phone_agent.stores_code_unreachable')}
                           </div>
                           <div className="text-sm font-black font-mono text-purple-600 truncate">
-                            {liveForwardingGuide.activateUnreachableCode}
+                            {isEn
+                              ? liveForwardingGuide.activateUnreachableCodeEn || liveForwardingGuide.activateUnreachableCode
+                              : liveForwardingGuide.activateUnreachableCode}
                           </div>
                         </div>
                         <button
@@ -4275,11 +4433,15 @@ export default function ContestadoraIaPage() {
                           disabled={!canCopySelectedForwardingCodes}
                           onClick={() => {
                             if (!canCopySelectedForwardingCodes) return
-                            copyToClipboard(liveForwardingGuide.activateUnreachableCode!)
+                            copyToClipboard(
+                              isEn
+                                ? liveForwardingGuide.activateUnreachableCodeEn || liveForwardingGuide.activateUnreachableCode!
+                                : liveForwardingGuide.activateUnreachableCode!
+                            )
                           }}
                           className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          {copiedCode === liveForwardingGuide.activateUnreachableCode ? (
+                          {copiedCode === (isEn ? liveForwardingGuide.activateUnreachableCodeEn || liveForwardingGuide.activateUnreachableCode : liveForwardingGuide.activateUnreachableCode) ? (
                             <Check size={14} className="text-emerald-600" />
                           ) : (
                             <Copy size={14} />
@@ -4294,15 +4456,19 @@ export default function ContestadoraIaPage() {
                           {t('phone_agent.stores_code_deactivate_all')}
                         </div>
                         <div className="text-sm font-black font-mono text-rose-600 truncate">
-                          {liveForwardingGuide.deactivateAllCode}
+                          {isEn ? liveForwardingGuide.deactivateAllCodeEn : liveForwardingGuide.deactivateAllCode}
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => copyToClipboard(liveForwardingGuide.deactivateAllCode)}
+                        onClick={() =>
+                          copyToClipboard(
+                            isEn ? liveForwardingGuide.deactivateAllCodeEn : liveForwardingGuide.deactivateAllCode
+                          )
+                        }
                         className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0"
                       >
-                        {copiedCode === liveForwardingGuide.deactivateAllCode ? (
+                        {copiedCode === (isEn ? liveForwardingGuide.deactivateAllCodeEn : liveForwardingGuide.deactivateAllCode) ? (
                           <Check size={14} className="text-emerald-600" />
                         ) : (
                           <Copy size={14} />
@@ -4331,9 +4497,11 @@ export default function ContestadoraIaPage() {
                       <button
                         type="button"
                         onClick={async () => {
-                          const ok = await handleSaveStoreConfig(selectedStoreForForwarding, {
-                            forwarding_status: 'pending'
-                          })
+                          const ok = await handleSaveStoreConfig(
+                            selectedStoreForForwarding,
+                            { forwarding_status: 'pending' },
+                            true
+                          )
                           if (ok) setSelectedStoreIdForForwarding(null)
                         }}
                         className="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold"
@@ -4530,8 +4698,9 @@ export default function ContestadoraIaPage() {
                             />
                             <button
                               type="button"
+                              disabled={resolvingCallbackId === cb.id}
                               onClick={() => void handleResolveCallback(cb)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shrink-0"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
                             >
                               <CheckCircle2 size={13} />
                               {t('phone_agent.callbacks_mark_resolved')}
@@ -4706,8 +4875,12 @@ export default function ContestadoraIaPage() {
                       </h4>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {t('phone_agent.calls_modal_caller')}{' '}
-                        {selectedCallDetail.caller_number || t('phone_agent.calls_unknown_caller')} •{' '}
-                        {t('phone_agent.calls_modal_duration')}{' '}
+                        {selectedCallDetail.caller_number && selectedCallDetail.caller_number !== 'SIMULATOR_WEB'
+                          ? selectedCallDetail.caller_number
+                          : selectedCallDetail.source === 'simulator'
+                            ? t('phone_agent.calls_unknown_caller')
+                            : t('phone_agent.calls_anonymous_caller')}{' '}
+                        • {t('phone_agent.calls_modal_duration')}{' '}
                         {selectedCallDetail.duration_seconds || 0}s (
                         {selectedCallDetail.turns_count || 0} {t('phone_agent.calls_turns_short')}) •
                         SID: {selectedCallDetail.call_sid}
@@ -4727,12 +4900,14 @@ export default function ContestadoraIaPage() {
                   </div>
 
                   <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-                    {(selectedCallDetail.transcript || []).map((tItem, idx) => {
+                    {(Array.isArray(selectedCallDetail.transcript) ? selectedCallDetail.transcript : []).map((tItem, idx) => {
                       const roleLabel =
                         tItem.role === 'user'
                           ? t('phone_agent.calls_role_user')
                           : tItem.role === 'tool'
-                            ? `${t('phone_agent.calls_role_tool')} (${tItem.toolName || ''})`
+                            ? tItem.toolName
+                              ? `${t('phone_agent.calls_role_tool')} (${tItem.toolName})`
+                              : t('phone_agent.calls_role_tool')
                             : t('phone_agent.calls_role_assistant')
                       return (
                         <div

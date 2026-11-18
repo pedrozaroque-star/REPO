@@ -6,11 +6,11 @@
  *
  * @businessRules
  * - Valida la firma criptográfica `X-Twilio-Signature`.
- * - Blindaje CIPA inquebrantable (`preconsent=1`): si el usuario presiona `9` cambia de idioma y escucha el aviso CIPA completo
- *   en el nuevo idioma antes de habilitar `input="speech"`; si presiona cualquier otra tecla durante el aviso inicial, reproduce
+ * - Blindaje CIPA inquebrantable (\`preconsent=1\`): si el usuario presiona \`9\` cambia de idioma y escucha el aviso CIPA completo
+ *   en el nuevo idioma antes de habilitar \`input="speech"\`; si presiona cualquier otra tecla durante el aviso inicial, reproduce
  *   el aviso legal completo sin interrupción antes de abrir el micrófono.
- * - Tecla `9` a mitad de llamada cambia de idioma de inmediato reproduciendo también el aviso CIPA del nuevo idioma.
- * - Flujo de silencio en 2 pasos reales (`silence=1` -> pregunta `"¿Sigues en la línea?"` -> `retry=1` -> cierra llamada en DB + `<Hangup/>`).
+ * - Tecla \`9\` a mitad de llamada cambia de idioma de inmediato con confirmación ágil en el nuevo idioma (sin repetir el aviso CIPA inicial).
+ * - Flujo de silencio en 2 pasos reales (\`silence=1\` -> pregunta \`"¿Sigues en la línea?"\` -> \`retry=1\` -> cierra llamada en DB + \`<Hangup/>\`).
  * - Toda escalación con el gerente registra una Alerta Prioritaria en la PC de la sucursal (`/order-ready-board` y `/admin/llamadas`),
  *   sin desviar ni transferir llamadas a teléfonos personales de los gerentes (`<Dial>` deshabilitado permanentemente por política).
  *
@@ -142,11 +142,12 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'Sorry, we are experiencing a brief connection issue right now. Please visit tacosgavilan.com for our menu and store hours. Thank you!'
           : 'Disculpa, tuvimos un breve problema de conexión en esta línea. Puedes consultar nuestro menú y horarios en tacosgavilan punto com. ¡Gracias por llamar!'
-      const errAudioUrl = buildPhoneTtsUrl(baseUrl, errMsg, currentLang, 'Kore')
+      const errSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+      const errSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${escapeXml(errAudioUrl)}</Play>
+  <Say voice="${errSayVoice}" language="${errSayLang}">${escapeXml(errMsg)}</Say>
   <Hangup/>
 </Response>`,
         { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
@@ -155,6 +156,31 @@ export async function POST(request: Request) {
 
     const storeId = ctx.store.id
     const voice: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
+
+    if (!ctx.config.is_enabled && isTurn0) {
+      const greetingTarget = formatCustomerStoreName(ctx.store, currentLang, { style: 'spoken' }) || ctx.store.name
+      const disabledMsg =
+        currentLang === 'en'
+          ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${ctx.scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
+          : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${ctx.scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
+      const disSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+      const disSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
+      let disabledTag = `<Say voice="${disSayVoice}" language="${disSayLang}">${escapeXml(disabledMsg)}</Say>`
+      try {
+        await getPhoneAgentSpeech(disabledMsg, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        disabledTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disabledMsg, currentLang, voice))}</Play>`
+      } catch {
+        // Fallback seguro a <Say> si TTS falla
+      }
+      return new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${disabledTag}
+  <Hangup/>
+</Response>`,
+        { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
+      )
+    }
 
     // Respaldo post-<Dial>: si el gerente contestó, cerramos limpio; si estaba ocupado o no alcanzó a contestar en 20s,
     // confirmamos al cliente que su alerta prioritaria ya está en la pantalla del gerente y cerramos con calidez.
@@ -279,6 +305,7 @@ export async function POST(request: Request) {
                 transcript: [{ role: 'assistant', text: fullGreeting, timestamp: new Date().toISOString() }]
               })
               .eq('call_sid', callSid)
+              .eq('turns_count', 0)
           ])
         })
 
@@ -350,7 +377,7 @@ export async function POST(request: Request) {
           ? "You're speaking with our virtual assistant on a transcribed line."
           : 'Hablas con nuestra asistente virtual en una llamada transcrita para atenderte.'
       const postQ = getPostDisclosurePrompt(currentLang, ctx.scheduleEval)
-      const nextUrlAfterConsent = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}`
+      const nextUrlAfterConsent = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}${isTurn0 ? '&turn0=1' : ''}`
       const cipaSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
       const cipaSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
       let cipaPlayTag: string
@@ -380,6 +407,8 @@ export async function POST(request: Request) {
     }
 
     const userText = speechResult || (digits ? translateDtmfToText(digits, currentLang) : '')
+    const fallbackSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
+    const fallbackSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
 
     // Tecla no asignada (4-8, *, #) sin voz: orientar amablemente en vez de tratar como silencio o colgar
     if (!userText && digits) {
@@ -387,13 +416,19 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'You can ask your question out loud, press 1 for hours, 2 for Fiesta Platters, 3 for the manager, or 9 for Spanish.'
           : 'Puedes decirme tu pregunta con tu voz, o presionar 1 para horarios, 2 para Fiesta Platters, 3 para recado al gerente o 9 para inglés.'
-      const invalidKeyUrl = buildPhoneTtsUrl(baseUrl, invalidKeyMsg, currentLang, voice)
-      const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}`
+      let invalidKeyTag = `<Say voice="${fallbackSayVoice}" language="${fallbackSayLang}">${escapeXml(invalidKeyMsg)}</Say>`
+      try {
+        await getPhoneAgentSpeech(invalidKeyMsg, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        invalidKeyTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, invalidKeyMsg, currentLang, voice))}</Play>`
+      } catch {
+        // Fallback seguro a <Say>
+      }
+      const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}${isTurn0 ? '&turn0=1' : ''}`
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather ${buildTwilioGatherAttrs(currentLang, nextUrl)}>
-    <Play>${escapeXml(invalidKeyUrl)}</Play>
+    ${invalidKeyTag}
   </Gather>
   <Redirect method="POST">${escapeXml(nextUrl)}&amp;silence=1</Redirect>
 </Response>`,
@@ -407,32 +442,47 @@ export async function POST(request: Request) {
           currentLang === 'en'
             ? 'We did not hear a response. Thank you for calling Tacos Gavilan, have a great day!'
             : 'No alcanzamos a escucharte. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
-        scheduleBackgroundTask(() => getPhoneAgentSpeech(goodbyeText, currentLang, voice, false, { awaitStoragePersist: true }))
-        const goodbyeAudio = buildPhoneTtsUrl(baseUrl, goodbyeText, currentLang, voice)
+        let goodbyeTag = `<Say voice="${fallbackSayVoice}" language="${fallbackSayLang}">${escapeXml(goodbyeText)}</Say>`
+        try {
+          await getPhoneAgentSpeech(goodbyeText, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+          goodbyeTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, goodbyeText, currentLang, voice))}</Play>`
+        } catch {
+          // Fallback seguro a <Say>
+        }
 
         const { data: existingCall } = await supabaseAdmin
           .from('phone_calls')
-          .select('id, status, turns_count')
+          .select('id, status, ended_at, turns_count')
           .eq('call_sid', callSid)
           .maybeSingle()
 
         if (existingCall) {
-          const finalStatus =
-            existingCall.status === 'callback_requested' || existingCall.status === 'transferred'
-              ? existingCall.status
-              : 'completed'
-          const updateObj: Record<string, any> = {
-            status: finalStatus,
-            ended_at: new Date().toISOString()
+          const normExisting = String(existingCall.status || '').toLowerCase()
+          const alreadyClosed =
+            Boolean(existingCall.ended_at) ||
+            ['completed', 'canceled', 'busy', 'failed', 'no-answer'].includes(normExisting)
+          if (!alreadyClosed) {
+            const finalStatus =
+              existingCall.status === 'callback_requested' || existingCall.status === 'transferred'
+                ? existingCall.status
+                : 'completed'
+            const updateObj: Record<string, any> = {
+              status: finalStatus,
+              ended_at: new Date().toISOString()
+            }
+            if (Number(existingCall.turns_count || 0) === 0 || finalStatus !== 'completed') {
+              updateObj.resolved_by_ai = false
+            }
+            await supabaseAdmin
+              .from('phone_calls')
+              .update(updateObj)
+              .eq('id', existingCall.id)
+              .is('ended_at', null)
           }
-          if (Number(existingCall.turns_count || 0) === 0 || finalStatus !== 'completed') {
-            updateObj.resolved_by_ai = false
-          }
-          await supabaseAdmin.from('phone_calls').update(updateObj).eq('id', existingCall.id)
         }
 
         return new Response(
-          `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Play>${escapeXml(goodbyeAudio)}</Play>\n  <Hangup/>\n</Response>`,
+          `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  ${goodbyeTag}\n  <Hangup/>\n</Response>`,
           { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
         )
       }
@@ -441,15 +491,20 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'Are you still there? You can ask me about our hours, menu prices, Fiesta Platters, or leave a message for the manager.'
           : '¿Sigues en la línea? Puedes preguntarme por nuestro horario, precios del menú, charolas para fiestas o dejarle un recado al gerente.'
-      scheduleBackgroundTask(() => getPhoneAgentSpeech(promptAgain, currentLang, voice, false, { awaitStoragePersist: true }))
-      const promptAudio = buildPhoneTtsUrl(baseUrl, promptAgain, currentLang, voice)
-      const retryUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}&retry=1`
+      let promptTag = `<Say voice="${fallbackSayVoice}" language="${fallbackSayLang}">${escapeXml(promptAgain)}</Say>`
+      try {
+        await getPhoneAgentSpeech(promptAgain, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        promptTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, promptAgain, currentLang, voice))}</Play>`
+      } catch {
+        // Fallback seguro a <Say>
+      }
+      const retryUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}&retry=1${isTurn0 ? '&turn0=1' : ''}`
 
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather ${buildTwilioGatherAttrs(currentLang, retryUrl)}>
-    <Play>${escapeXml(promptAudio)}</Play>
+    ${promptTag}
   </Gather>
   <Redirect method="POST">${escapeXml(retryUrl)}</Redirect>
 </Response>`,

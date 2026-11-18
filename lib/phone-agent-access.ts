@@ -67,9 +67,9 @@ const STORES_CACHE_TTL_MS = 5 * 60_000
 const userAccessCache = new Map<string, CachedAccessEntry>()
 let activeStoresCache: { at: number; stores: Array<{ id: number; code: string; name: string }> } | null = null
 
-// Bloqueo de tarifa premium (900/976) e islas NANP de alto riesgo de Toll Fraud internacional bajo +1
+// Bloqueo de tarifa premium / servicios especiales (900/976/456/500/600/622/700) e islas NANP de alto riesgo de Toll Fraud internacional bajo +1
 const BLOCKED_NANP_AREA_CODES = new Set([
-  '900', '976',
+  '456', '500', '600', '622', '700', '900', '976',
   '242', '246', '264', '268', '284', '345', '441', '473',
   '649', '658', '664', '721', '758', '767', '784',
   '809', '829', '849', '868', '869', '876'
@@ -107,8 +107,9 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
     return { valid: true, normalized: null, tenDigits: null }
   }
 
-  // Si empieza con '+' pero no es '+1', rechazar internacional
-  if (trimmed.startsWith('+') && !trimmed.startsWith('+1')) {
+  // Si contiene '+' (incluyendo "(+52)..."), debe iniciar estrictamente con '+1'
+  const strippedLeading = trimmed.replace(/^[\s(]+/, '')
+  if (trimmed.includes('+') && !/^\+1(?:\D|\d|$)/.test(strippedLeading)) {
     return {
       valid: false,
       normalized: null,
@@ -132,7 +133,7 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
     }
   }
 
-  // Validar código de área NPA y central NXX (ambos inician en 2-9, sin códigos de servicio N11 como 911/311/411 ni NPA 555)
+  // Validar código de área NPA y central NXX (ambos inician en 2-9, sin códigos N11 como 911/311/411, sin NPA 555 ni central premium 976)
   const areaCode = tenDigits.slice(0, 3)
   const centralOffice = tenDigits.slice(3, 6)
   if (
@@ -148,12 +149,12 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
       error: 'Código de área o central inválido para EE. UU.'
     }
   }
-  if (BLOCKED_NANP_AREA_CODES.has(areaCode)) {
+  if (BLOCKED_NANP_AREA_CODES.has(areaCode) || centralOffice === '976') {
     return {
       valid: false,
       normalized: null,
       tenDigits: null,
-      error: `El código de área (${areaCode}) no está permitido por seguridad anti-fraude telefónico.`
+      error: `El prefijo (${centralOffice === '976' ? `${areaCode}-976` : areaCode}) no está permitido por seguridad anti-fraude telefónico.`
     }
   }
 
@@ -165,10 +166,15 @@ export function normalizeUsPhoneE164(raw: string | null | undefined): {
 }
 
 /**
- * Detecta teléfonos ficticios o reservables de prueba NANP (555-XXXX, N11, dígitos repetidos, sufijos 0000000)
+ * Detecta teléfonos ficticios o reservables de prueba NANP (555-XXXX, N11, central premium 976, dígitos repetidos, sufijos 0000000)
  * o códigos de tarificación especial prohibidos para evitar guardar recados o desvíos no enrutables en producción.
  */
 export function isFictitiousNanpPhone(rawPhoneOrDigits: string | null | undefined, allowDevTest555 = false): boolean {
+  const rawStr = String(rawPhoneOrDigits ?? '').trim()
+  if (rawStr.includes('+')) {
+    const stripped = rawStr.replace(/^[\s(]+/, '')
+    if (!/^\+1(?:\D|\d|$)/.test(stripped)) return true
+  }
   const digits = extractPhoneDigits(rawPhoneOrDigits)
   const d = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
   if (d.length !== 10) return true
@@ -178,7 +184,7 @@ export function isFictitiousNanpPhone(rawPhoneOrDigits: string | null | undefine
   const areaCode = d.slice(0, 3)
   const centralOffice = d.slice(3, 6)
   if (areaCode.slice(1) === '11' || centralOffice.slice(1) === '11' || areaCode === '555') return true
-  if (BLOCKED_NANP_AREA_CODES.has(areaCode)) return true
+  if (BLOCKED_NANP_AREA_CODES.has(areaCode) || centralOffice === '976') return true
   if (centralOffice === '555') {
     if (allowDevTest555 && /^01\d\d$/.test(d.slice(6))) return false
     return true
@@ -235,10 +241,17 @@ async function getCachedActiveStores() {
   if (activeStoresCache && now - activeStoresCache.at < STORES_CACHE_TTL_MS) {
     return activeStoresCache.stores
   }
-  const { data: storesData } = await supabaseAdmin
+  const { data: storesData, error: storesErr } = await supabaseAdmin
     .from('stores')
     .select('id, code, name, is_active')
     .order('id', { ascending: true })
+
+  if (storesErr) {
+    if (activeStoresCache && activeStoresCache.stores.length > 0) {
+      return activeStoresCache.stores
+    }
+    throw new Error(`Error consultando sucursales activas: ${storesErr.message}`)
+  }
 
   const activeStores = (storesData || [])
     .filter((s: any) => s.is_active !== false)
@@ -247,10 +260,10 @@ async function getCachedActiveStores() {
       code: String(s.code || ''),
       name: String(s.name || '')
     }))
-  if (activeStores.length > 0 || !activeStoresCache) {
+  if (activeStores.length > 0) {
     activeStoresCache = { at: now, stores: activeStores }
   }
-  return activeStoresCache.stores
+  return activeStoresCache?.stores || activeStores
 }
 
 async function loadUserAndStores(userId: string | number, fallbackEmail?: string) {
@@ -261,24 +274,41 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
   }
 
   const numericId = Number(userId)
-  const [userPrimaryRes, activeStores] = await Promise.all([
-    Number.isFinite(numericId) && numericId > 0
-      ? supabaseAdmin
-          .from('users')
-          .select('id, email, full_name, role, store_id, store_scope, is_active')
-          .eq('id', numericId)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-    getCachedActiveStores()
-  ])
+  let userPrimaryRes: { data: any; error: any }
+  let activeStores: Array<{ id: number; code: string; name: string }>
+  try {
+    ;[userPrimaryRes, activeStores] = await Promise.all([
+      Number.isFinite(numericId) && numericId > 0
+        ? supabaseAdmin
+            .from('users')
+            .select('id, email, full_name, role, store_id, store_scope, is_active')
+            .eq('id', numericId)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      getCachedActiveStores()
+    ])
+  } catch (err) {
+    if (hit) return hit
+    throw err
+  }
+
+  if (userPrimaryRes.error) {
+    if (hit) return hit
+    throw new Error(`Error verificando usuario administrativo: ${userPrimaryRes.error.message}`)
+  }
 
   let userRow: any = userPrimaryRes.data
   if (!userRow && fallbackEmail) {
-    const { data } = await supabaseAdmin
+    const safeEmailPattern = fallbackEmail.trim().replace(/[\\%_]/g, '\\$&')
+    const { data, error: emailErr } = await supabaseAdmin
       .from('users')
       .select('id, email, full_name, role, store_id, store_scope, is_active')
-      .ilike('email', fallbackEmail.trim())
+      .ilike('email', safeEmailPattern)
       .maybeSingle()
+    if (emailErr) {
+      if (hit) return hit
+      throw new Error(`Error verificando correo administrativo: ${emailErr.message}`)
+    }
     userRow = data
   }
 
@@ -367,7 +397,19 @@ export async function authorizePhoneModuleRequest(
     }
   }
 
-  const { userRow, activeStores } = await loadUserAndStores(tokenUser.id, tokenUser.email)
+  let userRow: any
+  let activeStores: Array<{ id: number; code: string; name: string }>
+  try {
+    ;({ userRow, activeStores } = await loadUserAndStores(tokenUser.id, tokenUser.email))
+  } catch (err: any) {
+    const error = err?.message || 'Error temporal verificando permisos administrativos en base de datos.'
+    return {
+      authorized: false,
+      status: 503,
+      error,
+      response: NextResponse.json({ error }, { status: 503 })
+    }
+  }
   if (!userRow || userRow.is_active === false) {
     const error = 'Acceso denegado: Usuario inactivo o no registrado en el padrón administrativo.'
     return {
@@ -378,7 +420,7 @@ export async function authorizePhoneModuleRequest(
     }
   }
 
-  const role = String(userRow.role || tokenUser.role || '')
+  const role = String(userRow.role || '')
     .trim()
     .toLowerCase()
 

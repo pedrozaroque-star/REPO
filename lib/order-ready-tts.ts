@@ -23,8 +23,8 @@
  *   3) Prosodia idéntica al tablero de entregas (`Order Ready`, ~206–208 Hz, `p75` inicial ~232 Hz): fórmula cálida, amable y natural a ritmo
  *      conversacional tranquilo, sin sustantivos ambiguos (`receptionist`), sin `energetic/enthusiastic` y sin `languageCode` forzado (que elevaba
  *      artificialmente el inicio de frase a `275–330 Hz` en `3.1`).
- *   4) Compuerta acústica matemática YIN en tiempo real (`estimateVocalPitchF0` + `isVerifiedFemalePitch`, `medianHz >= 155 Hz`, `p25Hz >= 130 Hz`,
- *      `lowMaleRatio < 0.30`): valida la ventana previa a emitir el primer byte en SSE (`PRE_VERIFY_PCM_BYTES`) y el clip completo antes de cachear.
+ *   4) Compuerta acústica matemática YIN en tiempo real (`estimateVocalPitchF0` + `isVerifiedFemalePitch`, `medianHz >= 148 Hz`, `p25Hz >= 120 Hz`,
+ *      `lowMaleRatio < 0.36`): valida la ventana previa a emitir el primer byte en SSE (`PRE_VERIFY_PCM_BYTES`) y el clip completo antes de cachear.
  * - OPTIMIZACIÓN DE LATENCIA EN TIEMPO REAL (2026-11-12):
  *   1) Los hits de caché `phone_v6` en RAM/Storage (ya validados al generarse) omiten el re-escaneo YIN en cada petición (0 ms CPU).
  *   2) `estimateVocalPitchF0` usa muestreo estratificado (`<= 80` ventanas) reduciendo síntesis nueva a `< 12 ms`; `PRE_VERIFY_PCM_BYTES` baja a `0.80 s`.
@@ -85,6 +85,10 @@ export type TtsLang = 'en' | 'es'
 
 let bucketReady = false
 const inflight = new Map<string, Promise<Buffer>>()
+const phoneInflightMeta = new WeakMap<
+  Promise<Buffer>,
+  { isKore38: boolean; fromStorage: boolean; isCrossVoiceFallback: boolean }
+>()
 const uploadInflight = new Map<string, Promise<void>>()
 const memoryPhoneAudioCache = new Map<string, Buffer>()
 const MAX_MEMORY_PHONE_CLIPS = 300
@@ -301,13 +305,16 @@ export function estimateVocalPitchF0(pcmOrWav: Buffer, sampleRate = 24000): Voca
     }
 
     let refinedTau = chosenTau
-    if (chosenTau > 1 && chosenTau < maxLag) {
+    if (chosenTau > minLag && chosenTau < maxLag) {
       const s0 = cmndf[chosenTau - 1]
       const s1 = cmndf[chosenTau]
       const s2 = cmndf[chosenTau + 1]
-      const denom = 2 * (2 * s1 - s2 - s0)
-      if (Math.abs(denom) > 1e-9) {
-        refinedTau = chosenTau + (s2 - s0) / denom
+      if (s1 <= s0 && s1 <= s2) {
+        const denom = 2 * (2 * s1 - s2 - s0)
+        if (Math.abs(denom) > 1e-9) {
+          const delta = Math.max(-0.5, Math.min(0.5, (s2 - s0) / denom))
+          refinedTau = chosenTau + delta
+        }
       }
     }
 
@@ -1149,7 +1156,7 @@ function persistPhoneWavToStorage(path: string, wav: Buffer, forceRegenerate = f
  * Transmite fragmentos PCM en vivo (24 kHz, 16-bit signed little-endian, mono) de la voz femenina oficial (`Kore` / `Aoede` / `Zephyr`)
  * usando `:streamGenerateContent?alt=sse`.
  * - Impone `resolvePhoneFemaleVoice` (bloquea `Puck` y `Orus`) y la prosodia femenina cálida/natural de `Kore` sobre la cadena `3.8-lite -> 3.8 -> 3.1`.
- * - Compuerta Acústica Pre-Emisión (`PRE_VERIFY_PCM_BYTES`): verifica `isVerifiedFemalePitch` (`F0 >= 155 Hz`) ANTES de emitir el primer byte,
+ * - Compuerta Acústica Pre-Emisión (`PRE_VERIFY_PCM_BYTES`): verifica `isVerifiedFemalePitch` (`F0 >= 148 Hz`) ANTES de emitir el primer byte,
  *   garantizando que 0 bytes de voz masculina puedan llegar jamás al altavoz o a la línea telefónica.
  * - Solo ensambla y guarda en RAM / Supabase Storage cuando el stream concluyó al 100% y el clip completo pasa `isVerifiedFemalePitch`.
  */
@@ -1195,14 +1202,17 @@ export async function* streamPhoneAgentSpeechPcm(
   if (pendingInflight) {
     try {
       const pendingWav = await pendingInflight
-      const pcm = extractPcmFromWav(pendingWav)
-      if (pcm.length > 0) {
-        const frameBytes = 19200
-        for (let off = 0; off < pcm.length; off += frameBytes) {
-          yield { pcmChunk: pcm.subarray(off, Math.min(off + frameBytes, pcm.length)), sampleRate: 24000, fromCache: true }
+      const pMeta = phoneInflightMeta.get(pendingInflight)
+      if (!pMeta || (pMeta.isKore38 && !pMeta.isCrossVoiceFallback)) {
+        const pcm = extractPcmFromWav(pendingWav)
+        if (pcm.length > 0) {
+          const frameBytes = 19200
+          for (let off = 0; off < pcm.length; off += frameBytes) {
+            yield { pcmChunk: pcm.subarray(off, Math.min(off + frameBytes, pcm.length)), sampleRate: 24000, fromCache: true }
+          }
+          options?.onStreamCompleted?.(true)
+          return
         }
-        options?.onStreamCompleted?.(true)
-        return
       }
     } catch {
       // continuar si el inflight previo falló
@@ -1271,6 +1281,7 @@ export async function* streamPhoneAgentSpeechPcm(
       rejectOwnInflight = rej
     })
     ownInflightJob.catch(() => null)
+    phoneInflightMeta.set(ownInflightJob, { isKore38: true, fromStorage: false, isCrossVoiceFallback: false })
     inflight.set(path, ownInflightJob)
   }
   const cleanupOwnInflight = (wav?: Buffer) => {
@@ -1679,15 +1690,20 @@ export async function getPhoneAgentSpeech(
   const hash = createHash('md5').update(`${PHONE_CACHE_PREFIX}:${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
   const path = `${PHONE_STORAGE_DIR}/${selectedVoice}/${lang}/${hash}.wav`
 
-  const finalizePersist = async (wav: Buffer, fromStorageHit: boolean, isKore38: boolean) => {
-    if (!fromStorageHit && isKore38 && !options?.skipStoragePersist) {
+  const finalizePersist = async (
+    wav: Buffer,
+    fromStorageHit: boolean,
+    isKore38: boolean,
+    crossVoiceFallback = false
+  ) => {
+    if (!fromStorageHit && isKore38 && !crossVoiceFallback && !options?.skipStoragePersist) {
       const p = persistPhoneWavToStorage(path, wav, forceRegenerate)
       if (options?.awaitStoragePersist) await p
     }
     return wav
   }
 
-  // 1. Caché ultrarrápido en RAM (0 ms — phone_v6 ya está verificado con F0 >= 155 Hz)
+  // 1. Caché ultrarrápido en RAM (0 ms — phone_v6 ya está verificado con F0 >= 148 Hz)
   if (!forceRegenerate) {
     const memHit = memoryPhoneAudioCache.get(path)
     if (memHit && memHit.length > 44) {
@@ -1699,15 +1715,6 @@ export async function getPhoneAgentSpeech(
     if (memHit) memoryPhoneAudioCache.delete(path)
   }
 
-  const existing = inflight.get(path)
-  if (existing && !forceRegenerate) {
-    const wav = await existing
-    if (options?.awaitStoragePersist && !options?.skipStoragePersist) {
-      await persistPhoneWavToStorage(path, wav, false)
-    }
-    return wav
-  }
-
   const budgetSignal =
     typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
       ? options?.signal
@@ -1715,8 +1722,40 @@ export async function getPhoneAgentSpeech(
         : AbortSignal.timeout(options.maxTotalMs)
       : options?.signal
 
+  const existing = inflight.get(path)
+  if (existing && !forceRegenerate) {
+    try {
+      const wav = await existing
+      const exMeta = phoneInflightMeta.get(existing)
+      if (options?.requireKore38 && exMeta && !exMeta.isKore38) {
+        throw new Error('La síntesis en vuelo usó respaldo distinto de Kore 3.8')
+      }
+      if (
+        options?.awaitStoragePersist &&
+        !options?.skipStoragePersist &&
+        exMeta?.isKore38 &&
+        !exMeta.fromStorage &&
+        !exMeta.isCrossVoiceFallback
+      ) {
+        await persistPhoneWavToStorage(path, wav, false)
+      }
+      return wav
+    } catch (exErr) {
+      if (options?.requireKore38 || budgetSignal?.aborted) {
+        throw exErr
+      }
+      // Si el inflight compartido fue cancelado o expiró por un timeout más corto, continuar con este presupuesto
+    }
+  }
+
   let loadedFromStorage = false
-  let generatedWithOfficialKore38 = true
+  let generatedWithOfficialKore38 = false
+  let isCrossVoiceFallback = false
+  const jobMeta = {
+    isKore38: false,
+    fromStorage: false,
+    isCrossVoiceFallback: false
+  }
 
   const job = (async () => {
     try {
@@ -1728,6 +1767,7 @@ export async function getPhoneAgentSpeech(
             const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
             if (wav.length > 44) {
               loadedFromStorage = true
+              generatedWithOfficialKore38 = true
               setMemoryPhoneCache(path, wav)
               return wav
             }
@@ -1757,10 +1797,12 @@ export async function getPhoneAgentSpeech(
       if (completedCleanly && pcmParts.length > 0) {
         const cachedWav = memoryPhoneAudioCache.get(path)
         if (cachedWav && cachedWav.length > 44) {
+          generatedWithOfficialKore38 = true
           return cachedWav
         }
         const wav = pcmToWav(Buffer.concat(pcmParts), 24000, 1, 16)
         if (isVerifiedFemalePitch(wav, 24000).ok) {
+          generatedWithOfficialKore38 = true
           setMemoryPhoneCache(path, wav)
           if (!options?.skipStoragePersist) {
             void persistPhoneWavToStorage(path, wav, false)
@@ -1808,25 +1850,34 @@ export async function getPhoneAgentSpeech(
         const koreHash = createHash('md5').update(`${PHONE_CACHE_PREFIX}:${DEFAULT_PHONE_VOICE}:${lang}:${clean.toLowerCase()}`).digest('hex')
         const korePath = `${PHONE_STORAGE_DIR}/${DEFAULT_PHONE_VOICE}/${lang}/${koreHash}.wav`
         const memKore = memoryPhoneAudioCache.get(korePath)
-        if (memKore && memKore.length > 44) return memKore
+        if (memKore && memKore.length > 44) {
+          isCrossVoiceFallback = true
+          return memKore
+        }
         const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
         if (koreHit.data) {
           const wav = ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
           if (wav.length > 44) {
             loadedFromStorage = true
+            isCrossVoiceFallback = true
             setMemoryPhoneCache(korePath, wav)
             return wav
           }
         }
       }
       throw genErr
+    } finally {
+      jobMeta.isKore38 = generatedWithOfficialKore38
+      jobMeta.fromStorage = loadedFromStorage
+      jobMeta.isCrossVoiceFallback = isCrossVoiceFallback
     }
   })()
 
+  phoneInflightMeta.set(job, jobMeta)
   inflight.set(path, job)
   try {
     const wav = await job
-    return await finalizePersist(wav, loadedFromStorage, generatedWithOfficialKore38)
+    return await finalizePersist(wav, loadedFromStorage, generatedWithOfficialKore38, isCrossVoiceFallback)
   } finally {
     if (inflight.get(path) === job) {
       inflight.delete(path)

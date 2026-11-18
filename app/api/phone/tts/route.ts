@@ -4,8 +4,8 @@
  * para la Contestadora IA de Tacos Gavilan (usado tanto por Twilio `<Play>` como por el Simulador en Navegador).
  *
  * @businessRules
- * - Utiliza `getPhoneAgentSpeech()` de `lib/order-ready-tts.ts` (`phone_kore38_v6`, bloqueo estricto femenino `resolvePhoneFemaleVoice`,
- *   compuerta acústica `F0 >= 155 Hz` y normalizador fonético `lib/phone-speech-format.ts`) con caché permanente en Supabase Storage (`order-ready-tts/phone_v6/{voice}/{lang}/{hash}.wav`).
+ * - Utiliza \`getPhoneAgentSpeech()\` de \`lib/order-ready-tts.ts\` (\`phone_kore38_v6\`, bloqueo estricto femenino \`resolvePhoneFemaleVoice\`,
+ *   compuerta acústica \`F0 >= 148 Hz\` y normalizador fonético \`lib/phone-speech-format.ts\`) con caché permanente en Supabase Storage (\`order-ready-tts/phone_v6/{voice}/{lang}/{hash}.wav\`).
  * - Las respuestas repetidas (saludos de las 15 sucursales, avisos festivos, despedidas) se sirven desde caché sin regenerarse.
  *
  * @dataFlow
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Parámetro text requerido' }, { status: 400 })
   }
 
-  const sigOk = verifyPhoneTtsSignature(text, searchParams.get('lang') || '', rawVoice, searchParams.get('sig'))
+  const sigOk = verifyPhoneTtsSignature(text, searchParams.get('lang') || '', rawVoice, searchParams.get('sig'), isDynamic)
   if (!sigOk) {
     return NextResponse.json({ error: 'Firma de audio inválida' }, { status: 403 })
   }
