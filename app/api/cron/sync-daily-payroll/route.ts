@@ -42,9 +42,12 @@ function isPayrollSyncMinuteInLosAngeles(date = new Date()): boolean {
     minute: '2-digit',
     hourCycle: 'h23'
   }).formatToParts(date)
-  const hour = parts.find(part => part.type === 'hour')?.value
-  const minute = parts.find(part => part.type === 'minute')?.value
-  return hour === '11' && minute === '59'
+  const rawHour = parseInt(parts.find(part => part.type === 'hour')?.value || '0', 10)
+  const minute = parseInt(parts.find(part => part.type === 'minute')?.value || '0', 10)
+  const hour = rawHour === 24 ? 0 : rawHour
+  const totalMinutes = hour * 60 + minute
+  // Acepta 11:50 AM – 12:30 PM LA para absorber el jitter de despacho de Vercel tras las 11:59 AM sin cruzar con 10:59 AM PST ni 12:59 PM PDT
+  return totalMinutes >= 11 * 60 + 50 && totalMinutes <= 12 * 60 + 30
 }
 
 export async function GET(request: NextRequest) {

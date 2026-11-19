@@ -48,29 +48,40 @@ const supabaseKey =
     'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-function getCaliforniaNowParts(): { yesterdayIso: string; hour: number } {
-    const now = new Date()
-    const hourStr = now.toLocaleTimeString('en-US', {
+function getCaliforniaNowParts(refDate = new Date()): {
+    yesterdayIso: string
+    hour: number
+    minute: number
+    totalMinutes: number
+} {
+    const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles',
-        hour: 'numeric',
-        hour12: false,
-    })
-    const parsedHour = parseInt(hourStr, 10)
-    const hour = parsedHour === 24 ? 0 : parsedHour
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    }).formatToParts(refDate)
+    const rawHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+    const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+    const hour = rawHour === 24 ? 0 : rawHour
 
     const laDateParts = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'America/Los_Angeles',
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
-    }).format(now)
+    }).format(refDate)
 
     const todayNoon = new Date(`${laDateParts}T12:00:00`)
     todayNoon.setDate(todayNoon.getDate() - 1)
     const y = todayNoon.getFullYear()
     const m = String(todayNoon.getMonth() + 1).padStart(2, '0')
     const d = String(todayNoon.getDate()).padStart(2, '0')
-    return { yesterdayIso: `${y}-${m}-${d}`, hour }
+    return {
+        yesterdayIso: `${y}-${m}-${d}`,
+        hour,
+        minute,
+        totalMinutes: hour * 60 + minute,
+    }
 }
 
 function normalizeCorporateEmail(raw?: string | null): string | null {
@@ -114,17 +125,21 @@ async function handleSyncViolations(req: Request) {
         }
     }
 
-    const { yesterdayIso, hour: laHour } = getCaliforniaNowParts()
+    const { yesterdayIso, hour: laHour, minute: laMinute, totalMinutes: laTotalMinutes } =
+        getCaliforniaNowParts()
     const hasExplicitOverride =
         forceRun || isDryRun || Boolean(testTo) || url.searchParams.has('date')
 
-    // Evitar disparo prematuro a las 10:59 AM PST en invierno o doble corrida a las 12:59 PM PDT en verano
-    if (!hasExplicitOverride && laHour !== 11) {
+    // Evitar disparo prematuro a las 10:59 AM PST en invierno o doble corrida a las 12:59 PM PDT en verano,
+    // absorbiendo cualquier jitter de despacho de Vercel tras las 11:59 AM (ej. 12:00 PM – 12:25 PM).
+    const inScheduledWindow = laTotalMinutes >= 11 * 60 + 50 && laTotalMinutes <= 12 * 60 + 30
+    if (!hasExplicitOverride && !inScheduledWindow) {
         return NextResponse.json({
             success: true,
             skipped: true,
             la_hour: laHour,
-            reason: 'Waiting for 11:00–11:59 AM America/Los_Angeles execution window',
+            la_minute: laMinute,
+            reason: 'Waiting for 11:50 AM–12:30 PM America/Los_Angeles execution window',
         })
     }
 
@@ -184,7 +199,7 @@ async function handleSyncViolations(req: Request) {
 
         const allowedStoreGuids = stores.map((s) => s.external_id).filter(Boolean)
 
-        // 2. Consultar ponchadas paginadas para `targetDate`
+        // 2. Consultar ponchadas paginadas para `targetDate` (PK en `public.punches` es `toast_id`)
         let punches: any[] = []
         let currentOffset = 0
         const pageSize = 1000
@@ -192,8 +207,9 @@ async function handleSyncViolations(req: Request) {
         while (true) {
             let punchQuery = supabase
                 .from('punches')
-                .select('id, store_id, employee_toast_guid, business_date, breaks')
+                .select('toast_id, store_id, employee_toast_guid, business_date, breaks')
                 .eq('business_date', targetDate)
+                .order('toast_id', { ascending: true })
                 .range(currentOffset, currentOffset + pageSize - 1)
 
             if (targetStoreParam && allowedStoreGuids.length > 0) {
@@ -203,7 +219,10 @@ async function handleSyncViolations(req: Request) {
             const { data: chunk, error } = await punchQuery
             if (error) {
                 console.error('Error fetching punches:', error)
-                break
+                return NextResponse.json(
+                    { error: 'Failed to fetch punches: ' + error.message },
+                    { status: 500 }
+                )
             }
             if (!chunk || chunk.length === 0) break
             punches.push(...chunk)
@@ -412,62 +431,78 @@ async function handleSyncViolations(req: Request) {
             const managerTableItems: ManagerDailyViolationItem[] = []
             const perViolationDispatched = new Map<number, boolean>()
 
-            // 6a. Despachar correos individuales a cada empleado infractor
-            for (let idx = 0; idx < storeViolations.length; idx++) {
-                const v = storeViolations[idx]
-                let employeeSent = false
-                let statusLabel = '⚠️ Sin correo en Toast POS (Notificar en persona)'
+            // 6a. Despachar correos individuales a cada empleado infractor en lotes controlados de 4
+            const BATCH_SIZE = 4
+            for (let startIdx = 0; startIdx < storeViolations.length; startIdx += BATCH_SIZE) {
+                const batch = storeViolations.slice(startIdx, startIdx + BATCH_SIZE)
+                const batchResults = await Promise.all(
+                    batch.map(async (v, offset) => {
+                        const idx = startIdx + offset
+                        let employeeSent = false
+                        let statusLabel = '⚠️ Sin correo en Toast POS (Notificar en persona)'
 
-                if (v.validEmployeeEmail) {
-                    const { subject, html } = buildEmployeeBreakViolationEmailHtml({
-                        storeName,
-                        employeeName: v.employeeName,
-                        type: v.type,
-                        businessDate: v.date,
-                        inDate: v.inDate,
-                        outDate: v.outDate,
-                        allowedMinutes: v.allowed,
-                        actualMinutes: v.actualMinutes,
-                        managerContactEmail: primaryManagerEmail,
+                        if (v.validEmployeeEmail) {
+                            const { subject, html } = buildEmployeeBreakViolationEmailHtml({
+                                storeName,
+                                employeeName: v.employeeName,
+                                type: v.type,
+                                businessDate: v.date,
+                                inDate: v.inDate,
+                                outDate: v.outDate,
+                                allowedMinutes: v.allowed,
+                                actualMinutes: v.actualMinutes,
+                                managerContactEmail: primaryManagerEmail,
+                            })
+
+                            const targetRecipient = testTo || v.validEmployeeEmail
+                            try {
+                                const res = await sendSystemEmail({
+                                    fromName: 'Sistema de Monitoreo',
+                                    to: targetRecipient,
+                                    replyTo: primaryManagerEmail || undefined,
+                                    subject: testTo ? `[PRUEBA EMPLEADO] ${subject}` : subject,
+                                    html,
+                                })
+                                senderUsed = res.fromEmail
+                                employeeSent = true
+                                statusLabel = `✓ Enviado (${v.validEmployeeEmail})`
+                            } catch (empErr: any) {
+                                console.error(
+                                    `Failed to send employee violation email (${v.validEmployeeEmail}):`,
+                                    empErr?.message || empErr
+                                )
+                                statusLabel = `⚠️ Error al enviar (${v.validEmployeeEmail})`
+                            }
+                        } else if (v.rawEmployeeEmail) {
+                            statusLabel = `⚠️ Correo inválido en Toast (${v.rawEmployeeEmail})`
+                        }
+
+                        return {
+                            idx,
+                            employeeSent,
+                            item: {
+                                employeeName: v.employeeName,
+                                type: v.type,
+                                allowedMinutes: v.allowed,
+                                actualMinutes: v.actualMinutes,
+                                inDate: v.inDate,
+                                outDate: v.outDate,
+                                isAnomaly: v.isAnomaly,
+                                deliveryStatusLabel: statusLabel,
+                                emailDelivered: employeeSent,
+                            } as ManagerDailyViolationItem,
+                        }
                     })
+                )
 
-                    const targetRecipient = testTo || v.validEmployeeEmail
-                    try {
-                        const res = await sendSystemEmail({
-                            fromName: 'Sistema de Monitoreo',
-                            to: targetRecipient,
-                            replyTo: primaryManagerEmail || undefined,
-                            subject: testTo ? `[PRUEBA EMPLEADO] ${subject}` : subject,
-                            html,
-                        })
-                        senderUsed = res.fromEmail
-                        employeeSent = true
+                for (const br of batchResults) {
+                    perViolationDispatched.set(br.idx, br.employeeSent)
+                    if (br.employeeSent) {
                         storeEmailsSent++
                         totalEmailsSent++
-                        statusLabel = `✓ Enviado (${v.validEmployeeEmail})`
-                    } catch (empErr: any) {
-                        console.error(
-                            `Failed to send employee violation email (${v.validEmployeeEmail}):`,
-                            empErr?.message || empErr
-                        )
-                        statusLabel = `⚠️ Error al enviar (${v.validEmployeeEmail})`
                     }
-                } else if (v.rawEmployeeEmail) {
-                    statusLabel = `⚠️ Correo inválido en Toast (${v.rawEmployeeEmail})`
+                    managerTableItems.push(br.item)
                 }
-
-                perViolationDispatched.set(idx, employeeSent)
-                managerTableItems.push({
-                    employeeName: v.employeeName,
-                    type: v.type,
-                    allowedMinutes: v.allowed,
-                    actualMinutes: v.actualMinutes,
-                    inDate: v.inDate,
-                    outDate: v.outDate,
-                    isAnomaly: v.isAnomaly,
-                    deliveryStatusLabel: statusLabel,
-                    emailDelivered: employeeSent,
-                })
             }
 
             // 6b. Despachar reporte DIARIO obligatorio al Gerente de Tienda (CC Supervisor de Zona)
