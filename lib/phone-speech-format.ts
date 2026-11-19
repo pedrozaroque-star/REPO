@@ -384,7 +384,7 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
   let text = sanitizeCustomerStoreReferencesInText(
     String(rawText).replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
     lang
-  ).replace(/(\w)\s*&\s*(\w)/g, lang === 'es' ? '$1 y $2' : '$1 and $2')
+  ).replace(/([\p{L}\p{N}])\s*&\s*([\p{L}\p{N}])/gu, lang === 'es' ? '$1 y $2' : '$1 and $2')
 
   // 1. Expandir todas las abreviaturas viales, ordinales de calles, `, CA` y `Los Ángeles`
   text = expandStreetAbbreviationsInText(text, lang, { stripZipAfterState: false })
@@ -470,9 +470,10 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
       (_m, lead: string, amt: string) => `${lead}$${amt}`
     )
     text = text.replace(
-      /\$\s*0\.(\d{2})(?:\s*(?:dollars?(?:\s+usd)?|usd|cents?|pesos?(?:\s+mexicanos?)?|mxn))?\b/gi,
+      /\$\s*0\.(\d{1,2})(?:\s*(?:dollars?(?:\s+usd)?|usd|cents?|pesos?(?:\s+mexicanos?)?|mxn))?\b/gi,
       (_m, centsStr: string) => {
-        const c = Number(centsStr)
+        const normalizedCents = centsStr.length === 1 ? `${centsStr}0` : centsStr
+        const c = Number(normalizedCents)
         return c > 0 ? `${c} ${c === 1 ? 'cent' : 'cents'}` : '$0.00'
       }
     )

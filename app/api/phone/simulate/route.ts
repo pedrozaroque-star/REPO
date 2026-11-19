@@ -15,10 +15,11 @@
  * - Simulador Web (`/admin/llamadas`) -> `POST /api/phone/simulate` (`stream: true`) -> NDJSON (`turn_meta` -> `audio_pcm`* -> `done`).
  *
  * @notes
- * - Restringido estrictamente a `callSid` con prefijo `SIM_`.
- * - Validación RBAC en una sola llamada, prewarm persistente en `after()`, validación de propiedad de `store_id` sobre `SIM_` `callSid` y Key 9 limpia antes o durante llamada.
+ * - Restringido estrictamente a `callSid` con prefijo `SIM_` (con entropía UUID corta para evitar colisiones).
+ * - Auditoría 2026-11-19: validación de propiedad/fuente `simulator`/aislamiento de usuario en misma tienda/`ended_at` para TODOS los roles (incluyendo `isGlobalAdmin` y tecla `9`), `flushDbPromise` comprometido antes de emitir `turn_meta` y respaldado en `after()` para eliminar carreras con barge-in o Turno 2 inmediato.
  */
 
+import { randomUUID } from 'node:crypto'
 import { after, NextRequest, NextResponse } from 'next/server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -48,6 +49,23 @@ const STREAM_HEADERS = {
   'Content-Type': 'application/x-ndjson; charset=utf-8',
   'Cache-Control': 'no-cache, no-transform',
   'X-Accel-Buffering': 'no'
+}
+
+const VALID_SIM_ACTIONS = new Set(['prewarm', 'start', 'turn', 'end'])
+const TERMINAL_CALL_STATUSES = new Set(['completed', 'canceled', 'cancelled', 'busy', 'failed', 'no-answer'])
+
+function generateSimCallSid(storeId: number): string {
+  return `SIM_${storeId}_${Date.now()}_${randomUUID().slice(0, 8)}`
+}
+
+function scheduleBackgroundTask(task: () => Promise<any>) {
+  try {
+    after(async () => {
+      await task().catch(() => null)
+    })
+  } catch {
+    void task().catch(() => null)
+  }
 }
 
 function createNdjsonStreamResponse(
@@ -92,6 +110,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
     }
     const action = String(body?.action || 'turn')
+    if (!VALID_SIM_ACTIONS.has(action)) {
+      return NextResponse.json({ error: 'Acción de simulador no soportada' }, { status: 400 })
+    }
     const hasExplicitStoreId = body?.storeId !== undefined && body?.storeId !== null && body?.storeId !== ''
     const rawStoreId = Number(body?.storeId)
     if (hasExplicitStoreId && (!Number.isInteger(rawStoreId) || rawStoreId <= 0)) {
@@ -162,7 +183,7 @@ export async function POST(request: NextRequest) {
       const reqStart = Date.now()
       const ctx = await getStorePhoneContext(storeId)
       const { store, config, scheduleEval } = ctx
-      const callSid = `SIM_${store.id}_${Date.now()}`
+      const callSid = generateSimCallSid(store.id)
       const voiceId: VoiceId = resolvePhoneFemaleVoice(config.voice_id)
       const greetingText = buildInitialGreeting(
         store.name,
@@ -202,11 +223,20 @@ export async function POST(request: NextRequest) {
           })
           .select('id')
           .single()
+        scheduleBackgroundTask(async () => {
+          await insertPromise
+        })
 
         return createNdjsonStreamResponse(async (send) => {
           try {
+            const ins = await insertPromise
+            if (ins.error || !ins.data) {
+              throw ins.error || new Error('No se pudo registrar la llamada en phone_calls')
+            }
+
             send({
               type: 'start_meta',
+              callId: ins.data.id,
               callSid,
               store: {
                 id: store.id,
@@ -260,10 +290,6 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            const ins = await insertPromise
-            if (ins.error || !ins.data) {
-              throw ins.error || new Error('No se pudo registrar la llamada en phone_calls')
-            }
             send({
               type: 'done',
               callId: ins.data.id,
@@ -331,20 +357,28 @@ export async function POST(request: NextRequest) {
       if (callSid.startsWith('SIM_')) {
         const { data: existing, error: findErr } = await supabaseAdmin
           .from('phone_calls')
-          .select('id, store_id, status, started_at, ended_at, turns_count')
+          .select('id, store_id, source, caller_number, status, started_at, ended_at, turns_count')
           .eq('call_sid', callSid)
-          .eq('source', 'simulator')
           .maybeSingle()
         if (findErr) throw findErr
 
         if (existing) {
+          if (existing.source !== 'simulator') {
+            return NextResponse.json({ error: 'Acceso denegado a esta llamada' }, { status: 403 })
+          }
           if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(existing.store_id))) {
             return NextResponse.json({ error: 'Acceso denegado a esta llamada' }, { status: 403 })
           }
+          if (
+            !auth.user.isGlobalAdmin &&
+            existing.caller_number &&
+            auth.user.email &&
+            String(existing.caller_number).trim().toLowerCase() !== auth.user.email.trim().toLowerCase()
+          ) {
+            return NextResponse.json({ error: 'Acceso denegado a la llamada simulada de otro usuario' }, { status: 403 })
+          }
           const normStatus = String(existing.status || '').toLowerCase()
-          const alreadyTerminated =
-            Boolean(existing.ended_at) ||
-            ['completed', 'canceled', 'cancelled', 'busy', 'failed', 'no-answer'].includes(normStatus)
+          const alreadyTerminated = Boolean(existing.ended_at) || TERMINAL_CALL_STATUSES.has(normStatus)
           if (!alreadyTerminated) {
             const startedMs = existing.started_at ? new Date(existing.started_at).getTime() : Date.now()
             const durationSeconds = Math.min(1800, Math.max(5, Math.round((Date.now() - startedMs) / 1000)))
@@ -374,18 +408,39 @@ export async function POST(request: NextRequest) {
 
     // Default: action === 'turn'
     const rawCallSid = String(body?.callSid || '').trim()
-    let callSid = rawCallSid.startsWith(`SIM_${storeId}_`) ? rawCallSid : `SIM_${storeId}_${Date.now()}`
-    if (rawCallSid.startsWith('SIM_') && (!auth.user.isGlobalAdmin || !rawCallSid.startsWith(`SIM_${storeId}_`))) {
+    let callSid = generateSimCallSid(storeId)
+    let validatedSimCall: {
+      id: string
+      store_id: number
+      source: string
+      caller_number: string | null
+      status: string
+      ended_at: string | null
+      transcript: any
+      turns_count: number
+    } | null = null
+
+    if (rawCallSid.startsWith('SIM_')) {
       const { data: ownerCheck, error: ownerErr } = await supabaseAdmin
         .from('phone_calls')
-        .select('store_id')
+        .select('id, store_id, source, caller_number, status, ended_at, transcript, turns_count')
         .eq('call_sid', rawCallSid)
-        .eq('source', 'simulator')
         .maybeSingle()
       if (ownerErr) throw ownerErr
       if (ownerCheck) {
+        if (ownerCheck.source !== 'simulator') {
+          return NextResponse.json({ error: 'Acceso denegado: solo se permiten llamadas del simulador.' }, { status: 403 })
+        }
         if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(ownerCheck.store_id))) {
           return NextResponse.json({ error: 'Acceso denegado a esta llamada simulada' }, { status: 403 })
+        }
+        if (
+          !auth.user.isGlobalAdmin &&
+          ownerCheck.caller_number &&
+          auth.user.email &&
+          String(ownerCheck.caller_number).trim().toLowerCase() !== auth.user.email.trim().toLowerCase()
+        ) {
+          return NextResponse.json({ error: 'Acceso denegado a la llamada simulada de otro usuario' }, { status: 403 })
         }
         if (Number(ownerCheck.store_id) !== storeId) {
           return NextResponse.json(
@@ -393,6 +448,16 @@ export async function POST(request: NextRequest) {
             { status: 409 }
           )
         }
+        const normCallStatus = String(ownerCheck.status || '').toLowerCase()
+        if (Boolean(ownerCheck.ended_at) || TERMINAL_CALL_STATUSES.has(normCallStatus)) {
+          return NextResponse.json(
+            { error: 'La llamada simulada ya finalizó; inicia una nueva llamada.' },
+            { status: 409 }
+          )
+        }
+        callSid = rawCallSid
+        validatedSimCall = ownerCheck as any
+      } else if (rawCallSid.startsWith(`SIM_${storeId}_`)) {
         callSid = rawCallSid
       }
     }
@@ -405,12 +470,8 @@ export async function POST(request: NextRequest) {
     if (rawUserText === '9') {
       const reqStart = Date.now()
       const switchedLang: PhoneLang = lang === 'en' ? 'es' : 'en'
-      const [ctx, existingRes] = await Promise.all([
-        getStorePhoneContext(storeId),
-        supabaseAdmin.from('phone_calls').select('id, store_id, status, ended_at, transcript, turns_count').eq('call_sid', callSid).maybeSingle()
-      ])
-      if (existingRes.error) throw existingRes.error
-      const existing = existingRes.data
+      const ctx = await getStorePhoneContext(storeId)
+      const existing = validatedSimCall
       const voiceId: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
       const isMidCall = Boolean(existing && Number(existing.turns_count || 0) >= 1)
       const switchedReply = isMidCall
@@ -442,6 +503,8 @@ export async function POST(request: NextRequest) {
               transcript: nextTranscript
             })
             .eq('id', existing.id)
+            .eq('source', 'simulator')
+            .is('ended_at', null)
           if (updErr) throw updErr
           return existing.id
         }
@@ -474,12 +537,17 @@ export async function POST(request: NextRequest) {
         if (fetchRowErr || !createdRow) throw fetchRowErr || new Error('No se encontró llamada tras cambio de idioma')
         return createdRow.id
       })()
+      scheduleBackgroundTask(async () => {
+        await dbUpdatePromise
+      })
 
       if (useStream) {
         return createNdjsonStreamResponse(async (send) => {
           try {
+            const callId = await dbUpdatePromise
             send({
               type: 'turn_meta',
+              callId,
               callSid,
               replyText: switchedReply,
               language: switchedLang,
@@ -530,7 +598,6 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            const callId = await dbUpdatePromise
             send({
               type: 'done',
               callId,
@@ -588,6 +655,13 @@ export async function POST(request: NextRequest) {
 
     if (useStream) {
       const reqStart = Date.now()
+      let releaseFlushGuard!: () => void
+      const flushGuardPromise = new Promise<void>((resolve) => {
+        releaseFlushGuard = resolve
+      })
+      // Registrar after() dentro del ámbito directo de POST (antes de devolver Response) para que Vercel waitUntil proteja flushDbPromise ante abortos
+      scheduleBackgroundTask(() => flushGuardPromise)
+
       return createNdjsonStreamResponse(async (send) => {
         try {
           const turn = await processPhoneAgentTurn({
@@ -599,6 +673,17 @@ export async function POST(request: NextRequest) {
             preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
             deferDbFlush: true
           })
+
+          // Comprometer el flush de DB antes de liberar turn_meta para que un barge-in o Turno 2 inmediato nunca lea transcript viejo ni sea sobreescrito
+          if (turn.flushDbPromise) {
+            try {
+              await turn.flushDbPromise
+            } finally {
+              releaseFlushGuard()
+            }
+          } else {
+            releaseFlushGuard()
+          }
 
           const textMs = Date.now() - reqStart
           const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
@@ -655,10 +740,6 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          if (turn.flushDbPromise) {
-            await turn.flushDbPromise
-          }
-
           send({
             type: 'done',
             totalFirstAudioMs: firstAudioMs,
@@ -666,6 +747,7 @@ export async function POST(request: NextRequest) {
             fromCache
           })
         } catch (streamErr: any) {
+          releaseFlushGuard()
           console.error('[api/phone/simulate stream] Error:', streamErr)
           send({
             type: 'error',

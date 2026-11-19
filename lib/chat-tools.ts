@@ -3706,200 +3706,114 @@ async function queryTrainingAcademyTool(args: any): Promise<string> {
  */
 async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<string> {
   try {
-    // RBAC por sucursal cuando la herramienta es invocada desde /api/support-chat con sesión humana
+    // RBAC estricto fail-closed: exige sesión administrativa autenticada con verificación de identidad y sucursales activas
+    if (!viewerUser || (!viewerUser.id && !viewerUser.email)) {
+      return 'Acceso denegado: Se requiere sesión administrativa autenticada para consultar la Contestadora IA.';
+    }
+
+    const { data: activeStoresData, error: stErr } = await supabaseAdmin
+      .from('stores')
+      .select('id, code, name, is_active')
+      .order('id', { ascending: true });
+    if (stErr) throw stErr;
+    const activeStores = (activeStoresData || []).filter((s: any) => s.is_active !== false);
+    const activeIdSet = new Set(activeStores.map((s: any) => Number(s.id)));
+    const storeNameById = new Map<number, string>();
+    for (const s of activeStoresData || []) {
+      const cleanLabel = String(s.name || '')
+        .replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-—]?\s*/i, '')
+        .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
+        .trim();
+      storeNameById.set(Number(s.id), cleanLabel || `#${s.id}`);
+    }
+
+    const normalizeScopeToken = (raw: unknown): string =>
+      String(raw ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/^tacos\s+(?:el\s+)?gavilan\s*[-—]?\s*/i, '')
+        .replace(/[^a-z0-9]/g, '');
+
     let scopedAllowedIds: number[] | null = null;
-    if (viewerUser) {
-      const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor', 'regional_manager']);
-      const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'gerente', 'asistente', 'assistant']);
-      const numericId = Number(viewerUser.id);
-      let userRow: any = null;
-      if (Number.isFinite(numericId) && numericId > 0) {
-        const { data, error } = await supabaseAdmin
-          .from('users')
-          .select('id, role, store_id, store_scope, is_active')
-          .eq('id', numericId)
-          .maybeSingle();
-        if (error) throw error;
-        userRow = data;
+    const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor', 'regional_manager']);
+    const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'gerente', 'asistente', 'assistant']);
+    const numericId = Number(viewerUser.id);
+    let userRow: any = null;
+    if (Number.isFinite(numericId) && numericId > 0) {
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('id, email, role, store_id, store_scope, is_active')
+        .eq('id', numericId)
+        .maybeSingle();
+      if (error) throw error;
+      userRow = data;
+      if (
+        userRow &&
+        viewerUser.email &&
+        userRow.email &&
+        String(userRow.email).trim().toLowerCase() !== String(viewerUser.email).trim().toLowerCase()
+      ) {
+        return 'Acceso denegado: La sesión autenticada no coincide con el registro administrativo.';
       }
-      if (!userRow && viewerUser.email) {
-        const safeEmail = String(viewerUser.email).trim().replace(/[\\%_]/g, '\\$&');
-        const { data, error } = await supabaseAdmin
-          .from('users')
-          .select('id, role, store_id, store_scope, is_active')
-          .ilike('email', safeEmail)
-          .maybeSingle();
-        if (error) throw error;
-        userRow = data;
+    }
+    if (!userRow && viewerUser.email) {
+      const safeEmail = String(viewerUser.email).trim().replace(/[\\%_]/g, '\\$&');
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('id, email, role, store_id, store_scope, is_active')
+        .ilike('email', safeEmail)
+        .maybeSingle();
+      if (error) throw error;
+      userRow = data;
+    }
+    if (!userRow || userRow.is_active === false) {
+      return 'Acceso denegado: Usuario inactivo o sin padrón administrativo para consultar la Contestadora IA.';
+    }
+    const liveRole = String(userRow.role || '').trim().toLowerCase();
+    if (!GLOBAL_ADMIN_ROLES.has(liveRole)) {
+      if (!STORE_SCOPED_ROLES.has(liveRole)) {
+        return `Acceso denegado: El rol '${liveRole}' no tiene autorización para consultar llamadas o recados de la Contestadora IA.`;
       }
-      if (!userRow || userRow.is_active === false) {
-        return 'Acceso denegado: Usuario inactivo o sin padrón administrativo para consultar la Contestadora IA.';
-      }
-      const liveRole = String(userRow.role || '').trim().toLowerCase();
-      if (!GLOBAL_ADMIN_ROLES.has(liveRole)) {
-        if (!STORE_SCOPED_ROLES.has(liveRole)) {
-          return `Acceso denegado: El rol '${liveRole}' no tiene autorización para consultar llamadas o recados de la Contestadora IA.`;
+      const allowedSet = new Set<number>();
+      const assignedNum = Number(userRow.store_id);
+      if (Number.isFinite(assignedNum) && activeIdSet.has(assignedNum)) allowedSet.add(assignedNum);
+      if (Array.isArray(userRow.store_scope)) {
+        const scopeNormSet = new Set(userRow.store_scope.map(normalizeScopeToken).filter(Boolean));
+        for (const rawItem of userRow.store_scope) {
+          const n = Number(rawItem);
+          if (Number.isFinite(n) && activeIdSet.has(n)) allowedSet.add(n);
+          const meta = resolveCustomerStoreMeta(String(rawItem ?? ''));
+          if (meta && activeIdSet.has(meta.id)) allowedSet.add(meta.id);
         }
-        const { data: activeStoresData, error: stErr } = await supabaseAdmin
-          .from('stores')
-          .select('id, is_active')
-          .order('id', { ascending: true });
-        if (stErr) throw stErr;
-        const activeIdSet = new Set(
-          (activeStoresData || []).filter((s: any) => s.is_active !== false).map((s: any) => Number(s.id))
-        );
-        const allowedSet = new Set<number>();
-        const assignedNum = Number(userRow.store_id);
-        if (Number.isFinite(assignedNum) && activeIdSet.has(assignedNum)) allowedSet.add(assignedNum);
-        if (Array.isArray(userRow.store_scope)) {
-          for (const rawItem of userRow.store_scope) {
-            const n = Number(rawItem);
-            if (Number.isFinite(n) && activeIdSet.has(n)) allowedSet.add(n);
+        for (const s of activeStores) {
+          if (
+            scopeNormSet.has(normalizeScopeToken(s.code)) ||
+            scopeNormSet.has(normalizeScopeToken(s.name)) ||
+            scopeNormSet.has(normalizeScopeToken(String(s.id)))
+          ) {
+            allowedSet.add(Number(s.id));
           }
         }
-        if (allowedSet.size === 0) {
-          return 'Acceso denegado: Tu cuenta no tiene ninguna sucursal activa asignada.';
-        }
-        scopedAllowedIds = Array.from(allowedSet);
       }
+      if (allowedSet.size === 0) {
+        return 'Acceso denegado: Tu cuenta no tiene ninguna sucursal activa asignada.';
+      }
+      scopedAllowedIds = Array.from(allowedSet);
     }
 
     const todayIso = getCaliforniaDate();
-    const applyScope = (q: any) => (scopedAllowedIds ? q.in('store_id', scopedAllowedIds) : q);
+    const baseScopeQuery = (q: any) => (scopedAllowedIds ? q.in('store_id', scopedAllowedIds) : q);
 
-    const [
-      configsRes,
-      kbRes,
-      specialHoursRes,
-      realCallsRes,
-      simCallsRes,
-      realCallsTotalRes,
-      realCallsWithTurnsRes,
-      realResolvedCallsRes,
-      simCallsTotalRes,
-      criticalCbsRes,
-      callbacksRes,
-      exactRealPendingRes,
-      exactRealCriticalRes,
-    ] = await Promise.all([
-      applyScope(supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id')),
-      supabaseAdmin.from('phone_knowledge_base').select('id, title, category, store_id, is_active').eq('is_active', true),
-      supabaseAdmin
-        .from('phone_special_hours')
-        .select('event_date, holiday_name, is_closed, open_time, close_time, store_id')
-        .gte('event_date', todayIso)
-        .order('event_date')
-        .limit(200),
-      applyScope(
-        supabaseAdmin
-          .from('phone_calls')
-          .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
-          .eq('source', 'twilio')
-          .order('started_at', { ascending: false })
-          .limit(200)
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_calls')
-          .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
-          .eq('source', 'simulator')
-          .order('started_at', { ascending: false })
-          .limit(200)
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_calls')
-          .select('id', { count: 'exact', head: true })
-          .eq('source', 'twilio')
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_calls')
-          .select('id', { count: 'exact', head: true })
-          .eq('source', 'twilio')
-          .gt('turns_count', 0)
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_calls')
-          .select('id', { count: 'exact', head: true })
-          .eq('source', 'twilio')
-          .gt('turns_count', 0)
-          .eq('resolved_by_ai', true)
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_calls')
-          .select('id', { count: 'exact', head: true })
-          .eq('source', 'simulator')
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_callback_requests')
-          .select('*, stores(name)')
-          .eq('status', 'pending')
-          .eq('source', 'twilio')
-          .in('urgency', ['critical', 'urgent'])
-          .order('created_at', { ascending: false })
-          .limit(250)
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_callback_requests')
-          .select('*, stores(name)')
-          .eq('status', 'pending')
-          .eq('source', 'twilio')
-          .not('urgency', 'in', '("critical","urgent")')
-          .order('created_at', { ascending: false })
-          .limit(150)
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_callback_requests')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'pending')
-          .eq('source', 'twilio')
-      ),
-      applyScope(
-        supabaseAdmin
-          .from('phone_callback_requests')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'pending')
-          .eq('source', 'twilio')
-          .in('urgency', ['critical', 'urgent'])
-      ),
-    ]);
-
-    const queryErrors = [
-      configsRes.error,
-      kbRes.error,
-      specialHoursRes.error,
-      realCallsRes.error,
-      simCallsRes.error,
-      realCallsTotalRes.error,
-      realCallsWithTurnsRes.error,
-      realResolvedCallsRes.error,
-      simCallsTotalRes.error,
-      criticalCbsRes.error,
-      callbacksRes.error,
-      exactRealPendingRes.error,
-      exactRealCriticalRes.error,
-    ].filter(Boolean);
-    if (queryErrors.length > 0) {
-      throw queryErrors[0];
-    }
-
+    // 1. Resolver primero configuraciones y filtro de sucursal explícito para ejecutar conteos exactos en DB sin truncar por límite global
+    const configsRes = await baseScopeQuery(
+      supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id')
+    );
+    if (configsRes.error) throw configsRes.error;
     const configs = configsRes.data || [];
-    const kb = kbRes.data || [];
-    const specialHours = specialHoursRes.data || [];
-    const criticalCbs = criticalCbsRes.data || [];
-    const callbacks = callbacksRes.data || [];
-    const exactRealPendingCount = exactRealPendingRes.count;
-    const exactRealCriticalCount = exactRealCriticalRes.count;
 
     let rows = configs;
-    const allowedStoreSet = scopedAllowedIds ? new Set(scopedAllowedIds) : null;
-    let matchedStoreIds: Set<number> | null = allowedStoreSet;
+    let effectiveStoreIds: number[] | null = scopedAllowedIds;
     const hasExplicitStoreFilter = Boolean(args?.store_name && String(args.store_name).trim());
     if (hasExplicitStoreFilter) {
       const q = normText(args.store_name);
@@ -3920,36 +3834,155 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
           (customerEn && customerEn.includes(q))
         );
       });
-      matchedStoreIds = new Set(rows.map((r: any) => Number(r.store_id)));
-      if (allowedStoreSet) {
-        matchedStoreIds = new Set([...matchedStoreIds].filter((id) => allowedStoreSet.has(id)));
+      const matchedArr = rows.map((r: any) => Number(r.store_id)).filter((id: number) => Number.isFinite(id));
+      if (matchedArr.length === 0) {
+        return `No se encontró ninguna sucursal autorizada que coincida con "${String(args.store_name).trim()}".`;
       }
+      effectiveStoreIds = matchedArr;
     }
 
-    const filterCallScope = (list: any[]) =>
-      matchedStoreIds ? list.filter((c: any) => matchedStoreIds!.has(Number(c.store_id))) : list;
+    const matchedStoreIds = effectiveStoreIds ? new Set(effectiveStoreIds) : null;
+    const applyEffectiveScope = (q: any) => (effectiveStoreIds ? q.in('store_id', effectiveStoreIds) : q);
 
-    const realCalls = filterCallScope((realCallsRes.data || []).filter((c: any) => !String(c.call_sid || '').startsWith('SIM')));
-    const simCalls = filterCallScope(simCallsRes.data || []);
-    const realCallsWithTurnsSample = realCalls.filter((c: any) => Number(c.turns_count || 0) > 0);
-    const resolvedRealSample = realCallsWithTurnsSample.filter((c: any) => Boolean(c.resolved_by_ai)).length;
+    const [
+      kbRes,
+      specialHoursRes,
+      realCallsTotalRes,
+      realCallsWithTurnsRes,
+      realResolvedCallsRes,
+      simCallsTotalRes,
+      criticalCbsRes,
+      managerCbsRes,
+      condimentCbsRes,
+      exactManagerPendingRes,
+      exactManagerCriticalRes,
+      exactCondimentsPendingRes,
+    ] = await Promise.all([
+      supabaseAdmin.from('phone_knowledge_base').select('id, title, category, store_id, is_active').eq('is_active', true),
+      supabaseAdmin
+        .from('phone_special_hours')
+        .select('event_date, holiday_name, is_closed, open_time, close_time, store_id')
+        .gte('event_date', todayIso)
+        .order('event_date')
+        .limit(200),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'twilio')
+          .not('call_sid', 'like', 'SIM%')
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'twilio')
+          .not('call_sid', 'like', 'SIM%')
+          .gt('turns_count', 0)
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'twilio')
+          .not('call_sid', 'like', 'SIM%')
+          .gt('turns_count', 0)
+          .eq('resolved_by_ai', true)
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'simulator')
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores!phone_callback_requests_store_id_fkey(name)')
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .neq('reason_category', 'condiments_note')
+          .in('urgency', ['critical', 'urgent'])
+          .order('created_at', { ascending: false })
+          .limit(250)
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores!phone_callback_requests_store_id_fkey(name)')
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .neq('reason_category', 'condiments_note')
+          .not('urgency', 'in', '("critical","urgent")')
+          .order('created_at', { ascending: false })
+          .limit(150)
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores!phone_callback_requests_store_id_fkey(name)')
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .eq('reason_category', 'condiments_note')
+          .order('created_at', { ascending: false })
+          .limit(100)
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .neq('reason_category', 'condiments_note')
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .neq('reason_category', 'condiments_note')
+          .in('urgency', ['critical', 'urgent'])
+      ),
+      applyEffectiveScope(
+        supabaseAdmin
+          .from('phone_callback_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .eq('source', 'twilio')
+          .eq('reason_category', 'condiments_note')
+      ),
+    ]);
 
-    const realCallsCountOut =
-      !hasExplicitStoreFilter && typeof realCallsTotalRes.count === 'number'
-        ? realCallsTotalRes.count
-        : realCalls.length;
-    const realCallsWithTurnsOut =
-      !hasExplicitStoreFilter && typeof realCallsWithTurnsRes.count === 'number'
-        ? realCallsWithTurnsRes.count
-        : realCallsWithTurnsSample.length;
-    const realResolvedOut =
-      !hasExplicitStoreFilter && typeof realResolvedCallsRes.count === 'number'
-        ? realResolvedCallsRes.count
-        : resolvedRealSample;
-    const simCallsCountOut =
-      !hasExplicitStoreFilter && typeof simCallsTotalRes.count === 'number'
-        ? simCallsTotalRes.count
-        : simCalls.length;
+    const queryErrors = [
+      kbRes.error,
+      specialHoursRes.error,
+      realCallsTotalRes.error,
+      realCallsWithTurnsRes.error,
+      realResolvedCallsRes.error,
+      simCallsTotalRes.error,
+      criticalCbsRes.error,
+      managerCbsRes.error,
+      condimentCbsRes.error,
+      exactManagerPendingRes.error,
+      exactManagerCriticalRes.error,
+      exactCondimentsPendingRes.error,
+    ].filter(Boolean);
+    if (queryErrors.length > 0) {
+      throw queryErrors[0];
+    }
+
+    const kb = kbRes.data || [];
+    const specialHours = specialHoursRes.data || [];
+    const managerCallbacks = [...(criticalCbsRes.data || []), ...(managerCbsRes.data || [])].filter(
+      (cb: any) => cb.source !== 'simulator'
+    );
+    const condimentNotes = (condimentCbsRes.data || []).filter((cb: any) => cb.source !== 'simulator');
+
+    const realCallsCountOut = realCallsTotalRes.count ?? 0;
+    const realCallsWithTurnsOut = realCallsWithTurnsRes.count ?? 0;
+    const realResolvedOut = realResolvedCallsRes.count ?? 0;
+    const simCallsCountOut = simCallsTotalRes.count ?? 0;
 
     const realStatsSummary =
       realCallsWithTurnsOut > 0
@@ -3957,15 +3990,8 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
         : 'Sin llamadas reales con conversación aún';
 
     const filteredKb = matchedStoreIds
-      ? (kb || []).filter((r: any) => r.store_id == null || matchedStoreIds!.has(Number(r.store_id)))
+      ? (kb || []).filter((r: any) => r.store_id == null || matchedStoreIds.has(Number(r.store_id)))
       : kb || [];
-
-    const mergedCallbacks = [...(criticalCbs || []), ...(callbacks || [])];
-    const filteredCallbacks = mergedCallbacks.filter((cb: any) => {
-      if (cb.source === 'simulator') return false;
-      if (matchedStoreIds && !matchedStoreIds.has(Number(cb.store_id))) return false;
-      return true;
-    });
 
     // Merge upcoming dynamic calendar holidays + manual DB overrides
     const dynamicHolidays = getUpcomingOfficialStoreHolidays(todayIso, 150);
@@ -3995,31 +4021,46 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
         .replace(/[\r\n]+/g, ' ')
         .trim();
 
+    const formatCallbackStoreLabel = (cb: any) => {
+      const cleanStore = String(cb.stores?.name || storeNameById.get(Number(cb.store_id)) || cb.store_id)
+        .replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-—]?\s*/i, '')
+        .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
+        .trim();
+      if (cb.origin_store_id && Number(cb.origin_store_id) !== Number(cb.store_id)) {
+        const originLabel = storeNameById.get(Number(cb.origin_store_id)) || `#${cb.origin_store_id}`;
+        return `${cleanStore} (↪️ desde ${originLabel})`;
+      }
+      return cleanStore;
+    };
+
     const activeStoresCount = rows.filter((r: any) => Boolean(r.is_enabled)).length;
     const verifiedForwardingCount = rows.filter((r: any) => r.forwarding_status === 'verified').length;
     const spectrumCount = rows.filter((r: any) => r.carrier_type === 'spectrum_landline').length;
     const attCount = rows.filter((r: any) => r.carrier_type !== 'spectrum_landline').length;
-    const urgentOrCritical = filteredCallbacks.filter((cb: any) => cb.urgency === 'critical' || cb.urgency === 'urgent').length;
+    const urgentOrCriticalShown = managerCallbacks.filter(
+      (cb: any) => cb.urgency === 'critical' || cb.urgency === 'urgent'
+    ).length;
+
+    const totalManagerPending = Math.max(managerCallbacks.length, exactManagerPendingRes.count ?? 0);
+    const totalManagerCritical = Math.max(urgentOrCriticalShown, exactManagerCriticalRes.count ?? 0);
+    const totalCondimentsPending = Math.max(condimentNotes.length, exactCondimentsPendingRes.count ?? 0);
+
     let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
-    out += `• **Voz y Arquitectura Baja Latencia**: Kore 3.8 (\`gemini-3.8-flash-tts\` #1 seguido de \`gemini-3.8-flash-lite-tts\`, región \`sfo1\`, caché \`phone_kore38_v6\`, filtro FIR 9-taps WAV \`8kHz\` telefonía + \`&dyn=1\` / PCM \`24kHz\` simulador)\n`;
-    out += `• **Sucursales Consultadas**: ${rows.length} (${activeStoresCount} activas, ${verifiedForwardingCount} desvíos verificados | ${spectrumCount} Spectrum Business fijo, ${attCount} celular Android AT&T; soporta piloto Twilio de 1 número vía \`ForwardedFrom\`)\n`;
+    out += `• **Voz y Operación**: Voz femenina Kore de respuesta rápida para llamadas telefónicas y simulador web\n`;
+    out += `• **Sucursales Consultadas**: ${rows.length} (${activeStoresCount} activas, ${verifiedForwardingCount} desvíos verificados | ${spectrumCount} Spectrum Business fijo, ${attCount} celular Android AT&T; compatible con piloto de 1 número o líneas dedicadas)\n`;
     out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
     out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
     out += `• **Llamadas Reales (Twilio)**: ${realCallsCountOut} (${realStatsSummary}) | **Pruebas en Simulador**: ${simCallsCountOut}\n`;
-    const totalRealPending = !hasExplicitStoreFilter && typeof exactRealPendingCount === 'number'
-      ? Math.max(filteredCallbacks.length, exactRealPendingCount)
-      : filteredCallbacks.length;
-    const totalRealCritical = !hasExplicitStoreFilter && typeof exactRealCriticalCount === 'number'
-      ? Math.max(urgentOrCritical, exactRealCriticalCount)
-      : urgentOrCritical;
-    const truncatedNote = totalRealPending > filteredCallbacks.length
-      ? ` [⚠️ Lista truncada: mostrando ${filteredCallbacks.length} de ${totalRealPending} totales; críticos mostrados ${urgentOrCritical} de ${totalRealCritical}]`
-      : '';
-    out += `• **Recados Reales Pendientes de Gerente**: ${totalRealPending} (${totalRealCritical} urgentes/críticos)${truncatedNote}\n\n`;
+    const truncatedNote =
+      totalManagerPending > managerCallbacks.length
+        ? ` [⚠️ Lista truncada: mostrando ${managerCallbacks.length} de ${totalManagerPending} totales; críticos mostrados ${urgentOrCriticalShown} de ${totalManagerCritical}]`
+        : '';
+    out += `• **Recados Reales Pendientes de Gerente**: ${totalManagerPending} (${totalManagerCritical} urgentes/críticos)${truncatedNote}\n`;
+    out += `• **Notas de Empaque / Condimentos Pendientes**: ${totalCondimentsPending}\n\n`;
 
     if (mergedHolidays.length > 0) {
-      out += `**Próximos Horarios Festivos Oficiales:**\n`;
-      mergedHolidays.slice(0, 7).forEach((sh: any) => {
+      out += `**Próximos Horarios Festivos / Especiales:**\n`;
+      mergedHolidays.slice(0, 10).forEach((sh: any) => {
         const hrs = sh.is_closed
           ? 'CERRADO TODO EL DÍA'
           : sh.open_time && sh.close_time
@@ -4027,24 +4068,32 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
             : sh.close_time
               ? `Apertura regular → Cierre temprano ${sh.close_time}`
               : `Apertura tarde ${sh.open_time} → Cierre regular`;
-        out += `• ${sh.event_date} (${sh.holiday_name}): ${hrs}\n`;
+        const scopeTag =
+          sh.store_id != null
+            ? ` [Solo ${storeNameById.get(Number(sh.store_id)) || `Sucursal #${sh.store_id}`}]`
+            : ' [Todas las sucursales]';
+        out += `• ${sh.event_date} (${sh.holiday_name})${scopeTag}: ${hrs}\n`;
       });
       out += `\n`;
     }
 
-    if (filteredCallbacks.length > 0) {
+    if (managerCallbacks.length > 0) {
+      out += `**Recados Prioritarios Pendientes para Gerentes:**\n`;
       out += `| Sucursal | Categoría / Urgencia | Persona | Teléfono | Ticket / Orden | Motivo |\n`;
       out += `|----------|----------------------|---------|----------|----------------|--------|\n`;
-      filteredCallbacks.forEach((cb: any) => {
-        const cleanStore = String(cb.stores?.name || cb.store_id)
-          .replace(/^Tacos Gavilan\s*[-—]?\s*/i, '')
-          .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
-          .trim();
-        const storeLabel = cb.origin_store_id && Number(cb.origin_store_id) !== Number(cb.store_id)
-          ? `${cleanStore} (↪️ desde #${cb.origin_store_id})`
-          : cleanStore;
-        const tag = `${cb.reason_category || cb.caller_type || 'customer'} / ${String(cb.urgency || 'normal').toUpperCase()}`;
-        out += `| ${safeCell(storeLabel)} | ${safeCell(tag)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.ticket_or_order_number || '—')} | ${safeCell(cb.reason_summary)} |\n`;
+      managerCallbacks.forEach((cb: any) => {
+        const tag = `${cb.reason_category || cb.caller_type || 'customer'} / ${String(cb.urgency || 'high').toUpperCase()}`;
+        out += `| ${safeCell(formatCallbackStoreLabel(cb))} | ${safeCell(tag)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.ticket_or_order_number || '—')} | ${safeCell(cb.reason_summary)} |\n`;
+      });
+      out += `\n`;
+    }
+
+    if (condimentNotes.length > 0) {
+      out += `**Notas de Empaque / Condimentos Pendientes (Mostrador/Cocina):**\n`;
+      out += `| Sucursal | Persona | Teléfono | Orden | Condimentos Solicitados |\n`;
+      out += `|----------|---------|----------|-------|-------------------------|\n`;
+      condimentNotes.forEach((cb: any) => {
+        out += `| ${safeCell(formatCallbackStoreLabel(cb))} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.ticket_or_order_number || '—')} | ${safeCell(cb.reason_summary)} |\n`;
       });
     }
     return out;

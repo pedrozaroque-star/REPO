@@ -18,16 +18,16 @@
  * @notes
  * - El `<Redirect>` de respaldo tras el primer `<Gather>` envía `&silence=1` (no `retry=1`) para que el primer silencio
  *   pregunte amablemente `"¿Sigues en la línea?"` antes de colgar.
- * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente, `speechModel="telephony"`
- *   + `hints`), vía rápida SSE `fastLivePhone: true`, respaldo de emergencia `<Say>` exclusivamente con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly)
+ * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente, `speechModel="phone_call"`/`"default"`
+ *   + `hints`), `<Gather input="dtmf" numDigits="1" timeout="1">` válido (sin Error 13313 por `timeout="0"`), vía rápida SSE `fastLivePhone: true`, respaldo de emergencia `<Say>` exclusivamente con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly)
  *   y coordina atómicamente el `upsert` inicial de `phone_calls` (`ignoreDuplicates: true` + backfill seguro de `transcript`)
- *   para no perder cierres rápidos de `/api/phone/status` que lleguen antes del registro diferido.
+ *   para no perder cierres rápidos de `/api/phone/status` ni barge-in inmediato de tecla `9`.
  */
 
 import { after } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
-import { getPhoneAgentSpeech, resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
+import { getPhoneAgentSpeech, isPhoneSpeechInRamCache, resolvePhoneFemaleVoice, VoiceId } from '@/lib/order-ready-tts'
 import { formatCustomerGreetingTarget } from '@/lib/customer-store-names'
 import {
   buildInitialGreeting,
@@ -46,12 +46,59 @@ import {
 } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 20
+export const maxDuration = 30
 export const preferredRegion = 'sfo1'
 
 function normalizeDigits10(phone: string | null | undefined): string {
   const digits = String(phone || '').replace(/\D/g, '')
   return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+}
+
+function resolvePublicWebhookBaseUrl(request: Request): string {
+  const envBase = (process.env.TWILIO_WEBHOOK_BASE_URL || '').trim().replace(/\/+$/, '')
+  if (envBase) {
+    try {
+      const parsed = new URL(envBase)
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        return parsed.origin
+      }
+    } catch {
+      // Ignorar TWILIO_WEBHOOK_BASE_URL malformada
+    }
+  }
+  const reqUrl = new URL(request.url)
+  const rawProto = (request.headers.get('x-forwarded-proto') || reqUrl.protocol.replace(':', '')).split(',')[0].trim().toLowerCase()
+  const proto = rawProto === 'http' || rawProto === 'https' ? rawProto : 'https'
+  const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || reqUrl.host
+  const host = rawHost.split(',')[0].trim()
+  return `${proto}://${host}`
+}
+
+async function synthesizeIncomingPlayOrFallback(
+  baseUrl: string,
+  text: string,
+  lang: PhoneLang,
+  voice: VoiceId,
+  budgetMs: number
+): Promise<{ tag: string; playedKore38: boolean }> {
+  const canTryTts = budgetMs >= 1200 || isPhoneSpeechInRamCache(text, lang, voice)
+  if (!canTryTts) {
+    return { tag: buildTwilioFallbackSay(text, lang), playedKore38: false }
+  }
+  try {
+    await getPhoneAgentSpeech(text, lang, voice, false, {
+      skipSseAttempt: false,
+      fastLivePhone: true,
+      awaitStoragePersist: true,
+      maxTotalMs: Math.max(1200, budgetMs)
+    })
+    return {
+      tag: `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, text, lang, voice))}</Play>`,
+      playedKore38: true
+    }
+  } catch {
+    return { tag: buildTwilioFallbackSay(text, lang), playedKore38: false }
+  }
 }
 
 function scheduleBackgroundTask(task: () => Promise<any>) {
@@ -66,7 +113,7 @@ function scheduleBackgroundTask(task: () => Promise<any>) {
 
 export async function POST(request: Request) {
   const reqStartMs = Date.now()
-  const getIncomingTtsBudgetMs = () => Math.max(5500, Math.min(8500, 11500 - (Date.now() - reqStartMs)))
+  const getIncomingTtsBudgetMs = () => Math.max(0, Math.min(7500, 11000 - (Date.now() - reqStartMs)))
   try {
     const formData = await request.formData().catch(() => null)
     const params: Record<string, string> = {}
@@ -82,11 +129,7 @@ export async function POST(request: Request) {
     }
 
     const reqUrl = new URL(request.url)
-    const rawProto = request.headers.get('x-forwarded-proto') || reqUrl.protocol.replace(':', '')
-    const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || reqUrl.host
-    const proto = rawProto.split(',')[0].trim() || 'https'
-    const host = rawHost.split(',')[0].trim()
-    const baseUrl = `${proto}://${host}`
+    const baseUrl = resolvePublicWebhookBaseUrl(request)
 
     const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
     const fromNumber = (params.From || '').trim()
@@ -103,18 +146,13 @@ export async function POST(request: Request) {
     if (!storeId) {
       const unassignedMsg =
         'Gracias por llamar a Tacos Gavilan. Puedes consultar el menú, ubicación y horario en vivo de nuestras quince sucursales en tacosgavilan.com.'
-      let unassignedTag = buildTwilioFallbackSay(unassignedMsg, 'es')
-      try {
-        await getPhoneAgentSpeech(unassignedMsg, 'es', 'Kore', false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getIncomingTtsBudgetMs()
-        })
-        unassignedTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, unassignedMsg, 'es', 'Kore'))}</Play>`
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say> para no cortar con HTTP 502
-      }
+      const { tag: unassignedTag } = await synthesizeIncomingPlayOrFallback(
+        baseUrl,
+        unassignedMsg,
+        'es',
+        'Kore',
+        getIncomingTtsBudgetMs()
+      )
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -212,20 +250,13 @@ export async function POST(request: Request) {
         lang === 'en'
           ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
           : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
-      let disabledTag = buildTwilioFallbackSay(disabledMsg, lang)
-      let disabledPlayedKore38 = false
-      try {
-        await getPhoneAgentSpeech(disabledMsg, lang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getIncomingTtsBudgetMs()
-        })
-        disabledTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disabledMsg, lang, voice))}</Play>`
-        disabledPlayedKore38 = true
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say> para jamás devolver HTTP 502 si TTS falla cuando la sucursal está apagada
-      }
+      const { tag: disabledTag, playedKore38: disabledPlayedKore38 } = await synthesizeIncomingPlayOrFallback(
+        baseUrl,
+        disabledMsg,
+        lang,
+        voice,
+        getIncomingTtsBudgetMs()
+      )
       scheduleBackgroundTask(async () => {
         await Promise.all([
           !disabledPlayedKore38
@@ -287,40 +318,27 @@ export async function POST(request: Request) {
     })
 
     const greetingBudgetMs = getIncomingTtsBudgetMs()
-    const [discRes, qRes] = await Promise.allSettled([
-      getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
-        skipSseAttempt: false,
-        fastLivePhone: true,
-        awaitStoragePersist: true,
-        maxTotalMs: greetingBudgetMs
-      }),
-      getPhoneAgentSpeech(questionOnlyText, lang, voice, false, {
-        skipSseAttempt: false,
-        fastLivePhone: true,
-        awaitStoragePersist: true,
-        maxTotalMs: greetingBudgetMs
-      })
+    const [discRes, qRes] = await Promise.all([
+      synthesizeIncomingPlayOrFallback(baseUrl, disclosureOnlyText, lang, voice, greetingBudgetMs),
+      synthesizeIncomingPlayOrFallback(baseUrl, questionOnlyText, lang, voice, greetingBudgetMs)
     ])
-    const disclosureTag =
-      discRes.status === 'fulfilled'
-        ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disclosureOnlyText, lang, voice))}</Play>`
-        : buildTwilioFallbackSay(disclosureOnlyText, lang)
-    const questionTag =
-      qRes.status === 'fulfilled'
-        ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, questionOnlyText, lang, voice))}</Play>`
-        : buildTwilioFallbackSay(questionOnlyText, lang)
+    const disclosureTag = discRes.tag
+    const questionTag = qRes.tag
+
+    // Dar una breve ventana (<=350ms) para que el insert inicial concluya antes de enviar TwiML y evitar carrera con tecla 9 inmediata
+    await Promise.race([initialCallPersistPromise, new Promise<void>((r) => setTimeout(r, 350))])
 
     scheduleBackgroundTask(async () => {
       await Promise.all([
         initialCallPersistPromise,
-        discRes.status !== 'fulfilled'
+        !discRes.playedKore38
           ? getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
               skipSseAttempt: false,
               awaitStoragePersist: true,
               maxTotalMs: 12000
             }).catch(() => null)
           : Promise.resolve(),
-        qRes.status !== 'fulfilled'
+        !qRes.playedKore38
           ? getPhoneAgentSpeech(questionOnlyText, lang, voice, false, {
               skipSseAttempt: false,
               awaitStoragePersist: true,
@@ -343,13 +361,13 @@ export async function POST(request: Request) {
     })
 
     // REGLA CIPA CALIFORNIA (§§ 631, 632 y 632.7 — "Before Interception Rule"):
-    // El primer <Gather input="dtmf" timeout="0"> escucha ÚNICAMENTE tonos de teclado (tecla 9 tras "For English, press nine.")
-    // con CERO captura de voz (0 speech), pasando en 0 ms a <Gather input="speech dtmf"> al concluir el aviso de llamada transcrita.
+    // El primer <Gather input="dtmf" numDigits="1" timeout="1"> escucha ÚNICAMENTE tonos de teclado (tecla 9 tras "For English, press nine.")
+    // con CERO captura de voz (0 speech). timeout="1" es el entero positivo mínimo válido en Twilio (evita Error 13313 y su fallback de 5s de silencio).
     const respondUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}&turn0=1`
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="dtmf" numDigits="1" timeout="0" action="${escapeXml(respondUrl)}&amp;preconsent=1" method="POST">
+  <Gather input="dtmf" numDigits="1" timeout="1" action="${escapeXml(respondUrl)}&amp;preconsent=1" method="POST">
     ${disclosureTag}
   </Gather>
   <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>

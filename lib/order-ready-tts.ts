@@ -47,6 +47,17 @@
  *   pareja `(model, key)` ejecutaba `continue` (ej. `429`/bloqueo RPM previo), moviendo la espera única al agotarse `candidatePairs`;
  *   blindado `finally { cleanupOwnInflight() }` + cancelación de `reader` en aborto temprano del generador para evitar deadlocks en `inflight`;
  *   y `awaitWithAbortSignal` al esperar `inflight` existente en `getPhoneAgentSpeech`/`streamPhoneAgentSpeechPcm` para respetar `budgetSignal`.
+ * - AUDITORÍA CROSS-LAMBDA Y BLINDAJE ACÚSTICO 2026-11-19:
+ *   1) Compuerta YIN anti-silencio inicial (`MAX_PRE_VERIFY_PCM_BYTES = 48000`, 1.0s máx si el primer 0.40s tiene `< 8` tramas vocales)
+ *      y reporte honesto `onStreamCompleted(false)` si `fullGate` falla.
+ *   2) Opción `allowFallbackAfterFastSse` para `/api/phone/tts` (presupuesto escalonado SSE 3.8 -> REST 3.8 -> 3.1 emergencia, cero 502),
+ *      `awaitStoragePersist` acotado por `budgetSignal`/timeout (jamás rompe límite de 15s de Twilio) y respeto estricto de `skipStoragePersist`.
+ *   3) Watchdogs calibrados por modelo (`3.2s` flash-tts / `2.2s` lite, techo `12s`, `5.5s` en 3.1), eliminación de veneno 6h por HTTP 400,
+ *      `hardBlockedKeys` separado para nunca resucitar llaves 401/403/PerDay, habilitación de `classicKeys` en 3.1 y refresco no bloqueante de pool remoto.
+ *   4) BLINDAJE DEFINITIVO DE IDENTIDAD `KORE` (`gemini-3.8-flash-tts` SIEMPRE #1): incluso en `fastLivePhone: true`, `gemini-3.8-flash-tts`
+ *      (match 1:1 de Slauson, TTFA SSE ~780–1020 ms) SIEMPRE va primero; `gemini-3.8-flash-lite-tts` queda solo como respaldo secundario con
+ *      compuerta femenina estricta (`med >= 178 Hz`, `p25 >= 152 Hz`, `lowMaleRatio < 0.12`) y PROHIBIDO contaminar la caché permanente de Storage
+ *      (`phone_v6/Kore/`) salvo emergencia cross-Lambda explícita (`awaitStoragePersist`) ya aprobada por dicha compuerta estricta.
  */
 
 import { createHash } from 'node:crypto'
@@ -98,6 +109,10 @@ const memoryPhoneAudioCache = new Map<string, Buffer>()
 const MAX_MEMORY_PHONE_CLIPS = 300
 let poolIndex = 3
 const keyBlockedUntil = new Map<string, number>()
+const hardBlockedKeys = new Map<string, number>()
+function isHardBlocked(k: string, now = Date.now()): boolean {
+  return (hardBlockedKeys.get(k) || 0) > now
+}
 let remoteKeyPoolCache: { keys: string[]; fetchedAt: number } | null = null
 let remoteKeyFetchInFlight: Promise<void> | null = null
 
@@ -162,9 +177,9 @@ export async function getGeminiKeyPoolWithRemote(): Promise<string[]> {
   const localKeys = getGeminiKeyPool()
   const cacheStale = !remoteKeyPoolCache || now - remoteKeyPoolCache.fetchedAt > 10 * 60 * 1000
   if (cacheStale) {
-    // Si ya hay llaves activas en process.env, no bloquear ~600 ms la ruta crítica en frío: refrescar en background
-    if (localKeys.length > 0 && !remoteKeyPoolCache) {
-      remoteKeyPoolCache = { keys: [], fetchedAt: now - 9 * 60 * 1000 }
+    // Si ya hay llaves activas en process.env, NUNCA bloquear la ruta crítica (ni en frío ni al vencer los 10 min): refrescar en background
+    if (localKeys.length > 0) {
+      remoteKeyPoolCache = { keys: remoteKeyPoolCache?.keys || [], fetchedAt: now }
       void refreshRemoteKeyPoolSafe().catch(() => null)
     } else {
       await refreshRemoteKeyPoolSafe()
@@ -596,9 +611,9 @@ async function generateTextWithGeminiDetailed(
   const allKeys = await getGeminiKeyPoolWithRemote()
   if (allKeys.length === 0) throw new Error('No hay ninguna GEMINI_API_KEY configurada')
 
-  // Priorizar llaves que no estén temporalmente bloqueadas a nivel global por 401/402/403
+  // Priorizar llaves que no estén bloqueadas a nivel global por 401/402/403
   const now = Date.now()
-  const unblockedKeys = allKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
+  const unblockedKeys = allKeys.filter((k) => !isHardBlocked(k, now) && (keyBlockedUntil.get(k) || 0) <= now)
   if (unblockedKeys.length === 0) {
     throw new Error('GEMINI_TTS_QUOTA_EXHAUSTED: Cuota diaria de Gemini TTS alcanzada en todas las llaves (429 RESOURCE_EXHAUSTED). Use voz local del navegador.')
   }
@@ -698,7 +713,9 @@ async function generateTextWithGeminiDetailed(
           lastErr = `${model} (key ...${key.slice(-4)}): ${res.status} ${errText.slice(0, 160)}`
           if (res.status === 429 || /quota|exceeded/i.test(errText)) {
             if (isDailyOrHardQuotaError(errText)) {
-              keyBlockedUntil.set(kmKey, Date.now() + parseDailyQuotaBlockMs(errText))
+              const until = Date.now() + parseDailyQuotaBlockMs(errText)
+              keyBlockedUntil.set(kmKey, until)
+              hardBlockedKeys.set(kmKey, until)
             } else {
               const waitMs = parseTransientRpmWaitMs(errText)
               const readyAt = Date.now() + waitMs
@@ -707,14 +724,25 @@ async function generateTextWithGeminiDetailed(
             }
             return { wav: null, wasSlowFailure: false }
           } else if (res.status === 401 || res.status === 402 || res.status === 403 || /prepayment|depleted|leaked|API_KEY_INVALID/i.test(errText)) {
-            keyBlockedUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
+            const until = Date.now() + 6 * 60 * 60 * 1000
+            keyBlockedUntil.set(key, until)
+            hardBlockedKeys.set(key, until)
             return { wav: null, wasSlowFailure: false }
           } else if (res.status >= 500) {
             keyBlockedUntil.set(kmKey, Date.now() + 45 * 1000)
             return { wav: null, wasSlowFailure: true }
-          } else if (res.status === 404 || res.status === 400) {
+          } else if (res.status === 404) {
             keyBlockedUntil.set(kmKey, Date.now() + 6 * 60 * 60 * 1000)
             return { wav: null, wasSlowFailure: false }
+          } else if (res.status === 400) {
+            // HTTP 400 suele ser texto/parámetro rechazado: JAMÁS envenenar el pool completo por 6 horas salvo error explícito de llave
+            if (/API_KEY_INVALID|key.*invalid|permission/i.test(errText)) {
+              const until = Date.now() + 6 * 60 * 60 * 1000
+              keyBlockedUntil.set(key, until)
+              hardBlockedKeys.set(key, until)
+              return { wav: null, wasSlowFailure: false }
+            }
+            return { wav: null, wasSlowFailure: true }
           } else {
             return { wav: null, wasSlowFailure: false }
           }
@@ -725,10 +753,8 @@ async function generateTextWithGeminiDetailed(
           keyBlockedUntil.set(kmKey, Date.now() + 75 * 1000)
         }
         if (attempt + 1 < maxKeyTries && !opts?.signal?.aborted) {
-          await new Promise<void>((r) => {
-            const t = setTimeout(r, 400)
-            opts?.signal?.addEventListener('abort', () => { clearTimeout(t); r() }, { once: true })
-          })
+          const ok = await sleepAbortable(400, opts?.signal)
+          if (!ok) return { wav: null, wasSlowFailure: false }
           continue
         }
         return { wav: null, wasSlowFailure: true }
@@ -737,10 +763,10 @@ async function generateTextWithGeminiDetailed(
     return { wav: null, wasSlowFailure: true }
   }
 
-  // Recorrer TODAS las llaves AQ. sanas por modelo (los rechazos rápidos 429/401/402/403 NO consumen el presupuesto de fallos lentos)
+  // Recorrer TODAS las llaves sanas por modelo: 3.8 usa AQ.; 3.1/2.5 intentan AQ. primero y respaldan con classicKeys (AIza) si todas las AQ. fallan
   for (const model of modelsList) {
     if (opts?.signal?.aborted) break
-    const keysForModel = (model.includes('3.8') || model.includes('3.1')) && aqKeys.length > 0 ? aqKeys : rotatedKeys
+    const keysForModel = model.includes('3.8') && aqKeys.length > 0 ? aqKeys : rotatedKeys
     let slowFailuresOnModel = 0
     const maxSlowFailures = opts?.maxAttemptsPerModel ?? keysForModel.length
     for (const key of keysForModel) {
@@ -983,6 +1009,7 @@ export async function warmPhoneSpeechFromStorageOnly(
     if (hit.data) {
       const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
       if (wav.length > 44) {
+        markPhonePathPersisted(path)
         setMemoryPhoneCache(path, wav)
         return true
       }
@@ -1088,7 +1115,7 @@ export function splitPhoneReplyForStreaming(text: string): {
     return { firstChunk: clean, restChunk: null }
   }
 
-  const firstChunk = clean.slice(0, splitIdx).replace(/,$/, '').trim()
+  const firstChunk = clean.slice(0, splitIdx).trim().replace(/,$/, '').trim()
   const restChunk = clean.slice(splitIdx).trim()
   return {
     firstChunk,
@@ -1097,7 +1124,8 @@ export function splitPhoneReplyForStreaming(text: string): {
 }
 
 const PHONE_STREAM_TTS_MODELS = PHONE_KORE38_MODELS
-const PRE_VERIFY_PCM_BYTES = 19200 // 0.40 s a 24 kHz 16-bit mono (~26 tramas YIN, >3x el mínimo de 8 tramas vocales): reduce TTFA ~300 ms adicionales
+const PRE_VERIFY_PCM_BYTES = 19200 // 0.40 s a 24 kHz 16-bit mono (verificación rápida cuando la voz inicia de inmediato)
+const MAX_PRE_VERIFY_PCM_BYTES = 48000 // 1.00 s techo para evitar que 250-350 ms de silencio inicial evadan la compuerta YIN (< 8 tramas vocales)
 export const MAX_PHONE_TTS_CHARS = 1400
 
 export function normalizePhoneTtsInput(raw: string, lang: TtsLang = 'es', maxChars = MAX_PHONE_TTS_CHARS): string {
@@ -1115,10 +1143,11 @@ export function normalizePhoneTtsInput(raw: string, lang: TtsLang = 'es', maxCha
 function getPhoneStylePrompt(lang: TtsLang): string {
   // Exactamente la misma fórmula cálida, amable y natural de `Kore` usada en entregas de órdenes (`generateWithGemini`),
   // anclando explícitamente `female voice` (sin sustantivos neutros como "receptionist" que provocaban voice drift masculino,
-  // y sin "energetic/enthusiastic" que exageraban el inicio de frase).
+  // y sin "energetic/enthusiastic" que exageraban el inicio de frase). Incluye guía sutil de dicción limpia sin jadeos ni
+  // corrupción de la marca "Gavilan" en inglés ("Gah-vee-lahn").
   return lang === 'es'
-    ? 'warm, pleasant, and friendly female voice, speaking with a natural Mexican Spanish accent at a calm, natural conversational pace, friendly and welcoming, never exaggerated and never shouting'
-    : 'warm, pleasant, and friendly female voice, speaking with a natural American English accent at a calm, natural conversational pace, friendly and welcoming, never exaggerated and never shouting'
+    ? 'warm, pleasant, and friendly female voice, speaking with a natural Mexican Spanish accent at a calm, steady conversational pace, clear diction without loud inhales, friendly and welcoming, never exaggerated and never shouting'
+    : 'warm, pleasant, and friendly female voice, speaking with a natural American English accent at a calm, steady conversational pace, clear diction without loud inhales, pronouncing Gavilan cleanly as Gah-vee-lahn, friendly and welcoming, never exaggerated and never shouting'
 }
 
 function extractPcmFromWav(wav: Buffer): Buffer {
@@ -1205,6 +1234,7 @@ export async function* streamPhoneAgentSpeechPcm(
   voice: VoiceId = DEFAULT_VOICE,
   options?: {
     skipStorageLookup?: boolean
+    skipStoragePersist?: boolean
     skipInflightLookup?: boolean
     signal?: AbortSignal
     allowBlockFallback?: boolean
@@ -1271,6 +1301,7 @@ export async function* streamPhoneAgentSpeechPcm(
         const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
         const pcm = extractPcmFromWav(wav)
         if (pcm.length > 0) {
+          markPhonePathPersisted(path)
           setMemoryPhoneCache(path, wav)
           const frameBytes = 19200
           for (let off = 0; off < pcm.length; off += frameBytes) {
@@ -1288,9 +1319,11 @@ export async function* streamPhoneAgentSpeechPcm(
   // 3. Síntesis neuronal en tiempo real vía SSE (`:streamGenerateContent?alt=sse`)
   const allKeys = await getGeminiKeyPoolWithRemote()
   const now = Date.now()
-  const unblocked = allKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
+  // Jamás resucitar llaves 401/402/403/leaked/depleted con bypassEmergencyBlock
+  const nonHardBlockedKeys = allKeys.filter((k) => !isHardBlocked(k, now))
+  const unblocked = nonHardBlockedKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
   const bypassEmergencyBlock = unblocked.length === 0
-  const candidatePool = bypassEmergencyBlock ? allKeys : unblocked
+  const candidatePool = bypassEmergencyBlock ? nonHardBlockedKeys : unblocked
   const startIdx = candidatePool.length > 0 ? (poolIndex++) % candidatePool.length : 0
   const rotated = [...candidatePool.slice(startIdx), ...candidatePool.slice(0, startIdx)]
   const aqKeys = rotated.filter((k) => k.startsWith('AQ.'))
@@ -1309,9 +1342,8 @@ export async function* streamPhoneAgentSpeechPcm(
 
   const candidatePairs: Array<{ model: string; key: string }> = []
   const fastLivePhone = Boolean(options?.fastLivePhone)
-  const streamModels = fastLivePhone
-    ? (['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'] as const)
-    : PHONE_STREAM_TTS_MODELS
+  // SIEMPRE priorizar `gemini-3.8-flash-tts` (match 1:1 de Slauson Kore, TTFA SSE ~780-1020ms) antes que `lite` para evitar drift de voz masculina
+  const streamModels = PHONE_STREAM_TTS_MODELS
   for (const model of streamModels) {
     for (const key of streamKeys) {
       candidatePairs.push({ model, key })
@@ -1345,13 +1377,14 @@ export async function* streamPhoneAgentSpeechPcm(
     }
   }
 
-  // Recorrer TODAS las llaves AQ. sanas sobre Kore 3.8 (los rechazos rápidos 429/401/402/403 NO consumen el tope de fallos lentos)
+  // Recorrer TODAS las llaves AQ. sanas sobre Kore 3.8 con watchdogs calibrados a latencia real (flash-tts ~780-1500ms, lite ~600-1500ms)
   const slowModelFailures = new Map<string, number>()
   const quotaFailuresOnModel = new Map<string, number>()
-  const TTFA_WATCHDOG_MS = fastLivePhone ? 1250 : 5000
-  const CHUNK_IDLE_WATCHDOG_MS = fastLivePhone ? 1700 : 3400
-  const MAX_TOTAL_STREAM_MS = fastLivePhone ? 6500 : 28000
-  const maxRpmWaitStreamMs = fastLivePhone ? 0 : 16000
+  const getTtfaWatchdogMs = (m: string) => (fastLivePhone ? (m.includes('lite') ? 2200 : 3200) : 5500)
+  const CHUNK_IDLE_WATCHDOG_MS = fastLivePhone ? 2400 : 3600
+  const MAX_TOTAL_STREAM_MS = fastLivePhone ? 12000 : 28000
+  const maxRpmWaitStreamMs = fastLivePhone ? 900 : 16000
+  const maxQuotaFailuresPerModel = Math.min(5, Math.max(2, streamKeys.length))
 
   let pairIdx = 0
   let usedStreamRpmWait = false
@@ -1359,7 +1392,7 @@ export async function* streamPhoneAgentSpeechPcm(
   while (true) {
     if (pairIdx >= candidatePairs.length) {
       // 3b. Al agotar las candidatas iniciales de 3.8 (incluyendo si la última cayó por `continue`),
-      // esperar una única vez si existe una llave 3.8 en enfriamiento corto RPM (<= 16s; <= 1.2s en llamada Twilio en vivo)
+      // esperar una única vez si existe una llave 3.8 en enfriamiento corto RPM (<= 16s; <= 0.9s en llamada en vivo)
       if (!usedStreamRpmWait && earliestStreamRpmCandidate && !options?.signal?.aborted) {
         usedStreamRpmWait = true
         const rpmCand = earliestStreamRpmCandidate as { model: string; key: string; readyAt: number }
@@ -1383,19 +1416,26 @@ export async function* streamPhoneAgentSpeechPcm(
       options?.onStreamCompleted?.(false)
       return
     }
-    const slowCap = fastLivePhone && model === 'gemini-3.8-flash-tts' ? 1 : 4
+    const slowCap = fastLivePhone ? 2 : 4
     if ((slowModelFailures.get(model) || 0) >= slowCap) {
       continue
     }
-    if (fastLivePhone && (quotaFailuresOnModel.get(model) || 0) >= 2) {
+    if (fastLivePhone && (quotaFailuresOnModel.get(model) || 0) >= maxQuotaFailuresPerModel) {
       continue
     }
-    if (!bypassEmergencyBlock && (keyBlockedUntil.get(key) || 0) > Date.now()) {
+    const checkNow = Date.now()
+    if (isHardBlocked(key, checkNow)) {
+      continue
+    }
+    if (!bypassEmergencyBlock && (keyBlockedUntil.get(key) || 0) > checkNow) {
       continue
     }
     const kmKey = `${key}:${model}`
+    if (isHardBlocked(kmKey, checkNow)) {
+      continue
+    }
     const blockedUntil = keyBlockedUntil.get(kmKey) || 0
-    if (!bypassEmergencyBlock && blockedUntil > Date.now()) {
+    if (!bypassEmergencyBlock && blockedUntil > checkNow) {
       recordStreamRpmCandidate(model, key, blockedUntil)
       continue
     }
@@ -1405,7 +1445,7 @@ export async function* streamPhoneAgentSpeechPcm(
     let watchdogTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       abortedByWatchdog = true
       timeoutCtrl.abort()
-    }, TTFA_WATCHDOG_MS)
+    }, getTtfaWatchdogMs(model))
     const hardCeilingTimer = setTimeout(() => {
       abortedByWatchdog = true
       timeoutCtrl.abort()
@@ -1465,7 +1505,9 @@ export async function* streamPhoneAgentSpeechPcm(
         if (res.status === 429 || /quota|exceeded/i.test(errText)) {
           quotaFailuresOnModel.set(model, (quotaFailuresOnModel.get(model) || 0) + 1)
           if (isDailyOrHardQuotaError(errText)) {
-            keyBlockedUntil.set(kmKey, Date.now() + parseDailyQuotaBlockMs(errText))
+            const until = Date.now() + parseDailyQuotaBlockMs(errText)
+            keyBlockedUntil.set(kmKey, until)
+            hardBlockedKeys.set(kmKey, until)
           } else {
             const waitMs = parseTransientRpmWaitMs(errText)
             const readyAt = Date.now() + waitMs
@@ -1473,9 +1515,13 @@ export async function* streamPhoneAgentSpeechPcm(
             recordStreamRpmCandidate(model, key, readyAt)
           }
         } else if (res.status === 401 || res.status === 402 || res.status === 403 || /prepayment|API_KEY_INVALID|leaked|depleted/i.test(errText)) {
-          keyBlockedUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
+          const until = Date.now() + 6 * 60 * 60 * 1000
+          keyBlockedUntil.set(key, until)
+          hardBlockedKeys.set(key, until)
         } else if (res.status >= 500) {
-          keyBlockedUntil.set(kmKey, Date.now() + 60 * 1000)
+          keyBlockedUntil.set(kmKey, Date.now() + 45 * 1000)
+          slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
+        } else if (res.status === 400 && !/API_KEY_INVALID|key.*invalid|permission/i.test(errText)) {
           slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
         } else {
           keyBlockedUntil.set(kmKey, Date.now() + 10 * 60 * 1000)
@@ -1566,9 +1612,19 @@ export async function* streamPhoneAgentSpeechPcm(
             if (pendingBytes >= PRE_VERIFY_PCM_BYTES) {
               const candidateBuf = pendingChunks.length === 1 ? pendingChunks[0] : Buffer.concat(pendingChunks, pendingBytes)
               const pitchGate = isVerifiedFemalePitch(candidateBuf, 24000)
-              if (!pitchGate.ok) {
+              // Si el inicio trae silencio inicial (< 8 tramas vocales), acumular hasta 1.0s antes de abrir la compuerta YIN
+              if (pitchGate.analysis.voicedFrames < 8 && pendingBytes < MAX_PRE_VERIFY_PCM_BYTES) {
+                continue
+              }
+              const liteExtraStrictOk =
+                !model.includes('lite') ||
+                pitchGate.analysis.voicedFrames < 8 ||
+                (pitchGate.analysis.medianHz >= 178 &&
+                  pitchGate.analysis.p25Hz >= 152 &&
+                  pitchGate.analysis.lowMaleRatio < 0.14)
+              if (!pitchGate.ok || !liteExtraStrictOk) {
                 console.warn(
-                  `[order-ready-tts] 🚨 Stream SSE abortado ANTES de emitir audio por timbre masculino (${pitchGate.analysis.medianHz} Hz) en ${model}`
+                  `[order-ready-tts] 🚨 Stream SSE abortado ANTES de emitir audio por timbre masculino/drift (${pitchGate.analysis.medianHz} Hz, p25=${pitchGate.analysis.p25Hz} Hz, lowMale=${pitchGate.analysis.lowMaleRatio}) en ${model}`
                 )
                 rejectedMaleVoice = true
                 slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
@@ -1603,6 +1659,12 @@ export async function* streamPhoneAgentSpeechPcm(
           let tail = parseSseLine(tailLine)
           if (tail && tail.length > 0) {
             receivedAnyAudioBytes = true
+            if (isFirstChunk) {
+              isFirstChunk = false
+              if (tail.length >= 44 && tail.subarray(0, 4).toString('ascii') === 'RIFF') {
+                tail = tail.subarray(44)
+              }
+            }
             if (carryByte) {
               tail = Buffer.concat([carryByte, tail])
               carryByte = null
@@ -1646,11 +1708,22 @@ export async function* streamPhoneAgentSpeechPcm(
       if (streamEndedIntact) {
         const fullPcm = Buffer.concat(allPcmParts)
         const fullGate = isVerifiedFemalePitch(fullPcm, 24000)
-        if (fullGate.ok) {
+        const isPrimaryFlash38 = model === 'gemini-3.8-flash-tts'
+        const liteFullStrictOk =
+          isPrimaryFlash38 ||
+          fullGate.analysis.voicedFrames < 8 ||
+          (fullGate.analysis.medianHz >= 178 &&
+            fullGate.analysis.p25Hz >= 152 &&
+            fullGate.analysis.lowMaleRatio < 0.12)
+        if (fullGate.ok && liteFullStrictOk) {
           const wav = pcmToWav(fullPcm, 24000, 1, 16)
-          if (model.includes('3.8')) {
+          // SOLO `gemini-3.8-flash-tts` (match 1:1 Slauson Kore) puede escribir en la caché permanente `phone_v6/Kore/`.
+          // Si cayó al respaldo `lite`, se reproduce en el turno actual pero JAMÁS contamina la caché permanente.
+          if (isPrimaryFlash38) {
             setMemoryPhoneCache(path, wav)
-            persistPhoneWavToStorage(path, wav, false)
+            if (!options?.skipStoragePersist) {
+              persistPhoneWavToStorage(path, wav, false)
+            }
             cleanupOwnInflight(wav)
           } else {
             cleanupOwnInflight()
@@ -1659,11 +1732,11 @@ export async function* streamPhoneAgentSpeechPcm(
           return
         } else {
           console.warn(
-            `[order-ready-tts] 🚨 Clip completo no se guardó en caché por timbre fuera de umbral (${fullGate.analysis.medianHz} Hz / p25=${fullGate.analysis.p25Hz} Hz)`
+            `[order-ready-tts] 🚨 Clip completo no se guardó en caché por timbre fuera de umbral (${fullGate.analysis.medianHz} Hz / p25=${fullGate.analysis.p25Hz} Hz / lowMale=${fullGate.analysis.lowMaleRatio}) en ${model}`
           )
           if (yieldedAny) {
             cleanupOwnInflight()
-            options?.onStreamCompleted?.(true)
+            options?.onStreamCompleted?.(false)
             return
           }
           slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
@@ -1681,7 +1754,7 @@ export async function* streamPhoneAgentSpeechPcm(
     } catch (streamErr: any) {
       if (!options?.signal?.aborted) {
         if (!receivedAnyAudioBytes) {
-          keyBlockedUntil.set(kmKey, Date.now() + 90 * 1000)
+          keyBlockedUntil.set(kmKey, Date.now() + 30 * 1000)
         }
         slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
       }
@@ -1715,7 +1788,7 @@ export async function* streamPhoneAgentSpeechPcm(
             await generateTextWithGeminiDetailed(clean, lang, selectedVoice, stylePrompt, {
               allowedModels: PHONE_EMERGENCY_FALLBACK_MODELS,
               skipRpmWait: true,
-              attemptTimeoutMs: 2600,
+              attemptTimeoutMs: 5500,
               maxAttemptsPerModel: 2,
               signal: options?.signal
             })
@@ -1759,6 +1832,7 @@ export async function getPhoneAgentSpeech(
     awaitStoragePersist?: boolean
     skipSseAttempt?: boolean
     fastLivePhone?: boolean
+    allowFallbackAfterFastSse?: boolean
     requireKore38?: boolean
     maxTotalMs?: number
     signal?: AbortSignal
@@ -1771,6 +1845,24 @@ export async function getPhoneAgentSpeech(
   const hash = createHash('md5').update(`${PHONE_CACHE_PREFIX}:${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
   const path = `${PHONE_STORAGE_DIR}/${selectedVoice}/${lang}/${hash}.wav`
 
+  const deadlineMs =
+    typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
+      ? Date.now() + options.maxTotalMs
+      : null
+  const budgetSignal =
+    typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
+      ? options?.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(options.maxTotalMs)])
+        : AbortSignal.timeout(options.maxTotalMs)
+      : options?.signal
+
+  const awaitPersistBounded = async (p: Promise<void>) => {
+    const maxPersistMs = options?.fastLivePhone ? 2200 : 5000
+    const persistTimeoutSig = AbortSignal.timeout(maxPersistMs)
+    const persistSignal = budgetSignal ? AbortSignal.any([budgetSignal, persistTimeoutSig]) : persistTimeoutSig
+    await awaitWithAbortSignal(p, persistSignal).catch(() => null)
+  }
+
   const finalizePersist = async (
     wav: Buffer,
     fromStorageHit: boolean,
@@ -1779,7 +1871,7 @@ export async function getPhoneAgentSpeech(
   ) => {
     if (!fromStorageHit && isKore38 && !crossVoiceFallback && !options?.skipStoragePersist) {
       const p = persistPhoneWavToStorage(path, wav, forceRegenerate)
-      if (options?.awaitStoragePersist) await p
+      if (options?.awaitStoragePersist) await awaitPersistBounded(p)
     }
     return wav
   }
@@ -1789,19 +1881,12 @@ export async function getPhoneAgentSpeech(
     const memHit = memoryPhoneAudioCache.get(path)
     if (memHit && memHit.length > 44) {
       if (options?.awaitStoragePersist && !options?.skipStoragePersist) {
-        await persistPhoneWavToStorage(path, memHit, false)
+        await awaitPersistBounded(persistPhoneWavToStorage(path, memHit, false))
       }
       return memHit
     }
     if (memHit) memoryPhoneAudioCache.delete(path)
   }
-
-  const budgetSignal =
-    typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
-      ? options?.signal
-        ? AbortSignal.any([options.signal, AbortSignal.timeout(options.maxTotalMs)])
-        : AbortSignal.timeout(options.maxTotalMs)
-      : options?.signal
 
   const existing = inflight.get(path)
   if (existing && !forceRegenerate) {
@@ -1818,7 +1903,7 @@ export async function getPhoneAgentSpeech(
         !exMeta.fromStorage &&
         !exMeta.isCrossVoiceFallback
       ) {
-        await persistPhoneWavToStorage(path, wav, false)
+        await awaitPersistBounded(persistPhoneWavToStorage(path, wav, false))
       }
       return wav
     } catch (exErr) {
@@ -1844,11 +1929,17 @@ export async function getPhoneAgentSpeech(
       if (!forceRegenerate && !options?.skipStorageLookup) {
         try {
           const downloadPromise = supabaseAdmin.storage.from(BUCKET).download(path)
-          const hit = options?.fastLivePhone
+          let storageTimer: ReturnType<typeof setTimeout> | null = null
+          const storageTimeoutMs = options?.allowFallbackAfterFastSse ? 2200 : options?.fastLivePhone ? 1400 : 0
+          const hit = storageTimeoutMs > 0
             ? await Promise.race([
                 downloadPromise,
-                new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 1200))
-              ])
+                new Promise<{ data: null }>((resolve) => {
+                  storageTimer = setTimeout(() => resolve({ data: null }), storageTimeoutMs)
+                })
+              ]).finally(() => {
+                if (storageTimer) clearTimeout(storageTimer)
+              })
             : await downloadPromise
           if (hit.data) {
             const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
@@ -1866,16 +1957,24 @@ export async function getPhoneAgentSpeech(
         }
       }
 
-      // 3. Colectar vía stream SSE únicamente si concluye 100% limpio (omitido si ya venimos de un fallo SSE o si el llamador pide síntesis rápida directa)
+      // 3. Colectar vía stream SSE únicamente si concluye 100% limpio (con sub-presupuesto cuando allowFallbackAfterFastSse protege /api/phone/tts)
       const pcmParts: Buffer[] = []
       let completedCleanly = false
       if (!forceRegenerate && !options?.skipSseAttempt && !budgetSignal?.aborted) {
+        const sseSignal = (() => {
+          if (!options?.allowFallbackAfterFastSse || !deadlineMs) return budgetSignal
+          const remMs = Math.max(1500, deadlineMs - Date.now())
+          const sseCapMs = Math.min(4800, Math.max(2200, Math.floor(remMs * 0.45)))
+          const capSig = AbortSignal.timeout(sseCapMs)
+          return budgetSignal ? AbortSignal.any([budgetSignal, capSig]) : capSig
+        })()
         for await (const part of streamPhoneAgentSpeechPcm(clean, lang, selectedVoice, {
           skipStorageLookup: true,
+          skipStoragePersist: options?.skipStoragePersist,
           skipInflightLookup: true,
           allowBlockFallback: false,
           fastLivePhone: options?.fastLivePhone,
-          signal: budgetSignal,
+          signal: sseSignal,
           onStreamCompleted: (ok) => {
             completedCleanly = ok
           }
@@ -1890,29 +1989,36 @@ export async function getPhoneAgentSpeech(
           return cachedWav
         }
         const wav = pcmToWav(Buffer.concat(pcmParts), 24000, 1, 16)
-        if (isVerifiedFemalePitch(wav, 24000).ok) {
-          generatedWithOfficialKore38 = true
-          setMemoryPhoneCache(path, wav)
-          if (!options?.skipStoragePersist) {
+        const gate = isVerifiedFemalePitch(wav, 24000)
+        // Si no estaba en memoryPhoneAudioCache significa que SSE cayó al respaldo `lite`:
+        // solo permitir persistencia temporal si es emergencia cross-Lambda (`awaitStoragePersist`) y pasa compuerta estricta.
+        const strictLiteOk =
+          gate.ok &&
+          (gate.analysis.voicedFrames < 8 ||
+            (gate.analysis.medianHz >= 178 && gate.analysis.p25Hz >= 152 && gate.analysis.lowMaleRatio < 0.12))
+        if (strictLiteOk) {
+          generatedWithOfficialKore38 = Boolean(options?.awaitStoragePersist)
+          if (generatedWithOfficialKore38 && !options?.skipStoragePersist) {
             void persistPhoneWavToStorage(path, wav, false)
           }
           return wav
         }
       }
 
-      if (options?.fastLivePhone && !options?.skipSseAttempt && !forceRegenerate) {
+      if (options?.fastLivePhone && !options?.allowFallbackAfterFastSse && !options?.skipSseAttempt && !forceRegenerate) {
         throw new Error('FastLivePhone SSE sin audio disponible; cediendo de inmediato a respaldo en vivo sin silencio')
       }
 
-      // 4. Síntesis en bloque priorizando Kore 3.8
+      // 4. Síntesis en bloque priorizando Kore 3.8 (y en /api/phone/tts con allowFallbackAfterFastSse, respaldo 3.1 para jamás retornar 502)
       const stylePrompt = getPhoneStylePrompt(lang)
-      const attemptTimeoutMs =
-        typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
-          ? Math.min(9200, Math.max(3200, Math.floor(options.maxTotalMs * 0.85)))
+      const remainingBeforeBlockMs = deadlineMs ? Math.max(1800, deadlineMs - Date.now()) : 10000
+      const attemptTimeoutMs = options?.allowFallbackAfterFastSse
+        ? Math.min(4200, Math.max(2200, Math.floor(remainingBeforeBlockMs * 0.52)))
+        : typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
+          ? Math.min(9200, Math.max(3200, Math.floor(remainingBeforeBlockMs * 0.85)))
           : 10000
-      const blockModels = options?.fastLivePhone
-        ? (['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'] as const)
-        : PHONE_KORE38_MODELS
+      // SIEMPRE intentar `gemini-3.8-flash-tts` primero (match 1:1 Slauson Kore) antes que `lite`
+      const blockModels = PHONE_KORE38_MODELS
       let synthResult: { wav: Buffer; modelUsed: string }
       try {
         synthResult = await generateTextWithGeminiDetailed(clean, lang, selectedVoice, stylePrompt, {
@@ -1921,32 +2027,45 @@ export async function getPhoneAgentSpeech(
           maxRpmWaitMs: options?.fastLivePhone
             ? 800
             : options?.maxTotalMs
-              ? Math.min(5000, Math.floor(options.maxTotalMs * 0.45))
+              ? Math.min(5000, Math.floor(remainingBeforeBlockMs * 0.45))
               : 22500,
           attemptTimeoutMs,
           maxAttemptsPerModel: options?.fastLivePhone ? 2 : 5,
           signal: budgetSignal
         })
       } catch (kore38Err) {
-        if (options?.requireKore38 || options?.fastLivePhone || budgetSignal?.aborted) {
+        if (
+          options?.requireKore38 ||
+          (options?.fastLivePhone && !options?.allowFallbackAfterFastSse) ||
+          budgetSignal?.aborted
+        ) {
           throw kore38Err
         }
-        // Salvavidas de última instancia SOLO fuera de llamada Twilio en vivo (ej. prewarm/simulador; Twilio cae más rápido a Google Chirp3 Kore)
+        // Respaldo de emergencia femenino (3.1) en simulador/prewarm y en /api/phone/tts (<Play> ya emitido)
+        const remainingForEmergencyMs = deadlineMs ? Math.max(2500, deadlineMs - Date.now()) : 5500
         synthResult = await generateTextWithGeminiDetailed(clean, lang, selectedVoice, stylePrompt, {
           allowedModels: PHONE_EMERGENCY_FALLBACK_MODELS,
           skipRpmWait: true,
-          attemptTimeoutMs: Math.min(5500, attemptTimeoutMs),
+          attemptTimeoutMs: Math.min(5500, remainingForEmergencyMs),
           maxAttemptsPerModel: 2,
           signal: budgetSignal
         })
       }
-      generatedWithOfficialKore38 = synthResult.modelUsed.includes('3.8')
-      if (generatedWithOfficialKore38) {
+      const isPrimaryFlash38 = synthResult.modelUsed === 'gemini-3.8-flash-tts'
+      const strictBlockLiteOk =
+        synthResult.modelUsed === 'gemini-3.8-flash-lite-tts' &&
+        Boolean(options?.awaitStoragePersist) &&
+        (() => {
+          const g = isVerifiedFemalePitch(synthResult.wav, 24000)
+          return g.ok && (g.analysis.voicedFrames < 8 || (g.analysis.medianHz >= 178 && g.analysis.p25Hz >= 152 && g.analysis.lowMaleRatio < 0.12))
+        })()
+      generatedWithOfficialKore38 = isPrimaryFlash38 || strictBlockLiteOk
+      if (isPrimaryFlash38) {
         setMemoryPhoneCache(path, synthResult.wav)
       }
       return synthResult.wav
     } catch (genErr) {
-      if (selectedVoice !== DEFAULT_PHONE_VOICE) {
+      if (selectedVoice !== DEFAULT_PHONE_VOICE && !budgetSignal?.aborted) {
         const koreHash = createHash('md5').update(`${PHONE_CACHE_PREFIX}:${DEFAULT_PHONE_VOICE}:${lang}:${clean.toLowerCase()}`).digest('hex')
         const korePath = `${PHONE_STORAGE_DIR}/${DEFAULT_PHONE_VOICE}/${lang}/${koreHash}.wav`
         const memKore = memoryPhoneAudioCache.get(korePath)
@@ -1954,12 +2073,16 @@ export async function getPhoneAgentSpeech(
           isCrossVoiceFallback = true
           return memKore
         }
-        const koreHit = await supabaseAdmin.storage.from(BUCKET).download(korePath)
+        const koreHit = await awaitWithAbortSignal(
+          supabaseAdmin.storage.from(BUCKET).download(korePath),
+          budgetSignal
+        ).catch(() => ({ data: null }))
         if (koreHit.data) {
           const wav = ensureWav(Buffer.from(await koreHit.data.arrayBuffer()))
           if (wav.length > 44) {
             loadedFromStorage = true
             isCrossVoiceFallback = true
+            markPhonePathPersisted(korePath)
             setMemoryPhoneCache(korePath, wav)
             return wav
           }

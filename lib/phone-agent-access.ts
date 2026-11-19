@@ -24,13 +24,14 @@
  * - Bloquea números internacionales fuera de EE. UU./Canadá (`+1` + 10 dígitos válidos), números premium (`900`/`976`) e islas NANP de riesgo en `<Dial>` para impedir fraude telefónico (*Toll Fraud*).
  * - `loadUserAndStores` ejecuta `users` y el catálogo cacheado de `stores` en paralelo; `store_scope` se combina aditivamente con `store_id`.
  * - Auditoría 2026-11-18: bloquea explícitamente JWTs de empleado (`user_type === 'employee'` o `role === 'employee'`) y exige paridad de `email` contra `public.users` para impedir escalación de privilegios por colisión de IDs entre `toast_employees` y `public.users`.
+ * - Auditoría 2026-11-19: `decodeURIComponent` blindado contra cookies malformadas (`URIError`), expiración JWT estricta en rutas administrativas (`!allowLongLivedStoreTerminal`) y techo máximo de 5 min en fallback de caché stale ante fallos transitorios de DB.
  */
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import jwt from 'jsonwebtoken'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getJwtSecret, getServerUser, verifyAuthToken } from '@/lib/auth-server'
+import { getJwtSecret } from '@/lib/auth-server'
 
 export type PhoneModulePermission =
   | 'read_dashboard'
@@ -64,6 +65,8 @@ interface CachedAccessEntry {
 }
 
 const ACCESS_CACHE_TTL_MS = 30_000
+const MAX_STALE_ACCESS_FALLBACK_MS = 5 * 60_000
+const MAX_USER_ACCESS_CACHE_ENTRIES = 500
 const STORES_CACHE_TTL_MS = 5 * 60_000
 const userAccessCache = new Map<string, CachedAccessEntry>()
 let activeStoresCache: { at: number; stores: Array<{ id: number; code: string; name: string }> } | null = null
@@ -270,9 +273,11 @@ async function getCachedActiveStores() {
 async function loadUserAndStores(userId: string | number, fallbackEmail?: string) {
   const cacheKey = `${userId}:${fallbackEmail || ''}`
   const hit = userAccessCache.get(cacheKey)
-  if (hit && Date.now() - hit.at < ACCESS_CACHE_TTL_MS) {
+  const now = Date.now()
+  if (hit && now - hit.at < ACCESS_CACHE_TTL_MS) {
     return hit
   }
+  const canUseStaleHit = Boolean(hit && now - hit.at < MAX_STALE_ACCESS_FALLBACK_MS)
 
   const numericId = Number(userId)
   let userPrimaryRes: { data: any; error: any }
@@ -289,12 +294,12 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
       getCachedActiveStores()
     ])
   } catch (err) {
-    if (hit) return hit
+    if (canUseStaleHit && hit) return hit
     throw err
   }
 
   if (userPrimaryRes.error) {
-    if (hit) return hit
+    if (canUseStaleHit && hit) return hit
     throw new Error(`Error verificando usuario administrativo: ${userPrimaryRes.error.message}`)
   }
 
@@ -317,7 +322,7 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
       .ilike('email', safeEmailPattern)
       .maybeSingle()
     if (emailErr) {
-      if (hit) return hit
+      if (canUseStaleHit && hit) return hit
       throw new Error(`Error verificando correo administrativo: ${emailErr.message}`)
     }
     userRow = data
@@ -328,28 +333,44 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
     userRow,
     activeStores
   }
+  if (userAccessCache.size >= MAX_USER_ACCESS_CACHE_ENTRIES && !userAccessCache.has(cacheKey)) {
+    const oldestKey = userAccessCache.keys().next().value
+    if (oldestKey) userAccessCache.delete(oldestKey)
+  }
   userAccessCache.set(cacheKey, entry)
   return entry
 }
 
-async function extractRawPhoneAuthToken(request: Request): Promise<string | undefined> {
+async function extractCandidatePhoneAuthTokens(request: Request): Promise<string[]> {
+  const tokens: string[] = []
+  const pushUnique = (val: string | undefined | null) => {
+    const trimmed = String(val || '').trim()
+    if (trimmed && trimmed !== 'null' && trimmed !== 'undefined' && !tokens.includes(trimmed)) {
+      tokens.push(trimmed)
+    }
+  }
+
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization') || ''
   if (authHeader.startsWith('Bearer ')) {
-    const candidate = authHeader.slice(7).trim()
-    if (candidate && candidate !== 'null' && candidate !== 'undefined') {
-      return candidate
-    }
+    pushUnique(authHeader.slice(7))
   }
   try {
     const cookieStore = await cookies()
-    const cookieVal = cookieStore.get('teg_token')?.value?.trim()
-    if (cookieVal) return cookieVal
+    pushUnique(cookieStore.get('teg_token')?.value)
   } catch {
     // Fuera de contexto de cookies() de Next
   }
   const cookieHeader = request.headers.get('cookie') || request.headers.get('Cookie') || ''
   const m = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
-  return m?.[1] ? decodeURIComponent(m[1].trim()) : undefined
+  if (m?.[1]) {
+    const rawCookieVal = m[1].trim()
+    try {
+      pushUnique(decodeURIComponent(rawCookieVal))
+    } catch {
+      pushUnique(rawCookieVal)
+    }
+  }
+  return tokens
 }
 
 /**
@@ -365,12 +386,58 @@ export async function authorizePhoneModuleRequest(
 ): Promise<PhoneAuthCheckResult> {
   let tokenUser: { id: string | number; email?: string; role?: string; user_type?: string } | null = null
 
-  const rawToken = await extractRawPhoneAuthToken(request)
-  const verifiedPayload = rawToken ? verifyAuthToken(rawToken) : null
-  if (
-    verifiedPayload &&
-    (verifiedPayload.user_type === 'employee' || String(verifiedPayload.role || '').toLowerCase() === 'employee')
-  ) {
+  const candidateTokens = await extractCandidatePhoneAuthTokens(request)
+  const secret = getJwtSecret()
+  let sawEmployeeToken = false
+  let sawExpiredToken = false
+
+  if (secret && candidateTokens.length > 0) {
+    for (const candidate of candidateTokens) {
+      let decoded: any = null
+      try {
+        decoded = jwt.verify(candidate, secret, { algorithms: ['HS256'], ignoreExpiration: false }) as any
+      } catch (verifyErr: any) {
+        if (verifyErr?.name === 'TokenExpiredError') {
+          sawExpiredToken = true
+          if (options.allowLongLivedStoreTerminal) {
+            try {
+              decoded = jwt.verify(candidate, secret, {
+                algorithms: ['HS256'],
+                ignoreExpiration: true
+              }) as any
+            } catch {
+              decoded = null
+            }
+          }
+        }
+      }
+      if (!decoded) continue
+      const sub = decoded?.sub ?? decoded?.id
+      const decodedRole = String(
+        decoded?.user_role ||
+          (decoded?.role && decoded.role !== 'authenticated' ? decoded.role : '') ||
+          decoded?.user_metadata?.role ||
+          ''
+      )
+        .trim()
+        .toLowerCase()
+      if (decoded.user_type === 'employee' || decodedRole === 'employee') {
+        sawEmployeeToken = true
+        continue
+      }
+      if (sub && decoded.email) {
+        tokenUser = {
+          id: String(sub),
+          email: String(decoded.email),
+          role: decodedRole || 'user',
+          user_type: decoded.user_type
+        }
+        break
+      }
+    }
+  }
+
+  if (!tokenUser && sawEmployeeToken) {
     const error = 'Acceso denegado: Credenciales de empleado no tienen autorización en el módulo de Contestadora IA.'
     return {
       authorized: false,
@@ -380,50 +447,10 @@ export async function authorizePhoneModuleRequest(
     }
   }
 
-  const serverUser = await getServerUser(request)
-  if (serverUser) {
-    if (String(serverUser.role || '').toLowerCase() === 'employee') {
-      const error = 'Acceso denegado: Credenciales de empleado no tienen autorización en el módulo de Contestadora IA.'
-      return {
-        authorized: false,
-        status: 403,
-        error,
-        response: NextResponse.json({ error }, { status: 403 })
-      }
-    }
-    tokenUser = {
-      id: serverUser.id,
-      email: serverUser.email,
-      role: serverUser.role,
-      user_type: verifiedPayload?.user_type
-    }
-  } else if (options.allowLongLivedStoreTerminal) {
-    // Soporte para pantallas `/order-ready-board` encendidas 24/7 con verificación criptográfica y chequeo `is_active` en vivo
-    try {
-      const secret = getJwtSecret()
-      if (rawToken && secret) {
-        const decoded = jwt.verify(rawToken, secret, {
-          algorithms: ['HS256'],
-          ignoreExpiration: true
-        }) as any
-        const sub = decoded?.sub ?? decoded?.id
-        const decodedRole = String(decoded?.user_role || decoded?.role || '').toLowerCase()
-        if (decoded && sub && decoded.email && decoded.user_type !== 'employee' && decodedRole !== 'employee') {
-          tokenUser = {
-            id: String(sub),
-            email: decoded.email,
-            role: decoded.user_role || decoded.role,
-            user_type: decoded.user_type
-          }
-        }
-      }
-    } catch {
-      tokenUser = null
-    }
-  }
-
   if (!tokenUser) {
-    const error = 'No autenticado: Inicia sesión para acceder al módulo de Contestadora IA.'
+    const error = sawExpiredToken
+      ? 'No autenticado: Tu sesión expiró. Inicia sesión nuevamente para acceder al módulo de Contestadora IA.'
+      : 'No autenticado: Inicia sesión para acceder al módulo de Contestadora IA.'
     return {
       authorized: false,
       status: 401,

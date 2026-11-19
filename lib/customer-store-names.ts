@@ -425,10 +425,12 @@ function resolveCustomerStoreMetaByTokens(
   if (!tok) return null
 
   // Reglas exactas de desambiguación para las 3 sucursales de Los Ángeles (#5, #6 y #7)
+  // Excluir expresamente la Bodega Central en Vernon (5182 Malabar St, Vernon, CA) para no resolverla como #5
+  const isWarehouseVernon = /\b(bodega|malabar|5182|warehouse|commissary)\b/.test(tok)
   if (tok.includes('slauson') || tok.includes('5833')) {
     return CANONICAL_CUSTOMER_STORES_BY_ID[7]
   }
-  if (tok.includes('vernon') || /\bbroadway\b/.test(tok) || tok.includes('4380')) {
+  if ((!isWarehouseVernon && tok.includes('vernon')) || /\bbroadway\b/.test(tok) || tok.includes('4380')) {
     return CANONICAL_CUSTOMER_STORES_BY_ID[5]
   }
   if (tok.includes('washington') || /\bcentral\b/.test(tok) || tok.includes('1900')) {
@@ -549,6 +551,18 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
     // 2. "our Central/Broadway/Slauson location/store/branch" y "Tacos Gavilan Central/Broadway/Slauson"
     out = out
       .replace(
+        /\b(our|the)\s+(location|store|branch)\s+(?:in|at|on)\s+Central\b(?!\s*(?:&|and)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        '$1 Los Angeles $2 at Central and Washington'
+      )
+      .replace(
+        /\b(our|the)\s+(location|store|branch)\s+(?:in|at|on)\s+Broadway\b(?!\s*(?:&|and)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        '$1 Los Angeles $2 at Vernon and Broadway'
+      )
+      .replace(
+        /\b(our|the)\s+(location|store|branch)\s+(?:in|at|on)\s+Slauson\b(?!\s*(?:&|and)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        '$1 Los Angeles $2 at Slauson and Broadway'
+      )
+      .replace(
         /\b(our|the)\s+Central\s+(location|store|branch)\b/gi,
         '$1 Los Angeles $2 at Central and Washington'
       )
@@ -561,15 +575,15 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
         '$1 Los Angeles $2 at Slauson and Broadway'
       )
       .replace(
-        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Central\b(?!\s*(?:&|and)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Central(?:\s*(?:&|and)\s*Washington)?\b(?!\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
         'Tacos Gavilan in Los Angeles (Central and Washington)'
       )
       .replace(
-        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Broadway\b(?!\s*(?:&|and)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)(?:Vernon\s*(?:&|and)\s*Broadway|Broadway(?:\s*(?:&|and)\s*Vernon)?)\b(?!\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
         'Tacos Gavilan in Los Angeles (Vernon and Broadway)'
       )
       .replace(
-        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Slauson\b(?!\s*(?:&|and)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Slauson(?:\s*(?:&|and)\s*Broadway)?\b(?!\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
         'Tacos Gavilan in Los Angeles (Slauson and Broadway)'
       )
     return out
@@ -598,27 +612,27 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
   // 2. "sucursal (de )?Central / Broadway / Slauson" y "Tacos Gavilan Central/Broadway/Slauson"
   out = out
     .replace(
-      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Central\b(?!\s*(?:&|y|and|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:(?:de|en)\s+)?Central\b(?!\s*(?:&|y|and|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       '$1 de Los Ángeles en la esquina de Central y Washington'
     )
     .replace(
-      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Broadway\b(?!\s*(?:&|y|and|con|esquina)\s*(?:Vernon|Slauson)|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:(?:de|en)\s+)?Broadway\b(?!\s*(?:&|y|and|con|esquina)\s*(?:Vernon|Slauson)|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       '$1 de Los Ángeles en la esquina de Vernon y Broadway'
     )
     .replace(
-      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:de\s+)?Slauson\b(?!\s*(?:&|y|and|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\b(sucursal|tienda|ubicaci[oó]n)\s+(?:(?:de|en)\s+)?Slauson\b(?!\s*(?:&|y|and|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       '$1 de Los Ángeles en la esquina de Slauson y Broadway'
     )
     .replace(
-      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Central\b(?!\s*(?:&|y|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Central(?:\s*(?:&|y|con|esquina(?:\s+de)?)\s*Washington)?\b(?!\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       'Tacos Gavilan en Los Ángeles (Central y Washington)'
     )
     .replace(
-      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Broadway\b(?!\s*(?:&|y|con|esquina)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)(?:Vernon\s*(?:&|y|con|esquina(?:\s+de)?)\s*Broadway|Broadway(?:\s*(?:&|y|con|esquina(?:\s+de)?)\s*Vernon)?)\b(?!\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       'Tacos Gavilan en Los Ángeles (Vernon y Broadway)'
     )
     .replace(
-      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Slauson\b(?!\s*(?:&|y|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Slauson(?:\s*(?:&|y|con|esquina(?:\s+de)?)\s*Broadway)?\b(?!\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       'Tacos Gavilan en Los Ángeles (Slauson y Broadway)'
     )
 

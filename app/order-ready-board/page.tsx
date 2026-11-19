@@ -888,6 +888,7 @@ function OrderReadyBoardContent() {
 
   // Fullscreen container and state (Modo TV)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const cssFullscreenRef = useRef<boolean>(false)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false)
   const [isKioskTvQuery, setIsKioskTvQuery] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
@@ -913,7 +914,13 @@ function OrderReadyBoardContent() {
         setIsKioskTvQuery(true)
       }
       const doc = document as any
-      setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
+      const hasNativeFullscreen = !!(doc.fullscreenElement || doc.webkitFullscreenElement)
+      if (hasNativeFullscreen) {
+        cssFullscreenRef.current = false
+        setIsFullscreen(true)
+      } else if (!cssFullscreenRef.current) {
+        setIsFullscreen(false)
+      }
       const displayFs = typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: fullscreen)').matches
       const fillsScreen =
         window.screen &&
@@ -922,14 +929,22 @@ function OrderReadyBoardContent() {
         window.innerHeight >= window.screen.height - 40
       setIsWindowKioskFullscreen(Boolean(displayFs || fillsScreen))
     }
+    const handleEscExitCssFs = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && cssFullscreenRef.current) {
+        cssFullscreenRef.current = false
+        setIsFullscreen(false)
+      }
+    }
     checkKioskState()
     document.addEventListener('fullscreenchange', checkKioskState)
     document.addEventListener('webkitfullscreenchange', checkKioskState)
     window.addEventListener('resize', checkKioskState)
+    window.addEventListener('keydown', handleEscExitCssFs)
     return () => {
       document.removeEventListener('fullscreenchange', checkKioskState)
       document.removeEventListener('webkitfullscreenchange', checkKioskState)
       window.removeEventListener('resize', checkKioskState)
+      window.removeEventListener('keydown', handleEscExitCssFs)
     }
   }, [])
 
@@ -938,15 +953,25 @@ function OrderReadyBoardContent() {
     const elem = containerRef.current as any
     if (!isFullscreen) {
       if (elem?.requestFullscreen) {
-        elem.requestFullscreen().catch(() => setIsFullscreen(true))
+        elem.requestFullscreen().catch(() => {
+          cssFullscreenRef.current = true
+          setIsFullscreen(true)
+        })
       } else if (elem?.webkitRequestFullscreen) {
         elem.webkitRequestFullscreen()
-        setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(true) }, 200)
+        setTimeout(() => {
+          if (!doc.webkitFullscreenElement) {
+            cssFullscreenRef.current = true
+            setIsFullscreen(true)
+          }
+        }, 200)
       } else {
+        cssFullscreenRef.current = true
         setIsFullscreen(true)
       }
       setShowControls(false)
     } else {
+      cssFullscreenRef.current = false
       if (doc.exitFullscreen && doc.fullscreenElement) {
         doc.exitFullscreen().catch(() => setIsFullscreen(false))
       } else if (doc.webkitExitFullscreen && doc.webkitFullscreenElement) {

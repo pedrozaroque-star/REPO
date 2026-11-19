@@ -34,6 +34,9 @@
  * - Blindaje 2026-11-18: el barrido en segundo plano jamás borra tombstones >24h a ciegas; primero reconcilia sesiones colgadas
  *   con tombstones pendientes y depura únicamente los tombstones >24h cuyo cierre ya quedó comprobado en `phone_calls`
  *   (`cleanupOrReconcileExpiredTombstones`), mientras el fallback visual de configuración ausente usa `is_enabled: false`.
+ * - Blindaje 2026-11-19: autorización RBAC ANTES de consultar `phone_callback_requests` en `PATCH callback_request` (cierra oráculo UUID sin sesión);
+ *   bandeja dedicada para recados `urgency='high'` para que notas de empaque `condiments_note` (`normal`) nunca desplacen alertas urgentes de gerente;
+ *   desambiguación explícita `stores!phone_callback_requests_store_id_fkey(id, name)` contra futuras FKs en `origin_store_id`; y validación horaria 06:00–05:59 exacta en festivos.
  */
 
 import { after, NextRequest, NextResponse } from 'next/server'
@@ -219,7 +222,11 @@ export async function GET(request: NextRequest) {
       }
 
       const buildScopedCbQuery = () =>
-        applyCbScope(supabaseAdmin.from('phone_callback_requests').select('*, stores(id, name)'))
+        applyCbScope(
+          supabaseAdmin
+            .from('phone_callback_requests')
+            .select('*, stores!phone_callback_requests_store_id_fkey(id, name)')
+        )
 
       const buildScopedCbCountQuery = () =>
         applyCbScope(supabaseAdmin.from('phone_callback_requests').select('id', { count: 'exact', head: true }))
@@ -227,6 +234,7 @@ export async function GET(request: NextRequest) {
       const wantsPendingIncluded = !statusFilter || statusFilter === 'pending'
       const [
         criticalPendingRes,
+        highPendingRes,
         pendingBatchRes,
         recentCbRes,
         scopedCriticalCountRes,
@@ -244,7 +252,14 @@ export async function GET(request: NextRequest) {
         wantsPendingIncluded
           ? buildScopedCbQuery()
               .eq('status', 'pending')
-              .not('urgency', 'in', '("critical","urgent")')
+              .eq('urgency', 'high')
+              .order('created_at', { ascending: false })
+              .limit(200)
+          : Promise.resolve({ data: [] as any[], error: null }),
+        wantsPendingIncluded
+          ? buildScopedCbQuery()
+              .eq('status', 'pending')
+              .not('urgency', 'in', '("critical","urgent","high")')
               .order('created_at', { ascending: false })
               .limit(100)
           : Promise.resolve({ data: [] as any[], error: null }),
@@ -263,6 +278,7 @@ export async function GET(request: NextRequest) {
 
       const cbQueryErr =
         criticalPendingRes.error ||
+        highPendingRes.error ||
         pendingBatchRes.error ||
         recentCbRes.error ||
         scopedCriticalCountRes.error ||
@@ -276,6 +292,7 @@ export async function GET(request: NextRequest) {
 
       const sortedCallbacks = mergeAndSortCallbacks([
         criticalPendingRes.data,
+        highPendingRes.data,
         pendingBatchRes.data,
         recentCbRes.data
       ])
@@ -392,6 +409,7 @@ export async function GET(request: NextRequest) {
       callsRes,
       callbacksRes,
       pendingCriticalCbRes,
+      pendingHighCbRes,
       pendingAllCbRes,
       unansweredRes,
       realCallsCountRes,
@@ -444,7 +462,7 @@ export async function GET(request: NextRequest) {
       (() => {
         let q = supabaseAdmin
           .from('phone_callback_requests')
-          .select('*, stores(id, name)')
+          .select('*, stores!phone_callback_requests_store_id_fkey(id, name)')
           .order('created_at', { ascending: false })
           .limit(120)
         q = applyStoreScope(q, filterCallsStoreId)
@@ -454,7 +472,9 @@ export async function GET(request: NextRequest) {
         return q
       })(),
       fetchScopedCriticalPendingCallbacksWithCap(() => {
-        let q = supabaseAdmin.from('phone_callback_requests').select('*, stores(id, name)')
+        let q = supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores!phone_callback_requests_store_id_fkey(id, name)')
         q = applyStoreScope(q, filterCallsStoreId)
         if (callsSourceFilter === 'twilio' || callsSourceFilter === 'simulator') {
           q = q.eq('source', callsSourceFilter)
@@ -464,9 +484,23 @@ export async function GET(request: NextRequest) {
       (() => {
         let q = supabaseAdmin
           .from('phone_callback_requests')
-          .select('*, stores(id, name)')
+          .select('*, stores!phone_callback_requests_store_id_fkey(id, name)')
           .eq('status', 'pending')
-          .not('urgency', 'in', '("critical","urgent")')
+          .eq('urgency', 'high')
+          .order('created_at', { ascending: false })
+          .limit(200)
+        q = applyStoreScope(q, filterCallsStoreId)
+        if (callsSourceFilter === 'twilio' || callsSourceFilter === 'simulator') {
+          q = q.eq('source', callsSourceFilter)
+        }
+        return q
+      })(),
+      (() => {
+        let q = supabaseAdmin
+          .from('phone_callback_requests')
+          .select('*, stores!phone_callback_requests_store_id_fkey(id, name)')
+          .eq('status', 'pending')
+          .not('urgency', 'in', '("critical","urgent","high")')
           .order('created_at', { ascending: false })
           .limit(120)
         q = applyStoreScope(q, filterCallsStoreId)
@@ -567,6 +601,7 @@ export async function GET(request: NextRequest) {
       ['phone_calls', callsRes.error],
       ['phone_callback_requests', callbacksRes.error],
       ['pending_critical_callbacks', pendingCriticalCbRes.error],
+      ['pending_high_callbacks', pendingHighCbRes.error],
       ['pending_callbacks', pendingAllCbRes.error],
       ['unanswered_questions', unansweredRes.error],
       ['kpi_real_calls', realCallsCountRes.error],
@@ -648,6 +683,7 @@ export async function GET(request: NextRequest) {
     const calls = (callsRes.data || []).map(sanitizeNestedStore)
     const callbacks = mergeAndSortCallbacks([
       pendingCriticalCbRes.data,
+      pendingHighCbRes.data,
       pendingAllCbRes.data,
       callbacksRes.data
     ])
@@ -856,11 +892,11 @@ export async function POST(request: NextRequest) {
       if (!isClosed && openTime && closeTime) {
         const [oh, om] = openTime.split(':').map(Number)
         const [ch, cm] = closeTime.split(':').map(Number)
-        const openMin = oh * 60 + om
-        const closeMin = ch * 60 + cm
-        if (openTime === closeTime || (closeMin >= 360 && closeMin <= openMin)) {
+        const bOpen = (oh * 60 + om + 1440 - 360) % 1440
+        const bClose = (ch * 60 + cm + 1440 - 360) % 1440
+        if (bClose <= bOpen) {
           return NextResponse.json(
-            { error: 'La hora de cierre debe ser posterior a la hora de apertura (cierres de madrugada solo 00:00–05:59)' },
+            { error: 'La hora de cierre debe ser posterior a la hora de apertura dentro del día laboral (06:00–05:59)' },
             { status: 400 }
           )
         }
@@ -950,6 +986,15 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: 'ID de recado inválido' }, { status: 400 })
       }
 
+      // Seguridad RBAC: autenticar ANTES de consultar la base de datos para eliminar oráculo de existencia UUID sin sesión
+      const auth = await authorizePhoneModuleRequest(request, {
+        permission: 'resolve_callback',
+        allowLongLivedStoreTerminal: true
+      })
+      if (!auth.authorized || !auth.user) {
+        return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+      }
+
       const { data: existingCb, error: fetchErr } = await supabaseAdmin
         .from('phone_callback_requests')
         .select('id, store_id, status')
@@ -961,13 +1006,11 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: 'Recado telefónico no encontrado' }, { status: 404 })
       }
 
-      const auth = await authorizePhoneModuleRequest(request, {
-        permission: 'resolve_callback',
-        targetStoreId: Number(existingCb.store_id),
-        allowLongLivedStoreTerminal: true
-      })
-      if (!auth.authorized || !auth.user) {
-        return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 403 })
+      if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(existingCb.store_id))) {
+        return NextResponse.json(
+          { error: `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal #${auth.user.assignedStoreId}.` },
+          { status: 403 }
+        )
       }
 
       const allowedStatuses = new Set(['pending', 'resolved', 'dismissed'])
@@ -989,7 +1032,7 @@ export async function PATCH(request: NextRequest) {
         .from('phone_callback_requests')
         .update(updates)
         .eq('id', id)
-        .select('*, stores(id, name)')
+        .select('*, stores!phone_callback_requests_store_id_fkey(id, name)')
         .single()
 
       if (error) throw error
@@ -1330,11 +1373,11 @@ export async function PATCH(request: NextRequest) {
       } else if (nextOpen && nextClose) {
         const [oh, om] = nextOpen.split(':').map(Number)
         const [ch, cm] = nextClose.split(':').map(Number)
-        const openMin = oh * 60 + om
-        const closeMin = ch * 60 + cm
-        if (nextOpen === nextClose || (closeMin >= 360 && closeMin <= openMin)) {
+        const bOpen = (oh * 60 + om + 1440 - 360) % 1440
+        const bClose = (ch * 60 + cm + 1440 - 360) % 1440
+        if (bClose <= bOpen) {
           return NextResponse.json(
-            { error: 'La hora de cierre debe ser posterior a la hora de apertura (cierres de madrugada solo 00:00–05:59)' },
+            { error: 'La hora de cierre debe ser posterior a la hora de apertura dentro del día laboral (06:00–05:59)' },
             { status: 400 }
           )
         }

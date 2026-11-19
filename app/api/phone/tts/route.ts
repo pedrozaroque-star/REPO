@@ -14,6 +14,7 @@
  * @notes
  * - Soporta textos de hasta 1400 caracteres (con recorte limpio interno tras validar HMAC si supera el límite) y `?rate=8000` para PSTN Twilio.
  * - SEGURIDAD: GET exige firma criptográfica HMAC `sig` generada por `buildPhoneTtsUrl` (validada con el parámetro `voice` original); POST exige sesión autorizada RBAC.
+ * - BLINDAJE CROSS-LAMBDA 2026-11-19: GET siempre consulta Supabase Storage (`skipStorageLookup: false`, incluso cuando `dyn=1` marca `Cache-Control: private, no-store`) y habilita `allowFallbackAfterFastSse: true` (SSE 3.8 -> REST 3.8 -> 3.1 emergencia) para que Twilio `<Play>` jamás pierda audio con HTTP 502; POST (reproducciones de bitácora) usa `skipStoragePersist: true` para no subir transcripciones con PII de clientes a Storage.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -40,15 +41,21 @@ async function renderWav(
   voice: VoiceId,
   rate: 8000 | 24000 = 24000,
   isDynamic = false,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts?: { persistToStorage?: boolean }
 ) {
   const safeText = text.length > MAX_TTS_ROUTE_CHARS ? normalizePhoneTtsInput(text, lang, MAX_TTS_ROUTE_CHARS) : text
+  const isLiveTwilio = rate === 8000 || isDynamic
+  const persistToStorage = opts?.persistToStorage ?? true
   const rawWav = await getPhoneAgentSpeech(safeText, lang, voice, false, {
-    skipStorageLookup: isDynamic,
-    skipStoragePersist: false,
+    // En Serverless Vercel, Twilio <Play> puede golpear otra Lambda distinta a /api/phone/respond:
+    // SIEMPRE revisar Supabase Storage antes de resintetizar (incluso en dyn=1), y habilitar respaldo REST/3.1 para nunca responder 502.
+    skipStorageLookup: false,
+    skipStoragePersist: !persistToStorage,
     skipSseAttempt: false,
-    fastLivePhone: rate === 8000 || isDynamic,
-    maxTotalMs: rate === 8000 || isDynamic ? 9500 : 16000,
+    fastLivePhone: isLiveTwilio,
+    allowFallbackAfterFastSse: isLiveTwilio,
+    maxTotalMs: isLiveTwilio ? 11500 : 16000,
     signal
   })
   const wav = rate === 8000 ? downsampleWav24kTo8k(rawWav) : rawWav
@@ -57,7 +64,7 @@ async function renderWav(
     headers: {
       'Content-Type': 'audio/wav',
       'Content-Length': String(wav.length),
-      'Cache-Control': isDynamic ? 'no-store' : 'public, max-age=86400, s-maxage=86400'
+      'Cache-Control': isDynamic ? 'private, no-store' : 'public, max-age=86400, s-maxage=86400'
     }
   })
 }
@@ -82,7 +89,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    return await renderWav(text, lang, voice, rate, isDynamic, request.signal)
+    return await renderWav(text, lang, voice, rate, isDynamic, request.signal, { persistToStorage: true })
   } catch (err: any) {
     console.error('[api/phone/tts] Error:', err?.message)
     return NextResponse.json({ error: err?.message || 'Error al generar audio telefónico' }, { status: 502 })
@@ -90,12 +97,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await authorizePhoneModuleRequest(request, { permission: 'read_dashboard' })
-  if (!auth.authorized) {
-    return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
-  }
-
   try {
+    const auth = await authorizePhoneModuleRequest(request, { permission: 'read_dashboard' })
+    if (!auth.authorized) {
+      return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
+    }
+
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
@@ -111,7 +118,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Parámetro text requerido' }, { status: 400 })
     }
 
-    return await renderWav(text, lang, voice, rate, isDynamic, request.signal)
+    // Reproducciones manuales desde bitácora/simulador (POST) leen caché si existe, pero NO suben transcripciones de clientes a Storage
+    return await renderWav(text, lang, voice, rate, isDynamic, request.signal, { persistToStorage: false })
   } catch (err: any) {
     console.error('[api/phone/tts] POST Error:', err?.message)
     return NextResponse.json({ error: err?.message || 'Error al generar audio telefónico' }, { status: 502 })

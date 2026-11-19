@@ -18,20 +18,19 @@
  * - Twilio `<Gather>` -> `POST /api/phone/respond` -> `processPhoneAgentTurn()` -> TwiML.
  *
  * @notes
- * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente + `timeout` `"4"`/`"8"` vía `isPromptExpectingPhoneOrDetails`, `speechModel="telephony"` + hints Tacos Gavilan).
- * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, cero doble TTS sobre `firstChunk` (solo pre-calienta `restChunk` en `after()`),
- *   tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama defensiva heredada `<Dial>` desactivada por política.
- * - Auditoría 2026-11-18: respaldo `<Say>` con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly), vía rápida SSE `fastLivePhone: true` en vivo, respuestas cortas sin dividir `<= 210` chars (cero pausas mudas entre oraciones) o síntesis paralela si excede `210`, y paciencia adaptativa para dictado de teléfonos.
+ * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente + `timeout` `"4"`/`"7"` vía `isPromptExpectingPhoneOrDetails`, `speechModel="phone_call"`/`"default"` + hints Tacos Gavilan).
+ * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama muerta `<Dial>` eliminada definitivamente por política.
+ * - Blindaje Cross-Lambda 2026-11-19: todas las respuestas `<Play>` (incluyendo dinámicas) persisten en Supabase Storage con `awaitStoragePersist: true` antes de emitir TwiML; `restChunk` solo emite `<Play>` cuando su síntesis y persistencia confirmaron éxito (de lo contrario emite `<Say>` Google Chirp3-HD-Kore, cero drops 502 silenciosos); presupuesto TTS estrictamente acotado a `11.5s` de reloj; y respaldo de `TWILIO_WEBHOOK_BASE_URL`.
  */
 
 import { after } from 'next/server'
-import { formatCustomerGreetingTarget, formatCustomerStoreName } from '@/lib/customer-store-names'
+import { formatCustomerGreetingTarget } from '@/lib/customer-store-names'
+import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
   buildTwilioFallbackSay,
   buildTwilioGatherAttrs,
-  cleanPhoneStoreName,
   escapeXml,
   getPostDisclosurePrompt,
   getStorePhoneContext,
@@ -41,11 +40,68 @@ import {
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getPhoneAgentSpeech, resolvePhoneFemaleVoice, splitPhoneReplyForStreaming, VoiceId } from '@/lib/order-ready-tts'
+import {
+  getPhoneAgentSpeech,
+  isPhoneSpeechInRamCache,
+  resolvePhoneFemaleVoice,
+  splitPhoneReplyForStreaming,
+  VoiceId
+} from '@/lib/order-ready-tts'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 export const preferredRegion = 'sfo1'
+
+function resolvePublicWebhookBaseUrl(request: Request): string {
+  const envBase = (process.env.TWILIO_WEBHOOK_BASE_URL || '').trim().replace(/\/+$/, '')
+  if (envBase) {
+    try {
+      const parsed = new URL(envBase)
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        return parsed.origin
+      }
+    } catch {
+      // Ignorar TWILIO_WEBHOOK_BASE_URL malformada
+    }
+  }
+  const reqUrl = new URL(request.url)
+  const rawProto = (request.headers.get('x-forwarded-proto') || reqUrl.protocol.replace(':', '')).split(',')[0].trim().toLowerCase()
+  const proto = rawProto === 'http' || rawProto === 'https' ? rawProto : 'https'
+  const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || reqUrl.host
+  const host = rawHost.split(',')[0].trim()
+  return `${proto}://${host}`
+}
+
+async function synthesizeRespondPlayOrFallback(
+  baseUrl: string,
+  text: string,
+  lang: PhoneLang,
+  voice: VoiceId,
+  budgetMs: number,
+  opts?: { dynamic?: boolean }
+): Promise<{ tag: string; playedKore38: boolean }> {
+  const canTryTts = budgetMs >= 1200 || isPhoneSpeechInRamCache(text, lang, voice)
+  if (!canTryTts) {
+    return { tag: buildTwilioFallbackSay(text, lang), playedKore38: false }
+  }
+  const isDynamic = Boolean(opts?.dynamic)
+  try {
+    await getPhoneAgentSpeech(text, lang, voice, false, {
+      skipStorageLookup: isDynamic,
+      skipStoragePersist: false,
+      skipSseAttempt: false,
+      fastLivePhone: true,
+      awaitStoragePersist: true,
+      maxTotalMs: Math.max(1200, budgetMs)
+    })
+    return {
+      tag: `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, text, lang, voice, { rate: 8000, dynamic: isDynamic }))}</Play>`,
+      playedKore38: true
+    }
+  } catch {
+    return { tag: buildTwilioFallbackSay(text, lang), playedKore38: false }
+  }
+}
 
 function scheduleBackgroundTask(task: () => Promise<any>) {
   try {
@@ -107,7 +163,7 @@ async function loadSafeStoreContext(rawStoreId: number | null, callSid?: string)
 
 export async function POST(request: Request) {
   const reqStartMs = Date.now()
-  const getRespondTtsBudgetMs = () => Math.max(3000, Math.min(3900, 10500 - (Date.now() - reqStartMs)))
+  const getRespondTtsBudgetMs = () => Math.max(0, Math.min(4500, 11500 - (Date.now() - reqStartMs)))
   try {
     const formData = await request.formData().catch(() => null)
     const params: Record<string, string> = {}
@@ -123,17 +179,12 @@ export async function POST(request: Request) {
     }
 
     const reqUrl = new URL(request.url)
-    const rawProto = request.headers.get('x-forwarded-proto') || reqUrl.protocol.replace(':', '')
-    const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || reqUrl.host
-    const proto = rawProto.split(',')[0].trim() || 'https'
-    const host = rawHost.split(',')[0].trim()
-    const baseUrl = `${proto}://${host}`
+    const baseUrl = resolvePublicWebhookBaseUrl(request)
 
     const currentLang = (reqUrl.searchParams.get('lang') === 'en' ? 'en' : 'es') as PhoneLang
     const isRetry = reqUrl.searchParams.get('retry') === '1'
     const isTurn0 = reqUrl.searchParams.get('turn0') === '1'
     const isPreconsent = reqUrl.searchParams.get('preconsent') === '1'
-    const isDialFallback = reqUrl.searchParams.get('dialFallback') === '1'
 
     const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
     const speechResult = (params.SpeechResult || '').trim()
@@ -166,104 +217,17 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${ctx.scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
           : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${ctx.scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
-      let disabledTag = buildTwilioFallbackSay(disabledMsg, currentLang)
-      try {
-        await getPhoneAgentSpeech(disabledMsg, currentLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getRespondTtsBudgetMs()
-        })
-        disabledTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disabledMsg, currentLang, voice))}</Play>`
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say> si TTS falla
-      }
+      const { tag: disabledTag } = await synthesizeRespondPlayOrFallback(
+        baseUrl,
+        disabledMsg,
+        currentLang,
+        voice,
+        getRespondTtsBudgetMs()
+      )
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${disabledTag}
-  <Hangup/>
-</Response>`,
-        { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
-      )
-    }
-
-    // Respaldo post-<Dial>: si el gerente contestó, cerramos limpio; si estaba ocupado o no alcanzó a contestar en 20s,
-    // confirmamos al cliente que su alerta prioritaria ya está en la pantalla del gerente y cerramos con calidez.
-    if (isDialFallback) {
-      const dialStatus = (params.DialCallStatus || '').trim().toLowerCase()
-      const dialDuration = Number(params.DialCallDuration || 0)
-      const answeredBy = (params.AnsweredBy || '').trim().toLowerCase()
-
-      const answeredLive =
-        (dialStatus === 'completed' || dialStatus === 'answered') &&
-        dialDuration >= 12 &&
-        !answeredBy.includes('machine') &&
-        !answeredBy.includes('fax')
-      if (answeredLive) {
-        const nowIso = new Date().toISOString()
-        const { data: callRow } = await supabaseAdmin
-          .from('phone_calls')
-          .update({
-            status: 'transferred',
-            resolved_by_ai: false,
-            ended_at: nowIso
-          })
-          .eq('call_sid', callSid)
-          .select('id')
-          .maybeSingle()
-
-        // Si el gerente contestó en vivo al cliente, resolver automáticamente el recado pendiente de esta llamada
-        if (callRow?.id) {
-          await supabaseAdmin
-            .from('phone_callback_requests')
-            .update({
-              status: 'resolved',
-              resolved_at: nowIso,
-              resolved_by: 'Transferencia telefónica en vivo contestada'
-            })
-            .eq('call_id', callRow.id)
-            .eq('status', 'pending')
-        }
-
-        return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Hangup/>\n</Response>`, {
-          status: 200,
-          headers: { 'Content-Type': 'text/xml; charset=utf-8' }
-        })
-      }
-
-      const spokenStore = formatCustomerStoreName(ctx.store, currentLang, { style: 'spoken_compact' }) || cleanPhoneStoreName(ctx.store.name) || ctx.store.name
-      const fallbackMsg =
-        currentLang === 'en'
-          ? `Our ${spokenStore} manager is assisting guests at the counter right now, so your priority alert is saved on their screen and they will reach out to you as soon as possible. Thank you for calling Tacos Gavilan!`
-          : `En este instante el gerente de ${spokenStore} está atendiendo en mostrador, pero tu alerta prioritaria ya quedó activa en su pantalla y se comunicará contigo en cuanto sea posible. ¡Gracias por llamar a Tacos Gavilan!`
-
-      await supabaseAdmin
-        .from('phone_calls')
-        .update({
-          status: 'callback_requested',
-          resolved_by_ai: false,
-          ended_at: new Date().toISOString()
-        })
-        .eq('call_sid', callSid)
-
-      let dialFallbackTag = buildTwilioFallbackSay(fallbackMsg, currentLang)
-      try {
-        await getPhoneAgentSpeech(fallbackMsg, currentLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getRespondTtsBudgetMs()
-        })
-        dialFallbackTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, fallbackMsg, currentLang, voice))}</Play>`
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say> para no devolver error en <Play> si TTS falla
-      }
-
-      return new Response(
-        `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${dialFallbackTag}
   <Hangup/>
 </Response>`,
         { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
@@ -295,53 +259,70 @@ export async function POST(request: Request) {
         )
 
         const switchBudgetMs = getRespondTtsBudgetMs()
-        const [discRes, qRes] = await Promise.allSettled([
-          getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, {
-            skipSseAttempt: false,
-            fastLivePhone: true,
-            awaitStoragePersist: true,
-            maxTotalMs: switchBudgetMs
-          }),
-          getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, {
-            skipSseAttempt: false,
-            fastLivePhone: true,
-            awaitStoragePersist: true,
-            maxTotalMs: switchBudgetMs
-          })
+        const [discRes, qRes] = await Promise.all([
+          synthesizeRespondPlayOrFallback(baseUrl, fullDisclosure, switchedLang, voice, switchBudgetMs),
+          synthesizeRespondPlayOrFallback(baseUrl, postQuestion, switchedLang, voice, switchBudgetMs)
         ])
-        const discTag =
-          discRes.status === 'fulfilled'
-            ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, fullDisclosure, switchedLang, voice))}</Play>`
-            : buildTwilioFallbackSay(fullDisclosure, switchedLang)
-        const qTag =
-          qRes.status === 'fulfilled'
-            ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQuestion, switchedLang, voice))}</Play>`
-            : buildTwilioFallbackSay(postQuestion, switchedLang)
+        const discTag = discRes.tag
+        const qTag = qRes.tag
 
         scheduleBackgroundTask(async () => {
+          const switchedTranscript = [{ role: 'assistant', text: fullGreeting, timestamp: new Date().toISOString() }]
           await Promise.all([
-            discRes.status !== 'fulfilled'
+            !discRes.playedKore38
               ? getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, {
                   skipSseAttempt: false,
                   awaitStoragePersist: true,
                   maxTotalMs: 12000
                 }).catch(() => null)
               : Promise.resolve(),
-            qRes.status !== 'fulfilled'
+            !qRes.playedKore38
               ? getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, {
                   skipSseAttempt: false,
                   awaitStoragePersist: true,
                   maxTotalMs: 12000
                 }).catch(() => null)
               : Promise.resolve(),
-            supabaseAdmin
-              .from('phone_calls')
-              .update({
-                language: switchedLang,
-                transcript: [{ role: 'assistant', text: fullGreeting, timestamp: new Date().toISOString() }]
-              })
-              .eq('call_sid', callSid)
-              .eq('turns_count', 0)
+            (async () => {
+              // Tolerar barge-in inmediato de tecla 9 antes de que /api/phone/incoming complete el upsert inicial
+              const { data: updatedRows } = await supabaseAdmin
+                .from('phone_calls')
+                .update({
+                  language: switchedLang,
+                  transcript: switchedTranscript
+                })
+                .eq('call_sid', callSid)
+                .eq('turns_count', 0)
+                .select('id')
+              if (!updatedRows || updatedRows.length === 0) {
+                await supabaseAdmin.from('phone_calls').upsert(
+                  {
+                    call_sid: callSid,
+                    store_id: storeId,
+                    source: 'twilio',
+                    caller_number: (params.From || '').trim() || null,
+                    to_number: (params.To || '').trim() || null,
+                    forwarded_from: (params.ForwardedFrom || '').trim() || null,
+                    language: switchedLang,
+                    status: 'in_progress',
+                    resolved_by_ai: false,
+                    turns_count: 0,
+                    transcript: switchedTranscript,
+                    business_date: getCaliforniaBusinessDate(),
+                    shift: getCaliforniaShift()
+                  },
+                  { onConflict: 'call_sid', ignoreDuplicates: true }
+                )
+                await supabaseAdmin
+                  .from('phone_calls')
+                  .update({
+                    language: switchedLang,
+                    transcript: switchedTranscript
+                  })
+                  .eq('call_sid', callSid)
+                  .eq('turns_count', 0)
+              }
+            })()
           ])
         })
 
@@ -363,20 +344,13 @@ export async function POST(request: Request) {
           ? 'Of course, we can continue in English! How can I help you today?'
           : 'Con gusto continuamos en español. ¿En qué te ayudo hoy?'
 
-      let switchTag = buildTwilioFallbackSay(conciseSwitchReply, switchedLang)
-      let switchPlayedKore38 = false
-      try {
-        await getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getRespondTtsBudgetMs()
-        })
-        switchTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, conciseSwitchReply, switchedLang, voice))}</Play>`
-        switchPlayedKore38 = true
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say>
-      }
+      const { tag: switchTag, playedKore38: switchPlayedKore38 } = await synthesizeRespondPlayOrFallback(
+        baseUrl,
+        conciseSwitchReply,
+        switchedLang,
+        voice,
+        getRespondTtsBudgetMs()
+      )
 
       scheduleBackgroundTask(async () => {
         const [{ data: existingCall }] = await Promise.all([
@@ -428,28 +402,12 @@ export async function POST(request: Request) {
       const postQ = getPostDisclosurePrompt(currentLang, ctx.scheduleEval)
       const nextUrlAfterConsent = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}${isTurn0 ? '&turn0=1' : ''}`
       const cipaBudgetMs = getRespondTtsBudgetMs()
-      const [cipaRes, postQRes] = await Promise.allSettled([
-        getPhoneAgentSpeech(mandatoryCipaSentence, currentLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: cipaBudgetMs
-        }),
-        getPhoneAgentSpeech(postQ, currentLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: cipaBudgetMs
-        })
+      const [cipaRes, postQRes] = await Promise.all([
+        synthesizeRespondPlayOrFallback(baseUrl, mandatoryCipaSentence, currentLang, voice, cipaBudgetMs),
+        synthesizeRespondPlayOrFallback(baseUrl, postQ, currentLang, voice, cipaBudgetMs)
       ])
-      const cipaPlayTag =
-        cipaRes.status === 'fulfilled'
-          ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, mandatoryCipaSentence, currentLang, voice))}</Play>`
-          : buildTwilioFallbackSay(mandatoryCipaSentence, currentLang)
-      const qPlayTag =
-        postQRes.status === 'fulfilled'
-          ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQ, currentLang, voice))}</Play>`
-          : buildTwilioFallbackSay(postQ, currentLang)
+      const cipaPlayTag = cipaRes.tag
+      const qPlayTag = postQRes.tag
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -471,18 +429,13 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'You can ask your question out loud, press 1 for hours, 2 for Fiesta Platters, 3 for the manager, or 9 for Spanish.'
           : 'Puedes decirme tu pregunta con tu voz, o presionar 1 para horarios, 2 para Fiesta Platters, 3 para recado al gerente o 9 para inglés.'
-      let invalidKeyTag = buildTwilioFallbackSay(invalidKeyMsg, currentLang)
-      try {
-        await getPhoneAgentSpeech(invalidKeyMsg, currentLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getRespondTtsBudgetMs()
-        })
-        invalidKeyTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, invalidKeyMsg, currentLang, voice))}</Play>`
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say>
-      }
+      const { tag: invalidKeyTag } = await synthesizeRespondPlayOrFallback(
+        baseUrl,
+        invalidKeyMsg,
+        currentLang,
+        voice,
+        getRespondTtsBudgetMs()
+      )
       const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}${isTurn0 ? '&turn0=1' : ''}`
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
@@ -502,18 +455,13 @@ export async function POST(request: Request) {
           currentLang === 'en'
             ? 'We did not hear a response. Thank you for calling Tacos Gavilan, have a great day!'
             : 'No alcanzamos a escucharte. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
-        let goodbyeTag = buildTwilioFallbackSay(goodbyeText, currentLang)
-        try {
-          await getPhoneAgentSpeech(goodbyeText, currentLang, voice, false, {
-            skipSseAttempt: false,
-            fastLivePhone: true,
-            awaitStoragePersist: true,
-            maxTotalMs: getRespondTtsBudgetMs()
-          })
-          goodbyeTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, goodbyeText, currentLang, voice))}</Play>`
-        } catch {
-          // Fallback seguro a Google Chirp3-HD-Kore <Say>
-        }
+        const { tag: goodbyeTag } = await synthesizeRespondPlayOrFallback(
+          baseUrl,
+          goodbyeText,
+          currentLang,
+          voice,
+          getRespondTtsBudgetMs()
+        )
 
         const { data: existingCall } = await supabaseAdmin
           .from('phone_calls')
@@ -556,18 +504,13 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'Are you still there? You can ask me about our hours, menu prices, Fiesta Platters, or leave a message for the manager.'
           : '¿Sigues en la línea? Puedes preguntarme por nuestro horario, precios del menú, charolas para fiestas o dejarle un recado al gerente.'
-      let promptTag = buildTwilioFallbackSay(promptAgain, currentLang)
-      try {
-        await getPhoneAgentSpeech(promptAgain, currentLang, voice, false, {
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: getRespondTtsBudgetMs()
-        })
-        promptTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, promptAgain, currentLang, voice))}</Play>`
-      } catch {
-        // Fallback seguro a Google Chirp3-HD-Kore <Say>
-      }
+      const { tag: promptTag } = await synthesizeRespondPlayOrFallback(
+        baseUrl,
+        promptAgain,
+        currentLang,
+        voice,
+        getRespondTtsBudgetMs()
+      )
       const retryUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}&retry=1${isTurn0 ? '&turn0=1' : ''}`
 
       return new Response(
@@ -603,48 +546,73 @@ export async function POST(request: Request) {
 
     const ttsBudgetMs = getRespondTtsBudgetMs()
     const isDynamicTurnAudio = !turn.isCanonicalReply
-    const firstSynthPromise = getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
-      skipStorageLookup: isDynamicTurnAudio,
-      skipStoragePersist: isDynamicTurnAudio,
-      skipSseAttempt: false,
-      fastLivePhone: true,
-      awaitStoragePersist: !isDynamicTurnAudio,
-      maxTotalMs: ttsBudgetMs
-    })
-    const restSynthPromise = restChunk
-      ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
-          skipStorageLookup: isDynamicTurnAudio,
-          skipStoragePersist: isDynamicTurnAudio,
-          skipSseAttempt: false,
-          fastLivePhone: true,
-          awaitStoragePersist: !isDynamicTurnAudio,
-          maxTotalMs: ttsBudgetMs + 1200
-        }).catch(() => null)
-      : null
+    const canTryFirstTts = ttsBudgetMs >= 1200 || isPhoneSpeechInRamCache(firstChunk, turn.language, turn.voiceId)
 
     let playTags: string
     let usedFirstChunkPlay = false
-    try {
-      await firstSynthPromise
-      usedFirstChunkPlay = true
-      if (restSynthPromise) {
-        // Esperar brevemente a que termine la síntesis paralela de restChunk para garantizar reproducción continua
-        await Promise.race([restSynthPromise, new Promise<null>((r) => setTimeout(() => r(null), 900))])
-      }
-      const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
-        rate: 8000,
-        dynamic: isDynamicTurnAudio
+    let restSynthStatus: 'pending' | 'ready' | 'failed' = restChunk ? 'pending' : 'ready'
+    let restSynthPromise: Promise<Buffer | null> | null = null
+
+    if (canTryFirstTts) {
+      const firstSynthPromise = getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
+        skipStorageLookup: isDynamicTurnAudio,
+        // Persistir SIEMPRE en Supabase Storage (privado) y esperar confirmación acotada para que cualquier Lambda en /api/phone/tts acierte en caché
+        skipStoragePersist: false,
+        skipSseAttempt: false,
+        fastLivePhone: true,
+        awaitStoragePersist: true,
+        maxTotalMs: Math.max(1200, ttsBudgetMs)
       })
-      const restAudioUrl = restChunk
-        ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, {
-            rate: 8000,
-            dynamic: isDynamicTurnAudio
+      restSynthPromise = restChunk
+        ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
+            skipStorageLookup: isDynamicTurnAudio,
+            skipStoragePersist: false,
+            skipSseAttempt: false,
+            fastLivePhone: true,
+            awaitStoragePersist: true,
+            maxTotalMs: Math.max(1200, Math.min(6200, ttsBudgetMs + 1600))
           })
+            .then((wav) => {
+              restSynthStatus = 'ready'
+              return wav
+            })
+            .catch(() => {
+              restSynthStatus = 'failed'
+              return null
+            })
         : null
-      playTags = restAudioUrl
-        ? `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
-        : `    <Play>${escapeXml(firstAudioUrl)}</Play>`
-    } catch {
+
+      try {
+        await firstSynthPromise
+        usedFirstChunkPlay = true
+        if (restSynthPromise && restSynthStatus === 'pending') {
+          const restWaitMs = Math.min(1800, Math.max(0, 11500 - (Date.now() - reqStartMs)))
+          if (restWaitMs > 50) {
+            await Promise.race([restSynthPromise, new Promise<null>((r) => setTimeout(() => r(null), restWaitMs))])
+          }
+        }
+        const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
+          rate: 8000,
+          dynamic: isDynamicTurnAudio
+        })
+        if (restChunk) {
+          if (restSynthStatus === 'ready') {
+            const restAudioUrl = buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, {
+              rate: 8000,
+              dynamic: isDynamicTurnAudio
+            })
+            playTags = `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
+          } else {
+            // Nunca emitir <Play> para un restChunk que falló o no confirmó Storage; ceder a Google Chirp3-HD-Kore <Say> (cero silencio 502)
+            playTags = `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    ${buildTwilioFallbackSay(restChunk, turn.language)}`
+          }
+        } else {
+          playTags = `    <Play>${escapeXml(firstAudioUrl)}</Play>`
+        }
+      } catch {
+        playTags = `    ${buildTwilioFallbackSay(turn.replyText, turn.language)}`
+      }
+    } else {
       playTags = `    ${buildTwilioFallbackSay(turn.replyText, turn.language)}`
     }
 
@@ -653,7 +621,7 @@ export async function POST(request: Request) {
         (turn.flushDbPromise || Promise.resolve()).catch((err) => {
           console.error('[api/phone/respond] Error en flushDbPromise diferido:', err?.message || err)
         }),
-        !usedFirstChunkPlay
+        !usedFirstChunkPlay && !isDynamicTurnAudio
           ? getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
               skipStorageLookup: false,
               skipStoragePersist: false,

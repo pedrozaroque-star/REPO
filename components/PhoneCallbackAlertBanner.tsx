@@ -16,7 +16,7 @@
  *
  * @dataFlow
  * - Polling autenticado cada 15s (`GET /api/phone/dashboard?callbacksOnly=true&storeId=X&status=pending`) con soporte
- *   tanto de JWT (`teg_token`) como de cookie 24/7 (`teg_order_ready_session`), más listeners `visibilitychange` y `online`
+ *   tanto de Bearer JWT (`localStorage.teg_token`) como de cookie HttpOnly (`teg_token`), más listeners `visibilitychange` y `online`
  *   -> Renderiza banner -> `PATCH /api/phone/dashboard` (`entity: 'callback_request'`, `status: 'resolved'`).
  *
  * @notes
@@ -24,19 +24,23 @@
  *   vía endpoint autenticado en vez de canal `anon` de Supabase Realtime.
  * - 100% bilingüe mediante `useLanguage()` (`t('phone_agent.*')`).
  * - Aviso acústico inicial garantizado: suena al cargar la sucursal si ya existen recados pendientes reales (y si la política
- *   de autoplay del navegador mantiene `AudioContext` en `suspended`, lo reproduce automáticamente en el primer gesto del usuario),
- *   además de sonar en cada recado nuevo y recordar cada 45s para urgencias altas/críticas.
+ *   de autoplay del navegador mantiene `AudioContext` en `suspended`/`interrupted`, lo reproduce automáticamente en el primer gesto),
+ *   además de sonar en cada recado nuevo y recordar cada 45s para urgencias altas/críticas (derivado como booleano estable para que
+ *   el polling de 15s jamás reinicie el temporizador de 45s).
  * - Paquete 2A + 2B (2026-11-18):
  *   * Separa visual y acústicamente las Notas de Empaque / Condimentos Gratis (`reason_category = 'condiments_note'`, banner
  *     azul cielo sin recordatorio repetitivo cada 45s) de las Alertas Prioritarias para el Gerente (banner rojo).
- *   * Muestra badge de origen (`↪️ Llamó a #X`) cuando `origin_store_id` difiere de `store_id` (enrutamiento por sucursal equivocada).
+ *   * Muestra badge de origen (`↪️ Llamó a #X`) con entrecalles oficiales de Los Ángeles (`formatCustomerStoreName`) cuando
+ *     `origin_store_id` difiere de `store_id` (enrutamiento por sucursal equivocada).
+ *   * Destaca `SIN TICKET` en píldora ámbar, protege enlaces `tel:` contra cadenas sin dígitos, evita que una nota de empaque
+ *     degrade un aviso diferido de gerente y expone errores persistentes de polling.
  */
 
 'use client'
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { CANONICAL_CUSTOMER_STORES_BY_ID } from '@/lib/customer-store-names'
+import { formatCustomerStoreName, resolveCustomerStoreMeta } from '@/lib/customer-store-names'
 import { PhoneCall, CheckCircle2, AlertTriangle, Copy, Check, ShoppingBag } from 'lucide-react'
 
 const STORE_ID_BY_CODE: Record<string, number> = {
@@ -44,6 +48,7 @@ const STORE_ID_BY_CODE: Record<string, number> = {
   WCOVINA: 3,
   AZUSA: 4,
   LABROADWY: 5,
+  LABROADWAY: 5,
   LACENTRAL: 6,
   SLAUSON: 7,
   HOLLYWOOD: 8,
@@ -99,9 +104,9 @@ export default function PhoneCallbackAlertBanner({
   ready?: boolean
   includeSimulator?: boolean
 }) {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
   const normalizedCode = String(storeCode || '').trim().toUpperCase()
-  const storeId = STORE_ID_BY_CODE[normalizedCode] || null
+  const storeId = STORE_ID_BY_CODE[normalizedCode] || resolveCustomerStoreMeta(normalizedCode)?.id || null
 
   const [pendingCallbacks, setPendingCallbacks] = useState<CallbackAlert[]>([])
   const [paginationMeta, setPaginationMeta] = useState<{
@@ -121,6 +126,7 @@ export default function PhoneCallbackAlertBanner({
   const copiedPhoneTimerRef = useRef<number | null>(null)
   const fetchAbortRef = useRef<AbortController | null>(null)
   const fetchSeqRef = useRef(0)
+  const consecutivePollErrorsRef = useRef(0)
   const seenIdsRef = useRef<Set<string>>(new Set())
   const initializedStoreRef = useRef<number | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -141,50 +147,60 @@ export default function PhoneCallbackAlertBanner({
     }
   }, [])
 
-  const playCallbackChime = useCallback(async (mode: 'manager' | 'packing' = 'manager') => {
-    try {
-      if (typeof window === 'undefined') return
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-      if (!AudioCtx) return
-      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-        audioCtxRef.current = new AudioCtx()
-      }
-      const ctx = audioCtxRef.current
-      if (ctx.state === 'suspended') {
-        await ctx.resume().catch(() => {})
-      }
-      if (ctx.state !== 'running') {
-        // Autoplay restringido antes del primer gesto: encolar aviso acústico inicial para reproducirlo al primer toque/clic
-        pendingInitialChimeRef.current = true
-        pendingChimeModeRef.current = mode
-        return
-      }
-      pendingInitialChimeRef.current = false
-      const gainLevel = mode === 'packing' ? 0.07 : 0.12
-      const playTone = (freq: number, startOffset: number, duration: number) => {
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.type = 'sine'
-        osc.frequency.value = freq
-        gain.gain.setValueAtTime(gainLevel, ctx.currentTime + startOffset)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startOffset + duration)
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.start(ctx.currentTime + startOffset)
-        osc.stop(ctx.currentTime + startOffset + duration)
-      }
-      if (mode === 'packing') {
-        playTone(659.25, 0, 0.15)
-        playTone(880, 0.16, 0.2)
-      } else {
-        playTone(880, 0, 0.18)
-        playTone(1174.66, 0.2, 0.24)
-      }
-    } catch {
-      pendingInitialChimeRef.current = true
+  const queueDeferredChime = useCallback((mode: 'manager' | 'packing') => {
+    // Nunca degradar un aviso diferido de gerente ('manager') a uno suave de empaque ('packing')
+    if (!pendingInitialChimeRef.current || mode === 'manager') {
       pendingChimeModeRef.current = mode
     }
+    pendingInitialChimeRef.current = true
   }, [])
+
+  const playCallbackChime = useCallback(
+    async (mode: 'manager' | 'packing' = 'manager') => {
+      try {
+        if (typeof window === 'undefined') return
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+        if (!AudioCtx) return
+        if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+          audioCtxRef.current = new AudioCtx()
+        }
+        const ctx = audioCtxRef.current
+        const st = String(ctx.state || '')
+        if (st === 'suspended' || st === 'interrupted') {
+          await ctx.resume().catch(() => {})
+        }
+        if (ctx.state !== 'running') {
+          // Autoplay restringido antes del primer gesto: encolar aviso acústico inicial para reproducirlo al primer toque/clic
+          queueDeferredChime(mode)
+          return
+        }
+        pendingInitialChimeRef.current = false
+        const gainLevel = mode === 'packing' ? 0.07 : 0.12
+        const playTone = (freq: number, startOffset: number, duration: number) => {
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.type = 'sine'
+          osc.frequency.value = freq
+          gain.gain.setValueAtTime(gainLevel, ctx.currentTime + startOffset)
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startOffset + duration)
+          osc.connect(gain)
+          gain.connect(ctx.destination)
+          osc.start(ctx.currentTime + startOffset)
+          osc.stop(ctx.currentTime + startOffset + duration)
+        }
+        if (mode === 'packing') {
+          playTone(659.25, 0, 0.15)
+          playTone(880, 0.16, 0.2)
+        } else {
+          playTone(880, 0, 0.18)
+          playTone(1174.66, 0.2, 0.24)
+        }
+      } catch {
+        queueDeferredChime(mode)
+      }
+    },
+    [queueDeferredChime]
+  )
 
   // Si la página cargó con recados pendientes pero el navegador bloqueó el AudioContext hasta el primer clic/toque, sonar al desbloquear
   useEffect(() => {
@@ -239,7 +255,20 @@ export default function PhoneCallbackAlertBanner({
           signal: ctrl.signal
         }
       )
-      if (!res.ok) return
+      if (!res.ok) {
+        if (
+          activeStoreIdRef.current !== targetStoreId ||
+          activeIncludeSimRef.current !== targetIncludeSim ||
+          seq !== fetchSeqRef.current
+        ) {
+          return
+        }
+        consecutivePollErrorsRef.current += 1
+        if (res.status === 401 || res.status === 403 || consecutivePollErrorsRef.current >= 2) {
+          setErrorMsg(t('phone_agent.dashboard_load_error'))
+        }
+        return
+      }
       const data = await res.json()
       if (
         activeStoreIdRef.current !== targetStoreId ||
@@ -248,6 +277,8 @@ export default function PhoneCallbackAlertBanner({
       ) {
         return
       }
+      consecutivePollErrorsRef.current = 0
+      setErrorMsg(null)
 
       const list: CallbackAlert[] = Array.isArray(data.callbacks) ? data.callbacks : []
 
@@ -283,7 +314,7 @@ export default function PhoneCallbackAlertBanner({
       if (err?.name === 'AbortError') return
       // Ignorar intermitencias de red temporales
     }
-  }, [ready, storeId, includeSimulator, getAuthHeaders, playCallbackChime])
+  }, [ready, storeId, includeSimulator, getAuthHeaders, playCallbackChime, t])
 
   // Limpiar estado y abortar polling previo al cambiar de tienda, modo Vista Previa Admin o mientras `ready` sea falso
   useEffect(() => {
@@ -292,6 +323,7 @@ export default function PhoneCallbackAlertBanner({
       fetchAbortRef.current = null
     }
     fetchSeqRef.current += 1
+    consecutivePollErrorsRef.current = 0
     setPendingCallbacks([])
     setPaginationMeta(null)
     setErrorMsg(null)
@@ -334,21 +366,27 @@ export default function PhoneCallbackAlertBanner({
     }
   }, [ready, storeId, fetchPending])
 
+  // Booleano primitivo estable para que el polling cada 15s jamás reinicie el temporizador de 45s
+  const hasHighUrgencyManagerCallback = useMemo(
+    () =>
+      pendingCallbacks.some((c) => {
+        if (isCondimentPackingAlert(c)) return false
+        const u = String(c.urgency || '').toLowerCase()
+        return u === 'critical' || u === 'urgent' || u === 'high'
+      }),
+    [pendingCallbacks]
+  )
+
   // Recordatorio acústico cada 45s únicamente para recados urgentes/críticos del Gerente (nunca para notas de condimentos)
   useEffect(() => {
-    const hasHighUrgency = pendingCallbacks.some((c) => {
-      if (isCondimentPackingAlert(c)) return false
-      const u = String(c.urgency || '').toLowerCase()
-      return u === 'critical' || u === 'urgent' || u === 'high'
-    })
-    if (!hasHighUrgency) return
+    if (!hasHighUrgencyManagerCallback) return
     const reminder = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         void playCallbackChime('manager')
       }
     }, 45000)
     return () => clearInterval(reminder)
-  }, [pendingCallbacks, playCallbackChime])
+  }, [hasHighUrgencyManagerCallback, playCallbackChime])
 
   const { managerCallbacks, condimentNotes } = useMemo(() => {
     const mgr: CallbackAlert[] = []
@@ -379,12 +417,60 @@ export default function PhoneCallbackAlertBanner({
 
   const getReasonCategoryLabel = (category: string): string => {
     const norm = String(category || '').toLowerCase()
+    if (norm === 'general') return t('phone_agent.reason_other')
     return KNOWN_REASON_CATEGORIES.has(norm) ? t(`phone_agent.reason_${norm}`) : ''
+  }
+
+  const copyPhoneText = (id: string, phoneText: string) => {
+    const markCopied = () => {
+      setCopiedPhoneId(id)
+      if (copiedPhoneTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(copiedPhoneTimerRef.current)
+      }
+      if (typeof window !== 'undefined') {
+        copiedPhoneTimerRef.current = window.setTimeout(() => {
+          setCopiedPhoneId((cur) => (cur === id ? null : cur))
+          copiedPhoneTimerRef.current = null
+        }, 1800)
+      }
+    }
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard
+        .writeText(phoneText)
+        .then(markCopied)
+        .catch(() => {
+          try {
+            const ta = document.createElement('textarea')
+            ta.value = phoneText
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            const ok = document.execCommand('copy')
+            document.body.removeChild(ta)
+            if (ok) markCopied()
+          } catch {}
+        })
+      return
+    }
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = phoneText
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (ok) markCopied()
+    } catch {}
   }
 
   const handleResolve = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (resolvingRef.current || resolvingId) return
+    const targetStoreAtClick = activeStoreIdRef.current
+    const targetIncludeSimAtClick = activeIncludeSimRef.current
     resolvingRef.current = true
     setResolvingId(id)
     setErrorMsg(null)
@@ -402,31 +488,52 @@ export default function PhoneCallbackAlertBanner({
         })
       })
       if (!res.ok) {
-        setErrorMsg(t('phone_agent.banner_resolve_error'))
+        if (
+          activeStoreIdRef.current === targetStoreAtClick &&
+          activeIncludeSimRef.current === targetIncludeSimAtClick
+        ) {
+          setErrorMsg(t('phone_agent.banner_resolve_error'))
+        }
         return
       }
-      setPendingCallbacks((prev) => prev.filter((c) => c.id !== id))
       setNotesById((prev) => {
         const next = { ...prev }
         delete next[id]
         return next
       })
-      void fetchPending()
+      // Solo mutar lista o re-consultar si seguimos en la misma sucursal/modo (evita abortar el polling de una tienda nueva)
+      if (
+        activeStoreIdRef.current === targetStoreAtClick &&
+        activeIncludeSimRef.current === targetIncludeSimAtClick
+      ) {
+        setPendingCallbacks((prev) => prev.filter((c) => c.id !== id))
+        void fetchPending()
+      }
     } catch {
-      setErrorMsg(t('phone_agent.banner_resolve_error'))
+      if (
+        activeStoreIdRef.current === targetStoreAtClick &&
+        activeIncludeSimRef.current === targetIncludeSimAtClick
+      ) {
+        setErrorMsg(t('phone_agent.banner_resolve_error'))
+      }
     } finally {
       resolvingRef.current = false
       setResolvingId(null)
     }
   }
 
-  if (!ready || !storeId || pendingCallbacks.length === 0) return null
+  if (!ready || !storeId || (pendingCallbacks.length === 0 && !errorMsg)) return null
 
   const renderBannerRow = (cb: CallbackAlert, variant: 'manager' | 'packing') => {
     const isPacking = variant === 'packing'
     const reasonLabel = getReasonCategoryLabel(cb.reason_category)
     const isCrossStore = Boolean(cb.origin_store_id && Number(cb.origin_store_id) !== Number(cb.store_id))
-    const originMeta = isCrossStore ? CANONICAL_CUSTOMER_STORES_BY_ID[Number(cb.origin_store_id)] : null
+    const originLabel = isCrossStore
+      ? formatCustomerStoreName(Number(cb.origin_store_id), language === 'en' ? 'en' : 'es')
+      : ''
+    const cleanPhoneDigits = String(cb.caller_phone || '').replace(/\D/g, '')
+    const hasDialablePhone = cleanPhoneDigits.length >= 7
+    const isNoTicket = Boolean(cb.ticket_or_order_number && /\bsin\s+ticket\b/i.test(cb.ticket_or_order_number))
     const cardTone = isPacking
       ? 'bg-sky-800/60 border-sky-400/45'
       : 'bg-rose-700/60 border-rose-400/40'
@@ -453,7 +560,8 @@ export default function PhoneCallbackAlertBanner({
             </span>
             {isCrossStore && (
               <span className="px-1.5 py-0.5 rounded bg-white text-slate-900 text-[10px] font-black uppercase mr-2 shadow-sm">
-                ↪️ {t('phone_agent.banner_routed_from_prefix')} #{cb.origin_store_id} {originMeta?.internalName || ''}
+                ↪️ {t('phone_agent.banner_routed_from_prefix')} #{cb.origin_store_id}
+                {originLabel ? ` ${originLabel}` : ''}
               </span>
             )}
             {cb.source === 'simulator' && (
@@ -464,31 +572,30 @@ export default function PhoneCallbackAlertBanner({
             <span className="font-extrabold inline-flex items-center gap-1.5 flex-wrap">
               <span>{cb.caller_name}</span>
               {cb.caller_phone ? (
-                <>
-                  <a href={`tel:${cb.caller_phone.replace(/[^+\d]/g, '')}`} onClick={(e) => e.stopPropagation()} className="underline decoration-white/60 hover:opacity-85">
-                    ({cb.caller_phone})
-                  </a>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void navigator.clipboard?.writeText(cb.caller_phone)?.then(() => {
-                        setCopiedPhoneId(cb.id)
-                        if (copiedPhoneTimerRef.current !== null && typeof window !== 'undefined') window.clearTimeout(copiedPhoneTimerRef.current)
-                        if (typeof window !== 'undefined') {
-                          copiedPhoneTimerRef.current = window.setTimeout(() => {
-                            setCopiedPhoneId((cur) => (cur === cb.id ? null : cur))
-                            copiedPhoneTimerRef.current = null
-                          }, 1800)
-                        }
-                      }).catch(() => {})
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 text-[10px] font-bold transition"
-                  >
-                    {copiedPhoneId === cb.id ? <Check size={10} /> : <Copy size={10} />}
-                    {copiedPhoneId === cb.id ? t('phone_agent.banner_copied_phone') : t('phone_agent.banner_copy_phone')}
-                  </button>
-                </>
+                hasDialablePhone ? (
+                  <>
+                    <a
+                      href={`tel:${cb.caller_phone.replace(/[^+\d]/g, '')}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="underline decoration-white/60 hover:opacity-85"
+                    >
+                      ({cb.caller_phone})
+                    </a>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        copyPhoneText(cb.id, cb.caller_phone)
+                      }}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 text-[10px] font-bold transition"
+                    >
+                      {copiedPhoneId === cb.id ? <Check size={10} /> : <Copy size={10} />}
+                      {copiedPhoneId === cb.id ? t('phone_agent.banner_copied_phone') : t('phone_agent.banner_copy_phone')}
+                    </button>
+                  </>
+                ) : (
+                  <span className="opacity-90">({cb.caller_phone})</span>
+                )
               ) : null}
             </span>
             {cb.created_at && (
@@ -503,7 +610,11 @@ export default function PhoneCallbackAlertBanner({
             <span className="mx-1.5 opacity-75">•</span>
             <span className="font-medium">{cb.reason_summary}</span>
             {cb.ticket_or_order_number && (
-              <span className="ml-2 px-2 py-0.5 rounded bg-white/20 text-[11px] font-bold">
+              <span
+                className={`ml-2 px-2 py-0.5 rounded text-[11px] font-black ${
+                  isNoTicket ? 'bg-amber-300 text-amber-950 shadow-sm' : 'bg-white/20'
+                }`}
+              >
                 {t('phone_agent.banner_ticket_prefix')} {cb.ticket_or_order_number}
               </span>
             )}
@@ -515,11 +626,11 @@ export default function PhoneCallbackAlertBanner({
             value={notesById[cb.id] || ''}
             onChange={(e) => setNotesById((prev) => ({ ...prev, [cb.id]: e.target.value.slice(0, 200) }))}
             placeholder={t('phone_agent.banner_note_placeholder')}
-            className={`hidden md:block w-44 px-2.5 py-1.5 rounded-lg border text-white text-xs focus:outline-none focus:border-white ${inputTone}`}
+            className={`w-36 sm:w-44 px-2.5 py-1.5 rounded-lg border text-white text-xs focus:outline-none focus:border-white ${inputTone}`}
           />
           <button
             type="button"
-            disabled={resolvingId === cb.id}
+            disabled={resolvingId !== null}
             onClick={(e) => handleResolve(cb.id, e)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white disabled:opacity-60 text-xs font-black shadow-sm transition shrink-0 ${btnTone}`}
           >
@@ -545,6 +656,14 @@ export default function PhoneCallbackAlertBanner({
 
   return (
     <div onClick={(e) => e.stopPropagation()} className="select-text z-40">
+      {pendingCallbacks.length === 0 && errorMsg && (
+        <div className="bg-amber-700 text-white px-4 py-2 border-b border-amber-800 shadow-sm">
+          <div className="max-w-7xl mx-auto flex items-center gap-2 text-xs font-bold">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        </div>
+      )}
       {managerCallbacks.length > 0 && (
         <div className="bg-rose-600 text-white px-4 py-2.5 border-b border-rose-700 shadow-md">
           <div className="max-w-7xl mx-auto flex flex-col gap-2">
