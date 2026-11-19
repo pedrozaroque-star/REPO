@@ -2762,6 +2762,15 @@ export function sanitizePhoneReplyText(rawText: string, lang: PhoneLang = 'es'):
       /\b((?:(?:will|can|to)\s+)?(?:call\s+you\s+back|give\s+you\s+a\s+call(?:\s+back)?|get\s+back\s+to\s+you|reach\s+out(?:\s+to\s+you)?|contact\s+you))\s+(?:right\s+away|immediately|(?:very\s+)?shortly)\b/gi,
       '$1 as soon as possible'
     )
+    // Pedidos por teléfono: jamás mencionar políticas, pólizas o reglamentos
+    .replace(
+      /\b(?:por|debido\s+a|siguiendo|seg[uú]n)\s+(?:nuestras?\s+|las?\s+|una\s+)?(?:pol[ií]ticas?|p[oó]lizas?|reglamentos?|normas?)(?:\s+(?:internas?|oficiales?|estrictas?))?(?:\s+de\s+Tacos\s+Gavil[aá]n)?,?\s*(no\s+(?:tomamos|aceptamos|recibimos|podemos\s+tomar)\s+(?:pedidos|[oó]rdenes))/gi,
+      (_m, phrase: string, offset: number) => `${offset === 0 ? 'Disculpa' : 'disculpa'}, ${phrase.toLowerCase()}`
+    )
+    .replace(
+      /\b(?:per|by|due\s+to)\s+(?:Tacos\s+Gavil[aá]n(?:'s)?\s+)?(?:our\s+|company\s+|store\s+|strict\s+)?(?:policy|policies|rules?|regulations?),?\s*(we\s+(?:do\s+not|don't|cannot|can't)\s+take\s+orders)/gi,
+      'I apologize, $1'
+    )
     .replace(/\s+/g, ' ')
     .trim()
   const base = expandStreetAbbreviationsInText(preCleaned, lang, { stripZipAfterState: false })
@@ -4405,7 +4414,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 3. **Charolas Fiesta Platters**:
    - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
 4. **Pedidos por Teléfono**:
-   - Explica amablemente que por políticas de Tacos Gavilan no tomamos pedidos por teléfono, e invítalo a ordenar en línea en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o pedir directamente en caja o por el Drive-Thru' : ' o pedir directamente en caja'}.
+   - Explica de manera educada y seria que no tomamos órdenes por teléfono, e invítalo a hacer su pedido fácilmente en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}. Si insisten en preguntar por qué, mantente amable y seria indicando únicamente que los pedidos para recoger se toman en tacosgavilan.com o directamente en la sucursal. **PROHIBIDO** mencionar "políticas", "política", "pólizas", "reglamentos", "policy" o "policies" al responder sobre órdenes por teléfono.
 5. **Repartidores de Delivery (DoorDash, Uber Eats, Grubhub)**:
    - ${store.has_drive_thru ? `En esta sucursal (${customerBranchDisplay}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${customerBranchDisplay}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
    - Si quien llama es un CLIENTE con un problema en su pedido de DoorDash/Uber Eats (faltantes, cobro, orden equivocada), trátalo como reclamo (regla 6), no como repartidor.
@@ -4725,7 +4734,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         normUser
       )
     const isSimpleOrderByPhone =
-      /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|tomar (?:mi |una )?orden|quisiera (?:pedir|ordenar)|llamando para (?:hacer )?una? (?:orden|pedido)|place an order|order over the phone|put in an order)\b/i.test(
+      /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|tomar (?:mi |una )?orden|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?orden|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar)|llamando para (?:hacer )?una? (?:orden|pedido)|place an order|order over the phone|put in an order|take my order|i want to order|i'd like to order|like to place an order)\b/i.test(
         normUser
       ) && !/\b(hora|horario|abierto|cerrado|direccion|ubicad|drive|cuesta|precio|menu)\b/i.test(normUser)
     const isSimpleTodayHours =
@@ -4748,8 +4757,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     } else if (isSimpleOrderByPhone) {
       replyText =
         turnLangGuess === 'en'
-          ? `By Tacos Gavilan policy we do not take orders over the phone, but you can order online at tacosgavilan.com ${store.has_drive_thru ? 'or at the counter or Drive-Thru.' : 'or directly at the counter.'} How else can I help you?`
-          : `Por políticas de Tacos Gavilan no tomamos pedidos por teléfono, pero puedes ordenar en línea en tacosgavilan.com ${store.has_drive_thru ? 'o pedir directamente en caja o por el Drive-Thru.' : 'o pedir directamente en caja.'} ¿Te ayudo con algo más?`
+          ? `I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or ${store.has_drive_thru ? 'directly at the counter or Drive-Thru.' : 'directly at the counter.'} How else can I help you?`
+          : `Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o ${store.has_drive_thru ? 'pedir directamente en caja o por el Drive-Thru.' : 'pedir directamente en caja.'} ¿Te ayudo con algo más?`
     } else if (isSimpleTodayHours) {
       replyText =
         turnLangGuess === 'en'
