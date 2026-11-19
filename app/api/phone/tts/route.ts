@@ -46,8 +46,9 @@ async function renderWav(
   const rawWav = await getPhoneAgentSpeech(safeText, lang, voice, false, {
     skipStorageLookup: isDynamic,
     skipStoragePersist: false,
-    skipSseAttempt: rate === 8000 || isDynamic,
-    maxTotalMs: rate === 8000 || isDynamic ? 10500 : 16000,
+    skipSseAttempt: false,
+    fastLivePhone: rate === 8000 || isDynamic,
+    maxTotalMs: rate === 8000 || isDynamic ? 9500 : 16000,
     signal
   })
   const wav = rate === 8000 ? downsampleWav24kTo8k(rawWav) : rawWav

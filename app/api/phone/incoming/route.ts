@@ -18,8 +18,8 @@
  * @notes
  * - El `<Redirect>` de respaldo tras el primer `<Gather>` envía `&silence=1` (no `retry=1`) para que el primer silencio
  *   pregunte amablemente `"¿Sigues en la línea?"` antes de colgar.
- * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout` adaptativo `"2"`/`"3"`, `speechModel="telephony"`
- *   + `hints`), respaldo de emergencia `<Say>` exclusivamente con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly)
+ * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente, `speechModel="telephony"`
+ *   + `hints`), vía rápida SSE `fastLivePhone: true`, respaldo de emergencia `<Say>` exclusivamente con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly)
  *   y coordina atómicamente el `upsert` inicial de `phone_calls` (`ignoreDuplicates: true` + backfill seguro de `transcript`)
  *   para no perder cierres rápidos de `/api/phone/status` que lleguen antes del registro diferido.
  */
@@ -106,7 +106,8 @@ export async function POST(request: Request) {
       let unassignedTag = buildTwilioFallbackSay(unassignedMsg, 'es')
       try {
         await getPhoneAgentSpeech(unassignedMsg, 'es', 'Kore', false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getIncomingTtsBudgetMs()
         })
@@ -215,7 +216,8 @@ export async function POST(request: Request) {
       let disabledPlayedKore38 = false
       try {
         await getPhoneAgentSpeech(disabledMsg, lang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getIncomingTtsBudgetMs()
         })
@@ -228,7 +230,7 @@ export async function POST(request: Request) {
         await Promise.all([
           !disabledPlayedKore38
             ? getPhoneAgentSpeech(disabledMsg, lang, voice, false, {
-                skipSseAttempt: true,
+                skipSseAttempt: false,
                 awaitStoragePersist: true,
                 maxTotalMs: 12000
               }).catch(() => null)
@@ -287,12 +289,14 @@ export async function POST(request: Request) {
     const greetingBudgetMs = getIncomingTtsBudgetMs()
     const [discRes, qRes] = await Promise.allSettled([
       getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
-        skipSseAttempt: true,
+        skipSseAttempt: false,
+        fastLivePhone: true,
         awaitStoragePersist: true,
         maxTotalMs: greetingBudgetMs
       }),
       getPhoneAgentSpeech(questionOnlyText, lang, voice, false, {
-        skipSseAttempt: true,
+        skipSseAttempt: false,
+        fastLivePhone: true,
         awaitStoragePersist: true,
         maxTotalMs: greetingBudgetMs
       })
@@ -311,14 +315,14 @@ export async function POST(request: Request) {
         initialCallPersistPromise,
         discRes.status !== 'fulfilled'
           ? getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
-              skipSseAttempt: true,
+              skipSseAttempt: false,
               awaitStoragePersist: true,
               maxTotalMs: 12000
             }).catch(() => null)
           : Promise.resolve(),
         qRes.status !== 'fulfilled'
           ? getPhoneAgentSpeech(questionOnlyText, lang, voice, false, {
-              skipSseAttempt: true,
+              skipSseAttempt: false,
               awaitStoragePersist: true,
               maxTotalMs: 12000
             }).catch(() => null)

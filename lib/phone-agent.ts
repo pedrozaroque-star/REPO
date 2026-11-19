@@ -167,14 +167,14 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 // - gemini-3-flash-preview y gemini-3.1-flash-lite-preview como respaldos automáticos con salto rápido si hay 429/503.
 // ('gemini-3.6-flash' y 'gemini-3.8-flash' se omiten: sufrieron 429/503 y 3.8 rechaza thinking minimal).
 const MODERN_CHAT_MODELS = [
+  'gemini-3-flash-preview',
   'gemini-3.5-flash-lite',
-  'gemini-flash-lite-latest',
-  'gemini-3-flash-preview'
+  'gemini-3.1-flash-lite-preview'
 ]
 const CLASSIC_CHAT_MODELS = [
+  'gemini-3-flash-preview',
   'gemini-3.5-flash-lite',
-  'gemini-flash-lite-latest',
-  'gemini-3-flash-preview'
+  'gemini-3.1-flash-lite-preview'
 ]
 
 const keyQuarantineUntil = new Map<string, number>()
@@ -2913,7 +2913,7 @@ async function callGeminiPhoneWithFailover(
   const rotated = [...candidateKeys.slice(startIdx), ...candidateKeys.slice(0, startIdx)]
   const modernKeys = rotated.filter((k) => k.startsWith('AQ.'))
   const classicKeys = rotated.filter((k) => !k.startsWith('AQ.'))
-  const orderedKeys = [...modernKeys, ...classicKeys]
+  const orderedKeys = modernKeys.length >= 3 ? modernKeys : [...modernKeys, ...classicKeys]
 
   const baseModels = Array.from(new Set([...MODERN_CHAT_MODELS, ...CLASSIC_CHAT_MODELS]))
   const orderedModels = preferredModel && baseModels.includes(preferredModel)
@@ -2925,15 +2925,16 @@ async function callGeminiPhoneWithFailover(
 
   for (const pass of ['fresh', 'cooldown_fallback'] as const) {
     if (pass === 'cooldown_fallback' && deadlineMs - Date.now() < 1200) break
+    const passKeys = pass === 'cooldown_fallback' && modernKeys.length >= 3 ? [...modernKeys, ...classicKeys] : orderedKeys
     for (const model of orderedModels) {
       if (pass === 'fresh' && (modelUnavailableUntil.get(model) || 0) > Date.now()) continue
       let attemptsOnModel = 0
       let overloadsOnModel = 0
       const isFollowUpRound = Boolean(preferredModel)
-      const maxAttemptsOnThisModel = pass === 'fresh' ? (isFollowUpRound ? 2 : model === 'gemini-3.5-flash-lite' ? 3 : 2) : 2
+      const maxAttemptsOnThisModel = pass === 'fresh' ? (isFollowUpRound ? 2 : 2) : 2
       const supportsMinimalThinking = !model.includes('3.8')
 
-      for (const key of orderedKeys) {
+      for (const key of passKeys) {
         if (attemptsOnModel >= maxAttemptsOnThisModel) break
         if (!bypassKeyQuarantine && (keyQuarantineUntil.get(key) || 0) > Date.now()) continue
         const pairKey = `${key}:${model}`
@@ -2982,7 +2983,7 @@ async function callGeminiPhoneWithFailover(
             generationConfig: genCfg
           }
 
-          const attemptLimitMs = pass === 'fresh' ? 2500 : 3200
+          const attemptLimitMs = pass === 'fresh' ? 2400 : 3200
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3033,11 +3034,11 @@ async function callGeminiPhoneWithFailover(
             keyModelCooldownUntil.set(pairKey, Date.now() + 5 * 60 * 1000)
             continue
           }
-          // 500/503 sobrecarga temporal del modelo: si 2 llaves fallan seguidas, saltar al siguiente modelo al instante
+          // 500/503 o timeout: saltar rápido al siguiente modelo sin quemar otros 2.4s en un endpoint saturado
           overloadsOnModel++
           keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
-          if (overloadsOnModel >= 2) {
-            modelUnavailableUntil.set(model, Date.now() + 60 * 1000)
+          if (overloadsOnModel >= (pass === 'fresh' ? 1 : 2)) {
+            modelUnavailableUntil.set(model, Date.now() + 30 * 1000)
             break
           }
         } catch (e: any) {
@@ -3045,8 +3046,8 @@ async function callGeminiPhoneWithFailover(
           overloadsOnModel++
           keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
           lastError = e?.message || 'Error de red'
-          if (overloadsOnModel >= 2) {
-            modelUnavailableUntil.set(model, Date.now() + 60 * 1000)
+          if (overloadsOnModel >= (pass === 'fresh' ? 1 : 2)) {
+            modelUnavailableUntil.set(model, Date.now() + 30 * 1000)
             break
           }
         }
@@ -4416,7 +4417,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - Si ya enviaste la alerta en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el gerente ya la tiene en su pantalla.
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
    - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español cálido y natural del Sur de California con precios SIEMPRE en dólares y centavos, o inglés natural).
-   - Sé concisa y directa: **12 a 28 palabras** (1–2 oraciones ágiles). Excepciones autorizadas hasta **65–75 palabras**: (a) cuando pidan el **calendario de días festivos especiales en general**, DEBES resumir las **7 fechas reales** (cerrados Viernes Santo y Navidad 25 dic; cierre temprano 4 PM en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura tarde 11 AM en Año Nuevo 1 ene y Black Friday); o (b) direcciones de varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
+   - **RESPUESTAS ULTRA ÁGILES (8 a 20 palabras, 1–2 oraciones cortas)**: Ya dijiste la sucursal al saludar; NO repitas el nombre largo ni las esquinas en cada respuesta a menos que pregunten ubicación, dirección o sucursal. Responde directo el dato pedido más una pregunta breve de cierre (ej. \`"Hoy cerramos a las 2:00 AM. ¿Te puedo ayudar con algo más?"\`, \`"Cada taco de asada cuesta $2.29 dólares. ¿Algo más?"\`). Excepciones autorizadas hasta **65–75 palabras**: (a) calendario completo de los **7 festivos** (cerrados Viernes Santo y Navidad 25 dic; cierre 4 PM Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura 11 AM Año Nuevo 1 ene y Black Friday); o (b) varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
 8. **Filtro Anti-Spam / Ventas Comerciales**:
    - Si llaman para vender servicios comerciales (SEO/Google, préstamos, paneles solares, garantías), declina con cortesía en una oración breve indicando que en sucursal no recibimos ofertas comerciales y NO ejecutes \`create_manager_callback\`.`
 
@@ -4689,6 +4690,89 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     return { error: `Herramienta desconocida: ${toolName}` }
   }
 
+  // Filtrar declaraciones redundantes cuyas respuestas ya fueron pre-inyectadas 100% en vivo en el systemInstruction
+  // para evitar viajes dobles de functionCall (+900 ms por pregunta) sin perder ninguna herramienta cuando haga falta.
+  const excludedToolNames = new Set<string>(['get_store_hours_and_status'])
+  if (preFetchedMenu.length > 0) excludedToolNames.add('search_menu_item_price')
+  if (wantsFiestaContext) excludedToolNames.add('get_fiesta_platter_packages')
+  if (wantsMultiStoreContext) excludedToolNames.add('find_other_stores')
+  const turnTools = [
+    {
+      functionDeclarations: PHONE_AGENT_TOOLS[0].functionDeclarations.filter(
+        (fn: any) => !excludedToolNames.has(String(fn?.name || ''))
+      )
+    }
+  ]
+
+  // Fast-Path Determinista (< 2 ms, 0 llamadas LLM): resuelve al instante las 5 intenciones simples más frecuentes
+  // cuyo texto es canónico y pre-calentable en Storage (`phone_v6/Kore`), derivando a Gemini cualquier pregunta compuesta o abierta.
+  const wordCount = normalizedUserForMatch.split(/\s+/).filter(Boolean).length
+  const mentionsOtherStoresForFast =
+    /\b(otra|otras|other|sucursal(?:es)?|ubicaciones|locations|tiendas|stores|branches|closest|nearest|all stores|cerca|zona|zonas|east la|south la|downtown|sgv|san gabriel|orange|inland|west covina|azusa|broadway|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto|todas|cuantas|mas tarde|mas temprano)\b/i.test(
+      normUser
+    )
+  const hasCompoundOrOtherTopic =
+    mentionsOtherStoresForFast ||
+    wantsFiestaContext ||
+    /\b(precio|precios|cuesta|cuanto|vale|how much|what does|lleva|ingrediente|diferencia|manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday|festiv|holiday|falt|incomplet|queja|mal|equivocad|wrong|missing|reembolso|refund|cobro|gerente|manager|supervisor|empleado|tarde|callout|repartidor|doordash|uber|grubhub|ebt|calfresh|empleo|trabajo|hiring|vacante|desayuno|breakfast|charola|platter|pastel|flan|cheesecake)\b/i.test(
+      normUser
+    )
+  if (!replyText && wordCount <= 14 && !hasCompoundOrOtherTopic) {
+    const isSimpleClosing =
+      !/[?¿]/.test(userText) &&
+      !/\b(mejor|espera|una pregunta|otra|tambien|one more|wait|actually|quiero|necesito)\b/i.test(normUser) &&
+      /\b(gracias es todo|eso es todo|es todo gracias|solo era eso|seria todo|nada mas|muchas gracias adios|bye|goodbye|thank you that is all|thats all|that will be all|nothing else|no thank you|no thanks|hasta luego|adios|cuelgame|nos vemos)\b/i.test(
+        normUser
+      )
+    const isSimpleOrderByPhone =
+      /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|tomar (?:mi |una )?orden|quisiera (?:pedir|ordenar)|llamando para (?:hacer )?una? (?:orden|pedido)|place an order|order over the phone|put in an order)\b/i.test(
+        normUser
+      ) && !/\b(hora|horario|abierto|cerrado|direccion|ubicad|drive|cuesta|precio|menu)\b/i.test(normUser)
+    const isSimpleTodayHours =
+      /\b(a que hora (?:abren|cierran)|hora de (?:cierre|apertura)|estan abiertos|esta abierto|siguen abiertos|hasta que hora|cual es (?:su|el) horario(?: de hoy)?|what time do you (?:open|close)|are you open|still open|your hours(?: today)?)\b/i.test(
+        normUser
+      ) && !/\b(direccion|ubicad|donde|address|drive|orden|pedido|menu)\b/i.test(normUser)
+    const isSimpleAddress =
+      /\b(cual es (?:la|su) direccion|donde estan ubicados|donde queda|me das la direccion|en donde estan|what is (?:the|your) address|where are you located)\b/i.test(
+        normUser
+      ) && !/\b(hora|horario|abierto|cierran|drive|orden|pedido)\b/i.test(normUser)
+    const isSimpleDriveThru =
+      /\b(tienen drive|hay drive|cuentan con drive|do you have (?:a )?drive)\b/i.test(normUser) &&
+      !/\b(hora|horario|abierto|cierran|direccion|ubicad|orden|pedido)\b/i.test(normUser)
+
+    if (isSimpleClosing) {
+      replyText =
+        turnLangGuess === 'en'
+          ? 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!'
+          : 'Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
+    } else if (isSimpleOrderByPhone) {
+      replyText =
+        turnLangGuess === 'en'
+          ? `By Tacos Gavilan policy we do not take orders over the phone, but you can order online at tacosgavilan.com ${store.has_drive_thru ? 'or at the counter or Drive-Thru.' : 'or directly at the counter.'} How else can I help you?`
+          : `Por políticas de Tacos Gavilan no tomamos pedidos por teléfono, pero puedes ordenar en línea en tacosgavilan.com ${store.has_drive_thru ? 'o pedir directamente en caja o por el Drive-Thru.' : 'o pedir directamente en caja.'} ¿Te ayudo con algo más?`
+    } else if (isSimpleTodayHours) {
+      replyText =
+        turnLangGuess === 'en'
+          ? `${scheduleEval.statusMessageEn} How else can I help you?`
+          : `${scheduleEval.statusMessageEs} ¿Te puedo ayudar con algo más?`
+      if (!toolsUsed.includes('get_store_hours_and_status')) toolsUsed.push('get_store_hours_and_status')
+    } else if (isSimpleAddress) {
+      replyText =
+        turnLangGuess === 'en'
+          ? `We are located at ${spokenStoreAddress}${customerBranchCrossStreets ? `, at the corner of ${customerBranchCrossStreets}` : ''}. How else can I help you?`
+          : `Estamos ubicados en ${spokenStoreAddress}${customerBranchCrossStreets ? `, en la esquina de ${customerBranchCrossStreets}` : ''}. ¿Te puedo ayudar con algo más?`
+    } else if (isSimpleDriveThru) {
+      replyText =
+        turnLangGuess === 'en'
+          ? store.has_drive_thru
+            ? 'We have Drive-Thru service at this location. How else can I help you?'
+            : 'We do not have a Drive-Thru at this location, but we gladly serve you for dine-in and takeout. How else can I help you?'
+          : store.has_drive_thru
+            ? 'Contamos con servicio de Drive-Thru en esta sucursal. ¿Te puedo ayudar con algo más?'
+            : 'En esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar. ¿Te puedo ayudar con algo más?'
+    }
+  }
+
   let pinnedModelForTurn: string | null = null
   for (let round = 0; round < 3 && !replyText; round++) {
     let data: any
@@ -4697,7 +4781,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         {
           systemInstruction: { parts: [{ text: systemInstruction }] },
           contents,
-          tools: PHONE_AGENT_TOOLS,
+          tools: turnTools,
           generationConfig: {
             temperature: 0,
             maxOutputTokens: 1024
@@ -4922,7 +5006,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     !shouldTransferToPhone &&
     (meta.primaryIntent === 'spam' ||
       (!continuesAsking &&
-        (/\b(gracias es todo|eso es todo|solo era eso|seria todo|nada mas|bye|goodbye|thank you that is all|thats all|that will be all|nothing else|no thank you|no thanks|hasta luego|adios|nos vemos)\b/i.test(
+        (/\b(gracias es todo|es todo gracias|eso es todo|es todo|solo era eso|seria todo|nada mas|cuelgame|bye|goodbye|thank you that is all|thats all|that will be all|nothing else|no thank you|no thanks|hasta luego|adios|nos vemos)\b/i.test(
           normEnd
         ) ||
           (offeredEnding && /^(?:no\s+)?(?:muchas\s+)?gracias\.?$/i.test(normEnd.trim())))))
@@ -5235,8 +5319,8 @@ export function isPromptExpectingPhoneOrDetails(text: string | null | undefined)
 
 /**
  * Genera los atributos estándar optimizados de Twilio `<Gather input="speech dtmf">`
- * con `speechTimeout` adaptativo (`"2"` estándar / `"3"` paciente al dictar teléfono o datos),
- * `timeout` (`"5"` estándar / `"8"` paciente), `actionOnEmptyResult="true"`, `speechModel="telephony"` y `hints`.
+ * con `speechTimeout` adaptativo (`"1"` estándar para respuesta rápida / `"3"` paciente al dictar teléfono o datos),
+ * `timeout` (`"4"` estándar / `"8"` paciente), `actionOnEmptyResult="true"`, `speechModel="telephony"` y `hints`.
  */
 export function buildTwilioGatherAttrs(
   lang: PhoneLang,
@@ -5244,8 +5328,8 @@ export function buildTwilioGatherAttrs(
   opts?: { patient?: boolean }
 ): string {
   const speechLang = lang === 'en' ? 'en-US' : 'es-US'
-  const speechTimeout = opts?.patient ? '3' : '2'
-  const timeout = opts?.patient ? '8' : '5'
+  const speechTimeout = opts?.patient ? '3' : '1'
+  const timeout = opts?.patient ? '8' : '4'
   return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="${speechTimeout}" timeout="${timeout}" actionOnEmptyResult="true" speechModel="telephony" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
 }
 

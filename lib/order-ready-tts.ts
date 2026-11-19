@@ -1208,6 +1208,7 @@ export async function* streamPhoneAgentSpeechPcm(
     skipInflightLookup?: boolean
     signal?: AbortSignal
     allowBlockFallback?: boolean
+    fastLivePhone?: boolean
     onStreamCompleted?: (completedCleanly: boolean) => void
   }
 ): AsyncGenerator<{ pcmChunk: Buffer; sampleRate: number; fromCache: boolean }> {
@@ -1307,7 +1308,11 @@ export async function* streamPhoneAgentSpeechPcm(
   }
 
   const candidatePairs: Array<{ model: string; key: string }> = []
-  for (const model of PHONE_STREAM_TTS_MODELS) {
+  const fastLivePhone = Boolean(options?.fastLivePhone)
+  const streamModels = fastLivePhone
+    ? (['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'] as const)
+    : PHONE_STREAM_TTS_MODELS
+  for (const model of streamModels) {
     for (const key of streamKeys) {
       candidatePairs.push({ model, key })
     }
@@ -1342,9 +1347,10 @@ export async function* streamPhoneAgentSpeechPcm(
 
   // Recorrer TODAS las llaves AQ. sanas sobre Kore 3.8 (los rechazos rápidos 429/401/402/403 NO consumen el tope de fallos lentos)
   const slowModelFailures = new Map<string, number>()
-  const TTFA_WATCHDOG_MS = 5000
-  const CHUNK_IDLE_WATCHDOG_MS = 3400
-  const MAX_TOTAL_STREAM_MS = 28000
+  const TTFA_WATCHDOG_MS = fastLivePhone ? 1450 : 5000
+  const CHUNK_IDLE_WATCHDOG_MS = fastLivePhone ? 1850 : 3400
+  const MAX_TOTAL_STREAM_MS = fastLivePhone ? 6500 : 28000
+  const maxRpmWaitStreamMs = fastLivePhone ? 0 : 16000
 
   let pairIdx = 0
   let usedStreamRpmWait = false
@@ -1352,13 +1358,13 @@ export async function* streamPhoneAgentSpeechPcm(
   while (true) {
     if (pairIdx >= candidatePairs.length) {
       // 3b. Al agotar las candidatas iniciales de 3.8 (incluyendo si la última cayó por `continue`),
-      // esperar una única vez si existe una llave 3.8 en enfriamiento corto RPM (<= 16s)
+      // esperar una única vez si existe una llave 3.8 en enfriamiento corto RPM (<= 16s; <= 1.2s en llamada Twilio en vivo)
       if (!usedStreamRpmWait && earliestStreamRpmCandidate && !options?.signal?.aborted) {
         usedStreamRpmWait = true
         const rpmCand = earliestStreamRpmCandidate as { model: string; key: string; readyAt: number }
         earliestStreamRpmCandidate = null
         const waitMs = Math.max(0, rpmCand.readyAt - Date.now())
-        if (waitMs <= 16000) {
+        if (waitMs <= maxRpmWaitStreamMs) {
           const ok = await sleepAbortable(waitMs, options?.signal)
           if (ok) {
             keyBlockedUntil.delete(`${rpmCand.key}:${rpmCand.model}`)
@@ -1376,7 +1382,8 @@ export async function* streamPhoneAgentSpeechPcm(
       options?.onStreamCompleted?.(false)
       return
     }
-    if ((slowModelFailures.get(model) || 0) >= 4) {
+    const slowCap = fastLivePhone && model === 'gemini-3.8-flash-tts' ? 1 : 4
+    if ((slowModelFailures.get(model) || 0) >= slowCap) {
       continue
     }
     if (!bypassEmergencyBlock && (keyBlockedUntil.get(key) || 0) > Date.now()) {
@@ -1736,6 +1743,7 @@ export async function getPhoneAgentSpeech(
     skipStoragePersist?: boolean
     awaitStoragePersist?: boolean
     skipSseAttempt?: boolean
+    fastLivePhone?: boolean
     requireKore38?: boolean
     maxTotalMs?: number
     signal?: AbortSignal
@@ -1820,7 +1828,13 @@ export async function getPhoneAgentSpeech(
       // 2. Caché persistente en Supabase Storage (dentro de `inflight` para evitar llamadas duplicadas concurrentes)
       if (!forceRegenerate && !options?.skipStorageLookup) {
         try {
-          const hit = await supabaseAdmin.storage.from(BUCKET).download(path)
+          const downloadPromise = supabaseAdmin.storage.from(BUCKET).download(path)
+          const hit = options?.fastLivePhone
+            ? await Promise.race([
+                downloadPromise,
+                new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 1200))
+              ])
+            : await downloadPromise
           if (hit.data) {
             const wav = ensureWav(Buffer.from(await hit.data.arrayBuffer()))
             if (wav.length > 44) {
@@ -1845,6 +1859,7 @@ export async function getPhoneAgentSpeech(
           skipStorageLookup: true,
           skipInflightLookup: true,
           allowBlockFallback: false,
+          fastLivePhone: options?.fastLivePhone,
           signal: budgetSignal,
           onStreamCompleted: (ok) => {
             completedCleanly = ok
@@ -1870,27 +1885,34 @@ export async function getPhoneAgentSpeech(
         }
       }
 
-      // 4. Síntesis en bloque priorizando estrictamente Kore 3.8 (gemini-3.8-flash-tts -> gemini-3.8-flash-lite-tts) en las 7 llaves AQ.
+      // 4. Síntesis en bloque priorizando Kore 3.8 (en `fastLivePhone`, prioriza 3.8-flash-lite-tts porque SSE 3.8-flash-tts ya fue intentado)
       const stylePrompt = getPhoneStylePrompt(lang)
       const attemptTimeoutMs =
         typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
-          ? Math.min(9200, Math.max(3500, Math.floor(options.maxTotalMs * 0.9)))
+          ? Math.min(9200, Math.max(3200, Math.floor(options.maxTotalMs * 0.85)))
           : 10000
+      const blockModels = options?.fastLivePhone
+        ? (['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'] as const)
+        : PHONE_KORE38_MODELS
       let synthResult: { wav: Buffer; modelUsed: string }
       try {
         synthResult = await generateTextWithGeminiDetailed(clean, lang, selectedVoice, stylePrompt, {
-          allowedModels: PHONE_KORE38_MODELS,
-          skipRpmWait: Boolean(options?.maxTotalMs && options.maxTotalMs <= 4200),
-          maxRpmWaitMs: options?.maxTotalMs ? Math.min(5000, Math.floor(options.maxTotalMs * 0.45)) : 22500,
+          allowedModels: blockModels,
+          skipRpmWait: Boolean(options?.fastLivePhone || (options?.maxTotalMs && options.maxTotalMs <= 4200)),
+          maxRpmWaitMs: options?.fastLivePhone
+            ? 800
+            : options?.maxTotalMs
+              ? Math.min(5000, Math.floor(options.maxTotalMs * 0.45))
+              : 22500,
           attemptTimeoutMs,
-          maxAttemptsPerModel: 5,
+          maxAttemptsPerModel: options?.fastLivePhone ? 2 : 5,
           signal: budgetSignal
         })
       } catch (kore38Err) {
-        if (options?.requireKore38 || budgetSignal?.aborted) {
+        if (options?.requireKore38 || options?.fastLivePhone || budgetSignal?.aborted) {
           throw kore38Err
         }
-        // Salvavidas de última instancia SOLO si el 100% de Kore 3.8 agotó su cuota diaria dura (JAMÁS se cachea en RAM ni Storage)
+        // Salvavidas de última instancia SOLO fuera de llamada Twilio en vivo (ej. prewarm/simulador; Twilio cae más rápido a Google Chirp3 Kore)
         synthResult = await generateTextWithGeminiDetailed(clean, lang, selectedVoice, stylePrompt, {
           allowedModels: PHONE_EMERGENCY_FALLBACK_MODELS,
           skipRpmWait: true,

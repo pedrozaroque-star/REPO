@@ -18,10 +18,10 @@
  * - Twilio `<Gather>` -> `POST /api/phone/respond` -> `processPhoneAgentTurn()` -> TwiML.
  *
  * @notes
- * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout` adaptativo `"2"` estándar / `"3"` paciente + `timeout` `"5"`/`"8"` vía `isPromptExpectingPhoneOrDetails`, `speechModel="telephony"` + hints Tacos Gavilan).
+ * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente + `timeout` `"4"`/`"8"` vía `isPromptExpectingPhoneOrDetails`, `speechModel="telephony"` + hints Tacos Gavilan).
  * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, cero doble TTS sobre `firstChunk` (solo pre-calienta `restChunk` en `after()`),
  *   tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama defensiva heredada `<Dial>` desactivada por política.
- * - Auditoría 2026-11-18: saludo con `formatCustomerGreetingTarget` al desactivarse en turno 0, respaldo `<Say>` con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly), presupuesto dinámico `Kore 3.8` hasta `8.5s` con `awaitStoragePersist: true` y `Promise.allSettled` independiente, guarda `'cancelled'` y paciencia adaptativa para dictado de teléfonos.
+ * - Auditoría 2026-11-18: respaldo `<Say>` con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly), vía rápida SSE `fastLivePhone: true` en vivo, respuestas cortas sin dividir `<= 210` chars (cero pausas mudas entre oraciones) o síntesis paralela si excede `210`, y paciencia adaptativa para dictado de teléfonos.
  */
 
 import { after } from 'next/server'
@@ -107,7 +107,7 @@ async function loadSafeStoreContext(rawStoreId: number | null, callSid?: string)
 
 export async function POST(request: Request) {
   const reqStartMs = Date.now()
-  const getRespondTtsBudgetMs = () => Math.max(4500, Math.min(8500, 12500 - (Date.now() - reqStartMs)))
+  const getRespondTtsBudgetMs = () => Math.max(3000, Math.min(3900, 10500 - (Date.now() - reqStartMs)))
   try {
     const formData = await request.formData().catch(() => null)
     const params: Record<string, string> = {}
@@ -169,7 +169,8 @@ export async function POST(request: Request) {
       let disabledTag = buildTwilioFallbackSay(disabledMsg, currentLang)
       try {
         await getPhoneAgentSpeech(disabledMsg, currentLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getRespondTtsBudgetMs()
         })
@@ -249,7 +250,8 @@ export async function POST(request: Request) {
       let dialFallbackTag = buildTwilioFallbackSay(fallbackMsg, currentLang)
       try {
         await getPhoneAgentSpeech(fallbackMsg, currentLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getRespondTtsBudgetMs()
         })
@@ -295,12 +297,14 @@ export async function POST(request: Request) {
         const switchBudgetMs = getRespondTtsBudgetMs()
         const [discRes, qRes] = await Promise.allSettled([
           getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, {
-            skipSseAttempt: true,
+            skipSseAttempt: false,
+            fastLivePhone: true,
             awaitStoragePersist: true,
             maxTotalMs: switchBudgetMs
           }),
           getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, {
-            skipSseAttempt: true,
+            skipSseAttempt: false,
+            fastLivePhone: true,
             awaitStoragePersist: true,
             maxTotalMs: switchBudgetMs
           })
@@ -318,14 +322,14 @@ export async function POST(request: Request) {
           await Promise.all([
             discRes.status !== 'fulfilled'
               ? getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, {
-                  skipSseAttempt: true,
+                  skipSseAttempt: false,
                   awaitStoragePersist: true,
                   maxTotalMs: 12000
                 }).catch(() => null)
               : Promise.resolve(),
             qRes.status !== 'fulfilled'
               ? getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, {
-                  skipSseAttempt: true,
+                  skipSseAttempt: false,
                   awaitStoragePersist: true,
                   maxTotalMs: 12000
                 }).catch(() => null)
@@ -363,7 +367,8 @@ export async function POST(request: Request) {
       let switchPlayedKore38 = false
       try {
         await getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getRespondTtsBudgetMs()
         })
@@ -378,7 +383,7 @@ export async function POST(request: Request) {
           supabaseAdmin.from('phone_calls').select('id, transcript, turns_count').eq('call_sid', callSid).maybeSingle(),
           !switchPlayedKore38
             ? getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, {
-                skipSseAttempt: true,
+                skipSseAttempt: false,
                 awaitStoragePersist: true,
                 maxTotalMs: 12000
               }).catch(() => null)
@@ -425,12 +430,14 @@ export async function POST(request: Request) {
       const cipaBudgetMs = getRespondTtsBudgetMs()
       const [cipaRes, postQRes] = await Promise.allSettled([
         getPhoneAgentSpeech(mandatoryCipaSentence, currentLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: cipaBudgetMs
         }),
         getPhoneAgentSpeech(postQ, currentLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: cipaBudgetMs
         })
@@ -467,7 +474,8 @@ export async function POST(request: Request) {
       let invalidKeyTag = buildTwilioFallbackSay(invalidKeyMsg, currentLang)
       try {
         await getPhoneAgentSpeech(invalidKeyMsg, currentLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getRespondTtsBudgetMs()
         })
@@ -497,7 +505,8 @@ export async function POST(request: Request) {
         let goodbyeTag = buildTwilioFallbackSay(goodbyeText, currentLang)
         try {
           await getPhoneAgentSpeech(goodbyeText, currentLang, voice, false, {
-            skipSseAttempt: true,
+            skipSseAttempt: false,
+            fastLivePhone: true,
             awaitStoragePersist: true,
             maxTotalMs: getRespondTtsBudgetMs()
           })
@@ -550,7 +559,8 @@ export async function POST(request: Request) {
       let promptTag = buildTwilioFallbackSay(promptAgain, currentLang)
       try {
         await getPhoneAgentSpeech(promptAgain, currentLang, voice, false, {
-          skipSseAttempt: true,
+          skipSseAttempt: false,
+          fastLivePhone: true,
           awaitStoragePersist: true,
           maxTotalMs: getRespondTtsBudgetMs()
         })
@@ -584,21 +594,42 @@ export async function POST(request: Request) {
       deferDbFlush: true
     })
 
-    const { firstChunk, restChunk } = splitPhoneReplyForStreaming(turn.replyText)
+    // Solo dividir respuestas muy largas (> 210 chars); respuestas ágiles van en un solo <Play> para eliminar
+    // pausas mudas entre oraciones y evitar llamadas TTS duplicadas en tiempo real.
+    const { firstChunk, restChunk } =
+      turn.replyText.length > 210
+        ? splitPhoneReplyForStreaming(turn.replyText)
+        : { firstChunk: turn.replyText, restChunk: null }
 
-    // Pre-sintetizar `firstChunk` con presupuesto dinámico (hasta 8.5s sin cruzar el techo de 15s de Twilio) y persistir
-    // en Storage antes de entregar el TwiML para garantizar cache HIT en cualquier contenedor Vercel; si expira, cae a Google Chirp3-HD-Kore.
+    const ttsBudgetMs = getRespondTtsBudgetMs()
+    const firstSynthPromise = getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
+      skipStorageLookup: false,
+      skipStoragePersist: false,
+      skipSseAttempt: false,
+      fastLivePhone: true,
+      awaitStoragePersist: true,
+      maxTotalMs: ttsBudgetMs
+    })
+    const restSynthPromise = restChunk
+      ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
+          skipStorageLookup: false,
+          skipStoragePersist: false,
+          skipSseAttempt: false,
+          fastLivePhone: true,
+          awaitStoragePersist: true,
+          maxTotalMs: ttsBudgetMs + 1500
+        }).catch(() => null)
+      : null
+
     let playTags: string
     let usedFirstChunkPlay = false
     try {
-      await getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
-        skipStorageLookup: false,
-        skipStoragePersist: false,
-        skipSseAttempt: true,
-        awaitStoragePersist: true,
-        maxTotalMs: getRespondTtsBudgetMs()
-      })
+      await firstSynthPromise
       usedFirstChunkPlay = true
+      if (restSynthPromise) {
+        // Esperar brevemente a que termine la síntesis paralela de restChunk para garantizar reproducción continua
+        await Promise.race([restSynthPromise, new Promise<null>((r) => setTimeout(() => r(null), 1200))])
+      }
       const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
         rate: 8000,
         dynamic: false
@@ -622,20 +653,12 @@ export async function POST(request: Request) {
           ? getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
               skipStorageLookup: false,
               skipStoragePersist: false,
-              skipSseAttempt: true,
+              skipSseAttempt: false,
               awaitStoragePersist: true,
               maxTotalMs: 11000
             }).catch(() => null)
           : Promise.resolve(),
-        restChunk
-          ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
-              skipStorageLookup: false,
-              skipStoragePersist: false,
-              skipSseAttempt: true,
-              awaitStoragePersist: true,
-              maxTotalMs: 11000
-            }).catch(() => null)
-          : Promise.resolve()
+        restSynthPromise ?? Promise.resolve()
       ])
     })
 
