@@ -14,6 +14,7 @@
  * @notes
  * - Soporta tanto GET (útil para etiquetas <audio src="...">) como POST (para envío estructurado JSON).
  * - En caso de caída de API (502), el cliente web cae al sintetizador local del navegador con filtro estricto anti-Raul.
+ * - OPTIMIZACIÓN EDGE CDN (2026-11-19): GET usa `public, max-age=31536000, s-maxage=31536000, immutable` (idéntico a `/api/order-ready/tts`) porque la URL (`text`, `lang`, `voice`) identifica de forma determinística e inmutable el WAV cacheado en Storage; POST usa `no-store` al recibir parámetros en el body.
  */
 
 import { NextResponse } from 'next/server'
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
       headers: {
         'Content-Type': 'audio/wav',
         'Content-Length': String(wav.length),
-        'Cache-Control': 'public, max-age=3600, must-revalidate'
+        'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable'
       }
     })
   } catch (err: any) {
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
       headers: {
         'Content-Type': 'audio/wav',
         'Content-Length': String(wav.length),
-        'Cache-Control': 'public, max-age=3600, must-revalidate'
+        'Cache-Control': 'no-store'
       }
     })
   } catch (err: any) {

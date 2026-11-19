@@ -12,11 +12,12 @@
  * @notes
  * - Sincronizado con los identificadores numéricos reales de las 15 sucursales en Supabase (`1, 3..16`)
  *   y teléfonos/direcciones contrastados contra https://tacosgavilan.com/locations/.
+ * - 2026-11-19 (Paquete 2A): Agregado `Cache-Control: public, s-maxage=300, stale-while-revalidate=600` (catálogo público sin campos específicos de usuario).
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { corsResponse, jsonOk, jsonError } from '../_helpers'
+import { corsResponse, jsonOk, jsonError, PUBLIC_CACHE_HEADERS } from '../_helpers'
 
 /** Columnas seleccionadas de la tabla stores */
 const STORE_SELECT_COLUMNS = 'id, name, address, city, latitude, longitude, phone' as const
@@ -218,7 +219,7 @@ export async function GET(): Promise<NextResponse> {
       })
       .sort((a, b) => a.orderIndex - b.orderIndex)
 
-    return jsonOk({ stores: enrichedStores })
+    return jsonOk({ stores: enrichedStores }, 200, PUBLIC_CACHE_HEADERS)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
     console.error('❌ [mobile/stores] Error inesperado:', message)

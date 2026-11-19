@@ -44,6 +44,7 @@
  *   * `computeAdaptiveSilenceDurationMs` con normalización Unicode, dedup de Chrome Android, detección de dígitos al final
  *     (no suma ticket+fecha+teléfono) y pausa inteligente en nombre/ticket/fecha; 6 escenarios rápidos corregidos sin `555-01XX`
  *     + nuevos escenarios Paquete 1+2A+2B y DT/Comedor `SIN TICKET`.
+ * - Optimización 2026-11-19 (Paquete 1B): polling silencioso del dashboard elevado de 12s a 60s con guardia `visibilityState === 'visible'`.
  */
 
 'use client'
@@ -1261,13 +1262,13 @@ export default function ContestadoraIaPage() {
     }
   }, [viewer, activeTab])
 
-  // Polling autenticado silencioso cada 12s + recarga al volver a la pestaña o recuperar red
+  // Polling autenticado silencioso cada 60s + recarga al volver a la pestaña o recuperar red
   useEffect(() => {
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         void fetchDashboard(true)
       }
-    }, 12000)
+    }, 60000)
 
     const onVis = () => {
       if (document.visibilityState === 'visible') void fetchDashboard(true)

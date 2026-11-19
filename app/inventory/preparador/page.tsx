@@ -64,6 +64,11 @@
  *     1) Tick acústico sintetizado en memoria vía Web Audio API + vibración háptica (`0ms`, sin archivo MP3 404).
  *     2) Radar de proximidad multi-toque (`40px`, prioridad `changedTouches` ante gotas/palma en bordes y caché de geometría sin reflows).
  *     3) Tarjetas adaptativas gigantes cuando hay 1-4 órdenes activas, `overscroll-y-contain` anti Pull-to-Refresh y pausa de re-renders durante contacto activo.
+ *   - OPTIMIZACIÓN POLLING Y CACHÉ (2026-11-19, Paquete 2B):
+ *     1) `/api/order-ready/orders` envía `&view=prep` (mantiene cadencia 5s/10s de ÓRDENES intacta al 100%).
+ *     2) Heartbeat de telemetría elevado de 60s a 300s (5m), conservando envío inmediato al montar y en `visibilitychange`.
+ *     3) `preparador-manual-schedule` elevado de 3m a 5m con guardia `visibilityState` y sin `&_t`/`cache:'no-store'` en polling de fondo (conserva bypass `&_t` en guardados explícitos del gerente y despertar tableta).
+ *     4) `preparador/intelligence` elevado de 3m a 10m con guardia `visibilityState` y sin `&_t`/`cache:'no-store'`; `meat_consumption_history` elevado de 3m a 5m con guardia `visibilityState`.
  */
 'use client'
 
@@ -217,7 +222,7 @@ export default function PreparadorPage() {
     const fetchReadyOrdersRef = useRef<((isManual?: boolean, syncToastExplicit?: boolean) => Promise<void>) | null>(null)
     const fetchingReadyOrdersRef = useRef<boolean>(false)
     const fetchHistoryRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
-    const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
+    const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string, bypassCache?: boolean) => Promise<void>) | null>(null)
     const fetchRealMeatRef = useRef<((overrideDate?: string) => Promise<void>) | null>(null)
     const fetchIntelligenceRef = useRef<((overrideDate?: string) => Promise<void>) | null>(null)
     const updateBucketsRef = useRef<(() => void) | null>(null)
@@ -439,7 +444,7 @@ export default function PreparadorPage() {
                 forceTokenRefresh: true
             }),
             fetchHistoryRef.current?.(freshDow, freshBusinessDate),
-            fetchManualScheduleRef.current?.(freshDow, freshBusinessDate),
+            fetchManualScheduleRef.current?.(freshDow, freshBusinessDate, true),
             fetchRealMeatRef.current?.(freshBusinessDate),
             fetchIntelligenceRef.current?.(freshBusinessDate),
             fetchReadyOrdersRef.current?.(true)
@@ -485,15 +490,18 @@ export default function PreparadorPage() {
         if (!storeId) return
         const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
         
-        const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string) => {
-            // Prevent background 10s polling from overwriting user's local edits while saving
-            if (!overrideDow && Date.now() - lastSaveTimeRef.current < 8000) return
+        const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string, bypassCache = false) => {
+            // Prevent background polling from overwriting user's local edits while saving
+            if (!overrideDow && !bypassCache && Date.now() - lastSaveTimeRef.current < 8000) return
             const targetDow = overrideDow || businessDow
             const targetDate = overrideDate || selectedDate
             const targetStorageKey = `teg_prep_manual_weekly_${storeId}_${targetDow}`
 
             try {
-                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const url = bypassCache
+                    ? `/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`
+                    : `/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}`
+                const res = await fetch(url, bypassCache ? { cache: 'no-store' } : undefined)
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data)) {
@@ -530,7 +538,11 @@ export default function PreparadorPage() {
 
         fetchManualScheduleRef.current = fetchManualSchedule
         fetchManualSchedule()
-        const interval = setInterval(() => fetchManualSchedule(), 180000)
+        const interval = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchManualSchedule()
+            }
+        }, 300000)
         return () => clearInterval(interval)
     }, [storeId, businessDow, selectedDate])
 
@@ -643,7 +655,7 @@ export default function PreparadorPage() {
         }
     }, [currentStoreCode])
 
-    // Telemetría silenciosa de latido de Tableta de Preparación (cada 60s y al volver a primer plano)
+    // Telemetría silenciosa de latido de Tableta de Preparación (cada 5 min y al volver a primer plano)
     useEffect(() => {
         if (!currentStoreCode) return
         const sendPrepHeartbeat = () => {
@@ -660,7 +672,7 @@ export default function PreparadorPage() {
             }).catch(() => {})
         }
         sendPrepHeartbeat()
-        const hbInterval = setInterval(sendPrepHeartbeat, 60_000)
+        const hbInterval = setInterval(sendPrepHeartbeat, 300_000)
         const onVisible = () => {
             if (typeof document === 'undefined' || document.visibilityState === 'visible') {
                 sendPrepHeartbeat()
@@ -826,7 +838,7 @@ export default function PreparadorPage() {
             // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador:
             // Solo envía syncToast=true en sincronización explícita o manual; en Realtime y polling visual envía syncToast=false
             const syncRes = await fetch(
-                `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&syncToast=${shouldSyncToast ? 'true' : 'false'}&forceToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
+                `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&view=prep&syncToast=${shouldSyncToast ? 'true' : 'false'}&forceToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
                 {
                     cache: 'no-store',
                     headers: getTabletNoCacheHeaders()
@@ -2025,7 +2037,11 @@ export default function PreparadorPage() {
         fetchRealMeatRef.current = fetchRealD
         fetchRealD()
         if (isToday) {
-            const int = setInterval(() => fetchRealD(), 3 * 60 * 1000)
+            const int = setInterval(() => {
+                if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                    fetchRealD()
+                }
+            }, 5 * 60 * 1000)
             return () => clearInterval(int)
         }
     }, [storeId, selectedDate, isToday, supabase, businessDow])
@@ -2041,7 +2057,7 @@ export default function PreparadorPage() {
         const fetchIntelligence = async (overrideDate?: string) => {
             const targetDate = overrideDate || selectedDate
             try {
-                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`)
                 if (res.ok) {
                     const data = await res.json()
                     setIntelligenceAcelerador(data.growth_factor || 1.0)
@@ -2066,7 +2082,11 @@ export default function PreparadorPage() {
         }
         fetchIntelligenceRef.current = fetchIntelligence
         fetchIntelligence()
-        const int = setInterval(() => fetchIntelligence(), 3 * 60 * 1000)
+        const int = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchIntelligence()
+            }
+        }, 10 * 60 * 1000)
         return () => clearInterval(int)
     }, [storeId, isToday, selectedDate, businessDow])
 
@@ -3998,7 +4018,7 @@ export default function PreparadorPage() {
                                             localStorage.setItem(storageKey, JSON.stringify(updatedMap))
 
                                             try {
-                                                await fetch('/api/inventory/preparador-manual-schedule', {
+                                                const saveRes = await fetch('/api/inventory/preparador-manual-schedule', {
                                                     method: 'POST',
                                                     headers: { 'Content-Type': 'application/json' },
                                                     body: JSON.stringify({
@@ -4009,6 +4029,9 @@ export default function PreparadorPage() {
                                                         maxLbs: tempEditValue
                                                     })
                                                 })
+                                                if (saveRes.ok) {
+                                                    void fetchManualScheduleRef.current?.(businessDow, selectedDate, true)
+                                                }
                                             } catch (e) {
                                                 console.error('Error saving manual schedule:', e)
                                             }

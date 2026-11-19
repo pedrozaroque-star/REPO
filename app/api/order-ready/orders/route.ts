@@ -23,6 +23,10 @@
  * - ACCESO POR TIENDA (2026-10-06): GET/POST/PATCH exigen sesión y validan la tienda con lib/order-ready-access.ts
  *   (admin = todas, supervisor = su alcance, manager/asistente = solo su tienda). 401 sin sesión, 403 fuera de alcance.
  * - FIX (2026-11-09, Paridad 1:1 con Toast KDS): `inProgressOrders` se devuelve ordenado con `compareOrdersKdsFifo` (`created_at` ascendente + desempate por número de orden) para coincidir exactamente con la fila FIFO de pantallas KDS.
+ * - OPTIMIZACIÓN PAYLOAD & DB (2026-11-19):
+ *   1. Eliminada clave redundante `allOrders` de la respuesta JSON (cero consumidores en el repositorio; reduce ~50% de transferencia).
+ *   2. Reemplazado `.select('*')` por lista explícita de las 15 columnas requeridas (`ORDER_READY_SELECT_COLUMNS`).
+ *   3. Nuevo parámetro opcional `?view=prep` (usado por `/inventory/preparador`): omite la consulta secundaria `beverageCalls` y excluye `readyOrders`/`beverageCalls` de la respuesta, manteniendo 100% intacta la respuesta por defecto para `/order-ready-board`.
  */
 
 import { NextResponse } from 'next/server'
@@ -32,6 +36,9 @@ import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 import { getCaliforniaBusinessDate, getBusinessDayStartMs, getCaliforniaShift } from '@/lib/business-date'
 
 export const dynamic = 'force-dynamic'
+
+const ORDER_READY_SELECT_COLUMNS =
+  'id, created_at, business_date, store_id, store_code, store_name, order_number, order_guid, dining_option, customer_name, status, ready_at, announced, announced_at, items_summary'
 
 interface OrderPayload {
   storeCode?: string
@@ -64,7 +71,10 @@ export async function GET(request: Request) {
 
     const syncToast = searchParams.get('syncToast') === 'true'
     const forceToast = searchParams.get('forceToast') === 'true'
-    const minutes = parseInt(searchParams.get('minutes') || '45', 10)
+    const parsedMinutes = parseInt(searchParams.get('minutes') || '45', 10)
+    const minutes = Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : 45
+    const view = (searchParams.get('view') || '').trim().toLowerCase()
+    const isPrepView = view === 'prep'
 
     // FASE 8: Separar lectura pura de BD (syncToast=false) del flujo explícito de sincronización Toast (syncToast=true).
     // Los callbacks de Realtime y reconexiones usan syncToast=false y NUNCA disparan llamadas a Toast.
@@ -82,7 +92,7 @@ export async function GET(request: Request) {
     const fetchRows = () =>
       supabaseAdmin
         .from('order_ready_announcements')
-        .select('*')
+        .select(ORDER_READY_SELECT_COLUMNS)
         .eq('store_code', storeCode)
         .eq('business_date', currentBusinessDate)
         .gte('created_at', effectiveCutoff)
@@ -106,12 +116,24 @@ export async function GET(request: Request) {
 
     // Consultar TODOS los impulsos recientes (órdenes o Café/Champurrado de los últimos 45s) para Capa 4 de Redundancia (Polling Fallback),
     // garantizando que incluso si una orden tiene >45 min de creada o si syncStoreFromToast tardó >10s en la noche, el llamado nunca se pierda.
-    const recentBeverageCutoff = new Date(Date.now() - 45000).toISOString()
-    const { data: beverageCalls } = await supabaseAdmin
-      .from('order_ready_announcements')
-      .select('id, store_code, store_name, order_number, dining_option, announced_at')
-      .eq('store_code', storeCode)
-      .gte('announced_at', recentBeverageCutoff)
+    // En vista `?view=prep` (/inventory/preparador) se omite esta consulta porque la tableta solo muestra órdenes en preparación.
+    let beverageCalls: Array<{
+      id: string
+      store_code: string | null
+      store_name: string | null
+      order_number: string | null
+      dining_option: string | null
+      announced_at: string | null
+    }> = []
+    if (!isPrepView) {
+      const recentBeverageCutoff = new Date(Date.now() - 45000).toISOString()
+      const { data: bevData } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('id, store_code, store_name, order_number, dining_option, announced_at')
+        .eq('store_code', storeCode)
+        .gte('announced_at', recentBeverageCutoff)
+      beverageCalls = bevData || []
+    }
 
     // Regla de Negocio Tacos Gavilan: Las órdenes listas se retiran tras 20 minutos para mantener limpia la pantalla
     const nowMs = Date.now()
@@ -151,6 +173,15 @@ export async function GET(request: Request) {
       )
       .sort(compareOrdersKdsFifo)
 
+    if (isPrepView) {
+      return NextResponse.json({
+        success: true,
+        businessDate: currentBusinessDate,
+        shift: currentShift,
+        inProgressOrders
+      })
+    }
+
     return NextResponse.json({
       success: true,
       storeCode,
@@ -163,8 +194,7 @@ export async function GET(request: Request) {
       },
       readyOrders,
       inProgressOrders,
-      allOrders: filteredOrders,
-      beverageCalls: beverageCalls || []
+      beverageCalls
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })

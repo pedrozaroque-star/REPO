@@ -1,6 +1,40 @@
+/**
+ * @module app/planificador/hooks/useActualStats
+ * @description Hook de estadísticas reales (ventas netas y labor real por día) para el Planificador semanal de turnos.
+ * @businessRules
+ * - Día laboral de Tacos Gavilan: 6:00 AM a 5:59 AM del día siguiente (`America/Los_Angeles`).
+ * - Calcula labor en vivo para ponchadas abiertas (`clock_out === null`) y usa horas oficiales de Toast/DB para cerradas.
+ * - Solo sincroniza y hace auto-refresh en segundo plano (cada 5 min y únicamente cuando la pestaña está visible)
+ *   si el usuario está consultando la semana laboral actual; para semanas históricas o futuras carga únicamente una vez desde DB.
+ * @dataFlow
+ * - `sales_daily_cache`, `punches`, `toast_employees` + `POST /api/sync/sales-live` (solo semana actual) -> mapa diario `actuals`.
+ * @notes
+ * - Optimización 2026-11-19 (Paquete 2B): polling elevado de 2 min a 5 min con guardia `visibilityState === 'visible'`
+ *   y desactivado automáticamente cuando no se visualiza la semana laboral actual (`America/Los_Angeles`, corte 6:00 AM).
+ */
 import { useState, useEffect, useCallback } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { addDays, formatDateISO } from '../lib/utils'
+
+function getCurrentBusinessDateLA(): string {
+    const now = new Date()
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false
+    }).formatToParts(now)
+    let hour = Number(parts.find(p => p.type === 'hour')?.value ?? '12')
+    if (hour === 24) hour = 0
+    const y = Number(parts.find(p => p.type === 'year')?.value)
+    const m = Number(parts.find(p => p.type === 'month')?.value)
+    const d = Number(parts.find(p => p.type === 'day')?.value)
+    const dateObj = new Date(Date.UTC(y, m - 1, d))
+    if (hour < 6) dateObj.setUTCDate(dateObj.getUTCDate() - 1)
+    return dateObj.toISOString().slice(0, 10)
+}
 
 export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
     const [actuals, setActuals] = useState<Record<string, { sales: number, labor: { cost: number, hours: number } }>>({})
@@ -117,17 +151,30 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
     useEffect(() => {
         setActuals({}) // Reset immediately to avoid stale data from previous store
         setLoading(true)
-        // ⚡ FORCE LIVE REFRESH ON STORE CHANGE ⚡
-        // This ensures "Today's" sales are accurate immediately
-        forceRefresh()
 
-        // 🔄 Poll for Live Data every 2 minutes
-        const pollInterval = setInterval(() => {
+        const todayStr = getCurrentBusinessDateLA()
+        const weekStartStr = formatDateISO(weekStart)
+        const weekEndStr = formatDateISO(addDays(weekStart, 6))
+        const isCurrentWeek = todayStr >= weekStartStr && todayStr <= weekEndStr
+
+        if (isCurrentWeek) {
+            // ⚡ FORCE LIVE REFRESH ON STORE CHANGE (solo semana actual) ⚡
+            // This ensures "Today's" sales are accurate immediately
             forceRefresh()
-        }, 2 * 60 * 1000)
 
-        return () => clearInterval(pollInterval)
-    }, [forceRefresh])
+            // 🔄 Poll for Live Data every 5 minutes only when tab is visible
+            const pollInterval = setInterval(() => {
+                if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                    forceRefresh()
+                }
+            }, 5 * 60 * 1000)
+
+            return () => clearInterval(pollInterval)
+        }
+
+        // Semanas históricas o futuras: cargar una sola vez desde DB sin auto-refresh
+        fetchRawData()
+    }, [forceRefresh, fetchRawData, weekStart])
 
     // 2. Interval Effect: Recalculate 'actuals' every 60s using raw data + NOW
     useEffect(() => {

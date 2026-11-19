@@ -18,6 +18,7 @@
  *   Incluye Escenario 1 (apoyo temporal de puesto `[TEMP_ROLE:...]` en `shifts.notes` con reajuste automático de pendientes)
  *   y Escenario 2 (ausencia de último minuto con Reajuste IA de pendientes futuros vs Solo Ocultar, protegiendo memoria semanal).
  *   Mantiene la pantalla siempre encendida 24/7 (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`).
+ *   Optimización 2026-11-19 (Paquete 2B): polling de respaldo bidireccional sobre `shifts` elevado de 10s a 45s con guardia `visibilityState === 'visible'` (mantiene Realtime activo).
  */
 
 'use client'
@@ -1595,12 +1596,13 @@ export default function DescansosPage() {
         }
     }, [storeGuid, dateStr])
 
-    // --- POLLING BIDIRECCIONAL: Cada 10s verifica cambios en Supabase (PC ↔ Tableta) ---
+    // --- POLLING BIDIRECCIONAL: Cada 45s verifica cambios en Supabase (PC ↔ Tableta) cuando está visible ---
     // Compara snapshot-BD-anterior vs snapshot-BD-actual ordenado por ID
     useEffect(() => {
         if (!storeGuid || !dateStr) return;
 
         const pollInterval = setInterval(async () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
             if (Date.now() - lastLocalMutationAtRef.current < 4000) return;
             try {
                 const supabase = await getSupabaseClient();
@@ -1639,7 +1641,7 @@ export default function DescansosPage() {
             } catch (err) {
                 console.error('Sync polling error:', err);
             }
-        }, 10_000);
+        }, 45_000);
 
         return () => clearInterval(pollInterval);
     }, [storeGuid, dateStr, isFullscreen])

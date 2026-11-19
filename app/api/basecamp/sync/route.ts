@@ -20,15 +20,14 @@
  * - POST /api/basecamp/sync → cleanup stuck → mutex check → incremental filter → upsert
  *
  * @notes
- * - People y Projects SIEMPRE se sincronizan (son 1-2 API calls, rápido).
- * - Per-project resources solo se sincronizan si el proyecto cambió desde el último sync exitoso.
+ * - Per-project resources usan delta comparison por recurso (reordenar/completar todos en Basecamp no siempre mueve project.updated_at).
  * - Los dock IDs se extraen dinámicamente del proyecto.
  * - El sync principal no bloquea en descargas de medios. Si no están en caché (`bc_attachment_cache`),
  *   se deja la URL original de Basecamp temporalmente y se procesan en segundo plano por el worker.
+ * - 2026-11-19 (Paquete 2A): Cuando es disparado por cron interno (`x-internal-cron: 1` o Vercel Cron), omite ventana nocturna `10:00 PM–6:59 AM LA` (`?force=1` override; usuarios manuales siempre corren); omite upserts no-op en `bc_people`, `bc_projects` y `bc_attachment_cache`; y acota `triggerBackgroundAttachmentDownloader` dentro de `after()` (Next 16) únicamente cuando hay proyectos/contenido cambiados o máximo 1×/hora.
  */
 
-import { NextResponse } from 'next/server'
-import { verifyAuthToken } from '@/lib/auth-server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   fetchProjects,
@@ -60,6 +59,22 @@ import {
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutos máximo para Vercel
+
+const BG_DOWNLOADER_COOLDOWN_MS = 60 * 60 * 1000 // Máximo 1 barrido periódico/hora en ticks sin cambios
+let lastBgDownloaderRunAt = 0
+
+function getLATimeParts(now: Date = new Date()): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now)
+  const rawHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+  const hour = rawHour === 24 ? 0 : rawHour
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+  return { hour, minute }
+}
 
 interface SyncCounters {
   people: number
@@ -322,6 +337,8 @@ async function resolveOrCreatePerson(
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
+  const userAgent = request.headers.get('user-agent')
+  const vercelCronHeader = request.headers.get('x-vercel-cron')
   const mockRequest = new Request(request.url, {
     method: 'POST',
     body: JSON.stringify({ full: false }),
@@ -329,6 +346,8 @@ export async function GET(request: Request) {
       'Content-Type': 'application/json',
       'x-internal-cron': '1',
       ...(authHeader ? { Authorization: authHeader } : {}),
+      ...(userAgent ? { 'user-agent': userAgent } : {}),
+      ...(vercelCronHeader ? { 'x-vercel-cron': vercelCronHeader } : {}),
     },
   })
 
@@ -340,6 +359,32 @@ export async function POST(request: Request) {
   // and is strictly protected against concurrency/abuse by the bc_sync_log mutex lock.
   // Allowing same-origin auto-sync, cron jobs, and authenticated sessions ensures auto-sync never fails
   // even when a user's 7-day teg_token cookie expires while their localStorage session remains active.
+  const urlObj = (() => {
+    try {
+      return new URL(request.url)
+    } catch {
+      return null
+    }
+  })()
+  const forceRun = urlObj?.searchParams.get('force') === '1' || urlObj?.searchParams.get('force') === 'true'
+  const isInternalCron =
+    request.headers.get('x-internal-cron') === '1' ||
+    (request.headers.get('user-agent') || '').toLowerCase().includes('vercel-cron') ||
+    Boolean(request.headers.get('x-vercel-cron'))
+
+  const { hour: laHour, minute: laMinute } = getLATimeParts()
+  if (isInternalCron && !forceRun && (laHour >= 22 || laHour < 7)) {
+    console.log(
+      `⏳ [Basecamp Sync] Internal cron skipped during overnight window (10:00 PM - 6:59 AM LA). LA Time: ${laHour}:${String(laMinute).padStart(2, '0')}`
+    )
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: 'Overnight cron skip (10:00 PM - 6:59 AM LA)',
+      la_hour: laHour,
+    })
+  }
+
   const supabase = getSyncClient()
   const counters = createCounters()
   const startTime = Date.now()
@@ -467,45 +512,86 @@ export async function POST(request: Request) {
     const questionsMap: Record<number, string> = {}
 
     // ================================================================
-    // STEP 1: SYNC PEOPLE
+    // STEP 1: SYNC PEOPLE (diff-based to skip no-op upserts on quiet ticks)
     // ================================================================
     console.log('👥 [Basecamp Sync] Step 1: Syncing people...')
     try {
-      const people = await fetchPeople()
+      const [people, { data: existingPeople }] = await Promise.all([
+        fetchPeople(),
+        supabase
+          .from('bc_people')
+          .select('id, bc_id, name, email, avatar_url, role, title, is_active')
+          .limit(10000),
+      ])
       console.log(`   Found ${people.length} people`)
 
-      if (people.length > 0) {
-        const peopleRows = people.map((p) => ({
-          bc_id: p.id,
-          name: p.name,
-          email: p.email_address,
-          avatar_url: p.avatar_url,
-          role: p.employee ? 'employee' : p.client ? 'client' : 'user',
-          title: p.title || '',
-          is_active: p.status !== 'archived',
-          updated_at: new Date().toISOString(),
-        }))
-
-        const { data: insertedPeople, error: upsertErr } = await supabase
-          .from('bc_people')
-          .upsert(peopleRows, { onConflict: 'bc_id' })
-          .select('id, bc_id')
-
-        if (upsertErr) {
-          console.error('   ❌ People upsert error:', upsertErr.message)
-          counters.errors.push(`People: ${upsertErr.message}`)
-        } else if (insertedPeople) {
-          counters.people = insertedPeople.length
-          console.log(`   ✅ ${insertedPeople.length} people synced`)
+      const existingPeopleByBcId = new Map<
+        number,
+        {
+          id: string
+          bc_id: number | string
+          name?: string | null
+          email?: string | null
+          avatar_url?: string | null
+          role?: string | null
+          title?: string | null
+          is_active?: boolean | null
+        }
+      >()
+      if (existingPeople) {
+        for (const ep of existingPeople) {
+          const bcId = Number(ep.bc_id)
+          peopleMap[bcId] = ep.id
+          existingPeopleByBcId.set(bcId, ep)
         }
       }
 
-      // Populate memory map for people UUIDs
-      const { data: dbPeople } = await supabase.from('bc_people').select('id, bc_id').limit(10000)
-      if (dbPeople) {
-        dbPeople.forEach((p) => {
-          peopleMap[Number(p.bc_id)] = p.id
-        })
+      if (people.length > 0) {
+        const nowIso = new Date().toISOString()
+        const changedPeopleRows = people
+          .map((p) => ({
+            bc_id: p.id,
+            name: p.name,
+            email: p.email_address || '',
+            avatar_url: p.avatar_url || '',
+            role: p.employee ? 'employee' : p.client ? 'client' : 'user',
+            title: p.title || '',
+            is_active: p.status !== 'archived',
+            updated_at: nowIso,
+          }))
+          .filter((row) => {
+            if (forceFullSync) return true
+            const prev = existingPeopleByBcId.get(Number(row.bc_id))
+            if (!prev) return true
+            return (
+              (prev.name || '') !== (row.name || '') ||
+              (prev.email || '') !== (row.email || '') ||
+              (prev.avatar_url || '') !== (row.avatar_url || '') ||
+              (prev.role || '') !== (row.role || '') ||
+              (prev.title || '') !== (row.title || '') ||
+              Boolean(prev.is_active) !== Boolean(row.is_active)
+            )
+          })
+
+        if (changedPeopleRows.length > 0) {
+          const { data: insertedPeople, error: upsertErr } = await supabase
+            .from('bc_people')
+            .upsert(changedPeopleRows, { onConflict: 'bc_id' })
+            .select('id, bc_id')
+
+          if (upsertErr) {
+            console.error('   ❌ People upsert error:', upsertErr.message)
+            counters.errors.push(`People: ${upsertErr.message}`)
+          } else if (insertedPeople) {
+            counters.people = insertedPeople.length
+            insertedPeople.forEach((p) => {
+              peopleMap[Number(p.bc_id)] = p.id
+            })
+            console.log(`   ✅ ${insertedPeople.length}/${people.length} people changed & synced`)
+          }
+        } else {
+          console.log(`   ⚡ People unchanged (0/${people.length} upserts skipped)`)
+        }
       }
     } catch (err: any) {
       console.error('   ❌ People sync failed:', err.message)
@@ -513,14 +599,21 @@ export async function POST(request: Request) {
     }
 
     // ================================================================
-    // STEP 2: SYNC PROJECTS
+    // STEP 2: SYNC PROJECTS (diff-based to skip no-op upserts & preserve member_count)
     // ================================================================
     console.log('📂 [Basecamp Sync] Step 2: Syncing projects...')
     let projects: BasecampProject[] = []
     // Map of project bc_id → Basecamp API updated_at (to detect changes)
     const projectApiUpdatedAt: Record<number, string> = {}
     try {
-      projects = await fetchProjects()
+      const [fetchedProjects, { data: existingProjects }] = await Promise.all([
+        fetchProjects(),
+        supabase
+          .from('bc_projects')
+          .select('id, bc_id, name, description, color, is_pinned, is_archived, member_count')
+          .limit(10000),
+      ])
+      projects = fetchedProjects
       console.log(`   Found ${projects.length} projects`)
 
       // Store API updated_at for incremental comparison
@@ -528,59 +621,79 @@ export async function POST(request: Request) {
         projectApiUpdatedAt[p.id] = p.updated_at || ''
       }
 
-      // Fetch existing projects to preserve user custom colors and pins
-      const { data: existingProjects } = await supabase
-        .from('bc_projects')
-        .select('bc_id, color, is_pinned')
-        .limit(1000)
-
-      const existingColorMap = new Map<number, string>()
-      const existingPinMap = new Map<number, boolean>()
+      const existingProjectByBcId = new Map<
+        number,
+        {
+          id: string
+          bc_id: number | string
+          name?: string | null
+          description?: string | null
+          color?: string | null
+          is_pinned?: boolean | null
+          is_archived?: boolean | null
+          member_count?: number | null
+        }
+      >()
       if (existingProjects) {
         for (const ep of existingProjects) {
-          existingColorMap.set(Number(ep.bc_id), ep.color || 'white')
-          existingPinMap.set(Number(ep.bc_id), ep.is_pinned || false)
+          const epId = Number(ep.bc_id)
+          projectsMap[epId] = ep.id
+          existingProjectByBcId.set(epId, ep)
         }
       }
 
       if (projects.length > 0) {
-        const projectRows = projects.map((p) => {
-          const epId = Number(p.id)
-          const existingColor = existingColorMap.get(epId) || 'white'
-          const existingPin = existingPinMap.has(epId) ? existingPinMap.get(epId) : (p.bookmarked || false)
+        const nowIso = new Date().toISOString()
+        const changedProjectRows = projects
+          .map((p) => {
+            const epId = Number(p.id)
+            const prev = existingProjectByBcId.get(epId)
+            const existingColor = prev?.color || 'white'
+            const existingPin = prev ? Boolean(prev.is_pinned) : Boolean(p.bookmarked)
 
-          return {
-            bc_id: p.id,
-            name: p.name,
-            description: p.description || '',
-            color: existingColor,
-            is_pinned: existingPin,
-            is_archived: p.status === 'archived',
-            member_count: 0, // Will be computed or updated later
-            updated_at: new Date().toISOString(),
+            return {
+              bc_id: p.id,
+              name: p.name,
+              description: p.description || '',
+              color: existingColor,
+              is_pinned: existingPin,
+              is_archived: p.status === 'archived',
+              member_count: prev ? Number(prev.member_count || 0) : 0,
+              updated_at: nowIso,
+            }
+          })
+          .filter((row) => {
+            if (forceFullSync) return true
+            const prev = existingProjectByBcId.get(Number(row.bc_id))
+            if (!prev) return true
+            return (
+              (prev.name || '') !== (row.name || '') ||
+              (prev.description || '') !== (row.description || '') ||
+              (prev.color || 'white') !== (row.color || 'white') ||
+              Boolean(prev.is_pinned) !== Boolean(row.is_pinned) ||
+              Boolean(prev.is_archived) !== Boolean(row.is_archived)
+            )
+          })
+
+        if (changedProjectRows.length > 0) {
+          const { data: insertedProjects, error: upsertErr } = await supabase
+            .from('bc_projects')
+            .upsert(changedProjectRows, { onConflict: 'bc_id' })
+            .select('id, bc_id')
+
+          if (upsertErr) {
+            console.error('   ❌ Projects upsert error:', upsertErr.message)
+            counters.errors.push(`Projects: ${upsertErr.message}`)
+          } else if (insertedProjects) {
+            counters.projects = insertedProjects.length
+            insertedProjects.forEach((p) => {
+              projectsMap[Number(p.bc_id)] = p.id
+            })
+            console.log(`   ✅ ${insertedProjects.length}/${projects.length} projects changed & synced`)
           }
-        })
-
-        const { data: insertedProjects, error: upsertErr } = await supabase
-          .from('bc_projects')
-          .upsert(projectRows, { onConflict: 'bc_id' })
-          .select('id, bc_id')
-
-        if (upsertErr) {
-          console.error('   ❌ Projects upsert error:', upsertErr.message)
-          counters.errors.push(`Projects: ${upsertErr.message}`)
-        } else if (insertedProjects) {
-          counters.projects = insertedProjects.length
-          console.log(`   ✅ ${insertedProjects.length} projects synced`)
+        } else {
+          console.log(`   ⚡ Projects unchanged (0/${projects.length} upserts skipped)`)
         }
-      }
-
-      // Populate memory map for projects UUIDs
-      const { data: dbProjects } = await supabase.from('bc_projects').select('id, bc_id').limit(10000)
-      if (dbProjects) {
-        dbProjects.forEach((p) => {
-          projectsMap[Number(p.bc_id)] = p.id
-        })
       }
     } catch (err: any) {
       console.error('   ❌ Projects sync failed:', err.message)
@@ -591,6 +704,7 @@ export async function POST(request: Request) {
     // INCREMENTAL FILTER: Determine which projects need full resource sync
     // ================================================================
     let changedProjectIds: Set<number> | null = null // null = sync all (full mode)
+    let hasContentMutations = false
 
     if (lastSyncAt && !forceFullSync) {
       changedProjectIds = new Set<number>()
@@ -652,6 +766,7 @@ export async function POST(request: Request) {
           const docUuid = dbDoc.id
           documentsMap[d.id] = docUuid
           counters.documents++
+          hasContentMutations = true
 
           // Sync comments on document
           if (d.comments_count > 0) {
@@ -722,6 +837,7 @@ export async function POST(request: Request) {
                 )
                 if (localUrl) {
                   finalUrl = localUrl
+                  hasContentMutations = true
                 }
               }
             }
@@ -986,6 +1102,7 @@ export async function POST(request: Request) {
                 const todoUuid = dbTodo.id
                 todosMap[t.id] = todoUuid
                 counters.todos++
+                hasContentMutations = true
 
                 // Todo Assignees (N:N) — Replace cleanly so removed assignees don't linger
                 await supabase.from('bc_todo_assignees').delete().eq('todo_id', todoUuid)
@@ -1161,6 +1278,7 @@ export async function POST(request: Request) {
             const messageUuid = dbMsg.id
             messagesMap[m.id] = messageUuid
             counters.messages++
+            hasContentMutations = true
 
             // Sync comments on message
             if (m.comments_count > 0) {
@@ -1487,10 +1605,30 @@ export async function POST(request: Request) {
         `Total records: ${totalRecords}. Errors: ${counters.errors.length}`
     )
 
-    // Trigger background media attachment download (non-blocking) from newest to oldest
-    triggerBackgroundAttachmentDownloader(supabase, token).catch(err => {
-      console.error('⚠️ [Basecamp Sync] Background downloader error:', err.message)
-    })
+    // Gate background media attachment ILIKE scans via Next.js after():
+    // run only when projects/content changed OR at most once per hour (top-of-hour tick for internal cron)
+    const hasProjectOrContentChanges =
+      forceFullSync ||
+      changedProjectIds === null ||
+      changedProjectIds.size > 0 ||
+      hasContentMutations
+    const hourlySweepDue =
+      Date.now() - lastBgDownloaderRunAt >= BG_DOWNLOADER_COOLDOWN_MS &&
+      (!isInternalCron || laMinute < 30)
+
+    if (hasProjectOrContentChanges || hourlySweepDue) {
+      lastBgDownloaderRunAt = Date.now()
+      after(async () => {
+        try {
+          await triggerBackgroundAttachmentDownloader(supabase, token)
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error('⚠️ [Basecamp Sync] Background downloader error:', message)
+        }
+      })
+    } else {
+      console.log('⏭️ [Basecamp Sync] Skipping background attachment ILIKE scans (no changes & hourly sweep not due)')
+    }
 
     return NextResponse.json({
       success: true,
@@ -1722,9 +1860,26 @@ async function downloadAndUploadPendingHtmlAttachments(
   const healed = healPartiallyMigratedBcAttachmentHrefs(html)
   let updatedHtml = healed.html
   if (healed.repairedPairs.length > 0) {
-    await supabase
+    const repairUrls = healed.repairedPairs.map((pair) => pair.basecamp_url)
+    const { data: existingCacheRows } = await supabase
       .from('bc_attachment_cache')
-      .upsert(healed.repairedPairs, { onConflict: 'basecamp_url' })
+      .select('basecamp_url, supabase_url')
+      .in('basecamp_url', repairUrls)
+
+    const existingCacheMap = new Map<string, string>()
+    for (const row of existingCacheRows || []) {
+      existingCacheMap.set(row.basecamp_url, row.supabase_url)
+    }
+
+    const pairsToUpsert = healed.repairedPairs.filter(
+      (pair) => existingCacheMap.get(pair.basecamp_url) !== pair.supabase_url
+    )
+
+    if (pairsToUpsert.length > 0) {
+      await supabase
+        .from('bc_attachment_cache')
+        .upsert(pairsToUpsert, { onConflict: 'basecamp_url' })
+    }
   }
 
   // 2. Parse remaining external Basecamp attachments

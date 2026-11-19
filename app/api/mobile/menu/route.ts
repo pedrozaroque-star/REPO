@@ -21,6 +21,7 @@
  * - Normaliza nombres de categorías de DoorDash Storefront (ej. `"Tacos (In Store)"` -> `"Tacos"`) y cruza contra
  *   la categoría canónica de `app_menu_cache` para que `Menu2` (`buildCompactedMenuSections`) compacte el 100%
  *   de platillos y bebidas sin pérdida.
+ * - 2026-11-19 (Paquete 2A): Agregado `Cache-Control: public, s-maxage=300, stale-while-revalidate=600` en respuestas 200 de solo lectura (sin campos por usuario).
  */
 
 import { type NextRequest, NextResponse } from 'next/server'
@@ -35,7 +36,7 @@ import {
   STOREFRONT_CATALOG_SOURCE,
   type StorefrontMenu,
 } from '@/lib/storefront/order-session-contract'
-import { corsResponse, jsonOk, jsonError } from '../_helpers'
+import { corsResponse, jsonOk, jsonError, PUBLIC_CACHE_HEADERS } from '../_helpers'
 
 export interface ModifierOption {
   guid: string
@@ -280,7 +281,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             channelParam
           )
           if (hydrated.categoryOrder.length > 0) {
-            return jsonOk(hydrated)
+            return jsonOk(hydrated, 200, PUBLIC_CACHE_HEADERS)
           }
         }
       }
@@ -370,7 +371,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         'Catálogo de sucursal sincronizado con el orden, fotografías y modificadores de Toast Online Ordering. El cierre de orden nativa permanece en espera de habilitación de scopes de escritura Toast POS.',
     }
 
-    return jsonOk({ categories, categoryOrder, modifierGroups, catalogMetadata })
+    return jsonOk({ categories, categoryOrder, modifierGroups, catalogMetadata }, 200, PUBLIC_CACHE_HEADERS)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
     console.error('❌ [mobile/menu] Error inesperado:', message)

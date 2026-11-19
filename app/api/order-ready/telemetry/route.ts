@@ -20,7 +20,7 @@
  * - Modal Auditoría Voz AI -> GET /api/order-ready/telemetry?range=today|7d -> RPC `get_order_ready_telemetry_summary` -> Métricas en vivo por tienda.
  *
  * @notes
- * - Umbral de dispositivo en línea (`ONLINE_WINDOW_MS`): 150,000 ms (2.5 minutos), tolerando intervalos de 60s y reintentos cortos de red.
+ * - Umbral de dispositivo en línea (`ONLINE_WINDOW_MS`): 660,000 ms (11 minutos), tolerando intervalos de latido de 5 min (300s), omisión de latido cuando hubo `playback_ack` reciente (<4 min) y reintentos cortos de red.
  */
 
 import { NextResponse } from 'next/server'
@@ -37,7 +37,7 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-const ONLINE_WINDOW_MS = 150_000
+const ONLINE_WINDOW_MS = 660_000
 
 const ALLOWED_TRIGGER_SOURCES = new Set([
   'tablet_tap',

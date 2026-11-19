@@ -72,6 +72,7 @@
  *   Permite activar por tienda (gobernado por Admin en `order_ready_settings.auto_call_timer_config`, piloto activo únicamente en `SLAUSON` y las otras 14 tiendas en modo `Manual`)
  *   el llamado automático adaptativo según complejidad de platillos (Nivel 1 Rápida 2m 45s, Nivel 2 Media 4m 15s, Nivel 3 Compleja/Al momento 5m 30s) + ajuste por fila FIFO delante (+20s/orden),
  *   con cancelación automática si se cierra en KDS o si ya fue llamada desde tableta.
+ * - OPTIMIZACIÓN TELEMETRÍA BOCINA (2026-11-19): El latido periódico (`heartbeat`) de `speaker_board` pasa de 60s a 300s (5 min) y omite el latido periódico cuando hubo un `playback_ack` exitoso hace `< 4 min` para la misma sucursal, manteniendo intacto el aviso instantáneo (300ms) ante cambios de estado (`isMuted`, `audioUnlocked`, `voiceVolume`, `isFullscreen`) y sin alterar el polling ni locuciones de órdenes.
  */
 
 'use client'
@@ -1049,6 +1050,7 @@ function OrderReadyBoardContent() {
   const clipCacheRef = useRef<Map<string, Promise<string | null>>>(new Map())
   const prefetchRunningRef = useRef<boolean>(false)
   const ttsFailUntilRef = useRef<number>(0)
+  const lastPlaybackAckRef = useRef<{ storeCode: string; at: number }>({ storeCode: '', at: 0 })
 
   // Cargar catálogo de voces del navegador y detectar cambios de voces
   useEffect(() => {
@@ -1853,13 +1855,14 @@ function OrderReadyBoardContent() {
               ? 'tablet_tap'
               : 'auto_bump'
 
+            const ackStoreCode = String(nextOrder.store_code || selectedStore).toUpperCase()
             fetch('/api/order-ready/telemetry', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               signal: AbortSignal.timeout(4000),
               body: JSON.stringify({
                 action: 'playback_ack',
-                storeCode: String(nextOrder.store_code || selectedStore).toUpperCase(),
+                storeCode: ackStoreCode,
                 orderId: nextOrder.id,
                 orderNumber: String(nextOrder.order_number),
                 diningOption: nextOrder.dining_option,
@@ -1872,7 +1875,13 @@ function OrderReadyBoardContent() {
                 audioUnlocked: true,
                 isFullscreen
               })
-            }).catch(() => {})
+            })
+              .then((res) => {
+                if (res.ok) {
+                  lastPlaybackAckRef.current = { storeCode: ackStoreCode, at: Date.now() }
+                }
+              })
+              .catch(() => {})
           }
 
           // 3. Marcar como anunciada en backend SOLO para el anuncio automático inicial
@@ -2606,17 +2615,25 @@ function OrderReadyBoardContent() {
     }
   }, [selectedStore])
 
-  // TELEMETRÍA EN VIVO DE BOCINA (/order-ready-board): reporta estado de conexión, Mute y desbloqueo de audio cada 60s y al cambiar de estado
+  // TELEMETRÍA EN VIVO DE BOCINA (/order-ready-board): reporta estado de conexión, Mute y desbloqueo de audio cada 5 min (omitiendo latido periódico si hubo playback_ack hace <4 min) y al instante (300ms) al cambiar de estado
   useEffect(() => {
     if (!storeOk || !selectedStore) return
-    const sendSpeakerHeartbeat = () => {
+    const normalizedStore = String(selectedStore).toUpperCase()
+    const sendSpeakerHeartbeat = (isPeriodic: boolean) => {
+      if (
+        isPeriodic &&
+        lastPlaybackAckRef.current.storeCode === normalizedStore &&
+        Date.now() - lastPlaybackAckRef.current.at < 240_000
+      ) {
+        return
+      }
       fetch('/api/order-ready/telemetry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(4000),
         body: JSON.stringify({
           action: 'heartbeat',
-          storeCode: String(selectedStore).toUpperCase(),
+          storeCode: normalizedStore,
           deviceRole: 'speaker_board',
           isMuted,
           audioUnlocked,
@@ -2627,8 +2644,8 @@ function OrderReadyBoardContent() {
       }).catch(() => {})
     }
 
-    const debounceTimer = setTimeout(sendSpeakerHeartbeat, 300)
-    const hbInterval = setInterval(sendSpeakerHeartbeat, 60_000)
+    const debounceTimer = setTimeout(() => sendSpeakerHeartbeat(false), 300)
+    const hbInterval = setInterval(() => sendSpeakerHeartbeat(true), 300_000)
     return () => {
       clearTimeout(debounceTimer)
       clearInterval(hbInterval)

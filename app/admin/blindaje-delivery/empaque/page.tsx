@@ -16,6 +16,7 @@
  *     1) Separación de lastStorageSyncAtRef (500ms) y lastServerHeartbeatAtRef (15s) en recordCashierActivity() para que el heartbeat al servidor nunca sea bloqueado por toques continuos en pantalla.
  *     2) Control de secuencia fetchSeqRef y mapa inmutable stickyAuditsRef para impedir que un polling de 4s en vuelo sobrescriba o regrese una orden LISTA o ENTREGADA a EMPACANDO.
  *     3) Eliminación del botón "Regresar a EMPACANDO" en la tableta para evitar reversiones accidentales por toque involuntario.
+ *   - 2026-11-19 (Paquete 2A): Polling KDS ajustado de 4s a 8s en horario operativo, ralentizado automáticamente a 60s durante ventana cerrada (`4:15–6:59 AM LA`) y pausado con guarda `document.visibilityState` (+ recarga inmediata al volver visible).
  */
 
 'use client'
@@ -56,9 +57,23 @@ const STORES = [
 
 const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad para cerrar sesión del PIN de la cajera
 const PIN_SESSION_DURATION_MS = PIN_INACTIVITY_TIMEOUT_MS
-const KDS_POLL_INTERVAL_MS = 4000 // 4 segundos para detectar al instante cuando el cocinero borra del KDS antes de que la cajera cierre el empaque
+const KDS_POLL_INTERVAL_MS = 8000 // 8 segundos en horario operativo para detectar cambios del KDS reduciendo carga en Vercel/Toast
+const KDS_CLOSED_HOURS_POLL_INTERVAL_MS = 60_000 // 60 segundos durante ventana cerrada sin ventas (4:15 AM - 6:59 AM LA)
 const UNCLAIMED_DRIVER_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 horas (120 min) sin que ningún chofer recoja la orden
 const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas sin actividad en la tableta -> mostrar modal "Despertar Tableta"
+
+function isLAClosedHours(now: Date = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(now)
+  const rawHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10)
+  const hour = rawHour === 24 ? 0 : rawHour
+  const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10)
+  return (hour === 4 && minute >= 15) || hour === 5 || hour === 6
+}
 
 function getLAEffectiveBusinessDate(): string {
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -1404,11 +1419,40 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [storeId, packer, persistAnnouncedGuid, persistStickyAudits, enqueueOrderAnnouncement, handleSessionReplacedError, t])
 
-  // Monitoreo continuo del KDS cada 4 segundos (incluso cuando está en la pantalla de PIN)
+  // Monitoreo continuo del KDS (8s activo, 60s en ventana cerrada 4:15-6:59 AM LA, pausado cuando la pestaña está oculta)
   useEffect(() => {
-    void fetchOrders()
-    const timer = window.setInterval(fetchOrders, KDS_POLL_INTERVAL_MS)
-    return () => window.clearInterval(timer)
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const scheduleNext = () => {
+      if (cancelled) return
+      const delayMs = isLAClosedHours() ? KDS_CLOSED_HOURS_POLL_INTERVAL_MS : KDS_POLL_INTERVAL_MS
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          void fetchOrders()
+        }
+        scheduleNext()
+      }, delayMs)
+    }
+
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      void fetchOrders()
+    }
+    scheduleNext()
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchOrders()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [fetchOrders])
 
   // Reconfiguración automática 24/7 a las 6:00 AM, autolimpieza de caché cada 15 min y detector de 3 horas de inactividad

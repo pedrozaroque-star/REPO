@@ -1,3 +1,15 @@
+/**
+ * @module app/tv/page
+ * @description Visor de menú digital en pantalla completa para televisores de comedor de Tacos Gavilan (`/tv`).
+ * @businessRules
+ * - Resuelve códigos cortos de sucursal (`AZ`, `LY`, `SL`, etc.) y selecciona la imagen de variación específica o la imagen universal por `screen`.
+ * - Tras activar pantalla completa, consulta silenciosamente `/api/tv-update` cada 5 minutos para actualizar menús sin recargar la TV.
+ * @dataFlow
+ * - SSR (`app/tv/page.tsx`) -> Supabase (`tv_images`) -> HTML + auto-updater cliente -> GET `/api/tv-update` (`cache: "no-cache"`, Edge CDN `s-maxage=300`).
+ * @notes
+ * - [2026-11-19] Actualizado a revalidación `cache: "no-cache"` con intervalo de 5 min (`300000`) para aprovechar Vercel Edge CDN (`s-maxage=300`) sin sacrificar actualizaciones de menú.
+ */
+
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic';
@@ -126,7 +138,7 @@ export default async function TvViewerPage({
                     window.tvSilentUpdateStarted = true;
                     setInterval(function() {
                         try {
-                            fetch("/api/tv-update?screen=" + ${screenParam} + "&store=${storeParam}", { cache: "no-store", keepalive: true })
+                            fetch("/api/tv-update?screen=" + ${screenParam} + "&store=${encodeURIComponent(storeParam)}", { cache: "no-cache", keepalive: true })
                                 .then(function(res) { return res.json(); })
                                 .then(function(data) {
                                     if (data && data.url) {
@@ -138,7 +150,7 @@ export default async function TvViewerPage({
                                 })
                                 .catch(function(e) {});
                         } catch(e) {}
-                    }, 120000); // Check cada 2 minutos en vez de 1 para ahorrar RAM a la TV
+                    }, 300000); // Check cada 5 minutos aprovechando Vercel Edge CDN (s-maxage=300)
                 }
               ' style="position: absolute; z-index: 10000; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 1.5rem 3rem; font-size: 2rem; font-weight: bold; background: #4F46E5; color: #fff; border: none; border-radius: 1rem; cursor: pointer; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
                   Start Fullscreen Mode

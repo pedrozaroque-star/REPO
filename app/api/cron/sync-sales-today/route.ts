@@ -3,10 +3,13 @@
  * @description Periodic cron job running every 5 minutes during operating hours (6:00 AM to 4:59 AM next day) to synchronize intraday live sales from Toast POS into Supabase sales_daily_cache.
  * @businessRules
  * - Business day starts at 6:00 AM and ends at 5:59 AM next day (PST/PDT America/Los_Angeles).
- * - Skips only 5:00 AM (shift handover downtime) and starts syncing immediately at 6:00 AM.
+ * - Skips dead hours 4:15 AM - 6:59 AM LA (`?force=1` overrides).
+ * - Late-night throttle (1:00 AM - 4:14 AM LA): runs every 30 min (`laMinute % 30 < 10`, preserving the final 4:00 AM sweep; `?force=1` overrides).
  * - Uses Full Precision mode for exact penny parity with Toast.
  * @dataFlow
  * - Vercel Cron -> GET /api/cron/sync-sales-today -> Toast API -> sales_daily_cache (Supabase) -> Response.
+ * @notes
+ * - 2026-11-19 (Paquete 2A): Conservado salto de ventana muerta `4:15–6:59 AM LA` y agregado throttle de 30 min en madrugada (`1:00–4:14 AM LA`, `laMinute % 30 < 10`, conservando barrida final 4:00 AM) con soporte `?force=1`.
  */
 
 import { NextResponse } from 'next/server'
@@ -25,27 +28,50 @@ export async function GET(request: Request) {
             }
         }
 
+        const { searchParams } = new URL(request.url)
+        const forceRun = searchParams.get('force') === '1' || searchParams.get('force') === 'true'
+
         const now = new Date()
-        const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        
-        const currentHour = laNow.getHours()
+        const laParts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).formatToParts(now)
+        const getPart = (type: string) => laParts.find(p => p.type === type)?.value || '0'
+        const laYear = parseInt(getPart('year'), 10)
+        const laMonth = parseInt(getPart('month'), 10)
+        const laDay = parseInt(getPart('day'), 10)
+        const rawHour = parseInt(getPart('hour'), 10)
+        const currentHour = rawHour === 24 ? 0 : rawHour
+        const currentMinute = parseInt(getPart('minute'), 10)
 
         // Restricción de horario: Omitimos la ventana muerta real sin ventas (4:15 AM - 6:59 AM LA),
-        // dejando barridas finales a las 4:00 AM y 4:10 AM tras las últimas órdenes nocturnas de las 3 AM.
-        const currentMinute = laNow.getMinutes()
-        if ((currentHour === 4 && currentMinute >= 15) || currentHour === 5 || currentHour === 6) {
+        // salvo override manual ?force=1.
+        if (!forceRun && ((currentHour === 4 && currentMinute >= 15) || currentHour === 5 || currentHour === 6)) {
             console.log(`⏳ [CRON TODAY] Ejecución omitida en ventana sin ventas (4:15am-6:59am). Hora actual LA: ${currentHour}:${String(currentMinute).padStart(2, '0')}`)
-            return NextResponse.json({ success: true, message: 'Skipped: Dead hours (4:15 AM - 6:59 AM LA)' })
+            return NextResponse.json({ success: true, skipped: true, message: 'Skipped: Dead hours (4:15 AM - 6:59 AM LA)' })
+        }
+
+        // Madrugada (1:00 AM - 4:14 AM LA): correr cada 30 min (laMinute % 30 < 10), conservando barrida final de las 4:00 AM
+        const isLateNightWindow = currentHour >= 1 && (currentHour < 4 || (currentHour === 4 && currentMinute < 15))
+        if (!forceRun && isLateNightWindow && currentMinute % 30 >= 10) {
+            console.log(`⏳ [CRON TODAY] Ejecución omitida en throttle de madrugada (1:00am-4:14am, cada 30 min). Hora actual LA: ${currentHour}:${String(currentMinute).padStart(2, '0')}`)
+            return NextResponse.json({ success: true, skipped: true, message: 'Skipped: Late-night 30m throttle (1:00 AM - 4:14 AM LA)' })
         }
 
         // Regla de las 6 AM: si es antes de las 6 AM, sigue siendo el "hoy" operativo del día anterior
+        const bizDateUtc = new Date(Date.UTC(laYear, laMonth - 1, laDay))
         if (currentHour < 6) {
-            laNow.setDate(laNow.getDate() - 1)
+            bizDateUtc.setUTCDate(bizDateUtc.getUTCDate() - 1)
         }
 
-        const y = laNow.getFullYear()
-        const m = String(laNow.getMonth() + 1).padStart(2, '0')
-        const day = String(laNow.getDate()).padStart(2, '0')
+        const y = bizDateUtc.getUTCFullYear()
+        const m = String(bizDateUtc.getUTCMonth() + 1).padStart(2, '0')
+        const day = String(bizDateUtc.getUTCDate()).padStart(2, '0')
         const todayStr = `${y}-${m}-${day}`
 
         console.log(`⏰ [CRON TODAY] Iniciando sincronización de ventas intra-día para: ${todayStr}`)

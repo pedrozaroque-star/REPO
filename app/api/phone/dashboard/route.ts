@@ -37,6 +37,9 @@
  * - Blindaje 2026-11-19: autorización RBAC ANTES de consultar `phone_callback_requests` en `PATCH callback_request` (cierra oráculo UUID sin sesión);
  *   bandeja dedicada para recados `urgency='high'` para que notas de empaque `condiments_note` (`normal`) nunca desplacen alertas urgentes de gerente;
  *   desambiguación explícita `stores!phone_callback_requests_store_id_fkey(id, name)` contra futuras FKs en `origin_store_id`; y validación horaria 06:00–05:59 exacta en festivos.
+ * - Optimización 2026-11-19 (Paquete 1B): ruta rápida de 1 sola consulta (`{ count: 'exact' }.limit(51)`) en `callbacksOnly=true&status=pending`
+ *   cuando existen `<= 50` recados pendientes en el alcance (ordenando por urgencia en JS con `mergeAndSortCallbacks` y cayendo al esquema
+ *   completo de 6 consultas únicamente cuando `count > 50`).
  */
 
 import { after, NextRequest, NextResponse } from 'next/server'
@@ -232,6 +235,48 @@ export async function GET(request: NextRequest) {
         applyCbScope(supabaseAdmin.from('phone_callback_requests').select('id', { count: 'exact', head: true }))
 
       const wantsPendingIncluded = !statusFilter || statusFilter === 'pending'
+
+      // Ruta rápida (1 sola consulta) para el polling del banner operativo (`status=pending`):
+      // Evita 5 consultas redundantes cuando el total de pendientes del alcance es <= 50;
+      // si hay > 50 pendientes cae automáticamente a la partición completa de 6 consultas.
+      if (statusFilter === 'pending') {
+        const fastPendingRes = await applyCbScope(
+          supabaseAdmin
+            .from('phone_callback_requests')
+            .select('*, stores!phone_callback_requests_store_id_fkey(id, name)', { count: 'exact' })
+        )
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(51)
+
+        if (fastPendingRes.error) {
+          return NextResponse.json(
+            { error: `Error al consultar recados telefónicos: ${fastPendingRes.error.message}` },
+            { status: 500 }
+          )
+        }
+
+        const fastRows = fastPendingRes.data || []
+        const exactPendingTotal = fastPendingRes.count ?? fastRows.length
+        if (exactPendingTotal <= 50 && fastRows.length <= 50) {
+          const sortedCallbacks = mergeAndSortCallbacks([fastRows])
+          const criticalExactTotal = sortedCallbacks.filter(
+            (cb: { status?: string; urgency?: string }) =>
+              cb?.status === 'pending' && (cb?.urgency === 'critical' || cb?.urgency === 'urgent')
+          ).length
+          const callbacksPagination = buildCallbacksPaginationMeta({
+            sortedCallbacks,
+            criticalCapLimit: CRITICAL_CALLBACKS_MAX_ROWS,
+            criticalCapTruncated: false,
+            criticalExactTotal,
+            pendingExactTotal: exactPendingTotal,
+            nonCriticalPendingCap: 100,
+            wantsPendingIncluded: true
+          })
+          return NextResponse.json({ callbacks: sortedCallbacks, callbacksPagination })
+        }
+      }
+
       const [
         criticalPendingRes,
         highPendingRes,

@@ -18,13 +18,14 @@
  *
  * @dataFlow
  * - Request (`teg_token` cookie o `Authorization: Bearer`) -> `authorizePhoneModuleRequest` ->
- *   consulta cacheada (30 s) a `public.users` + `public.stores` -> resultado tipado `{ authorized, user, response }`.
+ *   consulta cacheada (180 s) a `public.users` + `public.stores` -> resultado tipado `{ authorized, user, response }`.
  *
  * @notes
  * - Bloquea números internacionales fuera de EE. UU./Canadá (`+1` + 10 dígitos válidos), números premium (`900`/`976`) e islas NANP de riesgo en `<Dial>` para impedir fraude telefónico (*Toll Fraud*).
  * - `loadUserAndStores` ejecuta `users` y el catálogo cacheado de `stores` en paralelo; `store_scope` se combina aditivamente con `store_id`.
  * - Auditoría 2026-11-18: bloquea explícitamente JWTs de empleado (`user_type === 'employee'` o `role === 'employee'`) y exige paridad de `email` contra `public.users` para impedir escalación de privilegios por colisión de IDs entre `toast_employees` y `public.users`.
  * - Auditoría 2026-11-19: `decodeURIComponent` blindado contra cookies malformadas (`URIError`), expiración JWT estricta en rutas administrativas (`!allowLongLivedStoreTerminal`) y techo máximo de 5 min en fallback de caché stale ante fallos transitorios de DB.
+ * - Optimización 2026-11-19 (Paquete 1B): `ACCESS_CACHE_TTL_MS` elevado de 30s a 180s (3 min) para reducir consultas repetitivas a `public.users` desde los pollers del banner de recados.
  */
 
 import { NextResponse } from 'next/server'
@@ -64,7 +65,7 @@ interface CachedAccessEntry {
   activeStores: Array<{ id: number; code: string; name: string }>
 }
 
-const ACCESS_CACHE_TTL_MS = 30_000
+const ACCESS_CACHE_TTL_MS = 180_000
 const MAX_STALE_ACCESS_FALLBACK_MS = 5 * 60_000
 const MAX_USER_ACCESS_CACHE_ENTRIES = 500
 const STORES_CACHE_TTL_MS = 5 * 60_000

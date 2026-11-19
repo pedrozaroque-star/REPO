@@ -3,10 +3,14 @@
  * @description Cron job que sincroniza el consumo histórico de carnes y preparaciones desde Toast API en bloques de 30 minutos.
  * @businessRules
  *   - Día laboral Gavilán: 6:00 AM a 5:59 AM del siguiente día (America/Los_Angeles).
+ *   - Ventana sin ventas: Se omite 4:15–5:59 AM LA y 6:30–6:59 AM LA (`?force=1` permite override manual).
+ *   - Cierre final de ayer: Entre 6:00–6:29 AM LA se ejecuta UNA sola pasada `[dateStrYest]` cubriendo lotes 0, 1 y 2.
  *   - Proteínas rastreadas: ASADA, PASTOR, POLLO, CARNITAS, CABEZA, LENGUA, BUCHE, CHORIZO, CAFE, CHAMPURRADO, AGUACATE, GUACAMOLE, FRIJOL MOLIDO, ARROZ.
  *   - Yield formula: rawLbs = (soldQty * portionQty in lbs) / yieldPct.
- * @dataFlow Toast API /ordersBulk -> recipe lookup & yield -> meat_consumption_history table.
- * @notes Se ejecutan lotes por minuto LA para balancear consumo de API Toast sin timeouts.
+ * @dataFlow Toast API /ordersBulk -> recipe lookup & yield -> diff-based UPSERT + selective DELETE -> meat_consumption_history table.
+ * @notes
+ *   - Se ejecutan lotes por minuto LA para balancear consumo de API Toast sin timeouts.
+ *   - 2026-11-19 (Paquete 2A): Salto en horas muertas (`4:15–5:59 AM` y `6:30–6:59 AM LA`), pasada única `[dateStrYest]` en `6:00–6:29 AM LA`, proyecciones slim en `inventory_items`/`recipes`, y reemplazo de `DELETE+INSERT` ciego por `UPSERT` por diferencias + `DELETE` selectivo de cubetas anuladas (Caveat A: maneja órdenes anuladas en Toast con 0% drift eliminando >95% de dead tuples).
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -67,6 +71,48 @@ export async function GET(request: Request) {
             }
         }
 
+        const searchParams = new URL(request.url).searchParams
+        const forceRun = searchParams.get('force') === '1' || searchParams.get('force') === 'true'
+        const batchParam = searchParams.get('batch')
+
+        const now = new Date()
+        const laParts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).formatToParts(now)
+        const getPart = (type: string) => laParts.find(p => p.type === type)?.value || '0'
+        const laYear = parseInt(getPart('year'), 10)
+        const laMonth = parseInt(getPart('month'), 10)
+        const laDay = parseInt(getPart('day'), 10)
+        const rawLaHour = parseInt(getPart('hour'), 10)
+        const laHour = rawLaHour === 24 ? 0 : rawLaHour
+        const laMinute = parseInt(getPart('minute'), 10)
+
+        // Ventana muerta: 4:15–5:59 AM LA (tiendas cerradas) y 6:30–6:59 AM LA (post cierre final de ayer)
+        if (!forceRun) {
+            if ((laHour === 4 && laMinute >= 15) || laHour === 5) {
+                console.log(`⏳ [CRON MEAT] Omitido en horas muertas (4:15-5:59 AM LA). Hora LA: ${laHour}:${String(laMinute).padStart(2, '0')}`)
+                return NextResponse.json({
+                    success: true,
+                    skipped: true,
+                    message: 'Skipped: Dead hours (4:15 AM - 5:59 AM LA)'
+                })
+            }
+            if (laHour === 6 && laMinute >= 30) {
+                console.log(`⏳ [CRON MEAT] Omitido en ventana post-cierre (6:30-6:59 AM LA). Hora LA: ${laHour}:${String(laMinute).padStart(2, '0')}`)
+                return NextResponse.json({
+                    success: true,
+                    skipped: true,
+                    message: 'Skipped: Post-closeout dead hours (6:30 AM - 6:59 AM LA)'
+                })
+            }
+        }
+
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
         const supabase = createClient(supabaseUrl, supabaseKey)
@@ -76,8 +122,8 @@ export async function GET(request: Request) {
         let tokenTime = Date.now()
         if (!token) throw new Error("No Toast Token")
 
-        const { data: inventoryData } = await supabase.from('inventory_items').select('*')
-        const { data: recipesData } = await supabase.from('recipes').select('*')
+        const { data: inventoryData } = await supabase.from('inventory_items').select('id, name, yield_percent')
+        const { data: recipesData } = await supabase.from('recipes').select('toast_menu_item_guid, inventory_item_id, quantity, unit')
         const { data: stores } = await supabase.from('stores').select('id, name, external_id').eq('is_active', true)
 
         if (!inventoryData || !recipesData || !stores) throw new Error("Error obteniendo datos base de Supabase")
@@ -88,7 +134,7 @@ export async function GET(request: Request) {
         // CAFE, CHAMPURRADO, AGUACATE, GUACAMOLE, FRIJOL MOLIDO, ARROZ son preparaciones de cocina trasera.
         const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA', 'BUCHE', 'CHORIZO', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'GUACAMOLE', 'FRIJOL MOLIDO', 'ARROZ']
         const meatItems = inventoryData.filter(i => {
-            const name = i.name.toUpperCase()
+            const name = (i.name || '').toUpperCase()
             return targetProteins.some(p => name.includes(p)) && !name.includes('SALSA')
         })
         
@@ -102,7 +148,7 @@ export async function GET(request: Request) {
                 const iData = itemLookup.get(r.inventory_item_id)
                 let meatType = 'OTRO'
                 targetProteins.forEach(tp => {
-                    if (iData.name.toUpperCase().includes(tp)) meatType = tp
+                    if ((iData.name || '').toUpperCase().includes(tp)) meatType = tp
                 })
                 const list = recipeLookup.get(r.toast_menu_item_guid) || []
                 list.push({ ...r, yield_percent: iData.yield_percent || 100, meat_type: meatType })
@@ -114,16 +160,10 @@ export async function GET(request: Request) {
         const sortedStores = stores.sort((a, b) => a.id - b.id)
 
         // Parse query parameter ?batch=0/1/2 or determine dynamically by current LA minute
-        const searchParams = new URL(request.url).searchParams
-        const batchParam = searchParams.get('batch')
         let batch = batchParam !== null ? parseInt(batchParam, 10) : null
         
-        const now = new Date()
-        const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        
         if (batch === null || isNaN(batch)) {
-            const min = laNow.getMinutes()
-            batch = Math.floor((min % 30) / 10) // 0-9m -> 0, 10-19m -> 1, 20-29m -> 2
+            batch = Math.floor((laMinute % 30) / 10) // 0-9m -> 0, 10-19m -> 1, 20-29m -> 2
         }
 
         // Calculate store batch slices dynamically
@@ -135,20 +175,23 @@ export async function GET(request: Request) {
         console.log(`📦 [CRON] Procesando Batch ${batch} (tiendas ${startIdx + 1} a ${endIdx} de ${sortedStores.length})`)
 
         // Regla Gavilán: El día cierra a las 6:00 AM (LA Time)
-        const businessDay = new Date(laNow)
-        if (laNow.getHours() < 6) { businessDay.setDate(businessDay.getDate() - 1) }
+        const businessDayUtc = new Date(Date.UTC(laYear, laMonth - 1, laDay))
+        if (laHour < 6) { businessDayUtc.setUTCDate(businessDayUtc.getUTCDate() - 1) }
         
-        const laYesterday = new Date(businessDay)
-        laYesterday.setDate(laYesterday.getDate() - 1)
+        const laYesterdayUtc = new Date(businessDayUtc.getTime())
+        laYesterdayUtc.setUTCDate(laYesterdayUtc.getUTCDate() - 1)
         
-        const formatLA = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-        const dateStrYest = formatLA(laYesterday)
-        const dateStrToday = formatLA(businessDay)
+        const formatUtcYmd = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+        const dateStrYest = formatUtcYmd(laYesterdayUtc)
+        const dateStrToday = formatUtcYmd(businessDayUtc)
         
-        // Optimización: Solo sincronizamos ayer durante la hora posterior al cierre del día laboral (6:00 AM a 6:59 AM)
-        const laHour = laNow.getHours()
-        const targetDates = (laHour === 6) ? [dateStrYest, dateStrToday] : [dateStrToday]
-        console.log(`📅 [CRON] Procesando intraday... Fechas: ${targetDates.join(', ')} (Hora LA: ${laHour})`)
+        // Optimización: En 6:00–6:29 AM LA corremos UNA sola pasada final de ayer [dateStrYest] (lotes 0,1,2)
+        const targetDates = (laHour === 6 && laMinute < 30)
+            ? [dateStrYest]
+            : (laHour === 6 && forceRun)
+            ? [dateStrYest, dateStrToday]
+            : [dateStrToday]
+        console.log(`📅 [CRON] Procesando intraday... Fechas: ${targetDates.join(', ')} (Hora LA: ${laHour}:${String(laMinute).padStart(2, '0')})`)
 
         const results: any[] = []
 
@@ -186,6 +229,7 @@ export async function GET(request: Request) {
                 let page = 1
                 let hasMore = true
                 let maxRetries = 5
+                let fetchIncomplete = false
                 
                 while (hasMore) {
                     if (Date.now() - tokenTime > 1000 * 60 * 45) {
@@ -200,6 +244,7 @@ export async function GET(request: Request) {
                     })
                 } catch (err: any) {
                     console.error(`Error Red en ${store.name}: ${err.message}`);
+                    fetchIncomplete = true
                     break;
                 }
                 
@@ -216,11 +261,15 @@ export async function GET(request: Request) {
                         await new Promise(r => setTimeout(r, waitTime));
                         continue;
                     } else {
+                        fetchIncomplete = true
                         break;
                     }
                 }
                 
-                if (!res.ok) break
+                if (!res.ok) {
+                    fetchIncomplete = true
+                    break
+                }
                 
                 maxRetries = 3
                     
@@ -266,7 +315,7 @@ export async function GET(request: Request) {
                                         const rawLbs = lbs / yieldPct
                                         
                                         if (rawLbs > 0) {
-                                            const bKey = `${bucketTime}_${rData.meat_type}`
+                                            const bKey = `${bucketTime}|${rData.meat_type}`
                                             buckets.set(bKey, (buckets.get(bKey) || 0) + rawLbs)
                                         }
                                     }
@@ -285,27 +334,91 @@ export async function GET(request: Request) {
                 if (entries.length < 100) hasMore = false
                 else page++
             } // End of Pagination While Loop
-            
-            const inserts = []
-            for (const [key, raw_lbs] of buckets.entries()) {
-                const [interval_start, meat_type] = key.split('_')
-                inserts.push({
-                    store_id: store.id,
-                    business_date: targetDateStr,
-                    interval_start: interval_start,
-                    meat_type: meat_type,
-                    raw_lbs: raw_lbs
-                })
+
+            if (fetchIncomplete) {
+                console.warn(`⚠️ [CRON MEAT] Paginación incompleta en ${store.name} (${targetDateStr}); se omiten mutaciones para evitar borrar cubetas válidas.`)
+                continue
             }
-            
-            if (inserts.length > 0) {
-                await supabase.from('meat_consumption_history')
+
+            // Diff-based UPSERT + selective DELETE (Caveat A: maneja órdenes anuladas en Toast sin dead-tuple bloat)
+            const normInterval = (t: string) => (t && t.length === 5 ? `${t}:00` : String(t || ''))
+            const { data: existingRows, error: existingErr } = await supabase
+                .from('meat_consumption_history')
+                .select('id, interval_start, meat_type, raw_lbs')
+                .eq('store_id', store.id)
+                .eq('business_date', targetDateStr)
+
+            if (existingErr) {
+                console.error(`Error leyendo meat_consumption_history existente (${store.name} ${targetDateStr}):`, existingErr.message)
+                continue
+            }
+
+            const existingMap = new Map<string, { id: string; raw_lbs: number }>()
+            for (const row of existingRows || []) {
+                const k = `${normInterval(row.interval_start)}|${row.meat_type}`
+                existingMap.set(k, { id: row.id, raw_lbs: Number(row.raw_lbs || 0) })
+            }
+
+            const toUpsert: Array<{
+                store_id: number
+                business_date: string
+                interval_start: string
+                meat_type: string
+                raw_lbs: number
+            }> = []
+            for (const [key, raw_lbs] of buckets.entries()) {
+                const sepIdx = key.indexOf('|')
+                const interval_start = key.slice(0, sepIdx)
+                const meat_type = key.slice(sepIdx + 1)
+                const prev = existingMap.get(key)
+                if (!prev || Math.abs(raw_lbs - prev.raw_lbs) > 1e-4) {
+                    toUpsert.push({
+                        store_id: store.id,
+                        business_date: targetDateStr,
+                        interval_start,
+                        meat_type,
+                        raw_lbs,
+                    })
+                }
+            }
+
+            const idsToDelete: string[] = []
+            for (const [key, prev] of existingMap.entries()) {
+                if (!buckets.has(key)) {
+                    idsToDelete.push(prev.id)
+                }
+            }
+
+            let writeFailed = false
+            if (toUpsert.length > 0) {
+                const { error: upsertErr } = await supabase
+                    .from('meat_consumption_history')
+                    .upsert(toUpsert, { onConflict: 'store_id,business_date,interval_start,meat_type' })
+                if (upsertErr) {
+                    writeFailed = true
+                    console.error(`Error upserting meat_consumption_history (${store.name}):`, upsertErr.message)
+                }
+            }
+
+            if (idsToDelete.length > 0) {
+                const { error: delErr } = await supabase
+                    .from('meat_consumption_history')
                     .delete()
-                    .eq('business_date', targetDateStr)
-                    .eq('store_id', store.id);
-                const { error } = await supabase.from('meat_consumption_history').insert(inserts)
-                if (error) console.error("Error inserting:", error.message)
-                else results.push({ store: store.name, rows: inserts.length })
+                    .in('id', idsToDelete)
+                if (delErr) {
+                    writeFailed = true
+                    console.error(`Error deleting vanished meat_consumption_history rows (${store.name}):`, delErr.message)
+                }
+            }
+
+            if (!writeFailed) {
+                results.push({
+                    store: store.name,
+                    date: targetDateStr,
+                    upserted: toUpsert.length,
+                    deleted: idsToDelete.length,
+                    unchanged: buckets.size - toUpsert.length,
+                })
             }
         } // End of For targetDates Loop
         }

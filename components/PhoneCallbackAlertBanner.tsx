@@ -15,9 +15,10 @@
  * - Permite al gerente agregar una nota opcional de seguimiento y marcar el recado como "Atendido" validando `res.ok`.
  *
  * @dataFlow
- * - Polling autenticado cada 15s (`GET /api/phone/dashboard?callbacksOnly=true&storeId=X&status=pending`) con soporte
- *   tanto de Bearer JWT (`localStorage.teg_token`) como de cookie HttpOnly (`teg_token`), más listeners `visibilitychange` y `online`
- *   -> Renderiza banner -> `PATCH /api/phone/dashboard` (`entity: 'callback_request'`, `status: 'resolved'`).
+ * - Polling autenticado adaptativo (`60s` en horario operativo `7:00 AM - 4:14 AM America/Los_Angeles`,
+ *   `300s` en cierre `4:15 AM - 6:59 AM LA`) sobre `GET /api/phone/dashboard?callbacksOnly=true&storeId=X&status=pending`
+ *   con soporte tanto de Bearer JWT (`localStorage.teg_token`) como de cookie HttpOnly (`teg_token`), más listeners
+ *   `visibilitychange` y `online` -> Renderiza banner -> `PATCH /api/phone/dashboard` (`entity: 'callback_request'`, `status: 'resolved'`).
  *
  * @notes
  * - Con RLS estricto activo en `phone_callback_requests` (para proteger PII de clientes), la sincronización se realiza
@@ -26,7 +27,7 @@
  * - Aviso acústico inicial garantizado: suena al cargar la sucursal si ya existen recados pendientes reales (y si la política
  *   de autoplay del navegador mantiene `AudioContext` en `suspended`/`interrupted`, lo reproduce automáticamente en el primer gesto),
  *   además de sonar en cada recado nuevo y recordar cada 45s para urgencias altas/críticas (derivado como booleano estable para que
- *   el polling de 15s jamás reinicie el temporizador de 45s).
+ *   el polling jamás reinicie el temporizador de 45s).
  * - Paquete 2A + 2B (2026-11-18):
  *   * Separa visual y acústicamente las Notas de Empaque / Condimentos Gratis (`reason_category = 'condiments_note'`, banner
  *     azul cielo sin recordatorio repetitivo cada 45s) de las Alertas Prioritarias para el Gerente (banner rojo).
@@ -34,6 +35,9 @@
  *     `origin_store_id` difiere de `store_id` (enrutamiento por sucursal equivocada).
  *   * Destaca `SIN TICKET` en píldora ámbar, protege enlaces `tel:` contra cadenas sin dígitos, evita que una nota de empaque
  *     degrade un aviso diferido de gerente y expone errores persistentes de polling.
+ * - Optimización 2026-11-19 (Paquete 1B): cadencia adaptativa `60s` abierto (`7:00 AM–4:14 AM LA`) / `300s` cierre
+ *   (`4:15 AM–6:59 AM LA`) manteniendo polling activo en las 15 sucursales (enrutamiento cross-store) y recarga instantánea
+ *   en `visibilitychange` y `online`.
  */
 
 'use client'
@@ -93,7 +97,28 @@ function isCondimentPackingAlert(cb: CallbackAlert): boolean {
   return String(cb?.reason_category || '').toLowerCase() === 'condiments_note'
 }
 
-const POLL_INTERVAL_MS = 15000
+const POLL_INTERVAL_OPEN_MS = 60_000
+const POLL_INTERVAL_CLOSED_MS = 300_000
+
+export function getCallbackPollIntervalMs(now: Date = new Date()): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(now)
+    let hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '12')
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0')
+    if (hour === 24) hour = 0
+    const totalMinutes = hour * 60 + minute
+    // Horario cerrado: 4:15 AM (255 min) hasta 6:59 AM (419 min) America/Los_Angeles
+    const isClosedHours = totalMinutes >= 4 * 60 + 15 && totalMinutes < 7 * 60
+    return isClosedHours ? POLL_INTERVAL_CLOSED_MS : POLL_INTERVAL_OPEN_MS
+  } catch {
+    return POLL_INTERVAL_OPEN_MS
+  }
+}
 
 export default function PhoneCallbackAlertBanner({
   storeCode,
@@ -338,29 +363,44 @@ export default function PhoneCallbackAlertBanner({
     }
   }, [storeId, ready, includeSimulator])
 
-  // Polling autenticado cada 15s + recarga inmediata al volver a la pestaña o recuperar red
+  // Polling autenticado adaptativo (60s abierto 7:00 AM–4:14 AM LA, 300s cierre 4:15 AM–6:59 AM LA)
+  // + recarga inmediata al volver a la pestaña o recuperar red
   useEffect(() => {
     if (!ready || !storeId) return
 
+    let cancelled = false
+    let timerId: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleNext = () => {
+      if (cancelled) return
+      if (timerId !== null) clearTimeout(timerId)
+      timerId = setTimeout(() => {
+        if (cancelled) return
+        void fetchPending()
+        scheduleNext()
+      }, getCallbackPollIntervalMs())
+    }
+
     void fetchPending()
-    const interval = setInterval(() => {
-      void fetchPending()
-    }, POLL_INTERVAL_MS)
+    scheduleNext()
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         void fetchPending()
+        scheduleNext()
       }
     }
     const handleOnline = () => {
       void fetchPending()
+      scheduleNext()
     }
 
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('online', handleOnline)
 
     return () => {
-      clearInterval(interval)
+      cancelled = true
+      if (timerId !== null) clearTimeout(timerId)
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('online', handleOnline)
     }

@@ -31,6 +31,7 @@ import {
  * @notes
  * - Remediación integral de hallazgos A12, A13, A16, A18 y Hallazgo 2 de permisos/validación (2026-10-20).
  * - Fail-closed de lecturas paginadas y control de revisión estable en rango (2026-10-21).
+ * - 2026-11-19 (Paquete 2A): Eliminada llave duplicada `data: rows` en respuesta `include_meta=1` tras verificar que el 100% de consumidores (`AsignacionDiariaTab.tsx:1162, 1637`) leen `assignments`, reduciendo a la mitad el payload JSON.
  */
 
 const VALID_CANONICAL_STATIONS_NORM = new Set(
@@ -187,7 +188,6 @@ export async function GET(req: Request) {
         if (include_meta) {
             return NextResponse.json(
                 {
-                    data: rows,
                     assignments: rows,
                     revision,
                     revisions: {

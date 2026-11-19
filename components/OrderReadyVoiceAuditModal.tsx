@@ -11,10 +11,11 @@
  * - **Bilingüe 100% (ES / EN)**: Todos los textos usan `useLanguage()` (`orderReadyBoard.audit_*`) sin strings hardcodeados.
  *
  * @dataFlow
- * - OrderReadyBoard Header -> `OrderReadyVoiceAuditModal` -> `GET /api/order-ready/telemetry?range=today|7d` (auto-refresh 20s) -> Tabla y KPIs por sucursal.
+ * - OrderReadyBoard Header -> `OrderReadyVoiceAuditModal` -> `GET /api/order-ready/telemetry?range=today|7d` (auto-refresh 60s solo con pestaña visible) -> Tabla y KPIs por sucursal.
  *
  * @notes
  * - Respeta el tema visual del tablero (`isDark`) y soporta alcance automático por rol (Admin = 15 tiendas; Supervisor/Manager = tiendas autorizadas).
+ * - OPTIMIZACIÓN POLLING (2026-11-19): Intervalo elevado de 20s a 60s con guardia `document.visibilityState === 'visible'` y recarga inmediata al volver a la pestaña.
  */
 
 'use client'
@@ -124,9 +125,19 @@ export default function OrderReadyVoiceAuditModal({
     if (!isOpen) return
     void loadTelemetry(range)
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
       void loadTelemetry(range)
-    }, 20_000)
-    return () => clearInterval(timer)
+    }, 60_000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadTelemetry(range)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [isOpen, range, loadTelemetry])
 
   if (!isOpen) return null

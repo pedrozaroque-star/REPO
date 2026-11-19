@@ -12,10 +12,12 @@
  *
  * @dataFlow
  *   Client Tablet/Admin -> GET /api/delivery-armor/orders?storeId=6 -> fetchOffPremiseOrders() -> Toast API + Supabase -> Response JSON.
+ * @notes
+ *   - 2026-11-19 (Paquete 2A): Eliminada llamada de fondo `syncStoreRonosRoster` del polling de `/orders`; la sincronización viva de RONOS permanece exclusiva de `verifyRonosPin()`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchOffPremiseOrders, getActiveStorePinSession, getRonosCompanyId, syncStoreRonosRoster } from '@/lib/delivery-armor'
+import { fetchOffPremiseOrders, getActiveStorePinSession } from '@/lib/delivery-armor'
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,9 +29,6 @@ export async function GET(req: NextRequest) {
     if (isNaN(storeId) || storeId <= 0) {
       return NextResponse.json({ ok: false, error: 'Parámetro storeId inválido.' }, { status: 400 })
     }
-
-    // Mantener el padrón activo de RONOS de esta sucursal sincronizado en segundo plano (TTL 2 min)
-    syncStoreRonosRoster(getRonosCompanyId(storeId), false).catch(() => {})
 
     const [result, activeSession] = await Promise.all([
       fetchOffPremiseOrders(storeId, businessDate),

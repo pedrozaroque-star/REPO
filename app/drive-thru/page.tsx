@@ -28,6 +28,7 @@
  * - Soporta URL param ?store=UUID [&tab=lookup|timeline] para preseleccionar tienda
  * - Exportar CSV genera un archivo descargable con los datos del reporte activo
  * - Los tabs tienen animaciones suaves y soportan dark mode completo
+ * - Optimización 2026-11-19 (Paquete 2B): auto-refresh del tab Leaderboard KPI elevado de 60s a 180s con guardia `visibilityState === 'visible'`.
  */
 'use client'
 
@@ -332,7 +333,11 @@ function DriveThruContent() {
     useEffect(() => {
         if (activeTab === 'leaderboard') {
             fetchLeaderboard()
-            const interval = setInterval(fetchLeaderboard, 60000)
+            const interval = setInterval(() => {
+                if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                    fetchLeaderboard()
+                }
+            }, 180000)
             return () => {
                 clearInterval(interval)
                 if (lbAbortRef.current) lbAbortRef.current.abort()

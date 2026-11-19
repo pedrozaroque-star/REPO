@@ -23,6 +23,7 @@
  * @notes
  * - Semi-automated mode (Option A): Packets are pre-calculated, audited and left in 'ready' status.
  *   Raquel enters at 8:00 AM, verifies green indicators, and publishes all with 1 click.
+ * - 2026-11-19 (Paquete 2A): Auditoría post-publicación en pólizas `published` (`dayIdx <= 2`) acotada a `laHour === 6 || laHour === 11` (2×/día en lugar de 7×/día; `?force=1` permite forzarla manualmente). Pólizas no publicadas/borradores se siguen sincronizando en cada corrida.
  */
 
 import { NextResponse } from 'next/server'
@@ -44,6 +45,8 @@ export async function GET(request: Request) {
     if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const { searchParams } = new URL(request.url)
+    const forcePostPublishAudit = searchParams.get('force') === '1' || searchParams.get('force') === 'true'
     // 1. Calculate business dates in Los Angeles timezone using exact Intl parts
     const laFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Los_Angeles',
@@ -138,9 +141,11 @@ export async function GET(request: Request) {
           try {
             const existingPacket = existingPacketMap.get(`${mapping.store_id}_${targetDate}`)
 
-            // If packet was already published: only run post-publish audit on the most recent 2 days to keep cron fast
+            // If packet was already published: only run post-publish audit on the most recent 2 days
+            // and only at 6:30 AM & 11:30 AM LA (2x/day instead of 7x/day) unless ?force=1 is passed.
             if (existingPacket && existingPacket.status === 'published') {
               if (dayIdx > 2) return
+              if (!forcePostPublishAudit && laHour !== 6 && laHour !== 11) return
               const liveToast = await fetchToastAccountingData(extId, targetDateYMD)
               const publishedNet = Number(existingPacket.net_sales || 0)
               const liveNet = liveToast.netSales

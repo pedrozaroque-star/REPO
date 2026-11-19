@@ -13,13 +13,14 @@
  * - Umbrales de Food Cost: >32% Atención (ámbar), >36% Crítico.
  * - Umbrales de Labor Cost: ≤21.5% En Meta (verde), >21.5% Atención (ámbar), >23% Crítico (rojo). Si es 0% (sin datos), se muestra neutro (slate).
  * - Radar de Descuentos alerta descuentos Employee, Senior y First Responder >= $15.
- * - Auto-refresh cada 30 segundos (excepto en modo custom) con cancelación de peticiones en vuelo mediante AbortController.
+ * - Auto-refresh cada 120 segundos únicamente cuando se visualiza el día laboral actual y la pestaña está visible (`visibilityState === 'visible'`), con cancelación de peticiones en vuelo mediante AbortController.
  * @dataFlow
  * - DateRangeFilter (timeFilter, startDate, endDate) -> fetchStats() + OperationsAlerts + DriveThruLeaderboard.
  * - Clic en cualquier tarjeta, alerta, tienda, supervisor, descuento o comentario navega o abre el modal conectado al 100%.
  * @notes
  * - Usa useAuth() de ProtectedRoute para obtener el usuario autenticado real (custom JWT teg_token) y habilitar el chat de revisión en FeedbackReviewModal.
  * - 100% bilingüe (Español / Inglés) a través de useLanguage() (lib/i18n.tsx).
+ * - Optimización 2026-11-19 (Paquete 2B): auto-refresh elevado de 30s a 120s con guardia `visibilityState` y restringido exclusivamente al día laboral actual.
  */
 'use client'
 
@@ -132,12 +133,16 @@ function DashboardContent() {
         fetchStats(controller.signal)
 
         let interval: ReturnType<typeof setInterval> | undefined
-        if (timeFilter !== 'custom') {
+        const todayStr = getBusinessDateLA()
+        const isViewingToday = timeFilter === 'today' || (startDate === todayStr && endDate === todayStr)
+        if (isViewingToday) {
             interval = setInterval(() => {
+                if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+                if (abortControllerRef.current) abortControllerRef.current.abort()
                 const refreshController = new AbortController()
                 abortControllerRef.current = refreshController
                 fetchStats(refreshController.signal)
-            }, 30000)
+            }, 120000)
         }
 
         return () => {

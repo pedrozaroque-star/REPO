@@ -14,7 +14,7 @@
  *   -> { all, codes } -> usado por /api/order-ready/my-stores y por las rutas /api/order-ready/orders (GET/POST/PATCH).
  *
  * @notes
- * - Cache en memoria 60 s por usuario: el tablero consulta cada 4 s y no debe golpear la DB cada vez.
+ * - Cache en memoria 180 s (3 min) por usuario + caché dedicada de 15 min para tiendas activas (`id, code, name, supervisor_id, is_active`) con deduplicación in-flight: evita golpear `stores` y `users` en cada ciclo de polling sin comprometer el aislamiento por sucursal.
  * - Los nombres se normalizan sin tildes/mayúsculas/prefijo "Tacos Gavilan" para tolerar variantes.
  */
 
@@ -28,8 +28,51 @@ export interface OrderReadyAccess {
   codes: string[]
 }
 
-const CACHE_TTL_MS = 60_000
+interface CachedOrderReadyStore {
+  id: string | number
+  code: string
+  name: string
+  supervisor_id: string | number | null
+  is_active: boolean | null
+}
+
+const CACHE_TTL_MS = 180_000 // 3 minutos
+const STORES_CACHE_TTL_MS = 15 * 60 * 1000 // 15 minutos
 const cache = new Map<string, { at: number; value: OrderReadyAccess }>()
+let activeStoresCache: { at: number; rows: CachedOrderReadyStore[] } | null = null
+let activeStoresInflight: Promise<CachedOrderReadyStore[]> | null = null
+
+export function clearOrderReadyStoresCache(): void {
+  activeStoresCache = null
+}
+
+async function getCachedActiveStores(): Promise<CachedOrderReadyStore[]> {
+  const now = Date.now()
+  if (activeStoresCache && now - activeStoresCache.at < STORES_CACHE_TTL_MS) {
+    return activeStoresCache.rows
+  }
+  if (activeStoresInflight) {
+    return activeStoresInflight
+  }
+
+  activeStoresInflight = (async () => {
+    const { data: stores, error } = await supabaseAdmin
+      .from('stores')
+      .select('id, code, name, supervisor_id, is_active')
+    if (error) {
+      return activeStoresCache ? activeStoresCache.rows : []
+    }
+    const active = ((stores || []) as CachedOrderReadyStore[]).filter(
+      (s) => s.is_active !== false
+    )
+    activeStoresCache = { at: Date.now(), rows: active }
+    return active
+  })().finally(() => {
+    activeStoresInflight = null
+  })
+
+  return activeStoresInflight
+}
 
 function normalize(raw: string): string {
   return String(raw || '')
@@ -46,11 +89,15 @@ export async function resolveOrderReadyAccess(userId: string | number, tokenRole
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value
 
-  const { data: u } = await supabaseAdmin
+  const { data: u, error: userErr } = await supabaseAdmin
     .from('users')
     .select('id, role, store_id, store_scope, is_active')
     .eq('id', userId)
     .maybeSingle()
+
+  if (userErr) {
+    return { all: false, codes: [] }
+  }
 
   let value: OrderReadyAccess = { all: false, codes: [] }
   const role = String(u?.role || tokenRole || '').toLowerCase()
@@ -59,28 +106,25 @@ export async function resolveOrderReadyAccess(userId: string | number, tokenRole
     if (role === 'admin') {
       value = { all: true, codes: [] }
     } else {
-      const { data: stores } = await supabaseAdmin
-        .from('stores')
-        .select('id, code, name, supervisor_id, is_active')
-      const active = (stores || []).filter((s: any) => s.is_active !== false)
+      const active = await getCachedActiveStores()
       const codes = new Set<string>()
 
       const scope: string[] = Array.isArray(u.store_scope) ? u.store_scope : []
       const scopeNorm = new Set(scope.map(normalize).filter(Boolean))
 
       if (role === 'supervisor') {
-        for (const s of active as any[]) {
+        for (const s of active) {
           if (String(s.supervisor_id ?? '') === String(u.id)) codes.add(String(s.code).toUpperCase())
           if (scopeNorm.has(normalize(s.code)) || scopeNorm.has(normalize(s.name))) codes.add(String(s.code).toUpperCase())
         }
       } else {
         // manager / asistente / demás: SOLO su tienda asignada
         if (u.store_id !== null && u.store_id !== undefined) {
-          const own = (active as any[]).find((s) => String(s.id) === String(u.store_id))
+          const own = active.find((s) => String(s.id) === String(u.store_id))
           if (own) codes.add(String(own.code).toUpperCase())
         }
         if (codes.size === 0) {
-          for (const s of active as any[]) {
+          for (const s of active) {
             if (scopeNorm.has(normalize(s.code)) || scopeNorm.has(normalize(s.name))) codes.add(String(s.code).toUpperCase())
           }
         }

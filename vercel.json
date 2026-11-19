@@ -17,7 +17,7 @@
         },
         {
             "path": "/api/cron/sync-reviews",
-            "schedule": "0 */4 * * *"
+            "schedule": "0 16,22 * * *"
         },
         {
             "path": "/api/cron/integrity-check",
@@ -89,11 +89,11 @@
         },
         {
             "path": "/api/cron/sync-drive-thru",
-            "schedule": "*/10 * * * *"
+            "schedule": "*/15 * * * *"
         },
         {
             "path": "/api/basecamp/sync",
-            "schedule": "*/15 * * * *"
+            "schedule": "*/30 * * * *"
         },
         {
             "path": "/api/cron/sync-supplier-prices",
@@ -117,7 +117,7 @@
         },
         {
             "path": "/api/cron/process-mobile-outbox",
-            "schedule": "* * * * *"
+            "schedule": "*/15 * * * *"
         },
         {
             "path": "/api/cron/sync-viele-bills",
@@ -145,7 +145,7 @@
         },
         {
             "path": "/api/cron/sync-external-accounting",
-            "schedule": "*/15 * * * *"
+            "schedule": "*/30 * * * *"
         }
     ]
 }

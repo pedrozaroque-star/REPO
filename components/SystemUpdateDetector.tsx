@@ -3,12 +3,14 @@
  * @module components/SystemUpdateDetector
  * @description Notificación flotante de actualización del sistema para avisar al usuario de nuevas versiones desplegadas.
  * @businessRules
- *   1. Se desactiva automáticamente en modo TV (/tv, /t/).
- *   2. Se ubica flotante en la parte inferior central (bottom-center) para no obstruir el botón flotante del Asistente IA (Chatbot) ni la barra lateral.
- *   3. Provee botón de actualización inmediata ('Actualizar') y botón de cierre/descarte (✕).
+ *   1. Se desactiva automáticamente en modo TV (/tv, /t/) pasando `0` a `useSystemUpdate` para evitar peticiones a `/api/system/version`.
+ *   2. En clientes web consulta cada 5 minutos (`300_000ms`) además de verificar al regresar a la pestaña (`visibilitychange`), respaldado por Vercel Edge CDN (`s-maxage=60`).
+ *   3. Se ubica flotante en la parte inferior central (bottom-center) para no obstruir el botón flotante del Asistente IA (Chatbot) ni la barra lateral.
+ *   4. Provee botón de actualización inmediata ('Actualizar') y botón de cierre/descarte (✕).
  * @dataFlow Consulta /api/system/version periódicamente mediante useSystemUpdate.
  * @notes
  *   - Fix: Se corrigió la posición en desktop (antes md:right-6) que provocaba que el banner se encimara directamente sobre el botón del chatbot en la esquina inferior derecha.
+ *   - Fix 2026-11-19: Corregido bug de Rules of Hooks (antes `if (isTvMode) return null` ejecutaba antes de los `useEffect`), se pasa `0` en modo TV (antes `undefined` caía al default de 60s) y se ajustó el intervalo web a 5 minutos.
  */
 
 'use client'
@@ -21,31 +23,33 @@ import { usePathname } from 'next/navigation'
 export function SystemUpdateDetector() {
     const pathname = usePathname()
     // Apaga el detector silenciosamente si estamos en modo TV
-    const isTvMode = pathname?.startsWith('/tv') || pathname?.startsWith('/t/')
+    const isTvMode = Boolean(pathname?.startsWith('/tv') || pathname?.startsWith('/t/'))
 
-    // Check every 2 minutes
-    const { hasUpdate, updateMessage, triggerUpdate } = useSystemUpdate(isTvMode ? undefined : 1000 * 60 * 2)
+    // Check every 5 minutes on web clients; pass 0 in TV mode to disable polling completely
+    const { hasUpdate, updateMessage, triggerUpdate } = useSystemUpdate(isTvMode ? 0 : 1000 * 60 * 5)
     const [showSuccess, setShowSuccess] = useState(false)
-    const [dismissed, setDismissed] = useState(false)
-
-    if (isTvMode) return null;
+    const [dismissedUpdateKey, setDismissedUpdateKey] = useState<string | null>(null)
 
     useEffect(() => {
+        if (isTvMode) return
         // Check if we just updated
         if (typeof window !== 'undefined' && sessionStorage.getItem('teg_update_completed')) {
-            setShowSuccess(true)
-            sessionStorage.removeItem('teg_update_completed')
-            const timer = setTimeout(() => setShowSuccess(false), 5000)
-            return () => clearTimeout(timer)
+            const showTimer = setTimeout(() => {
+                sessionStorage.removeItem('teg_update_completed')
+                setShowSuccess(true)
+            }, 0)
+            const hideTimer = setTimeout(() => setShowSuccess(false), 5000)
+            return () => {
+                clearTimeout(showTimer)
+                clearTimeout(hideTimer)
+            }
         }
-    }, [])
+    }, [isTvMode])
 
-    // Reset dismissed state if a new update arrives
-    useEffect(() => {
-        if (hasUpdate) {
-            setDismissed(false)
-        }
-    }, [hasUpdate, updateMessage])
+    if (isTvMode) return null
+
+    const currentUpdateKey = updateMessage || '__update__'
+    const dismissed = dismissedUpdateKey !== null && dismissedUpdateKey === currentUpdateKey
 
     const handleUpdate = () => {
         sessionStorage.setItem('teg_update_completed', 'true')
@@ -96,7 +100,7 @@ export function SystemUpdateDetector() {
                         Actualizar
                     </button>
                     <button
-                        onClick={() => setDismissed(true)}
+                        onClick={() => setDismissedUpdateKey(currentUpdateKey)}
                         className="text-gray-400 hover:text-white dark:text-gray-500 dark:hover:text-slate-900 p-1.5 rounded-full hover:bg-white/10 dark:hover:bg-slate-900/10 transition-colors"
                         title="Descartar por ahora"
                         aria-label="Cerrar aviso"

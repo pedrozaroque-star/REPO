@@ -1,10 +1,35 @@
+/**
+ * @module app/api/inventory/items/route
+ * @description API CRUD para el catálogo maestro de insumos de inventario (`inventory_items`) y sus categorías (`inventory_categories`).
+ * @businessRules
+ * - GET devuelve insumos ordenados alfabéticamente con su categoría asociada y el catálogo de categorías para selectores.
+ * - POST/PUT persisten costos de compra (`purchase_unit_cost`), rendimiento (`yield_percent`), unidad base y bandera `is_bodega`.
+ * @dataFlow
+ * - UI Inventario / Food Cost / RecipeModal -> GET/POST/PUT `/api/inventory/items` -> `inventory_items` + `inventory_categories` (Supabase).
+ * @notes
+ * - 2026-11-19 (Paquete 2A): Reemplazado `select('*')` por columnas verificadas contra todos los consumidores (`app/inventory/items/page.tsx`, `app/admin/food-cost/meats/page.tsx`, `app/inventory/menu/components/RecipeModal.tsx`) y agregado `Cache-Control: private, max-age=60, stale-while-revalidate=120` en GET.
+ */
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { verifyStaffAuth } from '@/lib/auth-server'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
-export async function GET(request: Request) {
+const INVENTORY_ITEM_SELECT = `
+    id,
+    name,
+    sku,
+    category_id,
+    unit_type,
+    quantity_per_unit,
+    unit_measure,
+    purchase_unit_cost,
+    yield_percent,
+    alert_threshold,
+    is_bodega,
+    category:inventory_categories(name)
+`
+
+export async function GET() {
     const cookieStore = await cookies()
 
     const supabase = createServerClient(
@@ -18,7 +43,7 @@ export async function GET(request: Request) {
                 set(name: string, value: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value, ...options })
-                    } catch (error) {
+                    } catch {
                         // The `set` method was called from a Server Component.
                         // This can be ignored if you have middleware refreshing
                         // user sessions.
@@ -27,7 +52,7 @@ export async function GET(request: Request) {
                 remove(name: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value: '', ...options })
-                    } catch (error) {
+                    } catch {
                         // The `delete` method was called from a Server Component.
                         // This can be ignored if you have middleware refreshing
                         // user sessions.
@@ -37,13 +62,10 @@ export async function GET(request: Request) {
         }
     )
 
-    // Fetch items with categories
+    // Fetch items with categories (explicit slim projection verified against all UI callers)
     const { data: items, error } = await supabase
         .from('inventory_items')
-        .select(`
-            *,
-            category:inventory_categories(name)
-        `)
+        .select(INVENTORY_ITEM_SELECT)
         .order('name', { ascending: true })
 
     if (error) {
@@ -53,10 +75,17 @@ export async function GET(request: Request) {
     // Also fetch categories for the dropdown
     const { data: categories } = await supabase
         .from('inventory_categories')
-        .select('*')
+        .select('id, name')
         .order('name', { ascending: true })
 
-    return NextResponse.json({ items, categories })
+    return NextResponse.json(
+        { items, categories },
+        {
+            headers: {
+                'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
+            },
+        }
+    )
 }
 
 export async function POST(request: Request) {

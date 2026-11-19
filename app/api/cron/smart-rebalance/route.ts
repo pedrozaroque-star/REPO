@@ -12,6 +12,7 @@
  * - Corregido corte de día de negocio a las 6:00 AM (`hour < 6` pertenece al día anterior).
  * - Eliminada columna inexistente `updated_at` en `UPDATE shifts` que bloqueaba silenciosamente la persistencia en PostgreSQL.
  * - Aislado el rebalanceo exclusivamente a los `varianceShiftIds` detectados.
+ * - 2026-11-19 (Paquete 2A): Agregado salto de ventana muerta `4:15–6:59 AM LA` (`?force=1` override), corregido bucle de re-cálculo cada 20 min estampando el marcador retrocompatible `rebalanced_punch_sig` en cada `BreakBlock` de `breaks_schedule` (y caché RAM para turnos de 0 breaks sin alterar formato de arreglo ni UI), y procesado de sucursales en lotes concurrentes de 3.
  */
 
 import { NextResponse } from 'next/server'
@@ -58,6 +59,22 @@ function getCaliforniaBusinessDate(now: Date = new Date()): { today: string; tom
     return { today: fmt(baseUtc), tomorrow: fmt(nextUtc) }
 }
 
+function getLATimeParts(now: Date = new Date()): { hour: number; minute: number } {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).formatToParts(now)
+    const rawHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10)
+    const hour = rawHour === 24 ? 0 : rawHour
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10)
+    return { hour, minute }
+}
+
+// Respaldo ligero en RAM únicamente para el caso borde de turnos con variación que quedan con 0 descansos (<3.5h)
+const rebalancedZeroBreakCache = new Map<string, string>()
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
@@ -71,6 +88,24 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { searchParams } = new URL(req.url)
+    const forceRun = searchParams.get('force') === '1' || searchParams.get('force') === 'true'
+    const now = new Date()
+
+    if (!forceRun) {
+        const { hour: laHour, minute: laMinute } = getLATimeParts(now)
+        if ((laHour === 4 && laMinute >= 15) || laHour === 5 || laHour === 6) {
+            console.log(
+                `⏳ [Smart Rebalance V30] Omitido en horas muertas (4:15 AM - 6:59 AM LA). Hora LA: ${laHour}:${String(laMinute).padStart(2, '0')}`
+            )
+            return NextResponse.json({
+                success: true,
+                skipped: true,
+                message: 'Skipped: Dead hours (4:15 AM - 6:59 AM LA)',
+            })
+        }
+    }
+
     console.log('🤖 [Smart Rebalance V30] Starting automated punch monitoring...')
 
     try {
@@ -78,7 +113,6 @@ export async function GET(req: Request) {
         if (!token) throw new Error('Failed to get Toast Auth Token')
 
         const stores = await getToastRestaurants(token)
-        const now = new Date()
         const { today, tomorrow } = getCaliforniaBusinessDate(now)
         const laOffset = getLAOffset(now)
 
@@ -88,8 +122,11 @@ export async function GET(req: Request) {
         const { data: jobs } = await supabase.from('toast_jobs').select('*')
         const allJobs = jobs || []
 
-        for (const store of stores) {
-            if (!store.id) continue
+        const startIso = `${today}T06:00:00.000${laOffset}`
+        const endIso = `${tomorrow}T06:00:00.000${laOffset}`
+
+        const processStore = async (store: { id: string; name?: string }): Promise<{ variancesFound: number; rebalanced: boolean }> => {
+            if (!store.id) return { variancesFound: 0, rebalanced: false }
 
             // 1. Obtener turnos programados hoy en la tienda
             const { data: dbShifts } = await supabase
@@ -98,7 +135,7 @@ export async function GET(req: Request) {
                 .eq('store_id', store.id)
                 .eq('shift_date', today)
 
-            if (!dbShifts || dbShifts.length === 0) continue
+            if (!dbShifts || dbShifts.length === 0) return { variancesFound: 0, rebalanced: false }
 
             const shiftEmpIds = [...new Set(dbShifts.map(s => s.employee_id).filter(Boolean))]
             const { data: emps } = shiftEmpIds.length > 0
@@ -109,8 +146,6 @@ export async function GET(req: Request) {
                 : { data: [] }
 
             // 2. Consultar ponchadas reales de Toast en el día de negocio completo (6:00 AM a 6:00 AM CA)
-            const startIso = `${today}T06:00:00.000${laOffset}`
-            const endIso = `${tomorrow}T06:00:00.000${laOffset}`
             const punchRes = await fetch(
                 `https://ws-api.toasttab.com/labor/v1/timeEntries?startDate=${startIso}&endDate=${endIso}`,
                 {
@@ -121,13 +156,16 @@ export async function GET(req: Request) {
                 }
             )
 
-            if (!punchRes.ok) continue
+            if (!punchRes.ok) return { variancesFound: 0, rebalanced: false }
 
             const punches = await punchRes.json()
             const timeEntries = Array.isArray(punches) ? punches : punches.timeEntries || []
 
-            // 3. Detectar variaciones significativas (>= 60 min en entrada o salida)
+            // 3. Detectar variaciones significativas (>= 60 min en entrada o salida) no procesadas aún para esa ponchada
             const varianceShiftIds = new Set<string>()
+            const variancePunchSigByShiftId = new Map<string, string>()
+            let storeVariancesFound = 0
+
             const adjustedShifts = dbShifts.map(s => {
                 const emp = emps?.find(e => String(e.id) === String(s.employee_id))
                 if (!emp || !emp.toast_guid) return s
@@ -146,19 +184,44 @@ export async function GET(req: Request) {
                     const diffOutMins = actualEnd ? Math.abs(actualEnd - scheduledEnd) / (1000 * 60) : 0
 
                     if (diffInMins >= 60 || diffOutMins >= 60) {
+                        const shiftIdStr = String(s.id)
+                        const adjustedStart = diffInMins >= 60 ? punch.inDate : s.start_time
+                        const adjustedEnd = actualEnd && diffOutMins >= 60 ? punch.outDate : s.end_time
+                        const punchSig = `${diffInMins >= 60 ? punch.inDate : ''}|${actualEnd && diffOutMins >= 60 ? punch.outDate : ''}`
+                        const existingBreaks = Array.isArray(s.breaks_schedule) ? s.breaks_schedule : []
+
+                        // Si este turno ya fue rebalanceado para exactamente la misma firma de ponchada, evitar re-cálculo
+                        const alreadyRebalancedInDb =
+                            existingBreaks.length > 0 &&
+                            existingBreaks.every(
+                                (b: Record<string, unknown> | null | undefined) =>
+                                    Boolean(b) && b?.rebalanced_punch_sig === punchSig
+                            )
+                        const alreadyRebalancedZeroBreak =
+                            existingBreaks.length === 0 && rebalancedZeroBreakCache.get(shiftIdStr) === punchSig
+
+                        if (alreadyRebalancedInDb || alreadyRebalancedZeroBreak) {
+                            return {
+                                ...s,
+                                start_time: adjustedStart,
+                                end_time: adjustedEnd,
+                            }
+                        }
+
                         console.log(
                             `⚠️ Variance for ${emp.first_name} at ${store.name}: in=${Math.round(diffInMins)}m, out=${Math.round(diffOutMins)}m`
                         )
-                        totalVariancesFound++
-                        varianceShiftIds.add(String(s.id))
+                        storeVariancesFound++
+                        varianceShiftIds.add(shiftIdStr)
+                        variancePunchSigByShiftId.set(shiftIdStr, punchSig)
                         // Limpiar únicamente los descansos NO manuales del empleado con variación horaria
-                        const preservedManual = Array.isArray(s.breaks_schedule)
-                            ? s.breaks_schedule.filter((b: any) => b && b.is_manual)
-                            : []
+                        const preservedManual = existingBreaks.filter(
+                            (b: Record<string, unknown> | null | undefined) => Boolean(b && b.is_manual)
+                        )
                         return {
                             ...s,
-                            start_time: diffInMins >= 60 ? punch.inDate : s.start_time,
-                            end_time: actualEnd && diffOutMins >= 60 ? punch.outDate : s.end_time,
+                            start_time: adjustedStart,
+                            end_time: adjustedEnd,
                             breaks_schedule: preservedManual,
                         }
                     }
@@ -167,6 +230,7 @@ export async function GET(req: Request) {
             })
 
             // 4. Rebalancear ÚNICAMENTE los turnos con variación >= 60m respetando anclas del resto del equipo
+            let storeUpdatedAny = false
             if (varianceShiftIds.size > 0) {
                 const [forecast, { data: stationRows }, { data: storeOverrides }] = await Promise.all([
                     generateSmartForecast(store.id, today),
@@ -212,7 +276,9 @@ export async function GET(req: Request) {
                         }
                     })
 
-                if (activeShiftsForRebalance.length === 0) continue
+                if (activeShiftsForRebalance.length === 0) {
+                    return { variancesFound: storeVariancesFound, rebalanced: false }
+                }
 
                 const learnedPrefs: LearnedPreference[] = (storeOverrides || []).map(o => ({
                     role: o.role,
@@ -228,17 +294,29 @@ export async function GET(req: Request) {
 
                 const newShifts = scheduleBreaksWithDemand(activeShiftsForRebalance as any, hours, learnedPrefs)
 
-                let storeUpdatedAny = false
                 for (const updated of newShifts) {
-                    if (!varianceShiftIds.has(String(updated.id))) continue
-                    const original = dbShifts.find(obs => String(obs.id) === String(updated.id))
+                    const updatedIdStr = String(updated.id)
+                    if (!varianceShiftIds.has(updatedIdStr)) continue
+                    const original = dbShifts.find(obs => String(obs.id) === updatedIdStr)
+                    const punchSig = variancePunchSigByShiftId.get(updatedIdStr) || ''
+                    const rawNewBreaks = Array.isArray(updated.breaks_schedule) ? updated.breaks_schedule : []
+                    const stampedBreaks = rawNewBreaks.map((b: Record<string, unknown>) => ({
+                        ...b,
+                        rebalanced_punch_sig: punchSig,
+                    }))
+
+                    if (stampedBreaks.length === 0) {
+                        if (rebalancedZeroBreakCache.size > 1000) rebalancedZeroBreakCache.clear()
+                        rebalancedZeroBreakCache.set(updatedIdStr, punchSig)
+                    }
+
                     const breaksChanged =
-                        JSON.stringify(original?.breaks_schedule || []) !== JSON.stringify(updated.breaks_schedule || [])
+                        JSON.stringify(original?.breaks_schedule || []) !== JSON.stringify(stampedBreaks)
 
                     if (breaksChanged) {
                         const { error: updErr } = await supabase
                             .from('shifts')
-                            .update({ breaks_schedule: updated.breaks_schedule })
+                            .update({ breaks_schedule: stampedBreaks })
                             .eq('id', updated.id)
                         if (updErr) {
                             console.error(`❌ [Smart Rebalance] Failed updating shift ${updated.id}:`, updErr.message)
@@ -247,8 +325,19 @@ export async function GET(req: Request) {
                         }
                     }
                 }
+            }
 
-                if (storeUpdatedAny) rebalancedStoresCount++
+            return { variancesFound: storeVariancesFound, rebalanced: storeUpdatedAny }
+        }
+
+        // Procesar sucursales en lotes concurrentes de 3 para reducir wall-time de Fluid Memory
+        const CONCURRENCY_BATCH_SIZE = 3
+        for (let i = 0; i < stores.length; i += CONCURRENCY_BATCH_SIZE) {
+            const batch = stores.slice(i, i + CONCURRENCY_BATCH_SIZE)
+            const batchResults = await Promise.all(batch.map(processStore))
+            for (const res of batchResults) {
+                totalVariancesFound += res.variancesFound
+                if (res.rebalanced) rebalancedStoresCount++
             }
         }
 

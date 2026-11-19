@@ -8,10 +8,12 @@
  * @dataFlow Client -> GET/POST/PUT `/api/stores` -> `getServerUser` -> `supabaseAdmin` ('stores') -> JSON Response.
  * @notes
  * - [2026-11-12] Agregados métodos POST y PUT autenticados para soportar `/tiendas` tras el cierre de `teg_rls_access_stores`.
+ * - [2026-11-19] Agregado `Cache-Control: public, s-maxage=300, stale-while-revalidate=600` en GET (catálogo público e idéntico para todos los usuarios sin datos de sesión) e invalidación inmediata de cachés RAM (`invalidateStoreLookupCache`, `clearOrderReadyStoresCache`) tras POST/PUT.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerUser } from '@/lib/auth-server'
+import { getServerUser, invalidateStoreLookupCache } from '@/lib/auth-server'
+import { clearOrderReadyStoresCache } from '@/lib/order-ready-access'
 import { getSupabaseClient, supabaseAdmin } from '@/lib/supabase'
 
 const STORE_MANAGE_ROLES = new Set(['admin', 'administrador', 'supervisor'])
@@ -54,7 +56,11 @@ export async function GET() {
 
     if (error) throw error
 
-    return NextResponse.json(data)
+    return NextResponse.json(data, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
+      }
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
@@ -83,6 +89,8 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) throw error
+    invalidateStoreLookupCache()
+    clearOrderReadyStoresCache()
     return NextResponse.json({ success: true, store: data }, { status: 201 })
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Error creando tienda' }, { status: 500 })
@@ -117,6 +125,8 @@ export async function PUT(req: NextRequest) {
       .single()
 
     if (error) throw error
+    invalidateStoreLookupCache()
+    clearOrderReadyStoresCache()
     return NextResponse.json({ success: true, store: data })
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Error actualizando tienda' }, { status: 500 })

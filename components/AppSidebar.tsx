@@ -17,13 +17,14 @@
  *
  * @notes
  * - Ancho expandido de `276px` (y `64px` colapsado) sincronizado con `components/ClientLayout.tsx`, donde `/app` y `/gavilan-pos` están registrados en `publicRoutes` para renderizarse a pantalla completa sin el sidebar administrativo.
+ * - Optimización 2026-11-19 (Paquete 1B): deshabilita `<NotificationBell />` en rutas kiosko/cocina (`/order-ready-board`, `/inventory/preparador`, `/inventory/preparador/*`) y pasa `enableEntranceEffects={false}` a la instancia móvil mientras `NotificationBell` comparte un único store singleton de polling (180s) por pestaña.
  */
 
 'use client'
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import NotificationBell from './NotificationBell'
+import NotificationBell, { isNotificationKioskRoute } from './NotificationBell'
 import ThemeToggle from './ThemeToggle'
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
@@ -224,6 +225,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const router = useRouter()
     const { user } = useAuth()
     const { t, language, setLanguage } = useLanguage()
+    const hideNotificationsOnKiosk = isNotificationKioskRoute(pathname)
 
     const [expandedSubItems, setExpandedSubItems] = useState<Record<string, boolean>>({})
     // Path-scoped manual accordion overrides; default state keeps all groups closed (except active route group)
@@ -1763,7 +1765,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
                 </button>
                 <ThemeToggle />
-                <NotificationBell />
+                {!hideNotificationsOnKiosk && <NotificationBell enableEntranceEffects />}
 
                 {/* Separator */}
                 <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
@@ -1818,7 +1820,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
                     </button>
                     <div className="hidden sm:block"><ThemeToggle /></div>
-                    <NotificationBell />
+                    {!hideNotificationsOnKiosk && <NotificationBell enableEntranceEffects={false} />}
                     <button 
                         type="button"
                         onClick={() => setUserDropdownOpen(!userDropdownOpen)}

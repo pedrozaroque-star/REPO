@@ -1,7 +1,31 @@
+/**
+ * @module components/NotificationBell
+ * @description Campana de notificaciones in-app con menú desplegable, contador de no leídas y alerta sonora
+ *   para usuarios autenticados del panel administrativo de Tacos Gavilan.
+ *
+ * @businessRules
+ * - Muestra únicamente notificaciones del usuario autenticado posteriores al último lunes a las 6:00 AM
+ *   (inicio de semana operativa) empujando `.gte('created_at', monday6AM.toISOString())` directo a PostgreSQL.
+ * - Desactiva por completo el polling en rutas kiosko/cocina (`/order-ready-board`, `/inventory/preparador`,
+ *   `/inventory/preparador/*`) para evitar tráfico innecesario desde tabletas 24/7.
+ * - Deduplicación por pestaña (*singleton store*): aunque `AppSidebar` monte instancias separadas para
+ *   escritorio (`hidden lg:flex`) y móvil (`lg:hidden`), existe exactamente UN solo poller (180 s),
+ *   UN listener de `visibilitychange` y una única reproducción de sonido/animación de entrada por pestaña.
+ *
+ * @dataFlow
+ * - `localStorage.teg_user` -> `supabase.from('notifications').select('id, title, message, link, created_at, is_read, type, resource_id')`
+ *   -> singleton store (`useSyncExternalStore`) -> instancias desktop/mobile de `NotificationBell`.
+ *
+ * @notes
+ * - Optimización 2026-11-19 (Paquete 1B): se corrigió el bug de doble montaje en `AppSidebar` consolidando el polling
+ *   en un store singleton por pestaña, se elevó el intervalo de 30s a 180s (3 min) con guardia `visibilityState === 'visible'`
+ *   y refresco inmediato al volver a la pestaña, se acotó `.select(...)` a las 8 columnas usadas (eliminando `select('*')`),
+ *   se empujó el filtro de lunes 6:00 AM a la consulta SQL y se deshabilitó en rutas kiosko/cocina.
+ */
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import { getSupabaseClient } from '@/lib/supabase'
 
@@ -13,159 +37,326 @@ interface Notification {
   created_at: string
   is_read: boolean
   type: 'alert' | 'info' | 'success' | 'warning'
-  resource_id?: any // Para reconstruir links rotos
+  resource_id?: string | number | null // Para reconstruir links rotos
 }
 
-export default function NotificationBell({ isCollapsed = false }: { isCollapsed?: boolean }) {
-  const router = useRouter()
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [isOpen, setIsOpen] = useState(false)
-  const [showAnimation, setShowAnimation] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const hasShownAnimation = useRef(false)
+interface NotificationBellProps {
+  isCollapsed?: boolean
+  disabled?: boolean
+  enableEntranceEffects?: boolean
+}
 
-  // 🔊 Función para reproducir sonido de campana
-  const playBellSound = () => {
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+interface NotificationStoreSnapshot {
+  notifications: Notification[]
+  unreadCount: number
+  showAnimation: boolean
+}
 
-      // Crear tres tonos para simular una campana real
-      const frequencies = [800, 1000, 1200]
-      const duration = 0.5
+const POLL_INTERVAL_MS = 180_000
+const MIN_DEDUP_GAP_MS = 3_000
 
-      frequencies.forEach((freq, index) => {
-        const oscillator = audioContext.createOscillator()
-        const gainNode = audioContext.createGain()
+const EMPTY_SNAPSHOT: NotificationStoreSnapshot = {
+  notifications: [],
+  unreadCount: 0,
+  showAnimation: false,
+}
 
-        oscillator.connect(gainNode)
-        gainNode.connect(audioContext.destination)
+let storeSnapshot: NotificationStoreSnapshot = EMPTY_SNAPSHOT
+const storeListeners = new Set<() => void>()
+let activePollerSubscribers = 0
+let pollIntervalId: ReturnType<typeof setInterval> | null = null
+let animationTimeoutId: ReturnType<typeof setTimeout> | null = null
+let hasShownEntranceAnimation = false
+let inFlightFetch: Promise<void> | null = null
+let lastFetchCompletedAt = 0
+let visibilityListenerAttached = false
 
-        oscillator.frequency.value = freq
-        oscillator.type = 'sine'
+export function isNotificationKioskRoute(pathname: string | null | undefined): boolean {
+  if (!pathname) return false
+  return (
+    pathname === '/order-ready-board' ||
+    pathname.startsWith('/order-ready-board/') ||
+    pathname === '/inventory/preparador' ||
+    pathname.startsWith('/inventory/preparador/')
+  )
+}
 
-        // Envolvente ADSR para sonido más natural
-        const now = audioContext.currentTime
-        gainNode.gain.setValueAtTime(0, now)
-        gainNode.gain.linearRampToValueAtTime(0.3 / (index + 1), now + 0.01)
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration)
+function getMonday6AM(now: Date = new Date()): Date {
+  const day = now.getDay()
+  const diffSinceMonday = day === 0 ? 6 : day - 1
+  const monday6AM = new Date(now)
+  monday6AM.setDate(now.getDate() - diffSinceMonday)
+  monday6AM.setHours(6, 0, 0, 0)
+  return monday6AM
+}
 
-        oscillator.start(now)
-        oscillator.stop(now + duration)
-      })
+function emitStoreUpdate(next: NotificationStoreSnapshot) {
+  storeSnapshot = next
+  for (const listener of storeListeners) {
+    listener()
+  }
+}
 
-      // Segundo "ding" más suave
-      setTimeout(() => {
-        const oscillator2 = audioContext.createOscillator()
-        const gainNode2 = audioContext.createGain()
+function subscribeStore(listener: () => void): () => void {
+  storeListeners.add(listener)
+  return () => {
+    storeListeners.delete(listener)
+  }
+}
 
-        oscillator2.connect(gainNode2)
-        gainNode2.connect(audioContext.destination)
+function getStoreSnapshot(): NotificationStoreSnapshot {
+  return storeSnapshot
+}
 
-        oscillator2.frequency.value = 1000
-        oscillator2.type = 'sine'
+function getServerSnapshot(): NotificationStoreSnapshot {
+  return EMPTY_SNAPSHOT
+}
 
-        const now = audioContext.currentTime
-        gainNode2.gain.setValueAtTime(0, now)
-        gainNode2.gain.linearRampToValueAtTime(0.2, now + 0.01)
-        gainNode2.gain.exponentialRampToValueAtTime(0.01, now + 0.3)
+// 🔊 Función para reproducir sonido de campana
+function playBellSound() {
+  try {
+    if (typeof window === 'undefined') return
+    const AudioCtx =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const audioContext = new AudioCtx()
 
-        oscillator2.start(now)
-        oscillator2.stop(now + 0.3)
-      }, 200)
+    // Crear tres tonos para simular una campana real
+    const frequencies = [800, 1000, 1200]
+    const duration = 0.5
 
-    } catch (error) {
-      console.error('Error al reproducir sonido:', error)
-    }
+    frequencies.forEach((freq, index) => {
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+
+      oscillator.frequency.value = freq
+      oscillator.type = 'sine'
+
+      // Envolvente ADSR para sonido más natural
+      const now = audioContext.currentTime
+      gainNode.gain.setValueAtTime(0, now)
+      gainNode.gain.linearRampToValueAtTime(0.3 / (index + 1), now + 0.01)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration)
+
+      oscillator.start(now)
+      oscillator.stop(now + duration)
+    })
+
+    // Segundo "ding" más suave
+    setTimeout(() => {
+      const oscillator2 = audioContext.createOscillator()
+      const gainNode2 = audioContext.createGain()
+
+      oscillator2.connect(gainNode2)
+      gainNode2.connect(audioContext.destination)
+
+      oscillator2.frequency.value = 1000
+      oscillator2.type = 'sine'
+
+      const now = audioContext.currentTime
+      gainNode2.gain.setValueAtTime(0, now)
+      gainNode2.gain.linearRampToValueAtTime(0.2, now + 0.01)
+      gainNode2.gain.exponentialRampToValueAtTime(0.01, now + 0.3)
+
+      oscillator2.start(now)
+      oscillator2.stop(now + 0.3)
+    }, 200)
+  } catch (error) {
+    console.error('Error al reproducir sonido:', error)
+  }
+}
+
+async function fetchNotificationsShared(force = false): Promise<void> {
+  if (typeof window === 'undefined') return
+  if (!force && typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+    return
+  }
+  if (inFlightFetch) {
+    return inFlightFetch
+  }
+  if (!force && lastFetchCompletedAt > 0 && Date.now() - lastFetchCompletedAt < MIN_DEDUP_GAP_MS) {
+    return
   }
 
-  useEffect(() => {
-    fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const fetchNotifications = async () => {
+  const run = async () => {
     try {
       const userStr = localStorage.getItem('teg_user')
       if (!userStr) return
-      const user = JSON.parse(userStr)
+      const user = JSON.parse(userStr) as { id?: string | number }
+      if (!user?.id) return
 
       const supabase = await getSupabaseClient()
 
+      // 🏁 FILTRO DE LUNES 6:00 AM (empujado directo a PostgreSQL)
+      const monday6AM = getMonday6AM()
+
       const { data, error } = await supabase
         .from('notifications')
-        .select('*')
+        .select('id, title, message, link, created_at, is_read, type, resource_id')
         .eq('user_id', user.id)
+        .gte('created_at', monday6AM.toISOString())
         .order('created_at', { ascending: false })
         .limit(20)
 
       if (error) throw error
 
       if (data) {
-        let notifs = data as unknown as Notification[]
+        const rawNotifs = data as unknown as Notification[]
+        const notifs = rawNotifs.filter((n) => new Date(n.created_at) >= monday6AM)
+        const unread = notifs.filter((n) => !n.is_read).length
 
-        // 🏁 FILTRO DE LUNES 6:00 AM
-        // No mostrar nada anterior al último lunes a las 6am
-        const now = new Date()
-        const day = now.getDay()
-        const diffSinceMonday = (day === 0 ? 6 : day - 1)
-        const monday6AM = new Date(now)
-        monday6AM.setDate(now.getDate() - diffSinceMonday)
-        monday6AM.setHours(6, 0, 0, 0)
-
-        notifs = notifs.filter(n => new Date(n.created_at) >= monday6AM)
-        const unread = notifs.filter(n => !n.is_read).length
-
-        setNotifications(notifs)
-        setUnreadCount(unread)
-
-        if (unread > 0 && !hasShownAnimation.current) {
-          hasShownAnimation.current = true
-          setShowAnimation(true)
+        let triggerAnimation = false
+        if (unread > 0 && !hasShownEntranceAnimation) {
+          hasShownEntranceAnimation = true
+          triggerAnimation = true
           playBellSound()
-          setTimeout(() => setShowAnimation(false), 3000)
+          if (animationTimeoutId) clearTimeout(animationTimeoutId)
+          animationTimeoutId = setTimeout(() => {
+            animationTimeoutId = null
+            emitStoreUpdate({
+              ...storeSnapshot,
+              showAnimation: false,
+            })
+          }, 3000)
         }
+
+        emitStoreUpdate({
+          notifications: notifs,
+          unreadCount: unread,
+          showAnimation: triggerAnimation ? true : storeSnapshot.showAnimation,
+        })
       }
-    } catch (error: any) {
+      lastFetchCompletedAt = Date.now()
+    } catch (error: unknown) {
       // 🛡️ Manejo de errores de red (común con AdBlockers o pérdida de conexión)
-      const msg = error?.message || error?.toString() || '';
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : String(error ?? '')
       if (msg.includes('Failed to fetch') || msg.includes('Network request failed')) {
-        console.warn('⚠️ (Silenciado) No se pudieron cargar las notificaciones por problema de red o bloqueo.');
+        console.warn('⚠️ (Silenciado) No se pudieron cargar las notificaciones por problema de red o bloqueo.')
         return
       }
       console.error('Error al cargar notificaciones (catch):', error)
+    } finally {
+      inFlightFetch = null
     }
   }
 
-  const markAsRead = async () => {
-    if (unreadCount === 0) return
+  inFlightFetch = run()
+  return inFlightFetch
+}
 
-    try {
-      const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id)
+function handleVisibilityChange() {
+  if (
+    activePollerSubscribers > 0 &&
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'visible'
+  ) {
+    void fetchNotificationsShared(true)
+  }
+}
 
-      if (unreadIds.length > 0) {
-        const supabase = await getSupabaseClient()
-
-        const { error } = await supabase
-          .from('notifications')
-          .update({ is_read: true })
-          .in('id', unreadIds)
-
-        if (error) throw error
-
-        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
-        setUnreadCount(0)
-      }
-    } catch (error) {
-      console.error('Error:', error)
+function acquireNotificationPoller() {
+  activePollerSubscribers += 1
+  if (activePollerSubscribers === 1 && typeof window !== 'undefined') {
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      void fetchNotificationsShared(false)
     }
+    pollIntervalId = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void fetchNotificationsShared(false)
+      }
+    }, POLL_INTERVAL_MS)
+    if (typeof document !== 'undefined' && !visibilityListenerAttached) {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+      visibilityListenerAttached = true
+    }
+  }
+}
+
+function releaseNotificationPoller() {
+  activePollerSubscribers = Math.max(0, activePollerSubscribers - 1)
+  if (activePollerSubscribers === 0) {
+    if (pollIntervalId) {
+      clearInterval(pollIntervalId)
+      pollIntervalId = null
+    }
+    if (typeof document !== 'undefined' && visibilityListenerAttached) {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      visibilityListenerAttached = false
+    }
+  }
+}
+
+async function markAllAsReadShared() {
+  if (storeSnapshot.unreadCount === 0) return
+
+  try {
+    const unreadIds = storeSnapshot.notifications
+      .filter((n) => !n.is_read)
+      .map((n) => n.id)
+
+    if (unreadIds.length > 0) {
+      const supabase = await getSupabaseClient()
+
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .in('id', unreadIds)
+
+      if (error) throw error
+
+      emitStoreUpdate({
+        ...storeSnapshot,
+        notifications: storeSnapshot.notifications.map((n) => ({ ...n, is_read: true })),
+        unreadCount: 0,
+      })
+    }
+  } catch (error) {
+    console.error('Error:', error)
+  }
+}
+
+export default function NotificationBell({
+  disabled = false,
+  enableEntranceEffects = true,
+}: NotificationBellProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const isKioskRoute = isNotificationKioskRoute(pathname)
+  const pollingEnabled = !disabled && !isKioskRoute
+
+  const { notifications, unreadCount, showAnimation } = useSyncExternalStore(
+    subscribeStore,
+    getStoreSnapshot,
+    getServerSnapshot
+  )
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!pollingEnabled) return
+    acquireNotificationPoller()
+    return () => {
+      releaseNotificationPoller()
+    }
+  }, [pollingEnabled])
+
+  if (!pollingEnabled) {
+    return null
   }
 
   const toggleDropdown = () => {
     if (!isOpen) {
       setIsOpen(true)
-      markAsRead()
+      void markAllAsReadShared()
     } else {
       setIsOpen(false)
     }
@@ -201,7 +392,7 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
   return (
     <>
       {/* 🎬 ANIMACIÓN ESPECTACULAR DE ENTRADA (USANDO PORTAL PARA SALIR DEL SIDEBAR) */}
-      {showAnimation && typeof document !== 'undefined' && createPortal(
+      {enableEntranceEffects && showAnimation && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[9999] pointer-events-none flex items-center justify-center">
           <div className="bell-entrance-animation">
             <div className="text-[20rem] animate-shake drop-shadow-2xl">

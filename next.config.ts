@@ -4,7 +4,11 @@ const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
   outputFileTracingExcludes: {
-    "/api/**": [
+    "/**": [
+      "./server-debug.log",
+      "./videos/**",
+      "./public/tacosgavilan-web/**",
+      "./public/images/viele/**",
       "./exports/**",
       "./docs/**",
       "./ordenes/**",
@@ -18,6 +22,13 @@ const nextConfig: NextConfig = {
       "./.tmp/**",
       "./backups/**",
       "./cohesion_dump/**",
+      "./cohesion_deep_dive/**",
+      "./cohesion_forensic_300/**",
+      "./cohesion_master_knowledge/**",
+      "./handoff_antigravity/**",
+      "./*.pdf",
+      "./*.xlsx",
+      "./*.zip",
     ],
   },
   experimental: {

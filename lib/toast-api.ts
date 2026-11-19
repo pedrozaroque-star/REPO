@@ -16,19 +16,20 @@
  * @notes
  * - Implementa caché en Supabase (`sales_daily_cache` y `punches`) para evitar llamadas API costosas y repetitivas.
  * - En caso de requerir reparación de datos corruptos o antiguos, se debe borrar explícitamente la entrada del día en la caché (`.delete().eq('business_date', date)`) antes de invocar el fetch.
+ * - [Paquete 2C] `logDebug` escribe vía `console.error` en lugar de `fs.appendFileSync('server-debug.log')` para evitar que `@vercel/nft` empaquete `server-debug.log` (1.46 MB) en 46 Serverless Functions (~67.2 MB por deploy) y evitar fallos `EROFS` en Vercel.
  */
 import { getSupabaseClient } from '@/lib/supabase'
-import fs from 'fs'
-import path from 'path'
 
 // DEBUG LOGGING HELPER
-const logDebug = (msg: string, data?: any) => {
+const logDebug = (msg: string, data?: unknown) => {
     try {
         const timestamp = new Date().toISOString()
-        const logLine = `[${timestamp}] ${msg} ${data ? JSON.stringify(data) : ''}\n`
-        const logPath = path.join(process.cwd(), 'server-debug.log')
-        fs.appendFileSync(logPath, logLine)
-    } catch (e) {
+        if (data !== undefined) {
+            console.error(`[toast-api ${timestamp}] ${msg}`, data)
+        } else {
+            console.error(`[toast-api ${timestamp}] ${msg}`)
+        }
+    } catch {
         // Limit console noise
     }
 }

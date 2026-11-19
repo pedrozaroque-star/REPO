@@ -13,6 +13,12 @@
  *
  * @dataFlow
  * - `NextRequest` -> validación `/api/viele` -> rutas públicas -> verificación HS256 en `/app*` & `/ordenar` -> `x-require-auth`.
+ *
+ * @notes
+ * - Optimización 2026-11-19 (Paquete 1B): `config.matcher` acotado estrictamente a `/api/viele/:path*`,
+ *   `/app`, `/app/v1`, `/app/v1/:path*`, `/app/v2`, `/app/v2/:path*`, `/ordenar` y `/ordenar/:path*` para eliminar
+ *   invocaciones innecesarias de Edge Middleware sobre activos públicos, `/api/phone/*`, `/order-ready-board`,
+ *   `/app/privacy`, `/app/terms`, `/app/support`, `/app/delete-account` y `/app/index.html`.
  */
 
 import { NextResponse } from 'next/server'
@@ -186,15 +192,13 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
     '/api/viele/:path*',
+    '/app',
+    '/app/v1',
+    '/app/v1/:path*',
+    '/app/v2',
+    '/app/v2/:path*',
+    '/ordenar',
+    '/ordenar/:path*',
   ],
 }

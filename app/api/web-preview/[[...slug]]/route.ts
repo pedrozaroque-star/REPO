@@ -8,9 +8,14 @@
  * @businessRules
  * - **Fuente Oficial en Desarrollo**: Lee en tiempo real directamente de C:\Users\pedro\Desktop\tacosgavilan-web
  *   sin requerir re-compilaciones ni copias manuales.
- * - **Fallback de Producción**: Si el directorio local no existe, busca en public/tacosgavilan-web.
- * - **Seguridad y Aislamiento**: Bloquea ataques de Directory Traversal (../) validando que la ruta resuelta
- *   inicie estrictamente con el directorio raíz base autorizado.
+ * - **Producción en Vercel (Static CDN Redirect — Paquete 2C)**: En Vercel (`process.env.VERCEL === '1'`), todas las
+ *   peticiones de previsualización estática (incluido `/api/web-preview/index.html` desde el iframe de `/nueva-web`)
+ *   redirigen limpiamente (`307`) a `/tacosgavilan-web/...` en Vercel Static CDN (mismo origen, sin bloqueo
+ *   `X-Frame-Options: DENY` y sin empaquetar `public/tacosgavilan-web/**` en la Serverless Function).
+ * - **Fallback Local**: Fuera de Vercel, si el directorio local no existe, sirve HTML/JS desde `public/tacosgavilan-web`
+ *   y redirige assets estáticos binarios/CSS/media (`307`) a `/tacosgavilan-web/...`.
+ * - **Seguridad y Aislamiento**: Bloquea ataques de Directory Traversal (`..`, `.`, rutas ocultas, `api/`) tanto antes
+ *   de redirigir como al resolver rutas locales.
  * - **Lanzador Local Nativo**: El endpoint POST /api/web-preview/launch o GET con ?action=launch permite
  *   abrir file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html directamente en el navegador del sistema operativo
  *   sin restricciones de sandbox web.
@@ -18,15 +23,19 @@
  *   cualquier cambio de código al instante.
  * 
  * @dataFlow
- * - Cliente (Iframe o Nueva Pestaña) -> GET /api/web-preview/[...slug] -> Node fs.readFile -> Response (Stream / Buffer con Content-Type).
+ * - Producción Vercel: Cliente (Iframe /nueva-web) -> GET /api/web-preview/[...slug] -> 307 Redirect -> Vercel Static CDN (/tacosgavilan-web/...).
+ * - Desarrollo local: Cliente -> GET /api/web-preview/[...slug] -> Node fs.readFile -> Response (Stream / Buffer con Content-Type).
  * - Cliente (Lanzador) -> POST /api/web-preview/launch -> child_process.exec -> Windows shell (cmd /c start ...).
  * 
  * @notes
  * - La extensión [[...slug]] de Next.js App Router captura tanto la raíz (/api/web-preview) como cualquier
  *   recurso anidado (/api/web-preview/css/style.css, /api/web-preview/img/hero-bg.webp, etc.).
+ * - [Paquete 2C] Redirección Static CDN en Vercel + exclusión `./public/tacosgavilan-web/**` en `next.config.ts`
+ *   ahorra ~83.5 MB de Function Storage por despliegue sin afectar el iframe de `/nueva-web` ni las imágenes `.webp`
+ *   de `customer-app-v2` (que se sirven directamente desde Vercel Static CDN).
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import path from 'path'
 import fs from 'fs'
@@ -1030,6 +1039,20 @@ export async function GET(
 
     // Acción para consultar estado de disponibilidad del archivo local y versión sincronizada
     if (action === 'status' || (slug?.length === 1 && slug[0] === 'status')) {
+        if (process.env.VERCEL === '1') {
+            return Response.json({
+                ok: true,
+                localDir: LOCAL_WEB_DIR,
+                localExists: false,
+                localLastModified: null,
+                fallbackExists: true,
+                fallbackLastModified: null,
+                activeSource: 'cloud',
+                cdnBasePath: '/tacosgavilan-web/index.html',
+                fileUrl: 'file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html'
+            })
+        }
+
         const localIndexPath = path.join(LOCAL_WEB_DIR, 'index.html')
         const localIndexExists = fs.existsSync(localIndexPath)
         let localLastModified: string | null = null
@@ -1060,6 +1083,13 @@ export async function GET(
 
     // Acción para sincronizar desde desarrollo local hacia public/tacosgavilan-web
     if (action === 'sync' || (slug?.length === 1 && slug[0] === 'sync')) {
+        if (process.env.VERCEL === '1') {
+            return Response.json({
+                ok: false,
+                copiedFiles: 0,
+                message: 'Sincronización local solo disponible en entorno de desarrollo.'
+            })
+        }
         const syncResult = syncTacosGavilanWeb()
         return Response.json(syncResult)
     }
@@ -1156,26 +1186,73 @@ export async function GET(
         })
     }
 
-    const baseDir = resolveBaseDir()
-    if (!baseDir) {
-        return new Response('Directory tacosgavilan-web not found', { status: 404 })
-    }
-
     // Determinar la ruta relativa del archivo solicitado
     const slugParts = slug || []
-    let relativePath = slugParts.join('/')
 
+    // Seguridad: Prevenir Directory Traversal y bloqueo de archivos ocultos (.env, .git) o directorio api/
+    if (
+        slugParts.some(
+            part =>
+                !part ||
+                part === '.' ||
+                part === '..' ||
+                part.includes('..') ||
+                part.startsWith('.') ||
+                part.includes('\\') ||
+                part.includes('/') ||
+                part.toLowerCase() === 'api'
+        )
+    ) {
+        return new Response('Forbidden: Access denied', { status: 403 })
+    }
+
+    let relativePath = slugParts.join('/')
     if (!relativePath || relativePath === '') {
         relativePath = 'index.html'
     }
 
+    const buildStaticCdnRedirect = (relPath: string) => {
+        const cleanRel = relPath.replace(/^\/+/, '').replace(/\/+$/, '')
+        const ext = path.extname(cleanRel).toLowerCase()
+        const cdnRelPath = !cleanRel ? 'index.html' : ext ? cleanRel : `${cleanRel}/index.html`
+        const encodedRelPath = cdnRelPath.split('/').map(encodeURIComponent).join('/')
+        const redirectUrl = new URL(`/tacosgavilan-web/${encodedRelPath}${url.search}`, url.origin)
+        return NextResponse.redirect(redirectUrl, {
+            status: 307,
+            headers: {
+                'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            },
+        })
+    }
+
+    // En producción Vercel, servir directamente desde Vercel Static CDN (/tacosgavilan-web/...)
+    // para que public/tacosgavilan-web/** nunca se empaquete dentro de la Serverless Function.
+    if (process.env.VERCEL === '1') {
+        return buildStaticCdnRedirect(relativePath)
+    }
+
+    const baseDir = resolveBaseDir()
+    if (!baseDir) {
+        return buildStaticCdnRedirect(relativePath)
+    }
+
+    // Cuando no existe copia local de desarrollo (fallback a public/tacosgavilan-web), redirigir
+    // assets estáticos no-HTML/JS directamente al servidor estático /tacosgavilan-web/...
+    const requestedExt = path.extname(relativePath).toLowerCase()
+    if (
+        baseDir === FALLBACK_WEB_DIR &&
+        requestedExt !== '' &&
+        requestedExt !== '.html' &&
+        requestedExt !== '.htm' &&
+        requestedExt !== '.js'
+    ) {
+        return buildStaticCdnRedirect(relativePath)
+    }
+
     const targetPath = path.resolve(baseDir, relativePath)
 
-    // Seguridad: Prevenir Directory Traversal y bloqueo de archivos ocultos (.env, .git) o directorio api/
-    if (
-        !targetPath.startsWith(path.resolve(baseDir)) ||
-        slugParts.some(part => part.startsWith('.') || part.toLowerCase() === 'api')
-    ) {
+    // Seguridad adicional sobre la ruta resuelta en disco
+    if (!targetPath.startsWith(path.resolve(baseDir))) {
         return new Response('Forbidden: Access denied', { status: 403 })
     }
 
@@ -1264,6 +1341,13 @@ export async function POST(
         return handleLaunch()
     }
     if (slug?.length === 1 && slug[0] === 'sync') {
+        if (process.env.VERCEL === '1') {
+            return Response.json({
+                ok: false,
+                copiedFiles: 0,
+                message: 'Sincronización local solo disponible en entorno de desarrollo.'
+            })
+        }
         const syncResult = syncTacosGavilanWeb()
         return Response.json(syncResult)
     }

@@ -21,6 +21,8 @@
  * @notes
  * - Autolimpieza automática de sesiones abandonadas (`> 6 horas`) para evitar bloqueo permanente del índice parcial único `(store_id, channel_id)`.
  * - Ninguna columna autocalculada (`GENERATED ALWAYS AS`) se incluye en payloads de mutación.
+ * - Optimización 2026-11-19 (Paquete 2B): `purgeStaleActiveChannels` en `GET` está limitado (throttle) a 1 vez cada 15 min por sucursal
+ *   (en `POST START` siempre corre al instante) y `bean_timer_presets` se cachea 5 min en RAM con invalidación inmediata en `PUT`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -41,14 +43,28 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-async function loadAuthoritativePresets() {
+const PRESETS_CACHE_TTL_MS = 5 * 60 * 1000
+const STALE_PURGE_GET_THROTTLE_MS = 15 * 60 * 1000
+
+let presetsRamCache: {
+  at: number
+  presets: Record<'FRIJOLES_OLLA' | 'FRIJOLES_ENTEROS', number>
+} | null = null
+const lastStalePurgeByStore = new Map<number, number>()
+
+async function loadAuthoritativePresets(forceRefresh = false) {
+  const now = Date.now()
+  if (!forceRefresh && presetsRamCache && now - presetsRamCache.at < PRESETS_CACHE_TTL_MS) {
+    return { ...presetsRamCache.presets }
+  }
+
   const { data, error } = await supabaseAdmin
     .from('bean_timer_presets')
     .select('product_key, duration_seconds, is_active')
     .eq('is_active', true)
 
   if (error || !data) {
-    return { ...DEFAULT_BEAN_TIMER_PRESETS }
+    return presetsRamCache ? { ...presetsRamCache.presets } : { ...DEFAULT_BEAN_TIMER_PRESETS }
   }
 
   const rawMap: Record<string, unknown> = {}
@@ -57,7 +73,9 @@ async function loadAuthoritativePresets() {
       rawMap[String(row.product_key)] = row.duration_seconds
     }
   }
-  return sanitizeBeanPresetMap(rawMap)
+  const sanitized = sanitizeBeanPresetMap(rawMap)
+  presetsRamCache = { at: now, presets: sanitized }
+  return { ...sanitized }
 }
 
 async function purgeStaleActiveChannels(storeId: number, nowMs: number) {
@@ -73,6 +91,15 @@ async function purgeStaleActiveChannels(storeId: number, nowMs: number) {
     .eq('store_id', storeId)
     .in('status', ['RUNNING', 'ALARMING'])
     .lt('started_at', staleCutoffIso)
+  lastStalePurgeByStore.set(storeId, nowMs)
+}
+
+async function maybePurgeStaleActiveChannelsForGet(storeId: number, nowMs: number) {
+  const lastRun = lastStalePurgeByStore.get(storeId) || 0
+  if (nowMs - lastRun < STALE_PURGE_GET_THROTTLE_MS) {
+    return
+  }
+  await purgeStaleActiveChannels(storeId, nowMs)
 }
 
 export async function GET(request: NextRequest) {
@@ -98,7 +125,7 @@ export async function GET(request: NextRequest) {
     }
 
     const nowMs = Date.now()
-    await purgeStaleActiveChannels(numericStoreId, nowMs)
+    await maybePurgeStaleActiveChannelsForGet(numericStoreId, nowMs)
 
     const { businessDate, shiftPeriod } = resolveBeanBusinessContext(nowMs)
 
@@ -477,12 +504,15 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    const updatedPresets = {
+      FRIJOLES_OLLA: ollaSeconds,
+      FRIJOLES_ENTEROS: enterosSeconds,
+    }
+    presetsRamCache = { at: Date.now(), presets: updatedPresets }
+
     return NextResponse.json({
       success: true,
-      presets: {
-        FRIJOLES_OLLA: ollaSeconds,
-        FRIJOLES_ENTEROS: enterosSeconds,
-      },
+      presets: updatedPresets,
     })
   } catch (err: any) {
     console.error('[bean-timer] PUT exception:', err)

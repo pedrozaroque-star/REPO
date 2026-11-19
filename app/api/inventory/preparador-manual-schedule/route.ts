@@ -6,6 +6,9 @@
  *   - Las modificaciones se guardan directamente en prep_manual_schedule y tienen precedencia en modo Manual.
  * @dataFlow prep_manual_schedule table <-> UI Tablet Preparador.
  * @notes Admite inserción individual o por lote (batch).
+ *   - Optimización 2026-11-19 (Paquete 2B): `GET` responde `Cache-Control: public, s-maxage=60, stale-while-revalidate=120`
+ *     para polling normal en segundo plano; si viene parámetro `_t` (bypass explícito tras guardado del gerente o despertar tableta),
+ *     responde `Cache-Control: no-store` para frescura inmediata (Caveat C).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -17,6 +20,7 @@ export async function GET(request: NextRequest) {
         const searchParams = request.nextUrl.searchParams
         const rawStoreId = searchParams.get('storeId')
         const dow = searchParams.get('dow') // 1 (Monday) to 7 (Sunday)
+        const hasCacheBust = searchParams.has('_t')
 
         if (!rawStoreId || !dow) {
             return NextResponse.json({ error: 'Missing storeId or dow' }, { status: 400 })
@@ -32,10 +36,16 @@ export async function GET(request: NextRequest) {
 
         if (error) {
             console.error('GET prep_manual_schedule error:', error.message)
-            return NextResponse.json([])
+            return NextResponse.json([], { headers: { 'Cache-Control': 'no-store' } })
         }
 
-        return NextResponse.json(data || [])
+        const cacheControl = hasCacheBust
+            ? 'no-store'
+            : 'public, s-maxage=60, stale-while-revalidate=120'
+
+        return NextResponse.json(data || [], {
+            headers: { 'Cache-Control': cacheControl }
+        })
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 })
     }

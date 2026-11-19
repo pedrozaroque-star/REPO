@@ -23,6 +23,7 @@
  *
  * @notes
  * - Fail-closed: si no hay secreto JWT configurado en el entorno, rechaza peticiones sin permitir bypasses.
+ * - OPTIMIZACIÓN CACHE RAM (2026-11-19): Caché en memoria de 15 min para lookups de `stores` (`id`, `code`, `external_id`) en `authorizeStoreScope` y `resolveCachedStore`, con deduplicación in-flight, refresco acotado ante misses (cooldown 60s), cero envenenamiento ante errores y preservación exacta de semántica de autorización.
  */
 
 import { cookies } from 'next/headers'
@@ -205,6 +206,275 @@ export interface StoreScopeAuthResult {
   canonicalExternalId?: string
 }
 
+export interface CachedStoreLookupRow {
+  id: number
+  code: string | null
+  external_id: string | null
+}
+
+interface StoreLookupIndex {
+  fetchedAt: number
+  byId: Map<number, CachedStoreLookupRow>
+  byExternalId: Map<string, CachedStoreLookupRow>
+  byCode: Map<string, CachedStoreLookupRow>
+}
+
+interface StoreLookupCacheBucket {
+  index: StoreLookupIndex | null
+  inflight: Promise<StoreLookupIndex | null> | null
+  lastMissRefreshAt: number
+}
+
+interface StoreLookupQueryResult {
+  data?: Array<Record<string, unknown>> | null
+  error?: unknown
+}
+
+interface StoreLookupSingleResult {
+  data?: Record<string, unknown> | null
+  error?: unknown
+}
+
+interface StoreLookupSelectBuilder extends PromiseLike<StoreLookupQueryResult> {
+  eq?: (column: string, value: unknown) => { maybeSingle: () => Promise<StoreLookupSingleResult> }
+  in?: (column: string, values: unknown[]) => Promise<StoreLookupQueryResult>
+}
+
+interface StoreLookupClientLike {
+  supabaseUrl?: string
+  from: (table: string) => {
+    select: (columns: string) => StoreLookupSelectBuilder
+  }
+}
+
+const STORE_LOOKUP_CACHE_TTL_MS = 15 * 60 * 1000 // 15 minutos
+const STORE_LOOKUP_MISS_REFRESH_COOLDOWN_MS = 60_000 // 1 minuto
+const storeCacheByUrl = new Map<string, StoreLookupCacheBucket>()
+const storeCacheByClient = new WeakMap<object, StoreLookupCacheBucket>()
+
+function getStoreCacheBucket(supabaseClient: StoreLookupClientLike): StoreLookupCacheBucket {
+  const urlKey =
+    supabaseClient && typeof supabaseClient.supabaseUrl === 'string' && supabaseClient.supabaseUrl.length > 0
+      ? supabaseClient.supabaseUrl
+      : null
+  if (urlKey) {
+    let bucket = storeCacheByUrl.get(urlKey)
+    if (!bucket) {
+      bucket = { index: null, inflight: null, lastMissRefreshAt: 0 }
+      storeCacheByUrl.set(urlKey, bucket)
+    }
+    return bucket
+  }
+  let bucket = storeCacheByClient.get(supabaseClient)
+  if (!bucket) {
+    bucket = { index: null, inflight: null, lastMissRefreshAt: 0 }
+    storeCacheByClient.set(supabaseClient, bucket)
+  }
+  return bucket
+}
+
+/**
+ * Invalida la caché en RAM de sucursales (`id`, `code`, `external_id`).
+ * Útil tras altas/ediciones en `/api/stores` o en pruebas automatizadas.
+ */
+export function invalidateStoreLookupCache(supabaseClient?: unknown): void {
+  if (supabaseClient && typeof supabaseClient === 'object') {
+    const bucket = getStoreCacheBucket(supabaseClient as StoreLookupClientLike)
+    bucket.index = null
+    bucket.lastMissRefreshAt = 0
+    return
+  }
+  storeCacheByUrl.clear()
+}
+
+async function loadStoreLookupIndex(
+  supabaseClient: StoreLookupClientLike | null | undefined,
+  forceRefresh = false
+): Promise<StoreLookupIndex | null> {
+  if (!supabaseClient || typeof supabaseClient.from !== 'function') return null
+
+  const bucket = getStoreCacheBucket(supabaseClient)
+  const now = Date.now()
+  if (!forceRefresh && bucket.index && now - bucket.index.fetchedAt < STORE_LOOKUP_CACHE_TTL_MS) {
+    return bucket.index
+  }
+  if (bucket.inflight) {
+    return bucket.inflight
+  }
+
+  bucket.inflight = (async () => {
+    try {
+      const res = await supabaseClient.from('stores').select('id, code, external_id')
+      if (!res || res.error || !Array.isArray(res.data)) {
+        return bucket.index
+      }
+      const byId = new Map<number, CachedStoreLookupRow>()
+      const byExternalId = new Map<string, CachedStoreLookupRow>()
+      const byCode = new Map<string, CachedStoreLookupRow>()
+      for (const raw of res.data) {
+        if (raw === null || raw === undefined || raw.id === null || raw.id === undefined) continue
+        const numericId = Number(raw.id)
+        if (!Number.isFinite(numericId)) continue
+        const row: CachedStoreLookupRow = {
+          id: numericId,
+          code: raw.code !== null && raw.code !== undefined ? String(raw.code).trim() || null : null,
+          external_id:
+            raw.external_id !== null && raw.external_id !== undefined
+              ? String(raw.external_id).trim() || null
+              : null
+        }
+        byId.set(row.id, row)
+        if (row.external_id) {
+          byExternalId.set(row.external_id, row)
+        }
+        if (row.code) {
+          byCode.set(row.code.toUpperCase(), row)
+        }
+      }
+      const nextIndex: StoreLookupIndex = {
+        fetchedAt: Date.now(),
+        byId,
+        byExternalId,
+        byCode
+      }
+      bucket.index = nextIndex
+      return nextIndex
+    } catch {
+      return bucket.index
+    }
+  })().finally(() => {
+    bucket.inflight = null
+  })
+
+  return bucket.inflight
+}
+
+async function lookupStoreByIdOrExternalId(
+  supabaseClient: StoreLookupClientLike | null | undefined,
+  rawTarget: string
+): Promise<CachedStoreLookupRow | null> {
+  const cleanTarget = String(rawTarget || '').trim()
+  if (!cleanTarget || !supabaseClient) return null
+  const isNum = /^\d+$/.test(cleanTarget)
+
+  const bucket = getStoreCacheBucket(supabaseClient)
+  let index = await loadStoreLookupIndex(supabaseClient, false)
+
+  if (!index) {
+    // Fallback seguro para clientes stub/test que solo implementan .eq().maybeSingle()
+    const q = supabaseClient.from('stores').select('id, external_id')
+    if (typeof q.eq !== 'function') return null
+    const { data: st } = isNum
+      ? await q.eq('id', Number(cleanTarget)).maybeSingle()
+      : await q.eq('external_id', cleanTarget).maybeSingle()
+    if (!st) return null
+    return {
+      id: Number(st.id),
+      code: st.code !== null && st.code !== undefined ? String(st.code) : null,
+      external_id: st.external_id !== null && st.external_id !== undefined ? String(st.external_id) : null
+    }
+  }
+
+  const findInIndex = (idx: StoreLookupIndex): CachedStoreLookupRow | null =>
+    (isNum ? idx.byId.get(Number(cleanTarget)) : idx.byExternalId.get(cleanTarget)) || null
+
+  const hit = findInIndex(index)
+  if (hit) return hit
+
+  // Miss seguro: refresca como máximo 1 vez cada 60s para captar tiendas recién creadas sin permitir miss-flood
+  const now = Date.now()
+  if (now - bucket.lastMissRefreshAt >= STORE_LOOKUP_MISS_REFRESH_COOLDOWN_MS) {
+    bucket.lastMissRefreshAt = now
+    const refreshed = await loadStoreLookupIndex(supabaseClient, true)
+    if (refreshed) {
+      index = refreshed
+      return findInIndex(index)
+    }
+  }
+
+  return null
+}
+
+async function lookupStoresByExternalIds(
+  supabaseClient: StoreLookupClientLike | null | undefined,
+  externalIds: string[]
+): Promise<CachedStoreLookupRow[]> {
+  if (!supabaseClient || externalIds.length === 0) return []
+
+  const bucket = getStoreCacheBucket(supabaseClient)
+  let index = await loadStoreLookupIndex(supabaseClient, false)
+
+  if (!index) {
+    const q = supabaseClient.from('stores').select('id, external_id')
+    if (typeof q.in !== 'function') return []
+    const { data: st } = await q.in('external_id', externalIds)
+    return (st || []).map((row) => ({
+      id: Number(row.id),
+      code: row.code !== null && row.code !== undefined ? String(row.code) : null,
+      external_id: row.external_id !== null && row.external_id !== undefined ? String(row.external_id) : null
+    }))
+  }
+
+  const hasMissing = externalIds.some((ext) => !index!.byExternalId.has(ext))
+  if (hasMissing) {
+    const now = Date.now()
+    if (now - bucket.lastMissRefreshAt >= STORE_LOOKUP_MISS_REFRESH_COOLDOWN_MS) {
+      bucket.lastMissRefreshAt = now
+      const refreshed = await loadStoreLookupIndex(supabaseClient, true)
+      if (refreshed) {
+        index = refreshed
+      }
+    }
+  }
+
+  const matched: CachedStoreLookupRow[] = []
+  for (const ext of externalIds) {
+    const row = index.byExternalId.get(ext)
+    if (row) matched.push(row)
+  }
+  return matched
+}
+
+/**
+ * Resuelve una sucursal por `id` numérico, `external_id` (Toast GUID) o `code` usando la caché RAM de 15 min.
+ */
+export async function resolveCachedStore(
+  identifier: string | number | null | undefined,
+  supabaseClient: unknown
+): Promise<CachedStoreLookupRow | null> {
+  const clean = identifier !== null && identifier !== undefined ? String(identifier).trim() : ''
+  if (!clean || !supabaseClient || typeof supabaseClient !== 'object') return null
+  const client = supabaseClient as StoreLookupClientLike
+
+  const index = await loadStoreLookupIndex(client, false)
+  if (index) {
+    const isNum = /^\d+$/.test(clean)
+    const upper = clean.toUpperCase()
+    const direct =
+      (isNum ? index.byId.get(Number(clean)) : index.byExternalId.get(clean)) ||
+      index.byCode.get(upper) ||
+      null
+    if (direct) return direct
+
+    const bucket = getStoreCacheBucket(client)
+    const now = Date.now()
+    if (now - bucket.lastMissRefreshAt >= STORE_LOOKUP_MISS_REFRESH_COOLDOWN_MS) {
+      bucket.lastMissRefreshAt = now
+      const refreshed = await loadStoreLookupIndex(client, true)
+      if (refreshed) {
+        return (
+          (isNum ? refreshed.byId.get(Number(clean)) : refreshed.byExternalId.get(clean)) ||
+          refreshed.byCode.get(upper) ||
+          null
+        )
+      }
+    }
+    return null
+  }
+
+  return lookupStoreByIdOrExternalId(client, clean)
+}
+
 /**
  * Verifica que el usuario autenticado tenga autorización sobre la sucursal solicitada (`targetStoreId`),
  * soportando tanto ID numérico de `stores.id` como `stores.external_id` (Toast GUID), y validando
@@ -266,14 +536,10 @@ export async function authorizeStoreScope(
     let resolvedStoreGuid: string | undefined
     const cleanTarget = targetStoreId !== null && targetStoreId !== undefined ? String(targetStoreId).trim() : ''
     if (cleanTarget && cleanTarget.toUpperCase() !== 'ALL' && supabaseClient) {
-      const isNum = /^\d+$/.test(cleanTarget)
-      const q = supabaseClient.from('stores').select('id, external_id')
-      const { data: st } = isNum
-        ? await q.eq('id', Number(cleanTarget)).maybeSingle()
-        : await q.eq('external_id', cleanTarget).maybeSingle()
+      const st = await lookupStoreByIdOrExternalId(supabaseClient, cleanTarget)
       if (st) {
         resolvedStoreId = st.id
-        resolvedStoreGuid = st.external_id
+        resolvedStoreGuid = st.external_id ?? undefined
       }
     }
     return {
@@ -348,12 +614,9 @@ export async function authorizeStoreScope(
       return { authorized: true, status: 200, user, isGlobalRole: false }
     }
     if (supabaseClient && empStores.length > 0) {
-      const { data: st } = await supabaseClient
-        .from('stores')
-        .select('id, external_id')
-        .in('external_id', empStores)
-      const matched = (st || []).find(
-        (row: any) => String(row.id) === cleanTarget || String(row.external_id) === cleanTarget
+      const st = await lookupStoresByExternalIds(supabaseClient, empStores)
+      const matched = st.find(
+        (row) => String(row.id) === cleanTarget || String(row.external_id) === cleanTarget
       )
       if (matched) {
         return {
@@ -362,9 +625,9 @@ export async function authorizeStoreScope(
           user,
           isGlobalRole: false,
           resolvedStoreId: matched.id,
-          resolvedStoreGuid: matched.external_id,
+          resolvedStoreGuid: matched.external_id ?? undefined,
           canonicalNumericId: matched.id,
-          canonicalExternalId: matched.external_id
+          canonicalExternalId: matched.external_id ?? undefined
         }
       }
     }
@@ -386,11 +649,7 @@ export async function authorizeStoreScope(
   }
 
   if (supabaseClient) {
-    const isNumericUserStore = /^\d+$/.test(userStoreRaw)
-    const query = supabaseClient.from('stores').select('id, external_id')
-    const { data: storeRow } = isNumericUserStore
-      ? await query.eq('id', Number(userStoreRaw)).maybeSingle()
-      : await query.eq('external_id', userStoreRaw).maybeSingle()
+    const storeRow = await lookupStoreByIdOrExternalId(supabaseClient, userStoreRaw)
 
     if (
       storeRow &&
@@ -402,9 +661,9 @@ export async function authorizeStoreScope(
         user,
         isGlobalRole: false,
         resolvedStoreId: storeRow.id,
-        resolvedStoreGuid: storeRow.external_id,
+        resolvedStoreGuid: storeRow.external_id ?? undefined,
         canonicalNumericId: storeRow.id,
-        canonicalExternalId: storeRow.external_id
+        canonicalExternalId: storeRow.external_id ?? undefined
       }
     }
   } else if (userStoreRaw === cleanTarget) {

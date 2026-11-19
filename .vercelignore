@@ -1,0 +1,30 @@
+# Offline archives, audits, and non-runtime directories (root-anchored to protect public/ runtime assets)
+/docs/
+/ordenes/
+/exports/
+/reports/
+/videos/
+/handoff_antigravity/
+/cohesion_*/
+/r365_analysis/
+/screenshots/
+/backups/
+/qbo_raquel_backup/
+/.next - Copy/
+/.venv_timesfm/
+/scratch/
+/tmp/
+/.tmp/
+/7shifts proyecciones/
+/cups_and_lids_images/
+/syrups_images/
+
+# Offline large files in project root only (NEVER ignore public/ PDFs, audio, sounds, images, or training videos)
+/*.pdf
+/*.xlsx
+/*.zip
+/*.pptx
+/*.m4a
+/*.mp4
+/*.crdownload
+/server-debug.log

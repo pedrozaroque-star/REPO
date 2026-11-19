@@ -4,13 +4,14 @@
  *   Visualiza en tiempo real alertas de Labor Cost (>21.5%), Food Cost (>32%),
  *   caídas de ventas por sucursal (>=15% vs período anterior) y cumplimiento de inspecciones de supervisores.
  * @businessRules
- * - Auto-refresca cada 30 segundos en segundo plano sin parpadear la interfaz.
+ * - Auto-refresca cada 120 segundos en segundo plano únicamente cuando se visualiza el día laboral actual (`America/Los_Angeles`, corte 6:00 AM) y la pestaña está visible, sin parpadear la interfaz.
  * - Cancela peticiones en vuelo con AbortController cuando el usuario cambia el rango de fechas.
  * - Cada tarjeta de tienda o supervisor navega directamente al módulo correspondiente preservando fechas y filtros.
  * @dataFlow
  * - Props (startDate, endDate) -> GET /api/dashboard/alerts -> Renderizado de tarjetas y desglose expandible.
  * @notes
  * - Soporta Español e Inglés mediante useLanguage() (lib/i18n.tsx).
+ * - Optimización 2026-11-19 (Paquete 2B): auto-refresh elevado de 30s a 120s con guardia `visibilityState` y activo únicamente al consultar el día de hoy.
  */
 'use client'
 
@@ -59,6 +60,26 @@ interface Props {
   endDate: string
 }
 
+function getBusinessDateLA(): string {
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false
+  }).formatToParts(now)
+  let hour = Number(parts.find(p => p.type === 'hour')?.value ?? '12')
+  if (hour === 24) hour = 0
+  const y = Number(parts.find(p => p.type === 'year')?.value)
+  const m = Number(parts.find(p => p.type === 'month')?.value)
+  const d = Number(parts.find(p => p.type === 'day')?.value)
+  const dateObj = new Date(Date.UTC(y, m - 1, d))
+  if (hour < 6) dateObj.setUTCDate(dateObj.getUTCDate() - 1)
+  return dateObj.toISOString().slice(0, 10)
+}
+
 export default function OperationsAlerts({ startDate, endDate }: Props) {
   const router = useRouter()
   const { t, language } = useLanguage()
@@ -91,15 +112,22 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
 
     fetchAlerts(controller.signal, false)
 
-    const interval = setInterval(() => {
-      const refreshController = new AbortController()
-      abortRef.current = refreshController
-      fetchAlerts(refreshController.signal, true)
-    }, 30000)
+    const todayStr = getBusinessDateLA()
+    const isViewingToday = startDate === todayStr && endDate === todayStr
+    let interval: ReturnType<typeof setInterval> | undefined
+    if (isViewingToday) {
+      interval = setInterval(() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        if (abortRef.current) abortRef.current.abort()
+        const refreshController = new AbortController()
+        abortRef.current = refreshController
+        fetchAlerts(refreshController.signal, true)
+      }, 120000)
+    }
 
     return () => {
       controller.abort()
-      clearInterval(interval)
+      if (interval) clearInterval(interval)
     }
   }, [startDate, endDate])
 

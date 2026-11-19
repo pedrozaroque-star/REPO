@@ -23,6 +23,7 @@
  *     2) fetchOffPremiseOrders consulta delivery_packing_audits filtrado explícitamente por los GUIDs activos (.in('toast_order_guid', chunk)) para nunca truncar por el límite de 1,000 filas de PostgREST, y mantiene caché de respaldo (lastKnownAuditsByGuid) ante micro-cortes de red.
  *     3) Ninguna orden con estatus DELIVERED o con historial everDeliveredAt puede regresarse a EMPACANDO ni eliminarse con undoPackingAudit.
  *   - Fix 2026-11-11 (Soporte Prefijo Caviar `CAV`): `extractPlatformOrderIdentity` reconoce órdenes del canal hermano Caviar (`CAV <hex8>`) junto con `DD` y `SF` para empate determinístico contra DoorDash Payouts.
+ *   - 2026-11-19 (Paquete 2A): Caché RAM 60s para fallback de `syncStoreRonosRoster`, caché RAM 1h para consulta `stores`, throttle 120s/sucursal en `autoExpireUnclaimedAudits` y throttle 60s/sucursal en `saveStoreOrdersL2Cache`.
  */
 
 import { supabaseAdmin } from './supabase'
@@ -682,6 +683,7 @@ interface LiveRonosRosterCacheEntry {
 }
 
 const LIVE_RONOS_ROSTER_TTL_MS = 2 * 60 * 1000 // 2 minutos de caché en memoria para padrón en vivo de RONOS
+const FALLBACK_RONOS_ROSTER_TTL_MS = 60 * 1000 // 60 segundos de caché en RAM para respaldo de Supabase si falla RONOS API
 const liveRonosRosterCache = new Map<number, LiveRonosRosterCacheEntry>()
 
 /**
@@ -696,8 +698,11 @@ export async function syncStoreRonosRoster(
   forceRefresh = false
 ): Promise<LiveRonosRosterCacheEntry> {
   const cached = liveRonosRosterCache.get(companyId)
-  if (!forceRefresh && cached && cached.isLiveFromRonos && (Date.now() - cached.timestamp) < LIVE_RONOS_ROSTER_TTL_MS) {
-    return cached
+  if (!forceRefresh && cached) {
+    const ttlMs = cached.isLiveFromRonos ? LIVE_RONOS_ROSTER_TTL_MS : FALLBACK_RONOS_ROSTER_TTL_MS
+    if (Date.now() - cached.timestamp < ttlMs) {
+      return cached
+    }
   }
 
   const todayBiz = getBusinessDateYmdLA()
@@ -887,6 +892,7 @@ export async function syncStoreRonosRoster(
     timestamp: Date.now(),
     isLiveFromRonos: false
   }
+  liveRonosRosterCache.set(companyId, fallbackEntry)
   return fallbackEntry
 }
 
@@ -1243,6 +1249,12 @@ const toastRawOrdersCache = new Map<string, { at: number; orders: any[] }>()
 const toastRawOrdersInflight = new Map<string, Promise<any[]>>()
 const lastKnownAuditsByGuid = new Map<string, any>()
 const lastBuiltOrdersByStoreCache = new Map<string, { at: number; orders: OffPremiseOrder[] }>()
+const storeMetaCache = new Map<number, { at: number; store: { id: number; name: string; external_id: string } }>()
+const lastAutoExpireByStore = new Map<number, number>()
+const lastL2CacheWriteByKey = new Map<string, number>()
+const STORE_META_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hora en RAM para metadatos estáticos de sucursal
+const AUTO_EXPIRE_THROTTLE_MS = 120_000 // 120 segundos por sucursal para barrido DB de UNCLAIMED_2H
+const L2_CACHE_WRITE_THROTTLE_MS = 60_000 // 60 segundos por sucursal para escritura L2 en Supabase
 const TOAST_RAW_CACHE_TTL_MS = 4500 // 4.5 segundos para detectar de inmediato cuando el cocinero borra del KDS sin causar 429 en Toast API
 
 function getStoreOrdersL2CacheRowId(storeId: number, modeKey: string): string {
@@ -1380,15 +1392,24 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   storeName: string
   businessDate: string
 }> {
-  // 1. Buscar metadatos de la tienda en Supabase
-  const { data: store, error: sErr } = await supabaseAdmin
-    .from('stores')
-    .select('id, name, external_id')
-    .eq('id', storeId)
-    .single()
+  // 1. Buscar metadatos de la tienda (caché 1h en RAM para evitar queries redundantes a `stores`)
+  const nowLookupMs = Date.now()
+  const cachedStoreMeta = storeMetaCache.get(storeId)
+  let store: { id: number; name: string; external_id: string }
+  if (cachedStoreMeta && nowLookupMs - cachedStoreMeta.at < STORE_META_CACHE_TTL_MS) {
+    store = cachedStoreMeta.store
+  } else {
+    const { data: dbStore, error: sErr } = await supabaseAdmin
+      .from('stores')
+      .select('id, name, external_id')
+      .eq('id', storeId)
+      .single()
 
-  if (sErr || !store || !store.external_id) {
-    throw new Error(`Sucursal ID ${storeId} no encontrada o sin external_id configurado.`)
+    if (sErr || !dbStore || !dbStore.external_id) {
+      throw new Error(`Sucursal ID ${storeId} no encontrada o sin external_id configurado.`)
+    }
+    store = { id: Number(dbStore.id), name: String(dbStore.name), external_id: String(dbStore.external_id) }
+    storeMetaCache.set(storeId, { at: nowLookupMs, store })
   }
 
   const token = await getAuthToken()
@@ -1488,8 +1509,12 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
     rawOrders = await inflightJob
   }
 
-  // 4. Cambiar automáticamente a UNCLAIMED_2H las auditorías que cumplan >= 2 horas sin ser recogidas por ningún chofer
-  await autoExpireUnclaimedAudits(storeId, nowMs)
+  // 4. Cambiar automáticamente a UNCLAIMED_2H las auditorías que cumplan >= 2 horas sin ser recogidas (throttled 120s/sucursal)
+  const lastAutoExpireAt = lastAutoExpireByStore.get(storeId) || 0
+  if (nowMs - lastAutoExpireAt >= AUTO_EXPIRE_THROTTLE_MS) {
+    lastAutoExpireByStore.set(storeId, nowMs)
+    await autoExpireUnclaimedAudits(storeId, nowMs)
+  }
 
   // Si esta instancia serverless estaba fría y Toast devolvió 429, recuperar las órdenes desde el caché compartido L2 en Supabase
   // e hidratarlas con sus auditorías en vivo de delivery_packing_audits para que la tableta opere sin interrupción ni banners de error.
@@ -1814,9 +1839,10 @@ export async function fetchOffPremiseOrders(storeId: number, targetBusinessDate?
   offPremiseOrders.sort((a, b) => new Date(b.openedDate).getTime() - new Date(a.openedDate).getTime())
 
   if (offPremiseOrders.length > 0 && !toastRateLimitedOrFailed) {
-    const prevBuilt = lastBuiltOrdersByStoreCache.get(cacheKey)
     lastBuiltOrdersByStoreCache.set(cacheKey, { at: nowMs, orders: offPremiseOrders })
-    if (!prevBuilt || nowMs - prevBuilt.at >= 10_000) {
+    const lastL2WriteAt = lastL2CacheWriteByKey.get(cacheKey) || 0
+    if (nowMs - lastL2WriteAt >= L2_CACHE_WRITE_THROTTLE_MS) {
+      lastL2CacheWriteByKey.set(cacheKey, nowMs)
       void saveStoreOrdersL2Cache(storeId, modeKey, offPremiseOrders)
     }
   }

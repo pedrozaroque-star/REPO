@@ -33,6 +33,8 @@
  *   y cancelación protegida a 2 toques para evitar paros accidentales.
  * - Ciclo de alarma 100% independiente del `audioRef` de `bodega/page.tsx`: confirmar un pedido de carne de línea
  *   nunca silencia una olla de frijoles sonando ni viceversa.
+ * - Optimización 2026-11-19 (Paquete 2B): fallback polling elevado de 20s a 120s (con canales activos) o 300s (cuando los 4 canales
+ *   están inactivos) con guardia `visibilityState` y recarga al volver a la pestaña; reloj local de 250ms y canal Realtime intactos.
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -755,9 +757,33 @@ export default function BeanCookingTimerTFS4({
     }
 
     syncFromServer()
-    const pollId = setInterval(syncFromServer, 20_000)
-    return () => clearInterval(pollId)
   }, [storeId, syncFromServer])
+
+  const hasAnyActiveChannel = useMemo(
+    () => BEAN_TIMER_CHANNELS.some((ch) => Boolean(channels[ch])),
+    [channels]
+  )
+
+  // Fallback polling adaptativo sobre Realtime: 120s con canales activos, 300s cuando los 4 canales están inactivos
+  useEffect(() => {
+    if (!storeId || typeof window === 'undefined') return
+    const pollMs = hasAnyActiveChannel ? 120_000 : 300_000
+    const pollId = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void syncFromServer()
+      }
+    }, pollMs)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void syncFromServer()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(pollId)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [storeId, syncFromServer, hasAnyActiveChannel])
 
   // Suscripción Supabase Realtime para reflejar al instante cambios de presets de Admin o cierres desde otra pantalla
   useEffect(() => {

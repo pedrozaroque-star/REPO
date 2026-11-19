@@ -12,6 +12,7 @@
  *
  * @notes
  * - Exporta `isAuthSuccess` como type guard seguro en TypeScript.
+ * - 2026-11-19 (Paquete 2A): `jsonOk` acepta `extraHeaders` opcional y se exporta `PUBLIC_CACHE_HEADERS` (`public, s-maxage=300, stale-while-revalidate=600`) para catálogos públicos de solo lectura (`/api/mobile/stores`, `/api/mobile/menu`).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -110,12 +111,26 @@ export async function getAuthUser(request: NextRequest): Promise<AuthResult> {
 // ============================================================================
 
 /**
- * Crea una respuesta JSON exitosa con headers CORS incluidos.
+ * Headers de caché Edge CDN para endpoints públicos de solo lectura sin datos por usuario.
  */
-export function jsonOk<T extends Record<string, unknown>>(data: T, status = 200): NextResponse {
+export const PUBLIC_CACHE_HEADERS: Record<string, string> = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+}
+
+/**
+ * Crea una respuesta JSON exitosa con headers CORS incluidos (y cabeceras adicionales opcionales como Cache-Control).
+ */
+export function jsonOk<T extends Record<string, unknown>>(
+  data: T,
+  status = 200,
+  extraHeaders?: Record<string, string>
+): NextResponse {
   return NextResponse.json(
     { ok: true, ...data },
-    { status, headers: corsHeaders() }
+    {
+      status,
+      headers: extraHeaders ? { ...corsHeaders(), ...extraHeaders } : corsHeaders(),
+    }
   )
 }
 

@@ -23,6 +23,10 @@
  *     (`key="persistent-bean-timer-tfs4"`) tanto en vista normal como durante alertas de línea (`compactDuringAlert`),
  *     preservando su `AudioContext` Web Audio propio (con la misma alarma urgente `/sounds/alarm.mp3` de Tableta 1
  *     amplificada a alta potencia + voz neuronal femenina oficial `Kore`, independiente del `audioRef` de línea) y su canal Realtime.
+ *   - OPTIMIZACIÓN POLLING Y CACHÉ (2026-11-19, Paquete 2B):
+ *     1) `preparador-manual-schedule` elevado de 10s a 5 min (300s) con guardia `visibilityState` y sin `&_t`/`cache:'no-store'` en polling de fondo (conserva bypass `&_t` en refresco explícito al despertar tableta).
+ *     2) `preparador/intelligence` elevado de 3 min a 10 min con guardia `visibilityState` y sin `&_t`/`cache:'no-store'`.
+ *     3) Fallback de seguridad Realtime de `preparador_requests` elevado de 20s a 45s con guardia `visibilityState`.
  */
 'use client'
 
@@ -91,7 +95,7 @@ export default function BodegaPWA() {
     const showWakeUpModalRef = useRef(false)
     const [wakingUpTablet, setWakingUpTablet] = useState(false)
     const fetchHistoryRef = useRef<((overrideDow?: number) => Promise<void>) | null>(null)
-    const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
+    const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string, bypassCache?: boolean) => Promise<void>) | null>(null)
     const fetchIntelligenceRef = useRef<(() => Promise<void>) | null>(null)
     const fetchPendingRef = useRef<(() => Promise<void>) | null>(null)
     const updateBucketsRef = useRef<(() => void) | null>(null)
@@ -228,16 +232,19 @@ export default function BodegaPWA() {
         return t
     }
 
-    // Load Manual Weekly Schedule from API & localStorage with 10s polling for multi-device sync
+    // Load Manual Weekly Schedule from API & localStorage with 5m background polling (+ cache bypass on explicit refresh)
     useEffect(() => {
         if (!storeId) return
         
-        const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string) => {
+        const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string, bypassCache = false) => {
             const targetDow = overrideDow || businessDow
             const targetDate = overrideDate || selectedDate
             const targetStorageKey = `teg_prep_manual_weekly_${storeId}_${targetDow}`
             try {
-                const res = await fetch(`/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const url = bypassCache
+                    ? `/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`
+                    : `/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}`
+                const res = await fetch(url, bypassCache ? { cache: 'no-store' } : undefined)
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data)) {
@@ -271,7 +278,11 @@ export default function BodegaPWA() {
 
         fetchManualScheduleRef.current = fetchManualSchedule
         fetchManualSchedule()
-        const interval = setInterval(() => fetchManualSchedule(), 10000)
+        const interval = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchManualSchedule()
+            }
+        }, 300000)
         return () => clearInterval(interval)
     }, [storeId, businessDow, selectedDate])
     
@@ -465,7 +476,7 @@ export default function BodegaPWA() {
         if (!storeId) return;
         const fetchIntelligence = async () => {
             try {
-                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`)
                 const data = await res.json()
                 if (data && data.growth_factor) {
                     setIntelligenceAcelerador(data.growth_factor)
@@ -480,8 +491,12 @@ export default function BodegaPWA() {
         
         fetchIntelligenceRef.current = fetchIntelligence
         fetchIntelligence()
-        // Refrescar factores cada 3 minutos en tiempo real
-        const int = setInterval(fetchIntelligence, 3 * 60 * 1000)
+        // Refrescar factores cada 10 minutos cuando la pantalla está visible
+        const int = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchIntelligence()
+            }
+        }, 10 * 60 * 1000)
         return () => clearInterval(int)
     }, [storeId, selectedDate])
 
@@ -708,7 +723,7 @@ export default function BodegaPWA() {
                 forceTokenRefresh: true
             }),
             fetchHistoryRef.current?.(freshDow),
-            fetchManualScheduleRef.current?.(freshDow, freshDate),
+            fetchManualScheduleRef.current?.(freshDow, freshDate, true),
             fetchIntelligenceRef.current?.(),
             fetchPendingRef.current?.()
         ])
@@ -833,10 +848,12 @@ export default function BodegaPWA() {
         fetchPendingRef.current = fetchPending
         fetchPending()
 
-        // 1. RECOVERY POLLER: Las cocinas pierden WiFi. Un "latido" cada 20 segundos asegura que nunca se quede trabado si el Websocket falla.
+        // 1. RECOVERY POLLER: Las cocinas pierden WiFi. Un "latido" cada 45 segundos (cuando está visible) asegura recuperación si el Websocket falla.
         const fallbackSafetyNet = setInterval(() => {
-            fetchPending()
-        }, 20000)
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchPending()
+            }
+        }, 45000)
 
         // 2. REALTIME WEBSOCKET
         const channel = supabase.channel(`preparador-requests-${storeId}`)

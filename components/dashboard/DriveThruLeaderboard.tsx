@@ -8,7 +8,7 @@
  * - Umbrales de tiempo: 🟢 ≤ 3:30 (≤210s), 🟡 3:31-5:00 (211-300s), 🔴 > 5:00 (>300s)
  * - El día laboral empieza a las 6 AM y termina a las 5:59 AM del día siguiente
  * - Solo muestra tiendas con has_drive_thru = true en la tabla stores
- * - Auto-refresh cada 60 segundos
+ * - Auto-refresh cada 180 segundos cuando la pestaña está visible
  * 
  * @dataFlow
  * - Consume /api/drive-thru/leaderboard?date=YYYY-MM-DD&slot=HH:MM
@@ -17,6 +17,7 @@
  * @notes
  * - Diseño inspirado en HME ZOOM Nitro Leaderboard con podio visual
  * - Click en tienda navega a /drive-thru con filtro de tienda
+ * - Optimización 2026-11-19 (Paquete 2B): auto-refresh elevado de 60s a 180s con guardia `visibilityState === 'visible'`.
  */
 'use client'
 
@@ -181,7 +182,11 @@ export default function DriveThruLeaderboard({ selectedDate, startDate, endDate 
 
     useEffect(() => {
         fetchData(false)
-        const interval = setInterval(() => fetchData(true), 60000) // Auto-refresh every 60s in background
+        const interval = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                fetchData(true)
+            }
+        }, 180000) // Auto-refresh every 180s in background when visible
         return () => {
             clearInterval(interval)
             if (abortRef.current) abortRef.current.abort()
