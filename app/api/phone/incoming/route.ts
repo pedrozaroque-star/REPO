@@ -18,8 +18,9 @@
  * @notes
  * - El `<Redirect>` de respaldo tras el primer `<Gather>` envía `&silence=1` (no `retry=1`) para que el primer silencio
  *   pregunte amablemente `"¿Sigues en la línea?"` antes de colgar.
- * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout="1" speechModel="telephony"`
- *   + `hints`) y coordina atómicamente el `upsert` inicial de `phone_calls` (`ignoreDuplicates: true` + backfill seguro de `transcript`)
+ * - Cachea el mapa de teléfonos de las 15 sucursales (60 s TTL), usa `buildTwilioGatherAttrs` (`speechTimeout` adaptativo `"2"`/`"3"`, `speechModel="telephony"`
+ *   + `hints`), respaldo de emergencia `<Say>` exclusivamente con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly)
+ *   y coordina atómicamente el `upsert` inicial de `phone_calls` (`ignoreDuplicates: true` + backfill seguro de `transcript`)
  *   para no perder cierres rápidos de `/api/phone/status` que lleguen antes del registro diferido.
  */
 
@@ -31,6 +32,7 @@ import { formatCustomerGreetingTarget } from '@/lib/customer-store-names'
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
+  buildTwilioFallbackSay,
   buildTwilioGatherAttrs,
   cleanPhoneStoreName,
   escapeXml,
@@ -63,6 +65,8 @@ function scheduleBackgroundTask(task: () => Promise<any>) {
 }
 
 export async function POST(request: Request) {
+  const reqStartMs = Date.now()
+  const getIncomingTtsBudgetMs = () => Math.max(5500, Math.min(8500, 11500 - (Date.now() - reqStartMs)))
   try {
     const formData = await request.formData().catch(() => null)
     const params: Record<string, string> = {}
@@ -99,12 +103,16 @@ export async function POST(request: Request) {
     if (!storeId) {
       const unassignedMsg =
         'Gracias por llamar a Tacos Gavilan. Puedes consultar el menú, ubicación y horario en vivo de nuestras quince sucursales en tacosgavilan.com.'
-      let unassignedTag = `<Say voice="Polly.Mia-Neural" language="es-MX">${escapeXml(unassignedMsg)}</Say>`
+      let unassignedTag = buildTwilioFallbackSay(unassignedMsg, 'es')
       try {
-        await getPhoneAgentSpeech(unassignedMsg, 'es', 'Kore', false, { skipSseAttempt: true, maxTotalMs: 3500 })
+        await getPhoneAgentSpeech(unassignedMsg, 'es', 'Kore', false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getIncomingTtsBudgetMs()
+        })
         unassignedTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, unassignedMsg, 'es', 'Kore'))}</Play>`
       } catch {
-        // Fallback seguro a <Say> para no cortar con HTTP 502
+        // Fallback seguro a Google Chirp3-HD-Kore <Say> para no cortar con HTTP 502
       }
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
@@ -203,18 +211,28 @@ export async function POST(request: Request) {
         lang === 'en'
           ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
           : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
-      const sayVoiceDisabled = lang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-      const sayLangDisabled = lang === 'en' ? 'en-US' : 'es-MX'
-      let disabledTag = `<Say voice="${sayVoiceDisabled}" language="${sayLangDisabled}">${escapeXml(disabledMsg)}</Say>`
+      let disabledTag = buildTwilioFallbackSay(disabledMsg, lang)
+      let disabledPlayedKore38 = false
       try {
-        await getPhoneAgentSpeech(disabledMsg, lang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        await getPhoneAgentSpeech(disabledMsg, lang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getIncomingTtsBudgetMs()
+        })
         disabledTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disabledMsg, lang, voice))}</Play>`
+        disabledPlayedKore38 = true
       } catch {
-        // Fallback seguro a <Say> para jamás devolver HTTP 502 si TTS falla cuando la sucursal está apagada
+        // Fallback seguro a Google Chirp3-HD-Kore <Say> para jamás devolver HTTP 502 si TTS falla cuando la sucursal está apagada
       }
       scheduleBackgroundTask(async () => {
         await Promise.all([
-          getPhoneAgentSpeech(disabledMsg, lang, voice, false, { awaitStoragePersist: true }).catch(() => null),
+          !disabledPlayedKore38
+            ? getPhoneAgentSpeech(disabledMsg, lang, voice, false, {
+                skipSseAttempt: true,
+                awaitStoragePersist: true,
+                maxTotalMs: 12000
+              }).catch(() => null)
+            : Promise.resolve(),
           persistIncomingCallWithoutOverwritingClose({
             initialStatus: 'completed',
             initialTranscript: [{ role: 'assistant', text: disabledMsg, timestamp: new Date().toISOString() }],
@@ -266,27 +284,45 @@ export async function POST(request: Request) {
       console.error('[api/phone/incoming] Initial call persist warning:', e?.message || e)
     })
 
-    const sayVoice = lang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-    const sayLang = lang === 'en' ? 'en-US' : 'es-MX'
-    let disclosureTag: string
-    let questionTag: string
-    try {
-      await Promise.all([
-        getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, { skipSseAttempt: true, maxTotalMs: 3600 }),
-        getPhoneAgentSpeech(questionOnlyText, lang, voice, false, { skipSseAttempt: true, maxTotalMs: 3600 })
-      ])
-      disclosureTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disclosureOnlyText, lang, voice))}</Play>`
-      questionTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, questionOnlyText, lang, voice))}</Play>`
-    } catch {
-      disclosureTag = `<Say voice="${sayVoice}" language="${sayLang}">${escapeXml(disclosureOnlyText)}</Say>`
-      questionTag = `<Say voice="${sayVoice}" language="${sayLang}">${escapeXml(questionOnlyText)}</Say>`
-    }
+    const greetingBudgetMs = getIncomingTtsBudgetMs()
+    const [discRes, qRes] = await Promise.allSettled([
+      getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
+        skipSseAttempt: true,
+        awaitStoragePersist: true,
+        maxTotalMs: greetingBudgetMs
+      }),
+      getPhoneAgentSpeech(questionOnlyText, lang, voice, false, {
+        skipSseAttempt: true,
+        awaitStoragePersist: true,
+        maxTotalMs: greetingBudgetMs
+      })
+    ])
+    const disclosureTag =
+      discRes.status === 'fulfilled'
+        ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disclosureOnlyText, lang, voice))}</Play>`
+        : buildTwilioFallbackSay(disclosureOnlyText, lang)
+    const questionTag =
+      qRes.status === 'fulfilled'
+        ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, questionOnlyText, lang, voice))}</Play>`
+        : buildTwilioFallbackSay(questionOnlyText, lang)
 
     scheduleBackgroundTask(async () => {
       await Promise.all([
         initialCallPersistPromise,
-        getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, { awaitStoragePersist: true }).catch(() => null),
-        getPhoneAgentSpeech(questionOnlyText, lang, voice, false, { awaitStoragePersist: true }).catch(() => null),
+        discRes.status !== 'fulfilled'
+          ? getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
+              skipSseAttempt: true,
+              awaitStoragePersist: true,
+              maxTotalMs: 12000
+            }).catch(() => null)
+          : Promise.resolve(),
+        qRes.status !== 'fulfilled'
+          ? getPhoneAgentSpeech(questionOnlyText, lang, voice, false, {
+              skipSseAttempt: true,
+              awaitStoragePersist: true,
+              maxTotalMs: 12000
+            }).catch(() => null)
+          : Promise.resolve(),
         shouldVerifyForwarding
           ? supabaseAdmin
               .from('phone_agent_config')
@@ -326,7 +362,7 @@ export async function POST(request: Request) {
     console.error('[api/phone/incoming] Error:', err)
     const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Mia-Neural" language="es-MX">Gracias por llamar a Tacos Gavilan. Por favor visita tacosgavilan punto com para consultar nuestro menú y horarios.</Say>
+  ${buildTwilioFallbackSay('Gracias por llamar a Tacos Gavilan. Por favor visita tacosgavilan punto com para consultar nuestro menú y horarios.', 'es')}
   <Hangup/>
 </Response>`
     return new Response(fallbackTwiml, {

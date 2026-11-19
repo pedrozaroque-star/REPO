@@ -36,7 +36,7 @@
  *   (`cleanupOrReconcileExpiredTombstones`), mientras el fallback visual de configuración ausente usa `is_enabled: false`.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import {
@@ -327,7 +327,7 @@ export async function GET(request: NextRequest) {
       const staleCutoffIso = new Date(sweepNow - 25 * 60 * 1000).toISOString()
       const oldTombstoneCutoffIso = new Date(sweepNow - 24 * 60 * 60 * 1000).toISOString()
       const sweepEndedIso = new Date(sweepNow).toISOString()
-      void (async () => {
+      const runStaleSweep = async () => {
         try {
           const { data: staleCalls, error: staleErr } = await supabaseAdmin
             .from('phone_calls')
@@ -376,7 +376,12 @@ export async function GET(request: NextRequest) {
         } catch {
           // Ignorar errores transitorios en barrido de mantenimiento; todo tombstone pendiente permanece intacto
         }
-      })()
+      }
+      try {
+        after(() => runStaleSweep())
+      } catch {
+        void runStaleSweep()
+      }
     }
 
     const [
@@ -1012,7 +1017,7 @@ export async function PATCH(request: NextRequest) {
 
     if (entity === 'store_config') {
       const storeId = Number(body?.store_id)
-      if (!Number.isFinite(storeId) || storeId <= 0) {
+      if (!Number.isFinite(storeId) || storeId <= 0 || Math.trunc(storeId) !== storeId) {
         return NextResponse.json({ error: 'store_id inválido' }, { status: 400 })
       }
 

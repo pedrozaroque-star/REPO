@@ -132,6 +132,12 @@
  *      los tombstones si la llamada aún no existe o si falla la base de datos.
  *   3) El saludo bilingüe informa con exactitud que la llamada es transcrita ("en una llamada transcrita para atenderte" /
  *      "on a transcribed line") sin afirmar grabación de audio mientras no exista grabación real.
+ * - FIX 2026-11-18 (Ronda 2 — Auditoría Forense):
+ *   * `cacheEpoch` evita que lecturas SWR en vuelo reescriban cachés tras `invalidateStorePhoneContextCache`, y `crossStoreCmpRamCache` poda entradas expiradas.
+ *   * `buildEffectiveUpcomingHolidaysForStore` y `evaluateStoreSchedulePure` alinean reglas cuando un día regular está marcado `CLOSED`.
+ *   * `buildInitialGreeting` blinda frases adicionales de grabación en saludos personalizados (`recorded` / `grabada` / `grabando`).
+ *   * `callGeminiPhoneWithFailover` descarta respuestas `STOP` solo-pensamiento sin texto visible ni `functionCall`.
+ *   * `inspectMissingCallbackGuard` ya no desactiva el blindaje por mencionar `"con tu nombre y tu número"` en confirmaciones sin pregunta, y soporta tildes en cleanup.
  */
 
 import twilio from 'twilio'
@@ -192,6 +198,23 @@ let specialHoursInFlight: Promise<any[]> | null = null
 let allKbRamCache: { rows: any[]; fetchedAt: number } | null = null
 let allKbInFlight: Promise<any[]> | null = null
 const crossStoreCmpRamCache = new Map<string, { text: string; fetchedAt: number }>()
+let cacheEpoch = 0
+
+function setCrossStoreCmpCache(key: string, text: string, writeEpoch: number) {
+  if (writeEpoch !== cacheEpoch) return
+  const nowMs = Date.now()
+  if (crossStoreCmpRamCache.size >= 16) {
+    for (const [k, v] of crossStoreCmpRamCache.entries()) {
+      if (nowMs - v.fetchedAt >= 30_000) crossStoreCmpRamCache.delete(k)
+    }
+    while (crossStoreCmpRamCache.size >= 32) {
+      const oldestKey = crossStoreCmpRamCache.keys().next().value
+      if (!oldestKey) break
+      crossStoreCmpRamCache.delete(oldestKey)
+    }
+  }
+  crossStoreCmpRamCache.set(key, { text, fetchedAt: nowMs })
+}
 
 interface PhoneRoutingDirectoryEntry {
   fetchedAt: number
@@ -202,14 +225,16 @@ let phoneRoutingDirCache: PhoneRoutingDirectoryEntry | null = null
 let phoneRoutingDirInFlight: Promise<PhoneRoutingDirectoryEntry> | null = null
 
 export function invalidatePhoneRoutingDirectoryCache() {
+  cacheEpoch++
   phoneRoutingDirCache = null
 }
 
 export function invalidateStorePhoneContextCache(storeId?: number) {
+  cacheEpoch++
   crossStoreCmpRamCache.clear()
   specialHoursRamCache = null
   allKbRamCache = null
-  invalidatePhoneRoutingDirectoryCache()
+  phoneRoutingDirCache = null
   if (storeId && Number.isFinite(storeId)) {
     const id = Number(storeId)
     storeContextRamCache.delete(id)
@@ -327,7 +352,7 @@ export function parseTimeToMinutes(hhmm: string | null | undefined): number {
   const parts = hhmm.trim().split(':')
   const h = Number(parts[0])
   const m = Number(parts[1] ?? 0)
-  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59 || (h === 24 && m > 0)) return 480
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 24 || m < 0 || m > 59 || (h === 24 && m > 0)) return 480
   return h * 60 + m
 }
 
@@ -341,7 +366,7 @@ export function formatTime12h(hhmm: string | null | undefined, lang: PhoneLang =
   const parts = hhmm.trim().split(':')
   const hRaw = Number(parts[0])
   const m = Number(parts[1] ?? 0)
-  if (!Number.isFinite(hRaw) || !Number.isFinite(m) || hRaw < 0 || hRaw > 24 || m < 0 || m > 59 || (hRaw === 24 && m > 0)) return hhmm
+  if (!Number.isInteger(hRaw) || !Number.isInteger(m) || hRaw < 0 || hRaw > 24 || m < 0 || m > 59 || (hRaw === 24 && m > 0)) return hhmm
 
   const h = hRaw === 24 ? 0 : hRaw
   const minStr = String(m).padStart(2, '0')
@@ -578,7 +603,7 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
             ? regular.open
             : openOverride
       }
-      const effectiveClose = isClosed ? 'CLOSED' : closeOverride || regular.close
+      const effectiveClose = isClosed ? 'CLOSED' : closeOverride || (regularClosed ? '00:00' : regular.close)
       return {
         event_date: dStr,
         holiday_name: dbMatch.holiday_name,
@@ -596,7 +621,7 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
     }
 
     const official = getOfficialStoreHolidaySchedule(dStr)!
-    const isClosed = official.is_closed
+    const isClosed = official.is_closed || regularClosed
     let effectiveOpen = regular.open
     if (!isClosed && official.open_time) {
       effectiveOpen =
@@ -972,9 +997,10 @@ export function evaluateStoreSchedulePure(params: {
         : ''
 
     const regToday = wh[String(pt.dayOfWeek)] || { open: '10:00', close: '00:00' }
+    const regTodayClosed = isClosedTimeToken(regToday.open) || isClosedTimeToken(regToday.close)
     const regCloseMin = parseTimeToMinutes(regToday.close)
     const regEffCloseMin = regCloseMin <= parseTimeToMinutes(regToday.open) ? regCloseMin + 1440 : regCloseMin
-    const closedEarlierThanUsual = todaySched.isSpecial && effectiveCloseMin < regEffCloseMin
+    const closedEarlierThanUsual = !regTodayClosed && todaySched.isSpecial && effectiveCloseMin < regEffCloseMin
 
     const spokenTodayHolEs = cleanSpokenHoliday(todaySched.holidayName)
     const spokenTodayHolEn = cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName)
@@ -1125,9 +1151,10 @@ export function buildCrossStoreHoursComparison(
   if (!Array.isArray(stores) || stores.length === 0) return ''
   const ptNow = getPacificDateParts(now || new Date())
   const useCache = !now
+  const cmpEpoch = cacheEpoch
   const specialSig = (specialHours || [])
-    .filter((s) => s && s.event_date === ptNow.dateStr)
-    .map((s) => `${s.store_id ?? 'all'}:${s.is_closed ? 1 : 0}:${s.open_time || ''}:${s.close_time || ''}`)
+    .filter((s) => s && (s.event_date === ptNow.dateStr || s.event_date === ptNow.yesterdayDateStr))
+    .map((s) => `${s.event_date}:${s.store_id ?? 'all'}:${s.is_closed ? 1 : 0}:${s.open_time || ''}:${s.close_time || ''}`)
     .sort()
     .join('|')
   const cacheKey = `${lang}:${ptNow.dateStr}:${Math.floor(ptNow.currentMinutes / 5)}:${stores.length}:${specialSig}`
@@ -1310,7 +1337,7 @@ export function buildCrossStoreHoursComparison(
       )
     }
     const outEn = lines.join('\n')
-    if (useCache) crossStoreCmpRamCache.set(cacheKey, { text: outEn, fetchedAt: Date.now() })
+    if (useCache) setCrossStoreCmpCache(cacheKey, outEn, cmpEpoch)
     return outEn
   }
 
@@ -1329,7 +1356,7 @@ export function buildCrossStoreHoursComparison(
     )
   }
   const outEs = lines.join('\n')
-  if (useCache) crossStoreCmpRamCache.set(cacheKey, { text: outEs, fetchedAt: Date.now() })
+  if (useCache) setCrossStoreCmpCache(cacheKey, outEs, cmpEpoch)
   return outEs
 }
 
@@ -1425,7 +1452,14 @@ export function recommendFiestaPlatters(
   const fmtPriceEn = (price: number | null) =>
     price !== null ? ` at $${price.toFixed(2)}` : ' (current price on tacosgavilan.com)'
 
-  const guests = Number(guestCountInput)
+  const rawGuests = Number(guestCountInput)
+  const guests =
+    guestCountInput !== null &&
+    guestCountInput !== undefined &&
+    String(guestCountInput).trim() !== '' &&
+    Number.isFinite(rawGuests)
+      ? Math.round(rawGuests)
+      : NaN
   let recommendationEs =
     'Se ordenan en línea en tacosgavilan.com con mínimo 1 hora de anticipación para recoger el mismo día. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina a elegir, salsas, verdura y desechables completos.'
   let recommendationEn =
@@ -1647,6 +1681,7 @@ async function loadStoreMenuEntry(storeId: number, storeNameFallback = ''): Prom
   const refresh = async (): Promise<StoreMenuCacheEntry> => {
     let job = storeMenuInFlight.get(storeId)
     if (!job) {
+      const fetchEpoch = cacheEpoch
       job = (async () => {
         const { data: items, error } = await supabaseAdmin
           .from('app_menu_cache')
@@ -1672,7 +1707,7 @@ async function loadStoreMenuEntry(storeId: number, storeNameFallback = ''): Prom
           compactCatalogEn: buildLiveMenuCatalogText(storeLabel, sanitized, { includeFiestaPlat: false }),
           fetchedAt: Date.now()
         }
-        storeMenuRamCache.set(storeId, entry)
+        if (fetchEpoch === cacheEpoch) storeMenuRamCache.set(storeId, entry)
         return entry
       })().finally(() => {
         storeMenuInFlight.delete(storeId)
@@ -1993,6 +2028,7 @@ export async function loadAllActiveStoresDirectory() {
   }
   const fetchStores = async () => {
     if (allStoresInFlight) return allStoresInFlight
+    const fetchEpoch = cacheEpoch
     allStoresInFlight = (async () => {
       const { data, error } = await supabaseAdmin
         .from('stores')
@@ -2012,7 +2048,7 @@ export async function loadAllActiveStoresDirectory() {
         compactHoursEs: buildCompactWeeklyHours(s.weekly_hours, 'es'),
         compactHoursEn: buildCompactWeeklyHours(s.weekly_hours, 'en')
       }))
-      allStoresDirectoryCache = { fetchedAt: Date.now(), stores }
+      if (fetchEpoch === cacheEpoch) allStoresDirectoryCache = { fetchedAt: Date.now(), stores }
       return stores
     })().finally(() => {
       allStoresInFlight = null
@@ -2034,6 +2070,7 @@ export async function loadAllSpecialHoursCached(): Promise<any[]> {
   }
   const fetchSp = async () => {
     if (specialHoursInFlight) return specialHoursInFlight
+    const fetchEpoch = cacheEpoch
     specialHoursInFlight = (async () => {
       const { data, error } = await supabaseAdmin
         .from('phone_special_hours')
@@ -2042,7 +2079,7 @@ export async function loadAllSpecialHoursCached(): Promise<any[]> {
       if (error || !Array.isArray(data)) {
         return specialHoursRamCache?.rows || []
       }
-      specialHoursRamCache = { rows: data, fetchedAt: Date.now() }
+      if (fetchEpoch === cacheEpoch) specialHoursRamCache = { rows: data, fetchedAt: Date.now() }
       return data
     })().finally(() => {
       specialHoursInFlight = null
@@ -2063,6 +2100,7 @@ async function loadAllActiveKnowledgeBaseCached(): Promise<any[]> {
   }
   const fetchKb = async () => {
     if (allKbInFlight) return allKbInFlight
+    const fetchEpoch = cacheEpoch
     allKbInFlight = (async () => {
       const { data, error } = await supabaseAdmin
         .from('phone_knowledge_base')
@@ -2072,7 +2110,7 @@ async function loadAllActiveKnowledgeBaseCached(): Promise<any[]> {
       if (error || !Array.isArray(data)) {
         return allKbRamCache?.rows || []
       }
-      allKbRamCache = { rows: data, fetchedAt: Date.now() }
+      if (fetchEpoch === cacheEpoch) allKbRamCache = { rows: data, fetchedAt: Date.now() }
       return data
     })().finally(() => {
       allKbInFlight = null
@@ -2092,6 +2130,7 @@ export async function getPhoneRoutingDirectory(): Promise<PhoneRoutingDirectoryE
     return phoneRoutingDirCache
   }
   if (phoneRoutingDirInFlight) return phoneRoutingDirInFlight
+  const fetchEpoch = cacheEpoch
   phoneRoutingDirInFlight = (async () => {
     const [{ data: configs, error: cfgErr }, { data: stores, error: storeErr }] = await Promise.all([
       supabaseAdmin.from('phone_agent_config').select('store_id, twilio_phone_number').order('store_id', { ascending: true }),
@@ -2108,7 +2147,7 @@ export async function getPhoneRoutingDirectory(): Promise<PhoneRoutingDirectoryE
         (s) => s.is_active !== false
       )
     }
-    phoneRoutingDirCache = entry
+    if (fetchEpoch === cacheEpoch) phoneRoutingDirCache = entry
     return entry
   })().finally(() => {
     phoneRoutingDirInFlight = null
@@ -2215,6 +2254,7 @@ export async function getStorePhoneContext(
   const refreshContext = async () => {
     const inFlight = useRamCache ? storeContextInFlight.get(storeId) : undefined
     if (inFlight) return inFlight
+    const fetchEpoch = cacheEpoch
     const job = (async () => {
       const [allStores, configRes, allSpecialHours, allKb] = await Promise.all([
         loadAllActiveStoresDirectory(),
@@ -2297,7 +2337,7 @@ export async function getStorePhoneContext(
         knowledgeBase: storeKb,
         onlineOrderUrl: OFFICIAL_STORE_URLS[store.id] || OFFICIAL_ORDER_FALLBACK_URL
       }
-      if (useRamCache) {
+      if (useRamCache && fetchEpoch === cacheEpoch) {
         storeContextRamCache.set(storeId, { data: result, fetchedAt: Date.now() })
       }
       return result
@@ -2468,9 +2508,13 @@ export function buildInitialGreeting(
       )
         .replace(/\b(?:may\s+be|can\s+be|might\s+be|will\s+be|is(?:\s+being)?|are(?:\s+being)?)\s+recorded\s+(?:and|or)\s+(?=transcrib)/gi, 'is ')
         .replace(/\brecorded\s+(?:and|or)\s+(?=transcrib)/gi, '')
-        .replace(/\s+(?:and|or)\s+recorded\b/gi, '')
+        .replace(/\s+(?:and|or)\s+(?:being\s+)?recorded\b/gi, '')
         .replace(/\b(?:may\s+be|can\s+be|might\s+be|will\s+be|is(?:\s+being)?|are(?:\s+being)?)\s+recorded\b/gi, 'is transcribed')
-        .replace(/\brecorded\s+(line|call|conversation)\b/gi, 'transcribed $1')
+        .replace(/\brecorded\s+(line|call|conversation|for|to|and|or)\b/gi, 'transcribed $1')
+        .replace(/\b(line|call|calls|conversation|conversations)\s+(?:being\s+)?recorded\b/gi, '$1 transcribed')
+        .replace(/\bwe\s+record\s+(?:all\s+|this\s+|your\s+)?(calls?|lines?|conversations?)\b/gi, 'we transcribe $1')
+        .replace(/\b(?:audio|voice|call)\s+recording\b/gi, 'call transcription')
+        .replace(/\brecorded\b/gi, 'transcribed')
         .replace(/\s*how can i (help|assist) you( today)?\??\s*$/i, '')
         .trim()
       if (!/[.!?]$/.test(baseEn)) baseEn += '.'
@@ -2501,11 +2545,16 @@ export function buildInitialGreeting(
       customEs.trim().replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan'),
       'es'
     )
-      .replace(/\b(?:puede\s+ser|pueda\s+ser|es|est[aá](?:\s+siendo)?|ser[aá])\s+grabad[oa]s?\s+(?:y|o)\s+(?=transcrit)/gi, 'es ')
+      .replace(/\b(?:pueden\s+ser|son|est[aá]n(?:\s+siendo)?|ser[aá]n|puede\s+ser|pueda\s+ser|es|est[aá](?:\s+siendo)?|ser[aá])\s+grabad[oa]s?\s+(?:y|o)\s+(?=transcrit)/gi, 'es ')
       .replace(/\bgrabad[oa]s?\s+(?:y|o)\s+(?=transcrit)/gi, '')
-      .replace(/\s+(?:y|o|ni)\s+grabad[oa]s?\b/gi, '')
+      .replace(/\s+(?:y|o|ni)\s+(?:est[aá]n?\s+siendo\s+)?grabad[oa]s?\b/gi, '')
+      .replace(/\b(?:pueden\s+ser|son|est[aá]n(?:\s+siendo)?|ser[aá]n)\s+grabad[oa]s?\b/gi, 'son transcritas')
       .replace(/\b(?:puede\s+ser|pueda\s+ser|es|est[aá](?:\s+siendo)?|ser[aá])\s+grabad[oa]s?\b/gi, 'es transcrita')
-      .replace(/\b(llamada|l[ií]nea|conversaci[oó]n)\s+grabad[oa]\b/gi, '$1 transcrita')
+      .replace(/\b(llamadas?|l[ií]neas?|conversaci[oó]n|conversaciones)\s+(?:est[aá]n?\s+siendo\s+)?grabad[oa]s?\b/gi, '$1 transcrita')
+      .replace(/\bse\s+(?:est[aá]\s+grabando|graban?)\b/gi, 'se transcribe')
+      .replace(/\bgrabamos\s+((?:esta|la|su|las|tus)?\s*(?:llamadas?|l[ií]neas?|conversaciones?))\b/gi, 'transcribimos $1')
+      .replace(/\bgrabaci[oó]n(?:\s+de\s+(?:audio|voz|llamadas?))?\b/gi, 'transcripción')
+      .replace(/\bgrabad[oa]s?\b/gi, 'transcrita')
       .replace(/\s*¿?en qu[eé] te (?:puedo ayudar|ayudo)( hoy)?\??\s*$/i, '')
       .trim()
     if (!/[.!?]$/.test(baseEs)) baseEs += '.'
@@ -2687,7 +2736,7 @@ export function sanitizePhoneReplyText(rawText: string, lang: PhoneLang = 'es'):
   )
     // Moneda exclusiva EE. UU. (dólares y centavos USD — jamás pesos ni MXN)
     .replace(
-      /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
       (_m, amt: string) => formatDisplayUsd(amt)
     )
     .replace(
@@ -2695,7 +2744,7 @@ export function sanitizePhoneReplyText(rawText: string, lang: PhoneLang = 'es'):
       (_m, dw: string, cStr: string) => `${dw} con ${Number(cStr)} ${Number(cStr) === 1 ? 'centavo' : 'centavos'}`
     )
     .replace(
-      /(^|[^\w$])(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      /(^|[^\w$])((?:\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
       (_m, lead: string, amt: string) => `${lead}${formatDisplayUsd(amt)}`
     )
     .replace(/\b(un|uno)\s+peso(?:\s+mexicano)?\b/gi, lang === 'en' ? 'one dollar' : 'un dólar')
@@ -2704,6 +2753,15 @@ export function sanitizePhoneReplyText(rawText: string, lang: PhoneLang = 'es'):
       (_m, word: string) => (lang === 'en' ? `${word} dollars` : `${word} dólares`)
     )
     .replace(/\ben\s+pesos(?:\s+mexicanos?)?\b/gi, lang === 'en' ? 'in US dollars' : 'en dólares')
+    // Expectativa realista de devolución de llamada: jamás prometer "enseguida" / "de inmediato" / "right away"
+    .replace(
+      /\b(se\s+comunicar[aá](?:\s+contigo|\s+con\s+usted)?|comunicarse(?:\s+contigo|\s+con\s+usted)?|(?:te|le)\s+(?:llamar[aá]|marcar[aá]|contactar[aá])|(?:(?:te|le)\s+)?devolver(?:[aá]|te|le)\s+la\s+llamada)\s+(?:enseguida|en\s+seguida|de\s+inmediato|inmediatamente|ahorita(?:\s+mismo)?|lo\s+antes\s+posible|a\s+la\s+brevedad)\b/gi,
+      '$1 en cuanto sea posible'
+    )
+    .replace(
+      /\b((?:(?:will|can|to)\s+)?(?:call\s+you\s+back|give\s+you\s+a\s+call(?:\s+back)?|get\s+back\s+to\s+you|reach\s+out(?:\s+to\s+you)?|contact\s+you))\s+(?:right\s+away|immediately|(?:very\s+)?shortly)\b/gi,
+      '$1 as soon as possible'
+    )
     .replace(/\s+/g, ' ')
     .trim()
   const base = expandStreetAbbreviationsInText(preCleaned, lang, { stripZipAfterState: false })
@@ -2775,10 +2833,11 @@ const MENU_LOANWORDS_RE =
   /\b(los\s+[aá]ngeles|piña|pina|jalapeños?|jalapenos?|horchata|jamaica|tamarindo|champurrado|asada|pastor|carnitas|lengua|cabeza|buche|chorizo|mulitas?|quesadillas?|sopes?|tacos?|burritos?|tortas?|platos?|frijoles?|arroz|queso|lim[oó]n|chiles?|salsas?|caf[eé]|monterey\s+jack|gavil[aá]n)\b/gi
 
 const ES_STRONG_WORDS = new Set([
-  'de', 'la', 'el', 'que', 'en', 'los', 'las', 'por', 'para', 'con', 'una', 'un', 'es', 'esta', 'estamos', 'tenemos',
-  'hoy', 'puedes', 'nuestra', 'nuestro', 'sucursal', 'tu', 'te', 'si', 'cuanto', 'cuesta', 'horario', 'abren', 'cierran',
-  'quiero', 'tienen', 'gracias', 'hola', 'gerente', 'orden', 'algo', 'mas', 'ayudar', 'pedido', 'ahorita', 'donde', 'aceptan',
-  'mi', 'no', 'muy', 'pero', 'como', 'ya', 'solo', 'todo', 'bueno', 'buenas', 'tardes', 'dias', 'noches', 'cual', 'lleva'
+  'de', 'del', 'al', 'la', 'el', 'que', 'en', 'los', 'las', 'por', 'para', 'con', 'una', 'un', 'es', 'esta', 'estan', 'estamos', 'tenemos',
+  'hoy', 'puedes', 'puede', 'pueden', 'nuestra', 'nuestro', 'sucursal', 'tu', 'te', 'si', 'cuanto', 'cuesta', 'cuestan', 'horario', 'abren', 'cierran',
+  'quiero', 'tienen', 'hay', 'gracias', 'hola', 'gerente', 'orden', 'algo', 'mas', 'ayudar', 'pedido', 'ahorita', 'donde', 'cuando', 'quien', 'aceptan',
+  'mi', 'no', 'muy', 'pero', 'como', 'ya', 'solo', 'todo', 'bueno', 'buenas', 'buenos', 'tardes', 'dias', 'noches', 'cual', 'lleva',
+  'precio', 'precios', 'direccion', 'ubicacion', 'abierto', 'abierta', 'cerrado', 'cerrada', 'abrimos', 'cerramos', 'horas'
 ])
 const EN_STRONG_WORDS = new Set([
   'the', 'and', 'you', 'your', 'we', 'our', 'is', 'are', 'to', 'of', 'for', 'at', 'with', 'can', 'do', 'have', 'today',
@@ -2943,7 +3002,10 @@ async function callGeminiPhoneWithFailover(
           if (res.ok && parts.length > 0) {
             // MAX_TOKENS con texto útil: se acepta y luego se recorta en fin de oración (clampPhoneReplyLength).
             // MAX_TOKENS SIN texto ni función: respuesta inservible -> se intenta con el siguiente candidato.
-            if (candidate?.finishReason !== 'MAX_TOKENS' || hasFunctionCall || visibleText.length >= 40) {
+            if (
+              hasFunctionCall ||
+              (visibleText.length > 0 && (candidate?.finishReason !== 'MAX_TOKENS' || visibleText.length >= 40))
+            ) {
               return { data, usedModel: model }
             }
             lastError = `Respuesta truncada (MAX_TOKENS) en ${model}`
@@ -3032,7 +3094,7 @@ function hasExplicitSameLineOptIn(text: string): boolean {
   )
 }
 
-function inspectMissingCallbackGuard(params: {
+export function inspectMissingCallbackGuard(params: {
   replyText: string
   transcript: TranscriptEntry[]
   blockedStoreTenDigits: string[]
@@ -3050,10 +3112,15 @@ function inspectMissingCallbackGuard(params: {
     /\b(no|nunca|jamas|tampoco|sin|imposible|not|never|dont|do not|cannot|cant)\s+(?:te\s+|le\s+|se\s+|puedo\s+|podemos\s+)?(?:envio|envie|enviar|enviamos|mando|mande|mandar|deje|dejar|registre|registrar|notifico|notificar|send|sending|sent|leave|log|logging|register|submit)\b/i.test(
       normReply
     )
+  const hasQuestionMark = /\?/.test(params.replyText)
   const isAskingDetails =
-    /\b(necesito|dame|dime|me dices|regala(?:s|me|nos)?|comparte(?:s|me|nos)?|proporciona(?:s|me|nos)?|cual es|como te llamas|indica(?:s|me|nos)?|me das|me puedes dar|me podrias|tu nombre|tu numero|su nombre|su numero|a que numero|a que telefono|un numero|un telefono|your name|your phone|your number|callback number|best number|who i am speaking|who am i speaking|10 digitos|diez digitos|10 digits|ten digits|10-digit|would you like me to|quieres que|deseas que|gustaria que|can i send|si me das|if you share|if you give)\b/i.test(
+    /\b(necesito|dame|regala(?:s|me|nos)?|comparte(?:s|me|nos)?|proporciona(?:s|me|nos)?|cual es|como te llamas|indica(?:s|me|nos)?|me das|me puedes dar|me podrias|would you like me to|quieres que|deseas que|gustaria que|can i send|could you (?:give|share|provide|tell)|please (?:give|share|provide|tell)|si me das|if you share|if you give)\b/i.test(
       normReply
-    )
+    ) ||
+    (hasQuestionMark &&
+      /\b(dime|me dices|tu nombre|tu numero|su nombre|su numero|a que numero|a que telefono|un numero|un telefono|your name|your phone|your number|callback number|best number|who i am speaking|10 digitos|diez digitos|10 digits|ten digits|10-digit)\b/i.test(
+        normReply
+      ))
   const claimedSent =
     !hasNegatedSend &&
     !isAskingDetails &&
@@ -3091,6 +3158,51 @@ function inspectMissingCallbackGuard(params: {
     }
   }
 
+  // Reconstrucción multi-turno: si el cliente pausó a la mitad al dictar su número (ej. "323 982" y luego "45 12"),
+  // unir las últimas secuencias parciales de dígitos (2 o 3 turnos consecutivos de usuario) cuando formen 10 dígitos reales.
+  if (!detectedPhone && userTexts.length >= 2) {
+    const recentSegments = userTexts
+      .slice(-4)
+      .map((turnText) => {
+        const expandedTurn = replaceSpokenDigitRuns(turnText)
+        const runs = expandedTurn.match(/\d[\d\s,.\-()]*\d|\d+/g) || []
+        const lastRunDigits = runs.length > 0 ? runs[runs.length - 1].replace(/\D/g, '') : ''
+        return lastRunDigits
+      })
+      .filter((d) => d.length >= 1 && d.length <= 9)
+
+    const stitchCandidates: string[] = []
+    if (recentSegments.length >= 2) {
+      const a = recentSegments[recentSegments.length - 2]
+      const b = recentSegments[recentSegments.length - 1]
+      if (a.length >= 3) stitchCandidates.push(a + b)
+    }
+    if (recentSegments.length >= 3) {
+      const a = recentSegments[recentSegments.length - 3]
+      const b = recentSegments[recentSegments.length - 2]
+      const c = recentSegments[recentSegments.length - 1]
+      if (a.length >= 3) {
+        stitchCandidates.push(a + b + c)
+        stitchCandidates.push(a + b)
+      }
+    }
+
+    for (const stitched of stitchCandidates) {
+      if (stitched.length !== 10 && !(stitched.length === 11 && stitched.startsWith('1'))) continue
+      const parsed = normalizeUsPhoneE164(stitched)
+      if (
+        parsed.valid &&
+        parsed.normalized &&
+        parsed.tenDigits &&
+        !blocked.has(parsed.tenDigits) &&
+        !isFictitiousNanpPhone(parsed.tenDigits, params.allowDev555)
+      ) {
+        detectedPhone = parsed.normalized
+        break
+      }
+    }
+  }
+
   if (
     !detectedPhone &&
     params.source === 'twilio' &&
@@ -3118,7 +3230,7 @@ function inspectMissingCallbackGuard(params: {
   for (let i = allNameMatches.length - 1; i >= 0; i--) {
     const rawCand = allNameMatches[i]?.[1] || ''
     const cleaned = rawCand
-      .replace(/\b(?:de|del|en|por|para|con|y|mi|my|and|telefono|phone|numero|number|porque|because|que|un|una|el|la|empleado|empleada|cliente|manager|gerente|calling|missing|about|from).*$/i, '')
+      .replace(/\b(?:de|del|en|por|para|con|y|mi|my|and|tel[eé]fono|phone|n[uú]mero|number|porque|because|que|un|una|el|la|empleado|empleada|cliente|manager|gerente|calling|missing|about|from).*$/i, '')
       .trim()
     const firstWord = normalizeSearchText(cleaned.split(/\s+/)[0] || '')
     if (cleaned.length >= 2 && firstWord && !nonNameTokens.test(firstWord)) {
@@ -3273,10 +3385,12 @@ export async function upsertPhoneCallStatusTombstone(
   if (!cleanSid) {
     throw new Error('callSid es obligatorio para registrar phone_call_status_tombstones')
   }
-  const cleanStatus = String(input.terminalStatus || 'completed').trim().toLowerCase() || 'completed'
+  const rawStatus = String(input.terminalStatus || 'completed').trim().toLowerCase() || 'completed'
+  const cleanStatus = rawStatus === 'cancelled' ? 'canceled' : rawStatus
   const hasAuthDur =
     input.authoritativeDuration !== null &&
     input.authoritativeDuration !== undefined &&
+    String(input.authoritativeDuration).trim() !== '' &&
     Number.isFinite(Number(input.authoritativeDuration)) &&
     Number(input.authoritativeDuration) >= 0
   const safeDuration = hasAuthDur
@@ -3805,8 +3919,10 @@ export async function fetchScopedCriticalPendingCallbacksWithCap(
   capLimit: number
   pagesFetched: number
 }> {
-  const pageSize = Math.max(1, Math.floor(Number(opts?.pageSize ?? CRITICAL_CALLBACKS_PAGE_SIZE)))
-  const maxPages = Math.max(1, Math.floor(Number(opts?.maxPages ?? CRITICAL_CALLBACKS_MAX_PAGES)))
+  const rawPageSize = Number(opts?.pageSize)
+  const rawMaxPages = Number(opts?.maxPages)
+  const pageSize = Number.isFinite(rawPageSize) ? Math.max(1, Math.floor(rawPageSize)) : CRITICAL_CALLBACKS_PAGE_SIZE
+  const maxPages = Number.isFinite(rawMaxPages) ? Math.max(1, Math.floor(rawMaxPages)) : CRITICAL_CALLBACKS_MAX_PAGES
   const capLimit = pageSize * maxPages
 
   const collected: any[] = []
@@ -4044,16 +4160,16 @@ export async function processPhoneAgentTurn(params: {
   const normCombinedForScope = normalizeSearchText(`${prevUserTexts.join(' ')} ${normalizedUserForMatch}`)
   const wantsHolidayContext =
     Boolean(scheduleEval.isSpecialHolidaySchedule) ||
-    /\b(festiv|holiday|navidad|nochebuena|christmas|thanksgiving|accion de gracias|black friday|fin de ano|ano nuevo|new year|viernes santo|jueves santo|sabado de gloria|semana santa|good friday|pascua|easter|cinco de mayo|madres|mothers|julio|july|labor|memorial|septiembre|halloween|dia de muertos|guadalupe|especial)\b/i.test(
+    /\b(festiv|holiday|navidad|nochebuena|christmas|thanksgiving|accion de gracias|black friday|fin de ano|ano nuevo|new year|viernes santo|jueves santo|sabado de gloria|semana santa|good friday|pascua|easter|cinco de mayo|madres|mothers|padre|father|julio|july|labor|memorial|septiembre|halloween|dia de muertos|guadalupe|especial|24 de diciembre|25 de diciembre|31 de diciembre|1 de enero|december 24|december 25|december 31|january 1)\b/i.test(
       normCombinedForScope
     )
   const wantsMultiStoreContext =
-    /\b(otra|otras|sucursal|ubicacion|locacion|tienda|cerca|ciudad|zonas?|east la|este de los angeles|south la|sur de los angeles|downtown|sgv|san gabriel|orange|inland|drive thru|drive-thru|ventanilla|cierra mas|abre mas|todas|cuantas|covina|azusa|broadway|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
+    /\b(otra|otras|other|sucursal|sucursales|ubicacion|ubicaciones|locacion|locaciones|locations|tienda|tiendas|stores|branches|closest|nearest|earliest|latest|all stores|all locations|which store|which location|cerca|ciudad|zonas?|east la|este de los angeles|south la|sur de los angeles|downtown|sgv|san gabriel|orange|inland|drive thru|drive-thru|ventanilla|cierra mas|abre mas|todas|cuantas|covina|azusa|broadway|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
       normCombinedForScope
     )
   const wantsMenuCatalogContext =
     preFetchedMenu.length > 0 ||
-    /\b(precio|precios|cuesta|cuanto|menu|comer|platillo|taco|burrito|mulita|quesadilla|torta|plato|sope|nacho|bebida|agua|soda|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|postres|dessert|desserts|pastel|pasteles|cake|cakes|churro|churros|desayuno|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|queso|crema|guacamole|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
+    /\b(precio|precios|cuesta|cuanto|vale|a como|menu|comer|platillo|combo|combos|taco|burrito|mulita|quesadilla|torta|plato|sope|nacho|chips|totopos|bebida|agua|soda|refresco|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|postres|dessert|desserts|pastel|pasteles|cake|cakes|churro|churros|desayuno|breakfast|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|menudo|birria|pozole|suadero|tripa|cerveza|alcohol|beer|queso|crema|guacamole|tortillas?|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
       normCombinedForScope
     )
 
@@ -4151,13 +4267,18 @@ export async function processPhoneAgentTurn(params: {
           .join('\n')
       : ''
 
-  const guestMatch = combinedMenuQuery.match(/\b([1-9]\d{0,2})\s*(?:personas?|invitados?|gente|people|guests?|adultos?|adults?)\b/i)
-  const detectedGuestCount = guestMatch ? Math.min(500, Math.max(1, Number(guestMatch[1]))) : null
+  const explicitGuestMatch = combinedMenuQuery.match(/\b([1-9]\d{0,2})\s*(?:personas?|invitados?|gente|people|guests?|adultos?|adults?)\b/i)
   const wantsFiestaContext =
-    detectedGuestCount !== null ||
+    explicitGuestMatch !== null ||
     /\b(charola|charolas|fiesta\s*platters?|party\s*trays?|platters?|trays?|paquetes?|catering|taquizas?|banquetes?|eventos?|fiestas?|reunion(?:es)?)\b/i.test(
       normCombinedForScope
     )
+  const followUpGuestMatch =
+    wantsFiestaContext && !explicitGuestMatch
+      ? combinedMenuQuery.match(/\b(?:para|for|of)\s+([1-9]\d{0,2})\b/i)
+      : null
+  const guestMatch = explicitGuestMatch || followUpGuestMatch
+  const detectedGuestCount = guestMatch ? Math.min(500, Math.max(1, Number(guestMatch[1]))) : null
   const platterInfo = recommendFiestaPlatters(detectedGuestCount, liveMenuItems)
   const platterPreContext = wantsFiestaContext
     ? `\nCHAROLAS FIESTA PLATTER OFICIALES — PARTY TRAY GUIDELINES (orden exclusivo en línea en tacosgavilan.com con mínimo 1 hora de anticipación; carnes a elegir: Carne Asada, Pollo o Al Pastor [en orden en línea Toast también permite elegir entre las 8 carnes]; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas recién hechas de maíz o harina a elegir, salsas roja y verde, condimentos y utensilios completos):\n` +
@@ -4206,7 +4327,7 @@ export async function processPhoneAgentTurn(params: {
     : ''
 
   const callbackOutcomeInstruction = scheduleEval.isOpenNow
-    ? 'confírmale con calidez que el gerente en turno en la sucursal ya recibió la alerta prioritaria en su pantalla para devolverle la llamada enseguida (por política de Tacos Gavilan NUNCA desviamos llamadas a teléfonos personales).'
+    ? 'confírmale con calidez que el gerente en turno en la sucursal ya recibió la alerta prioritaria en su pantalla y se comunicará contigo en cuanto sea posible / as soon as possible (NUNCA prometas "enseguida", "de inmediato", "ahorita", "right away" ni "immediately"; por política de Tacos Gavilan NUNCA desviamos llamadas a teléfonos personales).'
     : 'aclárale con transparencia que como la sucursal está cerrada en este momento, su recado prioritario quedó registrado en la pantalla de la tienda para que el gerente se comunique en cuanto abramos.'
 
   const spokenStoreAddress = formatStoreAddressForAgent(store.address, turnLangGuess, { includeZip: false })
@@ -4291,6 +4412,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - **ACCIÓN OBLIGATORIA CON HERRAMIENTA**: Si la persona YA dio su nombre y teléfono real de 10 dígitos (o en llamada Twilio pidió marcarle a su Caller ID), **EJECUTA PRIMERO \`create_manager_callback\`** con EXACTAMENTE esos datos antes de responder. **PROHIBIDO** decir en texto que "envías / dejaste / registraste una alerta o recado" sin haber invocado \`create_manager_callback\`.
    - Después de ejecutar \`create_manager_callback\`, aclara amablemente que por política estricta de Tacos Gavilan no desviamos llamadas a celulares personales de los gerentes y ${callbackOutcomeInstruction}
    - Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
+   - **Dictado pausado de teléfono**: si el cliente pausó a la mitad y solo escuchaste entre 3 y 9 dígitos, **conserva esos dígitos** y pídele amablemente solo los dígitos restantes (ej. \`"Anoté 323-982, ¿me regalas los últimos 4 dígitos?"\`); en cuanto te dé el resto en el siguiente turno, únelos en un solo número de 10 dígitos y ejecuta \`create_manager_callback\` de inmediato.
    - Si ya enviaste la alerta en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el gerente ya la tiene en su pantalla.
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
    - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español cálido y natural del Sur de California con precios SIEMPRE en dólares y centavos, o inglés natural).
@@ -4550,7 +4672,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         willTransferLive: false,
         callbackId: callbackCreated.id,
         message: scheduleEval.isOpenNow
-          ? `Alerta enviada en vivo a la pantalla del Manager en ${customerBranchDisplay} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará enseguida desde la tienda.`
+          ? `Alerta enviada en vivo a la pantalla del Manager en ${customerBranchDisplay} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará contigo en cuanto sea posible ("as soon as possible") desde la tienda; NUNCA digas "enseguida", "de inmediato" ni "right away".`
           : `Recado prioritario registrado para el Manager de ${customerBranchDisplay}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
       }
     }
@@ -4732,8 +4854,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       } else {
         replyText =
           turnLangGuess === 'en'
-            ? `Your message is already on the ${custSpokenCompact} manager's screen, and they will call you back as soon as possible. Is there anything else I can help you with?`
-            : `Tu recado ya está en la pantalla del gerente de ${custSpokenCompact} y se comunicará contigo lo antes posible. ¿Te puedo ayudar con algo más?`
+            ? `Your message is already on the ${custSpokenCompact} manager's screen, and they will reach out to you as soon as possible. Is there anything else I can help you with?`
+            : `Tu recado ya está en la pantalla del gerente de ${custSpokenCompact} y se comunicará contigo en cuanto sea posible. ¿Te puedo ayudar con algo más?`
       }
     } else if (geminiFailed) {
       // Respaldo determinista en memoria si Gemini agotó presupuesto o cuota para no colgar en error genérico
@@ -4806,7 +4928,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
           (offeredEnding && /^(?:no\s+)?(?:muchas\s+)?gracias\.?$/i.test(normEnd.trim())))))
 
   const finalCallRecord = await ensureCallRecord()
-  const startedAtMs = finalCallRecord.started_at ? new Date(finalCallRecord.started_at).getTime() : Date.now()
+  const rawStartedAtMs = finalCallRecord.started_at ? new Date(finalCallRecord.started_at).getTime() : NaN
+  const startedAtMs = Number.isFinite(rawStartedAtMs) ? rawStartedAtMs : Date.now()
   const durationSeconds = Math.max(5, Math.round((Date.now() - startedAtMs) / 1000))
 
   // Estado persistente: una llamada ya terminada (ended_at o estado terminal de cierre) jamás cambia a callback_requested por un turno tardío
@@ -5077,12 +5200,53 @@ const TWILIO_GATHER_HINTS =
   'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, torta cubana, torta milanesa, super burrito, burrito vegetariano, quesadilla, super quesadilla, sope, taco plate, super nachos, flan, cheesecake, horchata, jamaica, pina, tamarindo, champurrado, aguas frescas, huevos rancheros, huevos con chorizo, Monterey Jack, queso fresco, cotija, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Los Angeles, Vernon, Washington, Slauson, Central, Broadway, gerente, manager'
 
 /**
- * Genera los atributos estándar optimizados de Twilio `<Gather input="speech dtmf">`
- * con `speechTimeout="1"`, `timeout="4"`, `actionOnEmptyResult="true"`, `speechModel="phone_call"`, `enhanced="true"` y `hints`.
+ * Genera una etiqueta `<Say>` de Twilio usando la voz Google Chirp 3 HD `Kore`
+ * (misma identidad acústica femenina de Google que `Kore 3.8`, eliminando por completo Amazon Polly).
+ * Twilio exige `language="es-US"` para `Google.es-US-Chirp3-HD-Kore` y `language="en-US"` para `Google.en-US-Chirp3-HD-Kore`.
  */
-export function buildTwilioGatherAttrs(lang: PhoneLang, actionUrl: string): string {
+export function buildTwilioFallbackSay(text: string, lang: PhoneLang): string {
+  const voice = lang === 'en' ? 'Google.en-US-Chirp3-HD-Kore' : 'Google.es-US-Chirp3-HD-Kore'
   const speechLang = lang === 'en' ? 'en-US' : 'es-US'
-  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="1" timeout="4" actionOnEmptyResult="true" speechModel="telephony" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
+  return `<Say voice="${voice}" language="${speechLang}">${escapeXml(text)}</Say>`
+}
+
+/**
+ * Detecta si la última respuesta de la asistente acaba de pedir al cliente su nombre,
+ * teléfono de 10 dígitos, dígitos restantes, número de ticket o detalles de un recado/queja,
+ * para otorgar mayor paciencia en Twilio `<Gather>` (`speechTimeout="3"` y `timeout="8"`)
+ * sin cortar al cliente cuando pausa entre el código de área y los últimos dígitos.
+ */
+export function isPromptExpectingPhoneOrDetails(text: string | null | undefined): boolean {
+  const raw = String(text || '').trim()
+  const norm = normalizeSearchText(raw)
+  if (!norm) return false
+  const mentionsTargetField =
+    /\b(tu\s+nombre|su\s+nombre|tu\s+numero|su\s+numero|tu\s+telefono|su\s+telefono|numero\s+de\s+telefono|telefono\s+de\s+10|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|faltan\s+\d*\s*digitos|a\s+que\s+numero|numero\s+de\s+orden|numero\s+de\s+ticket|your\s+name|your\s+phone|your\s+number|phone\s+number|callback\s+number|best\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits|rest\s+of\s+(?:the\s+|your\s+)?number|order\s+number|ticket\s+number)\b/i.test(
+      norm
+    )
+  if (!mentionsTargetField) return false
+  return (
+    raw.includes('?') ||
+    /\b(dame|me\s+das|me\s+puedes|me\s+podrias|regala(?:me|nos)?|comparte(?:me|nos)?|dime|me\s+dices|indica(?:me|nos)?|necesito|falta(?:n|ron)?|cual\s+es|como\s+te\s+llamas|digitos\s+restantes|remaining\s+digits|rest\s+of|could\s+you|can\s+you|please\s+(?:give|share|tell|provide)|what(?:\s+is|s)?|need\s+your|missing)\b/i.test(
+      norm
+    )
+  )
+}
+
+/**
+ * Genera los atributos estándar optimizados de Twilio `<Gather input="speech dtmf">`
+ * con `speechTimeout` adaptativo (`"2"` estándar / `"3"` paciente al dictar teléfono o datos),
+ * `timeout` (`"5"` estándar / `"8"` paciente), `actionOnEmptyResult="true"`, `speechModel="telephony"` y `hints`.
+ */
+export function buildTwilioGatherAttrs(
+  lang: PhoneLang,
+  actionUrl: string,
+  opts?: { patient?: boolean }
+): string {
+  const speechLang = lang === 'en' ? 'en-US' : 'es-US'
+  const speechTimeout = opts?.patient ? '3' : '2'
+  const timeout = opts?.patient ? '8' : '5'
+  return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="${speechTimeout}" timeout="${timeout}" actionOnEmptyResult="true" speechModel="telephony" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
 }
 
 /**

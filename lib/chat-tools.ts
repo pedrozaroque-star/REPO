@@ -69,6 +69,7 @@ import { calculateTicketPackaging, type ToastTicketSelection } from '@/lib/inven
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 import { getCaliforniaDate } from '@/lib/business-date'
 import { getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
+import { resolveCustomerStoreMeta } from '@/lib/customer-store-names'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -3766,7 +3767,21 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
     const todayIso = getCaliforniaDate();
     const applyScope = (q: any) => (scopedAllowedIds ? q.in('store_id', scopedAllowedIds) : q);
 
-    const [{ data: configs }, { data: kb }, { data: specialHours }, { data: calls }, { data: criticalCbs }, { data: callbacks }, { count: exactRealPendingCount }, { count: exactRealCriticalCount }] = await Promise.all([
+    const [
+      configsRes,
+      kbRes,
+      specialHoursRes,
+      realCallsRes,
+      simCallsRes,
+      realCallsTotalRes,
+      realCallsWithTurnsRes,
+      realResolvedCallsRes,
+      simCallsTotalRes,
+      criticalCbsRes,
+      callbacksRes,
+      exactRealPendingRes,
+      exactRealCriticalRes,
+    ] = await Promise.all([
       applyScope(supabaseAdmin.from('phone_agent_config').select('*, stores(id, name, phone)').order('store_id')),
       supabaseAdmin.from('phone_knowledge_base').select('id, title, category, store_id, is_active').eq('is_active', true),
       supabaseAdmin
@@ -3774,13 +3789,49 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
         .select('event_date, holiday_name, is_closed, open_time, close_time, store_id')
         .gte('event_date', todayIso)
         .order('event_date')
-        .limit(20),
+        .limit(200),
       applyScope(
         supabaseAdmin
           .from('phone_calls')
           .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
+          .eq('source', 'twilio')
           .order('started_at', { ascending: false })
-          .limit(100)
+          .limit(200)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id, call_sid, source, store_id, primary_intent, resolved_by_ai, turns_count, status, started_at')
+          .eq('source', 'simulator')
+          .order('started_at', { ascending: false })
+          .limit(200)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'twilio')
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'twilio')
+          .gt('turns_count', 0)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'twilio')
+          .gt('turns_count', 0)
+          .eq('resolved_by_ai', true)
+      ),
+      applyScope(
+        supabaseAdmin
+          .from('phone_calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('source', 'simulator')
       ),
       applyScope(
         supabaseAdmin
@@ -3819,17 +3870,55 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
       ),
     ]);
 
-    let rows = configs || [];
+    const queryErrors = [
+      configsRes.error,
+      kbRes.error,
+      specialHoursRes.error,
+      realCallsRes.error,
+      simCallsRes.error,
+      realCallsTotalRes.error,
+      realCallsWithTurnsRes.error,
+      realResolvedCallsRes.error,
+      simCallsTotalRes.error,
+      criticalCbsRes.error,
+      callbacksRes.error,
+      exactRealPendingRes.error,
+      exactRealCriticalRes.error,
+    ].filter(Boolean);
+    if (queryErrors.length > 0) {
+      throw queryErrors[0];
+    }
+
+    const configs = configsRes.data || [];
+    const kb = kbRes.data || [];
+    const specialHours = specialHoursRes.data || [];
+    const criticalCbs = criticalCbsRes.data || [];
+    const callbacks = callbacksRes.data || [];
+    const exactRealPendingCount = exactRealPendingRes.count;
+    const exactRealCriticalCount = exactRealCriticalRes.count;
+
+    let rows = configs;
     const allowedStoreSet = scopedAllowedIds ? new Set(scopedAllowedIds) : null;
     let matchedStoreIds: Set<number> | null = allowedStoreSet;
-    if (args?.store_name) {
+    const hasExplicitStoreFilter = Boolean(args?.store_name && String(args.store_name).trim());
+    if (hasExplicitStoreFilter) {
       const q = normText(args.store_name);
+      const canonicalMeta = resolveCustomerStoreMeta(String(args.store_name));
       rows = rows.filter((r: any) => {
+        if (canonicalMeta && Number(r.store_id) === canonicalMeta.id) return true;
         const cleanLabel = String(r.stores?.name || '')
           .replace(/^Tacos Gavilan\s*[-—]?\s*/i, '')
           .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
           .trim();
-        return normText(r.stores?.name || '').includes(q) || normText(cleanLabel).includes(q);
+        const storeMeta = resolveCustomerStoreMeta({ id: Number(r.store_id), name: r.stores?.name });
+        const customerEs = storeMeta ? normText(storeMeta.displayEs) : '';
+        const customerEn = storeMeta ? normText(storeMeta.displayEn) : '';
+        return (
+          normText(r.stores?.name || '').includes(q) ||
+          normText(cleanLabel).includes(q) ||
+          (customerEs && customerEs.includes(q)) ||
+          (customerEn && customerEn.includes(q))
+        );
       });
       matchedStoreIds = new Set(rows.map((r: any) => Number(r.store_id)));
       if (allowedStoreSet) {
@@ -3837,18 +3926,34 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
       }
     }
 
-    const filteredCalls = matchedStoreIds
-      ? (calls || []).filter((c: any) => matchedStoreIds!.has(Number(c.store_id)))
-      : calls || [];
+    const filterCallScope = (list: any[]) =>
+      matchedStoreIds ? list.filter((c: any) => matchedStoreIds!.has(Number(c.store_id))) : list;
 
-    const isSimCall = (c: any) => c.source === 'simulator' || String(c.call_sid || '').startsWith('SIM');
-    const realCalls = filteredCalls.filter((c: any) => !isSimCall(c));
-    const simCalls = filteredCalls.filter((c: any) => isSimCall(c));
-    const realCallsWithTurns = realCalls.filter((c: any) => Number(c.turns_count || 0) > 0);
-    const resolvedReal = realCallsWithTurns.filter((c: any) => Boolean(c.resolved_by_ai)).length;
+    const realCalls = filterCallScope((realCallsRes.data || []).filter((c: any) => !String(c.call_sid || '').startsWith('SIM')));
+    const simCalls = filterCallScope(simCallsRes.data || []);
+    const realCallsWithTurnsSample = realCalls.filter((c: any) => Number(c.turns_count || 0) > 0);
+    const resolvedRealSample = realCallsWithTurnsSample.filter((c: any) => Boolean(c.resolved_by_ai)).length;
+
+    const realCallsCountOut =
+      !hasExplicitStoreFilter && typeof realCallsTotalRes.count === 'number'
+        ? realCallsTotalRes.count
+        : realCalls.length;
+    const realCallsWithTurnsOut =
+      !hasExplicitStoreFilter && typeof realCallsWithTurnsRes.count === 'number'
+        ? realCallsWithTurnsRes.count
+        : realCallsWithTurnsSample.length;
+    const realResolvedOut =
+      !hasExplicitStoreFilter && typeof realResolvedCallsRes.count === 'number'
+        ? realResolvedCallsRes.count
+        : resolvedRealSample;
+    const simCallsCountOut =
+      !hasExplicitStoreFilter && typeof simCallsTotalRes.count === 'number'
+        ? simCallsTotalRes.count
+        : simCalls.length;
+
     const realStatsSummary =
-      realCallsWithTurns.length > 0
-        ? `${((resolvedReal / realCallsWithTurns.length) * 100).toFixed(1)}% resueltas por la IA en llamadas con conversación`
+      realCallsWithTurnsOut > 0
+        ? `${((realResolvedOut / realCallsWithTurnsOut) * 100).toFixed(1)}% resueltas por la IA en ${realCallsWithTurnsOut} llamadas con conversación`
         : 'Sin llamadas reales con conversación aún';
 
     const filteredKb = matchedStoreIds
@@ -3890,17 +3995,21 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
         .replace(/[\r\n]+/g, ' ')
         .trim();
 
+    const activeStoresCount = rows.filter((r: any) => Boolean(r.is_enabled)).length;
+    const verifiedForwardingCount = rows.filter((r: any) => r.forwarding_status === 'verified').length;
+    const spectrumCount = rows.filter((r: any) => r.carrier_type === 'spectrum_landline').length;
+    const attCount = rows.filter((r: any) => r.carrier_type !== 'spectrum_landline').length;
     const urgentOrCritical = filteredCallbacks.filter((cb: any) => cb.urgency === 'critical' || cb.urgency === 'urgent').length;
     let out = `📞 **Contestadora IA Multi-Sucursal (15 Tiendas) — Tacos Gavilan (/admin/llamadas)**\n`;
     out += `• **Voz y Arquitectura Baja Latencia**: Kore 3.8 (\`gemini-3.8-flash-tts\` #1 seguido de \`gemini-3.8-flash-lite-tts\`, región \`sfo1\`, caché \`phone_kore38_v6\`, filtro FIR 9-taps WAV \`8kHz\` telefonía + \`&dyn=1\` / PCM \`24kHz\` simulador)\n`;
-    out += `• **Sucursales Consultadas**: ${rows.length} (Cadena: 4 líneas fijas Spectrum Business y 11 celulares Android AT&T; soporta piloto Twilio de 1 número vía \`ForwardedFrom\`)\n`;
+    out += `• **Sucursales Consultadas**: ${rows.length} (${activeStoresCount} activas, ${verifiedForwardingCount} desvíos verificados | ${spectrumCount} Spectrum Business fijo, ${attCount} celular Android AT&T; soporta piloto Twilio de 1 número vía \`ForwardedFrom\`)\n`;
     out += `• **Reglas Activas en Base de Conocimiento**: ${filteredKb.length}\n`;
     out += `• **Próximos Horarios Festivos / Especiales (150 días)**: ${mergedHolidays.length}\n`;
-    out += `• **Llamadas Reales Recientes (Twilio)**: ${realCalls.length} (${realStatsSummary}) | **Pruebas en Simulador**: ${simCalls.length}\n`;
-    const totalRealPending = !matchedStoreIds && typeof exactRealPendingCount === 'number'
+    out += `• **Llamadas Reales (Twilio)**: ${realCallsCountOut} (${realStatsSummary}) | **Pruebas en Simulador**: ${simCallsCountOut}\n`;
+    const totalRealPending = !hasExplicitStoreFilter && typeof exactRealPendingCount === 'number'
       ? Math.max(filteredCallbacks.length, exactRealPendingCount)
       : filteredCallbacks.length;
-    const totalRealCritical = !matchedStoreIds && typeof exactRealCriticalCount === 'number'
+    const totalRealCritical = !hasExplicitStoreFilter && typeof exactRealCriticalCount === 'number'
       ? Math.max(urgentOrCritical, exactRealCriticalCount)
       : urgentOrCritical;
     const truncatedNote = totalRealPending > filteredCallbacks.length

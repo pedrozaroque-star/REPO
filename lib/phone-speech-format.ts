@@ -37,6 +37,8 @@
  *   que el modelo neuronal Gemini TTS invierta el segundo `"AM"` en `"pe eme"` (`3 PM`) en cierres después de medianoche.
  *   3) Aplica `sanitizeCustomerStoreReferencesInText` y convierte `&` -> `"y"` / `"and"` para que las 3 sucursales de Los Ángeles (#5, #6 y #7)
  *   siempre se pronuncien como `Los Ángeles` con sus entrecalles (`Vernon y Broadway`, `Central y Washington`, `Slauson y Broadway`).
+ * - FIX 2026-11-18: Consume sufijos redundantes `dollars`/`USD` en montos `$0.XX` en inglés, normaliza `"in pesos"`,
+ *   soporta precios de 4-5 dígitos sin coma seguidos de `dólares` y expande `CA` sin coma previa antes de código postal.
  */
 
 import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
@@ -305,9 +307,11 @@ export function expandStreetAbbreviationsInText(
 
   // 9. Expandir `, CA 91791` y `, CA` -> `, California` (incluso cuando stripZipAfterState es true y no venía ZIP)
   if (options?.stripZipAfterState) {
-    out = out.replace(/,\s*CA\s+\d{5}(?:-\d{4})?\b/g, ', California')
+    out = out.replace(/(?:,\s*|\s+)CA\s+\d{5}(?:-\d{4})?\b/g, ', California')
   }
-  out = out.replace(/,\s*CA(?=\s+\d{5}\b|\s*[,;:.!?)]|\s|$)/g, ', California')
+  out = out
+    .replace(/(?:,\s*|\s+)CA(?=\s+\d{5}\b)/g, ', California')
+    .replace(/,\s*CA(?=\s*[,;:.!?)]|\s|$)/g, ', California')
 
   // 10. En español, asegurar tilde en `Los Ángeles` para acentuación esdrújula natural
   if (lang === 'es') {
@@ -441,7 +445,7 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
       (_m, dollarsStr: string, centsStr?: string) => formatSpokenUsdEs(dollarsStr, centsStr)
     )
     text = text.replace(
-      /(^|[^\w$.])(\d{1,3}(?:,\d{3})*)\.(\d{2})\s*(?:d[oó]lares?(?:\s+estadounidenses?)?|usd|pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      /(^|[^\w$.])(\d{1,3}(?:,\d{3})+|\d{1,5})\.(\d{2})\s*(?:d[oó]lares?(?:\s+estadounidenses?)?|usd|pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
       (_m, lead: string, dollarsStr: string, centsStr: string) => `${lead}${formatSpokenUsdEs(dollarsStr, centsStr)}`
     )
     text = text.replace(
@@ -458,17 +462,25 @@ export function normalizeTextForPhoneSpeech(rawText: string, lang: SpeechLang): 
     text = text.replace(/\ben\s+pesos(?:\s+mexicanos?)?\b/gi, 'en dólares')
   } else {
     text = text.replace(
-      /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
       (_m, amt: string) => `$${amt}`
     )
     text = text.replace(
-      /(^|[^\w$.])(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
+      /(^|[^\w$.])((?:\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.\d{1,2})?)\s*(?:pesos?(?:\s+mexicanos?)?|mxn)\b/gi,
       (_m, lead: string, amt: string) => `${lead}$${amt}`
     )
-    text = text.replace(/\$\s*0\.(\d{2})(?:\s*cents?)?\b/gi, (_m, centsStr: string) => {
-      const c = Number(centsStr)
-      return c > 0 ? `${c} ${c === 1 ? 'cent' : 'cents'}` : '$0.00'
-    })
+    text = text.replace(
+      /\$\s*0\.(\d{2})(?:\s*(?:dollars?(?:\s+usd)?|usd|cents?|pesos?(?:\s+mexicanos?)?|mxn))?\b/gi,
+      (_m, centsStr: string) => {
+        const c = Number(centsStr)
+        return c > 0 ? `${c} ${c === 1 ? 'cent' : 'cents'}` : '$0.00'
+      }
+    )
+    text = text.replace(
+      /(\$\s*(?:\d{1,3}(?:,\d{3})+|\d{1,5})(?:\.\d{1,2})?)\s*(?:dollars?(?:\s+usd)?|usd)\b/gi,
+      '$1'
+    )
+    text = text.replace(/\bin\s+pesos(?:\s+mexicanos?)?\b/gi, 'in US dollars')
   }
 
   // 5b. Convertir horarios de 12 horas (`11:00 AM a 3:00 AM`, `10:00 AM-1:00 AM`, `4:00 PM`, `12:00 AM`) a locución hablada

@@ -46,8 +46,9 @@ async function renderWav(
   const rawWav = await getPhoneAgentSpeech(safeText, lang, voice, false, {
     skipStorageLookup: isDynamic,
     skipStoragePersist: false,
-    skipSseAttempt: isDynamic,
-    maxTotalMs: rate === 8000 || isDynamic ? 8500 : 16000
+    skipSseAttempt: rate === 8000 || isDynamic,
+    maxTotalMs: rate === 8000 || isDynamic ? 10500 : 16000,
+    signal
   })
   const wav = rate === 8000 ? downsampleWav24kTo8k(rawWav) : rawWav
   return new Response(new Uint8Array(wav), {
@@ -94,7 +95,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
+    }
     const text = String(body?.text || '').trim()
     const lang = (body?.lang === 'en' ? 'en' : 'es') as 'en' | 'es'
     const rawVoice = body?.voice || 'Kore'

@@ -18,21 +18,24 @@
  * - Twilio `<Gather>` -> `POST /api/phone/respond` -> `processPhoneAgentTurn()` -> TwiML.
  *
  * @notes
- * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout="1" speechModel="phone_call" enhanced="true"` + hints Tacos Gavilan).
+ * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout` adaptativo `"2"` estándar / `"3"` paciente + `timeout` `"5"`/`"8"` vía `isPromptExpectingPhoneOrDetails`, `speechModel="telephony"` + hints Tacos Gavilan).
  * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, cero doble TTS sobre `firstChunk` (solo pre-calienta `restChunk` en `after()`),
  *   tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama defensiva heredada `<Dial>` desactivada por política.
+ * - Auditoría 2026-11-18: saludo con `formatCustomerGreetingTarget` al desactivarse en turno 0, respaldo `<Say>` con `Google.es-US-Chirp3-HD-Kore` / `Google.en-US-Chirp3-HD-Kore` (cero Amazon Polly), presupuesto dinámico `Kore 3.8` hasta `8.5s` con `awaitStoragePersist: true` y `Promise.allSettled` independiente, guarda `'cancelled'` y paciencia adaptativa para dictado de teléfonos.
  */
 
 import { after } from 'next/server'
-import { formatCustomerStoreName } from '@/lib/customer-store-names'
+import { formatCustomerGreetingTarget, formatCustomerStoreName } from '@/lib/customer-store-names'
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
+  buildTwilioFallbackSay,
   buildTwilioGatherAttrs,
   cleanPhoneStoreName,
   escapeXml,
   getPostDisclosurePrompt,
   getStorePhoneContext,
+  isPromptExpectingPhoneOrDetails,
   PhoneLang,
   processPhoneAgentTurn,
   verifyTwilioWebhookSignature
@@ -103,6 +106,8 @@ async function loadSafeStoreContext(rawStoreId: number | null, callSid?: string)
 }
 
 export async function POST(request: Request) {
+  const reqStartMs = Date.now()
+  const getRespondTtsBudgetMs = () => Math.max(4500, Math.min(8500, 12500 - (Date.now() - reqStartMs)))
   try {
     const formData = await request.formData().catch(() => null)
     const params: Record<string, string> = {}
@@ -142,12 +147,10 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'Sorry, we are experiencing a brief connection issue right now. Please visit tacosgavilan.com for our menu and store hours. Thank you!'
           : 'Disculpa, tuvimos un breve problema de conexión en esta línea. Puedes consultar nuestro menú y horarios en tacosgavilan punto com. ¡Gracias por llamar!'
-      const errSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-      const errSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${errSayVoice}" language="${errSayLang}">${escapeXml(errMsg)}</Say>
+  ${buildTwilioFallbackSay(errMsg, currentLang)}
   <Hangup/>
 </Response>`,
         { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
@@ -158,19 +161,21 @@ export async function POST(request: Request) {
     const voice: VoiceId = resolvePhoneFemaleVoice(ctx.config.voice_id)
 
     if (!ctx.config.is_enabled && isTurn0) {
-      const greetingTarget = formatCustomerStoreName(ctx.store, currentLang, { style: 'spoken' }) || ctx.store.name
+      const greetingTarget = formatCustomerGreetingTarget(ctx.store, currentLang) || ctx.store.name
       const disabledMsg =
         currentLang === 'en'
           ? `Thank you for calling Tacos Gavilan ${greetingTarget}. ${ctx.scheduleEval.statusMessageEn} You can also order online at tacosgavilan.com.`
           : `Gracias por llamar a Tacos Gavilan ${greetingTarget}. ${ctx.scheduleEval.statusMessageEs} También puedes ordenar en línea en tacosgavilan.com.`
-      const disSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-      const disSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
-      let disabledTag = `<Say voice="${disSayVoice}" language="${disSayLang}">${escapeXml(disabledMsg)}</Say>`
+      let disabledTag = buildTwilioFallbackSay(disabledMsg, currentLang)
       try {
-        await getPhoneAgentSpeech(disabledMsg, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        await getPhoneAgentSpeech(disabledMsg, currentLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getRespondTtsBudgetMs()
+        })
         disabledTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, disabledMsg, currentLang, voice))}</Play>`
       } catch {
-        // Fallback seguro a <Say> si TTS falla
+        // Fallback seguro a Google Chirp3-HD-Kore <Say> si TTS falla
       }
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
@@ -229,8 +234,8 @@ export async function POST(request: Request) {
       const spokenStore = formatCustomerStoreName(ctx.store, currentLang, { style: 'spoken_compact' }) || cleanPhoneStoreName(ctx.store.name) || ctx.store.name
       const fallbackMsg =
         currentLang === 'en'
-          ? `Our ${spokenStore} manager is assisting guests at the counter right now, so your priority alert is saved on their screen to call you back very shortly. Thank you for calling Tacos Gavilan!`
-          : `En este instante el gerente de ${spokenStore} está atendiendo en mostrador, pero tu alerta prioritaria ya quedó activa en su pantalla para devolverte la llamada enseguida. ¡Gracias por llamar a Tacos Gavilan!`
+          ? `Our ${spokenStore} manager is assisting guests at the counter right now, so your priority alert is saved on their screen and they will reach out to you as soon as possible. Thank you for calling Tacos Gavilan!`
+          : `En este instante el gerente de ${spokenStore} está atendiendo en mostrador, pero tu alerta prioritaria ya quedó activa en su pantalla y se comunicará contigo en cuanto sea posible. ¡Gracias por llamar a Tacos Gavilan!`
 
       await supabaseAdmin
         .from('phone_calls')
@@ -241,13 +246,22 @@ export async function POST(request: Request) {
         })
         .eq('call_sid', callSid)
 
-      scheduleBackgroundTask(() => getPhoneAgentSpeech(fallbackMsg, currentLang, voice, false, { awaitStoragePersist: true }))
-      const fallbackUrl = buildPhoneTtsUrl(baseUrl, fallbackMsg, currentLang, voice)
+      let dialFallbackTag = buildTwilioFallbackSay(fallbackMsg, currentLang)
+      try {
+        await getPhoneAgentSpeech(fallbackMsg, currentLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getRespondTtsBudgetMs()
+        })
+        dialFallbackTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, fallbackMsg, currentLang, voice))}</Play>`
+      } catch {
+        // Fallback seguro a Google Chirp3-HD-Kore <Say> para no devolver error en <Play> si TTS falla
+      }
 
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${escapeXml(fallbackUrl)}</Play>
+  ${dialFallbackTag}
   <Hangup/>
 </Response>`,
         { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
@@ -259,8 +273,6 @@ export async function POST(request: Request) {
     // - A mitad de llamada: confirma brevemente y continúa sin repetir todo el aviso inicial.
     if (digits === '9') {
       const switchedLang: PhoneLang = currentLang === 'en' ? 'es' : 'en'
-      const swSayVoice = switchedLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-      const swSayLang = switchedLang === 'en' ? 'en-US' : 'es-MX'
       const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${switchedLang}`
 
       if (isTurn0) {
@@ -280,24 +292,44 @@ export async function POST(request: Request) {
           { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
         )
 
-        let discTag: string
-        let qTag: string
-        try {
-          await Promise.all([
-            getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3600 }),
-            getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3600 })
-          ])
-          discTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, fullDisclosure, switchedLang, voice))}</Play>`
-          qTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQuestion, switchedLang, voice))}</Play>`
-        } catch {
-          discTag = `<Say voice="${swSayVoice}" language="${swSayLang}">${escapeXml(fullDisclosure)}</Say>`
-          qTag = `<Say voice="${swSayVoice}" language="${swSayLang}">${escapeXml(postQuestion)}</Say>`
-        }
+        const switchBudgetMs = getRespondTtsBudgetMs()
+        const [discRes, qRes] = await Promise.allSettled([
+          getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, {
+            skipSseAttempt: true,
+            awaitStoragePersist: true,
+            maxTotalMs: switchBudgetMs
+          }),
+          getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, {
+            skipSseAttempt: true,
+            awaitStoragePersist: true,
+            maxTotalMs: switchBudgetMs
+          })
+        ])
+        const discTag =
+          discRes.status === 'fulfilled'
+            ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, fullDisclosure, switchedLang, voice))}</Play>`
+            : buildTwilioFallbackSay(fullDisclosure, switchedLang)
+        const qTag =
+          qRes.status === 'fulfilled'
+            ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQuestion, switchedLang, voice))}</Play>`
+            : buildTwilioFallbackSay(postQuestion, switchedLang)
 
         scheduleBackgroundTask(async () => {
           await Promise.all([
-            getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, { awaitStoragePersist: true }).catch(() => null),
-            getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, { awaitStoragePersist: true }).catch(() => null),
+            discRes.status !== 'fulfilled'
+              ? getPhoneAgentSpeech(fullDisclosure, switchedLang, voice, false, {
+                  skipSseAttempt: true,
+                  awaitStoragePersist: true,
+                  maxTotalMs: 12000
+                }).catch(() => null)
+              : Promise.resolve(),
+            qRes.status !== 'fulfilled'
+              ? getPhoneAgentSpeech(postQuestion, switchedLang, voice, false, {
+                  skipSseAttempt: true,
+                  awaitStoragePersist: true,
+                  maxTotalMs: 12000
+                }).catch(() => null)
+              : Promise.resolve(),
             supabaseAdmin
               .from('phone_calls')
               .update({
@@ -327,18 +359,30 @@ export async function POST(request: Request) {
           ? 'Of course, we can continue in English! How can I help you today?'
           : 'Con gusto continuamos en español. ¿En qué te ayudo hoy?'
 
-      let switchTag: string
+      let switchTag = buildTwilioFallbackSay(conciseSwitchReply, switchedLang)
+      let switchPlayedKore38 = false
       try {
-        await getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        await getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getRespondTtsBudgetMs()
+        })
         switchTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, conciseSwitchReply, switchedLang, voice))}</Play>`
+        switchPlayedKore38 = true
       } catch {
-        switchTag = `<Say voice="${swSayVoice}" language="${swSayLang}">${escapeXml(conciseSwitchReply)}</Say>`
+        // Fallback seguro a Google Chirp3-HD-Kore <Say>
       }
 
       scheduleBackgroundTask(async () => {
         const [{ data: existingCall }] = await Promise.all([
           supabaseAdmin.from('phone_calls').select('id, transcript, turns_count').eq('call_sid', callSid).maybeSingle(),
-          getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, { awaitStoragePersist: true }).catch(() => null)
+          !switchPlayedKore38
+            ? getPhoneAgentSpeech(conciseSwitchReply, switchedLang, voice, false, {
+                skipSseAttempt: true,
+                awaitStoragePersist: true,
+                maxTotalMs: 12000
+              }).catch(() => null)
+            : Promise.resolve()
         ])
         if (existingCall) {
           const prevTr = Array.isArray(existingCall.transcript) ? existingCall.transcript : []
@@ -378,21 +422,27 @@ export async function POST(request: Request) {
           : 'Hablas con nuestra asistente virtual en una llamada transcrita para atenderte.'
       const postQ = getPostDisclosurePrompt(currentLang, ctx.scheduleEval)
       const nextUrlAfterConsent = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}${isTurn0 ? '&turn0=1' : ''}`
-      const cipaSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-      const cipaSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
-      let cipaPlayTag: string
-      let qPlayTag: string
-      try {
-        await Promise.all([
-          getPhoneAgentSpeech(mandatoryCipaSentence, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 }),
-          getPhoneAgentSpeech(postQ, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
-        ])
-        cipaPlayTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, mandatoryCipaSentence, currentLang, voice))}</Play>`
-        qPlayTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQ, currentLang, voice))}</Play>`
-      } catch {
-        cipaPlayTag = `<Say voice="${cipaSayVoice}" language="${cipaSayLang}">${escapeXml(mandatoryCipaSentence)}</Say>`
-        qPlayTag = `<Say voice="${cipaSayVoice}" language="${cipaSayLang}">${escapeXml(postQ)}</Say>`
-      }
+      const cipaBudgetMs = getRespondTtsBudgetMs()
+      const [cipaRes, postQRes] = await Promise.allSettled([
+        getPhoneAgentSpeech(mandatoryCipaSentence, currentLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: cipaBudgetMs
+        }),
+        getPhoneAgentSpeech(postQ, currentLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: cipaBudgetMs
+        })
+      ])
+      const cipaPlayTag =
+        cipaRes.status === 'fulfilled'
+          ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, mandatoryCipaSentence, currentLang, voice))}</Play>`
+          : buildTwilioFallbackSay(mandatoryCipaSentence, currentLang)
+      const qPlayTag =
+        postQRes.status === 'fulfilled'
+          ? `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, postQ, currentLang, voice))}</Play>`
+          : buildTwilioFallbackSay(postQ, currentLang)
       return new Response(
         `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -407,8 +457,6 @@ export async function POST(request: Request) {
     }
 
     const userText = speechResult || (digits ? translateDtmfToText(digits, currentLang) : '')
-    const fallbackSayVoice = currentLang === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-    const fallbackSayLang = currentLang === 'en' ? 'en-US' : 'es-MX'
 
     // Tecla no asignada (4-8, *, #) sin voz: orientar amablemente en vez de tratar como silencio o colgar
     if (!userText && digits) {
@@ -416,12 +464,16 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'You can ask your question out loud, press 1 for hours, 2 for Fiesta Platters, 3 for the manager, or 9 for Spanish.'
           : 'Puedes decirme tu pregunta con tu voz, o presionar 1 para horarios, 2 para Fiesta Platters, 3 para recado al gerente o 9 para inglés.'
-      let invalidKeyTag = `<Say voice="${fallbackSayVoice}" language="${fallbackSayLang}">${escapeXml(invalidKeyMsg)}</Say>`
+      let invalidKeyTag = buildTwilioFallbackSay(invalidKeyMsg, currentLang)
       try {
-        await getPhoneAgentSpeech(invalidKeyMsg, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        await getPhoneAgentSpeech(invalidKeyMsg, currentLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getRespondTtsBudgetMs()
+        })
         invalidKeyTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, invalidKeyMsg, currentLang, voice))}</Play>`
       } catch {
-        // Fallback seguro a <Say>
+        // Fallback seguro a Google Chirp3-HD-Kore <Say>
       }
       const nextUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}${isTurn0 ? '&turn0=1' : ''}`
       return new Response(
@@ -442,12 +494,16 @@ export async function POST(request: Request) {
           currentLang === 'en'
             ? 'We did not hear a response. Thank you for calling Tacos Gavilan, have a great day!'
             : 'No alcanzamos a escucharte. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
-        let goodbyeTag = `<Say voice="${fallbackSayVoice}" language="${fallbackSayLang}">${escapeXml(goodbyeText)}</Say>`
+        let goodbyeTag = buildTwilioFallbackSay(goodbyeText, currentLang)
         try {
-          await getPhoneAgentSpeech(goodbyeText, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+          await getPhoneAgentSpeech(goodbyeText, currentLang, voice, false, {
+            skipSseAttempt: true,
+            awaitStoragePersist: true,
+            maxTotalMs: getRespondTtsBudgetMs()
+          })
           goodbyeTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, goodbyeText, currentLang, voice))}</Play>`
         } catch {
-          // Fallback seguro a <Say>
+          // Fallback seguro a Google Chirp3-HD-Kore <Say>
         }
 
         const { data: existingCall } = await supabaseAdmin
@@ -460,7 +516,7 @@ export async function POST(request: Request) {
           const normExisting = String(existingCall.status || '').toLowerCase()
           const alreadyClosed =
             Boolean(existingCall.ended_at) ||
-            ['completed', 'canceled', 'busy', 'failed', 'no-answer'].includes(normExisting)
+            ['completed', 'canceled', 'cancelled', 'busy', 'failed', 'no-answer'].includes(normExisting)
           if (!alreadyClosed) {
             const finalStatus =
               existingCall.status === 'callback_requested' || existingCall.status === 'transferred'
@@ -491,12 +547,16 @@ export async function POST(request: Request) {
         currentLang === 'en'
           ? 'Are you still there? You can ask me about our hours, menu prices, Fiesta Platters, or leave a message for the manager.'
           : '¿Sigues en la línea? Puedes preguntarme por nuestro horario, precios del menú, charolas para fiestas o dejarle un recado al gerente.'
-      let promptTag = `<Say voice="${fallbackSayVoice}" language="${fallbackSayLang}">${escapeXml(promptAgain)}</Say>`
+      let promptTag = buildTwilioFallbackSay(promptAgain, currentLang)
       try {
-        await getPhoneAgentSpeech(promptAgain, currentLang, voice, false, { skipSseAttempt: true, maxTotalMs: 3200 })
+        await getPhoneAgentSpeech(promptAgain, currentLang, voice, false, {
+          skipSseAttempt: true,
+          awaitStoragePersist: true,
+          maxTotalMs: getRespondTtsBudgetMs()
+        })
         promptTag = `<Play>${escapeXml(buildPhoneTtsUrl(baseUrl, promptAgain, currentLang, voice))}</Play>`
       } catch {
-        // Fallback seguro a <Say>
+        // Fallback seguro a Google Chirp3-HD-Kore <Say>
       }
       const retryUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${currentLang}&retry=1${isTurn0 ? '&turn0=1' : ''}`
 
@@ -525,19 +585,20 @@ export async function POST(request: Request) {
     })
 
     const { firstChunk, restChunk } = splitPhoneReplyForStreaming(turn.replyText)
-    const turnSayVoice = turn.language === 'en' ? 'Polly.Joanna-Neural' : 'Polly.Mia-Neural'
-    const turnSayLang = turn.language === 'en' ? 'en-US' : 'es-MX'
 
-    // Pre-sintetizar `firstChunk` con presupuesto acotado (4.0s): si está listo queda en RAM/Storage (0ms en <Play>),
-    // y si Gemini TTS falla o expira, cae limpiamente a <Say> para que Twilio jamás corte la llamada con HTTP 502 (Error 11200).
+    // Pre-sintetizar `firstChunk` con presupuesto dinámico (hasta 8.5s sin cruzar el techo de 15s de Twilio) y persistir
+    // en Storage antes de entregar el TwiML para garantizar cache HIT en cualquier contenedor Vercel; si expira, cae a Google Chirp3-HD-Kore.
     let playTags: string
+    let usedFirstChunkPlay = false
     try {
       await getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
         skipStorageLookup: false,
         skipStoragePersist: false,
         skipSseAttempt: true,
-        maxTotalMs: 4000
+        awaitStoragePersist: true,
+        maxTotalMs: getRespondTtsBudgetMs()
       })
+      usedFirstChunkPlay = true
       const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
         rate: 8000,
         dynamic: false
@@ -549,7 +610,7 @@ export async function POST(request: Request) {
         ? `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
         : `    <Play>${escapeXml(firstAudioUrl)}</Play>`
     } catch {
-      playTags = `    <Say voice="${turnSayVoice}" language="${turnSayLang}">${escapeXml(turn.replyText)}</Say>`
+      playTags = `    ${buildTwilioFallbackSay(turn.replyText, turn.language)}`
     }
 
     scheduleBackgroundTask(async () => {
@@ -557,13 +618,22 @@ export async function POST(request: Request) {
         (turn.flushDbPromise || Promise.resolve()).catch((err) => {
           console.error('[api/phone/respond] Error en flushDbPromise diferido:', err?.message || err)
         }),
+        !usedFirstChunkPlay
+          ? getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
+              skipStorageLookup: false,
+              skipStoragePersist: false,
+              skipSseAttempt: true,
+              awaitStoragePersist: true,
+              maxTotalMs: 11000
+            }).catch(() => null)
+          : Promise.resolve(),
         restChunk
           ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
               skipStorageLookup: false,
               skipStoragePersist: false,
               skipSseAttempt: true,
               awaitStoragePersist: true,
-              maxTotalMs: 6500
+              maxTotalMs: 11000
             }).catch(() => null)
           : Promise.resolve()
       ])
@@ -581,11 +651,12 @@ ${playTags}
     }
 
     const nextRespondUrl = `${baseUrl}/api/phone/respond?storeId=${storeId}&lang=${turn.language}`
+    const needsPatientGather = isPromptExpectingPhoneOrDetails(turn.replyText)
 
     return new Response(
       `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather ${buildTwilioGatherAttrs(turn.language, nextRespondUrl)}>
+  <Gather ${buildTwilioGatherAttrs(turn.language, nextRespondUrl, { patient: needsPatientGather })}>
 ${playTags}
   </Gather>
   <Redirect method="POST">${escapeXml(nextRespondUrl)}&amp;silence=1</Redirect>
@@ -602,8 +673,14 @@ ${playTags}
       }
     })()
     const errSay = isEnReq
-      ? `<Say voice="Polly.Joanna-Neural" language="en-US">Sorry, we had a brief technical issue. You can find all our menu and store hours at tacosgavilan dot com.</Say>`
-      : `<Say voice="Polly.Mia-Neural" language="es-MX">Disculpa, tuvimos un inconveniente técnico. Puedes consultar toda nuestra información en tacosgavilan punto com.</Say>`
+      ? buildTwilioFallbackSay(
+          'Sorry, we had a brief technical issue. You can find all our menu and store hours at tacosgavilan dot com.',
+          'en'
+        )
+      : buildTwilioFallbackSay(
+          'Disculpa, tuvimos un inconveniente técnico. Puedes consultar toda nuestra información en tacosgavilan punto com.',
+          'es'
+        )
     return new Response(
       `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

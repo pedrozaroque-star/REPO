@@ -43,6 +43,10 @@
  *      y se prohíbe cachear en RAM o Supabase Storage cualquier audio de emergencia que no provenga de `3.8`.
  *   3) En `generateTextWithGemini`, los rechazos rápidos HTTP `429/401/402/403` ya no consumen `maxAttemptsPerModel`, y en `streamPhoneAgentSpeechPcm`
  *      se activa la espera corta de enfriamiento RPM (`earliestStreamRpmCandidate`) sobre `3.8` + deduplicación `inflight` unificada.
+ * - AUDITORÍA 2026-11-18: corregido salto inalcanzable de `earliestStreamRpmCandidate` en `streamPhoneAgentSpeechPcm` cuando la última
+ *   pareja `(model, key)` ejecutaba `continue` (ej. `429`/bloqueo RPM previo), moviendo la espera única al agotarse `candidatePairs`;
+ *   blindado `finally { cleanupOwnInflight() }` + cancelación de `reader` en aborto temprano del generador para evitar deadlocks en `inflight`;
+ *   y `awaitWithAbortSignal` al esperar `inflight` existente en `getPhoneAgentSpeech`/`streamPhoneAgentSpeechPcm` para respetar `budgetSignal`.
  */
 
 import { createHash } from 'node:crypto'
@@ -1122,7 +1126,21 @@ function extractPcmFromWav(wav: Buffer): Buffer {
   return cleanWav.length > 44 ? cleanWav.subarray(44) : Buffer.alloc(0)
 }
 
+const persistedPhonePaths = new Set<string>()
+const MAX_PERSISTED_PHONE_PATHS = 500
+
+function markPhonePathPersisted(path: string) {
+  if (persistedPhonePaths.size >= MAX_PERSISTED_PHONE_PATHS) {
+    const oldest = persistedPhonePaths.values().next().value
+    if (oldest) persistedPhonePaths.delete(oldest)
+  }
+  persistedPhonePaths.add(path)
+}
+
 function persistPhoneWavToStorage(path: string, wav: Buffer, forceRegenerate = false): Promise<void> {
+  if (!forceRegenerate && persistedPhonePaths.has(path)) {
+    return Promise.resolve()
+  }
   const existing = uploadInflight.get(path)
   if (existing && !forceRegenerate) return existing
   let job!: Promise<void>
@@ -1139,6 +1157,8 @@ function persistPhoneWavToStorage(path: string, wav: Buffer, forceRegenerate = f
       })
       if (error) {
         console.warn('[order-ready-tts] error al subir audio telefónico en Storage:', error.message)
+      } else {
+        markPhonePathPersisted(path)
       }
     } catch (e) {
       console.warn('[order-ready-tts] no se pudo cachear audio telefónico en Storage:', e)
@@ -1150,6 +1170,25 @@ function persistPhoneWavToStorage(path: string, wav: Buffer, forceRegenerate = f
   })()
   uploadInflight.set(path, job)
   return job
+}
+
+async function awaitWithAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error('Operación abortada por timeout o cancelación')
+  }
+  let onAbort: (() => void) | null = null
+  const abortPromise = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Operación abortada por timeout o cancelación'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([promise, abortPromise])
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
 }
 
 /**
@@ -1201,7 +1240,7 @@ export async function* streamPhoneAgentSpeechPcm(
   const pendingInflight = !options?.skipInflightLookup ? inflight.get(path) : undefined
   if (pendingInflight) {
     try {
-      const pendingWav = await pendingInflight
+      const pendingWav = await awaitWithAbortSignal(pendingInflight, options?.signal)
       const pMeta = phoneInflightMeta.get(pendingInflight)
       if (!pMeta || (pMeta.isKore38 && !pMeta.isCrossVoiceFallback)) {
         const pcm = extractPcmFromWav(pendingWav)
@@ -1215,6 +1254,10 @@ export async function* streamPhoneAgentSpeechPcm(
         }
       }
     } catch {
+      if (options?.signal?.aborted) {
+        options?.onStreamCompleted?.(false)
+        return
+      }
       // continuar si el inflight previo falló
     }
   }
@@ -1303,8 +1346,31 @@ export async function* streamPhoneAgentSpeechPcm(
   const CHUNK_IDLE_WATCHDOG_MS = 3400
   const MAX_TOTAL_STREAM_MS = 28000
 
-  for (let pairIdx = 0; pairIdx < candidatePairs.length; pairIdx++) {
-    const { model, key } = candidatePairs[pairIdx]
+  let pairIdx = 0
+  let usedStreamRpmWait = false
+  try {
+  while (true) {
+    if (pairIdx >= candidatePairs.length) {
+      // 3b. Al agotar las candidatas iniciales de 3.8 (incluyendo si la última cayó por `continue`),
+      // esperar una única vez si existe una llave 3.8 en enfriamiento corto RPM (<= 16s)
+      if (!usedStreamRpmWait && earliestStreamRpmCandidate && !options?.signal?.aborted) {
+        usedStreamRpmWait = true
+        const rpmCand = earliestStreamRpmCandidate as { model: string; key: string; readyAt: number }
+        earliestStreamRpmCandidate = null
+        const waitMs = Math.max(0, rpmCand.readyAt - Date.now())
+        if (waitMs <= 16000) {
+          const ok = await sleepAbortable(waitMs, options?.signal)
+          if (ok) {
+            keyBlockedUntil.delete(`${rpmCand.key}:${rpmCand.model}`)
+            slowModelFailures.delete(rpmCand.model)
+            candidatePairs.push({ model: rpmCand.model, key: rpmCand.key })
+            continue
+          }
+        }
+      }
+      break
+    }
+    const { model, key } = candidatePairs[pairIdx++]
     if (options?.signal?.aborted) {
       cleanupOwnInflight()
       options?.onStreamCompleted?.(false)
@@ -1347,6 +1413,7 @@ export async function* streamPhoneAgentSpeechPcm(
 
     let yieldedAny = false
     let receivedAnyAudioBytes = false
+    let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null
     try {
       const streamPart = model.includes('3.8')
         ? {
@@ -1406,6 +1473,7 @@ export async function* streamPhoneAgentSpeechPcm(
       }
 
       const reader = res.body.getReader()
+      activeReader = reader
       const decoder = new TextDecoder()
       let sseBuf = ''
       let carryByte: Buffer | null = null
@@ -1614,28 +1682,18 @@ export async function* streamPhoneAgentSpeechPcm(
         return
       }
     } finally {
+      if (activeReader) {
+        void activeReader.cancel().catch(() => null)
+        activeReader = null
+      }
       if (watchdogTimer) clearTimeout(watchdogTimer)
       clearTimeout(hardCeilingTimer)
       options?.signal?.removeEventListener('abort', onExternalAbort)
     }
-
-    // 3b. Al terminar las candidatas iniciales de 3.8, si alguna llave 3.8 está en ventana corta de RPM (<= 16s), esperarla y añadir ese reintento 3.8
-    if (pairIdx === candidatePairs.length - 1 && earliestStreamRpmCandidate && !options?.signal?.aborted) {
-      const rpmCand = earliestStreamRpmCandidate as { model: string; key: string; readyAt: number }
-      earliestStreamRpmCandidate = null
-      const waitMs = Math.max(0, rpmCand.readyAt - Date.now())
-      if (waitMs <= 16000) {
-        const ok = await sleepAbortable(waitMs, options?.signal)
-        if (ok) {
-          keyBlockedUntil.delete(`${rpmCand.key}:${rpmCand.model}`)
-          slowModelFailures.delete(rpmCand.model)
-          candidatePairs.push({ model: rpmCand.model, key: rpmCand.key })
-        }
-      }
-    }
   }
-
-  cleanupOwnInflight()
+  } finally {
+    cleanupOwnInflight()
+  }
 
   // 4. Respaldo final seguro sobre REST Kore 3.8 con try/catch
   if (!options?.signal?.aborted && options?.allowBlockFallback !== false) {
@@ -1664,7 +1722,7 @@ export async function* streamPhoneAgentSpeechPcm(
 /**
  * Genera o recupera desde caché en RAM / Storage el audio neuronal (WAV) para una respuesta de la Contestadora IA de Tacos Gavilan.
  * - Incluye caché en memoria (`memoryPhoneAudioCache`) de 0ms, bloqueo estricto femenino (`resolvePhoneFemaleVoice`),
- *   verificación acústica `F0 >= 155 Hz` (`isVerifiedFemalePitch`) y deduplicación atómica `inflight`.
+ *   verificación acústica `F0 >= 148 Hz` (`isVerifiedFemalePitch`) y deduplicación atómica `inflight`.
  * - Verifica que el stream SSE haya concluido íntegramente (`completedCleanly === true`) antes de devolver o cachear,
  *   cayendo automáticamente a síntesis completa si un stream parcial se interrumpió.
  */
@@ -1725,7 +1783,7 @@ export async function getPhoneAgentSpeech(
   const existing = inflight.get(path)
   if (existing && !forceRegenerate) {
     try {
-      const wav = await existing
+      const wav = await awaitWithAbortSignal(existing, budgetSignal)
       const exMeta = phoneInflightMeta.get(existing)
       if (options?.requireKore38 && exMeta && !exMeta.isKore38) {
         throw new Error('La síntesis en vuelo usó respaldo distinto de Kore 3.8')
@@ -1768,6 +1826,7 @@ export async function getPhoneAgentSpeech(
             if (wav.length > 44) {
               loadedFromStorage = true
               generatedWithOfficialKore38 = true
+              markPhonePathPersisted(path)
               setMemoryPhoneCache(path, wav)
               return wav
             }
@@ -1815,7 +1874,7 @@ export async function getPhoneAgentSpeech(
       const stylePrompt = getPhoneStylePrompt(lang)
       const attemptTimeoutMs =
         typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0
-          ? Math.min(7200, Math.max(3200, Math.floor(options.maxTotalMs * 0.75)))
+          ? Math.min(9200, Math.max(3500, Math.floor(options.maxTotalMs * 0.9)))
           : 10000
       let synthResult: { wav: Buffer; modelUsed: string }
       try {

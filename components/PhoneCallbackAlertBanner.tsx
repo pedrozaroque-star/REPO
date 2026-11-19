@@ -95,6 +95,8 @@ export default function PhoneCallbackAlertBanner({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null)
 
+  const resolvingRef = useRef(false)
+  const copiedPhoneTimerRef = useRef<number | null>(null)
   const fetchAbortRef = useRef<AbortController | null>(null)
   const fetchSeqRef = useRef(0)
   const seenIdsRef = useRef<Set<string>>(new Set())
@@ -171,6 +173,10 @@ export default function PhoneCallbackAlertBanner({
 
   useEffect(() => {
     return () => {
+      if (copiedPhoneTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(copiedPhoneTimerRef.current)
+        copiedPhoneTimerRef.current = null
+      }
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
         void audioCtxRef.current.close().catch(() => {})
         audioCtxRef.current = null
@@ -321,7 +327,8 @@ export default function PhoneCallbackAlertBanner({
 
   const handleResolve = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (resolvingId) return
+    if (resolvingRef.current || resolvingId) return
+    resolvingRef.current = true
     setResolvingId(id)
     setErrorMsg(null)
     try {
@@ -351,6 +358,7 @@ export default function PhoneCallbackAlertBanner({
     } catch {
       setErrorMsg(t('phone_agent.banner_resolve_error'))
     } finally {
+      resolvingRef.current = false
       setResolvingId(null)
     }
   }
@@ -430,7 +438,15 @@ export default function PhoneCallbackAlertBanner({
                             ?.writeText(cb.caller_phone)
                             ?.then(() => {
                               setCopiedPhoneId(cb.id)
-                              setTimeout(() => setCopiedPhoneId((cur) => (cur === cb.id ? null : cur)), 1800)
+                              if (copiedPhoneTimerRef.current !== null && typeof window !== 'undefined') {
+                                window.clearTimeout(copiedPhoneTimerRef.current)
+                              }
+                              if (typeof window !== 'undefined') {
+                                copiedPhoneTimerRef.current = window.setTimeout(() => {
+                                  setCopiedPhoneId((cur) => (cur === cb.id ? null : cur))
+                                  copiedPhoneTimerRef.current = null
+                                }, 1800)
+                              }
                             })
                             .catch(() => {})
                         }}
@@ -446,7 +462,10 @@ export default function PhoneCallbackAlertBanner({
                   <span className="ml-2 px-1.5 py-0.5 rounded bg-black/20 text-[10px] font-bold">
                     ⏱️{' '}
                     {(() => {
-                      const mins = Math.max(0, Math.floor((Date.now() - new Date(cb.created_at).getTime()) / 60000))
+                      const createdMs = new Date(cb.created_at).getTime()
+                      const mins = Number.isFinite(createdMs)
+                        ? Math.max(0, Math.floor((Date.now() - createdMs) / 60000))
+                        : 0
                       return mins < 1
                         ? t('phone_agent.banner_elapsed_now')
                         : t('phone_agent.banner_elapsed_min').replace('{m}', String(mins))

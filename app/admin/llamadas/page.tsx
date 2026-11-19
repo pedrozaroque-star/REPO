@@ -31,6 +31,9 @@
  * - Blindaje 2026-11-17: seguimiento granular de campos sin guardar (`dirtyStoreFieldsRef`) que preserva borradores al activar/apagar
  *   una tienda; cancelación total de red (`AbortController` + `reader.cancel()` + limpieza `src` HTMLAudio) y reproducción al interrumpir;
  *   validación estricta NANP E.164 anti-bucle antes de habilitar copia de códigos de desvío; y aviso acústico inicial de recados pendientes.
+ * - Auditoría 2026-11-18: liberación síncrona de `simBusyRef` en `start_meta` (evita pérdida de clics/barge-in durante saludo),
+ *   cierre automático al silenciar despedida terminal, candados síncronos `useRef` contra doble clic en CRUD y replay de audio,
+ *   código `*73` en guía Spectrum Business, rol `administrador` en `ProtectedRoute` y limpieza de timers al desmontar.
  */
 
 'use client'
@@ -304,8 +307,8 @@ function computeClientForwardingGuide(
       activateBusyCode: `*90${target10Es}`,
       activateBusyCodeEn: `*90${target10En}`,
       deactivateBusyCode: '*91',
-      deactivateAllCode: '*93 y *91',
-      deactivateAllCodeEn: '*93 & *91',
+      deactivateAllCode: '*93 y *91 / *73',
+      deactivateAllCodeEn: '*93 & *91 / *73',
       stepsEs: [
         '1. Levanta el auricular del teléfono fijo Spectrum Business de la tienda y espera tono de marcar.',
         `2. Marca *92${target10Es} y espera el tono de confirmación para desviar ÚNICAMENTE cuando la tienda no conteste en ${clampedSec}s.`,
@@ -319,9 +322,9 @@ function computeClientForwardingGuide(
         '4. Optional remote setup: log into SpectrumBusiness.net -> Voice Manager -> Call Forwarding -> "When Busy or No Answer".'
       ],
       gotchaEs:
-        'Importante: NO uses *72 (desvío inmediato) porque el teléfono de tienda dejaría de sonar. En Spectrum, el tiempo antes de desviar (~20s) y desactivar Buzón de Voz se ajustan en SpectrumBusiness.net -> Voice Manager.',
+        'Importante: NO uses *72 (desvío inmediato) porque el teléfono de tienda dejaría de sonar; si alguien lo activó por error, cancélalo marcando *73. En Spectrum, el tiempo antes de desviar (~20s) y desactivar Buzón de Voz se ajustan en SpectrumBusiness.net -> Voice Manager.',
       gotchaEn:
-        'Important: DO NOT use *72 (unconditional forwarding) or the store phone will stop ringing. In Spectrum, disable Voicemail or adjust ring timeout in SpectrumBusiness.net -> Voice Manager.'
+        'Important: DO NOT use *72 (unconditional forwarding) or the store phone will stop ringing; if enabled by mistake, dial *73 to cancel it. In Spectrum, disable Voicemail or adjust ring timeout in SpectrumBusiness.net -> Voice Manager.'
     }
   }
 
@@ -675,6 +678,7 @@ export default function ContestadoraIaPage() {
   const [kpis, setKpis] = useState({
     totalCalls: 0,
     realCallsCount: 0,
+    realEvaluatedCallsCount: 0,
     simulatorCallsCount: 0,
     evaluatedCallsCount: 0,
     resolvedByAiCount: 0,
@@ -683,7 +687,7 @@ export default function ContestadoraIaPage() {
     pendingCallbacksCount: 0,
     pendingSimulatorCallbacksCount: 0,
     estimatedCashierMinutesSaved: 0,
-    activeStoresCount: 15,
+    activeStoresCount: 0,
     verifiedForwardingCount: 0
   })
   const [twilioIntegration, setTwilioIntegration] = useState<{
@@ -743,6 +747,11 @@ export default function ContestadoraIaPage() {
   const replayAbortRef = useRef<AbortController | null>(null)
   const simReqIdRef = useRef(0)
   const recognitionRef = useRef<any>(null)
+  const micSilenceTimerRef = useRef<number | null>(null)
+  const micAccumulatedRef = useRef('')
+  const micCommittedRef = useRef(false)
+  const simTranscriptRef = useRef(simTranscript)
+  simTranscriptRef.current = simTranscript
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
   const ruleEditorRef = useRef<HTMLDivElement | null>(null)
   const fetchSeqRef = useRef(0)
@@ -755,7 +764,18 @@ export default function ContestadoraIaPage() {
   const realPendingCbCountRef = useRef(0)
   const realPendingKpiCountRef = useRef(0)
   const feedbackTimerRef = useRef<number | null>(null)
+  const copiedCodeTimerRef = useRef<number | null>(null)
+  const pendingAutoHangupRef = useRef(false)
   const savingStoreIdsRef = useRef<Set<number>>(new Set())
+  const savingRuleRef = useRef(false)
+  const savingHolidayRef = useRef(false)
+  const togglingRuleIdsRef = useRef<Set<string>>(new Set())
+  const deletingRuleIdsRef = useRef<Set<string>>(new Set())
+  const deletingHolidayIdsRef = useRef<Set<string>>(new Set())
+  const dismissingCallIdsRef = useRef<Set<string>>(new Set())
+  const resolvingCallbackIdsRef = useRef<Set<string>>(new Set())
+  const replayingActiveRef = useRef(false)
+  const replayingSeqRef = useRef(0)
   const simSpeakingRef = useRef(false)
   simSpeakingRef.current = simSpeaking
   const simActiveRef = useRef(false)
@@ -844,6 +864,12 @@ export default function ContestadoraIaPage() {
   }, [])
 
   const stopMicrophone = useCallback(() => {
+    if (micSilenceTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(micSilenceTimerRef.current)
+      micSilenceTimerRef.current = null
+    }
+    micAccumulatedRef.current = ''
+    micCommittedRef.current = false
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onstart = null
@@ -1276,6 +1302,14 @@ export default function ContestadoraIaPage() {
 
   useEffect(() => {
     return () => {
+      if (feedbackTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(feedbackTimerRef.current)
+        feedbackTimerRef.current = null
+      }
+      if (copiedCodeTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(copiedCodeTimerRef.current)
+        copiedCodeTimerRef.current = null
+      }
       stopMicrophone()
       stopAllSimAudio(true)
       if (simCallSidRef.current) {
@@ -1381,7 +1415,12 @@ export default function ContestadoraIaPage() {
 
       const pushPcmBase64 = (pcmBase64: string, sampleRate = 24000) => {
         if (isPlayerCancelled() || !ctx || !pcmBase64) return
-        const binary = window.atob(pcmBase64)
+        let binary = ''
+        try {
+          binary = window.atob(pcmBase64)
+        } catch {
+          return
+        }
         const byteLen = binary.length - (binary.length % 2)
         if (byteLen < 2) return
 
@@ -1618,16 +1657,7 @@ export default function ContestadoraIaPage() {
           }
           playCtrl.signal.addEventListener('abort', onAbortHtml, { once: true })
           let done = false
-          const finish = () => {
-            if (done) return
-            done = true
-            playCtrl.signal.removeEventListener('abort', onAbortHtml)
-            if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
-            if (!isInterrupted()) {
-              onComplete?.()
-            }
-            resolve()
-          }
+          let fallbackTriggered = false
           const audio = new Audio(primarySrc)
           audioRef.current = audio
           let preloadedNext: HTMLAudioElement | null = null
@@ -1635,6 +1665,31 @@ export default function ContestadoraIaPage() {
             preloadedNext = new Audio(nextAudioUrl)
             preloadedNext.preload = 'auto'
             nextAudioRef.current = preloadedNext
+          }
+          const finish = () => {
+            if (done) return
+            done = true
+            audio.onended = null
+            audio.onerror = null
+            if (preloadedNext) {
+              preloadedNext.onended = null
+              preloadedNext.onerror = null
+            }
+            playCtrl.signal.removeEventListener('abort', onAbortHtml)
+            if (myPlaySeq === voicePlaySeqRef.current) setSimSpeaking(false)
+            if (!isInterrupted()) {
+              onComplete?.()
+            }
+            resolve()
+          }
+          const triggerBrowserFallback = () => {
+            if (done || fallbackTriggered) return
+            fallbackTriggered = true
+            if (isInterrupted()) {
+              finish()
+              return
+            }
+            speakWithFemaleBrowserVoice(fallbackText, lang, finish, { ignoreMute: options?.ignoreMute })
           }
 
           audio.onended = () => {
@@ -1651,20 +1706,8 @@ export default function ContestadoraIaPage() {
               finish()
             }
           }
-          audio.onerror = () => {
-            if (isInterrupted()) {
-              finish()
-              return
-            }
-            speakWithFemaleBrowserVoice(fallbackText, lang, finish, { ignoreMute: options?.ignoreMute })
-          }
-          audio.play().catch(() => {
-            if (isInterrupted()) {
-              finish()
-              return
-            }
-            speakWithFemaleBrowserVoice(fallbackText, lang, finish, { ignoreMute: options?.ignoreMute })
-          })
+          audio.onerror = triggerBrowserFallback
+          audio.play().catch(triggerBrowserFallback)
         })
       } catch {
         setSimSpeaking(false)
@@ -1680,6 +1723,7 @@ export default function ContestadoraIaPage() {
     stopMicrophone()
     stopAllSimAudio(true)
     const reqId = ++simReqIdRef.current
+    pendingAutoHangupRef.current = false
     simBusyRef.current = true
     setSimErrorBanner(null)
     setSimAutoEndedNotice(false)
@@ -1725,8 +1769,12 @@ export default function ContestadoraIaPage() {
       let handledFallbackSpeech = false
 
       const handleStartEvent = (evt: any) => {
+        if (reqId !== simReqIdRef.current) return
         if (evt.type === 'start_meta') {
           startMeta = evt
+          simCallSidRef.current = evt.callSid
+          simActiveRef.current = true
+          simBusyRef.current = false
           setSimCallSid(evt.callSid)
           setSimActive(true)
           setSimBusy(false)
@@ -1838,7 +1886,10 @@ export default function ContestadoraIaPage() {
   const handleEndSimCall = async () => {
     stopMicrophone()
     stopAllSimAudio(true)
-    const closingSid = simCallSid
+    pendingAutoHangupRef.current = false
+    const closingSid = simCallSidRef.current || simCallSid
+    simActiveRef.current = false
+    simCallSidRef.current = null
     setSimActive(false)
     setSimCallSid(null)
     if (closingSid) {
@@ -1863,6 +1914,7 @@ export default function ContestadoraIaPage() {
     stopMicrophone()
     stopAllSimAudio(true)
     const reqId = ++simReqIdRef.current
+    pendingAutoHangupRef.current = false
     simBusyRef.current = true
     setSimErrorBanner(null)
     setSimAutoEndedNotice(false)
@@ -1870,10 +1922,12 @@ export default function ContestadoraIaPage() {
     setSimBusy(true)
     setSimSynthesizingAudio(false)
 
-    const startingNewCallSession = !simActive || !simCallSid
-    let activeSid = simCallSid
+    const startingNewCallSession = !simActiveRef.current || !simCallSidRef.current
+    let activeSid = simCallSidRef.current
     if (startingNewCallSession) {
       activeSid = `SIM_${simStoreId}_${Date.now()}`
+      simCallSidRef.current = activeSid
+      simActiveRef.current = true
       setSimCallSid(activeSid)
       setSimActive(true)
       setSimLastTools([])
@@ -1905,6 +1959,9 @@ export default function ContestadoraIaPage() {
 
     const finalizeAutoHangupIfNeeded = () => {
       if (shouldAutoHangup) {
+        pendingAutoHangupRef.current = false
+        simActiveRef.current = false
+        simCallSidRef.current = null
         setSimActive(false)
         setSimCallSid(null)
         setSimAutoEndedNotice(true)
@@ -1944,9 +2001,11 @@ export default function ContestadoraIaPage() {
       let handledFallbackSpeech = false
 
       const handleTurnEvent = (evt: any) => {
+        if (reqId !== simReqIdRef.current) return
         if (evt.type === 'turn_meta') {
           turnMeta = evt
           shouldAutoHangup = Boolean(evt.shouldHangup || evt.shouldTransferToPhone)
+          pendingAutoHangupRef.current = shouldAutoHangup
           assistantMsgTimestamp = new Date().toISOString()
           simBusyRef.current = false
           setSimBusy(false)
@@ -2094,6 +2153,14 @@ export default function ContestadoraIaPage() {
   const toggleMicrophone = () => {
     ensureUnlockedAudioCtx()
     if (simListening && recognitionRef.current) {
+      const pendingSpeech = micAccumulatedRef.current.trim()
+      if (pendingSpeech && !micCommittedRef.current) {
+        micCommittedRef.current = true
+        setSimInput('')
+        stopMicrophone()
+        void handleSendSimTurnRef.current(pendingSpeech)
+        return
+      }
       stopMicrophone()
       return
     }
@@ -2114,14 +2181,67 @@ export default function ContestadoraIaPage() {
 
     const rec = new SpeechRec()
     rec.lang = simLang === 'en' ? 'en-US' : 'es-MX'
+    rec.continuous = true
     rec.interimResults = true
     rec.maxAlternatives = 1
 
+    micAccumulatedRef.current = ''
+    micCommittedRef.current = false
+
+    const clearMicTimer = () => {
+      if (micSilenceTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(micSilenceTimerRef.current)
+        micSilenceTimerRef.current = null
+      }
+    }
+
+    const flushMicSpeech = () => {
+      clearMicTimer()
+      if (micCommittedRef.current) return
+      const finalPayload = micAccumulatedRef.current.trim()
+      if (!finalPayload) return
+      micCommittedRef.current = true
+      setSimInput('')
+      stopMicrophone()
+      void handleSendSimTurnRef.current(finalPayload)
+    }
+
+    const computeAdaptiveSilenceMs = (combinedText: string): number => {
+      const digitsCount = combinedText.replace(/\D/g, '').length
+      if (digitsCount >= 10) return 1500
+      if (digitsCount >= 1 && digitsCount <= 9) return 3500
+      const lastAssistant =
+        [...simTranscriptRef.current].reverse().find((m) => m.role === 'assistant')?.text || ''
+      const assistantAskedPhoneOrName =
+        /\b(tu\s+nombre|su\s+nombre|tu\s+n[uú]mero|su\s+n[uú]mero|tu\s+tel[eé]fono|su\s+tel[eé]fono|10\s+d[ií]gitos|diez\s+d[ií]gitos|d[ií]gitos\s+restantes|[uú]ltimos\s+\d*\s*d[ií]gitos|your\s+name|your\s+phone|your\s+number|phone\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits)\b/i.test(
+          lastAssistant
+        )
+      if (assistantAskedPhoneOrName) return 3200
+      const endsInOpenConnector =
+        /\b(y|e|o|de|del|al|el|la|los|las|mi|su|es|son|con|para|que|por|and|or|of|the|my|is|are|with|for|to|at|number|n[uú]mero|tel[eé]fono|llam[ao]|soy)\s*$/i.test(
+          combinedText
+        )
+      if (endsInOpenConnector) return 3200
+      return 1500
+    }
+
     rec.onstart = () => setSimListening(true)
-    rec.onend = () => setSimListening(false)
-    rec.onerror = (ev: any) => {
+    rec.onend = () => {
+      if (!micCommittedRef.current && micAccumulatedRef.current.trim()) {
+        flushMicSpeech()
+        return
+      }
+      clearMicTimer()
       setSimListening(false)
+    }
+    rec.onerror = (ev: any) => {
+      clearMicTimer()
       const errCode = String(ev?.error || '')
+      if (errCode === 'no-speech' && !micCommittedRef.current && micAccumulatedRef.current.trim()) {
+        flushMicSpeech()
+        return
+      }
+      setSimListening(false)
       if (errCode === 'not-allowed' || errCode === 'service-not-allowed') {
         setSimErrorBanner(t('phone_agent.sim_mic_denied'))
       } else if (errCode === 'no-speech') {
@@ -2129,21 +2249,19 @@ export default function ContestadoraIaPage() {
       }
     }
     rec.onresult = (event: any) => {
-      let interim = ''
-      let finalTxt = ''
-      for (let i = event.resultIndex || 0; i < (event.results?.length || 0); i++) {
-        const r = event.results[i]
-        const part = r?.[0]?.transcript || ''
-        if (r?.isFinal) finalTxt += part
-        else interim += part
+      if (micCommittedRef.current) return
+      const pieces: string[] = []
+      for (let i = 0; i < (event.results?.length || 0); i++) {
+        const part = String(event.results[i]?.[0]?.transcript || '').trim()
+        if (part) pieces.push(part)
       }
-      if (interim) {
-        setSimInput(interim.trim())
-      }
-      if (finalTxt.trim()) {
-        setSimInput('')
-        stopMicrophone()
-        void handleSendSimTurnRef.current(finalTxt.trim())
+      const combined = pieces.join(' ').replace(/\s+/g, ' ').trim()
+      if (!combined) return
+      micAccumulatedRef.current = combined
+      setSimInput(combined)
+      clearMicTimer()
+      if (typeof window !== 'undefined') {
+        micSilenceTimerRef.current = window.setTimeout(flushMicSpeech, computeAdaptiveSilenceMs(combined))
       }
     }
 
@@ -2151,6 +2269,7 @@ export default function ContestadoraIaPage() {
     try {
       rec.start()
     } catch {
+      clearMicTimer()
       setSimListening(false)
     }
   }
@@ -2162,7 +2281,9 @@ export default function ContestadoraIaPage() {
     storeId: number,
     idx: number
   ) => {
-    if (!text.trim() || replayingMsgIdx !== null) return
+    if (!text.trim() || replayingActiveRef.current || replayingMsgIdx !== null) return
+    replayingActiveRef.current = true
+    const replaySeq = ++replayingSeqRef.current
     setReplayingMsgIdx(idx)
     const callLang: 'es' | 'en' = String(langStr || '').toLowerCase() === 'en' ? 'en' : 'es'
     const msgLang: 'es' | 'en' =
@@ -2188,26 +2309,37 @@ export default function ContestadoraIaPage() {
           voice: storeVoice
         })
       })
+      if (replayAbortRef.current === replayCtrl) {
+        replayAbortRef.current = null
+      }
       if (!res.ok) throw new Error('TTS failed')
       const blob = await res.blob()
+      if (replaySeq !== replayingSeqRef.current) return
       blobUrl = URL.createObjectURL(blob)
       await playVoiceUrl(blobUrl, text, msgLang, null, undefined, {
         voice: storeVoice as VoiceId,
         ignoreMute: true
       })
     } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+      if (replaySeq === replayingSeqRef.current && err?.name !== 'AbortError') {
         speakWithFemaleBrowserVoice(text, msgLang, undefined, { ignoreMute: true })
       }
     } finally {
+      if (replayAbortRef.current === replayCtrl) {
+        replayAbortRef.current = null
+      }
       if (blobUrl) URL.revokeObjectURL(blobUrl)
-      setReplayingMsgIdx(null)
+      if (replaySeq === replayingSeqRef.current) {
+        replayingActiveRef.current = false
+        setReplayingMsgIdx(null)
+      }
     }
   }
 
   // Knowledge Base handlers
   const handleSaveKnowledgeRule = async () => {
-    if (savingRule || !editingRule?.title?.trim() || !editingRule?.answer_es?.trim()) return
+    if (savingRuleRef.current || savingRule || !editingRule?.title?.trim() || !editingRule?.answer_es?.trim()) return
+    savingRuleRef.current = true
     setSavingRule(true)
     try {
       const isEdit = Boolean(editingRule.id)
@@ -2234,12 +2366,14 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
+      savingRuleRef.current = false
       setSavingRule(false)
     }
   }
 
   const handleDismissUnanswered = async (callId: string) => {
-    if (dismissingCallId === callId) return
+    if (dismissingCallIdsRef.current.has(callId) || dismissingCallId === callId) return
+    dismissingCallIdsRef.current.add(callId)
     setDismissingCallId(callId)
     try {
       const res = await fetch('/api/phone/dashboard', {
@@ -2261,12 +2395,14 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
+      dismissingCallIdsRef.current.delete(callId)
       setDismissingCallId((cur) => (cur === callId ? null : cur))
     }
   }
 
   const handleToggleRuleActive = async (rule: KnowledgeRule) => {
-    if (togglingRuleId === rule.id) return
+    if (togglingRuleIdsRef.current.has(rule.id) || togglingRuleId === rule.id) return
+    togglingRuleIdsRef.current.add(rule.id)
     setTogglingRuleId(rule.id)
     try {
       const res = await fetch('/api/phone/dashboard', {
@@ -2286,15 +2422,17 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
-      setTogglingRuleId(null)
+      togglingRuleIdsRef.current.delete(rule.id)
+      setTogglingRuleId((cur) => (cur === rule.id ? null : cur))
     }
   }
 
   const handleDeleteRule = async (id: string) => {
-    if (deletingRuleId === id) return
+    if (deletingRuleIdsRef.current.has(id) || deletingRuleId === id) return
     if (typeof window !== 'undefined' && !window.confirm(t('phone_agent.kb_confirm_delete_rule'))) {
       return
     }
+    deletingRuleIdsRef.current.add(id)
     setDeletingRuleId(id)
     try {
       const res = await fetch(`/api/phone/dashboard?entity=knowledge_base&id=${id}`, {
@@ -2313,7 +2451,8 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
-      setDeletingRuleId(null)
+      deletingRuleIdsRef.current.delete(id)
+      setDeletingRuleId((cur) => (cur === id ? null : cur))
     }
   }
 
@@ -2330,7 +2469,7 @@ export default function ContestadoraIaPage() {
   }
 
   const handleSaveHoliday = async () => {
-    if (savingHoliday || !newHoliday.event_date || !newHoliday.holiday_name.trim()) return
+    if (savingHolidayRef.current || savingHoliday || !newHoliday.event_date || !newHoliday.holiday_name.trim()) return
     const isClosed = newHoliday.mode === 'closed'
     const openTime =
       newHoliday.mode === 'late_open' || newHoliday.mode === 'custom' ? newHoliday.open_time : null
@@ -2347,6 +2486,7 @@ export default function ContestadoraIaPage() {
       return
     }
 
+    savingHolidayRef.current = true
     setSavingHoliday(true)
     try {
       const res = await fetch('/api/phone/dashboard', {
@@ -2381,6 +2521,7 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
+      savingHolidayRef.current = false
       setSavingHoliday(false)
     }
   }
@@ -2405,10 +2546,11 @@ export default function ContestadoraIaPage() {
   }
 
   const handleDeleteHoliday = async (id: string) => {
-    if (deletingHolidayId === id) return
+    if (deletingHolidayIdsRef.current.has(id) || deletingHolidayId === id) return
     if (typeof window !== 'undefined' && !window.confirm(t('phone_agent.holidays_confirm_delete'))) {
       return
     }
+    deletingHolidayIdsRef.current.add(id)
     setDeletingHolidayId(id)
     try {
       const res = await fetch(`/api/phone/dashboard?entity=special_hours&id=${id}`, {
@@ -2426,7 +2568,8 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
-      setDeletingHolidayId(null)
+      deletingHolidayIdsRef.current.delete(id)
+      setDeletingHolidayId((cur) => (cur === id ? null : cur))
     }
   }
 
@@ -2533,7 +2676,8 @@ export default function ContestadoraIaPage() {
   }
 
   const handleResolveCallback = async (cb: CallbackRow) => {
-    if (resolvingCallbackId === cb.id) return
+    if (resolvingCallbackIdsRef.current.has(cb.id) || resolvingCallbackId === cb.id) return
+    resolvingCallbackIdsRef.current.add(cb.id)
     setResolvingCallbackId(cb.id)
     try {
       const note = (callbackNotes[cb.id] || '').trim()
@@ -2560,6 +2704,7 @@ export default function ContestadoraIaPage() {
     } catch (e: any) {
       showFeedback('err', e.message)
     } finally {
+      resolvingCallbackIdsRef.current.delete(cb.id)
       setResolvingCallbackId((cur) => (cur === cb.id ? null : cur))
     }
   }
@@ -2570,7 +2715,15 @@ export default function ContestadoraIaPage() {
         .writeText(code)
         .then(() => {
           setCopiedCode(code)
-          setTimeout(() => setCopiedCode((cur) => (cur === code ? null : cur)), 2000)
+          if (copiedCodeTimerRef.current !== null && typeof window !== 'undefined') {
+            window.clearTimeout(copiedCodeTimerRef.current)
+          }
+          if (typeof window !== 'undefined') {
+            copiedCodeTimerRef.current = window.setTimeout(() => {
+              setCopiedCode((cur) => (cur === code ? null : cur))
+              copiedCodeTimerRef.current = null
+            }, 2000)
+          }
         })
         .catch(() => {})
     }
@@ -2666,6 +2819,7 @@ export default function ContestadoraIaPage() {
     <ProtectedRoute
       allowedRoles={[
         'admin',
+        'administrador',
         'supervisor',
         'manager',
         'general_manager',
@@ -3203,7 +3357,17 @@ export default function ContestadoraIaPage() {
                     onClick={() => {
                       const next = !simMutedRef.current
                       simMutedRef.current = next
-                      if (next) stopAllSimAudio(false)
+                      if (next) {
+                        stopAllSimAudio(false)
+                        if (pendingAutoHangupRef.current) {
+                          pendingAutoHangupRef.current = false
+                          simActiveRef.current = false
+                          simCallSidRef.current = null
+                          setSimActive(false)
+                          setSimCallSid(null)
+                          setSimAutoEndedNotice(true)
+                        }
+                      }
                       setSimMuted(next)
                     }}
                     title={simMuted ? t('phone_agent.sim_unmute_voice') : t('phone_agent.sim_mute_voice')}
@@ -4496,6 +4660,7 @@ export default function ContestadoraIaPage() {
                     {selectedStoreForForwarding.config.forwarding_status === 'verified' && (
                       <button
                         type="button"
+                        disabled={savingStoreId === selectedStoreForForwarding.id}
                         onClick={async () => {
                           const ok = await handleSaveStoreConfig(
                             selectedStoreForForwarding,
@@ -4504,7 +4669,7 @@ export default function ContestadoraIaPage() {
                           )
                           if (ok) setSelectedStoreIdForForwarding(null)
                         }}
-                        className="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold"
+                        className="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-xs font-bold"
                       >
                         {t('phone_agent.stores_reset_pending')}
                       </button>
@@ -4512,7 +4677,7 @@ export default function ContestadoraIaPage() {
 
                     <button
                       type="button"
-                      disabled={!canCopySelectedForwardingCodes}
+                      disabled={!canCopySelectedForwardingCodes || savingStoreId === selectedStoreForForwarding.id}
                       onClick={async () => {
                         if (!canCopySelectedForwardingCodes) return
                         const ok = await handleSaveStoreConfig(selectedStoreForForwarding, {
@@ -4889,6 +5054,8 @@ export default function ContestadoraIaPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        replayingActiveRef.current = false
+                        replayingSeqRef.current += 1
                         setReplayingMsgIdx(null)
                         stopAllSimAudio(true)
                         setSelectedCallDetail(null)

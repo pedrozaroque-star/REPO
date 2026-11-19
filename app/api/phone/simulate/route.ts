@@ -49,6 +49,41 @@ const STREAM_HEADERS = {
   'X-Accel-Buffering': 'no'
 }
 
+function createNdjsonStreamResponse(
+  runner: (send: (obj: Record<string, any>) => void) => Promise<void>
+): Response {
+  const encoder = new TextEncoder()
+  let streamClosed = false
+  const stream = new ReadableStream({
+    cancel() {
+      streamClosed = true
+    },
+    async start(controller) {
+      const send = (obj: Record<string, any>) => {
+        if (streamClosed) return
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
+        } catch {
+          streamClosed = true
+        }
+      }
+      try {
+        await runner(send)
+      } finally {
+        if (!streamClosed) {
+          streamClosed = true
+          try {
+            controller.close()
+          } catch {
+            // Ignorar cierre si el cliente abortó la conexión
+          }
+        }
+      }
+    }
+  })
+  return new Response(stream, { headers: STREAM_HEADERS })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null)
@@ -56,7 +91,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
     }
     const action = String(body?.action || 'turn')
+    const hasExplicitStoreId = body?.storeId !== undefined && body?.storeId !== null && body?.storeId !== ''
     const rawStoreId = Number(body?.storeId)
+    if (hasExplicitStoreId && (!Number.isInteger(rawStoreId) || rawStoreId <= 0)) {
+      return NextResponse.json({ error: 'storeId inválido' }, { status: 400 })
+    }
 
     // Autorización RBAC en una sola llamada; luego validamos pertenencia exacta sobre storeId
     const auth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
@@ -64,10 +103,7 @@ export async function POST(request: NextRequest) {
       return auth.response || NextResponse.json({ error: auth.error || 'No autorizado' }, { status: auth.status || 401 })
     }
 
-    const storeId =
-      Number.isFinite(rawStoreId) && rawStoreId > 0
-        ? rawStoreId
-        : auth.user.assignedStoreId || 14
+    const storeId = hasExplicitStoreId ? rawStoreId : auth.user.assignedStoreId || 14
 
     if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(storeId)) {
       return NextResponse.json(
@@ -142,7 +178,6 @@ export async function POST(request: NextRequest) {
       const audioUrl = buildPhoneTtsUrl('', greetingText, lang, voiceId)
 
       if (useStream) {
-        const encoder = new TextEncoder()
         const insertPromise = supabaseAdmin
           .from('phone_calls')
           .insert({
@@ -163,85 +198,76 @@ export async function POST(request: NextRequest) {
           .select('id')
           .single()
 
-        const stream = new ReadableStream({
-          async start(controller) {
-            const send = (obj: Record<string, any>) => {
-              controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
-            }
-            try {
-              send({
-                type: 'start_meta',
-                callSid,
-                store: {
-                  id: store.id,
-                  name: store.name,
-                  phone: store.phone,
-                  address: store.address,
-                  hasDriveThru: store.has_drive_thru
-                },
-                scheduleEval,
-                voiceId,
-                language: lang,
-                greetingText,
-                audioUrl,
-                transcript: initialTranscript,
-                textMs: Date.now() - reqStart
-              })
+        return createNdjsonStreamResponse(async (send) => {
+          try {
+            send({
+              type: 'start_meta',
+              callSid,
+              store: {
+                id: store.id,
+                name: store.name,
+                phone: store.phone,
+                address: store.address,
+                hasDriveThru: store.has_drive_thru
+              },
+              scheduleEval,
+              voiceId,
+              language: lang,
+              greetingText,
+              audioUrl,
+              transcript: initialTranscript,
+              textMs: Date.now() - reqStart
+            })
 
-              let firstAudioMs = -1
-              let fromCache = false
-              let emittedAudioChunks = 0
-              let streamCompletedCleanly = false
-              if (voiceMode !== 'instant_local') {
-                try {
-                  for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
-                    signal: request.signal,
-                    skipStorageLookup: false,
-                    onStreamCompleted: (ok) => {
-                      streamCompletedCleanly = ok
-                    }
-                  })) {
-                    emittedAudioChunks++
-                    if (firstAudioMs === -1) {
-                      firstAudioMs = Date.now() - reqStart
-                      fromCache = chunk.fromCache
-                    }
-                    send({
-                      type: 'audio_pcm',
-                      pcmBase64: chunk.pcmChunk.toString('base64'),
-                      sampleRate: chunk.sampleRate,
-                      fromCache: chunk.fromCache
-                    })
+            let firstAudioMs = -1
+            let fromCache = false
+            let emittedAudioChunks = 0
+            let streamCompletedCleanly = false
+            if (voiceMode !== 'instant_local') {
+              try {
+                for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
+                  signal: request.signal,
+                  skipStorageLookup: false,
+                  onStreamCompleted: (ok) => {
+                    streamCompletedCleanly = ok
                   }
-                } catch (ttsErr: any) {
-                  console.warn('[api/phone/simulate start] TTS warning:', ttsErr?.message || ttsErr)
+                })) {
+                  emittedAudioChunks++
+                  if (firstAudioMs === -1) {
+                    firstAudioMs = Date.now() - reqStart
+                    fromCache = chunk.fromCache
+                  }
+                  send({
+                    type: 'audio_pcm',
+                    pcmBase64: chunk.pcmChunk.toString('base64'),
+                    sampleRate: chunk.sampleRate,
+                    fromCache: chunk.fromCache
+                  })
                 }
-                if (emittedAudioChunks === 0 && !request.signal.aborted) {
-                  send({ type: 'tts_fallback_required', text: greetingText, language: lang })
-                } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
-                  send({ type: 'audio_stream_truncated', text: greetingText, language: lang })
-                }
+              } catch (ttsErr: any) {
+                console.warn('[api/phone/simulate start] TTS warning:', ttsErr?.message || ttsErr)
               }
-
-              const ins = await insertPromise
-              if (ins.error || !ins.data) {
-                throw ins.error || new Error('No se pudo registrar la llamada en phone_calls')
+              if (emittedAudioChunks === 0 && !request.signal.aborted) {
+                send({ type: 'tts_fallback_required', text: greetingText, language: lang })
+              } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
+                send({ type: 'audio_stream_truncated', text: greetingText, language: lang })
               }
-              send({
-                type: 'done',
-                callId: ins.data.id,
-                totalFirstAudioMs: firstAudioMs,
-                fromCache
-              })
-            } catch (streamErr: any) {
-              send({ type: 'error', error: streamErr?.message || 'Error en saludo de llamada' })
-            } finally {
-              controller.close()
             }
+
+            const ins = await insertPromise
+            if (ins.error || !ins.data) {
+              throw ins.error || new Error('No se pudo registrar la llamada en phone_calls')
+            }
+            send({
+              type: 'done',
+              callId: ins.data.id,
+              totalFirstAudioMs: firstAudioMs,
+              fromCache
+            })
+          } catch (streamErr: any) {
+            send({ type: 'error', error: streamErr?.message || 'Error en saludo de llamada' })
           }
         })
-
-        return new Response(stream, { headers: STREAM_HEADERS })
       }
 
       const [insertRes, greetingWav] = await Promise.all([
@@ -312,7 +338,7 @@ export async function POST(request: NextRequest) {
           const normStatus = String(existing.status || '').toLowerCase()
           const alreadyTerminated =
             Boolean(existing.ended_at) ||
-            ['completed', 'canceled', 'busy', 'failed', 'no-answer'].includes(normStatus)
+            ['completed', 'canceled', 'cancelled', 'busy', 'failed', 'no-answer'].includes(normStatus)
           if (!alreadyTerminated) {
             const startedMs = existing.started_at ? new Date(existing.started_at).getTime() : Date.now()
             const durationSeconds = Math.min(1800, Math.max(5, Math.round((Date.now() - startedMs) / 1000)))
@@ -444,79 +470,70 @@ export async function POST(request: NextRequest) {
       })()
 
       if (useStream) {
-        const encoder = new TextEncoder()
-        const stream = new ReadableStream({
-          async start(controller) {
-            const send = (obj: Record<string, any>) => {
-              controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
-            }
-            try {
-              send({
-                type: 'turn_meta',
-                callSid,
-                replyText: switchedReply,
-                language: switchedLang,
-                languageSwitch: true,
-                voiceId,
-                audioUrl,
-                toolsUsed: [],
-                callbackCreated: null,
-                shouldTransferToPhone: null,
-                shouldHangup: false,
-                transcript: nextTranscript,
-                textMs: Date.now() - reqStart
-              })
+        return createNdjsonStreamResponse(async (send) => {
+          try {
+            send({
+              type: 'turn_meta',
+              callSid,
+              replyText: switchedReply,
+              language: switchedLang,
+              languageSwitch: true,
+              voiceId,
+              audioUrl,
+              toolsUsed: [],
+              callbackCreated: null,
+              shouldTransferToPhone: null,
+              shouldHangup: false,
+              transcript: nextTranscript,
+              textMs: Date.now() - reqStart
+            })
 
-              let firstAudioMs = -1
-              let fromCache = false
-              let emittedAudioChunks = 0
-              let streamCompletedCleanly = false
-              if (voiceMode !== 'instant_local') {
-                try {
-                  for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
-                    signal: request.signal,
-                    skipStorageLookup: false,
-                    onStreamCompleted: (ok) => {
-                      streamCompletedCleanly = ok
-                    }
-                  })) {
-                    emittedAudioChunks++
-                    if (firstAudioMs === -1) {
-                      firstAudioMs = Date.now() - reqStart
-                      fromCache = chunk.fromCache
-                    }
-                    send({
-                      type: 'audio_pcm',
-                      pcmBase64: chunk.pcmChunk.toString('base64'),
-                      sampleRate: chunk.sampleRate,
-                      fromCache: chunk.fromCache
-                    })
+            let firstAudioMs = -1
+            let fromCache = false
+            let emittedAudioChunks = 0
+            let streamCompletedCleanly = false
+            if (voiceMode !== 'instant_local') {
+              try {
+                for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
+                  signal: request.signal,
+                  skipStorageLookup: false,
+                  onStreamCompleted: (ok) => {
+                    streamCompletedCleanly = ok
                   }
-                } catch (ttsErr: any) {
-                  console.warn('[api/phone/simulate key9] TTS warning:', ttsErr?.message || ttsErr)
+                })) {
+                  emittedAudioChunks++
+                  if (firstAudioMs === -1) {
+                    firstAudioMs = Date.now() - reqStart
+                    fromCache = chunk.fromCache
+                  }
+                  send({
+                    type: 'audio_pcm',
+                    pcmBase64: chunk.pcmChunk.toString('base64'),
+                    sampleRate: chunk.sampleRate,
+                    fromCache: chunk.fromCache
+                  })
                 }
-                if (emittedAudioChunks === 0 && !request.signal.aborted) {
-                  send({ type: 'tts_fallback_required', text: switchedReply, language: switchedLang })
-                } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
-                  send({ type: 'audio_stream_truncated', text: switchedReply, language: switchedLang })
-                }
+              } catch (ttsErr: any) {
+                console.warn('[api/phone/simulate key9] TTS warning:', ttsErr?.message || ttsErr)
               }
-
-              const callId = await dbUpdatePromise
-              send({
-                type: 'done',
-                callId,
-                totalFirstAudioMs: firstAudioMs,
-                fromCache
-              })
-            } catch (err: any) {
-              send({ type: 'error', error: err?.message || 'Error al cambiar idioma con tecla 9' })
-            } finally {
-              controller.close()
+              if (emittedAudioChunks === 0 && !request.signal.aborted) {
+                send({ type: 'tts_fallback_required', text: switchedReply, language: switchedLang })
+              } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
+                send({ type: 'audio_stream_truncated', text: switchedReply, language: switchedLang })
+              }
             }
+
+            const callId = await dbUpdatePromise
+            send({
+              type: 'done',
+              callId,
+              totalFirstAudioMs: firstAudioMs,
+              fromCache
+            })
+          } catch (err: any) {
+            send({ type: 'error', error: err?.message || 'Error al cambiar idioma con tecla 9' })
           }
         })
-        return new Response(stream, { headers: STREAM_HEADERS })
       }
 
       const [callId, fullWav] = await Promise.all([
@@ -544,117 +561,110 @@ export async function POST(request: NextRequest) {
     }
 
     const userText =
-      rawUserText === '1'
+      rawUserText === '0'
         ? lang === 'en'
-          ? 'What are your hours today and what is the address?'
-          : '¿Cuál es el horario de hoy y la dirección?'
-        : rawUserText === '2'
+          ? 'I would like to speak with the manager or leave a message for them.'
+          : 'Necesito ayuda de un encargado o gerente de la sucursal por favor.'
+        : rawUserText === '1'
           ? lang === 'en'
-            ? 'Tell me about Fiesta Platters and prices.'
-            : '¿Cuáles son los precios y tamaños de las charolas Fiesta Platter?'
-          : rawUserText === '3'
+            ? 'What are your hours today and what is the address?'
+            : '¿Cuál es el horario de hoy y la dirección?'
+          : rawUserText === '2'
             ? lang === 'en'
-              ? 'I need to leave a message for the store manager.'
-              : 'Necesito dejarle un recado urgente al gerente de la sucursal.'
-            : rawUserText
+              ? 'Tell me about Fiesta Platters and prices.'
+              : '¿Cuáles son los precios y tamaños de las charolas Fiesta Platter?'
+            : rawUserText === '3'
+              ? lang === 'en'
+                ? 'I need to leave a message for the store manager.'
+                : 'Necesito dejarle un recado urgente al gerente de la sucursal.'
+              : rawUserText
 
     if (useStream) {
       const reqStart = Date.now()
-      const encoder = new TextEncoder()
+      return createNdjsonStreamResponse(async (send) => {
+        try {
+          const turn = await processPhoneAgentTurn({
+            callSid,
+            storeId,
+            userText,
+            source: 'simulator',
+            callerNumber: body?.callerNumber || auth.user?.email || 'Simulador Web',
+            preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
+            deferDbFlush: true
+          })
 
-      const stream = new ReadableStream({
-        async start(controller) {
-          const send = (obj: Record<string, any>) => {
-            controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
-          }
-          try {
-            const turn = await processPhoneAgentTurn({
-              callSid,
-              storeId,
-              userText,
-              source: 'simulator',
-              callerNumber: body?.callerNumber || auth.user?.email || 'Simulador Web',
-              preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
-              deferDbFlush: true
-            })
+          const textMs = Date.now() - reqStart
+          const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
 
-            const textMs = Date.now() - reqStart
-            const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
+          send({
+            type: 'turn_meta',
+            callId: turn.callId,
+            callSid,
+            replyText: turn.replyText,
+            language: turn.language,
+            voiceId: turn.voiceId,
+            audioUrl,
+            toolsUsed: turn.toolsUsed,
+            callbackCreated: turn.callbackCreated,
+            shouldTransferToPhone: turn.shouldTransferToPhone,
+            shouldHangup: turn.shouldHangup,
+            transcript: turn.transcript,
+            textMs
+          })
 
-            send({
-              type: 'turn_meta',
-              callId: turn.callId,
-              callSid,
-              replyText: turn.replyText,
-              language: turn.language,
-              voiceId: turn.voiceId,
-              audioUrl,
-              toolsUsed: turn.toolsUsed,
-              callbackCreated: turn.callbackCreated,
-              shouldTransferToPhone: turn.shouldTransferToPhone,
-              shouldHangup: turn.shouldHangup,
-              transcript: turn.transcript,
-              textMs
-            })
-
-            let firstAudioMs = -1
-            let fromCache = false
-            let emittedAudioChunks = 0
-            let streamCompletedCleanly = false
-            if (voiceMode !== 'instant_local') {
-              try {
-                for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
-                  signal: request.signal,
-                  skipStorageLookup: false,
-                  onStreamCompleted: (ok) => {
-                    streamCompletedCleanly = ok
-                  }
-                })) {
-                  emittedAudioChunks++
-                  if (firstAudioMs === -1) {
-                    firstAudioMs = Date.now() - reqStart
-                    fromCache = chunk.fromCache
-                  }
-                  send({
-                    type: 'audio_pcm',
-                    pcmBase64: chunk.pcmChunk.toString('base64'),
-                    sampleRate: chunk.sampleRate,
-                    fromCache: chunk.fromCache
-                  })
+          let firstAudioMs = -1
+          let fromCache = false
+          let emittedAudioChunks = 0
+          let streamCompletedCleanly = false
+          if (voiceMode !== 'instant_local') {
+            try {
+              for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
+                signal: request.signal,
+                skipStorageLookup: false,
+                onStreamCompleted: (ok) => {
+                  streamCompletedCleanly = ok
                 }
-              } catch (ttsErr: any) {
-                console.warn('[api/phone/simulate turn] TTS warning:', ttsErr?.message || ttsErr)
+              })) {
+                emittedAudioChunks++
+                if (firstAudioMs === -1) {
+                  firstAudioMs = Date.now() - reqStart
+                  fromCache = chunk.fromCache
+                }
+                send({
+                  type: 'audio_pcm',
+                  pcmBase64: chunk.pcmChunk.toString('base64'),
+                  sampleRate: chunk.sampleRate,
+                  fromCache: chunk.fromCache
+                })
               }
-              if (emittedAudioChunks === 0 && !request.signal.aborted) {
-                send({ type: 'tts_fallback_required', text: turn.replyText, language: turn.language })
-              } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
-                send({ type: 'audio_stream_truncated', text: turn.replyText, language: turn.language })
-              }
+            } catch (ttsErr: any) {
+              console.warn('[api/phone/simulate turn] TTS warning:', ttsErr?.message || ttsErr)
             }
-
-            if (turn.flushDbPromise) {
-              await turn.flushDbPromise
+            if (emittedAudioChunks === 0 && !request.signal.aborted) {
+              send({ type: 'tts_fallback_required', text: turn.replyText, language: turn.language })
+            } else if (emittedAudioChunks > 0 && !streamCompletedCleanly && !request.signal.aborted) {
+              send({ type: 'audio_stream_truncated', text: turn.replyText, language: turn.language })
             }
-
-            send({
-              type: 'done',
-              totalFirstAudioMs: firstAudioMs,
-              textMs,
-              fromCache
-            })
-          } catch (streamErr: any) {
-            console.error('[api/phone/simulate stream] Error:', streamErr)
-            send({
-              type: 'error',
-              error: streamErr?.message || 'Error procesando turno en streaming'
-            })
-          } finally {
-            controller.close()
           }
+
+          if (turn.flushDbPromise) {
+            await turn.flushDbPromise
+          }
+
+          send({
+            type: 'done',
+            totalFirstAudioMs: firstAudioMs,
+            textMs,
+            fromCache
+          })
+        } catch (streamErr: any) {
+          console.error('[api/phone/simulate stream] Error:', streamErr)
+          send({
+            type: 'error',
+            error: streamErr?.message || 'Error procesando turno en streaming'
+          })
         }
       })
-
-      return new Response(stream, { headers: STREAM_HEADERS })
     }
 
     const turn = await processPhoneAgentTurn({

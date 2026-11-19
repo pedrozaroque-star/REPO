@@ -27,6 +27,9 @@
  * @notes
  * - Creado el 2026-11-17 para erradicar de raíz en todo el ecosistema la confusión de clientes entre las sucursales
  *   de Los Ángeles.
+ * - FIX 2026-11-18: `resolveCustomerStoreMetaByTokens` resuelve códigos compactos pasados como string (`LABROADWY`,
+ *   `LABROADWAY`, `LACENTRAL`, etc.) y `sanitizeCustomerStoreReferencesInText` cubre también preposición `on` y
+ *   separadores `-`/`–`/`:` sin afectar el artículo español `"la"`.
  */
 
 export type CustomerLang = 'es' | 'en'
@@ -433,7 +436,12 @@ function resolveCustomerStoreMetaByTokens(
   }
 
   for (const meta of Object.values(CANONICAL_CUSTOMER_STORES_BY_ID)) {
-    if (normalizeStoreLookupToken(meta.internalName) === tok || meta.slug.replace(/-/g, ' ') === tok) {
+    if (
+      normalizeStoreLookupToken(meta.internalName) === tok ||
+      meta.slug.replace(/-/g, ' ') === tok ||
+      meta.code.toLowerCase() === tok ||
+      (tok === 'labroadway' && meta.id === 5)
+    ) {
       return meta
     }
   }
@@ -553,15 +561,15 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
         '$1 Los Angeles $2 at Slauson and Broadway'
       )
       .replace(
-        /\bTacos\s+Gavil[aá]n\s+(?:in\s+|at\s+)?Central\b(?!\s*(?:&|and)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Central\b(?!\s*(?:&|and)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
         'Tacos Gavilan in Los Angeles (Central and Washington)'
       )
       .replace(
-        /\bTacos\s+Gavil[aá]n\s+(?:in\s+|at\s+)?Broadway\b(?!\s*(?:&|and)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Broadway\b(?!\s*(?:&|and)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
         'Tacos Gavilan in Los Angeles (Vernon and Broadway)'
       )
       .replace(
-        /\bTacos\s+Gavil[aá]n\s+(?:in\s+|at\s+)?Slauson\b(?!\s*(?:&|and)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+        /\bTacos\s+Gavil[aá]n(?:\s+(?:in|at|on)\s+|\s*[-–—:]\s*|\s+)Slauson\b(?!\s*(?:&|and)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
         'Tacos Gavilan in Los Angeles (Slauson and Broadway)'
       )
     return out
@@ -602,15 +610,15 @@ export function sanitizeCustomerStoreReferencesInText(rawText: string, lang: Cus
       '$1 de Los Ángeles en la esquina de Slauson y Broadway'
     )
     .replace(
-      /\bTacos\s+Gavil[aá]n\s+(?:en\s+|de\s+)?Central\b(?!\s*(?:&|y|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Central\b(?!\s*(?:&|y|con|esquina)\s*Washington|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       'Tacos Gavilan en Los Ángeles (Central y Washington)'
     )
     .replace(
-      /\bTacos\s+Gavil[aá]n\s+(?:en\s+|de\s+)?Broadway\b(?!\s*(?:&|y|con|esquina)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Broadway\b(?!\s*(?:&|y|con|esquina)\s*Vernon|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       'Tacos Gavilan en Los Ángeles (Vernon y Broadway)'
     )
     .replace(
-      /\bTacos\s+Gavil[aá]n\s+(?:en\s+|de\s+)?Slauson\b(?!\s*(?:&|y|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
+      /\bTacos\s+Gavil[aá]n(?:\s+(?:en|de)\s+|\s*[-–—:]\s*|\s+)Slauson\b(?!\s*(?:&|y|con|esquina)\s*Broadway|\s+(?:Ave\.?|Avenue|Blvd\.?|Boulevard|St\.?|Street))/gi,
       'Tacos Gavilan en Los Ángeles (Slauson y Broadway)'
     )
 

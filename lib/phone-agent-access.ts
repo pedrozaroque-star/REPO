@@ -23,13 +23,14 @@
  * @notes
  * - Bloquea números internacionales fuera de EE. UU./Canadá (`+1` + 10 dígitos válidos), números premium (`900`/`976`) e islas NANP de riesgo en `<Dial>` para impedir fraude telefónico (*Toll Fraud*).
  * - `loadUserAndStores` ejecuta `users` y el catálogo cacheado de `stores` en paralelo; `store_scope` se combina aditivamente con `store_id`.
+ * - Auditoría 2026-11-18: bloquea explícitamente JWTs de empleado (`user_type === 'employee'` o `role === 'employee'`) y exige paridad de `email` contra `public.users` para impedir escalación de privilegios por colisión de IDs entre `toast_employees` y `public.users`.
  */
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import jwt from 'jsonwebtoken'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getJwtSecret, getServerUser } from '@/lib/auth-server'
+import { getJwtSecret, getServerUser, verifyAuthToken } from '@/lib/auth-server'
 
 export type PhoneModulePermission =
   | 'read_dashboard'
@@ -298,7 +299,17 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
   }
 
   let userRow: any = userPrimaryRes.data
-  if (!userRow && fallbackEmail) {
+  let idEmailMismatch = false
+  if (
+    userRow &&
+    fallbackEmail &&
+    String(userRow.email || '').trim().toLowerCase() !== fallbackEmail.trim().toLowerCase()
+  ) {
+    // Bloquear colisión de IDs entre tablas (ej. toast_employees vs public.users)
+    userRow = null
+    idEmailMismatch = true
+  }
+  if (!userRow && !idEmailMismatch && fallbackEmail) {
     const safeEmailPattern = fallbackEmail.trim().replace(/[\\%_]/g, '\\$&')
     const { data, error: emailErr } = await supabaseAdmin
       .from('users')
@@ -321,6 +332,26 @@ async function loadUserAndStores(userId: string | number, fallbackEmail?: string
   return entry
 }
 
+async function extractRawPhoneAuthToken(request: Request): Promise<string | undefined> {
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization') || ''
+  if (authHeader.startsWith('Bearer ')) {
+    const candidate = authHeader.slice(7).trim()
+    if (candidate && candidate !== 'null' && candidate !== 'undefined') {
+      return candidate
+    }
+  }
+  try {
+    const cookieStore = await cookies()
+    const cookieVal = cookieStore.get('teg_token')?.value?.trim()
+    if (cookieVal) return cookieVal
+  } catch {
+    // Fuera de contexto de cookies() de Next
+  }
+  const cookieHeader = request.headers.get('cookie') || request.headers.get('Cookie') || ''
+  const m = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
+  return m?.[1] ? decodeURIComponent(m[1].trim()) : undefined
+}
+
 /**
  * Autentica y autoriza una solicitud HTTP hacia los endpoints administrativos de la Contestadora IA.
  */
@@ -334,38 +365,41 @@ export async function authorizePhoneModuleRequest(
 ): Promise<PhoneAuthCheckResult> {
   let tokenUser: { id: string | number; email?: string; role?: string; user_type?: string } | null = null
 
+  const rawToken = await extractRawPhoneAuthToken(request)
+  const verifiedPayload = rawToken ? verifyAuthToken(rawToken) : null
+  if (
+    verifiedPayload &&
+    (verifiedPayload.user_type === 'employee' || String(verifiedPayload.role || '').toLowerCase() === 'employee')
+  ) {
+    const error = 'Acceso denegado: Credenciales de empleado no tienen autorización en el módulo de Contestadora IA.'
+    return {
+      authorized: false,
+      status: 403,
+      error,
+      response: NextResponse.json({ error }, { status: 403 })
+    }
+  }
+
   const serverUser = await getServerUser(request)
   if (serverUser) {
+    if (String(serverUser.role || '').toLowerCase() === 'employee') {
+      const error = 'Acceso denegado: Credenciales de empleado no tienen autorización en el módulo de Contestadora IA.'
+      return {
+        authorized: false,
+        status: 403,
+        error,
+        response: NextResponse.json({ error }, { status: 403 })
+      }
+    }
     tokenUser = {
       id: serverUser.id,
       email: serverUser.email,
-      role: serverUser.role
+      role: serverUser.role,
+      user_type: verifiedPayload?.user_type
     }
   } else if (options.allowLongLivedStoreTerminal) {
     // Soporte para pantallas `/order-ready-board` encendidas 24/7 con verificación criptográfica y chequeo `is_active` en vivo
     try {
-      let rawToken: string | undefined
-      try {
-        const cookieStore = await cookies()
-        rawToken = cookieStore.get('teg_token')?.value?.trim()
-      } catch {
-        // Fuera de contexto de cookies() de Next
-      }
-      if (!rawToken) {
-        const authHeader = request.headers.get('authorization') || request.headers.get('Authorization') || ''
-        if (authHeader.startsWith('Bearer ')) {
-          const candidate = authHeader.slice(7).trim()
-          if (candidate && candidate !== 'null' && candidate !== 'undefined') {
-            rawToken = candidate
-          }
-        }
-      }
-      if (!rawToken) {
-        const cookieHeader = request.headers.get('cookie') || request.headers.get('Cookie') || ''
-        const m = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
-        if (m?.[1]) rawToken = decodeURIComponent(m[1].trim())
-      }
-
       const secret = getJwtSecret()
       if (rawToken && secret) {
         const decoded = jwt.verify(rawToken, secret, {
@@ -373,7 +407,8 @@ export async function authorizePhoneModuleRequest(
           ignoreExpiration: true
         }) as any
         const sub = decoded?.sub ?? decoded?.id
-        if (decoded && sub && decoded.user_type !== 'employee') {
+        const decodedRole = String(decoded?.user_role || decoded?.role || '').toLowerCase()
+        if (decoded && sub && decoded.email && decoded.user_type !== 'employee' && decodedRole !== 'employee') {
           tokenUser = {
             id: String(sub),
             email: decoded.email,
