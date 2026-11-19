@@ -33,6 +33,7 @@ import {
 import {
   buildInitialGreeting,
   buildPhoneTtsUrl,
+  getStaticCanonicalWarmPhrases,
   getStorePhoneContext,
   loadStoreMenuItems,
   PhoneLang,
@@ -138,11 +139,15 @@ export async function POST(request: NextRequest) {
         ctx.config.custom_greeting_en,
         { includeLanguageSwitchHint: false, scheduleEval: ctx.scheduleEval }
       )
+      const staticPhrases = getStaticCanonicalWarmPhrases()
+        .filter((p) => p.lang === lang)
+        .slice(0, 12)
       const prewarmTask = async () => {
         await Promise.all([
           warmPhoneSpeechFromStorageOnly(greetingText, lang, voiceId),
           warmPhoneSpeechFromStorageOnly(key9Greeting, switchedLang, voiceId),
-          warmPhoneSpeechFromStorageOnly(conciseSwitch, switchedLang, voiceId)
+          warmPhoneSpeechFromStorageOnly(conciseSwitch, switchedLang, voiceId),
+          ...staticPhrases.map((p) => warmPhoneSpeechFromStorageOnly(p.text, p.lang, voiceId))
         ])
       }
       try {
@@ -228,6 +233,7 @@ export async function POST(request: NextRequest) {
                 for await (const chunk of streamPhoneAgentSpeechPcm(greetingText, lang, voiceId, {
                   signal: request.signal,
                   skipStorageLookup: false,
+                  fastLivePhone: true,
                   onStreamCompleted: (ok) => {
                     streamCompletedCleanly = ok
                   }
@@ -369,7 +375,7 @@ export async function POST(request: NextRequest) {
     // Default: action === 'turn'
     const rawCallSid = String(body?.callSid || '').trim()
     let callSid = rawCallSid.startsWith(`SIM_${storeId}_`) ? rawCallSid : `SIM_${storeId}_${Date.now()}`
-    if (rawCallSid.startsWith('SIM_')) {
+    if (rawCallSid.startsWith('SIM_') && (!auth.user.isGlobalAdmin || !rawCallSid.startsWith(`SIM_${storeId}_`))) {
       const { data: ownerCheck, error: ownerErr } = await supabaseAdmin
         .from('phone_calls')
         .select('store_id')
@@ -497,6 +503,7 @@ export async function POST(request: NextRequest) {
                 for await (const chunk of streamPhoneAgentSpeechPcm(switchedReply, switchedLang, voiceId, {
                   signal: request.signal,
                   skipStorageLookup: false,
+                  fastLivePhone: true,
                   onStreamCompleted: (ok) => {
                     streamCompletedCleanly = ok
                   }
@@ -620,7 +627,8 @@ export async function POST(request: NextRequest) {
             try {
               for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
                 signal: request.signal,
-                skipStorageLookup: false,
+                skipStorageLookup: !turn.isCanonicalReply,
+                fastLivePhone: true,
                 onStreamCompleted: (ok) => {
                   streamCompletedCleanly = ok
                 }

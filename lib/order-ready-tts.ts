@@ -1097,7 +1097,7 @@ export function splitPhoneReplyForStreaming(text: string): {
 }
 
 const PHONE_STREAM_TTS_MODELS = PHONE_KORE38_MODELS
-const PRE_VERIFY_PCM_BYTES = 38400 // 0.80 s a 24 kHz 16-bit mono (~53 tramas YIN, >6x el mínimo de 8 tramas vocales): acelera el TTFA del Simulador ~400 ms
+const PRE_VERIFY_PCM_BYTES = 19200 // 0.40 s a 24 kHz 16-bit mono (~26 tramas YIN, >3x el mínimo de 8 tramas vocales): reduce TTFA ~300 ms adicionales
 export const MAX_PHONE_TTS_CHARS = 1400
 
 export function normalizePhoneTtsInput(raw: string, lang: TtsLang = 'es', maxChars = MAX_PHONE_TTS_CHARS): string {
@@ -1347,8 +1347,9 @@ export async function* streamPhoneAgentSpeechPcm(
 
   // Recorrer TODAS las llaves AQ. sanas sobre Kore 3.8 (los rechazos rápidos 429/401/402/403 NO consumen el tope de fallos lentos)
   const slowModelFailures = new Map<string, number>()
-  const TTFA_WATCHDOG_MS = fastLivePhone ? 1450 : 5000
-  const CHUNK_IDLE_WATCHDOG_MS = fastLivePhone ? 1850 : 3400
+  const quotaFailuresOnModel = new Map<string, number>()
+  const TTFA_WATCHDOG_MS = fastLivePhone ? 1250 : 5000
+  const CHUNK_IDLE_WATCHDOG_MS = fastLivePhone ? 1700 : 3400
   const MAX_TOTAL_STREAM_MS = fastLivePhone ? 6500 : 28000
   const maxRpmWaitStreamMs = fastLivePhone ? 0 : 16000
 
@@ -1384,6 +1385,9 @@ export async function* streamPhoneAgentSpeechPcm(
     }
     const slowCap = fastLivePhone && model === 'gemini-3.8-flash-tts' ? 1 : 4
     if ((slowModelFailures.get(model) || 0) >= slowCap) {
+      continue
+    }
+    if (fastLivePhone && (quotaFailuresOnModel.get(model) || 0) >= 2) {
       continue
     }
     if (!bypassEmergencyBlock && (keyBlockedUntil.get(key) || 0) > Date.now()) {
@@ -1459,6 +1463,7 @@ export async function* streamPhoneAgentSpeechPcm(
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => '')
         if (res.status === 429 || /quota|exceeded/i.test(errText)) {
+          quotaFailuresOnModel.set(model, (quotaFailuresOnModel.get(model) || 0) + 1)
           if (isDailyOrHardQuotaError(errText)) {
             keyBlockedUntil.set(kmKey, Date.now() + parseDailyQuotaBlockMs(errText))
           } else {
@@ -1702,16 +1707,26 @@ export async function* streamPhoneAgentSpeechPcm(
     cleanupOwnInflight()
   }
 
-  // 4. Respaldo final seguro sobre REST Kore 3.8 con try/catch
+  // 4. Respaldo final rápido: si fastLivePhone ya probó 3.8 SSE sin éxito, usar directo emergencia femenina (<= 2.6s) sin repetir 3.8 REST
   if (!options?.signal?.aborted && options?.allowBlockFallback !== false) {
     try {
-      const fallbackWav = await getPhoneAgentSpeech(clean, lang, selectedVoice, false, {
-        skipStorageLookup: false,
-        skipStoragePersist: false,
-        skipSseAttempt: true,
-        maxTotalMs: 9500,
-        signal: options?.signal
-      })
+      const fallbackWav = fastLivePhone
+        ? (
+            await generateTextWithGeminiDetailed(clean, lang, selectedVoice, stylePrompt, {
+              allowedModels: PHONE_EMERGENCY_FALLBACK_MODELS,
+              skipRpmWait: true,
+              attemptTimeoutMs: 2600,
+              maxAttemptsPerModel: 2,
+              signal: options?.signal
+            })
+          ).wav
+        : await getPhoneAgentSpeech(clean, lang, selectedVoice, false, {
+            skipStorageLookup: false,
+            skipStoragePersist: false,
+            skipSseAttempt: true,
+            maxTotalMs: 9500,
+            signal: options?.signal
+          })
       const pcm = extractPcmFromWav(fallbackWav)
       if (pcm.length > 0) {
         yield { pcmChunk: pcm, sampleRate: 24000, fromCache: false }
@@ -1885,7 +1900,11 @@ export async function getPhoneAgentSpeech(
         }
       }
 
-      // 4. Síntesis en bloque priorizando Kore 3.8 (en `fastLivePhone`, prioriza 3.8-flash-lite-tts porque SSE 3.8-flash-tts ya fue intentado)
+      if (options?.fastLivePhone && !options?.skipSseAttempt && !forceRegenerate) {
+        throw new Error('FastLivePhone SSE sin audio disponible; cediendo de inmediato a respaldo en vivo sin silencio')
+      }
+
+      // 4. Síntesis en bloque priorizando Kore 3.8
       const stylePrompt = getPhoneStylePrompt(lang)
       const attemptTimeoutMs =
         typeof options?.maxTotalMs === 'number' && options.maxTotalMs > 0

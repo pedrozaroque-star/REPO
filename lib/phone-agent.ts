@@ -138,6 +138,38 @@
  *   * `buildInitialGreeting` blinda frases adicionales de grabación en saludos personalizados (`recorded` / `grabada` / `grabando`).
  *   * `callGeminiPhoneWithFailover` descarta respuestas `STOP` solo-pensamiento sin texto visible ni `functionCall`.
  *   * `inspectMissingCallbackGuard` ya no desactiva el blindaje por mencionar `"con tu nombre y tu número"` en confirmaciones sin pregunta, y soporta tildes en cleanup.
+ * - UPGRADE 2026-11-18 (Paquete 1 + 2A + 2B — Reglas Delivery Apps, Condimentos Gratis y Enrutamiento Multi-Sucursal):
+ *   1) Paquete 1 (Reglas oficiales en KB + prompt): distingue claramente entre cambios/reembolsos de Uber Eats / DoorDash /
+ *      Grubhub (gestionados en Ayuda de la app; ajustes menores sin costo solo antes de empacar), pedidos retrasados vs
+ *      llegados equivocados/incompletos, y pedidos directos en tacosgavilan.com/mostrador.
+ *   2) Paquete 2A (`target_store_id` + `origin_store_id`): cuando un cliente pide por error en otra sucursal (especialmente
+ *      tacosgavilan.com Pickup) y llama a una tienda distinta, `create_manager_callback` enruta la alerta directo al
+ *      `/order-ready-board` del Gerente de la sucursal destino evaluando su horario real y etiquetando el origen.
+ *   3) Paquete 2B (`condiments_note` con `urgency = 'normal'`): las peticiones de condimentos gratis en órdenes existentes
+ *      se registran como Nota de Empaque separada en `PhoneCallbackAlertBanner` (sin saturar la alarma roja cada 45s)
+ *      aclarando que aplican únicamente si la orden todavía no sale ni se entrega al repartidor.
+ * - UPGRADE 2026-11-18 (Banco Completo de Respuestas Canónicas Preparadas + Hedged Gemini LLM Rápido):
+ *   1) `resolveCanonicalPreparedReply()` resuelve en <2 ms (0 llamadas LLM, texto uniforme <=210 chars en su mayoría
+ *      cacheable 100% en Supabase Storage `phone_v6/Kore`) las 19 preguntas frecuentes y operativas más comunes
+ *      (cierre, spam, orden por teléfono, horario hoy/mañana/cualquier día/festivos, dirección/teléfono, Drive-Thru,
+ *      pagos/EBT, empleo, repartidores, política de cambios Uber/DD/GH, aguas frescas/bebidas, postres sin pasteles,
+ *      carnes, Regular vs Super, Torta Cubana/quesos, productos no manejados y Fiesta Platters), cediendo
+ *      automáticamente a IA ante preguntas compuestas (>1 tema), overrides por tienda o reglas KB editadas en vivo.
+ *   2) `MODERN_CHAT_MODELS` / `CLASSIC_CHAT_MODELS` priorizan `gemini-3.5-flash-lite` (~620 ms) ->
+ *      `gemini-3.1-flash-lite-preview` -> `gemini-3-flash-preview`, con **Hedged Request paralela a los 950 ms**
+ *      (`callGeminiPhoneWithFailover`) y podado contextual de KB/Catálogo cuando SÍ se requiere generar con IA.
+ * - UPGRADE 2026-11-18 (Protocolo de Revisión de Preparación en Órdenes Equivocadas/Incompletas de Drive-Thru y Comedor):
+ *   1) En reclamos de órdenes equivocadas o incompletas compradas en Drive-Thru, comedor, mostrador o directo en tacosgavilan.com,
+ *      solicita los 4 datos obligatorios para revisar la preparación de la orden: número de ticket, fecha de compra, nombre y
+ *      teléfono de 10 dígitos, aclarando de forma educada y seria que sin el ticket es poco probable determinar la equivocación.
+ *   2) Incluye respuesta canónica instantánea de primer turno (`in_store_wrong_order`, <=210 chars), parámetro `order_date` en
+ *      `create_manager_callback` concatenado en `ticket_or_order_number`, manejo respetuoso de `SIN TICKET` sin prometer reposición,
+ *      y protección en `isPromptExpectingPhoneOrDetails` para que respuestas cortas de fecha ("el viernes", "ayer") no disparen FAQs.
+ *   3) Cierre automático limpio de llamadas (`isCallerEndingConversation` + `didAssistantConcludeCall` + Regla 9): detecta
+ *      todas las respuestas naturales de fin de conversación ("no", "no gracias", "así está bien", "todo bien", "ya no",
+ *      "perfecto, espero su llamada", "ahorita ordeno en línea", "I'm good", "all set", "nope", "thanks") tras preguntas de
+ *      cierre sin falsos positivos mientras se capturan datos, y emite `shouldHangup = true` (`<Hangup/>`) también cuando
+ *      la asistente concluye con despedida final sin pregunta abierta.
  */
 
 import twilio from 'twilio'
@@ -167,14 +199,14 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 // - gemini-3-flash-preview y gemini-3.1-flash-lite-preview como respaldos automáticos con salto rápido si hay 429/503.
 // ('gemini-3.6-flash' y 'gemini-3.8-flash' se omiten: sufrieron 429/503 y 3.8 rechaza thinking minimal).
 const MODERN_CHAT_MODELS = [
-  'gemini-3-flash-preview',
   'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite-preview'
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3-flash-preview'
 ]
 const CLASSIC_CHAT_MODELS = [
-  'gemini-3-flash-preview',
   'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite-preview'
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3-flash-preview'
 ]
 
 const keyQuarantineUntil = new Map<string, number>()
@@ -1879,10 +1911,12 @@ export function normalizePhoneSttTranscript(rawText: string): string {
     .replace(/\bchapurrado\b/gi, 'champurrado')
     .replace(/\blingua\b/gi, 'lengua')
     .replace(/\b(?:puche|guche)\b/gi, 'buche')
-    .replace(/\b(tienen|tiene|con|hay|su|las?|los?)\s+drivers?\b/gi, '$1 drive-thru')
-    .replace(/\b(drive\s*tru|dry\s*thru)\b/gi, 'drive-thru')
+    .replace(/\b(tienen|tiene|con|hay|su|las?|los?|por\s+el|en\s+el|al|del)\s+drivers?\b/gi, '$1 drive-thru')
+    .replace(/\b(drive\s*tru|drive\s*true|drive\s*through|dray\s*tru|dry\s*thru)\b/gi, 'drive-thru')
+    .replace(/\b(?:tiquet|tique)\b/gi, 'ticket')
     .replace(/\b(?:call|car)\s+fresh\b/gi, 'calfresh')
     .replace(/\b(?:e\s+b\s+t|i\s+b\s+t)\b/gi, 'ebt')
+    .replace(/\b(?:tarjetas?\s+abc|abc\s+(?:card|tarjetas?))\b/gi, 'ebt')
 }
 
 export function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12) {
@@ -2373,6 +2407,7 @@ export async function getStorePhoneContext(
 export async function createManagerCallbackRequest(params: {
   callId?: string | null
   storeId: number
+  originStoreId?: number | null
   source?: 'twilio' | 'simulator'
   callerName: string
   callerPhone: string
@@ -2383,7 +2418,7 @@ export async function createManagerCallbackRequest(params: {
   ticketOrOrderNumber?: string | null
 }) {
   const businessDate = getCaliforniaBusinessDate()
-  const payload = {
+  const payload: Record<string, any> = {
     call_id: params.callId || null,
     store_id: params.storeId,
     source: params.source === 'simulator' ? 'simulator' : 'twilio',
@@ -2396,6 +2431,9 @@ export async function createManagerCallbackRequest(params: {
     ticket_or_order_number: params.ticketOrOrderNumber ? String(params.ticketOrOrderNumber).trim() : null,
     status: 'pending',
     business_date: businessDate
+  }
+  if (params.originStoreId && Number(params.originStoreId) !== Number(params.storeId)) {
+    payload.origin_store_id = Number(params.originStoreId)
   }
 
   const { data: inserted, error } = await supabaseAdmin
@@ -2434,8 +2472,15 @@ export async function createManagerCallbackRequest(params: {
         if (payload.ticket_or_order_number) {
           patch.ticket_or_order_number = payload.ticket_or_order_number
         }
+        if (payload.store_id && Number(payload.store_id) !== Number(winner.store_id) && payload.origin_store_id) {
+          patch.store_id = payload.store_id
+          patch.origin_store_id = payload.origin_store_id
+        }
         if (payload.urgency === 'critical') {
           patch.urgency = 'critical'
+        } else if (winner.reason_category === 'condiments_note' && payload.reason_category && payload.reason_category !== 'condiments_note') {
+          patch.reason_category = payload.reason_category
+          patch.urgency = payload.urgency || 'high'
         }
         if (Object.keys(patch).length > 0) {
           const { data: merged } = await supabaseAdmin
@@ -2659,7 +2704,7 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'create_manager_callback',
         description:
-          'Registra un Recado Prioritario en Vivo en la pantalla del Gerente en la computadora de la tienda (sin transferir llamadas a celulares personales). Úsalo ÚNICAMENTE cuando ya tengas nombre y teléfono real de 10 dígitos (o cuando en llamada Twilio el cliente pida devolverle la llamada a su mismo número).',
+          'Registra un Recado Prioritario para el Gerente o una Nota de Empaque (condimentos gratis) en la pantalla /order-ready-board de la sucursal (sin transferir llamadas a celulares personales). Soporta enrutamiento directo a otra sucursal mediante target_store_id cuando un pedido cayó en una tienda equivocada. Úsalo ÚNICAMENTE cuando ya tengas nombre y teléfono real de 10 dígitos (o en llamada Twilio pida usar su mismo número).',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -2677,22 +2722,34 @@ const PHONE_AGENT_TOOLS = [
             },
             urgency: {
               type: 'STRING',
-              description: 'Nivel de urgencia: "high", "critical", o "normal".'
+              description: 'Nivel de urgencia: "high", "critical", o "normal" (usa SIEMPRE "normal" para reason_category "condiments_note").'
             },
             reason_category: {
               type: 'STRING',
-              description: 'Categoría: "missing_or_wrong_item", "lost_item", "employee_callout", "vendor_arrival", "billing_refund", o "other".'
+              description:
+                'Categoría: "condiments_note" (salsas/limones/cilantro/cebolla/cubiertos gratis en orden existente), "wrong_store_order" (pedido en sucursal equivocada), "delivery_issue" (retraso/no llega/problema en orden de Uber Eats, DoorDash o Grubhub), "missing_or_wrong_item", "lost_item", "employee_callout", "vendor_arrival", "billing_refund", o "other".'
             },
             reason_summary: {
               type: 'STRING',
-              description: 'Resumen claro y completo del asunto para el gerente.'
+              description: 'Resumen claro y completo del asunto (incluyendo condimentos solicitados, plataforma de delivery o sucursal donde cayó el pedido).'
             },
             ticket_or_order_number: {
               type: 'STRING',
-              description: 'Número de ticket u orden si aplica (opcional).'
+              description:
+                'Número de ticket u orden (obligatorio preguntarlo en órdenes equivocadas o incompletas de Drive-Thru, comedor o mostrador para revisar la preparación; si el cliente confirma que ya no tiene el ticket, envía "SIN TICKET").'
+            },
+            order_date: {
+              type: 'STRING',
+              description:
+                'Fecha de compra del ticket indicada por el cliente en reclamos de órdenes equivocadas o incompletas (ej. "Hoy 2026-11-18", "Ayer", "Viernes 15 Nov").'
+            },
+            target_store_id: {
+              type: 'INTEGER',
+              description:
+                'ID numérico de la sucursal destino (1, 3..16 según el DIRECTORIO OFICIAL) ÚNICAMENTE cuando el cliente indique que su orden cayó por error en OTRA sucursal distinta a la que está llamando. Omítelo si corresponde a esta misma sucursal.'
             }
           },
-          required: ['caller_name', 'caller_phone', 'reason_summary']
+          required: ['caller_name', 'caller_phone', 'reason_category', 'reason_summary']
         }
       },
       {
@@ -2903,6 +2960,107 @@ export function detectCallerLanguageSwitch(userText: string, currentLang: PhoneL
   return currentLang
 }
 
+interface SingleGeminiAttemptOutcome {
+  ok: boolean
+  data?: any
+  usedModel?: string
+  status?: number
+  errorMessage?: string
+  deterministicBadRequest?: boolean
+}
+
+async function executeSingleGeminiAttempt(params: {
+  model: string
+  apiKey: string
+  body: any
+  preferredModel?: string | null
+  timeoutMs: number
+  abortController?: AbortController
+}): Promise<SingleGeminiAttemptOutcome> {
+  const { model, apiKey, body, preferredModel, timeoutMs, abortController } = params
+  const pairKey = `${apiKey}:${model}`
+  const supportsMinimalThinking = !model.includes('3.8')
+  const url = `${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`
+
+  const genCfg: Record<string, any> = {
+    maxOutputTokens: 1024,
+    ...(body.generationConfig || {})
+  }
+  if (supportsMinimalThinking) {
+    genCfg.thinkingConfig = { thinkingLevel: 'minimal' }
+  }
+  const patchedContents =
+    preferredModel && model !== preferredModel && Array.isArray(body.contents)
+      ? body.contents.map((turn: any) =>
+          Array.isArray(turn?.parts)
+            ? {
+                ...turn,
+                parts: turn.parts.map((p: any) =>
+                  p?.functionCall
+                    ? { ...p, thoughtSignature: 'skip_thought_signature_validator' }
+                    : p
+                )
+              }
+            : turn
+        )
+      : body.contents
+
+  const timeoutSignal = AbortSignal.timeout(Math.max(400, timeoutMs))
+  const signal = abortController ? AbortSignal.any([abortController.signal, timeoutSignal]) : timeoutSignal
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        ...body,
+        contents: patchedContents,
+        generationConfig: genCfg
+      })
+    })
+    const data = await res.json().catch(() => ({}))
+    const candidate = data?.candidates?.[0]
+    const parts: any[] = candidate?.content?.parts || []
+    const hasFunctionCall = parts.some((p) => p?.functionCall)
+    const visibleText = parts
+      .filter((p) => !p?.thought)
+      .map((p) => p?.text || '')
+      .join('')
+      .trim()
+
+    if (res.ok && parts.length > 0) {
+      if (
+        hasFunctionCall ||
+        (visibleText.length > 0 && (candidate?.finishReason !== 'MAX_TOKENS' || visibleText.length >= 40))
+      ) {
+        return { ok: true, data, usedModel: model }
+      }
+      return { ok: false, status: 200, errorMessage: `Respuesta truncada (MAX_TOKENS) en ${model}` }
+    }
+
+    const msg = data?.error?.message || `HTTP ${res.status}${candidate?.finishReason ? ` (${candidate.finishReason})` : ''}`
+    if (res.status === 404) {
+      modelUnavailableUntil.set(model, Date.now() + 60 * 60 * 1000)
+    } else if (res.status === 401 || res.status === 402 || res.status === 403) {
+      keyQuarantineUntil.set(apiKey, Date.now() + 6 * 60 * 60 * 1000)
+    } else if (res.status === 400) {
+      return { ok: false, status: 400, errorMessage: msg, deterministicBadRequest: true }
+    } else if (res.status === 429) {
+      keyModelCooldownUntil.set(pairKey, Date.now() + 5 * 60 * 1000)
+    } else {
+      keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+    }
+    return { ok: false, status: res.status, errorMessage: msg }
+  } catch (e: any) {
+    if (abortController?.signal.aborted) {
+      return { ok: false, status: 0, errorMessage: 'Aborted after faster peer succeeded' }
+    }
+    keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+    return { ok: false, status: 0, errorMessage: e?.message || 'Error de red' }
+  }
+}
+
 async function callGeminiPhoneWithFailover(
   body: any,
   deadlineMs: number = Date.now() + 12000,
@@ -2931,6 +3089,109 @@ async function callGeminiPhoneWithFailover(
   let lastError = 'Servicio de IA temporalmente no disponible'
   let attempts = 0
   const MAX_ATTEMPTS = 14
+  const attemptedPairs = new Set<string>()
+
+  // Solicitud Especulativa Escalonada 3-Vías (0 ms / 600 ms / 1250 ms con timeout 3800 ms):
+  // Evita abortar prematuramente una respuesta válida de 2.5s mientras garantiza que si un shard de Google se congela,
+  // una segunda y tercera llave/modelo corran en paralelo y el primero en responder gane al instante.
+  const hedgeBudgetRemaining = deadlineMs - Date.now()
+  if (hedgeBudgetRemaining >= 2000) {
+    const usedKeysInRace = new Set<string>()
+    const pickCandidate = (preferDifferentModelFrom?: string): { model: string; key: string } | null => {
+      const modelOrder = preferDifferentModelFrom
+        ? [...orderedModels.filter((m) => m !== preferDifferentModelFrom), ...orderedModels.filter((m) => m === preferDifferentModelFrom)]
+        : orderedModels
+      for (const m of modelOrder) {
+        if ((modelUnavailableUntil.get(m) || 0) > now) continue
+        for (const k of orderedKeys) {
+          if (usedKeysInRace.has(k)) continue
+          if ((keyModelCooldownUntil.get(`${k}:${m}`) || 0) > now) continue
+          const mList = k.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
+          if (!mList.includes(m)) continue
+          usedKeysInRace.add(k)
+          return { model: m, key: k }
+        }
+      }
+      return null
+    }
+    const cand1 = pickCandidate()
+    const cand2 = cand1 ? pickCandidate(cand1.model) : null
+    const cand3 = cand1 ? pickCandidate() : null
+
+    if (cand1) {
+      const ctrls = [new AbortController(), new AbortController(), new AbortController()]
+      const timers: Array<ReturnType<typeof setTimeout>> = []
+      const hedgeOutcome = await new Promise<SingleGeminiAttemptOutcome | null>((resolve) => {
+        let settled = false
+        let finishedCount = 0
+        let launchedCount = 0
+        const clearAll = () => {
+          for (const t of timers) clearTimeout(t)
+          for (const c of ctrls) c.abort()
+        }
+
+        const launchSlot = (cand: { model: string; key: string } | null, slotIdx: number) => {
+          if (settled || !cand) return
+          const rem = deadlineMs - Date.now()
+          if (rem < 900) {
+            if (launchedCount > 0 && finishedCount >= launchedCount) {
+              settled = true
+              resolve(null)
+            }
+            return
+          }
+          launchedCount++
+          attempts++
+          attemptedPairs.add(`${cand.key}:${cand.model}`)
+          void executeSingleGeminiAttempt({
+            model: cand.model,
+            apiKey: cand.key,
+            body,
+            preferredModel,
+            timeoutMs: Math.min(3800, Math.max(950, rem - 200)),
+            abortController: ctrls[slotIdx]
+          }).then((outcome) => {
+            if (settled) return
+            if (outcome?.ok || outcome?.deterministicBadRequest) {
+              settled = true
+              clearAll()
+              resolve(outcome)
+              return
+            }
+            finishedCount++
+            // Si el slot actual falló rápido (ej. 429 en 200 ms), adelantar el siguiente respaldo de inmediato
+            if (slotIdx === 0 && launchedCount === 1 && cand2) {
+              launchSlot(cand2, 1)
+              return
+            }
+            if (slotIdx === 1 && launchedCount === 2 && cand3) {
+              launchSlot(cand3, 2)
+              return
+            }
+            if (finishedCount >= launchedCount) {
+              settled = true
+              clearAll()
+              resolve(outcome)
+            }
+          })
+        }
+
+        launchSlot(cand1, 0)
+        if (cand2) timers.push(setTimeout(() => launchSlot(cand2, 1), 600))
+        if (cand3) timers.push(setTimeout(() => launchSlot(cand3, 2), 1250))
+      })
+
+      if (hedgeOutcome?.ok) {
+        return { data: hedgeOutcome.data, usedModel: hedgeOutcome.usedModel }
+      }
+      if (hedgeOutcome?.deterministicBadRequest) {
+        throw new Error(`Petición inválida a Gemini: ${hedgeOutcome.errorMessage}`)
+      }
+      if (hedgeOutcome?.errorMessage) {
+        lastError = hedgeOutcome.errorMessage
+      }
+    }
+  }
 
   for (const pass of ['fresh', 'cooldown_fallback'] as const) {
     if (pass === 'cooldown_fallback' && deadlineMs - Date.now() < 1200) break
@@ -2939,126 +3200,54 @@ async function callGeminiPhoneWithFailover(
       if (pass === 'fresh' && (modelUnavailableUntil.get(model) || 0) > Date.now()) continue
       let attemptsOnModel = 0
       let overloadsOnModel = 0
-      const isFollowUpRound = Boolean(preferredModel)
-      const maxAttemptsOnThisModel = pass === 'fresh' ? (isFollowUpRound ? 2 : 2) : 2
-      const supportsMinimalThinking = !model.includes('3.8')
+      const maxAttemptsOnThisModel = 2
 
       for (const key of passKeys) {
         if (attemptsOnModel >= maxAttemptsOnThisModel) break
         if (!bypassKeyQuarantine && (keyQuarantineUntil.get(key) || 0) > Date.now()) continue
         const pairKey = `${key}:${model}`
-        if (pass === 'fresh' && (keyModelCooldownUntil.get(pairKey) || 0) > Date.now()) continue
+        if (pass === 'fresh' && (attemptedPairs.has(pairKey) || (keyModelCooldownUntil.get(pairKey) || 0) > Date.now())) continue
         const modelsForKey = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
         if (!modelsForKey.includes(model)) continue
 
-        // Presupuesto global: una llamada telefónica no puede esperar más (Twilio corta el webhook a ~15 s)
         const remaining = deadlineMs - Date.now()
         if (remaining < 900 || attempts >= MAX_ATTEMPTS) {
           throw new Error(`${lastError} (presupuesto de tiempo agotado tras ${attempts} intentos)`)
         }
         attempts++
         attemptsOnModel++
+        attemptedPairs.add(pairKey)
 
-        const url = `${GEMINI_BASE}/${model}:generateContent?key=${key}`
-        try {
-          // thinkingLevel 'minimal' = sin razonamiento interno: los "thinking tokens" ya no consumen maxOutputTokens
-          // (causa raíz del corte "Estamos abiertos en este momento en la su"). Verificado en vivo 2026-11-09.
-          const genCfg: Record<string, any> = {
-            maxOutputTokens: 1024,
-            ...(body.generationConfig || {})
-          }
-          if (supportsMinimalThinking) {
-            genCfg.thinkingConfig = { thinkingLevel: 'minimal' }
-          }
-          // Si cambiamos de modelo en una ronda de seguimiento (>0), asegurar thoughtSignature para evitar HTTP 400
-          const patchedContents =
-            preferredModel && model !== preferredModel && Array.isArray(body.contents)
-              ? body.contents.map((turn: any) =>
-                  Array.isArray(turn?.parts)
-                    ? {
-                        ...turn,
-                        parts: turn.parts.map((p: any) =>
-                          p?.functionCall && !p.thoughtSignature
-                            ? { ...p, thoughtSignature: 'skip_thought_signature_validator' }
-                            : p
-                        )
-                      }
-                    : turn
-                )
-              : body.contents
-          const requestBody = {
-            ...body,
-            contents: patchedContents,
-            generationConfig: genCfg
-          }
+        const attemptLimitMs = pass === 'fresh' ? 2300 : 3000
+        const outcome = await executeSingleGeminiAttempt({
+          model,
+          apiKey: key,
+          body,
+          preferredModel,
+          timeoutMs: Math.min(attemptLimitMs, remaining - 250)
+        })
 
-          const attemptLimitMs = pass === 'fresh' ? 2400 : 3200
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(Math.min(attemptLimitMs, remaining - 250)),
-            body: JSON.stringify(requestBody)
-          })
-          const data = await res.json().catch(() => ({}))
-          const candidate = data?.candidates?.[0]
-          const parts: any[] = candidate?.content?.parts || []
-          const hasFunctionCall = parts.some((p) => p?.functionCall)
-          const visibleText = parts
-            .filter((p) => !p?.thought)
-            .map((p) => p?.text || '')
-            .join('')
-            .trim()
-
-          if (res.ok && parts.length > 0) {
-            // MAX_TOKENS con texto útil: se acepta y luego se recorta en fin de oración (clampPhoneReplyLength).
-            // MAX_TOKENS SIN texto ni función: respuesta inservible -> se intenta con el siguiente candidato.
-            if (
-              hasFunctionCall ||
-              (visibleText.length > 0 && (candidate?.finishReason !== 'MAX_TOKENS' || visibleText.length >= 40))
-            ) {
-              return { data, usedModel: model }
-            }
-            lastError = `Respuesta truncada (MAX_TOKENS) en ${model}`
-            continue
-          }
-
-          lastError = data?.error?.message || `HTTP ${res.status}${candidate?.finishReason ? ` (${candidate.finishReason})` : ''}`
-          if (res.status === 404) {
-            // El MODELO no existe o fue retirado (no es culpa de la llave): saltar ese modelo 1 hora para todas las llaves
-            modelUnavailableUntil.set(model, Date.now() + 60 * 60 * 1000)
-            break
-          }
-          if (res.status === 401 || res.status === 402 || res.status === 403) {
-            // Llave inválida, sin saldo o sin permisos: cuarentena larga de la LLAVE
-            keyQuarantineUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
-            attemptsOnModel = Math.max(0, attemptsOnModel - 1)
-            continue
-          }
-          if (res.status === 400) {
-            // Error determinista de la petición (no se arregla cambiando de llave/modelo)
-            throw new Error(`Petición inválida a Gemini: ${lastError}`)
-          }
-          if (res.status === 429) {
-            // Cuota agotada en esa pareja (llave, modelo): enfriar 5 min y avanzar rápido sin re-quemar todo el presupuesto
-            keyModelCooldownUntil.set(pairKey, Date.now() + 5 * 60 * 1000)
-            continue
-          }
-          // 500/503 o timeout: saltar rápido al siguiente modelo sin quemar otros 2.4s en un endpoint saturado
-          overloadsOnModel++
-          keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
-          if (overloadsOnModel >= (pass === 'fresh' ? 1 : 2)) {
-            modelUnavailableUntil.set(model, Date.now() + 30 * 1000)
-            break
-          }
-        } catch (e: any) {
-          if (String(e?.message || '').startsWith('Petición inválida a Gemini')) throw e
-          overloadsOnModel++
-          keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
-          lastError = e?.message || 'Error de red'
-          if (overloadsOnModel >= (pass === 'fresh' ? 1 : 2)) {
-            modelUnavailableUntil.set(model, Date.now() + 30 * 1000)
-            break
-          }
+        if (outcome.ok) {
+          return { data: outcome.data, usedModel: outcome.usedModel }
+        }
+        if (outcome.deterministicBadRequest) {
+          throw new Error(`Petición inválida a Gemini: ${outcome.errorMessage}`)
+        }
+        lastError = outcome.errorMessage || lastError
+        if (outcome.status === 404) {
+          break
+        }
+        if (outcome.status === 401 || outcome.status === 402 || outcome.status === 403) {
+          attemptsOnModel = Math.max(0, attemptsOnModel - 1)
+          continue
+        }
+        if (outcome.status === 429) {
+          continue
+        }
+        overloadsOnModel++
+        if (overloadsOnModel >= (pass === 'fresh' ? 1 : 2)) {
+          modelUnavailableUntil.set(model, Date.now() + 30 * 1000)
+          break
         }
       }
     }
@@ -3115,6 +3304,8 @@ export function inspectMissingCallbackGuard(params: {
   claimedSent: boolean
   callerPhone: string | null
   callerName: string
+  ticketNumber?: string | null
+  orderDate?: string | null
   summary: string
 } {
   const normReply = normalizeSearchText(params.replyText)
@@ -3134,10 +3325,10 @@ export function inspectMissingCallbackGuard(params: {
   const claimedSent =
     !hasNegatedSend &&
     !isAskingDetails &&
-    (/\b(en este momento envio|estoy enviando|acabo de enviar|ya envie|envie|he enviado|ya mande|estoy mandando|ya registre|he registrado|registre|acabo de registrar|deje registrado|deje tu recado|ya notifique|estoy notificando|i just sent|i have sent|i sent|i am sending|im sending|i logged|i have logged|i registered|i just registered|submitting your)\b.{0,60}\b(alerta|recado|reporte|aviso|notificacion|pantalla|gerente|manager|priority\s+alert|callback)\b/i.test(
+    (/\b(en este momento envio|estoy enviando|acabo de enviar|ya envie|envie|he enviado|ya mande|estoy mandando|ya registre|he registrado|registre|acabo de registrar|deje registrado|deje tu recado|ya notifique|estoy notificando|i just sent|i have sent|i sent|i am sending|im sending|i logged|i have logged|i registered|i just registered|submitting your)\b.{0,70}\b(alerta|recado|reporte|aviso|notificacion|nota|revision|empaque|mesa de empaque|condimentos|pantalla|gerente|manager|priority\s+alert|packing\s+note|callback)\b/i.test(
       normReply
     ) ||
-      /\b(tu\s+(?:recado|alerta|reporte)\s+ya\s+(?:esta|quedo)|ya\s+(?:recibio|tiene)\s+(?:la\s+|tu\s+)?(?:alerta|recado|reporte)|your\s+(?:message|alert|callback)\s+(?:is\s+already|has\s+been)\s+(?:on|saved|sent))\b/i.test(
+      /\b(tu\s+(?:recado|alerta|reporte|nota)\s+ya\s+(?:esta|quedo)|ya\s+(?:recibio|tiene)\s+(?:la\s+|tu\s+)?(?:alerta|recado|reporte|nota)|your\s+(?:message|alert|callback|packing\s+note|note)\s+(?:is\s+already|has\s+been)\s+(?:on|saved|sent))\b/i.test(
         normReply
       ))
 
@@ -3145,7 +3336,9 @@ export function inspectMissingCallbackGuard(params: {
     return { claimedSent: false, callerPhone: null, callerName: 'Cliente en línea', summary: '' }
   }
 
-  const userTexts = params.transcript.filter((t) => t.role === 'user').map((t) => String(t.text || '').trim())
+  const userTexts = params.transcript
+    .filter((t) => t.role === 'user')
+    .map((t) => normalizePhoneSttTranscript(String(t.text || '').trim()))
   const combinedUser = userTexts.join(' | ').trim()
   const expandedUser = replaceSpokenDigitRuns(combinedUser)
   const blocked = new Set(params.blockedStoreTenDigits.filter(Boolean))
@@ -3249,10 +3442,38 @@ export function inspectMissingCallbackGuard(params: {
     }
   }
 
+  let detectedTicket: string | null = null
+  const normCombined = normalizeSearchText(combinedUser)
+  if (
+    /\b(?:no tengo|sin|perdi|tire|no me dieron)\s+(?:el\s+|mi\s+)?(?:ticket|recibo|comprobante)\b/i.test(normCombined) ||
+    /\b(?:dont|do not|didnt|did not)\s+(?:have|get|keep)\s+(?:the\s+|my\s+|a\s+)?(?:ticket|receipt)\b/i.test(normCombined) ||
+    /\b(?:lost|threw\s+away)\s+(?:the\s+|my\s+)?(?:ticket|receipt)\b/i.test(normCombined)
+  ) {
+    detectedTicket = 'SIN TICKET'
+  } else {
+    const tkMatch =
+      combinedUser.match(
+        /\b(?:ticket|recibo|orden|order|receipt)(?:\s+(?:n[uú]mero|number|num|no|es|fue|era|is|was|el|la|#)){0,3}\s*[:#\-]?\s*([A-Za-z0-9\-]*\d[A-Za-z0-9\-]{0,9})\b/i
+      ) || combinedUser.match(/#\s*(\d{2,6})\b/)
+    if (tkMatch?.[1]) detectedTicket = tkMatch[1].trim()
+  }
+
+  let detectedOrderDate: string | null = null
+  const dateMatches = Array.from(
+    combinedUser.matchAll(
+      /\b((?:hoy|ayer)\s+\d{1,2}\s+de\s+[a-záéíóú]+(?:\s+\d{4})?|hoy|ahorita|hace rato|esta (?:mañana|tarde|noche)|anoche|ayer|antier|today|yesterday|(?:el\s+)?(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)(?:\s+\d{1,2}\s+de\s+[a-záéíóú]+)?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}\s+de\s+[a-záéíóú]+(?:\s+\d{4})?|\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\b/gi
+    )
+  )
+  if (dateMatches.length > 0) {
+    detectedOrderDate = dateMatches[dateMatches.length - 1][1].trim()
+  }
+
   return {
     claimedSent: true,
     callerPhone: detectedPhone,
     callerName: detectedName,
+    ticketNumber: detectedTicket,
+    orderDate: detectedOrderDate,
     summary: combinedUser.slice(0, 500)
   }
 }
@@ -3261,6 +3482,45 @@ export function inspectMissingCallbackGuard(params: {
  * Clasifica la intención y categoría de la llamada a partir del texto del usuario y herramientas usadas,
  * respetando estrictamente el orden de prioridad operativa para evitar colisiones entre escenarios.
  */
+/**
+ * Resuelve de forma conservadora si un texto de sucursal equivocada menciona inequívocamente
+ * otra sucursal distinta de `currentStoreId` (evitando confusiones como "broadway" solo entre #5 y #7).
+ */
+function inferMentionedOtherStore(
+  allActiveStores: any[],
+  currentStoreId: number,
+  rawText: string
+): any | null {
+  const norm = normalizeSearchText(rawText)
+  if (!norm || !Array.isArray(allActiveStores) || allActiveStores.length === 0) return null
+  const uniqueStorePatterns: Array<{ storeId: number; re: RegExp }> = [
+    { storeId: 1, re: /\brialto\b/i },
+    { storeId: 3, re: /\b(west covina|covina)\b/i },
+    { storeId: 4, re: /\bazusa\b/i },
+    { storeId: 5, re: /\b(vernon|la broadway)\b/i },
+    { storeId: 6, re: /\b(central|washington|la central)\b/i },
+    { storeId: 7, re: /\bslauson\b/i },
+    { storeId: 8, re: /\bhollywood\b/i },
+    { storeId: 9, re: /\bsanta ana\b/i },
+    { storeId: 10, re: /\bla puente\b/i },
+    { storeId: 11, re: /\bhuntington(?:\s+park)?\b/i },
+    { storeId: 12, re: /\bnorwalk\b/i },
+    { storeId: 13, re: /\bbell\b/i },
+    { storeId: 14, re: /\blynwood\b/i },
+    { storeId: 15, re: /\bsouth\s*gate\b/i },
+    { storeId: 16, re: /\bdowney\b/i }
+  ]
+  const matchedIds = new Set<number>()
+  for (const pat of uniqueStorePatterns) {
+    if (pat.storeId !== Number(currentStoreId) && pat.re.test(norm)) {
+      matchedIds.add(pat.storeId)
+    }
+  }
+  if (matchedIds.size !== 1) return null
+  const onlyId = Array.from(matchedIds)[0]
+  return allActiveStores.find((s) => Number(s.id) === onlyId) || null
+}
+
 function inferCallMetadata(
   userText: string,
   toolsUsed: string[],
@@ -3290,7 +3550,51 @@ function inferCallMetadata(
       detectedLang
     }
   }
-  if (/\b(falto|falta|faltaron|me falto|incompleta|equivocada|ticket|queja|reembolso|me cobraron|cobro doble|cobraron de mas|wrong order|missing|refund|overcharged|got sick)\b/i.test(norm)) {
+  // Sucursal equivocada (cliente ordenó en otra tienda distinta)
+  if (
+    /\b(sucursal equivocad|tienda equivocad|locacion equivocad|me equivoque de (?:sucursal|tienda|ubicacion)|pedi en (?:la )?otra (?:sucursal|tienda)|ordene en (?:la )?otra (?:sucursal|tienda)|mande la orden a otra|por error.{0,35}(?:sucursal|tienda|ubicacion)|wrong (?:store|location|branch)|ordered at the wrong|sent my order to the wrong)\b/i.test(
+      norm
+    )
+  ) {
+    return {
+      callerCategory: 'post_order_issue',
+      primaryIntent: 'wrong_store_order',
+      resolvedByAi: !callbackCreated,
+      detectedLang
+    }
+  }
+  // Cliente con problema en orden de Uber Eats / DoorDash / Grubhub (modificar, cancelar, retrasada, no ha llegado o llegó mal)
+  const mentionsDeliveryApp = /\b(uber(?:\s*eats)?|doordash|door dash|grubhub)\b/i.test(norm)
+  const isDriverSelf =
+    /\b(soy repartidor|repartidor|(?:delivery|uber(?:\s*eats)?|doordash|door dash|grubhub)\s+driver|dasher|courier|picking up|voy a recoger|vengo a recoger|pick up an? order for)\b/i.test(
+      norm
+    )
+  const isCustomerDeliveryProblem =
+    /\b(mi orden|mi pedido|una orden|un pedido|agregar|anadir|modificar|cambiar|corregir|cancelar|no ha llegado|no llega|no me llega|tardando|retras|llego|falt|incomplet|equivocad|mal|reembolso|cobro|my order|an order|add|modify|change|edit|cancel|hasnt arrived|has not arrived|not arrived|never arrived|didnt arrive|delayed|missing|wrong|refund)\b/i.test(
+      norm
+    )
+  if ((mentionsDeliveryApp && !isDriverSelf && isCustomerDeliveryProblem) || /\b(no ha llegado mi (?:orden|pedido)|mi orden no ha llegado|order has not arrived|never got my order)\b/i.test(norm)) {
+    return {
+      callerCategory: 'post_order_issue',
+      primaryIntent: 'delivery_issue',
+      resolvedByAi: !callbackCreated,
+      detectedLang
+    }
+  }
+  // Condimentos gratis en una orden existente (sin queja de cobro/faltante previo)
+  const mentionsCondimentsRequest =
+    /\b(condimento|condimentos|cilantro|limon|limones|jalapeno|jalapenos|servilleta|servilletas|tenedor|tenedores|cuchara|cucharas|cubierto|cubiertos|agregar salsa|mas salsa|salsas gratis|ponle salsa|poner salsa|echale salsa|add salsa|free condiments|extra salsa|limes|napkins|utensils|forks)\b/i.test(
+      norm
+    ) && !/\b(falto|faltaron|incompleta|queja|reembolso|missing|refund|forgot my)\b/i.test(norm)
+  if (mentionsCondimentsRequest) {
+    return {
+      callerCategory: 'customer',
+      primaryIntent: 'condiments_note',
+      resolvedByAi: !callbackCreated,
+      detectedLang
+    }
+  }
+  if (/\b(falto|falta|faltaron|me falto|incompleta|incompleto|equivocada|equivocado|equivocaron|me dieron mal|salio mal|venia mal|vino mal|prepararon mal|orden mal|pedido mal|me cambiaron|ticket|queja|reembolso|me cobraron|cobro doble|cobraron de mas|wrong order|got my order wrong|messed up my order|order was wrong|order is wrong|missing|refund|overcharged|got sick)\b/i.test(norm)) {
     return {
       callerCategory: 'post_order_issue',
       primaryIntent: 'complaint_missing_item',
@@ -3318,7 +3622,7 @@ function inferCallMetadata(
       detectedLang
     }
   }
-  if (/\b(uber|doordash|grubhub|repartidor|delivery driver|pickup order)\b/i.test(norm)) {
+  if (/\b(uber|doordash|grubhub|repartidor|delivery driver|dasher|pickup order)\b/i.test(norm)) {
     return {
       callerCategory: 'delivery_driver',
       primaryIntent: 'delivery_driver',
@@ -3339,7 +3643,12 @@ function inferCallMetadata(
   if (/\b(ebt|calfresh|cal fresh|call fresh|car fresh|e b t|i b t|food stamps|estampillas|tarjeta|efectivo|apple pay|formas de pago)\b/i.test(norm)) {
     return { callerCategory: 'customer', primaryIntent: 'payment_ebt', resolvedByAi: true, detectedLang }
   }
-  if (toolsUsed.includes('search_menu_item_price') || /\b(precio|cuanto cuesta|how much|cost|menu|taco|burrito|mulita|quesadilla|torta|plato|sope|nachos|horchata|jamaica|champurrado|carnes)\b/i.test(norm)) {
+  if (
+    toolsUsed.includes('search_menu_item_price') ||
+    /\b(precio|cuanto cuesta|how much|cost|menu|taco|burrito|mulita|quesadilla|torta|plato|sope|nachos|horchata|jamaica|champurrado|aguas? frescas?|postres?|flan|cheesecake|pasteles?|churros?|menudo|birria|pozole|suadero|tripa|cerveza|queso|regular|super|carnes)\b/i.test(
+      norm
+    )
+  ) {
     return { callerCategory: 'customer', primaryIntent: 'menu_prices', resolvedByAi: true, detectedLang }
   }
   if (/\b(drive thru|drive-thru|direccion|ubicacion|donde estan|calles|address|location)\b/i.test(norm)) {
@@ -4001,6 +4310,863 @@ export async function fetchScopedCriticalPendingCallbacksWithCap(
   return { data: collected, error: null, truncated, capLimit, pagesFetched }
 }
 
+// Marca temporal del despliegue canónico actual; si el Admin edita o desactiva una regla en /admin/llamadas,
+// el motor cede automáticamente el turno a Gemini para aplicar el texto actualizado en vivo.
+const CANONICAL_KB_EPOCH_MS = Date.parse('2026-11-19T06:40:00Z')
+
+function didAssistantOfferClosingFollowUp(assistantText: string | null | undefined): boolean {
+  const raw = String(assistantText || '').trim()
+  if (!raw || isPromptExpectingPhoneOrDetails(raw)) return false
+  const norm = normalizeSearchText(raw)
+  return /\b(algo mas|alguna otra (?:duda|pregunta|consulta|cosa)|otra (?:duda|pregunta|consulta)|algun otro|algun precio|algun ingrediente|horario o direccion de alguna|en que mas te (?:puedo|ayudo)|puedo ayudar(?:te)? con algo|pueda apoyarte|anything else|how else can i help|else (?:can )?i (?:can )?help|any other questions?|any prices|hours or address for any|what else can i)\b/i.test(
+    norm
+  )
+}
+
+export function isCallerEndingConversation(params: {
+  userText: string
+  normUser: string
+  prevAssistantText: string
+}): boolean {
+  const { userText, normUser, prevAssistantText } = params
+  const trimmed = normUser.trim()
+  if (!trimmed) return false
+
+  // 1. Nunca colgar si el usuario está haciendo otra pregunta o agregando una solicitud nueva
+  if (
+    /[?¿]/.test(userText) ||
+    /\b(mejor\s+(?:dime|pregunt|quiero|dame|pasame|cual|cuanto|a que)|espera|espere|aguanta|momento|una pregunta|otra pregunta|otra duda|otra cosa|y cuanto|cuanto cuesta|a que hora|donde|cuando|cual|como|quien|tambien|ademas|pero|quiero|necesito|quisiera|me puedes|me podrias|puedes decirme|podrias decirme|tienen|venden|manejan|aceptan|falto|faltaron|equivocad[oa]s?|incomplet[oa]s?|ticket|recibo|gerente|manager|one more|another question|wait|hold on|actually|but|also|how much|what time|where|when|which|i want|i need|can you tell|do you have|do you sell|missing|wrong)\b/i.test(
+      trimmed
+    ) ||
+    /\b(nada mas (?:queria|quiero|para|una|saber|preguntar|era)|es todo lo que)\b/i.test(trimmed)
+  ) {
+    return false
+  }
+
+  // Si Kore acaba de pedir datos (ticket, fecha, nombre, teléfono, sucursal), NO tratar "no" o "nada" como colgar
+  if (isPromptExpectingPhoneOrDetails(prevAssistantText)) {
+    return /\b(cuelgame|puedes colgar|ya voy a colgar|mejor luego llamo|despues llamo|llamo mas tarde|olvida(?:lo)? adios|hang up|(?:ill|i\s+ll) call back later|never mind bye|goodbye)\b/i.test(
+      trimmed
+    )
+  }
+
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length
+
+  // 2. Frases explícitas de cierre o confirmación final cuando ya no queda nada pendiente
+  if (
+    wordCount <= 16 &&
+    /\b(gracias es todo|es todo gracias|eso es todo|es todo|ya es todo|seria todo|ya seria todo|solo era eso|era todo|nada mas|no nada mas|con eso basta|con eso es suficiente|ya quedo gracias|muchas gracias adios|gracias buen dia|gracias buenos dias|gracias buena tarde|gracias buenas tardes|gracias buena noche|gracias buenas noches|que tengas? (?:un )?(?:buen|excelente|bonito) dia|que pases? (?:buena|excelente) (?:tarde|noche)|hasta luego|adios|nos vemos|chao|cuelgame|puedes colgar|ya voy a colgar|ahorita (?:lo )?(?:pido|ordeno) en (?:linea|la pagina|internet)|lo (?:pido|ordeno) en tacosgavilan|ahorita paso a la (?:sucursal|tienda)|espero (?:la|su) llamada|thank you (?:thats|that s|that is) all|thanks (?:thats|that s|that is) all|(?:thats|that s|that is) all|that will be all|(?:thats|that s|that is) everything|nothing else|no thank you|no thanks|(?:im|i\s+m|i am) all set|all set thanks|have a (?:good|great|wonderful|nice) (?:day|night|evening|one)|goodbye|bye|see ya|take care|hang up|(?:ill|i\s+ll|i will) order online)\b/i.test(
+      trimmed
+    )
+  ) {
+    return true
+  }
+
+  // 3. Respuestas breves naturales cuando la asistente acaba de ofrecer "¿Algo más? / ¿Alguna otra duda? / How else can I help?"
+  if (didAssistantOfferClosingFollowUp(prevAssistantText) && wordCount <= 12) {
+    if (
+      /^(?:no|nop|nel|nope|nah|ninguna|ninguno|nada|ya no|no ya no|asi esta bien|esta bien|todo bien|con eso|con eso esta bien|listo|ya quedo|perfecto|muy bien|ok|okay|sale|orale|entendido|enterado|gracias|muchas gracias|muchisimas gracias|mil gracias|te lo agradezco|thank you|thanks|thank you so much|thanks so much|thanks a lot|appreciate it|(?:im|i\s+m|i am) good|all good|(?:were|we\s+re|we are) good|(?:im|i\s+m|i am) all set|all set)(?:[\s,]+(?:no|asi esta bien|esta bien|todo bien|ya no|nada|ninguna|gracias|muchas gracias|muchisimas gracias|mil gracias|te lo agradezco|amable|muy amable|buen dia|buenos dias|buena tarde|buenas tardes|buena noche|buenas noches|igualmente|thank you|thanks|so much|a lot|appreciate it|maam|miss|sir|have a good day|have a great day|have a good night|have a good one|bye))*\.?\!*$/i.test(
+        trimmed
+      )
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function didAssistantConcludeCall(replyText: string | null | undefined): boolean {
+  const raw = String(replyText || '').trim()
+  if (!raw || /[?¿]/.test(raw) || isPromptExpectingPhoneOrDetails(raw)) return false
+  const norm = normalizeSearchText(raw)
+  return /\b(gracias por llamar|que tengas? (?:un )?(?:excelente|buen|bonito|gran) (?:dia|tarde|noche)|que pases? (?:una )?(?:excelente|buena|bonita) (?:tarde|noche|dia)|hasta pronto|hasta luego|no recibimos ofertas comerciales|thank you for calling|thanks for calling|have a (?:wonderful|great|good|nice) (?:day|evening|night|one)|do not accept commercial solicitations)\b/i.test(
+    norm
+  )
+}
+
+function isGlobalKbTopicCanonicalUntouched(knowledgeBase: any[], storeId: number, category: string, titlePattern: RegExp): boolean {
+  if (!Array.isArray(knowledgeBase) || knowledgeBase.length === 0) return false
+  const hasStoreOverride = knowledgeBase.some(
+    (k: any) => Number(k?.store_id) === Number(storeId) && String(k?.category || '').toLowerCase() === category
+  )
+  if (hasStoreOverride) return false
+  const globalMatch = knowledgeBase.find(
+    (k: any) => !k?.store_id && String(k?.category || '').toLowerCase() === category && titlePattern.test(String(k?.title || ''))
+  )
+  if (!globalMatch || globalMatch.is_active === false) return false
+  const updMs = globalMatch.updated_at ? Date.parse(String(globalMatch.updated_at)) : 0
+  if (Number.isFinite(updMs) && updMs > CANONICAL_KB_EPOCH_MS) return false
+  return true
+}
+
+function formatCanonicalScheduleForOffsetDay(params: {
+  store: any
+  specialHours: any[]
+  offsetDays: number
+  explicitDow: number | null
+  prefixLabelEs: string
+  prefixLabelEn: string
+  lang: PhoneLang
+  isWeekendAsk?: boolean
+}): string {
+  const { store, specialHours, offsetDays, prefixLabelEs, prefixLabelEn, lang } = params
+  const weeklyMap = normalizeWeeklyHours(store.weekly_hours)
+  const ptNow = getPacificDateParts()
+  const [y, m, d] = ptNow.dateStr.split('-').map(Number)
+  const targetUtc = new Date(Date.UTC(y, m - 1, d + offsetDays))
+  const dateStr = targetUtc.toISOString().slice(0, 10)
+  const dow = targetUtc.getUTCDay()
+  const dayEs = DAY_NAMES_ES[dow].toLowerCase()
+  const dayEn = DAY_NAMES_EN[dow]
+
+  const eff = resolveEffectiveDaySchedule({
+    storeIdNum: store.id,
+    regular: weeklyMap[dow],
+    dateStr,
+    specialHours
+  })
+
+  if (eff.isClosedAllDay) {
+    if (lang === 'en') {
+      const hol = eff.holidayNameEn ? ` for ${eff.holidayNameEn}` : ''
+      return `${prefixLabelEn || `On ${dayEn}`}${hol}, our store will be closed all day. Can I help with anything else?`
+    }
+    const hol = eff.holidayName ? ` por ${eff.holidayName}` : ''
+    return `${prefixLabelEs || `El ${dayEs}`}${hol} nuestra sucursal permanecerá cerrada todo el día. ¿Te ayudo con algo más?`
+  }
+
+  const open12Es = formatTime12h(eff.open, 'es')
+  const close12Es = formatTime12h(eff.close, 'es')
+  const open12En = formatTime12h(eff.open, 'en')
+  const close12En = formatTime12h(eff.close, 'en')
+  if (lang === 'en') {
+    const hol = eff.holidayNameEn ? ` (${eff.holidayNameEn} special hours)` : ''
+    const lead = prefixLabelEn || (eff.isSpecial ? `This upcoming ${dayEn}` : `On ${dayEn}s`)
+    return `${lead}${hol} we are open from ${open12En} to ${close12En}. Can I help with anything else?`
+  }
+  const hol = eff.holidayName ? ` por ${eff.holidayName}` : ''
+  const lead = prefixLabelEs || (eff.isSpecial ? `Este ${dayEs}` : `Los ${dayEs}`)
+  return `${lead}${hol} abrimos de ${open12Es} a ${close12Es}. ¿Te puedo ayudar con algo más?`
+}
+
+/**
+ * Banco determinista de Respuestas Canónicas Preparadas (< 2 ms CPU, 0 llamadas LLM).
+ * Garantiza redacción uniforme, veloz y pre-calentable en Storage (`phone_v6/Kore`) para las 19 preguntas
+ * frecuentes más comunes, delegando a Gemini Hedged LLM cualquier pregunta compuesta (>1 tema), flujo con herramientas
+ * o regla editada por el Administrador.
+ */
+function resolveCanonicalPreparedReply(params: {
+  userText: string
+  normUser: string
+  lang: PhoneLang
+  lastAssistantText: string
+  hadPriorPostOrderTurn?: boolean
+  hadPriorCallbackInCall?: boolean
+  store: any
+  config: any
+  scheduleEval: StoreOpenEvaluation
+  allSpecialHours: any[]
+  upcomingHolidays: any[]
+  knowledgeBase: any[]
+  allActiveStores: any[]
+  liveMenuItems: any[]
+  spokenStoreAddress: string
+  customerBranchCrossStreets: string | null
+  wantsFiestaContext: boolean
+  detectedGuestCount: number | null
+  platterInfo: ReturnType<typeof recommendFiestaPlatters>
+}): {
+  replyText: string
+  markAsSpam?: boolean
+  toolsUsedToAdd?: string[]
+} | null {
+  const {
+    userText,
+    normUser,
+    lang,
+    lastAssistantText,
+    hadPriorPostOrderTurn = false,
+    hadPriorCallbackInCall = false,
+    store,
+    config,
+    scheduleEval,
+    allSpecialHours,
+    upcomingHolidays,
+    knowledgeBase,
+    allActiveStores,
+    liveMenuItems,
+    spokenStoreAddress,
+    customerBranchCrossStreets,
+    wantsFiestaContext,
+    detectedGuestCount,
+    platterInfo
+  } = params
+
+  if (!normUser) return null
+  // Si Kore acaba de pedir datos para un recado / nota / orden, jamás cortar con FAQ
+  if (isPromptExpectingPhoneOrDetails(lastAssistantText)) return null
+  // Si la llamada acaba de hablar de órdenes previas o reclamos y el usuario no pregunta otro FAQ claro, o si el turno mismo requiere atención interactiva:
+  const needsInteractiveFlow =
+    /\b(falto|falta|faltaron|incomplet|queja|mal|reembolso|refund|cobro|gerente|manager|supervisor|olvide|deje mi|perdi|empleado|empleada|trabajo ahi|llegar tarde|mi turno|proveedor|tecnico|condimento|condimentos|cilantro|limon|limones|jalapeno|jalapenos|servilleta|tenedor|tenedores|cubierto|cubiertos|agregar salsa|mas salsa|ponle salsa|poner salsa|equivocad|wrong store|wrong location|no ha llegado|no llega|no me llega|tardando|retras|delayed|ya hice|mi orden|mi pedido|llamando porque)\b/i.test(
+      normUser
+    )
+
+  const storeSpecial = allSpecialHours.filter(
+    (sh: any) => sh.store_id === null || Number(sh.store_id) === Number(store.id)
+  )
+
+  // Detectar qué temas distintos están presentes en esta frase (si >1 -> pregunta compuesta -> Hedged LLM)
+  const topics = new Set<string>()
+
+  const isClosingHit = isCallerEndingConversation({
+    userText,
+    normUser,
+    prevAssistantText: lastAssistantText
+  })
+  if (isClosingHit) topics.add('closing')
+
+  const isSpamHit =
+    /\b(google listing|seo|merchant cash|prestamo comercial|extended warranty|solar panels|paneles solares|business insurance|posicionamiento web)\b/i.test(
+      normUser
+    )
+  if (isSpamHit) topics.add('spam')
+
+  const isOrderByPhoneHit =
+    /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|tomar (?:mi |una )?orden|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?orden|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar)|llamando para (?:hacer )?una? (?:orden|pedido)|place an order|order over the phone|put in an order|take my order|i want to order|i'd like to order|like to place an order)\b/i.test(
+      normUser
+    ) && !/\b(cuanto|cuesta|precio|price|how much)\b/i.test(normUser)
+  if (isOrderByPhoneHit) topics.add('order_by_phone')
+
+  const isTodayHoursHit =
+    /\b(a que hora (?:abren|cierran)|hora de (?:cierre|apertura)|estan abiertos|esta abierto|siguen abiertos|hasta que hora|cual es (?:su|el) horario(?: de hoy)?|what time do you (?:open|close)|are you open|still open|your hours(?: today)?)\b/i.test(
+      normUser
+    ) && !/\b(manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday|fin de semana|weekend|festiv|holiday|thanksgiving|navidad|nochebuena|christmas|black friday|ano nuevo|new year|viernes santo|good friday)\b/i.test(normUser)
+  if (isTodayHoursHit) topics.add('today_hours')
+
+  const weekdayTokens = [
+    { dow: 0, re: /\b(domingo|domingos|sunday|sundays)\b/i },
+    { dow: 1, re: /\b(lunes|monday|mondays)\b/i },
+    { dow: 2, re: /\b(martes|tuesday|tuesdays)\b/i },
+    { dow: 3, re: /\b(miercoles|wednesday|wednesdays)\b/i },
+    { dow: 4, re: /\b(jueves|thursday|thursdays)\b/i },
+    { dow: 5, re: /\b(viernes|friday|fridays)\b/i },
+    { dow: 6, re: /\b(sabado|sabados|saturday|saturdays)\b/i }
+  ].filter((d) => d.re.test(normUser))
+  const mentionsTomorrow = /\b(manana|tomorrow)\b/i.test(normUser)
+  const mentionsWeekend = /\b(fin de semana|weekend)\b/i.test(normUser)
+  const isSpecificHolidayWord =
+    /\b(festiv|holiday|holidays|thanksgiving|accion de gracias|black friday|navidad|nochebuena|christmas|fin de ano|ano nuevo|new year|viernes santo|good friday|cinco de mayo|4 de julio|july 4|labor day|madres|mothers day)\b/i.test(
+      normUser
+    )
+  if ((mentionsTomorrow || mentionsWeekend || weekdayTokens.length === 1) && !isSpecificHolidayWord) {
+    if (/\b(hora|horario|abren|cierran|abierto|cerrado|open|close|hours)\b/i.test(normUser) || /^(?:y\s+)?(?:el|los|para)?\s*(?:manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\??$/i.test(normUser.trim())) {
+      topics.add('weekday_hours')
+    }
+  }
+  if (isSpecificHolidayWord) {
+    topics.add('holidays')
+  }
+
+  const isAddressOrPhoneHit =
+    /\b(cual es (?:la|su) direccion|donde estan ubicados|donde queda|me das la direccion|en donde estan|cual es (?:el|su) telefono|numero de telefono de la tienda|what is (?:the|your) address|where are you located|store phone number)\b/i.test(
+      normUser
+    )
+  if (isAddressOrPhoneHit) topics.add('address_phone')
+
+  const asksWhichDriveThruStores =
+    /\b(cuales|que tiendas|que sucursales|cuantas sucursales|which stores|which locations|where do you have).{0,28}\b(drive|ventanilla)\b/i.test(
+      normUser
+    )
+  const isDriveThruHit =
+    asksWhichDriveThruStores ||
+    /\b(tienen drive|hay drive|cuentan con drive|do you have (?:a )?drive)\b/i.test(normUser)
+  if (isDriveThruHit) topics.add('drive_thru')
+
+  const isPaymentsHit =
+    /\b(ebt|calfresh|food stamps|estampillas|apple pay|google pay|formas de pago|metodos de pago|aceptan tarjeta|pagar con tarjeta|aceptan efectivo|payment methods|accept credit|accept debit|do you take cash|accept apple pay)\b/i.test(
+      normUser
+    )
+  if (isPaymentsHit) topics.add('payments_ebt')
+
+  const isJobHit =
+    /\b(bolsa de trabajo|estan contratando|tienen vacantes|solicitud de empleo|aplicar para trabajar|busco trabajo|como aplico|want to apply|are you hiring|hiring|job application|apply for a job|looking for a job)\b/i.test(
+      normUser
+    )
+  if (isJobHit) topics.add('job_inquiry')
+
+  const isDriverSelf =
+    /\b(soy repartidor|repartidor|(?:delivery|uber(?:\s*eats)?|doordash|door dash|grubhub)\s+driver|dasher|courier|picking up|voy a recoger|vengo a recoger|pick up an? order|where\s+(?:do|can)\s+i\s+pick\s*up)\b/i.test(
+      normUser
+    )
+  if (isDriverSelf && /\b(uber|doordash|grubhub|driver|repartidor|donde recojo|where\s+(?:do|can)\s+i\s+pick|drive|comedor|mostrador|counter)\b/i.test(normUser)) {
+    topics.add('delivery_driver')
+  }
+
+  const mentionsDeliveryApp = /\b(uber(?:\s*eats)?|doordash|door dash|grubhub)\b/i.test(normUser)
+  const asksAppModifyPolicy =
+    mentionsDeliveryApp &&
+    !isDriverSelf &&
+    !needsInteractiveFlow &&
+    /\b(agregar|anadir|cambiar|modificar|corregir|cancelar|direccion|modify|change|edit|cancel|address|add food|add items)\b/i.test(
+      normUser
+    )
+  if (asksAppModifyPolicy) topics.add('delivery_app_modify')
+
+  const asksSpecificPriceWord = /\b(cuanto cuesta|cuesta|precio|precios|vale|a como|how much|price|cost)\b/i.test(normUser)
+
+  const isAguasHit =
+    !asksSpecificPriceWord &&
+    /\b(que sabores? de aguas?|cuales aguas? frescas?|tienen agua de|tienen pepino|tamano de (?:las? )?(?:aguas|bebidas|champurrado|vaso)|cuantas onzas|what (?:aguas frescas|flavors|drinks|sizes)|do you have cucumber)\b/i.test(
+      normUser
+    )
+  if (isAguasHit) topics.add('aguas_drinks')
+
+  const isDessertsHit =
+    /\b(pastel(?:es)?(?: de cumpleanos)?|birthday cakes?|whole cakes?|que postres?|venden postres?|tienen postres?|tienen flan|tienen cheesecake|tienen churros|what desserts?|do you have cakes?|do you sell desserts?|tres leches)\b/i.test(
+      normUser
+    )
+  if (isDessertsHit) topics.add('desserts')
+
+  const isMeatsHit =
+    !asksSpecificPriceWord &&
+    /\b(que carnes? tienen|cuales carnes? manejan|tipos de carne|what meats do you (?:have|serve)|which meats)\b/i.test(normUser)
+  if (isMeatsHit) topics.add('meats_list')
+
+  const isRegularSuperHit =
+    /\b(diferencia entre.{0,18}(?:regular|super)|que (?:lleva|tiene|trae) la (?:super|regular)|what is the difference between.{0,18}(?:regular|super))\b/i.test(
+      normUser
+    ) && !asksSpecificPriceWord
+  if (isRegularSuperHit) topics.add('regular_vs_super')
+
+  const isCubanaOrTortaCheeseHit =
+    !asksSpecificPriceWord &&
+    (/\b((?:que|cuales)(?:\s+(?:carnes?|ingredientes?|es lo que))?\s+(?:lleva|tiene|contiene|trae|son|incluye)\s+(?:(?:la|una)\s+)?(?:torta\s+cubana|cubana)|de\s+que\s+(?:es|esta\s+hecha)\s+(?:la\s+)?(?:torta\s+cubana|cubana)|what.{0,20}torta cubana|ingredients.{0,16}(?:torta\s+)?cubana)\b/i.test(
+      normUser
+    ) ||
+      /\b(que queso (?:lleva|llevan|tienen) las tortas|tortas?.{0,16}(?:crema|queso fundido|queso)|what cheese.{0,12}tortas)\b/i.test(normUser))
+  if (isCubanaOrTortaCheeseHit) topics.add('torta_info')
+
+  const mentionsManagedDish = /\b(taco|burrito|mulita|quesadilla|torta|sope|nacho|horchata|jamaica|flan|cheesecake|asada|pastor|pollo|cabeza|lengua|buche|chorizo|carnitas)\b/i.test(normUser)
+  const isUnsupportedOnlyHit =
+    !mentionsManagedDish &&
+    /\b(tienen|venden|hay|manejan|do you (?:have|sell|serve))\s+(?:el\s+|la\s+|un\s+|una\s+)?(menudo|birria|pozole|suadero|tripa|tripas|cerveza|beer|alcohol|michelada|churros?)\b/i.test(
+      normUser
+    )
+  if (isUnsupportedOnlyHit) topics.add('unsupported_items')
+
+  const isFiestaCanonicalHit =
+    wantsFiestaContext &&
+    !/\b(puro arroz|puro frijol|solo carne|mi charola|ya ordene|ya pedi)\b/i.test(normUser) &&
+    (detectedGuestCount !== null ||
+      /\b(que incluye|tamanos|como ordeno|donde ordeno|charolas|fiesta platters?|party trays?|what do.{0,18}include|how to order)\b/i.test(
+        normUser
+      ))
+  if (isFiestaCanonicalHit) topics.add('fiesta_platters')
+
+  // Si hay un reclamo/recado abierto de turnos previos aún sin registrar, solo permitir cierre explícito para no secuestrar respuestas cortas como "el viernes"
+  if (hadPriorPostOrderTurn && !hadPriorCallbackInCall) {
+    if (!(topics.size === 1 && topics.has('closing'))) return null
+  }
+
+  // Primer turno de orden equivocada o incompleta en Drive-Thru, comedor o mostrador (sin Uber/DD/GH y antes de dar ticket/teléfono/nombre)
+  const expandedDigitsUser = replaceSpokenDigitRuns(userText)
+  const alreadyHasTenDigitPhone =
+    /(?:\+?1[\s,.\-]*)?(?:\(?\d{3}\)?[\s,.\-]*\d{3}[\s,.\-]*\d{2}[\s,.\-]*\d{2}|(?:\d[\s,.\-]*){10,11})/.test(
+      expandedDigitsUser
+    )
+  const alreadyHasTicketRef =
+    /\b(?:ticket|recibo|orden|order|receipt)(?:\s+(?:numero|number|num|no|es|fue|era|is|was|el|la|#)){0,3}\s*[a-z0-9\-]*\d[a-z0-9\-]*\b/i.test(normUser) ||
+    /#\s*\d{2,6}\b/.test(userText)
+  const alreadyHasCallerName =
+    /\b(?:me llamo|mi nombre es|my name is)\s+[a-z]{2,}\b/i.test(normUser) ||
+    (/\b(?:soy|habla|this is)\s+([a-z]{2,})\b/i.test(normUser) &&
+      !/\b(?:soy|habla|this is)\s+(?:un|una|el|la|cliente|customer|caller|calling|missing|having|ordering|speaking|trying|here|llamando|para|por|de)\b/i.test(
+        normUser
+      ))
+  const alreadyStatesNoTicket =
+    /\b(?:no tengo|sin|perdi|tire|no me dieron|olvide)\s+(?:el\s+|mi\s+)?(?:ticket|recibo|comprobante)\b/i.test(normUser) ||
+    /\b(?:dont|do not|didnt|did not)\s+(?:have|get|keep)\s+(?:the\s+|my\s+|a\s+)?(?:ticket|receipt)\b/i.test(normUser) ||
+    /\b(?:lost|threw\s+away)\s+(?:the\s+|my\s+)?(?:ticket|receipt)\b/i.test(normUser)
+  const isAddingFreeCondimentsOnly =
+    /\b(agregar|anadir|poner(?:le)?|incluir|mandar|regalar|add|include|extra)\b.{0,28}\b(salsas?|limon(?:es)?|cilantro|cebolla|condimentos?|servilletas?|cubiertos?|tenedores?|utensils?|napkins?|limes?)\b/i.test(
+      normUser
+    )
+  const isWrongBranchMention =
+    /\b(sucursal equivocada|tienda equivocada|otra sucursal|otra tienda|me equivoque de (?:sucursal|tienda)|wrong store|wrong location|other store|other location)\b/i.test(
+      normUser
+    )
+  const isLostOrBillingOrSick =
+    /\b(olvide mi|deje mi|perdi mi|cartera|llaves|celular|bolsa|mochila|wallet|keys|cobro doble|doble cobro|cobraron de mas|overcharged|enferm|intoxic|got sick|food poisoning)\b/i.test(
+      normUser
+    )
+  const isThirdPartyDeliveryContext =
+    /\b(uber(?:\s*eats)?|doordash|door dash|grubhub|postmates|repartidor|driver|chofer|aplicacion|delivery)\b/i.test(normUser)
+  const mentionsWrongOrIncompleteOrder =
+    /\b(orden equivocad[oa]|pedido equivocad[oa]|salio equivocad[oa]|venia equivocad[oa]|estaba equivocad[oa]|orden mal|pedido mal|me dieron mal|salio mal|venia mal|vino mal|hicieron mal|prepararon mal|equivocaron|equivocad[oa]s?|me cambiaron|no era lo que pedi|me falto|me faltaron|faltaron|incomplet[oa]s?|no me pusieron|no me dieron|no venia|no traia|wrong order|got my order wrong|messed up my order|order was wrong|order came out wrong|order is wrong|missing (?:item|items|food|tacos?|burritos?|quesadillas?|mulitas?|tortas?|plates?|drinks?)|left out|forgot my)\b/i.test(
+      normUser
+    ) ||
+    (/\b(drive[\s\-]*thru|ventanilla|comedor|mostrador|en caja|para llevar|dine[\s\-]*in|take[\s\-]*out|counter)\b/i.test(normUser) &&
+      /\b(equivocad[oa]s?|mal|mala|malos|malas|falto|faltaron|incomplet[oa]s?|wrong|missing|mistake|incorrect)\b/i.test(normUser))
+
+  if (
+    !hadPriorPostOrderTurn &&
+    !isDriverSelf &&
+    !isThirdPartyDeliveryContext &&
+    !isWrongBranchMention &&
+    !isAddingFreeCondimentsOnly &&
+    !isLostOrBillingOrSick &&
+    !alreadyHasTenDigitPhone &&
+    !alreadyHasTicketRef &&
+    !alreadyHasCallerName &&
+    !alreadyStatesNoTicket &&
+    mentionsWrongOrIncompleteOrder
+  ) {
+    topics.add('in_store_wrong_order')
+  }
+
+  if (!hadPriorPostOrderTurn && !alreadyHasTenDigitPhone && !alreadyHasTicketRef && !alreadyHasCallerName) {
+    const isDeliveryDelayedHit =
+      isThirdPartyDeliveryContext &&
+      !isDriverSelf &&
+      !isWrongBranchMention &&
+      /\b(no ha llegado|no me llega|no llega|tardando|retras[oa]?(?:d[oa]s?)?|hasnt arrived|has not arrived|not arrived|never arrived|delayed|taking too long)\b/i.test(
+        normUser
+      )
+    if (isDeliveryDelayedHit) topics.add('delivery_app_delayed')
+
+    const isDeliveryWrongHit =
+      isThirdPartyDeliveryContext &&
+      !isDriverSelf &&
+      !isWrongBranchMention &&
+      !isDeliveryDelayedHit &&
+      mentionsWrongOrIncompleteOrder
+    if (isDeliveryWrongHit) topics.add('delivery_app_wrong')
+
+    if (isAddingFreeCondimentsOnly && !mentionsWrongOrIncompleteOrder && !isWrongBranchMention) {
+      topics.add('condiments_initial')
+    }
+
+    const namesSpecificOtherBranch =
+      /\b(covina|azusa|broadway|vernon|washington|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
+        normUser
+      ) && !normUser.includes(normalizeSearchText(cleanPhoneStoreName(store.name)))
+    if (isWrongBranchMention && !namesSpecificOtherBranch && !isThirdPartyDeliveryContext) {
+      topics.add('wrong_store_initial')
+    }
+  }
+
+  const allowedInteractiveTopics = new Set([
+    'delivery_app_modify',
+    'in_store_wrong_order',
+    'delivery_app_delayed',
+    'delivery_app_wrong',
+    'condiments_initial',
+    'wrong_store_initial'
+  ])
+
+  // Si toca flujo interactivo/callback o menciona precios/ítems no cubiertos o hay más de 1 tema -> usar Hedged Gemini
+  if (needsInteractiveFlow && topics.size === 0) return null
+  if (needsInteractiveFlow && !Array.from(topics).every((t) => allowedInteractiveTopics.has(t))) return null
+  if (topics.size !== 1) return null
+
+  const onlyTopic = Array.from(topics)[0]
+  const mentionsOtherStore =
+    !asksWhichDriveThruStores &&
+    onlyTopic !== 'wrong_store_initial' &&
+    /\b(otra|otras|other|otra sucursal|otra tienda|covina|azusa|broadway|vernon|washington|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
+      normUser
+    ) &&
+    !normUser.includes(normalizeSearchText(cleanPhoneStoreName(store.name)))
+  if (mentionsOtherStore) return null
+
+  // Palabras sueltas de menú que no pertenecen al topic elegido -> dejar que Gemini responda el precio o detalle
+  if (
+    asksSpecificPriceWord &&
+    onlyTopic !== 'fiesta_platters' &&
+    onlyTopic !== 'desserts'
+  ) {
+    return null
+  }
+
+  switch (onlyTopic) {
+    case 'closing':
+      return {
+        replyText:
+          lang === 'en'
+            ? 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!'
+            : 'Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
+      }
+    case 'spam':
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Thank you for calling, however we do not accept commercial solicitations at this location. Have a great day!'
+            : 'Agradecemos tu llamada, pero en esta sucursal no recibimos ofertas comerciales ni servicios externos. ¡Que tengas excelente día!',
+        markAsSpam: true
+      }
+    case 'delivery_app_delayed':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'delivery', /retrasadas, no entregadas/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Delivery transit is handled by your app driver. If it has been waiting too long for pickup, may I have your name, 10-digit phone, and order code so we can check the counter?'
+            : 'El traslado depende del repartidor en tu app. Si lleva mucho tiempo esperando repartidor, ¿me das tu nombre, teléfono de 10 dígitos y código de orden para revisar en mostrador si sigue aquí?'
+      }
+    case 'delivery_app_wrong':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'delivery', /retrasadas, no entregadas/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'I apologize for that. Please report it in the Help section of your app for your refund or credit. If you also want to alert the manager, may I have your name, 10-digit phone, and order code?'
+            : 'Lamento el inconveniente. Por favor repórtalo en la sección Ayuda de tu app para tu reembolso o crédito. Si gustas avisar al gerente, ¿me das tu nombre, teléfono de 10 dígitos y código de orden?'
+      }
+    case 'condiments_initial':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'policies', /agregar condimentos gratis/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'I can send a packing note to include them as long as your order has not left yet. May I have your name, order number, which condiments you need, and your 10-digit phone number?'
+            : 'Con gusto envío nota de empaque para incluirlos siempre que tu orden aún no haya salido. ¿Me das tu nombre, número de orden, qué condimentos deseas y tu teléfono de 10 dígitos?'
+      }
+    case 'wrong_store_initial':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'policies', /sucursal equivocada/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Paid orders cannot be moved between stores. For app orders please cancel right away in the app; for tacosgavilan.com pickup, which store did it go to, and what is your name, phone, and order number?'
+            : 'No podemos mover órdenes pagadas entre tiendas. Si fue por app, cancélala de inmediato en tu app; si fue en tacosgavilan.com, ¿en qué sucursal cayó y cuál es tu nombre, teléfono y número de orden?'
+      }
+    case 'in_store_wrong_order':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'policies', /equivocadas o incompletas en drive-thru/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'I apologize for the inconvenience. To review how your order was prepared, may I have your ticket number, date, name, and phone number? Without the ticket, it is unlikely we can verify the mistake.'
+            : 'Lamento el inconveniente. Para revisar la preparación de tu orden, ¿me das tu número de ticket, fecha, nombre y teléfono? Sin el ticket es poco probable determinar la equivocación.'
+      }
+    case 'order_by_phone':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'policies', /pedidos por tel/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? `I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or ${store.has_drive_thru ? 'directly at the counter or Drive-Thru.' : 'directly at the counter.'} How else can I help you?`
+            : `Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o ${store.has_drive_thru ? 'pedir directamente en caja o por el Drive-Thru.' : 'pedir directamente en caja.'} ¿Te ayudo con algo más?`
+      }
+    case 'today_hours':
+      return {
+        replyText:
+          lang === 'en'
+            ? `${scheduleEval.statusMessageEn} How else can I help you?`
+            : `${scheduleEval.statusMessageEs} ¿Te puedo ayudar con algo más?`,
+        toolsUsedToAdd: ['get_store_hours_and_status']
+      }
+    case 'weekday_hours': {
+      if (mentionsWeekend) {
+        const ptNow = getPacificDateParts()
+        const friOffset = (5 - ptNow.dayOfWeek + 7) % 7
+        const satOffset = (6 - ptNow.dayOfWeek + 7) % 7
+        const sunOffset = (0 - ptNow.dayOfWeek + 7) % 7
+        const weeklyMap = normalizeWeeklyHours(store.weekly_hours)
+        const getFmt = (off: number) => {
+          const [yy, mm, dd] = ptNow.dateStr.split('-').map(Number)
+          const dt = new Date(Date.UTC(yy, mm - 1, dd + off))
+          const dStr = dt.toISOString().slice(0, 10)
+          const eff = resolveEffectiveDaySchedule({ storeIdNum: store.id, regular: weeklyMap[dt.getUTCDay()], dateStr: dStr, specialHours: storeSpecial })
+          return eff.isClosedAllDay ? (lang === 'en' ? 'Closed' : 'Cerrado') : `${formatTime12h(eff.open, lang)} - ${formatTime12h(eff.close, lang)}`
+        }
+        const friStr = getFmt(friOffset)
+        const satStr = getFmt(satOffset)
+        const sunStr = getFmt(sunOffset)
+        return {
+          replyText:
+            lang === 'en'
+              ? `Friday and Saturday we are open ${friStr === satStr ? friStr : `${friStr} and ${satStr}`}, and Sunday ${sunStr}. Anything else?`
+              : `Viernes y sábado abrimos de ${friStr === satStr ? friStr : `${friStr} y ${satStr}`}, y domingo de ${sunStr}. ¿Algo más?`,
+          toolsUsedToAdd: ['get_store_hours_and_status']
+        }
+      }
+      if (mentionsTomorrow) {
+        const ptNow = getPacificDateParts()
+        const tomDow = (ptNow.dayOfWeek + 1) % 7
+        return {
+          replyText: formatCanonicalScheduleForOffsetDay({
+            store,
+            specialHours: storeSpecial,
+            offsetDays: 1,
+            explicitDow: tomDow,
+            prefixLabelEs: `Mañana ${DAY_NAMES_ES[tomDow].toLowerCase()}`,
+            prefixLabelEn: `Tomorrow (${DAY_NAMES_EN[tomDow]})`,
+            lang
+          }),
+          toolsUsedToAdd: ['get_store_hours_and_status']
+        }
+      }
+      const targetDow = weekdayTokens[0].dow
+      const ptNow = getPacificDateParts()
+      const offsetDays = (targetDow - ptNow.dayOfWeek + 7) % 7
+      return {
+        replyText: formatCanonicalScheduleForOffsetDay({
+          store,
+          specialHours: storeSpecial,
+          offsetDays,
+          explicitDow: targetDow,
+          prefixLabelEs: '',
+          prefixLabelEn: '',
+          lang
+        }),
+        toolsUsedToAdd: ['get_store_hours_and_status']
+      }
+    }
+    case 'holidays': {
+      const holMatchRe: Array<{ re: RegExp; keyRe: RegExp }> = [
+        { re: /\b(thanksgiving|accion de gracias)\b/i, keyRe: /thanksgiving/i },
+        { re: /\bblack friday\b/i, keyRe: /black friday/i },
+        { re: /\b(nochebuena|christmas eve|24 de diciembre|dec\w* 24)\b/i, keyRe: /nochebuena|christmas eve/i },
+        { re: /\b(navidad|christmas(?! eve)|25 de diciembre|dec\w* 25)\b/i, keyRe: /navidad|christmas day/i },
+        { re: /\b(fin de ano|new year.?s eve|31 de diciembre|dec\w* 31)\b/i, keyRe: /fin de|new year.?s eve/i },
+        { re: /\b(ano nuevo|new year.?s day|1 de enero|jan\w* 1)\b/i, keyRe: /ano nuevo|new year.?s day/i },
+        { re: /\b(viernes santo|good friday)\b/i, keyRe: /viernes santo|good friday/i }
+      ]
+      const specificHol = holMatchRe.find((h) => h.re.test(normUser))
+      if (specificHol) {
+        const foundHol = upcomingHolidays.find((h: any) =>
+          specificHol.keyRe.test(normalizeSearchText(`${h.holiday_name_es} ${h.holiday_name_en}`))
+        )
+        if (foundHol) {
+          const holName = lang === 'en' ? foundHol.holiday_name_en : foundHol.holiday_name_es
+          if (foundHol.is_closed) {
+            return {
+              replyText:
+                lang === 'en'
+                  ? `On ${holName} all Tacos Gavilan locations are closed all day. Can I help with anything else?`
+                  : `En ${holName} cerramos todo el día en nuestras sucursales. ¿Te ayudo con algo más?`,
+              toolsUsedToAdd: ['get_store_hours_and_status']
+            }
+          }
+          return {
+            replyText:
+              lang === 'en'
+                ? `On ${holName} this location is open from ${formatTime12h(foundHol.effective_open, 'en')} to ${formatTime12h(foundHol.effective_close, 'en')}. Anything else?`
+                : `En ${holName} esta sucursal abre de ${formatTime12h(foundHol.effective_open, 'es')} a ${formatTime12h(foundHol.effective_close, 'es')}. ¿Te ayudo con algo más?`,
+            toolsUsedToAdd: ['get_store_hours_and_status']
+          }
+        }
+      }
+      if (/\b(cinco de mayo|4 de julio|july 4|labor day|madres|mothers day)\b/i.test(normUser)) {
+        return {
+          replyText:
+            lang === 'en'
+              ? 'We operate regular hours on that holiday. Can I help with your store’s hours or menu?'
+              : 'Ese día festivo operamos en horario normal en todas nuestras sucursales. ¿Te ayudo con algo más?',
+          toolsUsedToAdd: ['get_store_hours_and_status']
+        }
+      }
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'hours', /festivos/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'We only adjust hours on 7 holidays a year: closed Good Friday and Christmas Day; closing at 4:00 PM on Thanksgiving, Christmas Eve, and New Year’s Eve; and opening at 11:00 AM on New Year’s Day and Black Friday. Anything else?'
+            : 'Solo modificamos horario 7 fechas al año: cerramos Viernes Santo y Navidad 25 de diciembre; cerramos a las 4:00 PM en Thanksgiving, Nochebuena y Fin de Año; y abrimos a las 11:00 AM en Año Nuevo y Black Friday. ¿Te ayudo con algo más?',
+        toolsUsedToAdd: ['get_store_hours_and_status']
+      }
+    }
+    case 'address_phone': {
+      const asksPhone = /\b(telefono|numero de telefono|numero de la tienda|phone number|store number)\b/i.test(normUser)
+      if (asksPhone && store.phone) {
+        return {
+          replyText:
+            lang === 'en'
+              ? `Our store phone number is ${store.phone}, and we are located at ${spokenStoreAddress}${customerBranchCrossStreets ? `, at the corner of ${customerBranchCrossStreets}` : ''}. Anything else?`
+              : `El teléfono de esta sucursal es ${store.phone} y estamos en ${spokenStoreAddress}${customerBranchCrossStreets ? `, en la esquina de ${customerBranchCrossStreets}` : ''}. ¿Te ayudo con algo más?`
+        }
+      }
+      return {
+        replyText:
+          lang === 'en'
+            ? `We are located at ${spokenStoreAddress}${customerBranchCrossStreets ? `, at the corner of ${customerBranchCrossStreets}` : ''}. How else can I help you?`
+            : `Estamos ubicados en ${spokenStoreAddress}${customerBranchCrossStreets ? `, en la esquina de ${customerBranchCrossStreets}` : ''}. ¿Te puedo ayudar con algo más?`
+      }
+    }
+    case 'drive_thru':
+      if (asksWhichDriveThruStores && allActiveStores.length > 0) {
+        const dtNames = allActiveStores
+          .filter((s) => s.has_drive_thru)
+          .map((s) => formatCustomerStoreName(s, lang, { style: 'spoken_compact' }))
+        return {
+          replyText:
+            lang === 'en'
+              ? `Our six locations with Drive-Thru are ${dtNames.join(', ')}. Would you like hours or address for any of them?`
+              : `Las seis sucursales con Drive-Thru son ${dtNames.join(', ')}. ¿Te doy el horario o dirección de alguna?`
+        }
+      }
+      return {
+        replyText:
+          lang === 'en'
+            ? store.has_drive_thru
+              ? 'We have Drive-Thru service at this location. How else can I help you?'
+              : 'We do not have a Drive-Thru at this location, but we gladly serve you for dine-in and takeout. How else can I help you?'
+            : store.has_drive_thru
+              ? 'Contamos con servicio de Drive-Thru en esta sucursal. ¿Te puedo ayudar con algo más?'
+              : 'En esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar. ¿Te puedo ayudar con algo más?'
+      }
+    case 'payments_ebt':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'payments', /formas de pago/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? config.accepts_ebt
+              ? 'We accept cash, credit and debit cards, Apple Pay, Google Pay, and EBT CalFresh at the register. How else can I help you?'
+              : 'We accept cash, credit and debit cards, Apple Pay, and Google Pay; EBT CalFresh is not available at this location. How else can I help you?'
+            : config.accepts_ebt
+              ? 'Aceptamos efectivo, tarjetas, Apple Pay, Google Pay y también tarjeta EBT CalFresh directamente en caja. ¿Te ayudo con algo más?'
+              : 'Aceptamos efectivo, tarjetas de débito o crédito, Apple Pay y Google Pay; en esta sucursal no contamos con EBT CalFresh. ¿Te ayudo con algo más?'
+      }
+    case 'job_inquiry':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'employment', /empleo/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'You can apply in person with the store manager at any of our 15 locations, or submit your information at tacosgavilan.com/contact. Anything else?'
+            : 'Puedes acudir en persona con el gerente a cualquiera de nuestras 15 sucursales para llenar solicitud, o enviar tus datos en tacosgavilan.com/contact. ¿Algo más?'
+      }
+    case 'delivery_driver':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'delivery', /repartidores/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? store.has_drive_thru
+              ? 'Uber Eats, DoorDash, and Grubhub drivers pick up at the counter by showing the customer name and code, or via the Drive-Thru window once the dining room closes. Anything else?'
+              : 'This location does not have a Drive-Thru, so Uber Eats, DoorDash, and Grubhub drivers pick up at the counter during open hours by showing the customer name and order code. Anything else?'
+            : store.has_drive_thru
+              ? 'Los repartidores de Uber Eats, DoorDash y Grubhub recogen en el mostrador mostrando el nombre y código del cliente; si el comedor ya cerró pero seguimos abiertos, pasan por el Drive-Thru. ¿Algo más?'
+              : 'En esta sucursal no tenemos Drive-Thru, así que todos los repartidores de Uber Eats, DoorDash y Grubhub recogen en mostrador dentro de nuestro horario mostrando nombre y código. ¿Algo más?'
+      }
+    case 'delivery_app_modify':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'delivery', /cambios o cancelaciones/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Because your order was paid through the delivery app, the restaurant cannot edit paid items or change the delivery address. Please modify or cancel it directly in the Help section of your app. Anything else?'
+            : 'Como tu pedido se pagó directo en la aplicación, la sucursal no puede modificar platillos con costo ni cambiar la dirección. Debes ajustarlo o cancelarlo desde la sección Ayuda de tu app. ¿Algo más?'
+      }
+    case 'aguas_drinks':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'menu', /aguas frescas/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'We serve fresh Horchata, Jamaica, Pineapple, and Tamarind aguas frescas in 22, 32, and 128 oz gallons, plus 16 oz hot Coffee and Champurrado and a 96 oz Champurrado box. Anything else?'
+            : 'Tenemos aguas frescas naturales de Horchata, Jamaica, Piña y Tamarindo en 22 onzas, 32 onzas y galón de 128 onzas, además de Champurrado y Café en 16 onzas y caja de 96 onzas. ¿Algo más?'
+      }
+    case 'desserts': {
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'menu', /postres oficiales/i)) return null
+      const findLivePriceNum = (re: RegExp): number | null => {
+        const hit = liveMenuItems.find((m: any) => re.test(String(m?.name || '')) && Number.isFinite(Number(m?.price)) && Number(m?.price) > 0)
+        return hit ? Number(hit.price) : null
+      }
+      const flanP = findLivePriceNum(/\bflan\b/i)
+      const cheeseP = findLivePriceNum(/\bcheesecake\b/i)
+      const flanEs = flanP !== null ? ` ($${flanP.toFixed(2)} dólares)` : ''
+      const cheeseEs = cheeseP !== null ? ` ($${cheeseP.toFixed(2)} dólares)` : ''
+      const flanEn = flanP !== null ? ` ($${flanP.toFixed(2)})` : ''
+      const cheeseEn = cheeseP !== null ? ` ($${cheeseP.toFixed(2)})` : ''
+      return {
+        replyText:
+          lang === 'en'
+            ? `We do not sell birthday cakes, whole cakes, or churros. For dessert we only offer individual Flan${flanEn} and Cheesecake${cheeseEn}. How else can I help you?`
+            : `No vendemos pasteles de cumpleaños ni churros. De postre solo ofrecemos Flan${flanEs} y Cheesecake${cheeseEs} individuales. ¿Te puedo ayudar con algo más?`
+      }
+    }
+    case 'meats_list':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'menu', /variedad de carnes/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'We serve Carne Asada, Al Pastor, Chicken, Cabeza, Tongue, Buche, Chorizo, and Carnitas, with freshly made salsas and tortillas daily. Would you like any prices?'
+            : 'Manejamos Carne Asada, Al Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo y Carnitas, con tortillas y salsas frescas todos los días. ¿Te ayudo con algún precio?'
+      }
+    case 'regular_vs_super':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'menu', /regular y super/i)) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'For quesadillas and mulitas, Super adds guacamole and sour cream. For burritos, Super adds Monterey Jack cheese, guacamole, and sour cream to the meat, rice, and beans. Anything else?'
+            : 'En quesadillas y mulitas, la Super añade guacamole y crema. En burritos, el Super Burrito añade queso Monterey Jack, guacamole y crema además de carne, arroz y frijol. ¿Algo más?'
+      }
+    case 'torta_info':
+      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'menu', /torta cubana/i)) return null
+      if (/\bcubana\b/i.test(normUser)) {
+        return {
+          replyText:
+            lang === 'en'
+              ? 'Our Torta Cubana comes with breaded steak, ham, and wiener sausage on a telera roll with Queso Fresco, beans, avocado, lettuce, tomato, and mayo, with no sour cream or melted cheese. Anything else?'
+              : 'Nuestra Torta Cubana lleva milanesa de res, jamón y salchicha en telera con Queso Fresco, frijoles, guacamole, lechuga, tomate y mayonesa, sin crema ni queso fundido. ¿Algo más?'
+        }
+      }
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Our tortas come with sliced Queso Fresco, beans, avocado, lettuce, tomato, and mayo, and never include sour cream or melted cheese. Anything else?'
+            : 'Las tortas llevan Queso Fresco en rebanada, frijol, guacamole, lechuga, tomate y mayonesa; jamás llevan crema ni queso fundido. ¿Te ayudo con algo más?'
+      }
+    case 'unsupported_items':
+      return {
+        replyText:
+          lang === 'en'
+            ? 'I apologize, we do not serve menudo, birria, pozole, suadero, tripa, or alcoholic beverages. We gladly offer our 8 meats and fresh aguas frescas instead. Anything else?'
+            : 'Disculpa, por el momento no manejamos menudo, birria, pozole, suadero, tripa ni bebidas alcohólicas. Con gusto te ofrecemos nuestras 8 carnes y aguas frescas. ¿Algo más?'
+      }
+    case 'fiesta_platters': {
+      const baseRec = lang === 'en' ? platterInfo.recommendationEn : platterInfo.recommendationEs
+      return {
+        replyText: `${baseRec} ${lang === 'en' ? 'Anything else?' : '¿Te ayudo con algo más?'}`,
+        toolsUsedToAdd: ['get_fiesta_platter_packages']
+      }
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * Devuelve la lista de locuciones canónicas estáticas (bilingües) para pre-calentamiento en Supabase Storage (`phone_v6/Kore`),
+ * de modo que al atender llamadas reales suenen con latencia ~0-90 ms desde caché sin esperar síntesis TTS en vivo.
+ */
+export function getStaticCanonicalWarmPhrases(): Array<{ text: string; lang: PhoneLang }> {
+  const staticPairs: Array<[string, string]> = [
+    ['Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!', 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!'],
+    ['Agradecemos tu llamada, pero en esta sucursal no recibimos ofertas comerciales ni servicios externos. ¡Que tengas excelente día!', 'Thank you for calling, however we do not accept commercial solicitations at this location. Have a great day!'],
+    ['Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o pedir directamente en caja o por el Drive-Thru. ¿Te ayudo con algo más?', 'I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or directly at the counter or Drive-Thru. How else can I help you?'],
+    ['Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o pedir directamente en caja. ¿Te ayudo con algo más?', 'I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or directly at the counter. How else can I help you?'],
+    ['Aceptamos efectivo, tarjetas, Apple Pay, Google Pay y también tarjeta EBT CalFresh directamente en caja. ¿Te ayudo con algo más?', 'We accept cash, credit and debit cards, Apple Pay, Google Pay, and EBT CalFresh at the register. How else can I help you?'],
+    ['Aceptamos efectivo, tarjetas de débito o crédito, Apple Pay y Google Pay; en esta sucursal no contamos con EBT CalFresh. ¿Te ayudo con algo más?', 'We accept cash, credit and debit cards, Apple Pay, and Google Pay; EBT CalFresh is not available at this location. How else can I help you?'],
+    ['Puedes acudir en persona con el gerente a cualquiera de nuestras 15 sucursales para llenar solicitud, o enviar tus datos en tacosgavilan.com/contact. ¿Algo más?', 'You can apply in person with the store manager at any of our 15 locations, or submit your information at tacosgavilan.com/contact. Anything else?'],
+    ['Los repartidores de Uber Eats, DoorDash y Grubhub recogen en el mostrador mostrando el nombre y código del cliente; si el comedor ya cerró pero seguimos abiertos, pasan por el Drive-Thru. ¿Algo más?', 'Uber Eats, DoorDash, and Grubhub drivers pick up at the counter by showing the customer name and code, or via the Drive-Thru window once the dining room closes. Anything else?'],
+    ['En esta sucursal no tenemos Drive-Thru, así que todos los repartidores de Uber Eats, DoorDash y Grubhub recogen en mostrador dentro de nuestro horario mostrando nombre y código. ¿Algo más?', 'This location does not have a Drive-Thru, so Uber Eats, DoorDash, and Grubhub drivers pick up at the counter during open hours by showing the customer name and order code. Anything else?'],
+    ['Como tu pedido se pagó directo en la aplicación, la sucursal no puede modificar platillos con costo ni cambiar la dirección. Debes ajustarlo o cancelarlo desde la sección Ayuda de tu app. ¿Algo más?', 'Because your order was paid through the delivery app, the restaurant cannot edit paid items or change the delivery address. Please modify or cancel it directly in the Help section of your app. Anything else?'],
+    ['Lamento el inconveniente. Para revisar la preparación de tu orden, ¿me das tu número de ticket, fecha, nombre y teléfono? Sin el ticket es poco probable determinar la equivocación.', 'I apologize for the inconvenience. To review how your order was prepared, may I have your ticket number, date, name, and phone number? Without the ticket, it is unlikely we can verify the mistake.'],
+    ['El traslado depende del repartidor en tu app. Si lleva mucho tiempo esperando repartidor, ¿me das tu nombre, teléfono de 10 dígitos y código de orden para revisar en mostrador si sigue aquí?', 'Delivery transit is handled by your app driver. If it has been waiting too long for pickup, may I have your name, 10-digit phone, and order code so we can check the counter?'],
+    ['Lamento el inconveniente. Por favor repórtalo en la sección Ayuda de tu app para tu reembolso o crédito. Si gustas avisar al gerente, ¿me das tu nombre, teléfono de 10 dígitos y código de orden?', 'I apologize for that. Please report it in the Help section of your app for your refund or credit. If you also want to alert the manager, may I have your name, 10-digit phone, and order code?'],
+    ['Con gusto envío nota de empaque para incluirlos siempre que tu orden aún no haya salido. ¿Me das tu nombre, número de orden, qué condimentos deseas y tu teléfono de 10 dígitos?', 'I can send a packing note to include them as long as your order has not left yet. May I have your name, order number, which condiments you need, and your 10-digit phone number?'],
+    ['No podemos mover órdenes pagadas entre tiendas. Si fue por app, cancélala de inmediato en tu app; si fue en tacosgavilan.com, ¿en qué sucursal cayó y cuál es tu nombre, teléfono y número de orden?', 'Paid orders cannot be moved between stores. For app orders please cancel right away in the app; for tacosgavilan.com pickup, which store did it go to, and what is your name, phone, and order number?'],
+    ['Tenemos aguas frescas naturales de Horchata, Jamaica, Piña y Tamarindo en 22 onzas, 32 onzas y galón de 128 onzas, además de Champurrado y Café en 16 onzas y caja de 96 onzas. ¿Algo más?', 'We serve fresh Horchata, Jamaica, Pineapple, and Tamarind aguas frescas in 22, 32, and 128 oz gallons, plus 16 oz hot Coffee and Champurrado and a 96 oz Champurrado box. Anything else?'],
+    ['Manejamos Carne Asada, Al Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo y Carnitas, con tortillas y salsas frescas todos los días. ¿Te ayudo con algún precio?', 'We serve Carne Asada, Al Pastor, Chicken, Cabeza, Tongue, Buche, Chorizo, and Carnitas, with freshly made salsas and tortillas daily. Would you like any prices?'],
+    ['En quesadillas y mulitas, la Super añade guacamole y crema. En burritos, el Super Burrito añade queso Monterey Jack, guacamole y crema además de carne, arroz y frijol. ¿Algo más?', 'For quesadillas and mulitas, Super adds guacamole and sour cream. For burritos, Super adds Monterey Jack cheese, guacamole, and sour cream to the meat, rice, and beans. Anything else?'],
+    ['Nuestra Torta Cubana lleva milanesa de res, jamón y salchicha en telera con Queso Fresco, frijoles, guacamole, lechuga, tomate y mayonesa, sin crema ni queso fundido. ¿Algo más?', 'Our Torta Cubana comes with breaded steak, ham, and wiener sausage on a telera roll with Queso Fresco, beans, avocado, lettuce, tomato, and mayo, with no sour cream or melted cheese. Anything else?'],
+    ['Las tortas llevan Queso Fresco en rebanada, frijol, guacamole, lechuga, tomate y mayonesa; jamás llevan crema ni queso fundido. ¿Te ayudo con algo más?', 'Our tortas come with sliced Queso Fresco, beans, avocado, lettuce, tomato, and mayo, and never include sour cream or melted cheese. Anything else?'],
+    ['Disculpa, por el momento no manejamos menudo, birria, pozole, suadero, tripa ni bebidas alcohólicas. Con gusto te ofrecemos nuestras 8 carnes y aguas frescas. ¿Algo más?', 'I apologize, we do not serve menudo, birria, pozole, suadero, tripa, or alcoholic beverages. We gladly offer our 8 meats and fresh aguas frescas instead. Anything else?'],
+    ['Contamos con servicio de Drive-Thru en esta sucursal. ¿Te puedo ayudar con algo más?', 'We have Drive-Thru service at this location. How else can I help you?'],
+    ['En esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar. ¿Te puedo ayudar con algo más?', 'We do not have a Drive-Thru at this location, but we gladly serve you for dine-in and takeout. How else can I help you?'],
+    ['Las seis sucursales con Drive-Thru son Los Ángeles en la esquina de Central y Washington, West Covina, La Puente, Norwalk, Lynwood y South Gate. ¿Te doy el horario o dirección de alguna?', 'Our six locations with Drive-Thru are Los Angeles at Central and Washington, West Covina, La Puente, Norwalk, Lynwood, and South Gate. Would you like hours or address for any of them?']
+  ]
+  const out: Array<{ text: string; lang: PhoneLang }> = []
+  for (const [esText, enText] of staticPairs) {
+    out.push({ text: esText, lang: 'es' })
+    out.push({ text: enText, lang: 'en' })
+  }
+  return out
+}
+
 export async function processPhoneAgentTurn(params: {
   callSid: string
   storeId: number
@@ -4021,6 +5187,7 @@ export async function processPhoneAgentTurn(params: {
   callbackCreated: any | null
   shouldTransferToPhone: string | null
   shouldHangup: boolean
+  isCanonicalReply?: boolean
   transcript: TranscriptEntry[]
   storeContext: Awaited<ReturnType<typeof getStorePhoneContext>>
   flushDbPromise?: Promise<void>
@@ -4167,15 +5334,27 @@ export async function processPhoneAgentTurn(params: {
       : normalizedUserForMatch
   const preFetchedMenu = rankMenuItemsForPrompt(liveMenuItems, combinedMenuQuery, 12)
 
+  const allUserTurnsText = transcript
+    .filter((t) => t.role === 'user')
+    .map((t) => normalizePhoneSttTranscript(t.text))
+    .join(' ')
+  const normAllUserForScope = normalizeSearchText(allUserTurnsText)
   const normCombinedForScope = normalizeSearchText(`${prevUserTexts.join(' ')} ${normalizedUserForMatch}`)
   const wantsHolidayContext =
     Boolean(scheduleEval.isSpecialHolidaySchedule) ||
     /\b(festiv|holiday|navidad|nochebuena|christmas|thanksgiving|accion de gracias|black friday|fin de ano|ano nuevo|new year|viernes santo|jueves santo|sabado de gloria|semana santa|good friday|pascua|easter|cinco de mayo|madres|mothers|padre|father|julio|july|labor|memorial|septiembre|halloween|dia de muertos|guadalupe|especial|24 de diciembre|25 de diciembre|31 de diciembre|1 de enero|december 24|december 25|december 31|january 1)\b/i.test(
       normCombinedForScope
     )
+  const ownCleanNameNorm = normalizeSearchText(cleanPhoneStoreName(store.name))
+  const mentionsForeignCityOrBranch =
+    /\b(covina|azusa|broadway|vernon|washington|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
+      normAllUserForScope
+    ) &&
+    (!ownCleanNameNorm || !normAllUserForScope.includes(ownCleanNameNorm) || /\b(otra|otras|other|equivocad[oa]|wrong)\b/i.test(normAllUserForScope))
   const wantsMultiStoreContext =
-    /\b(otra|otras|other|sucursal|sucursales|ubicacion|ubicaciones|locacion|locaciones|locations|tienda|tiendas|stores|branches|closest|nearest|earliest|latest|all stores|all locations|which store|which location|cerca|ciudad|zonas?|east la|este de los angeles|south la|sur de los angeles|downtown|sgv|san gabriel|orange|inland|drive thru|drive-thru|ventanilla|cierra mas|abre mas|todas|cuantas|covina|azusa|broadway|central|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto)\b/i.test(
-      normCombinedForScope
+    mentionsForeignCityOrBranch ||
+    /\b(otra sucursal|otra tienda|otras sucursales|otras tiendas|otras ubicaciones|sucursal equivocad[oa]|tienda equivocad[oa]|wrong store|wrong location|other store|other location|closest|nearest|earliest|latest|all stores|all locations|which store|which location|cual(?:es)? (?:sucursal|tienda|tienen)|cerca|zonas?|east la|este de los angeles|south la|sur de los angeles|downtown|sgv|san gabriel|orange|inland|cierra mas|abre mas|todas las sucursales|cuantas sucursales)\b/i.test(
+      normAllUserForScope
     )
   const wantsMenuCatalogContext =
     preFetchedMenu.length > 0 ||
@@ -4183,11 +5362,34 @@ export async function processPhoneAgentTurn(params: {
       normCombinedForScope
     )
 
-  // 2. Construir reglas KB evitando duplicar las 4 áreas ya inyectadas de forma canónica (salvo overrides específicos de sucursal)
+  const prevAssistantForTurn =
+    transcript
+      .slice(0, -1)
+      .filter((t) => t.role === 'assistant')
+      .slice(-1)[0]?.text || ''
+  const normUserForKbScope = normalizeSearchText(normalizedUserForMatch)
+  const isCallbackOrPostOrderTopic =
+    isPromptExpectingPhoneOrDetails(prevAssistantForTurn) ||
+    /\b(soy empleado|empleada|llegar tarde|mi turno|falto|faltaron|incompleta|equivocad|no ha llegado|retras|modificar|cambiar|cancelar|condimento|cilantro|cebolla|limon|jalapeno|servilleta|tenedor|cubierto|sucursal equivocada|wrong store|wrong location|ticket|queja|reembolso|olvide|perdi|gerente|manager|uber|doordash|grubhub|repartidor|contratando|empleo|vacantes|trabajo)\b/i.test(
+      normAllUserForScope
+    )
+
+  // 2. Podado contextual seguro de KB: reduce ~35-45% tokens de entrada en turnos de IA sin omitir overrides locales ni reglas editadas
   const kbFiltered = knowledgeBase.filter((rule: any) => {
     if (rule.store_id) return true
     const cat = String(rule.category || '').toLowerCase()
     if (cat === 'catering' && /fiesta platter/i.test(String(rule.title || ''))) return false
+    const updMs = rule.updated_at ? Date.parse(String(rule.updated_at)) : 0
+    if (Number.isFinite(updMs) && updMs > CANONICAL_KB_EPOCH_MS) return true
+    if (wantsMenuCatalogContext && !isCallbackOrPostOrderTopic) {
+      return cat === 'menu' || cat === 'payments' || cat === 'catering'
+    }
+    if (isCallbackOrPostOrderTopic && !wantsMenuCatalogContext) {
+      return cat === 'policies' || cat === 'delivery' || cat === 'staff' || cat === 'employment'
+    }
+    if (!wantsMenuCatalogContext && !isCallbackOrPostOrderTopic && !wantsHolidayContext && /\b(torta|super|queso|postre|aguas)\b/i.test(normUserForKbScope) === false) {
+      return cat !== 'menu'
+    }
     return true
   })
   const kbFormatted = kbFiltered
@@ -4207,6 +5409,18 @@ export async function processPhoneAgentTurn(params: {
       callRecord.transcript.some(
         (t: any) => t?.role === 'tool' && t?.toolName === 'create_manager_callback' && String(t?.text || '').includes('"success":true')
       ))
+  const normPrevUsersOnly = normalizeSearchText(
+    transcript
+      .slice(0, -1)
+      .filter((t) => t.role === 'user')
+      .map((t) => normalizePhoneSttTranscript(t.text))
+      .join(' ')
+  )
+  const hadPriorPostOrderTurn =
+    hadPriorCallbackInCall ||
+    /\b(soy empleado|empleada|llegar tarde|mi turno|falto|faltaron|incomplet[oa]s?|equivocad[oa]s?|equivocaron|orden mal|pedido mal|me dieron mal|wrong order|missing|no ha llegado|retras[oa]?(?:d[oa]s?)?|modificar|cambiar|cancelar|condimento|cilantro|cebolla|limon|jalapeno|servilleta|tenedor|cubierto|sucursal equivocada|wrong store|wrong location|ticket|recibo|queja|reembolso|olvide|perdi|gerente|manager|uber|doordash|grubhub)\b/i.test(
+      normPrevUsersOnly
+    )
 
   // Fecha calendario exacta en California (para no confundir hoy/mañana con festivos de fechas futuras)
   const ptNow = getPacificDateParts()
@@ -4259,12 +5473,17 @@ export async function processPhoneAgentTurn(params: {
       : `- Horarios Especiales: aplica el horario semanal regular.`
     : ''
 
-  // Catálogo en vivo compilado 1 sola vez en caché SWR e inyectado únicamente cuando el turno toca menú/precios/comida/bebidas
-  const menuCatalogSummary = wantsMenuCatalogContext
-    ? turnLangGuess === 'en'
-      ? menuEntry.compactCatalogEn
-      : menuEntry.compactCatalogEs
-    : ''
+  const asksBroadMenuList =
+    preFetchedMenu.length < 3 ||
+    /\b(menu|todo|demas|otros|otra|what else|opciones|variedad|bebidas|platillos|desayunos|combos|tamanos)\b/i.test(normUserForKbScope)
+  // Catálogo en vivo compilado 1 sola vez en caché SWR; se omite si preFetchedMenu ya cubrió el platillo exacto para acelerar TTFT
+  const asksPriceExplicitly = /\b(precio|precios|cuesta|cuanto|vale|a como|how much|price|cost|menu)\b/i.test(normCombinedForScope)
+  const menuCatalogSummary =
+    wantsMenuCatalogContext && asksBroadMenuList && (!isCallbackOrPostOrderTopic || asksPriceExplicitly)
+      ? turnLangGuess === 'en'
+        ? menuEntry.compactCatalogEn
+        : menuEntry.compactCatalogEs
+      : ''
 
   const menuPreContext =
     preFetchedMenu.length > 0
@@ -4415,20 +5634,41 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
 4. **Pedidos por Teléfono**:
    - Explica de manera educada y seria que no tomamos órdenes por teléfono, e invítalo a hacer su pedido fácilmente en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}. Si insisten en preguntar por qué, mantente amable y seria indicando únicamente que los pedidos para recoger se toman en tacosgavilan.com o directamente en la sucursal. **PROHIBIDO** mencionar "políticas", "política", "pólizas", "reglamentos", "policy" o "policies" al responder sobre órdenes por teléfono.
-5. **Repartidores de Delivery (DoorDash, Uber Eats, Grubhub)**:
-   - ${store.has_drive_thru ? `En esta sucursal (${customerBranchDisplay}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${customerBranchDisplay}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
-   - Si quien llama es un CLIENTE con un problema en su pedido de DoorDash/Uber Eats (faltantes, cobro, orden equivocada), trátalo como reclamo (regla 6), no como repartidor.
-6. **Reclamos de Órdenes, Cobros, Objetos Olvidados, Empleados (Retardos/Faltas), Proveedores o "quiero hablar con el gerente"**:
-   - **ACCIÓN OBLIGATORIA CON HERRAMIENTA**: Si la persona YA dio su nombre y teléfono real de 10 dígitos (o en llamada Twilio pidió marcarle a su Caller ID), **EJECUTA PRIMERO \`create_manager_callback\`** con EXACTAMENTE esos datos antes de responder. **PROHIBIDO** decir en texto que "envías / dejaste / registraste una alerta o recado" sin haber invocado \`create_manager_callback\`.
-   - Después de ejecutar \`create_manager_callback\`, aclara amablemente que por política estricta de Tacos Gavilan no desviamos llamadas a celulares personales de los gerentes y ${callbackOutcomeInstruction}
-   - Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
-   - **Dictado pausado de teléfono**: si el cliente pausó a la mitad y solo escuchaste entre 3 y 9 dígitos, **conserva esos dígitos** y pídele amablemente solo los dígitos restantes (ej. \`"Anoté 323-982, ¿me regalas los últimos 4 dígitos?"\`); en cuanto te dé el resto en el siguiente turno, únelos en un solo número de 10 dígitos y ejecuta \`create_manager_callback\` de inmediato.
-   - Si ya enviaste la alerta en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el gerente ya la tiene en su pantalla.
+   - EXCEPCIÓN: Si el cliente ya hizo una orden y llama para agregar **condimentos gratis**, reportar **sucursal equivocada** o un **problema/retraso de entrega**, NO apliques esta regla de pedido nuevo: atiende según las reglas 5 y 6.
+5. **Repartidores vs. Clientes de Plataformas Delivery (Uber Eats, DoorDash y Grubhub)**:
+   - **Si llama un REPARTIDOR**: ${store.has_drive_thru ? `En esta sucursal (${customerBranchDisplay}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${customerBranchDisplay}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
+   - **Si llama un CLIENTE sobre su orden de Uber Eats / DoorDash / Grubhub**:
+     * **Modificar platillos pagados, agregar comida con costo, cambiar dirección o pedir reembolso**: Explica con claridad y empatía que, como el pago se procesó por esa aplicación externa, la sucursal **no puede modificar platillos con costo, cambiar la dirección ni emitir reembolsos**; debe gestionarlo o cancelarlo directo en su aplicación en la sección **Ayuda (Help)**.
+     * **Ajuste menor sin costo antes de empacar** (ej. quitar cebolla/cilantro): Pide nombre, teléfono de 10 dígitos, plataforma y código de orden para enviar un aviso urgente (\`reason_category: "delivery_issue"\`), aclarando honestamente que **solo aplica si la bolsa aún no se ha empacado ni entregado al repartidor**.
+     * **La orden NO ha llegado aún (retraso)**: Explica que la entrega física depende del repartidor asignado e invítalo a revisar el estado en su app; si lleva mucho tiempo esperando repartidor, ofrece tomar nombre, teléfono de 10 dígitos y código de orden para enviar aviso a tienda (\`reason_category: "delivery_issue"\`) y revisar si la bolsa sigue en el mostrador.
+     * **La orden LLEGÓ EQUIVOCADA o INCOMPLETA**: Pide disculpas sinceras, indícale reportarlo en la sección **Ayuda** de Uber Eats / DoorDash / Grubhub para recibir su reembolso o crédito directo, y además ofrece tomar nombre, teléfono de 10 dígitos y código/detalle (\`reason_category: "delivery_issue"\` o \`"missing_or_wrong_item"\`) para avisar en vivo al Gerente.
+6. **Condimentos Gratis, Sucursal Equivocada, Reclamos Directos, Objetos Olvidados, Empleados o Proveedores**:
+   - **6A) Agregar Condimentos Gratis en orden ya hecha** (salsa roja/verde, cebolla con cilantro, limones, jalapeños, cubiertos/servilletas):
+     * Pide **nombre en la orden, número/código de orden, qué condimentos desea y teléfono real de 10 dígitos**.
+     * Ejecuta \`create_manager_callback\` con \`reason_category: "condiments_note"\` y \`urgency: "normal"\`.
+     * Confirma que enviaste una **Nota de Empaque** al mostrador/cocina aclarando honestamente que **los incluirán siempre que tu orden todavía no haya salido ni se haya entregado al repartidor** (NO digas que el gerente llamará por unas salsas). Si es de Uber/DD/GH, sugiérele también mandar mensaje en su app al repartidor.
+   - **6B) Pidió en Sucursal Equivocada**:
+     * Explica que cada sucursal procesa pagos y tickets por separado, por lo que no se puede mover automáticamente una orden pagada de una tienda a otra.
+     * Si pidió por **Uber Eats / DoorDash / Grubhub**: indícale cancelar de inmediato en su app antes de preparación y reordenar en la tienda correcta (confirmando siempre entrecalles si es en Los Ángeles).
+     * Si pidió directo en **tacosgavilan.com** (para recoger): pregunta en cuál de las 15 sucursales cayó realmente el pedido, toma nombre, teléfono de 10 dígitos y número de orden, y ejecuta \`create_manager_callback\` pasando **\`target_store_id\`** de ESA sucursal destino (del DIRECTORIO OFICIAL) con \`reason_category: "wrong_store_order"\` y \`urgency: "high"\`.
+   - **6C) Órdenes Equivocadas o Incompletas en Drive-Thru, Comedor, Mostrador o \`tacosgavilan.com\`**:
+     * Para hacer la **revisión de la preparación de su orden** (*review how your order was prepared*), debes solicitar SIEMPRE de manera educada y seria estos **4 datos**: **1) número de ticket, 2) fecha de compra, 3) nombre y 4) número de teléfono real de 10 dígitos**, e incluir OBLIGATORIAMENTE la aclaración de que **sin el número de ticket es poco probable determinar la equivocación** (en inglés: *"Without the ticket number, it is unlikely we can verify the mistake"*).
+     * Si el cliente aún NO ha proporcionado alguno de los 4 datos (y todavía NO ha dicho que perdió/tiró el ticket), pídele amablemente los datos que falten ANTES de llamar \`create_manager_callback\` (nota: si dijo \`"hoy"\`, \`"ahorita"\` o \`"ayer"\` en la llamada, ya tienes la fecha usando la fecha actual de California).
+     * Si el cliente indica que **NO tiene el ticket** (lo tiró, perdió o no lo conserva): reitera de forma respetuosa y seria que **sin el número de ticket es poco probable determinar la equivocación al revisar la preparación**, y si ya dio (o desea dejar) su fecha de compra, nombre y teléfono de 10 dígitos, ejecuta \`create_manager_callback\` con \`reason_category: "missing_or_wrong_item"\`, \`ticket_or_order_number: "SIN TICKET"\` y \`order_date\`, sin prometer reposición ni reembolso.
+     * En cuanto tengas número de ticket (o confirmación de \`SIN TICKET\`), fecha, nombre y teléfono real de 10 dígitos, **EJECUTA PRIMERO \`create_manager_callback\`** (\`reason_category: "missing_or_wrong_item"\`, \`urgency: "high"\`, incluyendo \`ticket_or_order_number\` y \`order_date\`) antes de responder, y confirma que el gerente revisará la preparación de su orden y ${callbackOutcomeInstruction}
+   - **6D) Objetos Olvidados, Cobros, Empleados, Proveedores o "quiero hablar con el gerente"**:
+     * **ACCIÓN OBLIGATORIA CON HERRAMIENTA**: Si la persona YA dio su nombre y teléfono real de 10 dígitos (o en llamada Twilio pidió marcarle a su Caller ID), **EJECUTA PRIMERO \`create_manager_callback\`** con EXACTAMENTE esos datos antes de responder. **PROHIBIDO** decir en texto que "envías / dejaste / registraste una alerta, nota o recado" sin haber invocado \`create_manager_callback\`.
+     * Después de ejecutar \`create_manager_callback\`, aclara amablemente que por política estricta de Tacos Gavilan no desviamos llamadas a celulares personales de los gerentes y ${callbackOutcomeInstruction}
+     * Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
+     * **Dictado pausado de teléfono**: si el cliente pausó a la mitad y solo escuchaste entre 3 y 9 dígitos, **conserva esos dígitos** y pídele amablemente solo los dígitos restantes (ej. \`"Anoté 323-982, ¿me regalas los últimos 4 dígitos?"\`); en cuanto te dé el resto en el siguiente turno, únelos en un solo número de 10 dígitos y ejecuta \`create_manager_callback\` de inmediato.
+     * Si ya enviaste la alerta o nota en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el equipo o el gerente ya la tienen en su pantalla.
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
    - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español cálido y natural del Sur de California con precios SIEMPRE en dólares y centavos, o inglés natural).
    - **RESPUESTAS ULTRA ÁGILES (8 a 20 palabras, 1–2 oraciones cortas)**: Ya dijiste la sucursal al saludar; NO repitas el nombre largo ni las esquinas en cada respuesta a menos que pregunten ubicación, dirección o sucursal. Responde directo el dato pedido más una pregunta breve de cierre (ej. \`"Hoy cerramos a las 2:00 AM. ¿Te puedo ayudar con algo más?"\`, \`"Cada taco de asada cuesta $2.29 dólares. ¿Algo más?"\`). Excepciones autorizadas hasta **65–75 palabras**: (a) calendario completo de los **7 festivos** (cerrados Viernes Santo y Navidad 25 dic; cierre 4 PM Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura 11 AM Año Nuevo 1 ene y Black Friday); o (b) varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
 8. **Filtro Anti-Spam / Ventas Comerciales**:
-   - Si llaman para vender servicios comerciales (SEO/Google, préstamos, paneles solares, garantías), declina con cortesía en una oración breve indicando que en sucursal no recibimos ofertas comerciales y NO ejecutes \`create_manager_callback\`.`
+   - Si llaman para vender servicios comerciales (SEO/Google, préstamos, paneles solares, garantías), declina con cortesía en una oración breve indicando que en sucursal no recibimos ofertas comerciales y NO ejecutes \`create_manager_callback\`.
+9. **Cierre Limpio de Llamada Cuando Ya No Hay Nada Más Que Hacer**:
+   - Cuando el asunto ya quedó resuelto o aclarado (ej. ya registraste el recado/nota y el cliente solo agradece o confirma de enterado sin hacer otra pregunta, o tras explicar que los pedidos se hacen en \`tacosgavilan.com\` el cliente dice que está bien o que ya no ocupa nada más), **NO alargues la llamada con más preguntas**: despídete con calidez en una sola oración corta diciendo \`"Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!"\` (o en inglés \`"You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!"\`) **SIN ningún signo de interrogación (\`?\`)**, para que el sistema finalice la llamada de inmediato.`
 
   // Convertir historial de transcripción a contents de Gemini excluyendo fallbacks de error previos para no contaminar el modelo
   const historyEntries = transcript
@@ -4445,9 +5685,11 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   }))
 
   const toolsUsed: string[] = []
+  let resolvedCallbackTargetStore: any = store
+  let resolvedCallbackCategory = 'other'
   const normUser = normalizeSearchText(userText)
   const isCallbackOrOrderScenario =
-    /\b(soy empleado|llegar tarde|mi turno|falto|faltaron|incompleta|ticket|queja|reembolso|olvide|perdi|hacer un pedido|pedido por telefono|ordenar por telefono|place an order|order over the phone|uber|doordash|grubhub|repartidor|contratando|empleo|vacantes|trabajo)\b/i.test(
+    /\b(soy empleado|llegar tarde|mi turno|falto|faltaron|incompleta|equivocad|no ha llegado|retras|modificar|cambiar|cancelar|condimento|cilantro|cebolla|limon|jalapeno|servilleta|tenedor|sucursal equivocada|otra tienda|wrong store|wrong location|ticket|queja|reembolso|olvide|perdi|hacer un pedido|pedido por telefono|ordenar por telefono|place an order|order over the phone|uber|doordash|grubhub|repartidor|contratando|empleo|vacantes|trabajo)\b/i.test(
       normUser
     )
 
@@ -4479,7 +5721,17 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   let replyText = ''
   let geminiFailed = false
   const VALID_URGENCY = new Set(['high', 'critical', 'normal'])
-  const VALID_REASON = new Set(['missing_or_wrong_item', 'lost_item', 'employee_callout', 'vendor_arrival', 'billing_refund', 'other'])
+  const VALID_REASON = new Set([
+    'condiments_note',
+    'wrong_store_order',
+    'delivery_issue',
+    'missing_or_wrong_item',
+    'lost_item',
+    'employee_callout',
+    'vendor_arrival',
+    'billing_refund',
+    'other'
+  ])
 
   const executeTool = async (toolName: string, toolArgs: any): Promise<any> => {
     if (toolName === 'get_store_hours_and_status') {
@@ -4625,8 +5877,14 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         if (candidateName && !/^(cliente|customer|cliente en linea|caller|unknown)$/i.test(normalizeSearchText(candidateName))) {
           patch.caller_name = candidateName
         }
-        if (toolArgs?.ticket_or_order_number && String(toolArgs.ticket_or_order_number).trim()) {
-          patch.ticket_or_order_number = String(toolArgs.ticket_or_order_number).trim()
+        const updTicket = toolArgs?.ticket_or_order_number ? String(toolArgs.ticket_or_order_number).trim() : ''
+        const updOrderDate = toolArgs?.order_date ? String(toolArgs.order_date).trim() : ''
+        if (updTicket || updOrderDate) {
+          const baseTk = updTicket || String(existingPending.ticket_or_order_number || '').trim()
+          patch.ticket_or_order_number =
+            baseTk && updOrderDate && !normalizeSearchText(baseTk).includes(normalizeSearchText(updOrderDate))
+              ? `${baseTk} (${updOrderDate})`
+              : baseTk || `SIN TICKET (${updOrderDate})`
         }
         if (String(toolArgs?.urgency || '').toLowerCase() === 'critical') {
           patch.urgency = 'critical'
@@ -4660,30 +5918,183 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
         }
       }
 
-      const urgency = String(toolArgs?.urgency || 'high').toLowerCase()
-      const reasonCategory = String(toolArgs?.reason_category || 'other').toLowerCase()
+      const rawReasonCategory = String(toolArgs?.reason_category || '').trim().toLowerCase()
+      let normalizedCategory = VALID_REASON.has(rawReasonCategory) ? rawReasonCategory : ''
+      if (!normalizedCategory || normalizedCategory === 'other') {
+        if (/^(complaint_missing_item|wrong_order|missing_item|incomplete_order)$/.test(rawReasonCategory)) {
+          normalizedCategory = 'missing_or_wrong_item'
+        } else {
+          const fallbackMeta = inferCallMetadata(`${reasonSummary} ${allUserTurnsText}`, toolsUsed, true)
+          normalizedCategory =
+            fallbackMeta.primaryIntent === 'condiments_note'
+              ? 'condiments_note'
+              : fallbackMeta.primaryIntent === 'wrong_store_order'
+                ? 'wrong_store_order'
+                : fallbackMeta.primaryIntent === 'delivery_issue'
+                  ? 'delivery_issue'
+                  : fallbackMeta.primaryIntent === 'complaint_missing_item'
+                    ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normalizeSearchText(reasonSummary))
+                      ? 'billing_refund'
+                      : 'missing_or_wrong_item'
+                    : fallbackMeta.primaryIntent === 'lost_and_found'
+                      ? 'lost_item'
+                      : fallbackMeta.primaryIntent === 'employee_callout'
+                        ? 'employee_callout'
+                        : fallbackMeta.primaryIntent === 'vendor_service'
+                          ? 'vendor_arrival'
+                          : 'other'
+        }
+      }
+      const rawUrgency = String(toolArgs?.urgency || 'high').toLowerCase()
+      // Notas de condimentos jamás deben disparar alarma roja crítica cada 45s en pantalla del gerente
+      const effectiveUrgency =
+        normalizedCategory === 'condiments_note' ? 'normal' : VALID_URGENCY.has(rawUrgency) ? rawUrgency : 'high'
+
+      const requestedTargetStoreId = Number(toolArgs?.target_store_id)
+      const explicitTargetStore =
+        Number.isFinite(requestedTargetStoreId) && requestedTargetStoreId > 0
+          ? allActiveStores.find((s) => Number(s.id) === requestedTargetStoreId) || null
+          : null
+      const destinationStore = explicitTargetStore || store
+      const isCrossStoreRouted = Number(destinationStore.id) !== Number(store.id)
+
+      resolvedCallbackTargetStore = destinationStore
+      resolvedCallbackCategory = normalizedCategory
+
+      const rawTicketArg = toolArgs?.ticket_or_order_number ? String(toolArgs.ticket_or_order_number).trim() : ''
+      const rawOrderDateArg = toolArgs?.order_date ? String(toolArgs.order_date).trim() : ''
+
+      // Compuerta determinista en órdenes equivocadas/incompletas de tienda (DT, comedor, mostrador, tacosgavilan.com):
+      // exige que el cliente haya mencionado realmente en la conversación (1) número de ticket o confirmación de no tenerlo
+      // y (2) fecha/momento de compra (impidiendo que el LLM invente "Hoy" cuando el cliente no dijo cuándo compró).
+      const mentionsDeliveryAppInCall = /\b(uber(?:\s*eats)?|doordash|door dash|grubhub|postmates)\b/i.test(normAllUserForScope)
+      if (!toolArgs?._fromGuard && normalizedCategory === 'missing_or_wrong_item' && !mentionsDeliveryAppInCall) {
+        const userStatedNoTicket =
+          /\b(?:no tengo|sin|perdi|tire|no me dieron|no conservo|no guarde)\s+(?:el\s+|mi\s+)?(?:ticket|recibo|comprobante)\b/i.test(
+            normAllUserForScope
+          ) ||
+          (/\b(?:ticket|recibo|receipt)\b/i.test(prevAssistantForTurn) &&
+            /\b(no lo tengo|ya lo tire|lo tire|lo perdi|no me dieron|no tengo|dont have it|do not have it|threw it away|lost it)\b/i.test(
+              normUserForKbScope
+            )) ||
+          /\b(?:dont|do not|didnt|did not)\s+(?:have|get|keep)\s+(?:the\s+|my\s+|a\s+)?(?:ticket|receipt)\b/i.test(
+            normAllUserForScope
+          ) ||
+          /\b(?:lost|threw\s+away)\s+(?:the\s+|my\s+)?(?:ticket|receipt)\b/i.test(normAllUserForScope)
+
+        const ticketDigitsOnly = rawTicketArg.replace(/\D/g, '')
+        const userSpokeTicketDigits =
+          ticketDigitsOnly.length >= 1 &&
+          ticketDigitsOnly.length <= 7 &&
+          replaceSpokenDigitRuns(allUserTurnsText).includes(ticketDigitsOnly)
+        const userExplicitTicketPattern =
+          /\b(?:ticket|recibo|orden|order|receipt)(?:\s+(?:n[uú]mero|number|num|no|es|fue|era|is|was|el|la|#)){0,3}\s*[:#\-]?\s*[a-z0-9\-]*\d[a-z0-9\-]*\b/i.test(
+            allUserTurnsText
+          ) || /#\s*\d{1,6}\b/.test(allUserTurnsText)
+        const hasRealTicketInfo = userStatedNoTicket || userExplicitTicketPattern || userSpokeTicketDigits
+
+        const userMentionedPurchaseDate =
+          /\b(hoy|ahorita|hace rato|hace un momento|esta manana|esta tarde|esta noche|anoche|ayer|antier|anteayer|today|right now|just now|earlier|this morning|this afternoon|tonight|last night|yesterday|lunes|martes|miercoles|jueves|viernes|sabado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(
+            normAllUserForScope
+          ) ||
+          /\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/.test(allUserTurnsText) ||
+          /\b\d{1,2}\s+de\s+[a-z]+\b/i.test(normAllUserForScope)
+
+        if (!hasRealTicketInfo || !userMentionedPurchaseDate) {
+          const missingFields: string[] = []
+          if (!hasRealTicketInfo) missingFields.push('número de ticket')
+          if (!userMentionedPurchaseDate) missingFields.push('fecha de compra')
+          return {
+            success: false,
+            missingOrderReviewFields: missingFields,
+            message: `Aún NO puedes registrar la alerta porque el cliente todavía NO ha dicho en la llamada: ${missingFields.join(' y ')}. PROHIBIDO asumir o inventar la fecha o el ticket. Pídele amablemente ${missingFields.join(' y ')} para poder hacer la revisión de la preparación de su orden, aclarando con respeto que sin el número de ticket es poco probable determinar la equivocación.`
+          }
+        }
+      }
+      const combinedTicketDisplay =
+        rawTicketArg && rawOrderDateArg && !normalizeSearchText(rawTicketArg).includes(normalizeSearchText(rawOrderDateArg))
+          ? `${rawTicketArg} (${rawOrderDateArg})`
+          : rawTicketArg
+            ? rawTicketArg
+            : rawOrderDateArg && normalizedCategory === 'missing_or_wrong_item'
+              ? `SIN TICKET (${rawOrderDateArg})`
+              : null
+
+      const summaryWithDate =
+        rawOrderDateArg && !normalizeSearchText(reasonSummary).includes(normalizeSearchText(rawOrderDateArg))
+          ? `${reasonSummary} [Fecha compra: ${rawOrderDateArg}]`
+          : reasonSummary
+
+      const destDisplay = formatCustomerStoreName(destinationStore, turnLangGuess, { style: 'display' })
+      const finalReasonSummary =
+        isCrossStoreRouted && !summaryWithDate.includes(`-> Enrutada a #${destinationStore.id}`)
+          ? `[Llamó a #${store.id} ${customerBranchDisplay} -> Enrutada a #${destinationStore.id} ${destDisplay}] ${summaryWithDate}`
+          : summaryWithDate
+
+      const destScheduleEval = isCrossStoreRouted
+        ? evaluateStoreSchedulePure({
+            storeId: destinationStore.id,
+            storeName: destinationStore.name,
+            weeklyHours: destinationStore.weekly_hours,
+            specialHours: ((ctx as any).allSpecialHours || []).filter(
+              (sh: any) => sh.store_id === null || Number(sh.store_id) === Number(destinationStore.id)
+            )
+          })
+        : scheduleEval
+
       callbackCreated = await createManagerCallbackRequest({
         callId: ensuredCall.id,
-        storeId: store.id,
+        storeId: Number(destinationStore.id),
+        originStoreId: isCrossStoreRouted ? store.id : null,
         source,
         callerName: String(toolArgs?.caller_name || 'Cliente en línea'),
         callerPhone: cleanCallbackPhone,
         callerType: String(toolArgs?.caller_type || 'customer'),
-        urgency: VALID_URGENCY.has(urgency) ? urgency : 'high',
-        reasonCategory: VALID_REASON.has(reasonCategory) ? reasonCategory : 'other',
-        reasonSummary,
-        ticketOrOrderNumber: toolArgs?.ticket_or_order_number ? String(toolArgs.ticket_or_order_number) : null
+        urgency: effectiveUrgency,
+        reasonCategory: normalizedCategory,
+        reasonSummary: finalReasonSummary,
+        ticketOrOrderNumber: combinedTicketDisplay
       })
       callbackWasNew = !Boolean((callbackCreated as any)?._wasDeduplicated)
+
+      let toolGuidance = ''
+      const isMissingTicketCase =
+        normalizedCategory === 'missing_or_wrong_item' &&
+        (!rawTicketArg || /\b(sin\s*ticket|no\s*ticket|extraviad|perdid|no\s*tiene)\b/i.test(normalizeSearchText(rawTicketArg)))
+
+      if (normalizedCategory === 'condiments_note') {
+        toolGuidance = destScheduleEval.isOpenNow
+          ? `Nota de Empaque / Condimentos enviada en vivo a la pantalla del mostrador en ${destDisplay}. Confírmale amablemente que cocina y caja los agregarán siempre que su orden todavía no haya salido ni se haya entregado al repartidor (NO digas que el gerente llamará de regreso).`
+          : `Nota registrada para ${destDisplay}. IMPORTANTE: La sucursal está CERRADA ahora (${destScheduleEval.statusMessageEs}); indícale al cliente que la orden solo puede recibir condimentos en horario abierto.`
+      } else if (isCrossStoreRouted) {
+        toolGuidance = destScheduleEval.isOpenNow
+          ? `Alerta prioritaria enrutada DIRECTAMENTE a la pantalla del Gerente en ${destDisplay} (sucursal destino donde cayó la orden, sin desviar a teléfonos personales). Confírmale que el gerente de ${destDisplay} ya recibió la alerta y se comunicará contigo en cuanto sea posible ("as soon as possible"); NUNCA digas "enseguida", "de inmediato" ni "right away".`
+          : `Recado prioritario enrutado a ${destDisplay}, pero ESA sucursal destino está CERRADA ahora (${destScheduleEval.statusMessageEs}). Informa al cliente que el gerente de ${destDisplay} verá la alerta al abrir.`
+      } else if (isMissingTicketCase) {
+        toolGuidance = destScheduleEval.isOpenNow
+          ? `Alerta registrada en la pantalla del Manager en ${destDisplay} marcada SIN TICKET. Confírmale que dejaste sus datos con el gerente para que se comunique en cuanto sea posible, pero REITERA de forma educada y seria que sin el número de ticket es poco probable poder determinar la equivocación en la revisión de preparación (NUNCA prometas reposición ni reembolso).`
+          : `Recado registrado para el Manager de ${destDisplay} marcado SIN TICKET (la sucursal está CERRADA ahora: ${destScheduleEval.statusMessageEs}). Informa que verá la nota al reabrir, reiterando con respeto que sin el ticket es poco probable determinar la equivocación.`
+      } else if (normalizedCategory === 'missing_or_wrong_item') {
+        toolGuidance = destScheduleEval.isOpenNow
+          ? `Alerta enviada en vivo a la pantalla del Manager en ${destDisplay} con Ticket ${combinedTicketDisplay || ''} para revisar la preparación de su orden (sin desviar a teléfonos personales). Confírmale que el gerente revisará la preparación de su orden y se comunicará contigo en cuanto sea posible ("as soon as possible"); NUNCA digas "enseguida", "de inmediato" ni "right away".`
+          : `Recado prioritario registrado para el Manager de ${destDisplay} con Ticket ${combinedTicketDisplay || ''} para revisar la preparación de su orden (la sucursal está CERRADA ahora: ${destScheduleEval.statusMessageEs}); informa que se comunicará al reabrir.`
+      } else {
+        toolGuidance = destScheduleEval.isOpenNow
+          ? `Alerta enviada en vivo a la pantalla del Manager en ${destDisplay} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará contigo en cuanto sea posible ("as soon as possible") desde la tienda; NUNCA digas "enseguida", "de inmediato" ni "right away".`
+          : `Recado prioritario registrado para el Manager de ${destDisplay}. IMPORTANTE: La sucursal está CERRADA ahora (${destScheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
+      }
+
       return {
         success: true,
         alreadySent: Boolean((callbackCreated as any)?._wasDeduplicated),
-        storeOpenNow: scheduleEval.isOpenNow,
+        routedToStoreId: Number(destinationStore.id),
+        routedToStoreName: destDisplay,
+        isCrossStoreRouted,
+        reasonCategory: normalizedCategory,
+        storeOpenNow: destScheduleEval.isOpenNow,
         willTransferLive: false,
         callbackId: callbackCreated.id,
-        message: scheduleEval.isOpenNow
-          ? `Alerta enviada en vivo a la pantalla del Manager en ${customerBranchDisplay} (sin desviar a teléfonos personales). Confírmale que el gerente se comunicará contigo en cuanto sea posible ("as soon as possible") desde la tienda; NUNCA digas "enseguida", "de inmediato" ni "right away".`
-          : `Recado prioritario registrado para el Manager de ${customerBranchDisplay}. IMPORTANTE: La sucursal está CERRADA ahora (${scheduleEval.statusMessageEs}); informa al cliente que el gerente le devolverá la llamada al reabrir.`
+        message: toolGuidance
       }
     }
     if (toolName === 'flag_unanswered_question') {
@@ -4713,72 +6124,186 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     }
   ]
 
-  // Fast-Path Determinista (< 2 ms, 0 llamadas LLM): resuelve al instante las 5 intenciones simples más frecuentes
-  // cuyo texto es canónico y pre-calentable en Storage (`phone_v6/Kore`), derivando a Gemini cualquier pregunta compuesta o abierta.
-  const wordCount = normalizedUserForMatch.split(/\s+/).filter(Boolean).length
-  const mentionsOtherStoresForFast =
-    /\b(otra|otras|other|sucursal(?:es)?|ubicaciones|locations|tiendas|stores|branches|closest|nearest|all stores|cerca|zona|zonas|east la|south la|downtown|sgv|san gabriel|orange|inland|west covina|azusa|broadway|slauson|hollywood|santa ana|la puente|huntington|norwalk|bell|lynwood|south gate|downey|rialto|todas|cuantas|mas tarde|mas temprano)\b/i.test(
-      normUser
-    )
-  const hasCompoundOrOtherTopic =
-    mentionsOtherStoresForFast ||
-    wantsFiestaContext ||
-    /\b(precio|precios|cuesta|cuanto|vale|how much|what does|lleva|ingrediente|diferencia|manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday|festiv|holiday|falt|incomplet|queja|mal|equivocad|wrong|missing|reembolso|refund|cobro|gerente|manager|supervisor|empleado|tarde|callout|repartidor|doordash|uber|grubhub|ebt|calfresh|empleo|trabajo|hiring|vacante|desayuno|breakfast|charola|platter|pastel|flan|cheesecake)\b/i.test(
-      normUser
-    )
-  if (!replyText && wordCount <= 14 && !hasCompoundOrOtherTopic) {
-    const isSimpleClosing =
-      !/[?¿]/.test(userText) &&
-      !/\b(mejor|espera|una pregunta|otra|tambien|one more|wait|actually|quiero|necesito)\b/i.test(normUser) &&
-      /\b(gracias es todo|eso es todo|es todo gracias|solo era eso|seria todo|nada mas|muchas gracias adios|bye|goodbye|thank you that is all|thats all|that will be all|nothing else|no thank you|no thanks|hasta luego|adios|cuelgame|nos vemos)\b/i.test(
-        normUser
-      )
-    const isSimpleOrderByPhone =
-      /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|tomar (?:mi |una )?orden|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?orden|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar)|llamando para (?:hacer )?una? (?:orden|pedido)|place an order|order over the phone|put in an order|take my order|i want to order|i'd like to order|like to place an order)\b/i.test(
-        normUser
-      ) && !/\b(hora|horario|abierto|cerrado|direccion|ubicad|drive|cuesta|precio|menu)\b/i.test(normUser)
-    const isSimpleTodayHours =
-      /\b(a que hora (?:abren|cierran)|hora de (?:cierre|apertura)|estan abiertos|esta abierto|siguen abiertos|hasta que hora|cual es (?:su|el) horario(?: de hoy)?|what time do you (?:open|close)|are you open|still open|your hours(?: today)?)\b/i.test(
-        normUser
-      ) && !/\b(direccion|ubicad|donde|address|drive|orden|pedido|menu)\b/i.test(normUser)
-    const isSimpleAddress =
-      /\b(cual es (?:la|su) direccion|donde estan ubicados|donde queda|me das la direccion|en donde estan|what is (?:the|your) address|where are you located)\b/i.test(
-        normUser
-      ) && !/\b(hora|horario|abierto|cierran|drive|orden|pedido)\b/i.test(normUser)
-    const isSimpleDriveThru =
-      /\b(tienen drive|hay drive|cuentan con drive|do you have (?:a )?drive)\b/i.test(normUser) &&
-      !/\b(hora|horario|abierto|cierran|direccion|ubicad|orden|pedido)\b/i.test(normUser)
+  // Fast-Path Canónico Determinista (< 2 ms CPU, 0 llamadas LLM, audio cacheable en Supabase Storage `phone_v6/Kore`):
+  // Resuelve al instante las 19 preguntas frecuentes y operativas con redacción exacta y consistente; cualquier pregunta
+  // compuesta (>1 tema), de flujo interactivo/callback o con regla personalizada por sucursal pasa a Gemini Hedged LLM.
+  let forcedSpamFastPath = false
+  let isCanonicalReply = false
+  if (!replyText) {
+    const canonicalHit = resolveCanonicalPreparedReply({
+      userText,
+      normUser,
+      lang: turnLangGuess,
+      lastAssistantText: prevAssistantForTurn,
+      hadPriorPostOrderTurn,
+      hadPriorCallbackInCall,
+      store,
+      config,
+      scheduleEval,
+      allSpecialHours: (ctx as any).allSpecialHours || ctx.specialHours || [],
+      upcomingHolidays,
+      knowledgeBase,
+      allActiveStores,
+      liveMenuItems,
+      spokenStoreAddress,
+      customerBranchCrossStreets,
+      wantsFiestaContext,
+      detectedGuestCount,
+      platterInfo
+    })
+    if (canonicalHit) {
+      replyText = canonicalHit.replyText
+      isCanonicalReply = true
+      if (canonicalHit.markAsSpam) forcedSpamFastPath = true
+      for (const tu of canonicalHit.toolsUsedToAdd || []) {
+        if (!toolsUsed.includes(tu)) toolsUsed.push(tu)
+      }
+    }
+  }
 
-    if (isSimpleClosing) {
-      replyText =
-        turnLangGuess === 'en'
-          ? 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!'
-          : 'Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
-    } else if (isSimpleOrderByPhone) {
-      replyText =
-        turnLangGuess === 'en'
-          ? `I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or ${store.has_drive_thru ? 'directly at the counter or Drive-Thru.' : 'directly at the counter.'} How else can I help you?`
-          : `Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o ${store.has_drive_thru ? 'pedir directamente en caja o por el Drive-Thru.' : 'pedir directamente en caja.'} ¿Te ayudo con algo más?`
-    } else if (isSimpleTodayHours) {
-      replyText =
-        turnLangGuess === 'en'
-          ? `${scheduleEval.statusMessageEn} How else can I help you?`
-          : `${scheduleEval.statusMessageEs} ¿Te puedo ayudar con algo más?`
-      if (!toolsUsed.includes('get_store_hours_and_status')) toolsUsed.push('get_store_hours_and_status')
-    } else if (isSimpleAddress) {
-      replyText =
-        turnLangGuess === 'en'
-          ? `We are located at ${spokenStoreAddress}${customerBranchCrossStreets ? `, at the corner of ${customerBranchCrossStreets}` : ''}. How else can I help you?`
-          : `Estamos ubicados en ${spokenStoreAddress}${customerBranchCrossStreets ? `, en la esquina de ${customerBranchCrossStreets}` : ''}. ¿Te puedo ayudar con algo más?`
-    } else if (isSimpleDriveThru) {
-      replyText =
-        turnLangGuess === 'en'
-          ? store.has_drive_thru
-            ? 'We have Drive-Thru service at this location. How else can I help you?'
-            : 'We do not have a Drive-Thru at this location, but we gladly serve you for dine-in and takeout. How else can I help you?'
-          : store.has_drive_thru
-            ? 'Contamos con servicio de Drive-Thru en esta sucursal. ¿Te puedo ayudar con algo más?'
-            : 'En esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar. ¿Te puedo ayudar con algo más?'
+  const composeInstantCallbackTurnReply = (cbRes: any, rawCallerName: string): string | null => {
+    const cleanFirst =
+      rawCallerName && !/^(cliente|customer|caller|unknown)/i.test(normalizeSearchText(rawCallerName))
+        ? rawCallerName.split(/\s+/)[0]
+        : ''
+    const nameSuffix = cleanFirst ? `, ${cleanFirst}` : ''
+
+    if (cbRes?.success && callbackCreated) {
+      const targetMetaStore = resolvedCallbackTargetStore || store
+      const custSpokenCompact = formatCustomerStoreName(targetMetaStore, turnLangGuess, { style: 'spoken_compact' })
+      const storeOpen = Boolean(cbRes.storeOpenNow)
+      const cat = String(cbRes.reasonCategory || resolvedCallbackCategory || 'other')
+      const tkLabel = String(callbackCreated.ticket_or_order_number || '').trim()
+      const isNoTicket = /\b(sin\s*ticket|no\s*ticket)\b/i.test(normalizeSearchText(tkLabel))
+
+      if (cat === 'condiments_note') {
+        return turnLangGuess === 'en'
+          ? `All set${nameSuffix}. Your condiment note is on the packing screen for ${custSpokenCompact} and will be included as long as your order has not left yet. Anything else?`
+          : `Listo${nameSuffix}. Ya envié tu nota de condimentos a la pantalla de empaque en ${custSpokenCompact}; los incluirán siempre que tu orden todavía no haya salido. ¿Algo más?`
+      }
+      if (cat === 'missing_or_wrong_item' && isNoTicket) {
+        return turnLangGuess === 'en'
+          ? `Thank you${nameSuffix}. I logged your report on the ${custSpokenCompact} manager's screen, though without the ticket number it is unlikely we can verify the mistake when reviewing preparation. The manager will reach out ${storeOpen ? 'as soon as possible' : 'as soon as we reopen'}. Anything else?`
+          : `Gracias${nameSuffix}. Registré tu reporte en la pantalla del gerente en ${custSpokenCompact}, aunque te reitero que sin el número de ticket es poco probable determinar la equivocación al revisar la preparación. El gerente se comunicará contigo ${storeOpen ? 'en cuanto sea posible' : 'al reabrir'}. ¿Algo más?`
+      }
+      if (cat === 'missing_or_wrong_item') {
+        const shortTk = tkLabel.split('(')[0].trim() || tkLabel
+        return turnLangGuess === 'en'
+          ? `All set${nameSuffix}. I sent a priority alert to the ${custSpokenCompact} manager's screen with ticket ${shortTk} to review how your order was prepared, and they will reach out ${storeOpen ? 'as soon as possible' : 'as soon as we reopen'}. Anything else?`
+          : `Listo${nameSuffix}. Ya envié la alerta prioritaria a la pantalla del gerente en ${custSpokenCompact} con tu ticket ${shortTk} para revisar la preparación de tu orden y se comunicará contigo ${storeOpen ? 'en cuanto sea posible' : 'en cuanto abramos'}. ¿Te ayudo con algo más?`
+      }
+      return turnLangGuess === 'en'
+        ? `All set${nameSuffix}. I sent a priority alert to the ${custSpokenCompact} manager's screen, and they will reach out ${storeOpen ? 'as soon as possible' : 'as soon as we reopen'}. How else can I help you?`
+        : `Listo${nameSuffix}. Ya envié la alerta prioritaria a la pantalla del gerente en ${custSpokenCompact} y se comunicará contigo ${storeOpen ? 'en cuanto sea posible' : 'en cuanto abramos'}. ¿Te puedo ayudar con algo más?`
+    }
+
+    if (cbRes && !cbRes.success && Array.isArray(cbRes.missingOrderReviewFields) && cbRes.missingOrderReviewFields.length > 0) {
+      const miss: string[] = cbRes.missingOrderReviewFields
+      const needsTk = miss.some((m) => m.includes('ticket'))
+      const needsDt = miss.some((m) => m.includes('fecha'))
+      if (turnLangGuess === 'en') {
+        const whatEn = needsTk && needsDt ? 'your ticket number and purchase date' : needsTk ? 'your ticket number' : 'the date of your purchase'
+        return `Thank you${nameSuffix}. To review how your order was prepared, could you share ${whatEn}? Without the ticket number, it is unlikely we can verify the mistake.`
+      }
+      const whatEs = needsTk && needsDt ? 'tu número de ticket y la fecha de compra' : needsTk ? 'tu número de ticket' : 'qué día fue tu compra'
+      return `Gracias${nameSuffix}. Para revisar la preparación de tu orden, ¿me confirmas ${whatEs}? Te recuerdo que sin el número de ticket es poco probable determinar la equivocación.`
+    }
+
+    if (cbRes && !cbRes.success && cbRes.missingCallerPhone) {
+      return turnLangGuess === 'en'
+        ? `Could you please share your name and a valid 10-digit phone number with area code so I can send the alert?`
+        : `¿Me compartes por favor tu nombre y un número de teléfono válido de 10 dígitos con código de área para enviar el aviso?`
+    }
+    return null
+  }
+
+  // Fast-Path Determinista de Captura de Datos (< 280 ms extremo a extremo, 0 llamadas LLM):
+  // Cuando el cliente está en un escenario claro de recado/ticket/condimentos/sucursal equivocada y YA proporcionó en la llamada
+  // un teléfono válido de 10 dígitos + su nombre real, ejecutamos `create_manager_callback` al instante sin esperar red de Gemini.
+  const asksUnrelatedMenuOrHours = /\b(cuanto cuesta|precio|a que hora|horario|aceptan|tienen drive|how much|what time)\b/i.test(normUser)
+  if (!replyText && !hadPriorCallbackInCall && isCallbackOrPostOrderTopic && !asksUnrelatedMenuOrHours) {
+    const store10Fast = extractPhoneDigits(store.phone).slice(-10)
+    const twilio10Fast = extractPhoneDigits(config.twilio_phone_number).slice(-10)
+    const allowDev555Fast = source === 'simulator' && /^TEST_SMOKE_/i.test(callSid)
+    const parsedCb = inspectMissingCallbackGuard({
+      replyText: 'ya envie la alerta al gerente',
+      transcript,
+      blockedStoreTenDigits: [store10Fast, twilio10Fast],
+      source,
+      callerNumber,
+      allowDev555: allowDev555Fast
+    })
+
+    if (parsedCb.callerPhone && parsedCb.callerName && parsedCb.callerName !== 'Cliente en línea') {
+      const metaForFastCb = inferCallMetadata(allUserTurnsText, toolsUsed, true)
+      const fastReason =
+        metaForFastCb.primaryIntent === 'condiments_note'
+          ? 'condiments_note'
+          : metaForFastCb.primaryIntent === 'wrong_store_order'
+            ? 'wrong_store_order'
+            : metaForFastCb.primaryIntent === 'delivery_issue'
+              ? 'delivery_issue'
+              : metaForFastCb.primaryIntent === 'complaint_missing_item'
+                ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normAllUserForScope)
+                  ? 'billing_refund'
+                  : 'missing_or_wrong_item'
+                : metaForFastCb.primaryIntent === 'lost_and_found'
+                  ? 'lost_item'
+                  : metaForFastCb.primaryIntent === 'employee_callout'
+                    ? 'employee_callout'
+                    : metaForFastCb.primaryIntent === 'vendor_service'
+                      ? 'vendor_arrival'
+                      : ''
+      const fastTargetStore =
+        fastReason === 'wrong_store_order'
+          ? inferMentionedOtherStore(allActiveStores, store.id, allUserTurnsText)
+          : null
+      const canFastExecute =
+        Boolean(fastReason) &&
+        (fastReason !== 'wrong_store_order' || Boolean(fastTargetStore)) &&
+        (fastReason !== 'condiments_note' || Boolean(parsedCb.ticketNumber))
+
+      if (canFastExecute) {
+        const fastCallerType =
+          metaForFastCb.callerCategory === 'employee'
+            ? 'employee'
+            : metaForFastCb.callerCategory === 'vendor'
+              ? 'vendor'
+              : metaForFastCb.callerCategory === 'delivery_driver'
+                ? 'delivery_driver'
+                : 'customer'
+        try {
+          const fastToolRes = await executeTool('create_manager_callback', {
+            caller_name: parsedCb.callerName,
+            caller_phone: parsedCb.callerPhone,
+            caller_type: fastCallerType,
+            urgency:
+              fastReason === 'condiments_note'
+                ? 'normal'
+                : /\b(emergencia|emergency|intoxic|got sick|cobro doble|overcharged|fraud)\b/i.test(normAllUserForScope)
+                  ? 'critical'
+                  : 'high',
+            reason_category: fastReason,
+            reason_summary: parsedCb.summary || userText,
+            ...(parsedCb.ticketNumber ? { ticket_or_order_number: parsedCb.ticketNumber } : {}),
+            ...(parsedCb.orderDate ? { order_date: parsedCb.orderDate } : {}),
+            ...(fastTargetStore ? { target_store_id: Number(fastTargetStore.id) } : {})
+          })
+          toolsUsed.push('create_manager_callback')
+          transcript.push({
+            role: 'tool',
+            text: JSON.stringify(fastToolRes),
+            timestamp: new Date().toISOString(),
+            toolName: 'create_manager_callback'
+          })
+          const fastReply = composeInstantCallbackTurnReply(fastToolRes, parsedCb.callerName)
+          if (fastReply) {
+            replyText = fastReply
+          }
+        } catch (fastCbErr) {
+          console.warn('[phone-agent] Fast callback path cedió a Gemini:', fastCbErr)
+        }
+      }
     }
   }
 
@@ -4846,6 +6371,18 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       responseParts.push({ functionResponse: { name: toolName, response: toolResult } })
     }
 
+    // Atajo de Cero Ronda Extra (~1.8-2.4s ahorrados): cuando la única herramienta invocada fue create_manager_callback
+    // y el cliente no está haciendo otra pregunta adicional de menú/horarios, componemos la confirmación exacta en 0 ms.
+    if (fnCallParts.length === 1 && fnCallParts[0]?.functionCall?.name === 'create_manager_callback' && !asksUnrelatedMenuOrHours) {
+      const cbRes = responseParts[0]?.functionResponse?.response
+      const rawCallerName = String(fnCallParts[0]?.functionCall?.args?.caller_name || callbackCreated?.caller_name || '').trim()
+      const composed = composeInstantCallbackTurnReply(cbRes, rawCallerName)
+      if (composed) {
+        replyText = composed
+        break
+      }
+    }
+
     contents.push(candidateContent)
     contents.push({ role: 'user', parts: responseParts })
   }
@@ -4879,17 +6416,23 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       if (guard.callerPhone) {
         const inferredForCb = inferCallMetadata(guard.summary || userText, toolsUsed, true)
         const inferredReason =
-          inferredForCb.primaryIntent === 'complaint_missing_item'
-            ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normalizeSearchText(guard.summary))
-              ? 'billing_refund'
-              : 'missing_or_wrong_item'
-            : inferredForCb.primaryIntent === 'lost_and_found'
-              ? 'lost_item'
-              : inferredForCb.primaryIntent === 'employee_callout'
-                ? 'employee_callout'
-                : inferredForCb.primaryIntent === 'vendor_service'
-                  ? 'vendor_arrival'
-                  : 'other'
+          inferredForCb.primaryIntent === 'condiments_note'
+            ? 'condiments_note'
+            : inferredForCb.primaryIntent === 'wrong_store_order'
+              ? 'wrong_store_order'
+              : inferredForCb.primaryIntent === 'delivery_issue'
+                ? 'delivery_issue'
+                : inferredForCb.primaryIntent === 'complaint_missing_item'
+                  ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normalizeSearchText(guard.summary))
+                    ? 'billing_refund'
+                    : 'missing_or_wrong_item'
+                  : inferredForCb.primaryIntent === 'lost_and_found'
+                    ? 'lost_item'
+                    : inferredForCb.primaryIntent === 'employee_callout'
+                      ? 'employee_callout'
+                      : inferredForCb.primaryIntent === 'vendor_service'
+                        ? 'vendor_arrival'
+                        : 'other'
         const inferredCallerType =
           inferredForCb.callerCategory === 'employee'
             ? 'employee'
@@ -4898,14 +6441,27 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
               : inferredForCb.callerCategory === 'delivery_driver'
                 ? 'delivery_driver'
                 : 'customer'
+        const inferredTargetStore =
+          inferredReason === 'wrong_store_order'
+            ? inferMentionedOtherStore(allActiveStores, store.id, `${guard.summary} ${allUserTurnsText}`)
+            : null
         try {
           const forcedRes = await executeTool('create_manager_callback', {
             caller_name: guard.callerName,
             caller_phone: guard.callerPhone,
             caller_type: inferredCallerType,
-            urgency: /\b(emergencia|emergency|intoxic|got sick|cobro doble|overcharged|fraud)\b/i.test(normalizeSearchText(guard.summary)) ? 'critical' : 'high',
+            urgency:
+              inferredReason === 'condiments_note'
+                ? 'normal'
+                : /\b(emergencia|emergency|intoxic|got sick|cobro doble|overcharged|fraud)\b/i.test(normalizeSearchText(guard.summary))
+                  ? 'critical'
+                  : 'high',
             reason_category: inferredReason,
-            reason_summary: guard.summary || userText
+            reason_summary: guard.summary || userText,
+            _fromGuard: true,
+            ...(guard.ticketNumber ? { ticket_or_order_number: guard.ticketNumber } : {}),
+            ...(guard.orderDate ? { order_date: guard.orderDate } : {}),
+            ...(inferredTargetStore ? { target_store_id: Number(inferredTargetStore.id) } : {})
           })
           toolsUsed.push('create_manager_callback')
           transcript.push({
@@ -4938,8 +6494,25 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   if (!replyText) {
     if (callbackCreated) {
-      const custSpokenCompact = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken_compact' })
-      if (!scheduleEval.isOpenNow) {
+      const targetMetaStore = resolvedCallbackTargetStore || store
+      const custSpokenCompact = formatCustomerStoreName(targetMetaStore, turnLangGuess, { style: 'spoken_compact' })
+      const targetSched =
+        Number(targetMetaStore.id) !== Number(store.id)
+          ? evaluateStoreSchedulePure({
+              storeId: targetMetaStore.id,
+              storeName: targetMetaStore.name,
+              weeklyHours: targetMetaStore.weekly_hours,
+              specialHours: ((ctx as any).allSpecialHours || []).filter(
+                (sh: any) => sh.store_id === null || Number(sh.store_id) === Number(targetMetaStore.id)
+              )
+            })
+          : scheduleEval
+      if (resolvedCallbackCategory === 'condiments_note') {
+        replyText =
+          turnLangGuess === 'en'
+            ? `Your condiment note is already on the packing screen for our ${custSpokenCompact} location, so the team will include it as long as your order has not left yet. Is there anything else I can help you with?`
+            : `Tu nota de condimentos ya quedó en la pantalla de empaque de ${custSpokenCompact} para que los agreguen siempre que tu orden todavía no haya salido. ¿Te puedo ayudar con algo más?`
+      } else if (!targetSched.isOpenNow) {
         replyText =
           turnLangGuess === 'en'
             ? `Since our ${custSpokenCompact} location is currently closed, your priority message has been saved so the manager can call you back as soon as we reopen. Is there anything else I can help you with?`
@@ -4974,6 +6547,31 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
           turnLangGuess === 'en'
             ? `${scheduleEval.statusMessageEn} Our address is ${spokenStoreAddress}.`
             : `${scheduleEval.statusMessageEs} Nuestra dirección es ${spokenStoreAddress}.`
+      } else if (preGuardMeta.primaryIntent === 'delivery_issue') {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'For refunds or order edits on Uber Eats, DoorDash, or Grubhub, please use the Help section inside your delivery app. If you need us to alert the store, please share your name, 10-digit phone number, and order code.'
+            : 'Para reembolsos o cambios en pedidos de Uber Eats, DoorDash o Grubhub, repórtalo en la sección Ayuda de tu aplicación. Si deseas avisar a la tienda, dime tu nombre, teléfono de 10 dígitos y código de orden.'
+      } else if (preGuardMeta.primaryIntent === 'wrong_store_order') {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'Paid orders cannot be transferred automatically between locations. For app orders please cancel right away in the app; for tacosgavilan.com pickup orders, share the store where it landed, your name, 10-digit phone, and order number.'
+            : 'No podemos mover pedidos pagados entre sucursales automáticamente. Si pediste por app, cancélalo de inmediato en la app; si fue en tacosgavilan.com para recoger, dime en qué sucursal cayó, tu nombre, teléfono de 10 dígitos y número de orden.'
+      } else if (preGuardMeta.primaryIntent === 'condiments_note') {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'I can send a condiment packing note as long as your order has not left yet. Please share your name, order number, requested condiments, and 10-digit phone number.'
+            : 'Con gusto envío la nota de condimentos a empaque siempre que tu orden aún no haya salido. ¿Me das tu nombre, número de orden, qué condimentos deseas y tu teléfono de 10 dígitos?'
+      } else if (preGuardMeta.primaryIntent === 'complaint_missing_item') {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'I apologize for the inconvenience. To review how your order was prepared, may I have your ticket number, date, name, and 10-digit phone number? Without the ticket, it is unlikely we can verify the mistake.'
+            : 'Lamento el inconveniente. Para revisar la preparación de tu orden, ¿me das tu número de ticket, fecha, nombre y teléfono de 10 dígitos? Sin el ticket es poco probable determinar la equivocación.'
+      } else if (['lost_and_found', 'employee_callout'].includes(preGuardMeta.primaryIntent)) {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'We do not transfer calls to managers’ personal phones, but I can send an immediate priority alert to the manager screen. Could you please share your name and 10-digit phone number?'
+            : 'No desviamos llamadas a celulares personales, pero puedo enviar una alerta prioritaria a la pantalla del gerente en sucursal. ¿Me compartes tu nombre y número de teléfono de 10 dígitos?'
       } else {
         replyText =
           turnLangGuess === 'en'
@@ -4989,6 +6587,19 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   }
 
   const meta = inferCallMetadata(normalizedUserForMatch, toolsUsed, Boolean(callbackCreated))
+  if (forcedSpamFastPath) {
+    meta.callerCategory = 'spam'
+    meta.primaryIntent = 'spam'
+    meta.resolvedByAi = true
+  }
+  if (
+    callbackCreated &&
+    (resolvedCallbackCategory === 'wrong_store_order' ||
+      resolvedCallbackCategory === 'condiments_note' ||
+      resolvedCallbackCategory === 'delivery_issue')
+  ) {
+    meta.primaryIntent = resolvedCallbackCategory
+  }
 
   // Idioma FINAL = idioma real del texto generado (se detecta antes de acentuar topónimos como "Los Ángeles")
   const finalLang: PhoneLang = detectPhoneTextLanguage(replyText, turnLangGuess)
@@ -5007,18 +6618,15 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       .slice(0, -1)
       .filter((t) => t.role === 'assistant')
       .slice(-1)[0]?.text || ''
-  const offeredEnding = /algo m[aá]s|anything else|else i can help/i.test(prevAssistantText)
-  const continuesAsking =
-    /[?¿]/.test(userText) ||
-    /\b(mejor dime|espera|una pregunta|otra pregunta|y cuanto|a que hora|tambien|también|one more|wait|actually)\b/i.test(normEnd)
   const shouldHangup =
     !shouldTransferToPhone &&
     (meta.primaryIntent === 'spam' ||
-      (!continuesAsking &&
-        (/\b(gracias es todo|es todo gracias|eso es todo|es todo|solo era eso|seria todo|nada mas|cuelgame|bye|goodbye|thank you that is all|thats all|that will be all|nothing else|no thank you|no thanks|hasta luego|adios|nos vemos)\b/i.test(
-          normEnd
-        ) ||
-          (offeredEnding && /^(?:no\s+)?(?:muchas\s+)?gracias\.?$/i.test(normEnd.trim())))))
+      isCallerEndingConversation({
+        userText,
+        normUser: normEnd,
+        prevAssistantText
+      }) ||
+      didAssistantConcludeCall(replyText))
 
   const finalCallRecord = await ensureCallRecord()
   const rawStartedAtMs = finalCallRecord.started_at ? new Date(finalCallRecord.started_at).getTime() : NaN
@@ -5045,9 +6653,12 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
 
   const INTENT_PRIORITY: Record<string, number> = {
     employee_callout: 100,
+    wrong_store_order: 97,
     complaint_missing_item: 95,
+    delivery_issue: 92,
     lost_and_found: 90,
     vendor_service: 85,
+    condiments_note: 78,
     delivery_driver: 75,
     fiesta_platters: 65,
     order_by_phone: 60,
@@ -5198,6 +6809,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     callbackCreated: callbackWasNew ? callbackCreated : null,
     shouldTransferToPhone,
     shouldHangup,
+    isCanonicalReply,
     transcript,
     storeContext: ctx,
     flushDbPromise
@@ -5290,7 +6902,7 @@ export function verifyPhoneTtsSignature(
 }
 
 const TWILIO_GATHER_HINTS =
-  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, torta cubana, torta milanesa, super burrito, burrito vegetariano, quesadilla, super quesadilla, sope, taco plate, super nachos, flan, cheesecake, horchata, jamaica, pina, tamarindo, champurrado, aguas frescas, huevos rancheros, huevos con chorizo, Monterey Jack, queso fresco, cotija, fiesta platter, charola, drive thru, EBT, CalFresh, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Los Angeles, Vernon, Washington, Slauson, Central, Broadway, gerente, manager'
+  'Tacos Gavilan, asada, pastor, pollo, cabeza, lengua, buche, chorizo, carnitas, mulita, super mulita, torta cubana, torta milanesa, super burrito, burrito vegetariano, quesadilla, super quesadilla, sope, taco plate, super nachos, flan, cheesecake, horchata, jamaica, pina, tamarindo, champurrado, aguas frescas, huevos rancheros, huevos con chorizo, Monterey Jack, queso fresco, cotija, fiesta platter, charola, drive thru, EBT, CalFresh, Uber Eats, DoorDash, Grubhub, condimentos, salsa verde, salsa roja, cilantro, cebolla, limones, jalapenos, cancelar, modificar, West Covina, Lynwood, South Gate, Downey, Norwalk, La Puente, Huntington Park, Santa Ana, Rialto, Azusa, Bell, Hollywood, Los Angeles, Vernon, Washington, Slauson, Central, Broadway, comedor, ticket, recibo, gerente, manager'
 
 /**
  * Genera una etiqueta `<Say>` de Twilio usando la voz Google Chirp 3 HD `Kore`
@@ -5314,7 +6926,7 @@ export function isPromptExpectingPhoneOrDetails(text: string | null | undefined)
   const norm = normalizeSearchText(raw)
   if (!norm) return false
   const mentionsTargetField =
-    /\b(tu\s+nombre|su\s+nombre|tu\s+numero|su\s+numero|tu\s+telefono|su\s+telefono|numero\s+de\s+telefono|telefono\s+de\s+10|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|faltan\s+\d*\s*digitos|a\s+que\s+numero|numero\s+de\s+orden|numero\s+de\s+ticket|your\s+name|your\s+phone|your\s+number|phone\s+number|callback\s+number|best\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits|rest\s+of\s+(?:the\s+|your\s+)?number|order\s+number|ticket\s+number)\b/i.test(
+    /\b(tu\s+nombre|su\s+nombre|tu\s+numero|su\s+numero|tu\s+telefono|su\s+telefono|numero\s+de\s+telefono|telefono\s+de\s+10|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|faltan\s+\d*\s*digitos|a\s+que\s+numero|numero\s+de\s+orden|numero\s+de\s+ticket|tu\s+ticket|su\s+ticket|el\s+ticket|recibo|que\s+fecha|cual\s+fecha|fecha\s+de|cuando\s+(?:compraste|fue|pasaste)|codigo\s+de\s+orden|que\s+condimentos|en\s+(?:que|cual)\s+sucursal|your\s+name|your\s+phone|your\s+number|phone\s+number|callback\s+number|best\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits|rest\s+of\s+(?:the\s+|your\s+)?number|order\s+number|order\s+code|ticket\s+number|your\s+ticket|the\s+ticket|receipt|purchase\s+date|what\s+date|which\s+date|date\s+of|when\s+did\s+you|which\s+condiments|which\s+store|which\s+location)\b/i.test(
       norm
     )
   if (!mentionsTargetField) return false
@@ -5337,8 +6949,8 @@ export function buildTwilioGatherAttrs(
   opts?: { patient?: boolean }
 ): string {
   const speechLang = lang === 'en' ? 'en-US' : 'es-US'
-  const speechTimeout = opts?.patient ? '3' : '1'
-  const timeout = opts?.patient ? '8' : '4'
+  const speechTimeout = opts?.patient ? '2' : 'auto'
+  const timeout = opts?.patient ? '7' : '4'
   return `input="speech dtmf" numDigits="1" language="${speechLang}" speechTimeout="${speechTimeout}" timeout="${timeout}" actionOnEmptyResult="true" speechModel="telephony" hints="${escapeXml(TWILIO_GATHER_HINTS)}" action="${escapeXml(actionUrl)}" method="POST"`
 }
 

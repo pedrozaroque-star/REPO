@@ -34,6 +34,8 @@
  * - Auditoría 2026-11-18: liberación síncrona de `simBusyRef` en `start_meta` (evita pérdida de clics/barge-in durante saludo),
  *   cierre automático al silenciar despedida terminal, candados síncronos `useRef` contra doble clic en CRUD y replay de audio,
  *   código `*73` en guía Spectrum Business, rol `administrador` en `ProtectedRoute` y limpieza de timers al desmontar.
+ * - Upgrade 2026-11-18 (Paquete 1 + 2A + 2B): soporte visual en Bitácora/Recados para categorías `condiments_note` (tarjeta
+ *   azul cielo de empaque), `wrong_store_order` (con badge de origen `origin_store_id`) y `delivery_issue`.
  */
 
 'use client'
@@ -42,7 +44,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import { normalizeTextForPhoneSpeech, pickStrictFemaleBrowserVoice } from '@/lib/phone-speech-format'
-import { formatCustomerGreetingTarget } from '@/lib/customer-store-names'
+import { CANONICAL_CUSTOMER_STORES_BY_ID, formatCustomerGreetingTarget } from '@/lib/customer-store-names'
 import {
   Phone,
   PhoneCall,
@@ -203,6 +205,7 @@ interface CallbackRow {
   id: string
   call_id: string | null
   store_id: number
+  origin_store_id?: number | null
   source?: string
   caller_name: string
   caller_phone: string
@@ -1959,6 +1962,7 @@ export default function ContestadoraIaPage() {
 
     const finalizeAutoHangupIfNeeded = () => {
       if (shouldAutoHangup) {
+        stopMicrophone()
         pendingAutoHangupRef.current = false
         simActiveRef.current = false
         simCallSidRef.current = null
@@ -2044,7 +2048,8 @@ export default function ContestadoraIaPage() {
           handledFallbackSpeech = true
           const fullText = evt.text || turnMeta?.replyText || ''
           const clipLang = evt.language === 'en' ? 'en' : 'es'
-          if (turnMeta?.audioUrl) {
+          // Cuando el servidor ya agotó el stream TTS (`tts_fallback_required`), hablar de inmediato (0 ms) sin repetir otro fetch lento a /api/phone/tts
+          if (evt.type === 'audio_stream_truncated' && turnMeta?.audioUrl) {
             void playVoiceUrl(
               turnMeta.audioUrl,
               fullText,
@@ -2123,7 +2128,7 @@ export default function ContestadoraIaPage() {
         return
       }
       if (turnMeta && !pcmPlayer.hasPlayedAny() && !handledFallbackSpeech) {
-        if (turnMeta.audioUrl) {
+        if (turnMeta.audioUrl && !simMutedRef.current) {
           void playVoiceUrl(
             turnMeta.audioUrl,
             turnMeta.replyText,
@@ -2206,23 +2211,24 @@ export default function ContestadoraIaPage() {
       void handleSendSimTurnRef.current(finalPayload)
     }
 
-    const computeAdaptiveSilenceMs = (combinedText: string): number => {
+    const computeAdaptiveSilenceMs = (combinedText: string, isFinalUtterance: boolean): number => {
       const digitsCount = combinedText.replace(/\D/g, '').length
-      if (digitsCount >= 10) return 1500
-      if (digitsCount >= 1 && digitsCount <= 9) return 3500
+      if (digitsCount >= 10) return isFinalUtterance ? 480 : 950
+      const endsWithPhoneDigits = /(?:\d[\s\-,.]*){3,9}$/.test(combinedText.trim())
+      if (endsWithPhoneDigits && digitsCount < 10) return isFinalUtterance ? 1750 : 2400
       const lastAssistant =
         [...simTranscriptRef.current].reverse().find((m) => m.role === 'assistant')?.text || ''
       const assistantAskedPhoneOrName =
         /\b(tu\s+nombre|su\s+nombre|tu\s+n[uú]mero|su\s+n[uú]mero|tu\s+tel[eé]fono|su\s+tel[eé]fono|10\s+d[ií]gitos|diez\s+d[ií]gitos|d[ií]gitos\s+restantes|[uú]ltimos\s+\d*\s*d[ií]gitos|your\s+name|your\s+phone|your\s+number|phone\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits)\b/i.test(
           lastAssistant
         )
-      if (assistantAskedPhoneOrName) return 3200
       const endsInOpenConnector =
         /\b(y|e|o|de|del|al|el|la|los|las|mi|su|es|son|con|para|que|por|and|or|of|the|my|is|are|with|for|to|at|number|n[uú]mero|tel[eé]fono|llam[ao]|soy)\s*$/i.test(
           combinedText
         )
-      if (endsInOpenConnector) return 3200
-      return 1500
+      if (endsInOpenConnector) return isFinalUtterance ? 1400 : 2100
+      if (assistantAskedPhoneOrName && !isFinalUtterance) return 1500
+      return isFinalUtterance ? 420 : 950
     }
 
     rec.onstart = () => setSimListening(true)
@@ -2257,11 +2263,13 @@ export default function ContestadoraIaPage() {
       }
       const combined = pieces.join(' ').replace(/\s+/g, ' ').trim()
       if (!combined) return
+      const resLen = event.results?.length || 0
+      const lastIsFinal = resLen > 0 ? Boolean(event.results[resLen - 1]?.isFinal) : false
       micAccumulatedRef.current = combined
       setSimInput(combined)
       clearMicTimer()
       if (typeof window !== 'undefined') {
-        micSilenceTimerRef.current = window.setTimeout(flushMicSpeech, computeAdaptiveSilenceMs(combined))
+        micSilenceTimerRef.current = window.setTimeout(flushMicSpeech, computeAdaptiveSilenceMs(combined, lastIsFinal))
       }
     }
 
@@ -2751,7 +2759,10 @@ export default function ContestadoraIaPage() {
     const knownIntents = new Set([
       'spam',
       'employee_callout',
+      'wrong_store_order',
       'complaint_missing_item',
+      'delivery_issue',
+      'condiments_note',
       'job_inquiry',
       'lost_and_found',
       'vendor_service',
@@ -2765,6 +2776,22 @@ export default function ContestadoraIaPage() {
       'general'
     ])
     return knownIntents.has(norm) ? t(`phone_agent.intent_${norm}`) : intent
+  }
+
+  const getReasonCategoryLabel = (category: string): string => {
+    const norm = String(category || '').toLowerCase()
+    const knownReasons = new Set([
+      'condiments_note',
+      'wrong_store_order',
+      'delivery_issue',
+      'missing_or_wrong_item',
+      'lost_item',
+      'employee_callout',
+      'vendor_arrival',
+      'billing_refund',
+      'other'
+    ])
+    return knownReasons.has(norm) ? t(`phone_agent.reason_${norm}`) : ''
   }
 
   const currentSimStore = stores.find((s) => s.id === simStoreId) || stores[0]
@@ -4776,6 +4803,10 @@ export default function ContestadoraIaPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {callbacks.map((cb) => {
                     const isSimCb = cb.source === 'simulator'
+                    const isCondimentNote = String(cb.reason_category || '').toLowerCase() === 'condiments_note'
+                    const reasonLabel = getReasonCategoryLabel(cb.reason_category)
+                    const isCrossStore = Boolean(cb.origin_store_id && Number(cb.origin_store_id) !== Number(cb.store_id))
+                    const originMeta = isCrossStore ? CANONICAL_CUSTOMER_STORES_BY_ID[Number(cb.origin_store_id)] : null
                     return (
                       <div
                         key={cb.id}
@@ -4783,7 +4814,9 @@ export default function ContestadoraIaPage() {
                           cb.status === 'pending'
                             ? isSimCb
                               ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
-                              : 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-800'
+                              : isCondimentNote
+                                ? 'bg-sky-50/70 dark:bg-sky-950/25 border-sky-300 dark:border-sky-800'
+                                : 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-800'
                             : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 opacity-75'
                         }`}
                       >
@@ -4794,14 +4827,23 @@ export default function ContestadoraIaPage() {
                                 className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
                                   cb.urgency === 'critical' || cb.urgency === 'urgent'
                                     ? 'bg-rose-600 text-white'
-                                    : cb.urgency === 'high'
-                                      ? 'bg-amber-600 text-white'
-                                      : 'bg-slate-600 text-white'
+                                    : isCondimentNote
+                                      ? 'bg-sky-700 text-white'
+                                      : cb.urgency === 'high'
+                                        ? 'bg-amber-600 text-white'
+                                        : 'bg-slate-600 text-white'
                                 }`}
                               >
                                 {cb.stores?.name || `#${cb.store_id}`} •{' '}
                                 {getCallerTypeLabel(cb.caller_type)} • {getUrgencyLabel(cb.urgency)}
+                                {reasonLabel ? ` • ${reasonLabel}` : ''}
                               </span>
+                              {isCrossStore && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100">
+                                  ↪️ {t('phone_agent.banner_routed_from_prefix')} #{cb.origin_store_id}{' '}
+                                  {originMeta?.internalName || ''}
+                                </span>
+                              )}
                               <span
                                 className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
                                   isSimCb
@@ -4868,7 +4910,9 @@ export default function ContestadoraIaPage() {
                               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
                             >
                               <CheckCircle2 size={13} />
-                              {t('phone_agent.callbacks_mark_resolved')}
+                              {isCondimentNote
+                                ? t('phone_agent.banner_condiments_mark_done')
+                                : t('phone_agent.callbacks_mark_resolved')}
                             </button>
                           </div>
                         ) : (

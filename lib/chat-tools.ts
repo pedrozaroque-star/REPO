@@ -4033,15 +4033,18 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
     }
 
     if (filteredCallbacks.length > 0) {
-      out += `| Sucursal | Tipo / Urgencia | Persona | Teléfono | Motivo |\n`;
-      out += `|----------|-----------------|---------|----------|--------|\n`;
+      out += `| Sucursal | Categoría / Urgencia | Persona | Teléfono | Ticket / Orden | Motivo |\n`;
+      out += `|----------|----------------------|---------|----------|----------------|--------|\n`;
       filteredCallbacks.forEach((cb: any) => {
         const cleanStore = String(cb.stores?.name || cb.store_id)
           .replace(/^Tacos Gavilan\s*[-—]?\s*/i, '')
           .replace(/^LA\s+(Broadway|Central)\b/i, '$1')
           .trim();
-        const tag = `${cb.caller_type || 'customer'} / ${String(cb.urgency || 'normal').toUpperCase()}`;
-        out += `| ${safeCell(cleanStore)} | ${safeCell(tag)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.reason_summary)} |\n`;
+        const storeLabel = cb.origin_store_id && Number(cb.origin_store_id) !== Number(cb.store_id)
+          ? `${cleanStore} (↪️ desde #${cb.origin_store_id})`
+          : cleanStore;
+        const tag = `${cb.reason_category || cb.caller_type || 'customer'} / ${String(cb.urgency || 'normal').toUpperCase()}`;
+        out += `| ${safeCell(storeLabel)} | ${safeCell(tag)} | ${safeCell(cb.caller_name)} | ${safeCell(cb.caller_phone)} | ${safeCell(cb.ticket_or_order_number || '—')} | ${safeCell(cb.reason_summary)} |\n`;
       });
     }
     return out;

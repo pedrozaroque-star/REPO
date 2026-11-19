@@ -602,22 +602,23 @@ export async function POST(request: Request) {
         : { firstChunk: turn.replyText, restChunk: null }
 
     const ttsBudgetMs = getRespondTtsBudgetMs()
+    const isDynamicTurnAudio = !turn.isCanonicalReply
     const firstSynthPromise = getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
-      skipStorageLookup: false,
-      skipStoragePersist: false,
+      skipStorageLookup: isDynamicTurnAudio,
+      skipStoragePersist: isDynamicTurnAudio,
       skipSseAttempt: false,
       fastLivePhone: true,
-      awaitStoragePersist: true,
+      awaitStoragePersist: !isDynamicTurnAudio,
       maxTotalMs: ttsBudgetMs
     })
     const restSynthPromise = restChunk
       ? getPhoneAgentSpeech(restChunk, turn.language, turn.voiceId, false, {
-          skipStorageLookup: false,
-          skipStoragePersist: false,
+          skipStorageLookup: isDynamicTurnAudio,
+          skipStoragePersist: isDynamicTurnAudio,
           skipSseAttempt: false,
           fastLivePhone: true,
-          awaitStoragePersist: true,
-          maxTotalMs: ttsBudgetMs + 1500
+          awaitStoragePersist: !isDynamicTurnAudio,
+          maxTotalMs: ttsBudgetMs + 1200
         }).catch(() => null)
       : null
 
@@ -628,14 +629,17 @@ export async function POST(request: Request) {
       usedFirstChunkPlay = true
       if (restSynthPromise) {
         // Esperar brevemente a que termine la síntesis paralela de restChunk para garantizar reproducción continua
-        await Promise.race([restSynthPromise, new Promise<null>((r) => setTimeout(() => r(null), 1200))])
+        await Promise.race([restSynthPromise, new Promise<null>((r) => setTimeout(() => r(null), 900))])
       }
       const firstAudioUrl = buildPhoneTtsUrl(baseUrl, firstChunk, turn.language, turn.voiceId, {
         rate: 8000,
-        dynamic: false
+        dynamic: isDynamicTurnAudio
       })
       const restAudioUrl = restChunk
-        ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, { rate: 8000, dynamic: false })
+        ? buildPhoneTtsUrl(baseUrl, restChunk, turn.language, turn.voiceId, {
+            rate: 8000,
+            dynamic: isDynamicTurnAudio
+          })
         : null
       playTags = restAudioUrl
         ? `    <Play>${escapeXml(firstAudioUrl)}</Play>\n    <Play>${escapeXml(restAudioUrl)}</Play>`
