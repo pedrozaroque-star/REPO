@@ -49,14 +49,24 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fallback if RPC fails or does not exist
-    const { data: history, error: historyError } = await supabase
-      .from('meat_consumption_history')
-      .select('business_date, raw_lbs')
-      .eq('store_id', storeId)
-      .eq('meat_type', 'CHAMPURRADO');
+    // Fallback if RPC fails or does not exist: combine archived daily summary + recent live history (no double counting)
+    const [summaryRes, historyRes] = await Promise.all([
+      supabase
+        .from('meat_consumption_daily_summary')
+        .select('business_date, total_raw_lbs')
+        .eq('store_id', storeId)
+        .eq('meat_type', 'CHAMPURRADO'),
+      supabase
+        .from('meat_consumption_history')
+        .select('business_date, raw_lbs')
+        .eq('store_id', storeId)
+        .eq('meat_type', 'CHAMPURRADO')
+    ]);
 
-    if (historyError || !history) {
+    const summaryRows = summaryRes.error ? [] : summaryRes.data || [];
+    const historyRows = historyRes.error ? [] : historyRes.data || [];
+
+    if (summaryRows.length === 0 && historyRows.length === 0) {
       return NextResponse.json({
         suggested_daily_gallons: 0,
         historical_years_count: 0,
@@ -67,21 +77,32 @@ export async function GET(request: Request) {
     // Convert current LA date to ISO week
     const now = new Date();
     const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false });
-    const laHour = parseInt(formatter.format(now), 10);
+    const laHour = parseInt(formatter.format(now), 10) % 24;
     const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const [y, m, d] = laDateStr.split('-').map(Number);
     const businessDate = (laHour < 6) ? new Date(Date.UTC(y, m - 1, d - 1)) : new Date(Date.UTC(y, m - 1, d));
     const currentWeek = getIsoWeek(businessDate);
+    const dailyTotals = new Map<string, number>();
+
+    for (const row of summaryRows) {
+      dailyTotals.set(row.business_date, Number(row.total_raw_lbs) || 0);
+    }
+    const summaryDates = new Set(dailyTotals.keys());
+    for (const record of historyRows) {
+      if (summaryDates.has(record.business_date)) continue;
+      dailyTotals.set(record.business_date, (dailyTotals.get(record.business_date) || 0) + (Number(record.raw_lbs) || 0));
+    }
+
     let totalLbs = 0;
     const distinctDays = new Set<string>();
     const distinctYears = new Set<number>();
 
-    for (const record of history) {
-      const [ry, rm, rd] = record.business_date.split('-').map(Number);
+    for (const [bd, lbs] of dailyTotals.entries()) {
+      const [ry, rm, rd] = bd.split('-').map(Number);
       const recordDate = new Date(Date.UTC(ry, rm - 1, rd));
       if (getIsoWeek(recordDate) === currentWeek) {
-        totalLbs += Number(record.raw_lbs);
-        distinctDays.add(record.business_date);
+        totalLbs += lbs;
+        distinctDays.add(bd);
         distinctYears.add(recordDate.getFullYear());
       }
     }

@@ -15,6 +15,7 @@
  * - Soporta textos de hasta 1400 caracteres (con recorte limpio interno tras validar HMAC si supera el límite) y `?rate=8000` para PSTN Twilio.
  * - SEGURIDAD: GET exige firma criptográfica HMAC `sig` generada por `buildPhoneTtsUrl` (validada con el parámetro `voice` original); POST exige sesión autorizada RBAC.
  * - BLINDAJE CROSS-LAMBDA 2026-11-19: GET siempre consulta Supabase Storage (`skipStorageLookup: false`, incluso cuando `dyn=1` marca `Cache-Control: private, no-store`) y habilita `allowFallbackAfterFastSse: true` (SSE 3.8 -> REST 3.8 -> 3.1 emergencia) para que Twilio `<Play>` jamás pierda audio con HTTP 502; POST (reproducciones de bitácora) usa `skipStoragePersist: true` para no subir transcripciones con PII de clientes a Storage.
+ * - RETENCIÓN EFÍMERA 2026-11-20: cuando `isDynamic === true` (`dyn=1`), lee/persiste en `phone_v6_tmp/` (`ephemeral: true`, auto-depurado cada 24h por `/api/cron/retention-cleanup`), manteniendo `phone_v6/` estrictamente para clips canónicos permanentes.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -53,6 +54,7 @@ async function renderWav(
     skipStorageLookup: false,
     skipStoragePersist: !persistToStorage,
     skipSseAttempt: false,
+    ephemeral: isDynamic,
     fastLivePhone: isLiveTwilio,
     allowFallbackAfterFastSse: isLiveTwilio,
     maxTotalMs: isLiveTwilio ? 11500 : 16000,

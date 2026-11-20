@@ -22,6 +22,7 @@
  * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama muerta `<Dial>` eliminada definitivamente por política.
  * - Blindaje Cross-Lambda 2026-11-19: todas las respuestas `<Play>` (incluyendo dinámicas) persisten en Supabase Storage con `awaitStoragePersist: true` antes de emitir TwiML; `restChunk` solo emite `<Play>` cuando su síntesis y persistencia confirmaron éxito (de lo contrario emite `<Say>` Google Chirp3-HD-Kore, cero drops 502 silenciosos); presupuesto TTS estrictamente acotado a `11.5s` de reloj; y respaldo de `TWILIO_WEBHOOK_BASE_URL`.
  * - Ultra-Velocidad Caché Storage 2026-11-19: cuando `turn.isCanonicalReply` o respuesta determinista corta (`<= 220` chars) sin `geminiFailed` es verdadero, `synthesizeRespondPlayOrFallback` y el flujo `<Play>` operan con `opts.dynamic = false` (`skipStorageLookup: false`) para servir la 2ª llamada en `~80 ms` directo desde `phone_v6/Kore/`.
+ * - Retención Efímera 2026-11-20: los clips dinámicos irrepetibles (`isDynamic === true`, `dyn=1`) se guardan en `phone_v6_tmp/` (`ephemeral: true`) para que `/api/cron/retention-cleanup` los depure cada 24h, manteniendo intacto `phone_v6/` permanente para saludos y respuestas rápidas canónicas.
  */
 
 import { after } from 'next/server'
@@ -82,16 +83,17 @@ async function synthesizeRespondPlayOrFallback(
   budgetMs: number,
   opts?: { dynamic?: boolean }
 ): Promise<{ tag: string; playedKore38: boolean }> {
-  const canTryTts = budgetMs >= 1200 || isPhoneSpeechInRamCache(text, lang, voice)
+  const isDynamic = Boolean(opts?.dynamic)
+  const canTryTts = budgetMs >= 1200 || isPhoneSpeechInRamCache(text, lang, voice, isDynamic)
   if (!canTryTts) {
     return { tag: buildTwilioFallbackSay(text, lang), playedKore38: false }
   }
-  const isDynamic = Boolean(opts?.dynamic)
   try {
     await getPhoneAgentSpeech(text, lang, voice, false, {
       skipStorageLookup: isDynamic,
       skipStoragePersist: false,
       skipSseAttempt: false,
+      ephemeral: isDynamic,
       fastLivePhone: true,
       awaitStoragePersist: true,
       maxTotalMs: Math.max(1200, budgetMs)
@@ -592,9 +594,11 @@ export async function POST(request: Request) {
     } else if (canTryFirstTts) {
       const firstSynthPromise = getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
         skipStorageLookup: isDynamicTurnAudio,
-        // Persistir SIEMPRE en Supabase Storage (privado) y esperar confirmación acotada para que cualquier Lambda en /api/phone/tts acierte en caché
+        // Persistir SIEMPRE en Supabase Storage (privado) y esperar confirmación acotada para que cualquier Lambda en /api/phone/tts acierte en caché;
+        // si es dinámico irrepetible (`isDynamicTurnAudio`), va a `phone_v6_tmp/` (TTL 24h) en vez de `phone_v6/` permanente.
         skipStoragePersist: false,
         skipSseAttempt: false,
+        ephemeral: isDynamicTurnAudio,
         fastLivePhone: true,
         awaitStoragePersist: true,
         maxTotalMs: Math.max(1200, ttsBudgetMs)
@@ -604,6 +608,7 @@ export async function POST(request: Request) {
             skipStorageLookup: isDynamicTurnAudio,
             skipStoragePersist: false,
             skipSseAttempt: false,
+            ephemeral: isDynamicTurnAudio,
             fastLivePhone: true,
             awaitStoragePersist: true,
             maxTotalMs: Math.max(1200, Math.min(6200, ttsBudgetMs + 1600))

@@ -1049,25 +1049,33 @@ export const PHONE_INSTANT_OPENERS: Record<string, { es: string; en: string }> =
 
 const PHONE_CACHE_PREFIX = 'phone_kore38_v6'
 const PHONE_STORAGE_DIR = 'phone_v6'
+export const PHONE_EPHEMERAL_STORAGE_DIR = 'phone_v6_tmp'
 
 export function getPhoneSpeechStoragePath(
   text: string,
   lang: TtsLang,
-  voice: VoiceId = DEFAULT_VOICE
+  voice: VoiceId = DEFAULT_VOICE,
+  ephemeral = false
 ): { clean: string; selectedVoice: PhoneFemaleVoiceId; path: string } | null {
   const clean = normalizePhoneTtsInput(text, lang, MAX_PHONE_TTS_CHARS)
   if (!clean) return null
   const selectedVoice = resolvePhoneFemaleVoice(voice)
   const hash = createHash('md5').update(`${PHONE_CACHE_PREFIX}:${selectedVoice}:${lang}:${clean.toLowerCase()}`).digest('hex')
+  const dir = ephemeral ? PHONE_EPHEMERAL_STORAGE_DIR : PHONE_STORAGE_DIR
   return {
     clean,
     selectedVoice,
-    path: `${PHONE_STORAGE_DIR}/${selectedVoice}/${lang}/${hash}.wav`
+    path: `${dir}/${selectedVoice}/${lang}/${hash}.wav`
   }
 }
 
-export function isPhoneSpeechInRamCache(text: string, lang: TtsLang, voice: VoiceId = DEFAULT_VOICE): boolean {
-  const info = getPhoneSpeechStoragePath(text, lang, voice)
+export function isPhoneSpeechInRamCache(
+  text: string,
+  lang: TtsLang,
+  voice: VoiceId = DEFAULT_VOICE,
+  ephemeral = false
+): boolean {
+  const info = getPhoneSpeechStoragePath(text, lang, voice, ephemeral)
   if (!info) return false
   return memoryPhoneAudioCache.has(info.path)
 }
@@ -1337,13 +1345,14 @@ export async function* streamPhoneAgentSpeechPcm(
     skipStorageLookup?: boolean
     skipStoragePersist?: boolean
     skipInflightLookup?: boolean
+    ephemeral?: boolean
     signal?: AbortSignal
     allowBlockFallback?: boolean
     fastLivePhone?: boolean
     onStreamCompleted?: (completedCleanly: boolean) => void
   }
 ): AsyncGenerator<{ pcmChunk: Buffer; sampleRate: number; fromCache: boolean }> {
-  const info = getPhoneSpeechStoragePath(text, lang, voice)
+  const info = getPhoneSpeechStoragePath(text, lang, voice, Boolean(options?.ephemeral))
   if (!info) {
     options?.onStreamCompleted?.(false)
     return
@@ -2071,6 +2080,7 @@ export async function* streamPhoneAgentSpeechPcm(
             skipStorageLookup: false,
             skipStoragePersist: false,
             skipSseAttempt: true,
+            ephemeral: options?.ephemeral,
             maxTotalMs: 9500,
             signal: options?.signal
           })
@@ -2105,6 +2115,7 @@ export async function getPhoneAgentSpeech(
     skipStoragePersist?: boolean
     awaitStoragePersist?: boolean
     skipSseAttempt?: boolean
+    ephemeral?: boolean
     fastLivePhone?: boolean
     allowFallbackAfterFastSse?: boolean
     requireKore38?: boolean
@@ -2112,7 +2123,7 @@ export async function getPhoneAgentSpeech(
     signal?: AbortSignal
   }
 ): Promise<Buffer> {
-  const info = getPhoneSpeechStoragePath(text, lang, voice)
+  const info = getPhoneSpeechStoragePath(text, lang, voice, Boolean(options?.ephemeral))
   if (!info) throw new Error('Texto de respuesta telefónica vacío')
   const { clean, selectedVoice, path } = info
 
@@ -2243,6 +2254,7 @@ export async function getPhoneAgentSpeech(
           skipStorageLookup: true,
           skipStoragePersist: options?.skipStoragePersist,
           skipInflightLookup: true,
+          ephemeral: options?.ephemeral,
           allowBlockFallback: false,
           fastLivePhone: options?.fastLivePhone,
           signal: sseSignal,
