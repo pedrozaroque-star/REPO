@@ -4,8 +4,8 @@
  * @businessRules
  * - Uses store coordinates (latitude, longitude) and addresses from the 'stores' table.
  * - Applies a balanced route model ("ni la más larga ni la más corta") to reflect real supervisor driving detours to evade LA traffic.
- * - Integrates Google Maps API when key is available, falling back to Haversine with a 1.33x SoCal urban detour multiplier.
- * @dataFlow Client GET request -> Stores DB / Maps API -> Calculated distance JSON.
+ * - Queries `store_distances` first, then OSRM real driving route (`router.project-osrm.org`, 4s timeout), falling back to Haversine `1.10x` highway calibration (zero restricted Google Distance Matrix calls).
+ * @dataFlow Client GET request -> Stores DB / OSRM Driving Route / Haversine -> Calculated distance JSON.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -117,29 +117,22 @@ export async function GET(req: NextRequest) {
     let routeMethod = 'median_traffic_evasion'
     let notes = 'Ruta intermedia balanceada (evasión de tráfico)'
 
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY
-
-    if (apiKey && origInfo?.address && destInfo?.address) {
+    if (origInfo?.lat && origInfo?.lng && destInfo?.lat && destInfo?.lng) {
       try {
-        const googleUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
-          origInfo.address
-        )}&destinations=${encodeURIComponent(destInfo.address)}&mode=driving&key=${apiKey}`
-
-        const googleRes = await fetch(googleUrl)
-        const googleData = await googleRes.json()
-
-        if (
-          googleData.status === 'OK' &&
-          googleData.rows?.[0]?.elements?.[0]?.status === 'OK'
-        ) {
-          const meters = googleData.rows[0].elements[0].distance.value
-          const baseMiles = meters / 1609.34
-          distanceMiles = parseFloat((baseMiles * 1.05).toFixed(2))
-          routeMethod = 'google_maps_median_traffic'
-          notes = `Calculado via Google Maps (${baseMiles.toFixed(2)} mi directas)`
+        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origInfo.lng},${origInfo.lat};${destInfo.lng},${destInfo.lat}?overview=false`
+        const osrmRes = await fetch(osrmUrl, { signal: AbortSignal.timeout(4000) })
+        if (osrmRes.ok) {
+          const osrmData = await osrmRes.json()
+          const meters = Number(osrmData?.routes?.[0]?.distance)
+          if (osrmData?.code === 'Ok' && Number.isFinite(meters) && meters > 0) {
+            const baseMiles = meters / 1609.34
+            distanceMiles = parseFloat((baseMiles * 1.05).toFixed(2))
+            routeMethod = 'osrm_driving_route'
+            notes = `Calculado via ruta real OSRM (${baseMiles.toFixed(2)} mi directas)`
+          }
         }
-      } catch (errGoogle) {
-        console.warn('Google Maps Distance Matrix call failed, falling back to Haversine median formula:', errGoogle)
+      } catch (errOsrm) {
+        console.warn('OSRM driving route call failed, falling back to Haversine median formula:', errOsrm)
       }
     }
 

@@ -49,7 +49,7 @@ export default function StoreMapPicker({ initialLat, initialLng, onChange, readO
         if (!existingScript) {
             const script = document.createElement('script')
             script.id = 'google-maps-script'
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`
             script.async = true
             script.defer = true
             script.onload = () => initMap()

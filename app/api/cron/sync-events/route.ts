@@ -16,6 +16,7 @@
  * - Usa la REST API de Gemini directamente (no SDK) para evitar dependencias extras
  * - El proyecto ya usa este patrón en support-chat/route.ts
  * - Google Search Grounding permite buscar eventos en tiempo real
+ * - Blindaje Paid Tier 1 (2026-11-20): modelos GA/3.x unificados (`gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3-flash-preview`), header `x-goog-api-key`, salto inmediato ante `quota_limit_value: 0` y filtrado `!p?.thought`.
  */
 
 import { NextResponse } from 'next/server'
@@ -26,8 +27,8 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
-const MODERN_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview']
-const LEGACY_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+const MODERN_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview']
+const LEGACY_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview']
 
 export async function GET(request: Request) {
     // Verify cron secret
@@ -104,10 +105,13 @@ Si no encuentras eventos nuevos programados para el rango, devuelve un array vac
             for (const model of models) {
                 for (const useSearchTool of [true, false]) {
                     const response = await fetch(
-                        `${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`,
+                        `${GEMINI_BASE}/${model}:generateContent`,
                         {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: {
+                                'x-goog-api-key': apiKey,
+                                'Content-Type': 'application/json',
+                            },
                             body: JSON.stringify({
                                 contents: [{ parts: [{ text: PROMPT_TEXT }] }],
                                 ...(useSearchTool ? { tools: [{ googleSearch: {} }] } : {}),
@@ -126,8 +130,15 @@ Si no encuentras eventos nuevos programados para el rango, devuelve un array vac
                     lastStatus = response.status
                     lastErrText = await response.text()
 
-                    // 402 (prepayment depleted), 401/403 (invalid key): switch to next key immediately
-                    if (response.status === 402 || response.status === 401 || response.status === 403) {
+                    const isZeroOrDailyQuota = /quota_limit_value["':\s]*0\b|PerDay/i.test(lastErrText)
+
+                    // 402 (prepayment depleted), 401/403 (invalid key), or hard 0/daily quota: switch to next key immediately
+                    if (
+                        response.status === 402 ||
+                        response.status === 401 ||
+                        response.status === 403 ||
+                        isZeroOrDailyQuota
+                    ) {
                         moveToNextKey = true
                         break
                     }
@@ -135,6 +146,12 @@ Si no encuentras eventos nuevos programados para el rango, devuelve un array vac
                     // 429 on googleSearch tool: retry once without googleSearch tool on same model/key
                     if (response.status === 429 && useSearchTool) {
                         continue
+                    }
+
+                    // If multiple keys exist and 429 persists without googleSearch, move to next key
+                    if (response.status === 429 && !useSearchTool && keyPool.length > 1) {
+                        moveToNextKey = true
+                        break
                     }
 
                     // 404 (model unavailable) or 503 (high demand): try next model
@@ -152,7 +169,15 @@ Si no encuentras eventos nuevos programados para el rango, devuelve un array vac
             return NextResponse.json({ error: 'Gemini API error', status: lastStatus }, { status: 500 })
         }
 
-        const rawText = geminiResult?.candidates?.[0]?.content?.parts?.[0]?.text || '[]'
+        const parts = geminiResult?.candidates?.[0]?.content?.parts
+        const rawText =
+            (Array.isArray(parts)
+                ? parts
+                      .filter((p: any) => !p?.thought && typeof p?.text === 'string')
+                      .map((p: any) => p.text)
+                      .join('')
+                      .trim()
+                : '') || '[]'
         
         let events: any[] = []
         try {

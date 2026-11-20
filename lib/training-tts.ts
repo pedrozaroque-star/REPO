@@ -15,12 +15,12 @@
  *   -> si no existe: Gemini 3.8 TTS (`Orus`) -> WAV 24kHz -> Storage -> `audio/wav` + URL pública.
  *
  * @notes
- * - Reutiliza el pool de llaves `getGeminiKeyPool()` de `lib/order-ready-tts.ts` con rotación round-robin.
+ * - Reutiliza el pool de llaves `getGeminiKeyPoolWithRemote()` de `lib/order-ready-tts.ts` con modelos GA `3.8` (`gemini-3.8-flash-lite-tts`, `gemini-3.8-flash-tts`) y protección single-key sin bloqueo por cooldown transitorio.
  */
 
 import { createHash } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabase';
-import { getGeminiKeyPool, isForbiddenRaulVoice } from '@/lib/order-ready-tts';
+import { getGeminiKeyPoolWithRemote, isForbiddenRaulVoice } from '@/lib/order-ready-tts';
 
 export const TRAINING_MALE_VOICES = [
   {
@@ -48,8 +48,6 @@ export const DEFAULT_TRAINING_VOICE: TrainingVoiceId = 'Orus';
 const TTS_MODELS = [
   'gemini-3.8-flash-lite-tts',
   'gemini-3.8-flash-tts',
-  'gemini-2.5-flash-preview-tts',
-  'gemini-2.5-pro-preview-tts',
 ];
 
 let bucketInitialized = false;
@@ -134,13 +132,16 @@ async function synthesizeTrainingVoiceWithGemini(
   lang: TrainingTtsLang,
   voice: TrainingVoiceId
 ): Promise<Buffer> {
-  const allKeys = getGeminiKeyPool();
+  const allKeys = await getGeminiKeyPoolWithRemote();
   if (allKeys.length === 0) {
     throw new Error('No GEMINI_API_KEY configured for Training TTS');
   }
 
   const now = Date.now();
-  const availableKeys = allKeys.filter((k) => (keyCooldown.get(k) || 0) <= now);
+  const availableKeys =
+    allKeys.length > 1
+      ? allKeys.filter((k) => (keyCooldown.get(k) || 0) <= now)
+      : allKeys;
   const candidateKeys = availableKeys.length > 0 ? availableKeys : allKeys;
 
   const startIdx = (rrIndex++) % candidateKeys.length;
@@ -160,7 +161,7 @@ async function synthesizeTrainingVoiceWithGemini(
   for (const model of TTS_MODELS) {
     for (const key of rotatedKeys) {
       const kmKey = `${key}:${model}`;
-      if ((keyCooldown.get(kmKey) || 0) > Date.now()) continue;
+      if (allKeys.length > 1 && (keyCooldown.get(kmKey) || 0) > Date.now()) continue;
 
       try {
         const promptText = model.includes('3.8')
@@ -224,7 +225,7 @@ async function synthesizeTrainingVoiceWithGemini(
         } else {
           const errText = await res.text();
           lastError = `${model}: ${res.status} ${errText.slice(0, 140)}`;
-          if (res.status === 429 || /quota|exceeded/i.test(errText)) {
+          if (allKeys.length > 1 && (res.status === 429 || /quota|exceeded/i.test(errText))) {
             keyCooldown.set(kmKey, Date.now() + 60 * 1000);
           }
         }

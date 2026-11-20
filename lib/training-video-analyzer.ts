@@ -17,12 +17,15 @@
  * @dataFlow
  * `app/api/training/video/route.ts` / `scripts/process-training-videos.ts`
  *   -> Gemini File API (`upload/v1beta/files` resumable -> `state: ACTIVE`)
- *   -> `gemini-2.5-flash` (`generateContent` JSON)
+ *   -> `gemini-3.5-flash` / `gemini-3-flash-preview` / `gemini-3.5-flash-lite` (`generateContent` JSON)
  *   -> validación cronológica (`0 <= startSec < endSec`)
  *   -> `DELETE v1beta/files/{name}`
+ *
+ * @notes
+ * - Blindaje Paid Tier 1 (2026-11-20): usa `getGeminiKeyPoolWithRemote()` sin `.slice(0, 3)`, modelos `3.x`, header `x-goog-api-key` y filtro `!p?.thought`.
  */
 
-import { getGeminiKeyPool } from '@/lib/order-ready-tts';
+import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts';
 import type {
   RecipeIngredientSpec,
   TrainingQuizQuestion,
@@ -48,7 +51,7 @@ export interface AnalyzedTrainingVideoResult {
   quiz: TrainingQuizQuestion[];
 }
 
-const ANALYZER_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+const ANALYZER_MODELS = ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite'];
 
 function formatSecLabel(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -117,10 +120,11 @@ async function uploadBufferToGeminiFiles(
 
   // Paso 1: Iniciar subida resumable
   const startRes = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/upload/v1beta/files`,
     {
       method: 'POST',
       headers: {
+        'x-goog-api-key': apiKey,
         'X-Goog-Upload-Protocol': 'resumable',
         'X-Goog-Upload-Command': 'start',
         'X-Goog-Upload-Header-Content-Length': String(videoBuffer.byteLength),
@@ -170,8 +174,11 @@ async function uploadBufferToGeminiFiles(
   while (fileObj.state === 'PROCESSING' && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 1500));
     const pollRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${fileObj.name}?key=${encodeURIComponent(apiKey)}`,
-      { signal: AbortSignal.timeout(10000) }
+      `https://generativelanguage.googleapis.com/v1beta/${fileObj.name}`,
+      {
+        headers: { 'x-goog-api-key': apiKey },
+        signal: AbortSignal.timeout(10000),
+      }
     );
     if (pollRes.ok) {
       fileObj = await pollRes.json();
@@ -193,8 +200,12 @@ async function deleteGeminiFileQuietly(fileName: string, apiKey: string): Promis
   if (!fileName) return;
   try {
     await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${encodeURIComponent(apiKey)}`,
-      { method: 'DELETE', signal: AbortSignal.timeout(8000) }
+      `https://generativelanguage.googleapis.com/v1beta/${fileName}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-goog-api-key': apiKey },
+        signal: AbortSignal.timeout(8000),
+      }
     );
   } catch {
     // Ignore cleanup errors on expired temp files
@@ -264,7 +275,7 @@ export async function analyzeTrainingVideoWithGemini(params: {
   ingredients: RawRecipeIngredientInput[];
 }): Promise<AnalyzedTrainingVideoResult | null> {
   const { videoBuffer, mimeType, slug, titleEs, titleEn, durationSeconds, ingredients } = params;
-  const keys = getGeminiKeyPool();
+  const keys = await getGeminiKeyPoolWithRemote();
   if (keys.length === 0 || videoBuffer.byteLength === 0) return null;
 
   const cleanIngredients = cleanRecipeIngredients(ingredients);
@@ -323,7 +334,7 @@ export async function analyzeTrainingVideoWithGemini(params: {
     `}`,
   ].join('\n');
 
-  for (const apiKey of keys.slice(0, 3)) {
+  for (const apiKey of keys) {
     let uploadedName = '';
     try {
       const uploaded = await uploadBufferToGeminiFiles(
@@ -336,10 +347,13 @@ export async function analyzeTrainingVideoWithGemini(params: {
 
       for (const model of ANALYZER_MODELS) {
         const genRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'x-goog-api-key': apiKey,
+              'Content-Type': 'application/json',
+            },
             signal: AbortSignal.timeout(45000),
             body: JSON.stringify({
               contents: [
@@ -369,7 +383,16 @@ export async function analyzeTrainingVideoWithGemini(params: {
         }
 
         const genJson: any = await genRes.json();
-        const rawText = genJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const parts = genJson?.candidates?.[0]?.content?.parts;
+        const rawText = Array.isArray(parts)
+          ? parts
+              .filter((p: any) => !p?.thought && typeof p?.text === 'string')
+              .map((p: any) => p.text)
+              .join('')
+              .replace(/^```(?:json)?\s*/i, '')
+              .replace(/\s*```$/i, '')
+              .trim()
+          : '';
         if (!rawText) continue;
 
         const parsed = JSON.parse(rawText);

@@ -12,6 +12,9 @@
  * @dataFlow
  * - `GET /api/training/tts?text=...&lang=es|en&voice=Orus` -> `getTrainingStepSpeech()` -> stream `audio/wav`
  * - `POST /api/training/tts` `{ text, lang, voice, forceRegenerate, mode }` -> JSON con `publicUrl` o guion mejorado por IA.
+ *
+ * @notes
+ * - Blindaje Paid Tier 1 (2026-11-20): usa `getGeminiKeyPoolWithRemote()`, modelos `3.x` (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite-preview`, `gemini-3.5-flash`), header `x-goog-api-key` y filtro `!p?.thought`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,8 +25,14 @@ import {
   TrainingTtsLang,
   TrainingVoiceId,
 } from '@/lib/training-tts';
-import { getGeminiKeyPool } from '@/lib/order-ready-tts';
+import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts';
 import { getServerUser } from '@/lib/auth-server';
+
+const EXPLAIN_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.5-flash',
+] as const;
 
 const ALLOWED_TTS_ADMIN_ROLES = new Set([
   'admin',
@@ -111,7 +120,7 @@ export async function POST(req: NextRequest) {
       const rawHint = String(body.rawHint || body.narrationEs || '').trim();
       const stepNumber = Number(body.stepNumber || 1);
 
-      const keys = getGeminiKeyPool();
+      const keys = await getGeminiKeyPoolWithRemote();
       if (keys.length === 0) {
         return NextResponse.json(
           { ok: false, error: 'No GEMINI_API_KEY configured' },
@@ -137,36 +146,59 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta (sin markdown):
       let keyPortionEs = String(body.keyPortionEs || '');
       let keyPortionEn = String(body.keyPortionEn || '');
 
+      let generatedOk = false;
       for (const key of keys) {
-        try {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: aiPrompt }] }],
-                generationConfig: { temperature: 0.25 },
-              }),
+        let switchKey = false;
+        for (const model of EXPLAIN_MODELS) {
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+              {
+                method: 'POST',
+                headers: {
+                  'x-goog-api-key': key,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: aiPrompt }] }],
+                  generationConfig: { temperature: 0.25 },
+                }),
+              }
+            );
+            if (res.ok) {
+              const data: any = await res.json();
+              const parts = data?.candidates?.[0]?.content?.parts;
+              const rawText = Array.isArray(parts)
+                ? parts
+                    .filter((p: any) => !p?.thought && typeof p?.text === 'string')
+                    .map((p: any) => p.text)
+                    .join('\n')
+                : '';
+              const cleaned = rawText.replace(/```json|```/gi, '').trim();
+              const parsed = JSON.parse(cleaned);
+              if (parsed.narrationEs) narrationEs = parsed.narrationEs;
+              if (parsed.narrationEn) narrationEn = parsed.narrationEn;
+              if (parsed.keyPortionEs) keyPortionEs = parsed.keyPortionEs;
+              if (parsed.keyPortionEn) keyPortionEn = parsed.keyPortionEn;
+              generatedOk = true;
+              break;
             }
-          );
-          if (res.ok) {
-            const data: any = await res.json();
-            const rawText =
-              data.candidates?.[0]?.content?.parts
-                ?.map((p: any) => p.text)
-                .join('\n') || '';
-            const cleaned = rawText.replace(/```json|```/gi, '').trim();
-            const parsed = JSON.parse(cleaned);
-            if (parsed.narrationEs) narrationEs = parsed.narrationEs;
-            if (parsed.narrationEn) narrationEn = parsed.narrationEn;
-            if (parsed.keyPortionEs) keyPortionEs = parsed.keyPortionEs;
-            if (parsed.keyPortionEn) keyPortionEn = parsed.keyPortionEn;
-            break;
+            const errTxt = await res.text().catch(() => '');
+            if (
+              res.status === 401 ||
+              res.status === 402 ||
+              res.status === 403 ||
+              /quota_limit_value["':\s]*0\b/i.test(errTxt)
+            ) {
+              switchKey = true;
+              break;
+            }
+          } catch {
+            // try next model / key
           }
-        } catch {
-          // try next key
         }
+        if (generatedOk) break;
+        if (switchKey) continue;
       }
 
       const [ttsEs, ttsEn] = await Promise.all([

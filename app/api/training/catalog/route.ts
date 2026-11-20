@@ -20,12 +20,15 @@
  * - `GET /api/training/catalog` -> `{ ok: true, modules, positions, stores, employees, recipeProducts }`
  * - `PUT /api/training/catalog` -> actualiza pasos/receta/video en `public.training_sop_modules` + convierte texto a voz IA (`Orus`).
  * - `DELETE /api/training/catalog?slug=...` -> elimina el video asociado a un producto si cambia su procedimiento.
+ *
+ * @notes
+ * - Blindaje Paid Tier 1 (2026-11-20): `translateTrainingNarration` usa `getGeminiKeyPoolWithRemote()` sin `.slice(0, 3)`, modelos `3.x`, header `x-goog-api-key` y filtro `!p?.thought`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getServerUser } from '@/lib/auth-server';
-import { getGeminiKeyPool } from '@/lib/order-ready-tts';
+import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts';
 import {
   DEFAULT_FOUR_DAY_METHOD,
   STATION_POSITIONS_CATALOG,
@@ -56,13 +59,19 @@ function isTrainingAdminRole(role?: string | null): boolean {
   return TRAINING_ADMIN_ROLES.has(String(role || '').trim().toLowerCase());
 }
 
+const TRAINING_TRANSLATION_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.5-flash',
+] as const;
+
 async function translateTrainingNarration(
   text: string,
   targetLang: 'en' | 'es'
 ): Promise<string | null> {
   const clean = text.trim();
   if (!clean) return null;
-  const keys = getGeminiKeyPool();
+  const keys = await getGeminiKeyPoolWithRemote();
   if (keys.length === 0) return null;
 
   const prompt =
@@ -70,30 +79,50 @@ async function translateTrainingNarration(
       ? `Translate this Tacos Gavilan kitchen SOP narration cleanly into natural American English (do NOT add extra notes, return ONLY the translated text):\n"${clean}"`
       : `Traduce esta narración operativa de cocina de Tacos Gavilan al español neutro mexicano natural (NO agregues notas extra, devuelve ÚNICAMENTE el texto traducido):\n"${clean}"`;
 
-  for (const key of keys.slice(0, 3)) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2 },
-          }),
+  for (const key of keys) {
+    for (const model of TRAINING_TRANSLATION_MODELS) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'x-goog-api-key': key,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.2 },
+            }),
+          }
+        );
+        if (!res.ok) {
+          const errTxt = await res.text().catch(() => '');
+          if (
+            res.status === 401 ||
+            res.status === 402 ||
+            res.status === 403 ||
+            /quota_limit_value["':\s]*0\b/i.test(errTxt)
+          ) {
+            break; // switch to next key
+          }
+          continue; // try next model
         }
-      );
-      if (!res.ok) continue;
-      const data: any = await res.json();
-      const out =
-        data?.candidates?.[0]?.content?.parts
-          ?.map((p: any) => p.text)
-          .join(' ')
-          .replace(/^["“]|["”]$/g, '')
-          .trim() || '';
-      if (out) return out;
-    } catch {
-      // try next key
+        const data: any = await res.json();
+        const parts = data?.candidates?.[0]?.content?.parts;
+        const out =
+          (Array.isArray(parts)
+            ? parts
+                .filter((p: any) => !p?.thought && typeof p?.text === 'string')
+                .map((p: any) => p.text)
+                .join(' ')
+            : '')
+            .replace(/^["“]|["”]$/g, '')
+            .trim() || '';
+        if (out) return out;
+      } catch {
+        // try next model / key
+      }
     }
   }
   return null;
