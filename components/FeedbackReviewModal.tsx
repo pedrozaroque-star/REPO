@@ -283,11 +283,12 @@ export default function FeedbackReviewModal({
                 // 1. Notify Supervisor (ALWAYS)
                 if (supervisorId && String(supervisorId) !== String(currentUser.id)) {
                     notifs.push({
-                        user_id: supervisorId,
+                        user_id: String(supervisorId),
                         title: '💬 Feedback: Nueva Nota',
                         message: `${currentUser.name} comentó en el ticket #${feedback.id}`,
                         link: `/feedback?id=${feedback.id}`, // Assuming this route handles ID param or similar
-                        resource_id: feedback.id,
+                        reference_id: String(feedback.id),
+                        reference_type: 'customer_feedback',
                         type: 'info',
                         is_read: false
                     })
@@ -296,11 +297,12 @@ export default function FeedbackReviewModal({
                 // 2. Notify Manager (IF TOGGLED)
                 if (includeManager && managerId && String(managerId) !== String(currentUser.id)) {
                     notifs.push({
-                        user_id: managerId,
+                        user_id: String(managerId),
                         title: '⚠️ Atención Requerida: Feedback',
                         message: `${currentUser.name} requiere tu atención en el ticket #${feedback.id}`,
                         link: `/feedback?id=${feedback.id}`,
-                        resource_id: feedback.id,
+                        reference_id: String(feedback.id),
+                        reference_type: 'customer_feedback',
                         type: 'alert',
                         is_read: false
                     })

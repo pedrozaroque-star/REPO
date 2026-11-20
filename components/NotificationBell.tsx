@@ -13,7 +13,7 @@
  *   UN listener de `visibilitychange` y una única reproducción de sonido/animación de entrada por pestaña.
  *
  * @dataFlow
- * - `localStorage.teg_user` -> `supabase.from('notifications').select('id, title, message, link, created_at, is_read, type, resource_id')`
+ * - `localStorage.teg_user` -> `supabase.from('notifications').select('id, title, message, link, created_at, is_read, type, reference_id')`
  *   -> singleton store (`useSyncExternalStore`) -> instancias desktop/mobile de `NotificationBell`.
  *
  * @notes
@@ -21,6 +21,9 @@
  *   en un store singleton por pestaña, se elevó el intervalo de 30s a 180s (3 min) con guardia `visibilityState === 'visible'`
  *   y refresco inmediato al volver a la pestaña, se acotó `.select(...)` a las 8 columnas usadas (eliminando `select('*')`),
  *   se empujó el filtro de lunes 6:00 AM a la consulta SQL y se deshabilitó en rutas kiosko/cocina.
+ * - Fix 2026-11-20: corregida columna inexistente `resource_id` -> `reference_id` (esquema real de `public.notifications`,
+ *   que provocaba error PostgreSQL `42703` serializado como `{}`), corregido borde de lunes 00:00–05:59 AM en `getMonday6AM`
+ *   para respetar el inicio del día laboral a las 6:00 AM, y mejorado el formato de errores PostgREST en el bloque `catch`.
  */
 'use client'
 
@@ -37,7 +40,7 @@ interface Notification {
   created_at: string
   is_read: boolean
   type: 'alert' | 'info' | 'success' | 'warning'
-  resource_id?: string | number | null // Para reconstruir links rotos
+  reference_id?: string | null // Para reconstruir links rotos
 }
 
 interface NotificationBellProps {
@@ -87,6 +90,10 @@ function getMonday6AM(now: Date = new Date()): Date {
   const monday6AM = new Date(now)
   monday6AM.setDate(now.getDate() - diffSinceMonday)
   monday6AM.setHours(6, 0, 0, 0)
+  // Día laboral Tacos Gavilan inicia a las 6:00 AM: lunes entre 00:00 y 05:59 aún pertenece a la semana anterior
+  if (monday6AM > now) {
+    monday6AM.setDate(monday6AM.getDate() - 7)
+  }
   return monday6AM
 }
 
@@ -196,8 +203,8 @@ async function fetchNotificationsShared(force = false): Promise<void> {
 
       const { data, error } = await supabase
         .from('notifications')
-        .select('id, title, message, link, created_at, is_read, type, resource_id')
-        .eq('user_id', user.id)
+        .select('id, title, message, link, created_at, is_read, type, reference_id')
+        .eq('user_id', String(user.id))
         .gte('created_at', monday6AM.toISOString())
         .order('created_at', { ascending: false })
         .limit(20)
@@ -232,18 +239,34 @@ async function fetchNotificationsShared(force = false): Promise<void> {
       }
       lastFetchCompletedAt = Date.now()
     } catch (error: unknown) {
-      // 🛡️ Manejo de errores de red (común con AdBlockers o pérdida de conexión)
+      // 🛡️ Manejo de errores de red y PostgREST (incluye objetos planos sin prototype Error)
+      const errObj =
+        error && typeof error === 'object'
+          ? (error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown })
+          : null
       const msg =
         error instanceof Error
           ? error.message
-          : typeof error === 'string'
-            ? error
-            : String(error ?? '')
-      if (msg.includes('Failed to fetch') || msg.includes('Network request failed')) {
+          : typeof errObj?.message === 'string'
+            ? errObj.message
+            : typeof error === 'string'
+              ? error
+              : String(error ?? '')
+      if (
+        msg.includes('Failed to fetch') ||
+        msg.includes('Network request failed') ||
+        msg.includes('Load failed') ||
+        msg.includes('AbortError')
+      ) {
         console.warn('⚠️ (Silenciado) No se pudieron cargar las notificaciones por problema de red o bloqueo.')
         return
       }
-      console.error('Error al cargar notificaciones (catch):', error)
+      const code = typeof errObj?.code === 'string' ? errObj.code : ''
+      const details = typeof errObj?.details === 'string' ? errObj.details : ''
+      const summary = [code && `code=${code}`, msg && `message=${msg}`, details && `details=${details}`]
+        .filter(Boolean)
+        .join(' | ')
+      console.error('Error al cargar notificaciones (catch):', summary || error)
     } finally {
       inFlightFetch = null
     }
@@ -308,7 +331,7 @@ async function markAllAsReadShared() {
 
       const { error } = await supabase
         .from('notifications')
-        .update({ is_read: true })
+        .update({ is_read: true, read: true })
         .in('id', unreadIds)
 
       if (error) throw error
@@ -365,13 +388,13 @@ export default function NotificationBell({
   const handleNotificationClick = (notification: Notification) => {
     let finalLink = notification.link
 
-    // 🛠️ PARCHE: Si el link viene sin ID (ej. "/checklists") pero hay resource_id, lo reconstruimos
-    if ((finalLink === '/checklists' || finalLink === '/checklists/') && notification.resource_id) {
-      finalLink = `${finalLink}?id=${notification.resource_id}`
+    // 🛠️ PARCHE: Si el link viene sin ID (ej. "/checklists") pero hay reference_id, lo reconstruimos
+    if ((finalLink === '/checklists' || finalLink === '/checklists/') && notification.reference_id) {
+      finalLink = `${finalLink}?id=${notification.reference_id}`
     } else if (finalLink === '/checklists' || finalLink === '/checklists/') {
       finalLink = `${finalLink}?auto_open=latest`
-    } else if ((finalLink === '/checklists-manager' || finalLink === '/checklists-manager/') && notification.resource_id) {
-      finalLink = `${finalLink}?id=${notification.resource_id}`
+    } else if ((finalLink === '/checklists-manager' || finalLink === '/checklists-manager/') && notification.reference_id) {
+      finalLink = `${finalLink}?id=${notification.reference_id}`
     }
 
     if (finalLink) {

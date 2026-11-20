@@ -630,11 +630,13 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             // Handle Notifications
             if (newStatus === 'rechazado' && tableName === 'manager_checklists') {
                 await supabase.from('notifications').insert({
-                    user_id: checklist.user_id,
+                    user_id: String(checklist.user_id),
                     title: 'Checklist de Manager RECHAZADO',
                     message: `Tu checklist ha sido rechazado.`,
                     link: '/checklists-manager',
-                    resource_id: checklist.id,
+                    reference_id: String(checklist.id),
+                    reference_type: tableName,
+                    is_read: false,
                     type: 'alert'
                 })
             }
@@ -642,11 +644,13 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             // NOTIFICACIÓN AL GERENTE (Desde Inspección de Supervisor)
             if (tableName === 'supervisor_inspections' && includeManager && managerId && newStatus !== 'pendiente') {
                 await supabase.from('notifications').insert({
-                    user_id: managerId, // ID del Gerente
+                    user_id: String(managerId), // ID del Gerente
                     title: `Revisión de Inspección: ${newStatus.toUpperCase()}`,
                     message: `La inspección de ${checklist.store_name} ha sido marcada como ${newStatus}.`,
                     link: '/inspecciones', // O el link adecuado para que el manager vea
-                    resource_id: checklist.id,
+                    reference_id: String(checklist.id),
+                    reference_type: tableName,
+                    is_read: false,
                     type: 'info'
                 })
             }
