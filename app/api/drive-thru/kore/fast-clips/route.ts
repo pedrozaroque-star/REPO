@@ -46,6 +46,13 @@ function parseOptionalStoreId(raw: unknown): number | null | 'invalid' {
   return n
 }
 
+function parseNonNegInt(raw: string | null, fallback: number): number | 'invalid' {
+  if (raw === null || raw.trim() === '') return fallback
+  if (!/^\d+$/.test(raw.trim())) return 'invalid'
+  const n = Number(raw.trim())
+  return Number.isSafeInteger(n) && n >= 0 ? n : 'invalid'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
@@ -61,6 +68,11 @@ export async function GET(request: NextRequest) {
     if (parsedStoreId === 'invalid') {
       return jsonError('storeId inválido (usa stores.id numérico).', 400)
     }
+    const parsedOffset = parseNonNegInt(request.nextUrl.searchParams.get('offset'), 0)
+    const parsedLimit = parseNonNegInt(request.nextUrl.searchParams.get('limit'), 36)
+    if (parsedOffset === 'invalid' || parsedLimit === 'invalid' || parsedLimit <= 0) {
+      return jsonError('offset y limit deben ser enteros válidos (offset >= 0, limit >= 1).', 400)
+    }
 
     if (parsedStoreId !== null) {
       if (!user.isGlobalAdmin && !user.allowedStoreIds.includes(parsedStoreId)) {
@@ -71,7 +83,7 @@ export async function GET(request: NextRequest) {
       if (!store.hasDriveThru) return jsonError('Esta sucursal no cuenta con Drive-Thru.', 422)
     }
 
-    const bundle = await getKoreFastClipsBundle(parsedStoreId)
+    const bundle = await getKoreFastClipsBundle(parsedStoreId, { offset: parsedOffset, limit: parsedLimit })
     return NextResponse.json(bundle, { headers: NO_STORE_HEADERS })
   } catch (err: any) {
     console.error('[Kore DT fast-clips] GET error:', String(err?.message || err).slice(0, 300))
@@ -107,15 +119,15 @@ export async function POST(request: NextRequest) {
     }
 
     const rawMax = Number(b.maxClips ?? b.max_clips)
-    const maxClipsToSynthesize = Number.isInteger(rawMax) && rawMax > 0 ? Math.min(150, rawMax) : 60
+    const maxClipsToSynthesize = Number.isInteger(rawMax) && rawMax > 0 ? Math.min(350, rawMax) : 80
     const targetStores = parsedStoreId !== null ? [parsedStoreId] : user.isGlobalAdmin ? KORE_DRIVE_THRU_STORE_IDS : user.allowedStoreIds
 
     const prewarm = await prewarmAllKoreFastClips({
       storeIds: targetStores,
-      concurrency: 5,
+      concurrency: 4,
       maxClipsToSynthesize
     })
-    const bundle = await getKoreFastClipsBundle(parsedStoreId)
+    const bundle = await getKoreFastClipsBundle(parsedStoreId, { offset: 0, limit: 36 })
 
     return NextResponse.json(
       {

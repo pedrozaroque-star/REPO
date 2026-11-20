@@ -35,6 +35,14 @@
  *   actualiza al instante `sessionMetaRef.current.lang`, inyecta `lang` en todas las llamadas a herramientas
  *   (`applyKoreTool` + `/api/drive-thru/kore/driver-lookup`), habilita los botones `ES / EN` en caliente
  *   y cuenta con red de seguridad silenciosa al terminar el turno (`!playbackRef.current?.isActive`).
+ * - Intervención automática de cajera por Headset (`A1` — Fase 15): detecta en `<15 ms` cuando la
+ *   cajera abre su línea del headset por cualquiera de 3 vías automáticas — (1) señal física `HME EOS|HD J1,2`
+ *   (`/A1 Talk` vía Web Serial `CTS` o interfaz/tecla HID `F9`), (2) voz sostenida en micrófono o Canal 2
+ *   estéreo de cajera (`KoreCashierChannelMonitor`), o (3) frase inequívoca de cajera en `inputTranscription`
+ *   (`detectKoreCashierVerbalTakeoverCue`) — más botón de respaldo manual. Al activarse, silencia la voz y
+ *   herramientas de Kore al instante (`KORE_HUMAN_TAKEOVER_OBSERVER_CUE`), mantiene viva al 100% la
+ *   transcripción (`role: 'cashier'` vs `'customer'`) con Smart Latch para el resto del auto (o hasta
+ *   presionar `Devolver turno a Kore`) y guarda todo para el autoaprendizaje continuo.
  * - Anti-ruido y modos de voz: incluye `KoreNoiseGate` opcional por umbral RMS (ignora TV/radio de
  *   fondo) y modo opcional Push-to-Talk (botón o barra espaciadora con envío inmediato de `audioStreamEnd`).
  * - Telemetría de latencia: mide en vivo `ms` desde el fin de voz del cliente hasta el primer chunk
@@ -77,16 +85,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     Mic, MicOff, PhoneCall, PhoneOff, Headphones, Loader2, AlertTriangle, Volume2, Car,
     History, RefreshCw, ShieldAlert, Bot, User, Wrench, X, Radio, Info, Gauge, Sliders, Truck, Zap,
-    ChevronDown, ChevronUp
+    ChevronDown, ChevronUp, Search
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { CANONICAL_CUSTOMER_STORES_BY_ID, formatCustomerGreetingTarget, formatCustomerStoreName } from '@/lib/customer-store-names'
 import {
+    KORE_HUMAN_TAKEOVER_OBSERVER_CUE,
     applyKoreTool,
+    buildKoreHumanTakeoverReleaseCue,
     computeKoreTotals,
     createKoreOrderState,
+    detectKoreCashierVerbalTakeoverCue,
     detectKoreSpokenLanguage,
     isKoreClosingSendoffText,
+    type KoreCashierInterventionMeta,
+    type KoreCashierTriggerSource,
     type KoreDriverPickup,
     type KoreMenuItem,
     type KoreOrderState,
@@ -102,13 +115,17 @@ import {
     KORE_CAPTURE_PROCESSOR,
     KORE_CHUNK_SAMPLES,
     KORE_INPUT_SAMPLE_RATE,
+    KoreCashierChannelMonitor,
+    KoreHeadsetSignalMonitor,
     KoreNoiseGate,
     KorePlaybackQueue,
     base64ToBytes,
     bytesToBase64,
     computeKoreLatencyStats,
     decodePcm16ToFloat32,
+    isKoreWebSerialSupported,
     loadKoreCaptureWorklet,
+    mixPcm16Buffers,
     parsePcmRate,
     type KoreLatencyStats,
 } from './kore-audio'
@@ -198,6 +215,219 @@ export function resolveNextKoreSessionLang(text: string, currentLang: 'es' | 'en
     return detectKoreSpokenLanguage(text, currentLang)
 }
 
+/** Valor centinela en el selector de canal secundario para leer el Canal 2 (Right) de una interfaz USB estéreo. */
+export const KORE_STEREO_RIGHT_CHANNEL_ID = '__stereo_right__'
+
+/** Ventana de gracia (ms) tras soltar A1 / terminar VAD de cajera para que el paquete final de transcripción siga siendo 'cashier'. */
+export const KORE_CASHIER_SPEECH_GRACE_MS = 900
+
+export function createEmptyKoreCashierMeta(): KoreCashierInterventionMeta {
+    return {
+        triggered: false,
+        triggerSource: null,
+        triggeredAt: null,
+        resumedToKoreCount: 0,
+        cashierTurnCount: 0,
+    }
+}
+
+/** Sintetiza los turnos hablados durante la intervención de cajera para inyectarlos al devolver el control a Kore. */
+export function buildKoreTakeoverTranscriptSummary(
+    entries: readonly { role: string; text: string }[],
+    lang: 'es' | 'en'
+): string {
+    const parts: string[] = []
+    for (const entry of entries) {
+        const clean = String(entry.text ?? '').replace(/\s+/g, ' ').trim()
+        if (!clean) continue
+        if (entry.role === 'cashier') {
+            parts.push(lang === 'en' ? `Cashier: ${clean}` : `Cajera: ${clean}`)
+        } else if (entry.role === 'customer') {
+            parts.push(lang === 'en' ? `Customer: ${clean}` : `Cliente: ${clean}`)
+        }
+    }
+    return parts.join(' | ').slice(0, 850)
+}
+
+/**
+ * Controlador puro de sesión para la intervención automática de cajera (`A1` Headset Takeover):
+ * gestiona los 4 orígenes de disparo, el Smart Latch por vehículo, la atribución de rol (`cashier` vs `customer`),
+ * la promoción de burbuja abierta ante `verbal_cue` y la devolución opcional del turno a Kore.
+ */
+export class KoreCashierSessionController {
+    private active = false
+    private speaking = false
+    private verbalCueActive = false
+    private attributionUntilMs = 0
+    private takeoverStartIdx = 0
+    private meta: KoreCashierInterventionMeta = createEmptyKoreCashierMeta()
+
+    get isActive(): boolean {
+        return this.active
+    }
+
+    get isCashierSpeaking(): boolean {
+        return this.speaking
+    }
+
+    get currentMeta(): KoreCashierInterventionMeta {
+        return { ...this.meta }
+    }
+
+    reset(): void {
+        this.active = false
+        this.speaking = false
+        this.verbalCueActive = false
+        this.attributionUntilMs = 0
+        this.takeoverStartIdx = 0
+        this.meta = createEmptyKoreCashierMeta()
+    }
+
+    engage(
+        source: KoreCashierTriggerSource,
+        nowMs: number,
+        currentTranscriptLen: number,
+        opts?: { markSpeaking?: boolean; isoNow?: string }
+    ): { newlyActivated: boolean; sendObserverCue: boolean; meta: KoreCashierInterventionMeta } {
+        let newlyActivated = false
+        if (!this.active) {
+            this.active = true
+            newlyActivated = true
+            this.takeoverStartIdx = Math.max(0, currentTranscriptLen)
+            if (!this.meta.triggered) {
+                this.meta = {
+                    ...this.meta,
+                    triggered: true,
+                    triggerSource: source,
+                    triggeredAt: opts?.isoNow ?? new Date().toISOString(),
+                }
+            }
+        }
+        if (opts?.markSpeaking) {
+            this.speaking = true
+            this.attributionUntilMs = Number.POSITIVE_INFINITY
+        }
+        return {
+            newlyActivated,
+            sendObserverCue: newlyActivated,
+            meta: { ...this.meta },
+        }
+    }
+
+    setPhysicalSpeaking(
+        speaking: boolean,
+        source: 'headset_signal' | 'cashier_mic_vad',
+        nowMs: number,
+        currentTranscriptLen: number,
+        isoNow?: string
+    ): { newlyActivated: boolean; sendObserverCue: boolean; speakingChanged: boolean; meta: KoreCashierInterventionMeta } {
+        if (speaking) {
+            const prevSpeaking = this.speaking
+            const res = this.engage(source, nowMs, currentTranscriptLen, { markSpeaking: true, isoNow })
+            return {
+                ...res,
+                speakingChanged: !prevSpeaking,
+            }
+        }
+        const prevSpeaking = this.speaking
+        this.speaking = false
+        if (prevSpeaking) {
+            this.attributionUntilMs = nowMs + KORE_CASHIER_SPEECH_GRACE_MS
+        }
+        return {
+            newlyActivated: false,
+            sendObserverCue: false,
+            speakingChanged: prevSpeaking,
+            meta: { ...this.meta },
+        }
+    }
+
+    inspectInputText(
+        combinedTurnText: string,
+        nowMs: number,
+        currentTranscriptLen: number,
+        hasOpenCustomerBubble: boolean,
+        isoNow?: string
+    ): {
+        triggeredVerbalCue: boolean
+        newlyActivated: boolean
+        sendObserverCue: boolean
+        promoteOpenCustomerBubble: boolean
+        role: 'cashier' | 'customer'
+        meta: KoreCashierInterventionMeta
+    } {
+        let newlyActivated = false
+        let sendObserverCue = false
+        let triggeredVerbalCue = false
+        let promoteOpenCustomerBubble = false
+
+        if (detectKoreCashierVerbalTakeoverCue(combinedTurnText)) {
+            triggeredVerbalCue = !this.verbalCueActive
+            this.verbalCueActive = true
+            const startIdx = hasOpenCustomerBubble ? Math.max(0, currentTranscriptLen - 1) : currentTranscriptLen
+            const engaged = this.engage('verbal_cue', nowMs, startIdx, { isoNow })
+            newlyActivated = engaged.newlyActivated
+            sendObserverCue = engaged.sendObserverCue
+            promoteOpenCustomerBubble = hasOpenCustomerBubble
+        }
+
+        const isCashier =
+            this.active &&
+            (this.speaking || this.verbalCueActive || nowMs <= this.attributionUntilMs)
+
+        return {
+            triggeredVerbalCue,
+            newlyActivated,
+            sendObserverCue,
+            promoteOpenCustomerBubble,
+            role: isCashier ? 'cashier' : 'customer',
+            meta: { ...this.meta },
+        }
+    }
+
+    recordNewCashierBubble(): KoreCashierInterventionMeta {
+        this.meta = {
+            ...this.meta,
+            triggered: true,
+            cashierTurnCount: this.meta.cashierTurnCount + 1,
+        }
+        return { ...this.meta }
+    }
+
+    onTurnComplete(): void {
+        this.verbalCueActive = false
+        if (!this.speaking) {
+            this.attributionUntilMs = 0
+        }
+    }
+
+    releaseToKore(
+        lang: 'es' | 'en',
+        transcriptEntries: readonly { role: string; text: string }[]
+    ): { released: boolean; releaseCue: string; summary: string; meta: KoreCashierInterventionMeta } {
+        if (!this.active) {
+            return { released: false, releaseCue: '', summary: '', meta: { ...this.meta } }
+        }
+        const slice = transcriptEntries.slice(this.takeoverStartIdx)
+        const summary = buildKoreTakeoverTranscriptSummary(slice, lang)
+        const releaseCue = buildKoreHumanTakeoverReleaseCue(lang, summary)
+        this.active = false
+        this.speaking = false
+        this.verbalCueActive = false
+        this.attributionUntilMs = 0
+        this.meta = {
+            ...this.meta,
+            resumedToKoreCount: this.meta.resumedToKoreCount + 1,
+        }
+        return {
+            released: true,
+            releaseCue,
+            summary,
+            meta: { ...this.meta },
+        }
+    }
+}
+
 /** Respaldo si `/api/stores` falla (stores.id numérico; nombres internos de la DB). */
 const FALLBACK_DT_STORES: DtStoreOption[] = [
     { id: 3, name: 'West Covina', externalId: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02' },
@@ -216,7 +446,7 @@ type KoreLang = 'es' | 'en'
 type KoreMicMode = 'vad' | 'ptt'
 type SessionPhase = 'idle' | 'requesting' | 'connecting' | 'live' | 'ending' | 'ended' | 'error'
 type KoreOutcome = 'confirmed' | 'cancelled' | 'abandoned'
-type TranscriptRole = 'customer' | 'kore' | 'system'
+type TranscriptRole = 'customer' | 'kore' | 'cashier' | 'system'
 
 export interface DtStoreOption {
     id: number
@@ -312,11 +542,14 @@ interface KoreHistoryRow {
     createdBy?: string | number | null
     createdByName?: string | null
     createdAt?: string | null
+    order?: { cashierIntervention?: { triggered?: boolean } | null } | null
+    transcript?: { role?: string; text?: string }[]
 }
 
 interface MicChunkMessage {
     pcm: ArrayBuffer
     rms: number
+    rightRms?: number
 }
 
 // ─────────────────────────────────────────────────────────
@@ -342,13 +575,28 @@ export function decodeKoreFastClipVariant(raw: unknown): KoreDecodedFastClipVari
     return { text, samples, sampleRate: rate }
 }
 
-/** Pre-decodifica el mapa completo de `/api/drive-thru/kore/fast-clips` a RAM (`Float32Array`) + estadísticas. */
+/** Límite seguro por página (36 situaciones = máx 72 clips <= 2.6 MB, bajo el tope de 4.5 MB de Vercel). */
+export const KORE_FAST_CLIPS_PAGE_LIMIT = 36
+
+/** Concurrencia controlada para hidratar páginas secundarias del banco de audios en segundo plano. */
+export const KORE_FAST_CLIPS_BG_CONCURRENCY = 2
+
+export interface KoreFastClipsPagination {
+    offset: number
+    limit: number
+    totalSituations: number
+    hasMore: boolean
+    nextOffset: number | null
+}
+
+/** Pre-decodifica una página de `/api/drive-thru/kore/fast-clips` a RAM (`Float32Array`) + estadísticas + paginación. */
 export function decodeKoreFastClipsPayload(data: unknown): {
     map: Map<string, KoreDecodedFastClipPair>
     stats: KoreFastClipsStats | null
+    pagination: KoreFastClipsPagination | null
 } {
     const map = new Map<string, KoreDecodedFastClipPair>()
-    if (!isPlainObject(data)) return { map, stats: null }
+    if (!isPlainObject(data)) return { map, stats: null, pagination: null }
     let countedTotal = 0
     let countedCached = 0
     if (isPlainObject(data.clips)) {
@@ -402,22 +650,251 @@ export function decodeKoreFastClipsPayload(data: unknown): {
                   cachedClips,
                   historicalDtOrdersCount,
                   historicalDetailedSnapshotsCount,
-                  topDriveThruItems: topItems.slice(0, 6),
+                  topDriveThruItems: topItems.slice(0, 16),
               }
             : null
-    return { map, stats }
+
+    let pagination: KoreFastClipsPagination | null = null
+    if (isPlainObject(data.pagination)) {
+        const rawPag = data.pagination
+        const offset =
+            typeof rawPag.offset === 'number' && Number.isFinite(rawPag.offset) && rawPag.offset >= 0
+                ? Math.round(rawPag.offset)
+                : 0
+        const limit =
+            typeof rawPag.limit === 'number' && Number.isFinite(rawPag.limit) && rawPag.limit > 0
+                ? Math.round(rawPag.limit)
+                : KORE_FAST_CLIPS_PAGE_LIMIT
+        const totalSituations =
+            typeof rawPag.totalSituations === 'number' && Number.isFinite(rawPag.totalSituations) && rawPag.totalSituations >= 0
+                ? Math.round(rawPag.totalSituations)
+                : Math.round(totalClips / 2)
+        const nextOffset =
+            typeof rawPag.nextOffset === 'number' && Number.isFinite(rawPag.nextOffset) && rawPag.nextOffset > offset
+                ? Math.round(rawPag.nextOffset)
+                : null
+        const hasMore = Boolean(rawPag.hasMore) && (nextOffset !== null || offset + limit < totalSituations)
+        pagination = { offset, limit, totalSituations, hasMore, nextOffset }
+    }
+    return { map, stats, pagination }
 }
 
-export type KoreFastClipCatalogFilter = 'all' | 'greeting' | KoreFastClipCategory
+/** Fusiona progresivamente pares decodificados (`Float32Array`) sin vaciar ni reemplazar entradas ya hidratadas. */
+export function mergeKoreDecodedFastClipsMap(
+    target: Map<string, KoreDecodedFastClipPair>,
+    incoming: ReadonlyMap<string, KoreDecodedFastClipPair>
+): void {
+    for (const [clipId, pair] of incoming.entries()) {
+        const prev = target.get(clipId)
+        if (!prev) {
+            target.set(clipId, { es: pair.es, en: pair.en })
+        } else {
+            target.set(clipId, {
+                es: pair.es ?? prev.es,
+                en: pair.en ?? prev.en,
+            })
+        }
+    }
+}
+
+export interface KorePaginatedFastClipsCallbacks {
+    storeId: number
+    pageLimit?: number
+    concurrency?: number
+    signal: AbortSignal
+    fetchPage?: (url: string, signal: AbortSignal) => Promise<unknown>
+    onPage0?: (payload: {
+        map: Map<string, KoreDecodedFastClipPair>
+        stats: KoreFastClipsStats | null
+        pagination: KoreFastClipsPagination | null
+    }) => void
+    onBackgroundPage?: (payload: {
+        map: Map<string, KoreDecodedFastClipPair>
+        stats: KoreFastClipsStats | null
+        loadedSituations: number
+        totalSituations: number
+    }) => void
+}
+
+/**
+ * Hidrata en RAM el banco completo de voces `Kore 3.8` de forma paginada (segura bajo el límite de 4.5 MB de Vercel):
+ * 1) Descarga primero Página 0 (`offset=0&limit=36`) e hidrata al instante bienvenidas, aclaraciones, reglas, despedidas y stats (`288/288`).
+ * 2) Si `pagination.hasMore`, descarga en segundo plano las páginas restantes (`offset = 36, 72, 108...`) con concurrencia `2`
+ *    y cancelación limpia vía `AbortSignal`.
+ */
+export async function hydrateKoreFastClipsPaginated(
+    opts: KorePaginatedFastClipsCallbacks
+): Promise<{ map: Map<string, KoreDecodedFastClipPair>; stats: KoreFastClipsStats | null; aborted: boolean }> {
+    const pageLimit = Math.max(1, Math.round(opts.pageLimit ?? KORE_FAST_CLIPS_PAGE_LIMIT))
+    const concurrency = Math.max(1, Math.min(4, Math.round(opts.concurrency ?? KORE_FAST_CLIPS_BG_CONCURRENCY)))
+    const defaultFetchPage = async (url: string, sig: AbortSignal): Promise<unknown> => {
+        const res = await fetch(url, { headers: getAuthHeaders(), signal: sig })
+        if (!res.ok) return null
+        return res.json().catch(() => null)
+    }
+    const fetchPage = opts.fetchPage ?? defaultFetchPage
+    const buildUrl = (offset: number) =>
+        `/api/drive-thru/kore/fast-clips?storeId=${opts.storeId}&offset=${offset}&limit=${pageLimit}`
+
+    if (opts.signal.aborted) {
+        return { map: new Map(), stats: null, aborted: true }
+    }
+
+    let rawPage0: unknown = null
+    try {
+        rawPage0 = await fetchPage(buildUrl(0), opts.signal)
+    } catch {
+        return { map: new Map(), stats: null, aborted: opts.signal.aborted }
+    }
+    if (opts.signal.aborted || !isPlainObject(rawPage0)) {
+        return { map: new Map(), stats: null, aborted: opts.signal.aborted }
+    }
+
+    const decoded0 = decodeKoreFastClipsPayload(rawPage0)
+    const accumulatedMap = new Map<string, KoreDecodedFastClipPair>(decoded0.map)
+    let latestStats = decoded0.stats
+
+    opts.onPage0?.({
+        map: accumulatedMap,
+        stats: latestStats,
+        pagination: decoded0.pagination,
+    })
+
+    const pag0 = decoded0.pagination
+    if (!pag0 || !pag0.hasMore) {
+        return { map: accumulatedMap, stats: latestStats, aborted: false }
+    }
+
+    const stepLimit = pag0.limit > 0 ? pag0.limit : pageLimit
+    const totalSituations =
+        pag0.totalSituations > stepLimit
+            ? pag0.totalSituations
+            : latestStats && latestStats.totalClips > 0
+                ? Math.round(latestStats.totalClips / 2)
+                : 0
+
+    if (totalSituations > stepLimit) {
+        const offsets: number[] = []
+        const startOffset = pag0.nextOffset ?? stepLimit
+        for (let off = startOffset; off < totalSituations && offsets.length < 24; off += stepLimit) {
+            offsets.push(off)
+        }
+        let cursor = 0
+        const worker = async () => {
+            while (!opts.signal.aborted) {
+                const idx = cursor++
+                if (idx >= offsets.length) return
+                const off = offsets[idx]
+                try {
+                    const pageRaw = await fetchPage(buildUrl(off), opts.signal)
+                    if (opts.signal.aborted || !isPlainObject(pageRaw)) continue
+                    const pageDecoded = decodeKoreFastClipsPayload(pageRaw)
+                    mergeKoreDecodedFastClipsMap(accumulatedMap, pageDecoded.map)
+                    if (pageDecoded.stats) latestStats = pageDecoded.stats
+                    opts.onBackgroundPage?.({
+                        map: accumulatedMap,
+                        stats: latestStats,
+                        loadedSituations: accumulatedMap.size,
+                        totalSituations,
+                    })
+                } catch {
+                    if (opts.signal.aborted) return
+                }
+            }
+        }
+        const workerCount = Math.min(concurrency, offsets.length)
+        await Promise.all(Array.from({ length: workerCount }, () => worker()))
+    } else {
+        // Respaldo secuencial si pagination no trajo totalSituations pero sí nextOffset
+        let nextOff = pag0.nextOffset
+        let safety = 0
+        while (!opts.signal.aborted && nextOff !== null && safety < 24) {
+            safety += 1
+            try {
+                const pageRaw = await fetchPage(buildUrl(nextOff), opts.signal)
+                if (opts.signal.aborted || !isPlainObject(pageRaw)) break
+                const pageDecoded = decodeKoreFastClipsPayload(pageRaw)
+                mergeKoreDecodedFastClipsMap(accumulatedMap, pageDecoded.map)
+                if (pageDecoded.stats) latestStats = pageDecoded.stats
+                opts.onBackgroundPage?.({
+                    map: accumulatedMap,
+                    stats: latestStats,
+                    loadedSituations: accumulatedMap.size,
+                    totalSituations: Math.max(accumulatedMap.size, totalSituations),
+                })
+                if (!pageDecoded.pagination?.hasMore) break
+                nextOff = pageDecoded.pagination.nextOffset
+            } catch {
+                break
+            }
+        }
+    }
+
+    return { map: accumulatedMap, stats: latestStats, aborted: opts.signal.aborted }
+}
+
+export type KoreFastClipCatalogGroup = 'greeting' | 'item_ack' | 'clarify' | 'modifiers' | 'ops' | 'sendoff'
+export type KoreFastClipCatalogFilter = 'all' | KoreFastClipCatalogGroup
 
 export interface KoreFastClipCatalogRow {
     clipId: string
     category: 'greeting' | KoreFastClipCategory
+    group: KoreFastClipCatalogGroup
     greetingNum?: number
     textEs: string
     textEn: string
     hasEs: boolean
     hasEn: boolean
+}
+
+/**
+ * Clasifica cada situación bilingüe en exactamente uno de los 6 grupos visuales del catálogo:
+ * `greeting`, `item_ack` (Platillos Top DT), `clarify` (Aclaraciones), `modifiers` (Modificadores / Cortesías),
+ * `ops` (Repartidores y Reglas) o `sendoff` (Despedidas).
+ */
+export function classifyKoreFastClipGroup(
+    clipId: string,
+    category: 'greeting' | KoreFastClipCategory,
+    textEs = '',
+    textEn = ''
+): KoreFastClipCatalogGroup {
+    if (category === 'greeting' || clipId.startsWith('greeting')) return 'greeting'
+    if (category === 'clarify' || clipId.startsWith('clarify_')) return 'clarify'
+    if (category === 'sendoff' || clipId.startsWith('sendoff_')) return 'sendoff'
+    if (
+        /^(?:mod_|modifier_|update_|removed_ack_|courtesy_|cortesia_)/i.test(clipId) ||
+        (category === 'item_ack' &&
+            (/(?:^|_)(?:cebolla_asada|frijol_(?:de_la_)?olla|cortesia|courtesy)(?:_|$)/i.test(clipId) ||
+                /\bcortes[ií]a\b|\bsin costo\b|\bfree courtesy\b|\bno charge\b/i.test(`${textEs} ${textEn}`)))
+    ) {
+        return 'modifiers'
+    }
+    if (category === 'item_ack') return 'item_ack'
+    return 'ops'
+}
+
+function normalizeFastClipSearchText(raw: string): string {
+    return raw
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+}
+
+/** Filtra instantáneamente el catálogo por grupo visual y búsqueda libre (ES, EN o clipId, sin importar acentos). */
+export function filterKoreFastClipCatalogRows(
+    rows: readonly KoreFastClipCatalogRow[],
+    groupFilter: KoreFastClipCatalogFilter,
+    searchQuery: string
+): KoreFastClipCatalogRow[] {
+    const byGroup = groupFilter === 'all' ? rows : rows.filter(r => r.group === groupFilter)
+    const normQuery = normalizeFastClipSearchText(searchQuery)
+    if (!normQuery) return [...byGroup]
+    const tokens = normQuery.split(/\s+/).filter(Boolean)
+    return byGroup.filter(row => {
+        const haystack = normalizeFastClipSearchText(`${row.clipId} ${row.textEs} ${row.textEn}`)
+        return tokens.every(tok => haystack.includes(tok))
+    })
 }
 
 /** Construye la lista completa y legible del catálogo de audios pregrabados (ES/EN) para la tienda activa. */
@@ -449,6 +926,7 @@ export function buildKoreFastClipCatalogRows(
             rows.push({
                 clipId,
                 category: 'greeting',
+                group: 'greeting',
                 greetingNum: v + 1,
                 textEs: pair?.es?.text || esGreetings[v],
                 textEn: pair?.en?.text || enGreetings[v],
@@ -460,22 +938,37 @@ export function buildKoreFastClipCatalogRows(
     for (const spec of KORE_FAST_CLIP_SPECS) {
         const pair = map.get(spec.clipId)
         seen.add(spec.clipId)
+        const textEs = pair?.es?.text || spec.textEs
+        const textEn = pair?.en?.text || spec.textEn
         rows.push({
             clipId: spec.clipId,
             category: spec.category,
-            textEs: pair?.es?.text || spec.textEs,
-            textEn: pair?.en?.text || spec.textEn,
+            group: classifyKoreFastClipGroup(spec.clipId, spec.category, textEs, textEn),
+            textEs,
+            textEn,
             hasEs: Boolean(pair?.es && pair.es.samples.length > 0),
             hasEn: Boolean(pair?.en && pair.en.samples.length > 0),
         })
     }
     for (const [clipId, pair] of map.entries()) {
         if (seen.has(clipId)) continue
+        const inferredCat: 'greeting' | KoreFastClipCategory = clipId.startsWith('greeting')
+            ? 'greeting'
+            : clipId.startsWith('clarify_')
+                ? 'clarify'
+                : clipId.startsWith('sendoff_')
+                    ? 'sendoff'
+                    : clipId.startsWith('ack_') || clipId.startsWith('added_ack_') || clipId.startsWith('combo_')
+                        ? 'item_ack'
+                        : 'ops'
+        const textEs = pair.es?.text || '—'
+        const textEn = pair.en?.text || '—'
         rows.push({
             clipId,
-            category: clipId.startsWith('greeting') ? 'greeting' : 'ops',
-            textEs: pair.es?.text || '—',
-            textEn: pair.en?.text || '—',
+            category: inferredCat,
+            group: classifyKoreFastClipGroup(clipId, inferredCat, textEs, textEn),
+            textEs,
+            textEn,
             hasEs: Boolean(pair.es && pair.es.samples.length > 0),
             hasEn: Boolean(pair.en && pair.en.samples.length > 0),
         })
@@ -830,7 +1323,17 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const [fastClipsVersion, setFastClipsVersion] = useState(0)
     const [showFastClipsCatalog, setShowFastClipsCatalog] = useState(false)
     const [fastClipsCategory, setFastClipsCategory] = useState<KoreFastClipCatalogFilter>('all')
+    const [fastClipsSearch, setFastClipsSearch] = useState('')
+    const [fastClipsHydratingBg, setFastClipsHydratingBg] = useState<{ loaded: number; total: number } | null>(null)
     const [previewingClipKey, setPreviewingClipKey] = useState<string | null>(null)
+    const [cashierTakeoverActive, setCashierTakeoverActive] = useState(false)
+    const [cashierSpeaking, setCashierSpeaking] = useState(false)
+    const [cashierTriggerSource, setCashierTriggerSource] = useState<KoreCashierTriggerSource | null>(null)
+    const [showCashierConfig, setShowCashierConfig] = useState(false)
+    const [cashierChannelId, setCashierChannelId] = useState<string>('')
+    const [audioInputDevices, setAudioInputDevices] = useState<{ deviceId: string; label: string }[]>([])
+    const [serialConnected, setSerialConnected] = useState(false)
+    const [serialSupported, setSerialSupported] = useState(false)
 
     // ─── Refs de sesión (los handlers del socket SOLO leen refs) ───
     const tRef = useRef(t)
@@ -874,6 +1377,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const langCueTimerRef = useRef<number | null>(null)
     const fastClipsMapRef = useRef<Map<string, KoreDecodedFastClipPair>>(new Map())
     const fastClipsStoreIdRef = useRef<number>(0)
+    const fastClipsInflightStoreIdRef = useRef<number>(0)
+    const fastClipsAbortRef = useRef<AbortController | null>(null)
     const fastClipsReqRef = useRef(0)
     const suppressGeminiTurnAudioRef = useRef(false)
     const localFastClipStartedAtRef = useRef(0)
@@ -882,8 +1387,19 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const previewCtxRef = useRef<AudioContext | null>(null)
     const previewSourceRef = useRef<AudioBufferSourceNode | null>(null)
     const postSaveLearnTimerRef = useRef<number | null>(null)
+    const cashierControllerRef = useRef<KoreCashierSessionController>(new KoreCashierSessionController())
+    const cashierTakeoverActiveRef = useRef(false)
+    const cashierSpeakingRef = useRef(false)
+    const cashierChannelIdRef = useRef<string>('')
+    cashierChannelIdRef.current = cashierChannelId
+    const cashierMonitorRef = useRef<KoreCashierChannelMonitor | null>(null)
+    const headsetSignalMonitorRef = useRef<KoreHeadsetSignalMonitor | null>(null)
     const transcriptRef = useRef<TranscriptEntry[]>([])
-    const openEntryRef = useRef<{ customer: string | null; kore: string | null }>({ customer: null, kore: null })
+    const openEntryRef = useRef<{ customer: string | null; kore: string | null; cashier: string | null }>({
+        customer: null,
+        kore: null,
+        cashier: null,
+    })
     const startedAtRef = useRef<number | null>(null)
     const timersRef = useRef<{ setup: number | null; cap: number | null; tick: number | null }>({ setup: null, cap: null, tick: null })
     const meterRef = useRef<HTMLDivElement | null>(null)
@@ -1044,22 +1560,52 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
     const loadFastClips = useCallback(async (forStoreId: number) => {
         if (!Number.isInteger(forStoreId) || forStoreId <= 0) return
+        fastClipsAbortRef.current?.abort()
+        const abortCtrl = new AbortController()
+        fastClipsAbortRef.current = abortCtrl
+        fastClipsInflightStoreIdRef.current = forStoreId
         const reqId = ++fastClipsReqRef.current
         setFastClipsLoading(true)
+        setFastClipsHydratingBg(null)
         try {
-            const res = await fetch(`/api/drive-thru/kore/fast-clips?storeId=${forStoreId}`, { headers: getAuthHeaders() })
-            const data: unknown = await res.json().catch(() => null)
-            if (reqId !== fastClipsReqRef.current || !mountedRef.current) return
-            if (!res.ok || !isPlainObject(data)) return
-            const decoded = decodeKoreFastClipsPayload(data)
-            fastClipsMapRef.current = decoded.map
-            fastClipsStoreIdRef.current = forStoreId
-            setFastClipsStats(decoded.stats)
-            setFastClipsVersion(v => v + 1)
+            await hydrateKoreFastClipsPaginated({
+                storeId: forStoreId,
+                pageLimit: KORE_FAST_CLIPS_PAGE_LIMIT,
+                concurrency: KORE_FAST_CLIPS_BG_CONCURRENCY,
+                signal: abortCtrl.signal,
+                onPage0: ({ map, stats, pagination }) => {
+                    if (reqId !== fastClipsReqRef.current || !mountedRef.current || abortCtrl.signal.aborted) return
+                    fastClipsMapRef.current = map
+                    fastClipsStoreIdRef.current = forStoreId
+                    setFastClipsStats(stats)
+                    setFastClipsLoading(false)
+                    if (pagination?.hasMore && pagination.totalSituations > map.size) {
+                        setFastClipsHydratingBg({ loaded: map.size, total: pagination.totalSituations })
+                    }
+                    setFastClipsVersion(v => v + 1)
+                },
+                onBackgroundPage: ({ map, stats, loadedSituations, totalSituations }) => {
+                    if (reqId !== fastClipsReqRef.current || !mountedRef.current || abortCtrl.signal.aborted) return
+                    fastClipsMapRef.current = map
+                    if (stats) setFastClipsStats(stats)
+                    setFastClipsHydratingBg(
+                        loadedSituations < totalSituations
+                            ? { loaded: loadedSituations, total: totalSituations }
+                            : null
+                    )
+                    setFastClipsVersion(v => v + 1)
+                },
+            })
         } catch {
             // Degradación silenciosa: si el banco pregrabado no responde, Gemini Live habla directo
         } finally {
-            if (reqId === fastClipsReqRef.current && mountedRef.current) setFastClipsLoading(false)
+            if (reqId === fastClipsReqRef.current) {
+                fastClipsInflightStoreIdRef.current = 0
+                if (mountedRef.current) {
+                    setFastClipsLoading(false)
+                    setFastClipsHydratingBg(null)
+                }
+            }
         }
     }, [])
 
@@ -1087,10 +1633,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         stopFastClipPreview(false)
         if (!selectedStore) {
             historyReqRef.current += 1
+            fastClipsAbortRef.current?.abort()
+            fastClipsAbortRef.current = null
+            fastClipsInflightStoreIdRef.current = 0
             fastClipsReqRef.current += 1
             fastClipsMapRef.current = new Map()
             fastClipsStoreIdRef.current = 0
             setFastClipsStats(null)
+            setFastClipsHydratingBg(null)
             setFastClipsVersion(v => v + 1)
             setFastClipsLoading(false)
             setHistory([])
@@ -1118,7 +1668,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     }
 
     /** Agrega un fragmento (delta) a la entrada abierta del rol, o abre una nueva. */
-    const appendSpeech = (role: 'customer' | 'kore', delta: string) => {
+    const appendSpeech = (role: 'customer' | 'kore' | 'cashier', delta: string) => {
         if (!delta) return
         const openId = openEntryRef.current[role]
         const list = transcriptRef.current
@@ -1127,6 +1677,11 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             const updated = { ...list[idx], text: list[idx].text + delta }
             transcriptRef.current = [...list.slice(0, idx), updated, ...list.slice(idx + 1)]
         } else {
+            if (role === 'cashier') {
+                const updatedMeta = cashierControllerRef.current.recordNewCashierBubble()
+                orderRef.current = { ...orderRef.current, cashierIntervention: updatedMeta }
+                setOrder(orderRef.current)
+            }
             const id = newEntryId()
             transcriptRef.current = [...list, { id, role, text: delta, at: new Date().toISOString(), final: false }]
             openEntryRef.current[role] = id
@@ -1134,11 +1689,28 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         publishTranscript()
     }
 
-    const finalizeSpeech = (role: 'customer' | 'kore') => {
+    const finalizeSpeech = (role: 'customer' | 'kore' | 'cashier') => {
         const openId = openEntryRef.current[role]
         if (!openId) return
         openEntryRef.current[role] = null
         transcriptRef.current = transcriptRef.current.map(e => (e.id === openId ? { ...e, final: true } : e))
+        publishTranscript()
+    }
+
+    /** Promueve la burbuja abierta de 'customer' a 'cashier' cuando una frase dispara verbal_cue a mitad de oración. */
+    const promoteOpenCustomerBubbleToCashier = () => {
+        const openCustId = openEntryRef.current.customer
+        if (!openCustId) return
+        const list = transcriptRef.current
+        const idx = list.findIndex(e => e.id === openCustId)
+        openEntryRef.current.customer = null
+        if (idx < 0) return
+        const updatedMeta = cashierControllerRef.current.recordNewCashierBubble()
+        orderRef.current = { ...orderRef.current, cashierIntervention: updatedMeta }
+        setOrder(orderRef.current)
+        const promoted: TranscriptEntry = { ...list[idx], role: 'cashier' }
+        transcriptRef.current = [...list.slice(0, idx), promoted, ...list.slice(idx + 1)]
+        openEntryRef.current.cashier = openCustId
         publishTranscript()
     }
 
@@ -1173,8 +1745,146 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
     }
 
+    const formatCashierSourceLabel = (source: KoreCashierTriggerSource | null): string => {
+        switch (source) {
+            case 'headset_signal': return tRef.current('drive_thru.kore_cashier_src_headset')
+            case 'cashier_mic_vad': return tRef.current('drive_thru.kore_cashier_src_mic')
+            case 'verbal_cue': return tRef.current('drive_thru.kore_cashier_src_verbal')
+            case 'manual_button': return tRef.current('drive_thru.kore_cashier_src_manual')
+            default: return tRef.current('drive_thru.kore_cashier_src_headset')
+        }
+    }
+
+    /** Silencia a Kore en <15 ms al activarse cualquiera de los 3 detectores automáticos o el botón de respaldo. */
+    const applyImmediateCashierTakeoverEffects = (
+        meta: KoreCashierInterventionMeta,
+        sendObserverCue: boolean
+    ) => {
+        playbackRef.current?.stop()
+        localFastClipStartedAtRef.current = 0
+        customerSpokeSinceFastClipRef.current = false
+        clearAutoEnd(true)
+        clearLangCueTimer()
+        suppressGeminiTurnAudioRef.current = true
+        currentKoreTurnTextRef.current = ''
+        finalizeSpeech('kore')
+        setKoreSpeaking(false)
+
+        cashierTakeoverActiveRef.current = true
+        setCashierTakeoverActive(true)
+        setCashierTriggerSource(meta.triggerSource)
+        orderRef.current = { ...orderRef.current, cashierIntervention: meta }
+        setOrder(orderRef.current)
+
+        if (sendObserverCue) {
+            pushSystem(
+                tRef.current('drive_thru.kore_cashier_event_engaged', {
+                    source: formatCashierSourceLabel(meta.triggerSource),
+                }),
+                'warning'
+            )
+            sendJson({ realtimeInput: { text: KORE_HUMAN_TAKEOVER_OBSERVER_CUE[sessionMetaRef.current.lang] } })
+        }
+    }
+
+    const handlePhysicalCashierVoiceChange = (
+        speaking: boolean,
+        source: 'headset_signal' | 'cashier_mic_vad'
+    ) => {
+        if (!liveRef.current || endingRef.current) return
+        if (speaking) {
+            finalizeSpeech('customer')
+        }
+        const res = cashierControllerRef.current.setPhysicalSpeaking(
+            speaking,
+            source,
+            performance.now(),
+            transcriptRef.current.length
+        )
+        cashierSpeakingRef.current = cashierControllerRef.current.isCashierSpeaking
+        setCashierSpeaking(cashierSpeakingRef.current)
+        if (res.newlyActivated || cashierControllerRef.current.isActive) {
+            applyImmediateCashierTakeoverEffects(res.meta, res.sendObserverCue)
+        }
+    }
+
+    const handleManualCashierTakeover = () => {
+        if (!liveRef.current || endingRef.current) return
+        if (cashierTakeoverActiveRef.current) return
+        finalizeSpeech('customer')
+        const res = cashierControllerRef.current.engage(
+            'manual_button',
+            performance.now(),
+            transcriptRef.current.length
+        )
+        applyImmediateCashierTakeoverEffects(res.meta, res.sendObserverCue)
+    }
+
+    const releaseCashierTakeoverToKore = () => {
+        if (!liveRef.current || endingRef.current || !cashierTakeoverActiveRef.current) return
+        finalizeSpeech('cashier')
+        finalizeSpeech('customer')
+        setInterimText('')
+        currentCustomerTurnTextRef.current = ''
+        currentKoreTurnTextRef.current = ''
+        const rel = cashierControllerRef.current.releaseToKore(sessionMetaRef.current.lang, transcriptRef.current)
+        if (!rel.released) return
+        cashierTakeoverActiveRef.current = false
+        cashierSpeakingRef.current = false
+        suppressGeminiTurnAudioRef.current = false
+        setCashierTakeoverActive(false)
+        setCashierSpeaking(false)
+        orderRef.current = { ...orderRef.current, cashierIntervention: rel.meta }
+        setOrder(orderRef.current)
+        pushSystem(tRef.current('drive_thru.kore_cashier_event_released'))
+        sendJson({ realtimeInput: { text: rel.releaseCue } })
+    }
+
+    const refreshAudioInputDevices = useCallback(async () => {
+        if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return
+        try {
+            const list = await navigator.mediaDevices.enumerateDevices()
+            if (!mountedRef.current) return
+            const seen = new Set<string>()
+            const mics: { deviceId: string; label: string }[] = []
+            for (const d of list) {
+                if (d.kind !== 'audioinput' || !d.deviceId || d.deviceId === 'communications') continue
+                if (seen.has(d.deviceId)) continue
+                seen.add(d.deviceId)
+                mics.push({ deviceId: d.deviceId, label: d.label.trim() })
+            }
+            setAudioInputDevices(mics)
+        } catch {
+            // Permiso aún no concedido o navegador sin soporte
+        }
+    }, [])
+
+    const handleConnectSerialJ1 = async () => {
+        const mon = headsetSignalMonitorRef.current
+        if (!mon) return
+        try {
+            await mon.connectSerialPort()
+        } catch (e) {
+            const name = e instanceof DOMException ? e.name : ''
+            if (name === 'NotFoundError' || name === 'AbortError') return
+            const msg = e instanceof Error ? e.message : String(e)
+            setNotice(tRef.current('drive_thru.kore_cashier_cfg_serial_error', { message: msg }))
+        }
+    }
+
+    const handleDisconnectSerialJ1 = async () => {
+        await headsetSignalMonitorRef.current?.disconnectSerialPort()
+    }
+
     const handleMicChunk = (data: MicChunkMessage) => {
         if (!data || !(data.pcm instanceof ArrayBuffer)) return
+        if (
+            cashierChannelIdRef.current === KORE_STEREO_RIGHT_CHANNEL_ID &&
+            typeof data.rightRms === 'number' &&
+            Number.isFinite(data.rightRms)
+        ) {
+            cashierMonitorRef.current?.feedRightChannelRms(data.rightRms)
+        }
         const canTransmit = micModeRef.current === 'ptt' ? pttTalkingRef.current : micEnabledRef.current
         if (!canTransmit) {
             const decayed = meterLevelRef.current * 0.78
@@ -1256,9 +1966,11 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         if (!ws || ws.readyState !== WebSocket.OPEN) return
         if (ws.bufferedAmount > WS_BACKPRESSURE_BYTES) return
         for (const chunkBuf of gate.chunksToSend) {
+            const cashierExtra = cashierMonitorRef.current?.popPendingPcm() ?? null
+            const outboundBuf = cashierExtra ? mixPcm16Buffers(chunkBuf, cashierExtra) : chunkBuf
             sendJson({
                 realtimeInput: {
-                    audio: { data: bytesToBase64(new Uint8Array(chunkBuf)), mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}` },
+                    audio: { data: bytesToBase64(new Uint8Array(outboundBuf)), mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}` },
                 },
             })
         }
@@ -1328,6 +2040,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             try { outNodeRef.current.disconnect() } catch { /* noop */ }
             outNodeRef.current = null
         }
+        if (cashierMonitorRef.current) {
+            cashierMonitorRef.current.stop()
+            cashierMonitorRef.current = null
+        }
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop())
             streamRef.current = null
@@ -1340,6 +2056,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         pttTalkingRef.current = false
         noiseGatedRef.current = false
         noiseGateRef.current.reset()
+        cashierTakeoverActiveRef.current = false
+        cashierSpeakingRef.current = false
+        setCashierTakeoverActive(false)
+        setCashierSpeaking(false)
         setPttTalking(false)
         setNoiseGatedNow(false)
         setKoreSpeaking(false)
@@ -1353,7 +2073,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         const started = startedAtRef.current
         if (!session || started === null) return null
         const ended = Date.now()
-        const finalOrder = orderRef.current
+        const cashierMeta = cashierControllerRef.current.currentMeta
+        const finalOrder: KoreOrderState = cashierMeta.triggered
+            ? { ...orderRef.current, cashierIntervention: cashierMeta }
+            : orderRef.current
         const sessionKind: KoreSessionKind = finalOrder.sessionKind === 'driver_pickup' ? 'driver_pickup' : 'customer_order'
         const hasConfirmableContent =
             finalOrder.lines.length > 0 ||
@@ -1375,7 +2098,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             bargeInCount: bargeInCountRef.current,
             ...(stats.avgLatencyMs !== null ? { avgLatencyMs: stats.avgLatencyMs } : {}),
             ...(stats.p95LatencyMs !== null ? { p95LatencyMs: stats.p95LatencyMs } : {}),
-            // Contrato del backend: role customer|kore|system|tool (máx 400 turnos / 2000 chars)
+            // Contrato del backend: role customer|kore|cashier|system|tool (máx 400 turnos / 2000 chars)
             transcript: transcriptRef.current
                 .map(e => ({
                     role: e.role === 'system' && (e.kind === 'tool' || e.kind === 'tool_error') ? 'tool' : e.role,
@@ -1385,6 +2108,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 .filter(e => e.text.length > 0)
                 .slice(-400),
             order: finalOrder,
+            ...(cashierMeta.triggered ? { cashierIntervention: cashierMeta } : {}),
             taxRatePct: session.store.taxRatePct,
         }
     }
@@ -1429,6 +2153,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         const wasLive = startedAtRef.current !== null
         setPhase('ending')
         finalizeSpeech('customer')
+        finalizeSpeech('cashier')
         finalizeSpeech('kore')
         setInterimText('')
         teardownMedia()
@@ -1508,6 +2233,12 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }, KORE_SESSION_CAP_SEC * 1000)
         pushSystem(tRef.current('drive_thru.kore_car_arrived'))
         const activeLang = sessionMetaRef.current.lang
+        // Si la cajera ya tenía abierta la línea A1 al llegar el auto, Kore entra en silencio desde el segundo 0
+        if (headsetSignalMonitorRef.current?.isHeadsetTalkActive) {
+            initialGreetingPendingRef.current = false
+            handlePhysicalCashierVoiceChange(true, 'headset_signal')
+            return
+        }
         const greetClip = decodeKoreFastClipVariant(sessionRef.current?.initialGreetingClips?.[activeLang])
         if (greetClip) {
             initialGreetingPendingRef.current = false
@@ -1539,6 +2270,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         const waitIdle = () => {
             langCueTimerRef.current = null
             if (gen !== genRef.current || !liveRef.current || endingRef.current || autoEndModeRef.current !== 'none') return
+            if (cashierTakeoverActiveRef.current) return
             if (sessionMetaRef.current.lang !== targetLang) return
             const pb = playbackRef.current
             if (pb?.isActive || (pb?.remainingMs ?? 0) > 0) {
@@ -1582,7 +2314,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
     const handleServerContent = (sc: Record<string, unknown>, gen: number) => {
         if (sc.interrupted === true) {
-            suppressGeminiTurnAudioRef.current = false
+            suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
             const localClipActive = localFastClipStartedAtRef.current > 0 && Boolean(playbackRef.current?.isActive)
             const shouldClearPlayback = !localClipActive || customerSpokeSinceFastClipRef.current
             clearLangCueTimer()
@@ -1602,7 +2334,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             }
         }
         const modelTurn = isPlainObject(sc.modelTurn) ? sc.modelTurn : null
-        if (!suppressGeminiTurnAudioRef.current && modelTurn && Array.isArray(modelTurn.parts)) {
+        if (!cashierTakeoverActiveRef.current && !suppressGeminiTurnAudioRef.current && modelTurn && Array.isArray(modelTurn.parts)) {
             // Procesar TODAS las parts de cada mensaje
             for (const part of modelTurn.parts) {
                 if (!isPlainObject(part) || !isPlainObject(part.inlineData)) continue
@@ -1638,11 +2370,31 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }
             }
             currentCustomerTurnTextRef.current += sc.inputTranscription.text
-            const detected = resolveNextKoreSessionLang(currentCustomerTurnTextRef.current, sessionMetaRef.current.lang)
-            if (detected !== sessionMetaRef.current.lang) {
-                applyLiveLanguageSwitch(detected, { gen })
+            const inspected = cashierControllerRef.current.inspectInputText(
+                currentCustomerTurnTextRef.current,
+                performance.now(),
+                transcriptRef.current.length,
+                openEntryRef.current.customer !== null
+            )
+            if (inspected.newlyActivated) {
+                applyImmediateCashierTakeoverEffects(inspected.meta, inspected.sendObserverCue)
             }
-            appendSpeech('customer', sc.inputTranscription.text)
+            if (inspected.promoteOpenCustomerBubble) {
+                promoteOpenCustomerBubbleToCashier()
+            }
+            if (!cashierTakeoverActiveRef.current) {
+                const detected = resolveNextKoreSessionLang(currentCustomerTurnTextRef.current, sessionMetaRef.current.lang)
+                if (detected !== sessionMetaRef.current.lang) {
+                    applyLiveLanguageSwitch(detected, { gen })
+                }
+            }
+            if (inspected.role === 'cashier') {
+                finalizeSpeech('customer')
+                appendSpeech('cashier', sc.inputTranscription.text)
+            } else {
+                finalizeSpeech('cashier')
+                appendSpeech('customer', sc.inputTranscription.text)
+            }
             setInterimText('')
         }
         if (isPlainObject(sc.interimInputTranscription) && typeof sc.interimInputTranscription.text === 'string') {
@@ -1659,38 +2411,56 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             }
             const combinedPreview = `${currentCustomerTurnTextRef.current} ${sc.interimInputTranscription.text}`.trim()
             if (combinedPreview) {
-                const detected = resolveNextKoreSessionLang(combinedPreview, sessionMetaRef.current.lang)
-                if (detected !== sessionMetaRef.current.lang) {
-                    applyLiveLanguageSwitch(detected, { gen })
+                const previewInspected = cashierControllerRef.current.inspectInputText(
+                    combinedPreview,
+                    performance.now(),
+                    transcriptRef.current.length,
+                    openEntryRef.current.customer !== null
+                )
+                if (previewInspected.newlyActivated) {
+                    applyImmediateCashierTakeoverEffects(previewInspected.meta, previewInspected.sendObserverCue)
+                }
+                if (previewInspected.promoteOpenCustomerBubble) {
+                    promoteOpenCustomerBubbleToCashier()
+                }
+                if (!cashierTakeoverActiveRef.current) {
+                    const detected = resolveNextKoreSessionLang(combinedPreview, sessionMetaRef.current.lang)
+                    if (detected !== sessionMetaRef.current.lang) {
+                        applyLiveLanguageSwitch(detected, { gen })
+                    }
                 }
             }
             setInterimText(sc.interimInputTranscription.text)
         }
         if (isPlainObject(sc.outputTranscription) && typeof sc.outputTranscription.text === 'string') {
-            if (!suppressGeminiTurnAudioRef.current) {
+            if (!cashierTakeoverActiveRef.current && !suppressGeminiTurnAudioRef.current) {
                 if (autoEndTimerRef.current !== null) clearAutoEnd(false)
                 currentCustomerTurnTextRef.current = ''
                 currentKoreTurnTextRef.current += sc.outputTranscription.text
                 finalizeSpeech('customer')
+                finalizeSpeech('cashier')
                 appendSpeech('kore', sc.outputTranscription.text)
-            } else {
+            } else if (!cashierTakeoverActiveRef.current) {
                 currentCustomerTurnTextRef.current = ''
                 finalizeSpeech('customer')
+                finalizeSpeech('cashier')
             }
         }
         if (sc.turnComplete === true) {
             const wasSuppressedTurn = suppressGeminiTurnAudioRef.current
-            suppressGeminiTurnAudioRef.current = false
+            suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
             initialGreetingPendingRef.current = false
             koreTurnFirstAudioRecordedRef.current = false
             koreTurnInterruptedRef.current = false
             currentCustomerTurnTextRef.current = ''
+            cashierControllerRef.current.onTurnComplete()
             finalizeSpeech('customer')
+            finalizeSpeech('cashier')
             finalizeSpeech('kore')
             setInterimText('')
             const spokenKoreTurn = currentKoreTurnTextRef.current.trim()
             currentKoreTurnTextRef.current = ''
-            if (wasSuppressedTurn) return
+            if (cashierTakeoverActiveRef.current || wasSuppressedTurn) return
             const cushionMs = evaluateKoreTurnCompleteAutoEnd({
                 currentMode: autoEndModeRef.current,
                 orderStatus: orderRef.current.status,
@@ -1771,10 +2541,30 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
     const handleToolCall = async (toolCall: Record<string, unknown>, gen: number): Promise<void> => {
         if (gen !== genRef.current || !liveRef.current) return
+        const calls = Array.isArray(toolCall.functionCalls) ? toolCall.functionCalls : []
+        if (cashierTakeoverActiveRef.current) {
+            const blockedResponses: { id?: string; name: string; response: Record<string, unknown> }[] = []
+            for (const rawCall of calls) {
+                if (!isPlainObject(rawCall)) continue
+                const name = typeof rawCall.name === 'string' ? rawCall.name : ''
+                const id = typeof rawCall.id === 'string' ? rawCall.id : undefined
+                let response: Record<string, unknown> = {
+                    ok: false,
+                    error_code: 'human_cashier_takeover_active',
+                    message: KORE_HUMAN_TAKEOVER_OBSERVER_CUE[sessionMetaRef.current.lang],
+                }
+                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
+                    response = { ...response, scheduling: 'WHEN_IDLE' }
+                }
+                blockedResponses.push({ ...(id ? { id } : {}), name, response })
+            }
+            if (blockedResponses.length > 0) sendJson({ toolResponse: { functionResponses: blockedResponses } })
+            return
+        }
         suppressGeminiTurnAudioRef.current = false
         finalizeSpeech('customer')
+        finalizeSpeech('cashier')
         finalizeSpeech('kore')
-        const calls = Array.isArray(toolCall.functionCalls) ? toolCall.functionCalls : []
         const functionResponses: { id?: string; name: string; response: Record<string, unknown> }[] = []
         const candidateMatches: { idx: number; match: KoreFastClipMatch }[] = []
         let failedCallsCount = 0
@@ -2049,7 +2839,13 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         setElapsedSec(0)
         setSessionStore(null)
         transcriptRef.current = []
-        openEntryRef.current = { customer: null, kore: null }
+        openEntryRef.current = { customer: null, kore: null, cashier: null }
+        cashierControllerRef.current.reset()
+        cashierTakeoverActiveRef.current = false
+        cashierSpeakingRef.current = false
+        setCashierTakeoverActive(false)
+        setCashierSpeaking(false)
+        setCashierTriggerSource(null)
         toolHistoryRef.current = []
         toolQueueRef.current = Promise.resolve()
         cancelledToolIdsRef.current.clear()
@@ -2062,7 +2858,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         currentKoreTurnTextRef.current = ''
         currentCustomerTurnTextRef.current = ''
         abortInFlightTools()
-        if (fastClipsStoreIdRef.current !== meta.storeId || fastClipsMapRef.current.size === 0) {
+        if (
+            fastClipsInflightStoreIdRef.current !== meta.storeId &&
+            (fastClipsStoreIdRef.current !== meta.storeId || fastClipsMapRef.current.size === 0)
+        ) {
             void loadFastClips(meta.storeId)
         }
         setTranscript([])
@@ -2105,16 +2904,20 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             return fail(t('drive_thru.kore_err_worklet'))
         }
 
-        // 2) Micrófono
+        // 2) Micrófono (mono 1 canal por defecto; 2 canales estéreo si se eligió Canal 2 Right para cajera)
+        const wantStereoRight = cashierChannelIdRef.current === KORE_STEREO_RIGHT_CHANNEL_ID
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+                audio: wantStereoRight
+                    ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } }
+                    : { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
             })
             if (gen !== genRef.current) {
                 stream.getTracks().forEach(track => track.stop())
                 return
             }
             streamRef.current = stream
+            void refreshAudioInputDevices()
         } catch (e) {
             const name = e instanceof DOMException ? e.name : ''
             if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
@@ -2136,10 +2939,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 numberOfInputs: 1,
                 numberOfOutputs: 1,
                 outputChannelCount: [1],
-                channelCount: 1,
+                channelCount: wantStereoRight ? 2 : 1,
                 channelCountMode: 'explicit',
                 channelInterpretation: 'speakers',
-                processorOptions: { targetRate: KORE_INPUT_SAMPLE_RATE, chunkSamples: KORE_CHUNK_SAMPLES },
+                processorOptions: {
+                    targetRate: KORE_INPUT_SAMPLE_RATE,
+                    chunkSamples: KORE_CHUNK_SAMPLES,
+                    ...(wantStereoRight ? { emitChannelRms: true } : {}),
+                },
             })
             const sink = ctx.createGain()
             sink.gain.value = 0
@@ -2161,6 +2968,43 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }
                 setKoreSpeaking(active)
             })
+
+            const selectedCashierChannel = cashierChannelIdRef.current.trim()
+            if (selectedCashierChannel) {
+                const primaryDevId = streamRef.current?.getAudioTracks()[0]?.getSettings?.()?.deviceId ?? null
+                const monitor = new KoreCashierChannelMonitor({
+                    mode: selectedCashierChannel === KORE_STEREO_RIGHT_CHANNEL_ID ? 'stereo_right' : 'device',
+                    cashierDeviceId: selectedCashierChannel === KORE_STEREO_RIGHT_CHANNEL_ID ? undefined : selectedCashierChannel,
+                    primaryDeviceId: primaryDevId,
+                    ctx,
+                    onCashierVoiceState: speaking => {
+                        handlePhysicalCashierVoiceChange(speaking, 'cashier_mic_vad')
+                    },
+                    onCashierPcmChunk: pcm => {
+                        if (!liveRef.current) return
+                        const primaryTransmitting = micModeRef.current === 'ptt' ? pttTalkingRef.current : micEnabledRef.current
+                        if (primaryTransmitting) return // Se mezcla muestra a muestra en handleMicChunk
+                        cashierMonitorRef.current?.clearPendingPcm()
+                        const wsNow = wsRef.current
+                        if (!wsNow || wsNow.readyState !== WebSocket.OPEN || wsNow.bufferedAmount > WS_BACKPRESSURE_BYTES) return
+                        sendJson({
+                            realtimeInput: {
+                                audio: {
+                                    data: bytesToBase64(new Uint8Array(pcm)),
+                                    mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
+                                },
+                            },
+                        })
+                    },
+                })
+                cashierMonitorRef.current = monitor
+                monitor.start().catch(err => {
+                    const msg = err instanceof Error ? err.message : String(err)
+                    if (mountedRef.current) {
+                        setNotice(tRef.current('drive_thru.kore_cashier_cfg_mic_error', { message: msg }))
+                    }
+                })
+            }
         } catch (e) {
             console.error('[Kore DT] Error inicializando audio:', e)
             return fail(t('drive_thru.kore_err_worklet'))
@@ -2361,9 +3205,40 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             window.clearTimeout(postSaveLearnTimerRef.current)
             postSaveLearnTimerRef.current = null
         }
+        fastClipsAbortRef.current?.abort()
+        fastClipsAbortRef.current = null
         stopFastClipPreview(true)
         teardownMedia()
     }
+
+    const onHeadsetTalkSignalRef = useRef<(active: boolean) => void>(() => undefined)
+    onHeadsetTalkSignalRef.current = (active: boolean) => {
+        handlePhysicalCashierVoiceChange(active, 'headset_signal')
+    }
+
+    useEffect(() => {
+        setSerialSupported(isKoreWebSerialSupported())
+        void refreshAudioInputDevices()
+        const sigMon = new KoreHeadsetSignalMonitor({
+            shortcutKey: 'F9',
+            onHeadsetTalkChange: active => {
+                onHeadsetTalkSignalRef.current(active)
+            },
+            onSerialStatusChange: (connected, errMsg) => {
+                if (!mountedRef.current) return
+                setSerialConnected(connected)
+                if (!connected && errMsg) {
+                    setNotice(tRef.current('drive_thru.kore_cashier_cfg_serial_error', { message: errMsg }))
+                }
+            },
+        })
+        sigMon.attachKeyboard()
+        headsetSignalMonitorRef.current = sigMon
+        return () => {
+            sigMon.stop()
+            headsetSignalMonitorRef.current = null
+        }
+    }, [refreshAudioInputDevices])
 
     useEffect(() => {
         mountedRef.current = true
@@ -2371,6 +3246,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             if (startedAtRef.current !== null) saveOnExitRef.current()
             genRef.current += 1
             teardownRef.current()
+            headsetSignalMonitorRef.current?.stop()
         }
         window.addEventListener('pagehide', onPageHide)
         return () => {
@@ -2392,16 +3268,17 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         [selectedStore?.id, fastClipsVersion]
     )
     const filteredFastClipRows = useMemo(
-        () => (fastClipsCategory === 'all' ? fastClipCatalogRows : fastClipCatalogRows.filter(r => r.category === fastClipsCategory)),
-        [fastClipCatalogRows, fastClipsCategory]
+        () => filterKoreFastClipCatalogRows(fastClipCatalogRows, fastClipsCategory, fastClipsSearch),
+        [fastClipCatalogRows, fastClipsCategory, fastClipsSearch]
     )
     const fastClipCategoryTabs: { id: KoreFastClipCatalogFilter; labelKey: string; count: number }[] = useMemo(() => {
-        const countOf = (cat: KoreFastClipCatalogRow['category']) => fastClipCatalogRows.filter(r => r.category === cat).length
+        const countOf = (grp: KoreFastClipCatalogGroup) => fastClipCatalogRows.filter(r => r.group === grp).length
         return [
             { id: 'all', labelKey: 'drive_thru.kore_fast_clips_cat_all', count: fastClipCatalogRows.length },
             { id: 'greeting', labelKey: 'drive_thru.kore_fast_clips_cat_greeting', count: countOf('greeting') },
-            { id: 'clarify', labelKey: 'drive_thru.kore_fast_clips_cat_clarify', count: countOf('clarify') },
             { id: 'item_ack', labelKey: 'drive_thru.kore_fast_clips_cat_item_ack', count: countOf('item_ack') },
+            { id: 'clarify', labelKey: 'drive_thru.kore_fast_clips_cat_clarify', count: countOf('clarify') },
+            { id: 'modifiers', labelKey: 'drive_thru.kore_fast_clips_cat_modifiers', count: countOf('modifiers') },
             { id: 'ops', labelKey: 'drive_thru.kore_fast_clips_cat_ops', count: countOf('ops') },
             { id: 'sendoff', labelKey: 'drive_thru.kore_fast_clips_cat_sendoff', count: countOf('sendoff') },
         ]
@@ -2418,6 +3295,13 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             case 'requesting': return { label: t('drive_thru.kore_status_requesting'), cls: 'bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300', icon: <Loader2 size={14} className="animate-spin" /> }
             case 'connecting': return { label: t('drive_thru.kore_status_connecting'), cls: 'bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300', icon: <Loader2 size={14} className="animate-spin" /> }
             case 'live':
+                if (cashierTakeoverActive) {
+                    return {
+                        label: t('drive_thru.kore_status_cashier_takeover'),
+                        cls: 'bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-200 ring-1 ring-amber-400/70',
+                        icon: <Headphones size={14} className="animate-pulse text-amber-600 dark:text-amber-400" />,
+                    }
+                }
                 if (koreSpeaking) return { label: t('drive_thru.kore_status_speaking'), cls: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300', icon: <Volume2 size={14} className="animate-pulse" /> }
                 if (micMode === 'ptt') {
                     return pttTalking
@@ -2576,6 +3460,69 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     </div>
                 </div>
 
+                {/* Botón auto-activable de Cajera en Línea / Headset (A1) + respaldo manual */}
+                {phase === 'live' && (
+                    !cashierTakeoverActive ? (
+                        <button
+                            type="button"
+                            onClick={handleManualCashierTakeover}
+                            className="w-full flex items-center justify-between gap-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/70 hover:bg-amber-50 dark:hover:bg-amber-950/30 hover:border-amber-400 dark:hover:border-amber-600 px-3.5 py-2.5 text-left transition-all cursor-pointer group"
+                        >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="p-2 rounded-lg bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200 group-hover:bg-amber-200/80 dark:group-hover:bg-amber-900/60 group-hover:text-amber-900 dark:group-hover:text-amber-200 transition-colors shrink-0">
+                                    <Headphones size={18} />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 truncate">
+                                        {t('drive_thru.kore_cashier_btn_ready')}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                        {t('drive_thru.kore_cashier_btn_ready_sub')}
+                                    </p>
+                                </div>
+                            </div>
+                            <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                                <Radio size={12} className="animate-pulse" />
+                                <span>{t('drive_thru.kore_cashier_cfg_badge_ready')}</span>
+                            </span>
+                        </button>
+                    ) : (
+                        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border-2 border-amber-400 dark:border-amber-500 bg-gradient-to-r from-amber-50 via-emerald-50 to-teal-50 dark:from-amber-950/60 dark:via-emerald-950/50 dark:to-teal-950/50 px-3.5 py-3 shadow-md shadow-amber-500/10">
+                            <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                                <span className="p-2 rounded-lg bg-amber-500 text-white shadow-sm shrink-0 animate-pulse">
+                                    <Headphones size={18} />
+                                </span>
+                                <div className="min-w-0 space-y-1">
+                                    <p className="text-xs sm:text-sm font-black text-amber-950 dark:text-amber-100 break-words">
+                                        {t('drive_thru.kore_cashier_btn_active')}
+                                    </p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                            cashierSpeaking
+                                                ? 'bg-emerald-600 text-white animate-pulse'
+                                                : 'bg-white/80 dark:bg-slate-900/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                                        }`}>
+                                            {cashierSpeaking ? t('drive_thru.kore_cashier_btn_active_talking') : t('drive_thru.kore_cashier_btn_active_listening')}
+                                        </span>
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-200/70 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
+                                            {t('drive_thru.kore_cashier_active_source_badge', {
+                                                source: formatCashierSourceLabel(cashierTriggerSource),
+                                            })}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={releaseCashierTakeoverToKore}
+                                className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-black shadow-sm transition-all active:scale-95 cursor-pointer"
+                            >
+                                {t('drive_thru.kore_cashier_btn_release')}
+                            </button>
+                        </div>
+                    )
+                )}
+
                 {/* Modo de voz (VAD vs Push-to-Talk) + Filtro anti-ruido */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 px-3 py-2 flex-wrap">
@@ -2626,6 +3573,107 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                             {noiseGateEnabled ? t('drive_thru.kore_noise_gate_on') : t('drive_thru.kore_noise_gate_off')}
                         </button>
                     </div>
+                </div>
+
+                {/* Franja colapsable: Auto-detección física de Headset Cajera (HME J1 / Mic secundario / Estéreo R) */}
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 overflow-hidden">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const next = !showCashierConfig
+                            setShowCashierConfig(next)
+                            if (next) void refreshAudioInputDevices()
+                        }}
+                        className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+                    >
+                        <span className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 min-w-0">
+                            <Headphones size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span className="truncate">{t('drive_thru.kore_cashier_cfg_toggle')}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                serialConnected
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
+                                    : 'bg-slate-200/80 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                            }`}>
+                                {serialConnected ? t('drive_thru.kore_cashier_cfg_serial_connected') : t('drive_thru.kore_cashier_cfg_badge_ready')}
+                            </span>
+                        </span>
+                        {showCashierConfig ? <ChevronUp size={15} className="text-slate-400 shrink-0" /> : <ChevronDown size={15} className="text-slate-400 shrink-0" />}
+                    </button>
+                    {showCashierConfig && (
+                        <div className="px-3 pb-3 pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div>
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                        <label htmlFor="kore-cashier-channel" className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                                            {t('drive_thru.kore_cashier_cfg_mic_label')}
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={() => void refreshAudioInputDevices()}
+                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                                        >
+                                            <RefreshCw size={11} />
+                                            <span>{t('drive_thru.kore_cashier_cfg_refresh_mics')}</span>
+                                        </button>
+                                    </div>
+                                    <select
+                                        id="kore-cashier-channel"
+                                        value={cashierChannelId}
+                                        disabled={isBusy}
+                                        onChange={e => setCashierChannelId(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 disabled:opacity-60"
+                                    >
+                                        <option value="">{t('drive_thru.kore_cashier_cfg_mic_none')}</option>
+                                        <option value={KORE_STEREO_RIGHT_CHANNEL_ID}>{t('drive_thru.kore_cashier_cfg_mic_stereo_r')}</option>
+                                        {audioInputDevices.map((dev, idx) => (
+                                            <option key={dev.deviceId} value={dev.deviceId}>
+                                                {dev.label || t('drive_thru.kore_cashier_cfg_mic_unnamed', { num: idx + 1 })}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col justify-between">
+                                    <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                        {t('drive_thru.kore_cashier_cfg_serial_label')}
+                                    </span>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        {serialSupported ? (
+                                            !serialConnected ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleConnectSerialJ1()}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-bold transition-colors cursor-pointer"
+                                                >
+                                                    <Headphones size={13} />
+                                                    <span>{t('drive_thru.kore_cashier_cfg_serial_connect')}</span>
+                                                </button>
+                                            ) : (
+                                                <>
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                                                        {t('drive_thru.kore_cashier_cfg_serial_connected')}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handleDisconnectSerialJ1()}
+                                                        className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700 cursor-pointer"
+                                                    >
+                                                        {t('drive_thru.kore_cashier_cfg_serial_disconnect')}
+                                                    </button>
+                                                </>
+                                            )
+                                        ) : (
+                                            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                {t('drive_thru.kore_cashier_cfg_serial_unsupported')}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                                {t('drive_thru.kore_cashier_cfg_hint')}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Medidor + latencia en vivo + tiempo + aviso de audífonos */}
@@ -2718,8 +3766,19 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                                     )}
                                 </p>
                                 {fastClipsStats && fastClipsStats.topDriveThruItems.length > 0 && (
-                                    <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 truncate">
-                                        {t('drive_thru.kore_fast_clips_top_hint', { items: fastClipsStats.topDriveThruItems.slice(0, 4).join(' · ') })}
+                                    <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 break-words">
+                                        {t('drive_thru.kore_fast_clips_top_hint', { items: fastClipsStats.topDriveThruItems.slice(0, 8).join(' · ') })}
+                                    </p>
+                                )}
+                                {fastClipsHydratingBg && (
+                                    <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                                        <Loader2 size={11} className="animate-spin shrink-0" />
+                                        <span>
+                                            {t('drive_thru.kore_fast_clips_hydrating_bg', {
+                                                loaded: fastClipsHydratingBg.loaded,
+                                                total: fastClipsHydratingBg.total,
+                                            })}
+                                        </span>
                                     </p>
                                 )}
                             </div>
@@ -2759,9 +3818,37 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
                         {showFastClipsCatalog && (
                             <div className="rounded-xl border border-emerald-200/80 dark:border-slate-700 bg-white dark:bg-slate-900/95 p-3 space-y-2.5">
-                                <div>
-                                    <p className="text-xs font-black text-slate-800 dark:text-white">{t('drive_thru.kore_fast_clips_catalog_title')}</p>
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('drive_thru.kore_fast_clips_catalog_sub')}</p>
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                    <div>
+                                        <p className="text-xs font-black text-slate-800 dark:text-white">{t('drive_thru.kore_fast_clips_catalog_title')}</p>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('drive_thru.kore_fast_clips_catalog_sub')}</p>
+                                    </div>
+                                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                                        {t('drive_thru.kore_fast_clips_showing_count', {
+                                            shown: filteredFastClipRows.length,
+                                            total: fastClipCatalogRows.length,
+                                        })}
+                                    </span>
+                                </div>
+                                <div className="relative">
+                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        value={fastClipsSearch}
+                                        onChange={e => setFastClipsSearch(e.target.value)}
+                                        placeholder={t('drive_thru.kore_fast_clips_search_placeholder')}
+                                        className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                    />
+                                    {fastClipsSearch && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFastClipsSearch('')}
+                                            aria-label={t('drive_thru.kore_fast_clips_search_clear')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                                        >
+                                            <X size={13} />
+                                        </button>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                     {fastClipCategoryTabs.map(tab => (
@@ -2779,22 +3866,28 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                                         </button>
                                     ))}
                                 </div>
-                                <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200/80 dark:border-slate-800">
-                                    {filteredFastClipRows.map(row => {
+                                <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                                    {filteredFastClipRows.length === 0 ? (
+                                        <p className="p-6 text-center text-xs text-slate-400">
+                                            {t('drive_thru.kore_fast_clips_search_empty', { query: fastClipsSearch.trim() })}
+                                        </p>
+                                    ) : filteredFastClipRows.map(row => {
                                         const esKey = `${row.clipId}:es`
                                         const enKey = `${row.clipId}:en`
                                         const playingEs = previewingClipKey === esKey
                                         const playingEn = previewingClipKey === enKey
                                         const catLabelKey =
-                                            row.category === 'greeting'
+                                            row.group === 'greeting'
                                                 ? 'drive_thru.kore_fast_clips_cat_greeting'
-                                                : row.category === 'clarify'
+                                                : row.group === 'clarify'
                                                     ? 'drive_thru.kore_fast_clips_cat_clarify'
-                                                    : row.category === 'item_ack'
+                                                    : row.group === 'item_ack'
                                                         ? 'drive_thru.kore_fast_clips_cat_item_ack'
-                                                        : row.category === 'sendoff'
-                                                            ? 'drive_thru.kore_fast_clips_cat_sendoff'
-                                                            : 'drive_thru.kore_fast_clips_cat_ops'
+                                                        : row.group === 'modifiers'
+                                                            ? 'drive_thru.kore_fast_clips_cat_modifiers'
+                                                            : row.group === 'sendoff'
+                                                                ? 'drive_thru.kore_fast_clips_cat_sendoff'
+                                                                : 'drive_thru.kore_fast_clips_cat_ops'
                                         return (
                                             <div key={row.clipId} className="px-3 py-2.5 space-y-1.5 text-xs">
                                                 <div className="flex items-center gap-2 flex-wrap">
@@ -2941,16 +4034,29 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                                 )
                             }
                             const isCustomer = entry.role === 'customer'
+                            const isCashier = entry.role === 'cashier'
                             return (
                                 <div key={entry.id} className={`flex ${isCustomer ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-1 duration-200`}>
                                     <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
                                         isCustomer
                                             ? 'bg-orange-500 text-white rounded-br-md'
-                                            : 'bg-violet-50 dark:bg-violet-950/40 text-slate-800 dark:text-slate-100 border border-violet-100 dark:border-violet-900 rounded-bl-md'
+                                            : isCashier
+                                                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-slate-900 dark:text-emerald-50 border-2 border-emerald-300 dark:border-emerald-700 rounded-bl-md'
+                                                : 'bg-violet-50 dark:bg-violet-950/40 text-slate-800 dark:text-slate-100 border border-violet-100 dark:border-violet-900 rounded-bl-md'
                                     } ${entry.final ? '' : 'opacity-80'}`}>
-                                        <p className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide mb-0.5 ${isCustomer ? 'text-orange-100' : 'text-violet-600 dark:text-violet-300'}`}>
-                                            {isCustomer ? <User size={10} /> : <Bot size={10} />}
-                                            {isCustomer ? t('drive_thru.kore_role_customer') : t('drive_thru.kore_role_kore')}
+                                        <p className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide mb-0.5 ${
+                                            isCustomer
+                                                ? 'text-orange-100'
+                                                : isCashier
+                                                    ? 'text-emerald-700 dark:text-emerald-300'
+                                                    : 'text-violet-600 dark:text-violet-300'
+                                        }`}>
+                                            {isCustomer ? <User size={10} /> : isCashier ? <Headphones size={10} /> : <Bot size={10} />}
+                                            {isCustomer
+                                                ? t('drive_thru.kore_role_customer')
+                                                : isCashier
+                                                    ? t('drive_thru.kore_role_cashier')
+                                                    : t('drive_thru.kore_role_kore')}
                                         </p>
                                         <p className="whitespace-pre-wrap break-words">{entry.text.trim()}</p>
                                     </div>
@@ -3018,6 +4124,13 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                                                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950/60 text-[10px] font-bold text-sky-700 dark:text-sky-300">
                                                             <Truck size={10} />
                                                             <span>{t('drive_thru.kore_kind_driver')}</span>
+                                                        </span>
+                                                    )}
+                                                    {(row.order?.cashierIntervention?.triggered === true ||
+                                                        (Array.isArray(row.transcript) && row.transcript.some(turn => turn?.role === 'cashier'))) && (
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                                            <Headphones size={10} />
+                                                            <span>{t('drive_thru.kore_history_cashier_badge')}</span>
                                                         </span>
                                                     )}
                                                 </div>

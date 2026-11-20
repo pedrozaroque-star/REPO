@@ -26,14 +26,17 @@
  * @notes
  * - `extractPcm16FromWav` recorre los sub-chunks RIFF/WAVE (`fmt ` y `data`) para entregar únicamente muestras PCM16 LE
  *   alineadas a múltiplo de 2 bytes, evitando cualquier clic acústico de cabecera WAV en Web Audio API.
+ * - Protección Single-Key RPM (2026-11-20): `prewarmAllKoreFastClips` limita concurrencia a `1` cuando el pool tiene `<= 1` llave activa.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
-import { getPhoneAgentSpeech, getPhoneSpeechStoragePath } from '@/lib/order-ready-tts'
+import { getGeminiKeyPoolWithRemote, getPhoneAgentSpeech, getPhoneSpeechStoragePath } from '@/lib/order-ready-tts'
 import { pickKoreDriveThruGreeting, type KoreLang } from '@/lib/drive-thru-kore'
-import { KORE_FAST_CLIP_SPECS } from '@/lib/drive-thru-kore-fast-match'
+import { KORE_FAST_CLIP_SPECS, TOP_SINGLE_LINE_ACKS, type KoreFastClipSpec } from '@/lib/drive-thru-kore-fast-match'
 
 export const KORE_DRIVE_THRU_STORE_IDS: readonly number[] = Object.freeze([3, 6, 10, 12, 14, 15])
+export const KORE_FAST_CLIPS_DEFAULT_PAGE_LIMIT = 6
+export const KORE_FAST_CLIPS_MAX_PAGE_LIMIT = 6
 const GREETING_VARIANT_COUNT = 4
 const ANALYTICS_CACHE_TTL_MS = 10 * 60 * 1000
 const STORAGE_BUCKET = 'order-ready-tts'
@@ -58,17 +61,26 @@ export interface KoreHistoricalDriveThruAnalytics {
 }
 
 export interface KoreFastClipsBundleStats extends KoreHistoricalDriveThruAnalytics {
-  /** Total de archivos individuales de audio (cada situación cuenta 2: `es` + `en`). */
+  /** Total global de archivos individuales de audio del catálogo (cada situación cuenta 2: `es` + `en`, ej. 288 con `storeId`). */
   totalClips: number
-  /** Archivos de audio ya disponibles en Storage / RAM listos para reproducción `< 10 ms`. */
+  /** Archivos de audio ya disponibles en Storage / RAM sobre TODAS las situaciones del catálogo. */
   cachedClips: number
-  /** Total de situaciones bilingües incluidas en `clips`. */
+  /** Total global de situaciones bilingües del catálogo (ej. 144 con `storeId`, 140 sin `storeId`). */
   totalSituations: number
+}
+
+export interface KoreFastClipsPagination {
+  offset: number
+  limit: number
+  totalSituations: number
+  hasMore: boolean
+  nextOffset: number | null
 }
 
 export interface KoreFastClipsBundleResponse {
   clips: Record<string, { es: KoreEncodedFastClip | null; en: KoreEncodedFastClip | null }>
   stats: KoreFastClipsBundleStats
+  pagination: KoreFastClipsPagination
 }
 
 const pcmClipMemCache = new Map<string, KoreEncodedFastClip>()
@@ -157,6 +169,41 @@ function makeMemKey(lang: KoreLang, text: string): string {
 }
 
 /**
+ * Recorta únicamente el silencio digital puro al inicio y final del buffer PCM16 LE (`|sample| <= 48`),
+ * conservando un colchón suave de `18 ms` al inicio y `55 ms` al final para inicio instantáneo `< 5 ms`
+ * y reducción ~25–35% de peso Base64 sin alterar la frecuencia `24000 Hz` ni la voz.
+ */
+function trimPcm16Silence(pcm: Buffer, sampleRate: number): Buffer {
+  const evenLen = pcm.length - (pcm.length % 2)
+  if (evenLen < 4) return pcm.subarray(0, evenLen)
+  const totalSamples = evenLen >> 1
+  const threshold = 280
+
+  let firstActive = -1
+  for (let i = 0; i < totalSamples; i++) {
+    if (Math.abs(pcm.readInt16LE(i * 2)) > threshold) {
+      firstActive = i
+      break
+    }
+  }
+  if (firstActive === -1) return pcm.subarray(0, Math.min(evenLen, Math.round(sampleRate * 0.1) * 2))
+
+  let lastActive = firstActive
+  for (let i = totalSamples - 1; i > firstActive; i--) {
+    if (Math.abs(pcm.readInt16LE(i * 2)) > threshold) {
+      lastActive = i
+      break
+    }
+  }
+
+  const leadPad = Math.round(sampleRate * 0.018)
+  const tailPad = Math.round(sampleRate * 0.055)
+  const startSample = Math.max(0, firstActive - leadPad)
+  const endSample = Math.min(totalSamples, lastActive + 1 + tailPad)
+  return pcm.subarray(startSample * 2, endSample * 2)
+}
+
+/**
  * Extrae las muestras crudas PCM16 LE (`base64`) y `sampleRate` desde un `Buffer` RIFF/WAV de `getPhoneAgentSpeech`,
  * omitiendo por completo el encabezado WAV para evitar artefactos al decodificar en el navegador.
  */
@@ -164,7 +211,9 @@ export function extractPcm16FromWav(wav: Buffer): { pcm16Base64: string; sampleR
   if (!Buffer.isBuffer(wav) || wav.length <= 44) return null
   if (wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') {
     const evenLen = wav.length - (wav.length % 2)
-    return evenLen > 0 ? { pcm16Base64: wav.subarray(0, evenLen).toString('base64'), sampleRate: 24000 } : null
+    if (evenLen <= 0) return null
+    const trimmed = trimPcm16Silence(wav.subarray(0, evenLen), 24000)
+    return trimmed.length > 0 ? { pcm16Base64: trimmed.toString('base64'), sampleRate: 24000 } : null
   }
 
   let sampleRate = 24000
@@ -180,8 +229,9 @@ export function extractPcm16FromWav(wav: Buffer): { pcm16Base64: string; sampleR
       const available = Math.min(chunkSize, wav.length - dataStart)
       const evenLen = available - (available % 2)
       if (evenLen <= 0) return null
+      const trimmed = trimPcm16Silence(wav.subarray(dataStart, dataStart + evenLen), sampleRate)
       return {
-        pcm16Base64: wav.subarray(dataStart, dataStart + evenLen).toString('base64'),
+        pcm16Base64: trimmed.toString('base64'),
         sampleRate
       }
     }
@@ -190,7 +240,9 @@ export function extractPcm16FromWav(wav: Buffer): { pcm16Base64: string; sampleR
 
   const tail = wav.subarray(44)
   const evenLen = tail.length - (tail.length % 2)
-  return evenLen > 0 ? { pcm16Base64: tail.subarray(0, evenLen).toString('base64'), sampleRate } : null
+  if (evenLen <= 0) return null
+  const trimmed = trimPcm16Silence(tail.subarray(0, evenLen), sampleRate)
+  return trimmed.length > 0 ? { pcm16Base64: trimmed.toString('base64'), sampleRate } : null
 }
 
 function isIgnoredSnapshotSelectionName(name: string): boolean {
@@ -261,7 +313,7 @@ export async function getKoreHistoricalDriveThruAnalytics(forceRefresh = false):
   const topDriveThruItems: KoreTopDriveThruItem[] = Array.from(itemStats.entries())
     .map(([name, st]) => ({ name, quantitySold: st.quantitySold, ticketMentions: st.ticketMentions }))
     .sort((a, b) => b.quantitySold - a.quantitySold || b.ticketMentions - a.ticketMentions)
-    .slice(0, 12)
+    .slice(0, 16)
 
   const data: KoreHistoricalDriveThruAnalytics = {
     historicalDtOrdersCount,
@@ -336,20 +388,30 @@ export async function ensureFastClipRecorded(
   }
 
   let lastErr = 'synthesis_not_persisted'
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const wav = await getPhoneAgentSpeech(cleanText, lang, 'Kore', forceRegenerate || attempt > 0, {
         skipSseAttempt: true,
         awaitStoragePersist: true,
-        requireKore38: true
+        requireKore38: true,
+        maxTotalMs: 14000
       })
       const parsed = extractPcm16FromWav(wav)
       if (!parsed) {
         lastErr = 'invalid_wav'
         continue
       }
-      // Verificar existencia REAL en el bucket de Supabase Storage (sin pasar por `memoryPhoneAudioCache` en RAM)
-      const persistedInBucket = await verifyPathExistsInStorageBucket(info.path)
+      // Verificar existencia REAL en el bucket; si hubo retardo o lite-tts omitió subida, subir explícitamente el WAV validado
+      let persistedInBucket = await verifyPathExistsInStorageBucket(info.path)
+      if (!persistedInBucket) {
+        const up = await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(info.path, wav, {
+          contentType: 'audio/wav',
+          upsert: true
+        })
+        if (!up.error) {
+          persistedInBucket = await verifyPathExistsInStorageBucket(info.path)
+        }
+      }
       if (!persistedInBucket) {
         lastErr = 'not_persisted_in_storage_bucket'
         continue
@@ -364,7 +426,7 @@ export async function ensureFastClipRecorded(
     } catch (err: any) {
       lastErr = String(err?.message || err).slice(0, 200)
       if (/429|quota|exhausted|falló \(\)/i.test(lastErr)) {
-        await new Promise((r) => setTimeout(r, 1500))
+        await new Promise((r) => setTimeout(r, attempt === 0 ? 12000 : 22000))
       }
     }
   }
@@ -439,59 +501,192 @@ export function buildStoreGreetingSpecs(storeId: number): Array<{ clipId: string
   return out
 }
 
+const CLIP_ID_TO_SINGLE_PAIR: ReadonlyMap<string, { qty: number; normName: string }> = (() => {
+  const m = new Map<string, { qty: number; normName: string }>()
+  for (const [k, clipId] of Object.entries(TOP_SINGLE_LINE_ACKS)) {
+    const pipe = k.indexOf('|')
+    if (pipe > 0) {
+      m.set(clipId, { qty: Number(k.slice(0, pipe)) || 1, normName: k.slice(pipe + 1) })
+    }
+  }
+  return m
+})()
+
+function normPlainKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildOrderedFastClipEntries(
+  validStoreId: number | null,
+  topDriveThruItems: readonly KoreTopDriveThruItem[]
+): Array<{ clipId: string; textEs: string; textEn: string }> {
+  const popularityByNorm = new Map<string, number>()
+  topDriveThruItems.forEach((it, idx) => {
+    popularityByNorm.set(normPlainKey(it.name), it.quantitySold * 10 + (100 - idx))
+  })
+
+  const priorityGroup = (spec: KoreFastClipSpec): number => {
+    if (spec.category === 'clarify') return 1
+    if (spec.category === 'ops') return 2
+    if (spec.category === 'sendoff') return 3
+    if (
+      spec.clipId.startsWith('added_ack_') ||
+      spec.clipId.startsWith('removed_ack_') ||
+      spec.clipId.startsWith('mod_')
+    ) {
+      return 4
+    }
+    return 5
+  }
+
+  const itemPopularityScore = (spec: KoreFastClipSpec, originalIdx: number): number => {
+    if (spec.clipId.startsWith('combo_')) return 50000 - originalIdx
+    const single = CLIP_ID_TO_SINGLE_PAIR.get(spec.clipId)
+    if (!single) return -originalIdx
+    const basePop = popularityByNorm.get(single.normName) || 0
+    const qtyBonus = single.qty <= 3 ? (4 - single.qty) * 50 : Math.max(0, 20 - single.qty)
+    return basePop + qtyBonus
+  }
+
+  const indexedSpecs = KORE_FAST_CLIP_SPECS.map((spec, idx) => ({ spec, idx }))
+  indexedSpecs.sort((a, b) => {
+    const gA = priorityGroup(a.spec)
+    const gB = priorityGroup(b.spec)
+    if (gA !== gB) return gA - gB
+    if (gA === 5) {
+      const sDiff = itemPopularityScore(b.spec, b.idx) - itemPopularityScore(a.spec, a.idx)
+      if (sDiff !== 0) return sDiff
+    }
+    return a.idx - b.idx
+  })
+
+  const sortedSpecs = indexedSpecs.map(({ spec }) => ({
+    clipId: spec.clipId,
+    textEs: spec.textEs,
+    textEn: spec.textEn
+  }))
+  const top23LongestIds = new Set(
+    [...sortedSpecs]
+      .sort((a, b) => b.textEs.length + b.textEn.length - (a.textEs.length + a.textEn.length))
+      .slice(0, 23)
+      .map((s) => s.clipId)
+  )
+  const longSpecs = sortedSpecs.filter((s) => top23LongestIds.has(s.clipId))
+  const shortSpecs = sortedSpecs.filter((s) => !top23LongestIds.has(s.clipId))
+  const balancedSpecs: Array<{ clipId: string; textEs: string; textEn: string }> = []
+  let li = 0
+  let si = 0
+  // Align to page size 6 after the 4 store greetings (4 greetings + 2 short = Page 0; then 23x [1 long + 5 short] = Pages 1..23)
+  if (validStoreId) {
+    for (let k = 0; k < 2 && si < shortSpecs.length; k++) {
+      balancedSpecs.push(shortSpecs[si++])
+    }
+  }
+  while (li < longSpecs.length || si < shortSpecs.length) {
+    if (li < longSpecs.length) balancedSpecs.push(longSpecs[li++])
+    for (let k = 0; k < 5 && si < shortSpecs.length; k++) {
+      balancedSpecs.push(shortSpecs[si++])
+    }
+  }
+
+  return [
+    ...(validStoreId ? buildStoreGreetingSpecs(validStoreId) : []),
+    ...balancedSpecs
+  ]
+}
+
 /**
- * Devuelve el paquete completo de clips pregrabados (`es` + `en`) disponibles en Storage junto con las estadísticas
- * históricas reales de Drive-Thru (`dt_orders` + `toast_ticket_consumption_snapshots`).
+ * Devuelve una página segura para Vercel (`<= 2.6 MB`, por defecto `36` situaciones = `72` clips por petición)
+ * de clips pregrabados (`es` + `en`) disponibles en Storage, calculando en `O(1)` `stats.totalClips` (`288` con `storeId`)
+ * y `stats.cachedClips` sobre TODAS las situaciones del catálogo mediante `knownPaths` (`getPersistedKoreStoragePaths()`).
  */
-export async function getKoreFastClipsBundle(storeId?: number | null): Promise<KoreFastClipsBundleResponse> {
+export async function getKoreFastClipsBundle(
+  storeId?: number | null,
+  opts?: { offset?: number; limit?: number }
+): Promise<KoreFastClipsBundleResponse> {
   const validStoreId =
     typeof storeId === 'number' && Number.isInteger(storeId) && KORE_DRIVE_THRU_STORE_IDS.includes(storeId)
       ? storeId
       : null
-
-  const entries: Array<{ clipId: string; textEs: string; textEn: string }> = [
-    ...KORE_FAST_CLIP_SPECS.map((s) => ({ clipId: s.clipId, textEs: s.textEs, textEn: s.textEn })),
-    ...(validStoreId ? buildStoreGreetingSpecs(validStoreId) : [])
-  ]
-
-  const tasks: Array<{ clipId: string; lang: KoreLang; text: string }> = []
-  for (const e of entries) {
-    tasks.push({ clipId: e.clipId, lang: 'es', text: e.textEs })
-    tasks.push({ clipId: e.clipId, lang: 'en', text: e.textEn })
-  }
 
   const [knownPaths, analytics] = await Promise.all([
     getPersistedKoreStoragePaths(),
     getKoreHistoricalDriveThruAnalytics()
   ])
 
-  const loadedList = await mapWithConcurrency(tasks, 6, async (t) => ({
+  const allEntries = buildOrderedFastClipEntries(validStoreId, analytics.topDriveThruItems)
+  const totalSituations = allEntries.length
+  const totalClips = totalSituations * 2
+
+  // Cálculo global O(1) de `cachedClips` sobre las 144 situaciones completas sin descargar los 288 WAVs en cada página
+  let cachedClips = 0
+  const isClipPersistedOrCached = (lang: KoreLang, text: string): boolean => {
+    const clean = String(text || '').trim()
+    if (!clean) return false
+    if (pcmClipMemCache.has(makeMemKey(lang, clean))) return true
+    const info = getPhoneSpeechStoragePath(clean, lang, 'Kore')
+    return Boolean(info && knownPaths.has(info.path))
+  }
+  for (const e of allEntries) {
+    if (isClipPersistedOrCached('es', e.textEs)) cachedClips += 1
+    if (isClipPersistedOrCached('en', e.textEn)) cachedClips += 1
+  }
+
+  const rawOffset = Number(opts?.offset)
+  const safeOffset =
+    Number.isFinite(rawOffset) && rawOffset >= 0 ? Math.min(totalSituations, Math.trunc(rawOffset)) : 0
+  const rawLimit = Number(opts?.limit)
+  const safeLimit =
+    Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(KORE_FAST_CLIPS_MAX_PAGE_LIMIT, Math.max(1, Math.trunc(rawLimit)))
+      : KORE_FAST_CLIPS_DEFAULT_PAGE_LIMIT
+
+  const pageEntries = allEntries.slice(safeOffset, safeOffset + safeLimit)
+  const pageTasks: Array<{ clipId: string; lang: KoreLang; text: string }> = []
+  for (const e of pageEntries) {
+    pageTasks.push({ clipId: e.clipId, lang: 'es', text: e.textEs })
+    pageTasks.push({ clipId: e.clipId, lang: 'en', text: e.textEn })
+  }
+
+  const loadedList = await mapWithConcurrency(pageTasks, 8, async (t) => ({
     clipId: t.clipId,
     lang: t.lang,
     clip: await loadFastClipFromStorageOnly(t.text, t.lang, knownPaths)
   }))
 
   const clips: Record<string, { es: KoreEncodedFastClip | null; en: KoreEncodedFastClip | null }> = {}
-  for (const e of entries) {
+  for (const e of pageEntries) {
     clips[e.clipId] = { es: null, en: null }
   }
-
-  let cachedClips = 0
   for (const item of loadedList) {
     if (!clips[item.clipId]) clips[item.clipId] = { es: null, en: null }
     clips[item.clipId][item.lang] = item.clip
-    if (item.clip) cachedClips += 1
   }
+
+  const nextEnd = safeOffset + pageEntries.length
+  const hasMore = nextEnd < totalSituations && pageEntries.length > 0
 
   return {
     clips,
     stats: {
-      totalClips: tasks.length,
+      totalClips,
       cachedClips,
-      totalSituations: entries.length,
+      totalSituations,
       historicalDtOrdersCount: analytics.historicalDtOrdersCount,
       historicalDetailedSnapshotsCount: analytics.historicalDetailedSnapshotsCount,
       topDriveThruItems: analytics.topDriveThruItems
+    },
+    pagination: {
+      offset: safeOffset,
+      limit: safeLimit,
+      totalSituations,
+      hasMore,
+      nextOffset: hasMore ? nextEnd : null
     }
   }
 }
@@ -515,11 +710,14 @@ export async function prewarmAllKoreFastClips(opts?: {
   const targetStores = (opts?.storeIds && opts.storeIds.length > 0 ? opts.storeIds : KORE_DRIVE_THRU_STORE_IDS).filter(
     (id) => KORE_DRIVE_THRU_STORE_IDS.includes(id)
   )
-  const concurrency = Math.max(1, Math.min(4, opts?.concurrency ?? 3))
+  const activeKeyPool = await getGeminiKeyPoolWithRemote()
+  const maxSafeConcurrency = activeKeyPool.length <= 1 ? 1 : 4
+  const concurrency = Math.max(1, Math.min(maxSafeConcurrency, opts?.concurrency ?? (activeKeyPool.length <= 1 ? 1 : 3)))
+  const interItemDelayMs = activeKeyPool.length <= 1 ? 1600 : 280
   const maxToSynth =
     typeof opts?.maxClipsToSynthesize === 'number' && opts.maxClipsToSynthesize > 0
       ? Math.trunc(opts.maxClipsToSynthesize)
-      : 500
+      : 600
 
   const orderedStores = [...targetStores].sort((a, b) => {
     const rank = (id: number) => (id === 14 ? 0 : id === 6 ? 1 : id)
@@ -583,7 +781,7 @@ export async function prewarmAllKoreFastClips(opts?: {
   const failures: string[] = []
 
   await mapWithConcurrency(toSynthesize, concurrency, async (task, idx) => {
-    if (idx > 0) await new Promise((r) => setTimeout(r, 280))
+    if (idx > 0) await new Promise((r) => setTimeout(r, interItemDelayMs))
     const res = await ensureFastClipRecorded(task.text, task.lang, false)
     if (res.clip) {
       newlySynthesized += 1

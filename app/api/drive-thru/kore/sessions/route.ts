@@ -27,7 +27,11 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { authorizePhoneModuleRequest, type PhoneAuthorizedUser } from '@/lib/phone-agent-access'
 import { supabaseAdmin } from '@/lib/supabase'
 import { KORE_LIVE_MODEL, KORE_SIM_ALLOWED_ROLES, getKoreStoreTaxRate, loadKoreMenu, loadKoreStore } from '@/lib/drive-thru-kore'
-import { computeKoreTotals, rebuildKoreOrderFromMenu } from '@/lib/drive-thru-kore-order'
+import {
+  computeKoreTotals,
+  rebuildKoreOrderFromMenu,
+  sanitizeKoreCashierIntervention
+} from '@/lib/drive-thru-kore-order'
 import { analyzeUnprocessedKoreSessions } from '@/lib/drive-thru-kore-learning'
 
 export const dynamic = 'force-dynamic'
@@ -41,6 +45,9 @@ const TRANSCRIPT_ROLE_MAP: Readonly<Record<string, string>> = {
   kore: 'kore',
   assistant: 'kore',
   model: 'kore',
+  cashier: 'cashier',
+  cajera: 'cashier',
+  cajero: 'cashier',
   system: 'system',
   tool: 'tool'
 }
@@ -130,6 +137,7 @@ function mapRow(r: any) {
     createdBy: r.created_by === null ? null : Number(r.created_by),
     createdByName: r.created_by_name || null,
     createdAt: r.created_at,
+    cashierIntervention: sanitizeKoreCashierIntervention(r.order_json?.cashierIntervention) || null,
     order: r.order_json || null,
     transcript: Array.isArray(r.transcript) ? r.transcript : []
   }
@@ -185,10 +193,43 @@ export async function POST(request: NextRequest) {
     if (outcome === 'cancelled' && rebuilt.state.status === 'confirmed') {
       return jsonError("outcome 'cancelled' contradice una orden ya 'confirmed'.", 400)
     }
-    const finalState =
+    const baseFinalState =
       outcome === 'cancelled' && rebuilt.state.status === 'building'
         ? { ...rebuilt.state, status: 'cancelled' as const }
         : rebuilt.state
+
+    const rawOrderObj = b.order && typeof b.order === 'object' ? b.order : b.order_json && typeof b.order_json === 'object' ? b.order_json : null
+    const rawCashierMeta =
+      b.cashierIntervention ??
+      b.cashier_intervention ??
+      rawOrderObj?.cashierIntervention ??
+      rawOrderObj?.cashier_intervention ??
+      baseFinalState.cashierIntervention
+    let cashierMeta = sanitizeKoreCashierIntervention(rawCashierMeta)
+    const cashierTurnsInTranscript = tr.turns.filter((t) => t.role === 'cashier')
+    if (cashierMeta) {
+      const mergedTurnCount = Math.max(cashierMeta.cashierTurnCount, cashierTurnsInTranscript.length)
+      const mergedTriggered = cashierMeta.triggered || mergedTurnCount > 0
+      cashierMeta = {
+        ...cashierMeta,
+        triggered: mergedTriggered,
+        triggerSource: mergedTriggered ? cashierMeta.triggerSource ?? (mergedTurnCount > 0 ? 'verbal_cue' : null) : null,
+        triggeredAt: mergedTriggered
+          ? cashierMeta.triggeredAt ?? cashierTurnsInTranscript[0]?.at ?? startedAt.toISOString()
+          : null,
+        cashierTurnCount: mergedTurnCount
+      }
+    } else if (cashierTurnsInTranscript.length > 0) {
+      cashierMeta = {
+        triggered: true,
+        triggerSource: 'verbal_cue',
+        triggeredAt: cashierTurnsInTranscript[0]?.at ?? startedAt.toISOString(),
+        resumedToKoreCount: 0,
+        cashierTurnCount: cashierTurnsInTranscript.length
+      }
+    }
+
+    const finalState = cashierMeta ? { ...baseFinalState, cashierIntervention: cashierMeta } : baseFinalState
     const totals = computeKoreTotals(finalState, tax.taxRatePct)
     const avgLatencyMs = parseOptionalMetric(b.avgLatencyMs ?? b.avg_latency_ms, 120000)
     const p95LatencyMs = parseOptionalMetric(b.p95LatencyMs ?? b.p95_latency_ms, 120000)

@@ -33,6 +33,11 @@
  *   `America/Los_Angeles` (06:00 <= hh:mm < 14:00). Fuera de esa ventana `add_item`/`add_items` rechazan los platillos de la
  *   categoría `Breakfast` con `error_code: 'breakfast_closed'` (`cutoff: '2:00 PM'`); bebidas como Coffee/Champurrado no se
  *   afectan. El reloj es inyectable vía `opts.now` para pruebas de bordes horarios y DST.
+ * - **Intervención Automática de Cajera por Headset (`A1` — Fase 15)**: soporta metadatos limpios `KoreCashierInterventionMeta`
+ *   (`headset_signal` | `cashier_mic_vad` | `verbal_cue` | `manual_button`), detector sin falsos positivos
+ *   `detectKoreCashierVerbalTakeoverCue(text)` para instalaciones de un solo cable en `J7` (`Ceiling Speaker A channel`) y
+ *   señales silenciosas `KORE_HUMAN_TAKEOVER_OBSERVER_CUE` / `buildKoreHumanTakeoverReleaseCue` para silenciar la voz y tools
+ *   de Kore mientras continúa la transcripción pasiva de la situación anómala.
  * - Simulación pura: NADA se envía a Toast (la llave no tiene `orders:write`).
  *
  * @dataFlow
@@ -212,6 +217,16 @@ export const KORE_COURTESY_STANDALONE_ITEMS: Readonly<Record<string, KoreMenuIte
   }
 })
 
+export type KoreCashierTriggerSource = 'headset_signal' | 'cashier_mic_vad' | 'verbal_cue' | 'manual_button'
+
+export interface KoreCashierInterventionMeta {
+  triggered: boolean
+  triggerSource: KoreCashierTriggerSource | null
+  triggeredAt: string | null
+  resumedToKoreCount: number
+  cashierTurnCount: number
+}
+
 export interface KoreDriverPickup {
   platform: string
   orders: KoreDriverPickupOrder[]
@@ -231,6 +246,8 @@ export interface KoreOrderState {
   version?: number
   /** Motivo corto de cancelación (ej. "EBT: cliente pasa al comedor"); solo existe mientras `status === 'cancelled'`. */
   cancelReason?: string
+  /** Telemetría opcional cuando la cajera abre su línea `A1` del headset para asistir una situación anómala. */
+  cashierIntervention?: KoreCashierInterventionMeta | null
 }
 
 export interface KoreOrderTotals {
@@ -1346,6 +1363,7 @@ function normalizeState(state: KoreOrderState | null | undefined): KoreOrderStat
   }, 0)
   const next = Number.isInteger(state?.nextLineNumber) && (state!.nextLineNumber as number) > maxExisting ? (state!.nextLineNumber as number) : maxExisting + 1
   const cancelReason = status === 'cancelled' ? sanitizeNotes(state?.cancelReason) : undefined
+  const cashierIntervention = sanitizeKoreCashierIntervention(state?.cashierIntervention)
   return {
     lines,
     status,
@@ -1353,7 +1371,8 @@ function normalizeState(state: KoreOrderState | null | undefined): KoreOrderStat
     driverPickup: sessionKind === 'driver_pickup' && hasDriverPickup ? state!.driverPickup! : null,
     nextLineNumber: next,
     version: Number.isInteger(state?.version) ? (state!.version as number) : 0,
-    ...(cancelReason ? { cancelReason } : {})
+    ...(cancelReason ? { cancelReason } : {}),
+    ...(cashierIntervention ? { cashierIntervention } : {})
   }
 }
 
@@ -2483,6 +2502,7 @@ export function rebuildKoreOrderFromMenu(raw: unknown, menu: KoreMenuItem[]): { 
   if (errors.length) return { state: null, errors }
   const version = Number(obj.version)
   const rebuiltCancelReason = status === 'cancelled' ? sanitizeNotes(obj.cancelReason) : undefined
+  const rebuiltCashierIntervention = sanitizeKoreCashierIntervention(obj.cashierIntervention ?? obj.cashier_intervention)
   return {
     state: {
       lines,
@@ -2491,8 +2511,132 @@ export function rebuildKoreOrderFromMenu(raw: unknown, menu: KoreMenuItem[]): { 
       driverPickup: isDriverPickup ? driverPickup : null,
       nextLineNumber: maxLine + 1,
       version: Number.isInteger(version) && version >= 0 ? version : 0,
-      ...(rebuiltCancelReason ? { cancelReason: rebuiltCancelReason } : {})
+      ...(rebuiltCancelReason ? { cancelReason: rebuiltCancelReason } : {}),
+      ...(rebuiltCashierIntervention ? { cashierIntervention: rebuiltCashierIntervention } : {})
     },
     errors
   }
+}
+
+const VALID_CASHIER_TRIGGER_SOURCES: ReadonlySet<KoreCashierTriggerSource> = new Set([
+  'headset_signal',
+  'cashier_mic_vad',
+  'verbal_cue',
+  'manual_button'
+])
+
+/** Sanea y normaliza el objeto `KoreCashierInterventionMeta` sin lanzar excepciones ante entradas arbitrarias. */
+export function sanitizeKoreCashierIntervention(raw: unknown): KoreCashierInterventionMeta | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const obj = raw as Record<string, unknown>
+  const rawSource = String(obj.triggerSource ?? obj.trigger_source ?? '').trim() as KoreCashierTriggerSource
+  const triggerSource: KoreCashierTriggerSource | null = VALID_CASHIER_TRIGGER_SOURCES.has(rawSource) ? rawSource : null
+
+  const rawAt = obj.triggeredAt ?? obj.triggered_at
+  let triggeredAt: string | null = null
+  if (typeof rawAt === 'string' && rawAt.trim()) {
+    const d = new Date(rawAt.trim())
+    if (Number.isFinite(d.getTime())) triggeredAt = d.toISOString()
+  }
+
+  const rawResumed = Number(obj.resumedToKoreCount ?? obj.resumed_to_kore_count ?? 0)
+  const resumedToKoreCount = Number.isFinite(rawResumed) && rawResumed > 0 ? Math.min(500, Math.trunc(rawResumed)) : 0
+
+  const rawTurns = Number(obj.cashierTurnCount ?? obj.cashier_turn_count ?? 0)
+  const cashierTurnCount = Number.isFinite(rawTurns) && rawTurns > 0 ? Math.min(1000, Math.trunc(rawTurns)) : 0
+
+  const triggered = Boolean(obj.triggered) || triggerSource !== null || cashierTurnCount > 0
+
+  return {
+    triggered,
+    triggerSource: triggered ? triggerSource : null,
+    triggeredAt: triggered ? triggeredAt : null,
+    resumedToKoreCount,
+    cashierTurnCount
+  }
+}
+
+const CASHIER_VERBAL_TAKEOVER_PATTERNS: readonly RegExp[] = [
+  // Identificación explícita desde caja / ventanilla (ES)
+  /\b(?:disculp[ea]\s+)?le\s+habl[oa]\s+(?:de|desde)\s+(?:la\s+)?(?:caja|ventana|ventanilla|adentro)\b/,
+  /\b(?:aqui|aca)\s+(?:le\s+)?(?:habla|atiende)\s+(?:la\s+|el\s+)?(?:cajer[oa]|encargad[oa]|manager|gerente)\b/,
+  /\bsoy\s+(?:la\s+|el\s+)?cajer[oa]\b/,
+  /\ble\s+atiend[eo]\s+(?:aqui\s+)?en\s+(?:la\s+)?(?:primera\s+|segunda\s+)?(?:ventana|ventanilla|caja)\b/,
+  /\b(?:aqui|aca)\s+en\s+(?:la\s+)?(?:primera\s+|segunda\s+)?(?:ventana|ventanilla)\s+(?:yo\s+)?(?:le|te)\s+(?:ayudo|atiendo|checo|cobro|tomo)\b/,
+  // Instrucción directa de avanzar a ventana donde la cajera resuelve (ES)
+  /\b(?:pase|pasale|avance|avanzale|acerquese|vengase)\s+(?:aqui\s+|por\s+favor\s+)?a\s+(?:la\s+)?(?:primera\s+|segunda\s+)?(?:ventana|ventanilla)\s*(?:y\s+|que\s+|aqui\s+)?(?:yo\s+|ahi\s+|aqui\s+)?(?:le|te)\s+(?:ayudo|atiendo|checo|tomo|explico|resuelvo)\b/,
+  /\bpase\s+a\s+la\s+primera\s+ventana\b/,
+  // Cajera tomando el control verbalmente en el altavoz (ES)
+  /\b(?:permitame|espereme|dame)\s+un\s+(?:momento|momentito|segundo)\s*(?:aqui|aca|yo)\s+(?:le|te)\s+(?:ayudo|atiendo|tomo\s+(?:su|la)\s+orden)\b/,
+  /\b(?:yo\s+le|yo\s+te|aqui\s+le|aqui\s+te)\s+tomo\s+(?:su|tu|la)\s+orden\b/,
+  /\bno\s+le\s+haga\s+caso\s+a\s+la\s+(?:grabadora|maquina|asistente)\b/,
+  // Identificación e instrucciones explícitas de cajera en inglés (EN)
+  /\b(?:this\s+is\s+(?:the\s+)?cashier|cashier\s+here|im\s+the\s+cashier|i\s+am\s+the\s+cashier|speaking\s+from\s+the\s+window)\b/,
+  /\b(?:pull|come|drive)\s+(?:up|forward)\s+to\s+the\s+(?:first|1st|second|2nd)?\s*window\b.*\b(?:ill|i\s+will|we\s+will|well|let\s+me)\s+(?:help|assist|take\s+care)\b/,
+  /\bpull\s+(?:up|forward)\s+to\s+the\s+first\s+window\b/,
+  /\b(?:one\s+moment|just\s+a\s+moment|hold\s+on)\s+(?:please\s+)?(?:ill|i\s+will|let\s+me)\s+help\s+you\s+at\s+the\s+(?:first\s+)?window\b/,
+  /\b(?:ill|i\s+will|let\s+me)\s+take\s+your\s+order\s+(?:from\s+here|myself|at\s+the\s+window)\b/
+]
+
+/**
+ * Detecta frases inequívocas dichas por una cajera humana cuando en `HME EOS|HD` entra un solo cable por `J7,1`
+ * (`Ceiling Speaker` con `A channel > 0`), garantizando CERO falsos positivos ante frases normales de clientes
+ * (ej. "quiero pagar en ventana", "permítame ver el menú", "¿puedo pasar a la ventana?").
+ */
+export function detectKoreCashierVerbalTakeoverCue(text: string): boolean {
+  const raw = String(text ?? '').trim()
+  if (raw.length < 12) return false
+  const norm = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/['’`]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!norm) return false
+
+  // Guardia explícita anti-falso-positivo cuando el cliente pregunta o pide pagar/ir a ventana en 1a persona
+  if (
+    /^(?:quiero|quisiera|puedo|podria|vamos\s+a|voy\s+a|me\s+dejas?|can\s+i|could\s+i|i\s+want\s+to|id\s+like\s+to)\s+(?:pagar|pasar|ir|recoger|pay|go)\b/.test(
+      norm
+    )
+  ) {
+    return false
+  }
+
+  return CASHIER_VERBAL_TAKEOVER_PATTERNS.some((re) => re.test(norm))
+}
+
+/**
+ * Señal silenciosa enviada vía `realtimeInput.text` en el milisegundo en que se detecta apertura de línea `A1` del headset
+ * de cajera: ordena a Gemini guardar silencio total y no invocar herramientas mientras sigue activo `inputAudioTranscription`.
+ */
+export const KORE_HUMAN_TAKEOVER_OBSERVER_CUE: Readonly<Record<'es' | 'en', string>> = Object.freeze({
+  es: '[CONTROL HUMANO ACTIVO — CAJERA EN LÍNEA A1]: La cajera de Tacos Gavilan abrió su línea de headset hacia la bocina exterior para atender directamente al cliente. GUARDA SILENCIO ABSOLUTO E INMEDIATO: NO emitas audio, NO respondas con texto y NO llames ninguna herramienta (add_item, add_items, update_item, remove_item, confirm_order, cancel_order, end_session ni register_driver_pickup) hasta recibir "[FIN DE INTERVENCIÓN DE CAJERA — RETOMA KORE]". Continúa escuchando en silencio únicamente para transcribir la conversación.',
+  en: '[HUMAN CASHIER TAKEOVER ACTIVE — HEADSET LINE A1 OPEN]: The Tacos Gavilan cashier opened their headset line to the outside speaker to assist the customer directly. REMAIN COMPLETELY SILENT IMMEDIATELY: output ZERO audio, ZERO text, and DO NOT call any tools (add_item, add_items, update_item, remove_item, confirm_order, cancel_order, end_session, or register_driver_pickup) until you receive "[CASHIER TAKEOVER ENDED — KORE RESUME]". Continue passive listening only for live transcription.'
+})
+
+/**
+ * Construye la instrucción enviada a Gemini cuando la cajera cierra su línea `A1` y devuelve el turno a Kore,
+ * inyectando el resumen transcrito de lo acordado durante la intervención humana.
+ */
+export function buildKoreHumanTakeoverReleaseCue(lang: 'es' | 'en', transcriptSummary?: string): string {
+  const cleanSummary = String(transcriptSummary ?? '')
+    .replace(/\u0000/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 900)
+
+  if (lang === 'en') {
+    const summaryClause = cleanSummary
+      ? ` Summary of what was spoken during the cashier's assistance: "${cleanSummary}".`
+      : ''
+    return `[CASHIER TAKEOVER ENDED — KORE RESUME]: The cashier finished speaking on the headset and returned control to you.${summaryClause} Resume assisting the customer naturally and briefly in 100% ENGLISH without repeating from scratch what the cashier already resolved.`
+  }
+
+  const summaryClause = cleanSummary
+    ? ` Resumen de lo hablado durante la asistencia de la cajera: "${cleanSummary}".`
+    : ''
+  return `[FIN DE INTERVENCIÓN DE CAJERA — RETOMA KORE]: La cajera terminó su intervención por headset y te devolvió el turno.${summaryClause} Retoma la atención al cliente de forma breve y cálida 100% en ESPAÑOL sin repetir desde cero lo que la cajera ya resolvió.`
 }

@@ -17,6 +17,7 @@
  *
  * @notes
  * - Configurado en `vercel.json` preservando intactos todos los crons críticos (`/api/cron/sync-sales`, `/api/cron/sync-labor`, etc.).
+ * - Blindaje Single-Key Paid Tier 1 (2026-11-20): cuando `pool.length <= 1`, ejecuta análisis LLM y pre-grabación TTS de forma secuencial (`concurrency: 1`) para evitar ráfagas concurrentes sobre la llave activa.
  */
 
 import { timingSafeEqual } from 'node:crypto'
@@ -25,6 +26,7 @@ import { getCronSecret } from '@/lib/auth-server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 import { analyzeUnprocessedKoreSessions, getKoreLearningDashboard } from '@/lib/drive-thru-kore-learning'
 import { prewarmAllKoreFastClips } from '@/lib/drive-thru-kore-fast-clips'
+import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -53,20 +55,39 @@ async function handleRun(request: NextRequest) {
 
     const storeParam = request.nextUrl.searchParams.get('storeId')
     const storeId = storeParam && /^\d+$/.test(storeParam) ? Number(storeParam) : null
+    const keyPool = await getGeminiKeyPoolWithRemote()
+    const isSingleKey = keyPool.length <= 1
 
-    const [summary, fastClipsPrewarm] = await Promise.all([
-      analyzeUnprocessedKoreSessions({
+    let summary: Awaited<ReturnType<typeof analyzeUnprocessedKoreSessions>>
+    let fastClipsPrewarm: Awaited<ReturnType<typeof prewarmAllKoreFastClips>> | { error: string }
+
+    if (isSingleKey) {
+      summary = await analyzeUnprocessedKoreSessions({
         storeId,
         limit: 40,
         includePhoneCalls: true,
         triggerSource: 'cron_daily'
-      }),
-      prewarmAllKoreFastClips({
+      })
+      fastClipsPrewarm = await prewarmAllKoreFastClips({
         storeIds: storeId ? [storeId] : undefined,
-        concurrency: 4,
+        concurrency: 1,
         maxClipsToSynthesize: 30
       }).catch((e: any) => ({ error: String(e?.message || e).slice(0, 180) }))
-    ])
+    } else {
+      ;[summary, fastClipsPrewarm] = await Promise.all([
+        analyzeUnprocessedKoreSessions({
+          storeId,
+          limit: 40,
+          includePhoneCalls: true,
+          triggerSource: 'cron_daily'
+        }),
+        prewarmAllKoreFastClips({
+          storeIds: storeId ? [storeId] : undefined,
+          concurrency: 4,
+          maxClipsToSynthesize: 30
+        }).catch((e: any) => ({ error: String(e?.message || e).slice(0, 180) }))
+      ])
+    }
     const dashboard = await getKoreLearningDashboard(storeId)
 
     return NextResponse.json(

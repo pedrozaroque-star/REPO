@@ -54,6 +54,8 @@
  *   cliente de `phone_knowledge_base` (`menu`, `delivery`, `policies`, `payments`, `hours`, `catering`, `general`,
  *   `employment` — excluyendo `staff` interno, evitando duplicar `synced_kb_id` ya inyectados en `loadActiveKoreLearnedRules`
  *   e ignorando reglas con `applies_to_channels = 'phone_only'`), con caché RAM de 60 s (`invalidateKoreKnowledgeCache`).
+ * - Optimización Single-Key Tier 1 (2026-11-20): cuando `orderedKeys.length === 1`, `createKoreEphemeralToken` omite el
+ *   pre-probe `countTokens` (ahorrando 50% de RPM y ~200 ms) y aplica 1 reintento rápido de `400 ms` ante error 5xx/red.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -62,17 +64,28 @@ import { formatCustomerGreetingTarget, formatCustomerStoreName } from '@/lib/cus
 import { fetchOffPremiseOrders, type OffPremiseOrder } from '@/lib/delivery-armor'
 import {
   KORE_BREAKFAST_CUTOFF_LABEL,
+  KORE_HUMAN_TAKEOVER_OBSERVER_CUE,
   KORE_MAX_DRIVER_ORDERS,
   KORE_TOOL_DECLARATIONS,
+  buildKoreHumanTakeoverReleaseCue,
   isKoreBreakfastOpen,
   mapAppMenuRowsToKoreMenu,
   normalizeKoreDriverPlatform,
+  type KoreCashierInterventionMeta,
+  type KoreCashierTriggerSource,
   type KoreDriverOrderLookupStatus,
   type KoreDriverPickup,
   type KoreDriverPickupOrder,
   type KoreMenuItem
 } from '@/lib/drive-thru-kore-order'
 import type { ActiveKoreLearnedRule } from '@/lib/drive-thru-kore-learning'
+
+export {
+  KORE_HUMAN_TAKEOVER_OBSERVER_CUE,
+  buildKoreHumanTakeoverReleaseCue,
+  type KoreCashierInterventionMeta,
+  type KoreCashierTriggerSource
+}
 
 export type KoreLang = 'es' | 'en'
 
@@ -650,6 +663,7 @@ export function buildKoreSystemPrompt(params: {
     ebtBranchRule,
     `11. BREAKFAST HOURS (ALL 15 LOCATIONS — UNTIL 2:00 PM PT), ${breakfastLiveStatus}: Breakfast items (Breakfast category: egg burritos, Huevos a la Mexicana/Rancheros/con Chorizo/Jamon/Salchicha, egg tortas) are served only until 2:00 PM every day. If asked until what time: "Tenemos desayunos disponibles hasta las 2:00 de la tarde en todas nuestras sucursales" / "Breakfast is available until 2:00 PM at all our locations". If a customer orders breakfast after 2:00 PM (or add_item returns breakfast_closed), kindly and briefly say breakfast ended at 2:00 PM and offer Regular/Super burritos, tacos, quesadillas, mulitas, tortas or platos. Coffee and Champurrado are NOT breakfast-only. The add_item tool enforces the live cutoff — never add a breakfast item it rejected.`,
     `12. CLOSING & AUTO-END CAR SESSION (confirm_order -> end_session): (Step A) When the customer first says that's all ("Ya es todo", "Eso sería todo", "That's all"), call confirm_order, read back the items + exact "total" (includes ${taxRatePct}% est. tax) and ask briefly "¿Está correcta su orden?" / "Does everything look right?" (unless they ALREADY heard the full summary + total and are confirming it's right with nothing else needed, in which case go straight to Step B). (Step B) As soon as the customer confirms the order and it is clear there is nothing else ("Sí, está bien", "Correcto, gracias", "Sí, ya es todo", "Así mero", "Yes, thank you"), OR when a delivery driver says thanks/acknowledges after hearing their Window 2 status, OR when a customer with a cancelled/EBT order confirms they will go inside or leave: YOU MUST call end_session and give ONLY ONE brief warm send-off ("¡Perfecto, muchas gracias! Pase a la ventanilla por favor." / "Thank you! Please pull forward to the window." — or a warm dining-room send-off for EBT) with NO further questions so this car's session closes automatically.`,
+    '13. HUMAN CASHIER HEADSET A1 OVERRIDE (SILENT PASSIVE TRANSCRIPTION): If you receive "[CONTROL HUMANO ACTIVO — CAJERA EN LÍNEA A1]" or "[HUMAN CASHIER TAKEOVER ACTIVE — HEADSET LINE A1 OPEN]", a store cashier is speaking directly to the customer on the outside speaker. IMMEDIATELY go 100% silent, emit ZERO audio/text, and DO NOT call any tools while passive transcription continues, until you explicitly receive "[FIN DE INTERVENCIÓN DE CAJERA — RETOMA KORE]" or "[CASHIER TAKEOVER ENDED — KORE RESUME]".',
     buildLearnedRulesSection(learnedRules),
     '',
     'MODIFIERS:',
@@ -768,11 +782,12 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
   const body = JSON.stringify({ uses: 1, expireTime: expiresAt, newSessionExpireTime: newSessionExpiresAt, bidiGenerateContentSetup: setup })
 
   const verifiedCreditKeyUntil = (globalThis as any).__koreVerifiedCreditKeyUntil || ((globalThis as any).__koreVerifiedCreditKeyUntil = new Map<string, number>())
+  const isSingleKeyMode = orderedKeys.length === 1
 
   const mintWithSingleKey = async (key: string, signal: AbortSignal): Promise<string | null> => {
-    // Verificación ligera cacheada (15 min) de que la llave no tenga saldo prepagado agotado (HTTP 402) ni cuota 429,
-    // ya que `v1beta/auth_tokens` emite token aun en cuentas 402 que luego cierran el WebSocket en el navegador.
-    if ((verifiedCreditKeyUntil.get(key) || 0) <= Date.now()) {
+    // En modo multi-llave (>1), verificar saldo/cuota cacheado (15 min) para saltar rápido llaves 402/429.
+    // En modo llave única (orderedKeys.length === 1), omitir el pre-probe para ahorrar 50% de RPM y ~200 ms de latencia.
+    if (!isSingleKeyMode && (verifiedCreditKeyUntil.get(key) || 0) <= Date.now()) {
       const probeRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens', {
         method: 'POST',
         headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
@@ -797,44 +812,64 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
       }
     }
 
-    const res = await fetch(AUTH_TOKENS_URL, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-      body,
-      signal,
-      cache: 'no-store'
-    })
-    const text = await res.text()
-    if (res.ok) {
-      let parsed: any = null
+    const maxAuthTries = isSingleKeyMode ? 2 : 1
+    for (let authTry = 0; authTry < maxAuthTries; authTry++) {
+      if (signal.aborted) return null
+      let res: Response
       try {
-        parsed = JSON.parse(text)
-      } catch {
-        parsed = null
+        res = await fetch(AUTH_TOKENS_URL, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+          body,
+          signal,
+          cache: 'no-store'
+        })
+      } catch (netErr: any) {
+        if (isSingleKeyMode && authTry === 0 && !signal.aborted) {
+          await new Promise((r) => setTimeout(r, 400))
+          continue
+        }
+        throw netErr
       }
-      const token = typeof parsed?.name === 'string' ? parsed.name : ''
-      if (token.startsWith('auth_tokens/')) {
-        coolKoreLiveKeyUntil.delete(key)
-        healthyKoreLiveKeyAt.set(key, Date.now())
-        return token
+      const text = await res.text()
+      if (res.ok) {
+        let parsed: any = null
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          parsed = null
+        }
+        const token = typeof parsed?.name === 'string' ? parsed.name : ''
+        if (token.startsWith('auth_tokens/')) {
+          coolKoreLiveKeyUntil.delete(key)
+          healthyKoreLiveKeyAt.set(key, Date.now())
+          return token
+        }
+        return null
+      }
+      const sanitized = sanitizeProviderMessage(text, rawKeys)
+      lastError = `HTTP ${res.status}: ${sanitized}`
+      if (res.status >= 500 && isSingleKeyMode && authTry === 0 && !signal.aborted) {
+        await new Promise((r) => setTimeout(r, 400))
+        continue
+      }
+      if (res.status === 401 || res.status === 402 || res.status === 403 || /prepayment|depleted|API_KEY_INVALID|leaked/i.test(text)) {
+        if (!isSingleKeyMode) {
+          deadKoreLiveKeyUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
+        }
+        healthyKoreLiveKeyAt.delete(key)
+        return null
+      }
+      if (res.status === 429 || /RESOURCE_EXHAUSTED|Quota exceeded|rate/i.test(text)) {
+        coolKoreLiveKeyUntil.set(key, Date.now() + (isSingleKeyMode ? 5000 : compute429CooldownMs(text)))
+        healthyKoreLiveKeyAt.delete(key)
+        return null
+      }
+      const keyProblem = /api[_ ]?key|API_KEY|permission|quota|billing|RESOURCE_EXHAUSTED|UNAUTHENTICATED/i.test(text)
+      if (res.status === 400 && !keyProblem) {
+        throw new KoreTokenError(`Gemini rechazó la configuración del token (${lastError}).`, 502)
       }
       return null
-    }
-    const sanitized = sanitizeProviderMessage(text, rawKeys)
-    lastError = `HTTP ${res.status}: ${sanitized}`
-    if (res.status === 401 || res.status === 402 || res.status === 403 || /prepayment|depleted|API_KEY_INVALID|leaked/i.test(text)) {
-      deadKoreLiveKeyUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
-      healthyKoreLiveKeyAt.delete(key)
-      return null
-    }
-    if (res.status === 429 || /RESOURCE_EXHAUSTED|Quota exceeded|rate/i.test(text)) {
-      coolKoreLiveKeyUntil.set(key, Date.now() + compute429CooldownMs(text))
-      healthyKoreLiveKeyAt.delete(key)
-      return null
-    }
-    const keyProblem = /api[_ ]?key|API_KEY|permission|quota|billing|RESOURCE_EXHAUSTED|UNAUTHENTICATED/i.test(text)
-    if (res.status === 400 && !keyProblem) {
-      throw new KoreTokenError(`Gemini rechazó la configuración del token (${lastError}).`, 502)
     }
     return null
   }
