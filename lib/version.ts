@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.30.0',
-    versionNumber: '2.30.0',
+    version: 'v2.31.0',
+    versionNumber: '2.31.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.30.0',
-    labelEn: 'November 2026 • SM TEG v2.30.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.31.0',
+    labelEn: 'November 2026 • SM TEG v2.31.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-19'
+    lastUpdated: '2026-11-20'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.31.0',
+        date: '20-Nov-2026',
+        titleEs: 'Nuevo Módulo Mobile OS (Home Screen iOS Full-Bleed, Widgets Vivos & Dock Editable), Telefonía en Vivo Kore 3.8 Live (Edge DSP v8 O(1)), Drive-Thru Auto-Headset A1 + 288/288 Fast-Clips, Retención Nocturna Supabase y Blindaje Paid Tier 1',
+        titleEn: 'New Mobile OS Module (Full-Bleed iOS Home Screen, Live Widgets & Editable Dock), Live Kore 3.8 Telephony (Edge DSP v8 O(1)), Drive-Thru Auto-Headset A1 + 288/288 Fast-Clips, Nightly Supabase Retention & Paid Tier 1 Hardening',
+        highlightsEs: [
+            'Nuevo Módulo Mobile OS (/inicio en móvil y tableta <1024px, commit be50e988 y migración 20261120154500_user_ui_preferences.sql): pantalla de inicio full-bleed estilo iPhone con widgets operativos en vivo, carpetas 3×3 oficiales, Dock editable persistido en public.user_ui_preferences (203/203 tablas públicas con RLS activo) e interruptor en 1 toque para volver a la Versión Web',
+            'Telefonía en Vivo Kore 3.8 Live sobre Twilio Media Streams + Supabase Edge Function phone-live-bridge v8 (commits 029854cd y 2beaf1e0): DSP PSTN μ-law con tabla 64 KB O(1), Base64 por tabla y ruta silencio 0-CPU muy debajo del límite de 2,000 ms, claridad post-medianoche (00:00–05:59 AM) y festivos parciales (Thanksgiving / Black Friday), cotización exacta Fiesta Platter DP y pool remoto Paid Tier 1',
+            'Kore IA Drive-Thru (commit eedfc31b + actualización local lista): aprendizaje inmediato post-sesión vía Next.js after(), detección automática de línea de headset cajera A1 (botón de respaldo automático, silencio inmediato afuera y transcripción continua sin hardware adicional) y cuadruplicación de respuestas instantáneas a 288/288 audios Kore 3.8 ES/EN (144 situaciones reales minadas de 6,408 tickets detallados + 400k órdenes)',
+            'Sustentabilidad Nocturna Supabase (commit f431dd85, Cron #41 /api/cron/retention-cleanup 4:45 AM PST con rollups no destructivos y purga TTS efímero >24h), RONOS Ronda 2 Gmail-Safe + pipeline escalonado 11:50→11:54→11:59 AM PT (commits a21d19dd y 1d99611c), migración Google Cloud Paid Tier 1 con 0 ms de caída, corrección NotificationBell/modales (reference_id) y 122.2 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'New Mobile OS Module (/inicio on phone & tablet <1024px, commit be50e988 & migration 20261120154500_user_ui_preferences.sql): full-bleed iPhone-style Home Screen with live operational widgets, 3×3 official folders, customizable Dock saved in public.user_ui_preferences (203/203 RLS-enabled public tables), and a 1-tap toggle back to Web view',
+            'Live Kore 3.8 Telephony over Twilio Media Streams + Supabase Edge Function phone-live-bridge v8 (commits 029854cd & 2beaf1e0): 64 KB O(1) μ-law DSP table, table Base64, and 0-CPU silence path well below the 2,000 ms Edge cap, post-midnight (00:00–05:59 AM) & partial holiday clarity (Thanksgiving / Black Friday), exact Fiesta Platter DP quoting, and Paid Tier 1 key pool',
+            'Kore AI Drive-Thru (commit eedfc31b + local build ready): real-time post-session learning via Next.js after(), automatic cashier headset A1 detection (auto-activated backup button, instant outside mute, and continuous transcription with $0 hardware), and 4x expansion to 288/288 ES/EN Kore 3.8 fast-clips (144 real scenarios mined from 6,408 detailed tickets + 400k orders)',
+            'Nightly Supabase Sustainability (commit f431dd85, Cron #41 /api/cron/retention-cleanup 4:45 AM PST with non-destructive rollups & 24h ephemeral TTS pruning), RONOS Round-2 Gmail-Safe + staggered 11:50→11:54→11:59 AM PT cron pipeline (commits a21d19dd & 1d99611c), Google Cloud Paid Tier 1 compliance migration with 0 ms downtime, NotificationBell/modals reference_id fix, and 122.2 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.30.0',
         date: '19-Nov-2026',
