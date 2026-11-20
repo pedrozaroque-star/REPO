@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.29.3',
-    versionNumber: '2.29.3',
+    version: 'v2.30.0',
+    versionNumber: '2.30.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.29.3',
-    labelEn: 'November 2026 • SM TEG v2.29.3',
+    labelEs: 'Noviembre 2026 • SM TEG v2.30.0',
+    labelEn: 'November 2026 • SM TEG v2.30.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-18'
+    lastUpdated: '2026-11-19'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.30.0',
+        date: '19-Nov-2026',
+        titleEs: 'Kore IA Drive-Thru en Vivo (HME + 398k Tickets Fast-Clips), Aprendizaje Continuo Bidireccional Teléfono ↔ Drive-Thru (Twilio Producción + 13 API Keys), Optimización de Costos Vercel/Supabase, Dobles Turnos en Planificador y Auditoría Diaria NHP RONOS',
+        titleEn: 'Live Kore AI Drive-Thru (HME + 398k-Order Fast-Clips), Bidirectional Phone ↔ Drive-Thru Continuous Learning (Twilio Production + 13 API Keys), Vercel/Supabase Cost Optimization, Planner Split Shifts & RONOS Daily NHP Audit',
+        highlightsEs: [
+            'Nuevo Kore IA Drive-Thru (/drive-thru, commit 4ab41dbf y migraciones 20261119090000 / 20261119193000 / 20261119201500): simulador de voz Gemini 3.8 Live con co-piloto de 3 vías para cajera, reglas operativas completas (Regular o Super, cruce de conductores Uber/DD/GH contra Blindaje Delivery a Ventana 2, EBT en comedor según ciudad, desayunos hasta las 2:00 PM y cambio inmediato ES↔EN) y respuestas pregrabadas instantáneas (<25 ms) minadas sobre 398,984 órdenes históricas con reproductor integrado ES/EN',
+            'Contestadora Telefónica IA en Twilio Producción (LA Central #6, Trust Hub aprobado, commits d6e966a2..f87b3b7c): auditoría acústica de 59 clips WAV, aceleración multi-llave con 13 llaves Gemini en carrera paralela + caché RAM/streaming <=1.8s, revisión DT/Comedor en 4 campos, protocolo de condimentos/sucursal equivocada, cron diario de aprendizaje (/api/cron/learn-phone-agent) sincronizado bidireccionalmente con Drive-Thru (/api/cron/learn-kore-drive-thru)',
+            'Optimización Integral de Costos Vercel y Supabase (commit b9224dee — 106 archivos): Edge CDN en useSystemUpdate (~42k llamadas diarias menos), eliminación de allOrders duplicado en 17M de respuestas mensuales de Order Ready, deduplicación de polling, ventanas de horas muertas en crons y 115 MB liberados sin impacto en operación en vivo',
+            'Planificador de Horarios y Control de Ponchadas (commits 179b5fce y 4b2348fe): soporte completo de Dobles Turnos el Mismo Día (Split Shifts) en escritorio, móvil, impresión, .ics y sincronización; reparación de sync-violations en las 15 sucursales; motor de Auditoría Diaria NHP RONOS (/api/cron/sync-ronos-violations, 200/200 tablas RLS y 40 crons activos) y 114.9 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'New Kore AI Drive-Thru (/drive-thru, commit 4ab41dbf & migrations 20261119090000 / 20261119193000 / 20261119201500): Gemini 3.8 Live voice simulator with 3-way cashier headset co-pilot, full operational rules (Regular or Super, Uber/DD/GH Delivery Armor driver lookup to Window 2, city-validated EBT dine-in redirection, 2:00 PM breakfast cutoff, instant ES↔EN switching), and pre-recorded instant Kore 3.8 fast-clips (<25 ms) mined from 398,984 historical orders with built-in ES/EN player',
+            'AI Phone Receptionist on Live Twilio Production (LA Central #6, approved Trust Hub, commits d6e966a2..f87b3b7c): 59-WAV acoustic audit, 13-key parallel Gemini acceleration + RAM/<=1.8s chunked streaming cache, 4-field DT/dine-in ticket review, delivery condiments/wrong-store protocol, and daily continuous learning cron (/api/cron/learn-phone-agent) bidirectionally synced with Drive-Thru (/api/cron/learn-kore-drive-thru)',
+            'Full Vercel & Supabase Cost & Sustainability Optimization (commit b9224dee — 106 files): Edge CDN caching on useSystemUpdate (~42k fewer daily cold hits), stripped duplicate allOrders from 17M monthly Order Ready responses, polling deduplication, cron dead-hours gating, and 115 MB freed with zero live-operations impact',
+            'Schedule Planner & Punch Compliance (commits 179b5fce & 4b2348fe): end-to-end Same-Day Split Shifts across desktop, mobile, print, .ics, and sync; 15-store sync-violations fix; RONOS Daily NHP Audit engine (/api/cron/sync-ronos-violations, 200/200 RLS tables & 40 active crons); and 114.9 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.29.3',
         date: '18-Nov-2026',
