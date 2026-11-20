@@ -253,6 +253,19 @@ export interface StoreDayCoverageContext {
   coworkerDetails?: string[]
 }
 
+export interface StoreDayHourlySalesContext {
+  businessDate?: string
+  dailyNetSales?: number | null
+  netSales?: number | null
+  avgDailyNetSales4Weeks?: number | null
+  avgDailyNetSales?: number | null
+  dailySalesRatio?: number | null
+  salesByHour?: Record<number | string, number> | number[] | null
+  avgSalesByHour?: Record<number | string, number> | number[] | null
+  ticketsByHour?: Record<number | string, number> | number[] | null
+  laborPctByHour?: Record<number | string, number> | number[] | null
+}
+
 export interface RonosPolicyViolationItem {
   type: RonosNhpViolationType
   category: 'punctuality' | 'attendance' | 'meal_rest' | 'timecard_repair'
@@ -290,6 +303,7 @@ export interface ToastPunchSummary {
   clockOutTime?: string | null
   clockInLA?: string | null
   clockOutLA?: string | null
+  isAutoClockOut?: boolean
   lunchStartTime?: string | null
   lunchEndTime?: string | null
   lunchStartLA?: string | null
@@ -314,6 +328,11 @@ export interface RonosDayAttendanceEvaluation {
   isAuthorizedEarlyCallIn: boolean
   exemptionReason: string | null
   earlyCallInSignals: string[]
+  isVoluntaryExtendedStay?: boolean
+  extendedStayMinutes?: number | null
+  voluntaryExtendedStayNote?: string | null
+  isAuthorizedVoluntaryEarlyOut?: boolean
+  authorizedEarlyOutReason?: string | null
   hasToastRonosDiscrepancy: boolean
   discrepancyDetails: string[]
   requiresMedicalNote: boolean
@@ -1098,6 +1117,7 @@ export function summarizeToastPunchesForDay(
       clockOutTime: null,
       clockInLA: null,
       clockOutLA: null,
+      isAutoClockOut: false,
       lunchStartTime: null,
       lunchEndTime: null,
       lunchStartLA: null,
@@ -1158,15 +1178,27 @@ export function summarizeToastPunchesForDay(
     }
   }
 
-  if (totalHoursToast === 0 && firstIn && lastOut) {
-    const inP = parseTimeInLA(firstIn, businessDate)
-    const outP = parseTimeInLA(lastOut, businessDate)
-    if (inP && outP) {
-      let elapsedMin = outP.relativeMinutesFromBizDate - inP.relativeMinutesFromBizDate
-      if (elapsedMin < 0) elapsedMin += 1440
-      const netMin = Math.max(0, elapsedMin - safeNum(lunchDurationMinutes, 0))
-      totalHoursToast = Number((netMin / 60).toFixed(2))
+  const inP = firstIn ? parseTimeInLA(firstIn, businessDate) : null
+  const outP = lastOut ? parseTimeInLA(lastOut, businessDate) : null
+
+  if (totalHoursToast === 0 && inP && outP) {
+    let elapsedMin = outP.relativeMinutesFromBizDate - inP.relativeMinutesFromBizDate
+    if (elapsedMin < 0) elapsedMin += 1440
+    const netMin = Math.max(0, elapsedMin - safeNum(lunchDurationMinutes, 0))
+    totalHoursToast = Number((netMin / 60).toFixed(2))
+  }
+
+  let isAutoClockOut = false
+  if (inP && outP) {
+    let inRel = inP.relativeMinutesFromBizDate
+    let outRel = outP.relativeMinutesFromBizDate
+    if (inP.epochMs === null && inRel < 360) {
+      inRel += 1440
     }
+    if (outP.epochMs === null && (outRel < 360 || (outRel <= 365 && inRel >= 360))) {
+      outRel += 1440
+    }
+    isAutoClockOut = outRel >= 1790 && outRel <= 1805 && inRel < 1740
   }
 
   return {
@@ -1175,6 +1207,7 @@ export function summarizeToastPunchesForDay(
     clockOutTime: lastOut,
     clockInLA: firstIn ? formatTimeDisplayLA(firstIn, businessDate) : null,
     clockOutLA: lastOut ? formatTimeDisplayLA(lastOut, businessDate) : null,
+    isAutoClockOut,
     lunchStartTime,
     lunchEndTime,
     lunchStartLA: lunchStartTime ? formatTimeDisplayLA(lunchStartTime, businessDate) : null,
@@ -1463,8 +1496,8 @@ export function evaluateRonosMealAndTimecardPolicy(params: {
       severity: 'warning',
       uiSeverity: 'critical',
       isViolation: true,
-      title: 'Ponchada Incompleta en RONOS (Tarjeta Rota / Reparar)',
-      description: `${missingDetail} Es obligatorio revisar y reparar sus fichajes en RONOS porque de ello depende el cálculo exacto de su cheque de pago.`,
+      title: 'Ponchada Incompleta en Reloj de Nómina RONOS (Tarjeta Rota / Reparar)',
+      description: `${missingDetail} RONOS (Cingular HR) y Toast POS son dos sistemas distintos, pero sus ponchadas deberían coincidir; es obligatorio reparar su tarjeta en RONOS porque de ella depende directamente su cheque de pago de nómina.`,
       policyReference:
         'Manual del Empleado NHP TEG SPANISH.pdf (p. 4 y p. 10 — Registro de Tiempo y Obligación de Reportar Ponchadas Omitidas)',
       actionRequired:
@@ -1604,8 +1637,8 @@ export function evaluateToastVsRonosDiscrepancy(params: {
       severity: 'danger',
       uiSeverity: 'critical',
       isViolation: true,
-      title: 'Discrepancia Toast POS vs RONOS — Reparar Ponchada en RONOS',
-      description: `${details.join(' ')} Recuerde que su cheque de pago de nómina se calcula con las ponchadas de RONOS, por lo que debe reparar su registro con su Gerente hoy mismo.`,
+      title: 'Discrepancia Reloj de Nómina RONOS vs Toast POS — Reparar Ponchada en RONOS',
+      description: `${details.join(' ')} Aunque RONOS (reloj de nómina Cingular HR) y Toast POS (sistema operativo de tienda) son sistemas distintos, sus registros de entrada, comida y salida deberían coincidir. Su cheque de pago se calcula con RONOS, por lo que debe reparar su tarjeta con su Gerente hoy mismo.`,
       policyReference:
         'Manual del Empleado NHP TEG SPANISH.pdf (p. 4 y p. 10 — Exactitud de Registros de Tiempo y Nómina en RONOS)',
       actionRequired:
@@ -1618,6 +1651,104 @@ export function evaluateToastVsRonosDiscrepancy(params: {
 // ============================================================================
 // 8. EVALUADOR INTEGRAL DIARIO POR COLABORADOR
 // ============================================================================
+
+const EARLY_OUT_NOTE_KEYWORDS = [
+  'corte',
+  'baja venta',
+  'lento',
+  'slow',
+  'voluntari',
+  'early',
+  'temprano',
+  'autoriz',
+  'permiso',
+  'cierre',
+  'cobertura',
+  'emergencia',
+  'cut',
+  'apoyo',
+]
+
+function hasAuthorizedEarlyOutShiftNote(notes?: string | null): boolean {
+  if (!notes) return false
+  const clean = String(notes).toLowerCase()
+  return EARLY_OUT_NOTE_KEYWORDS.some((kw) => clean.includes(kw))
+}
+
+function readHourlyMapValue(
+  map: Record<number | string, number> | number[] | null | undefined,
+  hour: number
+): number | null {
+  if (!map || typeof map !== 'object') return null
+  const rawVal = Array.isArray(map) ? map[hour] : (map[hour] ?? map[String(hour)])
+  if (rawVal === undefined || rawVal === null) return null
+  const num = Number(rawVal)
+  return Number.isFinite(num) ? num : null
+}
+
+function evaluateLowSalesEarlyOutReason(params: {
+  outHourLA: number
+  earlyOutMins: number
+  schedEndMin: number
+  salesCtx?: StoreDayHourlySalesContext | null
+}): string | null {
+  const { outHourLA, earlyOutMins, schedEndMin, salesCtx } = params
+  if (!salesCtx) return null
+
+  const candidateHours = [outHourLA, (outHourLA + 23) % 24]
+
+  for (const h of candidateHours) {
+    const curSales = readHourlyMapValue(salesCtx.salesByHour, h)
+    const avgSales = readHourlyMapValue(salesCtx.avgSalesByHour, h)
+    const tickets = readHourlyMapValue(salesCtx.ticketsByHour, h)
+    const rawLaborPct = readHourlyMapValue(salesCtx.laborPctByHour, h)
+    const laborPct =
+      rawLaborPct !== null
+        ? rawLaborPct > 0 && rawLaborPct <= 1
+          ? rawLaborPct * 100
+          : rawLaborPct
+        : null
+
+    if (curSales !== null && avgSales !== null && avgSales > 0) {
+      const ratio = curSales / avgSales
+      if (ratio <= 0.85) {
+        const dropPct = Math.round((1 - ratio) * 100)
+        return `Salida voluntaria por baja venta / ajuste operativo (hora ${h}:00: $${Math.round(curSales)} vs prom. $${Math.round(avgSales)}, -${dropPct}%)`
+      }
+    }
+
+    if (
+      curSales !== null &&
+      curSales <= 0 &&
+      ((avgSales !== null && avgSales > 0) || schedEndMin >= 1260 || outHourLA >= 21 || outHourLA <= 4)
+    ) {
+      return `Salida anticipada por cierre operativo / hora sin ventas (hora ${h}:00: $0, -${earlyOutMins}m)`
+    }
+
+    if (tickets !== null && tickets <= 20 && laborPct !== null && laborPct >= 25) {
+      return `Salida voluntaria por baja demanda y ajuste de labor (hora ${h}:00: ${Math.round(tickets)} tickets, labor ${Math.round(laborPct)}%)`
+    }
+  }
+
+  const dailySales = salesCtx.dailyNetSales ?? salesCtx.netSales ?? null
+  const avgDaily = salesCtx.avgDailyNetSales4Weeks ?? salesCtx.avgDailyNetSales ?? null
+  const explicitRatio =
+    salesCtx.dailySalesRatio !== undefined && salesCtx.dailySalesRatio !== null
+      ? Number(salesCtx.dailySalesRatio)
+      : dailySales !== null && avgDaily !== null && Number(avgDaily) > 0
+        ? Number(dailySales) / Number(avgDaily)
+        : null
+
+  if (explicitRatio !== null && Number.isFinite(explicitRatio) && explicitRatio <= 0.90) {
+    const dropPct = Math.round((1 - explicitRatio) * 100)
+    if (dailySales !== null && avgDaily !== null && Number(avgDaily) > 0) {
+      return `Salida voluntaria por baja venta diaria en sucursal ($${Math.round(Number(dailySales))} vs prom. $${Math.round(Number(avgDaily))}, -${dropPct}%)`
+    }
+    return `Salida voluntaria por baja venta diaria en sucursal (-${dropPct}% vs promedio 4 sem.)`
+  }
+
+  return null
+}
 
 export interface EvaluateEmployeeDayAttendanceParams {
   businessDate: string
@@ -1633,6 +1764,8 @@ export interface EvaluateEmployeeDayAttendanceParams {
   scheduledShifts?: PlannerScheduledShiftInput | PlannerScheduledShiftInput[] | null
   toastPunches?: ToastPunchRecordInput | ToastPunchRecordInput[] | null
   storeCoverageContext?: StoreDayCoverageContext | null
+  storeSalesContext?: StoreDayHourlySalesContext | null
+  earlyOutCohortCount?: number | null
   scheduleEntry?: {
     shift_label?: string | null
     start_time?: string | null
@@ -1753,6 +1886,11 @@ export function evaluateEmployeeDayAttendancePolicy(
       isAuthorizedEarlyCallIn: false,
       exemptionReason: salariedCheck.reason,
       earlyCallInSignals: [],
+      isVoluntaryExtendedStay: false,
+      extendedStayMinutes: null,
+      voluntaryExtendedStayNote: null,
+      isAuthorizedVoluntaryEarlyOut: false,
+      authorizedEarlyOutReason: null,
       hasToastRonosDiscrepancy: false,
       discrepancyDetails: [],
       requiresMedicalNote: false,
@@ -1774,6 +1912,11 @@ export function evaluateEmployeeDayAttendancePolicy(
   let isAuthorizedEarlyCallIn = false
   let exemptionReason: string | null = null
   let earlyCallInSignals: string[] = []
+  let isVoluntaryExtendedStay = false
+  let extendedStayMinutes: number | null = null
+  let voluntaryExtendedStayNote: string | null = null
+  let isAuthorizedVoluntaryEarlyOut = false
+  let authorizedEarlyOutReason: string | null = null
 
   // 3. Evaluar 3+ turnos consecutivos por enfermedad (Justificante Médico)
   const sickCheck = evaluateConsecutiveSickDays({
@@ -1919,46 +2062,120 @@ export function evaluateEmployeeDayAttendancePolicy(
         }
       }
 
-      // Evaluar Salida Temprana (EARLY_CLOCK_OUT: >= 15 min antes del fin del turno programado)
+      // Evaluar Salida: Permanencia Voluntaria Extendida (>= +15m) y Salida Temprana / Baja Venta / Cierre (<= -15m)
       if (effectiveSchedEnd && ronosClockOut) {
         const schedStartP = parseTimeInLA(effectiveSchedStart, businessDate)
         const schedEndP = parseTimeInLA(effectiveSchedEnd, businessDate)
         const actualOutP = parseTimeInLA(ronosClockOut, businessDate)
 
         if (schedStartP && schedEndP && actualOutP) {
-          let schedEndMin = schedEndP.relativeMinutesFromBizDate
-          if (schedEndMin < schedStartP.relativeMinutesFromBizDate) {
-            schedEndMin += 1440
-          }
-          let actualOutMin = actualOutP.relativeMinutesFromBizDate
-          if (actualOutMin < schedStartP.relativeMinutesFromBizDate - 120) {
-            actualOutMin += 1440
-          }
+          const isDegenerateZeroDurationShift =
+            schedStartP.minuteOfDay === schedEndP.minuteOfDay &&
+            Math.abs(schedEndP.relativeMinutesFromBizDate - schedStartP.relativeMinutesFromBizDate) === 0
 
-          endDiffMinutesFromSchedule = actualOutMin - schedEndMin
+          if (!isDegenerateZeroDurationShift) {
+            let schedEndMin = schedEndP.relativeMinutesFromBizDate
+            if (schedEndMin < schedStartP.relativeMinutesFromBizDate) {
+              schedEndMin += 1440
+            }
+            let actualOutMin = actualOutP.relativeMinutesFromBizDate
+            if (actualOutMin < schedStartP.relativeMinutesFromBizDate - 120) {
+              actualOutMin += 1440
+            }
 
-          if (
-            endDiffMinutesFromSchedule <= NHP_EARLY_OUT_THRESHOLD_MINUTES &&
-            !clockOutAddedPunch &&
-            !hasCoverageOrEmergencyShiftNote(scheduledShift.notes, false)
-          ) {
-            const earlyOutMins = Math.abs(endDiffMinutesFromSchedule)
-            violations.push({
-              type: 'EARLY_CLOCK_OUT',
-              category: 'punctuality',
-              severity: 'warning',
-              uiSeverity: 'warning',
-              isViolation: true,
-              title: 'Salida Temprana sin Autorización Registrada',
-              description: `Fichó su salida a las ${actualOutP.display12h} (${earlyOutMins} minutos antes del fin de su turno programado a las ${schedEndP.display12h}).`,
-              policyReference:
-                'Manual del Empleado NHP TEG SPANISH.pdf (p. 3 y p. 10 — Cumplimiento de Turno Completo)',
-              actionRequired:
-                'Cumplir su horario completo hasta la hora de salida programada o contar con autorización del Gerente de Tienda antes de retirarse.',
-              estimatedCostUsd: 0,
-              minutes: earlyOutMins,
-              diffMinutes: endDiffMinutesFromSchedule,
-            })
+            endDiffMinutesFromSchedule = actualOutMin - schedEndMin
+
+            // A. Permanencia Voluntaria Más Tiempo (>= +15 min después del fin programado -> 0 sanción)
+            if (endDiffMinutesFromSchedule >= 15) {
+              isVoluntaryExtendedStay = true
+              extendedStayMinutes = endDiffMinutesFromSchedule
+              voluntaryExtendedStayNote = `Se quedó más tiempo voluntariamente / solicitud operativa (+${endDiffMinutesFromSchedule} min)`
+            } else if (endDiffMinutesFromSchedule <= NHP_EARLY_OUT_THRESHOLD_MINUTES) {
+              // B. Salida Temprana (<= -15 min)
+              const earlyOutMins = Math.abs(endDiffMinutesFromSchedule)
+
+              // Verificar si Toast POS cerró >= 15m después que RONOS (Filtro 0: p. ej. Irving Saca -> solo REPAIR_RONOS_PUNCH)
+              let toastClosedMuchLaterThanRonos = false
+              let isToastExitSyncedOrAuto = true
+
+              if (toastSummary.hasToastPunches && toastSummary.clockOutTime) {
+                if (toastSummary.isAutoClockOut) {
+                  isToastExitSyncedOrAuto = true
+                } else {
+                  const toastOutP = parseTimeInLA(toastSummary.clockOutTime, businessDate)
+                  if (toastOutP) {
+                    let toastOutMin = toastOutP.relativeMinutesFromBizDate
+                    if (toastOutMin < schedStartP.relativeMinutesFromBizDate - 120) {
+                      toastOutMin += 1440
+                    }
+                    const toastMinusRonosOut = toastOutMin - actualOutMin
+                    if (toastMinusRonosOut >= TOAST_RONOS_DISCREPANCY_THRESHOLD_MINUTES) {
+                      toastClosedMuchLaterThanRonos = true
+                    }
+                    isToastExitSyncedOrAuto = Math.abs(toastMinusRonosOut) <= 15
+                  }
+                }
+              }
+
+              if (!toastClosedMuchLaterThanRonos) {
+                let earlyOutExemption: string | null = null
+
+                // Señal (a): Ponchada de salida manual por Manager o nota en Planificador
+                if (clockOutAddedPunch) {
+                  earlyOutExemption = `Salida anticipada registrada/autorizada por Gerencia (-${earlyOutMins}m)`
+                } else if (hasAuthorizedEarlyOutShiftNote(scheduledShift.notes)) {
+                  earlyOutExemption = `Salida anticipada autorizada en nota del Planificador (-${earlyOutMins}m)`
+                }
+
+                // Señal (c): Baja Venta comprobada en storeSalesContext con salida sincronizada/ordenada
+                if (!earlyOutExemption && isToastExitSyncedOrAuto && params.storeSalesContext) {
+                  earlyOutExemption = evaluateLowSalesEarlyOutReason({
+                    outHourLA: actualOutP.hour,
+                    earlyOutMins,
+                    schedEndMin,
+                    salesCtx: params.storeSalesContext,
+                  })
+                }
+
+                // Señal (b): Cierre nocturno sincronizado (schedEndMin >= 11:00 PM y -35 <= endDiff <= -15) O corte grupal (earlyOutCohortCount >= 2)
+                if (!earlyOutExemption && isToastExitSyncedOrAuto) {
+                  if (
+                    schedEndMin >= 1380 &&
+                    endDiffMinutesFromSchedule >= -35 &&
+                    endDiffMinutesFromSchedule <= -15
+                  ) {
+                    earlyOutExemption = `Salida anticipada por cierre operativo (-${earlyOutMins}m)`
+                  } else if (safeNum(params.earlyOutCohortCount, 0) >= 2) {
+                    earlyOutExemption = `Salida voluntaria por ajuste/corte operativo en tienda (-${earlyOutMins}m, ${safeNum(params.earlyOutCohortCount, 0)} colaboradores)`
+                  }
+                }
+
+                if (earlyOutExemption) {
+                  isAuthorizedVoluntaryEarlyOut = true
+                  authorizedEarlyOutReason = earlyOutExemption
+                  exemptionReason = exemptionReason
+                    ? `${exemptionReason} | ${earlyOutExemption}`
+                    : earlyOutExemption
+                } else {
+                  violations.push({
+                    type: 'EARLY_CLOCK_OUT',
+                    category: 'punctuality',
+                    severity: 'warning',
+                    uiSeverity: 'warning',
+                    isViolation: true,
+                    title: 'Salida Temprana sin Autorización Registrada',
+                    description: `Fichó su salida a las ${actualOutP.display12h} (${earlyOutMins} minutos antes del fin de su turno programado a las ${schedEndP.display12h}).`,
+                    policyReference:
+                      'Manual del Empleado NHP TEG SPANISH.pdf (p. 3 y p. 10 — Cumplimiento de Turno Completo)',
+                    actionRequired:
+                      'Cumplir su horario completo hasta la hora de salida programada o contar con autorización del Gerente de Tienda antes de retirarse.',
+                    estimatedCostUsd: 0,
+                    minutes: earlyOutMins,
+                    diffMinutes: endDiffMinutesFromSchedule,
+                  })
+                }
+              }
+            }
           }
         }
       }
@@ -2100,6 +2317,11 @@ export function evaluateEmployeeDayAttendancePolicy(
     isAuthorizedEarlyCallIn,
     exemptionReason,
     earlyCallInSignals,
+    isVoluntaryExtendedStay,
+    extendedStayMinutes,
+    voluntaryExtendedStayNote,
+    isAuthorizedVoluntaryEarlyOut,
+    authorizedEarlyOutReason,
     hasToastRonosDiscrepancy: discrepancyCheck.hasDiscrepancy,
     discrepancyDetails: discrepancyCheck.details,
     requiresMedicalNote: sickCheck.requiresMedicalNote,
@@ -2156,8 +2378,8 @@ export function buildEmployeeRonosPolicyEmailHtml(
     activeViolations[0]?.title || 'Revisión de Asistencia y Ponchadas en RONOS'
 
   const subjectPrefix = hasRepairAlert
-    ? '🔧 Acción Requerida (Protección de Cheque de Pago): Reparar Ponchada en RONOS'
-    : '⚠️ Aviso Oficial de Asistencia y Cumplimiento Laboral (RONOS)'
+    ? '🔧 Nómina RONOS (Cingular HR): Acción Requerida (Protección de Cheque de Pago) — Reparar Ponchada en RONOS'
+    : '⚠️ Nómina RONOS (Cingular HR): Aviso Oficial de Asistencia y Cumplimiento Laboral'
   const subject = `${subjectPrefix} — ${storeName} (${businessDate})`
 
   const stageLabel =
@@ -2199,7 +2421,7 @@ export function buildEmployeeRonosPolicyEmailHtml(
       <div style="background-color: #b91c1c; color: #ffffff; padding: 22px 24px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div style="font-size: 11px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; opacity: 0.92;">
-            TACOS GAVILAN • CONTROL DE ASISTENCIA Y NÓMINA (RONOS)
+            TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)
           </div>
         </div>
         <h2 style="margin: 6px 0 4px 0; font-size: 20px; font-weight: 800; text-transform: uppercase;">
@@ -2257,16 +2479,22 @@ export function buildEmployeeRonosPolicyEmailHtml(
                     ? `${escapeHtmlSafe(evaluation.toastSummary.lunchStartLA)} ➔ ${escapeHtmlSafe(evaluation.toastSummary.lunchEndLA || 'Sin regreso')}`
                     : 'Sin registro'
                 }</td>
-                <td style="padding: 8px 10px;">${escapeHtmlSafe(evaluation.toastSummary.clockOutLA || 'Sin registro')}</td>
+                <td style="padding: 8px 10px;">${escapeHtmlSafe(evaluation.toastSummary.clockOutLA || 'Sin registro')}${evaluation.toastSummary.isAutoClockOut ? ' <span style="font-size:10px;color:#64748b;font-weight:600;">(Auto-cierre POS)</span>' : ''}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Importancia Crítica para el Cheque de Pago -->
+        <!-- Diferencia Clara entre RONOS (Nómina) y Toast POS (Tienda) -->
         <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; border-radius: 8px; padding: 14px 16px; margin: 18px 0; font-size: 13px; color: #1e3a8a; line-height: 1.6;">
-          <strong>💳 Importante: Tu Cheque de Pago Depende de tus Ponchadas en RONOS</strong><br/>
-          Recuerda que tu nómina y tu <strong>cheque de pago</strong> se procesan directamente con las horas registradas en la tableta de <strong>RONOS (Cingular HR)</strong>. Ponchar solo en Toast POS no registra tu pago en nómina. Si olvidaste ponchar tu entrada, tu comida o tu salida en RONOS, es tu responsabilidad revisarlo y reportarlo hoy mismo a tu Gerente de Tienda para reparar tu tarjeta de tiempo.
+          <div style="font-weight: 800; font-size: 13.5px; margin-bottom: 6px;">
+            ⚖️ Diferencia entre RONOS (Nómina) y Toast POS (Tienda)
+          </div>
+          <ul style="margin: 0; padding-left: 18px;">
+            <li style="margin-bottom: 4px;"><strong>⏱️ Tableta RONOS (Cingular HR):</strong> Es el reloj checador con el que se calcula tu <strong>cheque de pago de nómina</strong> (este aviso corresponde a <strong>RONOS</strong>).</li>
+            <li style="margin-bottom: 4px;"><strong>🖥️ Sistema Toast POS:</strong> Es el reloj operativo de punto de venta (Planificador / restaurante, que envía aparte avisos de Breaks/Lunches).</li>
+            <li><strong>🔄 ¿Por qué mostramos ambos?</strong> Son dos sistemas distintos, pero tu <strong>entrada, comida (Lunch de 30m) y salida deberían coincidir en ambos relojes</strong>. Si olvidaste ponchar en RONOS, repórtalo hoy mismo a tu Gerente para reparar tu tarjeta y proteger tu cheque de pago.</li>
+          </ul>
         </div>
 
         <!-- Políticas Oficiales del Manual del Empleado (NHP TEG SPANISH.pdf) -->
@@ -2325,6 +2553,8 @@ export interface ChainGeneralDailyStoreInput {
   exemptSalariedCount: number
   items: ManagerDailyRonosReportItem[]
   authorizedCallIns?: ManagerDailyRonosReportItem[]
+  authorizedEarlyOuts?: ManagerDailyRonosReportItem[]
+  voluntaryExtendedStays?: ManagerDailyRonosReportItem[]
   error?: string | null
 }
 
@@ -2371,58 +2601,89 @@ function isPlannedOrDeliveredEmailItem(item: ManagerDailyRonosReportItem): boole
   return /(se enviar[ií]a|enviado|destinatario|@)/i.test(label)
 }
 
+function formatCompactViolationPillLabel(v: RonosPolicyViolationItem): string {
+  const base = v.title || v.type
+  if (v.type === 'LATE_CLOCK_IN' && safeNum(v.minutes, 0) > 0) {
+    return `Tardanza (+${Math.round(safeNum(v.minutes, 0))} min)`
+  }
+  if (v.type === 'UNAUTHORIZED_EARLY_IN' && safeNum(v.minutes, 0) > 0) {
+    return `Entrada Temprana (-${Math.round(safeNum(v.minutes, 0))} min)`
+  }
+  if (v.type === 'EARLY_CLOCK_OUT' && safeNum(v.minutes, 0) > 0) {
+    return `Salida Temprana (-${Math.round(safeNum(v.minutes, 0))} min)`
+  }
+  if (v.type === 'LONG_LUNCH' && safeNum(v.minutes, 0) >= 31) {
+    const tot = Math.floor(safeNum(v.minutes, 0))
+    const ex = Math.max(1, tot - 30)
+    return `Exceso Lunch (${tot}m / +${ex}m)`
+  }
+  if (v.type === 'MEAL_PENALTY_SHORT' && safeNum(v.minutes, 0) > 0) {
+    return `Lunch Corto (${safeNum(v.minutes, 0)}m < 30m)`
+  }
+  if (v.type === 'MEAL_PENALTY_LATE' && safeNum(v.minutes, 0) > 0) {
+    return `Violación 5ta Hora (+${Math.round(safeNum(v.minutes, 0))}m)`
+  }
+  if (v.type === 'REPAIR_RONOS_PUNCH') {
+    return 'Reparar Ponchada RONOS (vs Toast POS)'
+  }
+  if (v.type === 'BROKEN_TIMECARD') {
+    return 'Ponchada Incompleta en RONOS'
+  }
+  return base
+}
+
 function renderRonosReportTableRowHtml(
   item: ManagerDailyRonosReportItem,
-  options?: { showViolationDescriptions?: boolean; compact?: boolean }
+  options?: { showViolationDescriptions?: boolean; compact?: boolean; rowIndex?: number }
 ): string {
   const ev = item.evaluation
   const showDesc = Boolean(options?.showViolationDescriptions)
   const compact = Boolean(options?.compact)
+  const rowIndex = safeNum(options?.rowIndex, 0)
 
   const schedStr = ev.scheduledShift.hasPublishedShift
     ? `${ev.scheduledShift.startTimeLA || '--'} - ${ev.scheduledShift.endTimeLA || '--'}`
     : 'Sin horario'
-  const ronosLunch = ev.ronosSummary.lunchStartLA
-    ? `<br><span class="sub">L: ${escapeHtmlSafe(ev.ronosSummary.lunchStartLA)}-${escapeHtmlSafe(ev.ronosSummary.lunchEndLA || '--')} (${Math.floor(safeNum(ev.ronosSummary.lunchDurationMinutes, 0))}m)</span>`
-    : ''
-  const toastLunch = ev.toastSummary.lunchStartLA
-    ? `<br><span class="subt">L: ${escapeHtmlSafe(ev.toastSummary.lunchStartLA)}-${escapeHtmlSafe(ev.toastSummary.lunchEndLA || '--')}</span>`
-    : ''
 
+  const isPlannedSend = !item.emailDelivered && isPlannedOrDeliveredEmailItem(item)
+  const statusColor = item.emailDelivered ? '#047857' : isPlannedSend ? '#0369a1' : '#b45309'
+
+  // Diseño de 4 columnas amplias (22% | 34% | 28% | 16%) para el Reporte General Diario (100% Gmail-Safe inline + < 80 KB)
   if (compact) {
-    const ronosHtml = ev.ronosSummary.hasRonosPunches
-      ? `${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')} / ${escapeHtmlSafe(ev.ronosSummary.clockOutLA || '--')}${ronosLunch}`
-      : '<span class="err">0 ponchadas</span>'
-    const toastHtml = ev.toastSummary.hasToastPunches
-      ? `${escapeHtmlSafe(ev.toastSummary.clockInLA || '--')} / ${escapeHtmlSafe(ev.toastSummary.clockOutLA || '--')}${toastLunch}`
-      : '<span class="mut">Sin Toast</span>'
-    const badges = (ev.violations || [])
+    const trAttr = rowIndex % 2 === 1 ? ' bgcolor="#f8fafc"' : ''
+    const autoCompact = ev.toastSummary.isAutoClockOut ? ' <small>(Auto)</small>' : ''
+    const ronosLine = ev.ronosSummary.hasRonosPunches
+      ? `<b>${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')} - ${escapeHtmlSafe(ev.ronosSummary.clockOutLA || '--')}</b>${
+          ev.ronosSummary.lunchStartLA
+            ? ` <small>(L: ${escapeHtmlSafe(ev.ronosSummary.lunchStartLA)}-${escapeHtmlSafe(ev.ronosSummary.lunchEndLA || '--')}, ${Math.floor(safeNum(ev.ronosSummary.lunchDurationMinutes, 0))}m)</small>`
+            : ''
+        }`
+      : '<b style="color:#b91c1c">0 ponchadas en RONOS</b>'
+
+    const toastLine = ev.toastSummary.hasToastPunches
+      ? `${escapeHtmlSafe(ev.toastSummary.clockInLA || '--')} - ${escapeHtmlSafe(ev.toastSummary.clockOutLA || '--')}${autoCompact}${
+          ev.toastSummary.lunchStartLA
+            ? ` <small>(L: ${escapeHtmlSafe(ev.toastSummary.lunchStartLA)}-${escapeHtmlSafe(ev.toastSummary.lunchEndLA || '--')})</small>`
+            : ''
+        }`
+      : '<small>Sin registro Toast</small>'
+
+    const pills = (ev.violations || [])
       .filter((v) => v.isViolation)
       .map((v) => {
         const isRep = v.type === 'REPAIR_RONOS_PUNCH' || v.type === 'BROKEN_TIMECARD'
-        const cls = isRep ? 'br' : v.severity === 'danger' ? 'bd' : 'bw'
-        return `<div class="bm"><span class="b ${cls}">${escapeHtmlSafe(v.title)}</span></div>`
+        const bg = isRep ? '#ede9fe' : v.severity === 'danger' ? '#fee2e2' : '#fef3c7'
+        const fg = isRep ? '#5b21b6' : v.severity === 'danger' ? '#991b1b' : '#92400e'
+        return `<span style="background:${bg};color:${fg};padding:2px 7px;border-radius:9px;font:700 11px Arial;display:inline-block">${escapeHtmlSafe(formatCompactViolationPillLabel(v))}</span>`
       })
-      .join('')
-    const isPlan = !item.emailDelivered && isPlannedOrDeliveredEmailItem(item)
-    const stCls = item.emailDelivered ? 'sok' : isPlan ? 'spl' : 'smn'
-    return `<tr><td class="nm">${escapeHtmlSafe(item.employeeName)}${item.jobTitle ? `<div class="jt">${escapeHtmlSafe(item.jobTitle)}</div>` : ''}</td><td class="nw">${escapeHtmlSafe(schedStr)}</td><td>${ronosHtml}</td><td>${toastHtml}</td><td>${badges}</td><td class="st ${stCls}">${escapeHtmlSafe(item.deliveryStatusLabel)}</td></tr>`
+      .join('<br>')
+
+    return `<tr valign="top"${trAttr}><td><b>${escapeHtmlSafe(item.employeeName)}</b>${item.jobTitle ? `<br><small>${escapeHtmlSafe(item.jobTitle)}</small>` : ''}</td><td><b>Plan:</b> ${escapeHtmlSafe(schedStr)}<br><b style="color:#b91c1c">RONOS:</b> ${ronosLine}<br><b style="color:#4338ca">Toast:</b> ${toastLine}</td><td>${pills}</td><td style="color:${statusColor};font-weight:600">${escapeHtmlSafe(item.deliveryStatusLabel)}</td></tr>`
   }
 
-  const ronosStr = ev.ronosSummary.hasRonosPunches
-    ? `In: ${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')} | Out: ${escapeHtmlSafe(ev.ronosSummary.clockOutLA || '--')}${
-        ev.ronosSummary.lunchStartLA
-          ? `<br/><span style="font-size:11px;color:#64748b;">Lunch: ${escapeHtmlSafe(ev.ronosSummary.lunchStartLA)}-${escapeHtmlSafe(ev.ronosSummary.lunchEndLA || '--')} (${Math.floor(safeNum(ev.ronosSummary.lunchDurationMinutes, 0))}m)</span>`
-          : ''
-      }`
-    : '<span style="color:#dc2626;font-weight:700;">0 ponchadas en RONOS</span>'
-  const toastStr = ev.toastSummary.hasToastPunches
-    ? `In: ${escapeHtmlSafe(ev.toastSummary.clockInLA || '--')} | Out: ${escapeHtmlSafe(ev.toastSummary.clockOutLA || '--')}${
-        ev.toastSummary.lunchStartLA
-          ? `<br/><span style="font-size:11px;color:#4338ca;">Lunch Toast: ${escapeHtmlSafe(ev.toastSummary.lunchStartLA)}-${escapeHtmlSafe(ev.toastSummary.lunchEndLA || '--')}</span>`
-          : ''
-      }`
-    : '<span style="color:#94a3b8;">Sin registro Toast</span>'
+  const autoTag = ev.toastSummary.isAutoClockOut
+    ? ' <span style="font-size:10px;color:#64748b;font-weight:600">(Auto-cierre POS)</span>'
+    : ''
 
   const badgesHtml = (ev.violations || [])
     .filter((v) => v.isViolation)
@@ -2430,39 +2691,33 @@ function renderRonosReportTableRowHtml(
       const isRepair = v.type === 'REPAIR_RONOS_PUNCH' || v.type === 'BROKEN_TIMECARD'
       const bg = isRepair ? '#ede9fe' : v.severity === 'danger' ? '#fee2e2' : '#fef3c7'
       const fg = isRepair ? '#5b21b6' : v.severity === 'danger' ? '#991b1b' : '#92400e'
-      const descHtml = showDesc && v.description
-        ? `<div style="font-size:11px;color:#475569;line-height:1.4;margin-top:2px;">${escapeHtmlSafe(v.description)}</div>`
-        : ''
-      return `<div style="margin-bottom:5px;"><span style="background:${bg};color:${fg};padding:2px 8px;border-radius:9999px;font-weight:700;font-size:11px;display:inline-block;">${escapeHtmlSafe(v.title)}</span>${descHtml}</div>`
+      const descHtml =
+        showDesc && v.description
+          ? `<div style="font-size:11px;color:#475569;line-height:1.35;margin-top:2px">${escapeHtmlSafe(v.description)}</div>`
+          : ''
+      return `<div style="margin-bottom:3px"><span style="background:${bg};color:${fg};padding:2px 8px;border-radius:10px;font-weight:700;font-size:11px;display:inline-block">${escapeHtmlSafe(v.title)}</span>${descHtml}</div>`
     })
     .join('')
 
-  const isPlannedSend = !item.emailDelivered && isPlannedOrDeliveredEmailItem(item)
-  const statusColor = item.emailDelivered ? '#047857' : isPlannedSend ? '#0369a1' : '#b45309'
+  const trBg = rowIndex % 2 === 1 ? ' style="background-color:#f8fafc"' : ''
+  const ronosStr = ev.ronosSummary.hasRonosPunches
+    ? `<div><b>In:</b> ${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')} | <b>Out:</b> ${escapeHtmlSafe(ev.ronosSummary.clockOutLA || '--')}</div>${
+        ev.ronosSummary.lunchStartLA
+          ? `<div style="font-size:11px;color:#475569;margin-top:2px">Lunch: ${escapeHtmlSafe(ev.ronosSummary.lunchStartLA)} - ${escapeHtmlSafe(ev.ronosSummary.lunchEndLA || '--')} (<b>${Math.floor(safeNum(ev.ronosSummary.lunchDurationMinutes, 0))}m</b>)</div>`
+          : ''
+      }`
+    : '<span style="background:#fee2e2;color:#b91c1c;padding:2px 6px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block">0 ponchadas en RONOS</span>'
 
-  return `
-    <tr>
-      <td style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; font-weight: 700; color: #111827; vertical-align: top;">
-        ${escapeHtmlSafe(item.employeeName)}
-        ${item.jobTitle ? `<div style="font-size:11px;color:#64748b;font-weight:400;">${escapeHtmlSafe(item.jobTitle)}</div>` : ''}
-      </td>
-      <td style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #1e293b; white-space: nowrap; vertical-align: top;">
-        ${escapeHtmlSafe(schedStr)}
-      </td>
-      <td style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #1f2937; vertical-align: top;">
-        ${ronosStr}
-      </td>
-      <td style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; color: #374151; vertical-align: top;">
-        ${toastStr}
-      </td>
-      <td style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top;">
-        ${badgesHtml}
-      </td>
-      <td style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; font-size: 12px; font-weight: 600; color: ${statusColor}; vertical-align: top;">
-        ${escapeHtmlSafe(item.deliveryStatusLabel)}
-      </td>
-    </tr>
-  `
+  const toastStr = ev.toastSummary.hasToastPunches
+    ? `<div><b>In:</b> ${escapeHtmlSafe(ev.toastSummary.clockInLA || '--')} | <b>Out:</b> ${escapeHtmlSafe(ev.toastSummary.clockOutLA || '--')}${autoTag}</div>${
+        ev.toastSummary.lunchStartLA
+          ? `<div style="font-size:11px;color:#4338ca;margin-top:2px">Lunch Toast: ${escapeHtmlSafe(ev.toastSummary.lunchStartLA)} - ${escapeHtmlSafe(ev.toastSummary.lunchEndLA || '--')}</div>`
+          : ''
+      }`
+    : '<span style="color:#94a3b8;font-size:11px">Sin registro Toast</span>'
+
+  const td = 'padding:9px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top;font-size:12px'
+  return `<tr${trBg}><td style="${td};font-weight:700;color:#0f172a">${escapeHtmlSafe(item.employeeName)}${item.jobTitle ? `<div style="font-size:10.5px;color:#64748b;font-weight:400;margin-top:1px">${escapeHtmlSafe(item.jobTitle)}</div>` : ''}</td><td style="${td};color:#1e293b;font-weight:600;white-space:nowrap">${escapeHtmlSafe(schedStr)}</td><td style="${td};color:#1f2937">${ronosStr}</td><td style="${td};color:#334151">${toastStr}</td><td style="${td}">${badgesHtml}</td><td style="${td};font-size:11.5px;font-weight:600;color:${statusColor}">${escapeHtmlSafe(item.deliveryStatusLabel)}</td></tr>`
 }
 
 /**
@@ -2475,6 +2730,8 @@ export function buildManagerDailyRonosReportHtml(params: {
   businessDate: string
   items: ManagerDailyRonosReportItem[]
   authorizedCallIns?: ManagerDailyRonosReportItem[]
+  authorizedEarlyOuts?: ManagerDailyRonosReportItem[]
+  voluntaryExtendedStays?: ManagerDailyRonosReportItem[]
   isManualDispatch?: boolean
 }): { subject: string; html: string } {
   const {
@@ -2482,6 +2739,8 @@ export function buildManagerDailyRonosReportHtml(params: {
     businessDate,
     items,
     authorizedCallIns = [],
+    authorizedEarlyOuts = [],
+    voluntaryExtendedStays = [],
     isManualDispatch = false,
   } = params
 
@@ -2489,7 +2748,7 @@ export function buildManagerDailyRonosReportHtml(params: {
     countRonosReportCategories(items)
 
   const rowsHtml = items
-    .map((item) => renderRonosReportTableRowHtml(item))
+    .map((item, idx) => renderRonosReportTableRowHtml(item, { rowIndex: idx }))
     .join('')
 
   const authorizedCallInsHtml =
@@ -2511,16 +2770,50 @@ export function buildManagerDailyRonosReportHtml(params: {
       `
       : ''
 
-  const subject = `📋 Auditoría Diaria RONOS (Puntualidad ±3m, Comidas y Reparación de Ponchadas) — ${storeName} (${businessDate})`
+  const authorizedEarlyOutsHtml =
+    authorizedEarlyOuts.length > 0
+      ? `
+        <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #0284c7; border-radius: 8px; padding: 12px 16px; margin-top: 14px; font-size: 12.5px; color: #1e293b;">
+          <div style="font-weight: 800; font-size: 13px; color: #0369a1; margin-bottom: 6px;">
+            📉 Salidas Anticipadas Voluntarias Exentas por Baja Venta / Cierre Operativo (${authorizedEarlyOuts.length}):
+          </div>
+          <ul style="margin: 0; padding-left: 18px;">
+            ${authorizedEarlyOuts
+              .map(
+                (e) =>
+                  `<li><strong>${escapeHtmlSafe(e.employeeName)}</strong>: Turno ${escapeHtmlSafe(e.evaluation.scheduledShift.startTimeLA || '--')} - ${escapeHtmlSafe(e.evaluation.scheduledShift.endTimeLA || '--')} ➔ Salió ${escapeHtmlSafe(e.evaluation.ronosSummary.clockOutLA || '--')} (${escapeHtmlSafe(e.evaluation.authorizedEarlyOutReason || 'Ajuste operativo por baja venta / cierre')} — <em>Sin alerta disciplinaria</em>)</li>`
+              )
+              .join('')}
+          </ul>
+        </div>
+      `
+      : ''
+
+  const extendedStaysHtml =
+    voluntaryExtendedStays.length > 0
+      ? `
+        <div style="background-color: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 12px; color: #115e59;">
+          <strong>⏱️ Permanencia Extendida Voluntaria / Apoyo Operativo (${voluntaryExtendedStays.length}):</strong>
+          ${voluntaryExtendedStays
+            .map(
+              (s) =>
+                `${escapeHtmlSafe(s.employeeName)} (+${safeNum(s.evaluation.extendedStayMinutes, 0)}m)`
+            )
+            .join(', ')}
+        </div>
+      `
+      : ''
+
+  const subject = `📋 Auditoría Nómina RONOS (vs Planificador y Toast POS) — ${storeName} (${businessDate})`
 
   const html = `
     <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 880px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
       <div style="background-color: #1e293b; color: #ffffff; padding: 22px 20px; text-align: center;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #fca5a5; margin-bottom: 4px;">
-          TACOS GAVILAN • AUDITORÍA DIARIA RONOS & PLANIFICADOR
+          TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)
         </div>
         <h2 style="margin: 0; text-transform: uppercase; font-size: 19px; font-weight: 800;">
-          Reporte Gerencial de Puntualidad (±3 min), Comidas y Reparación de Ponchadas
+          Reporte Gerencial de Nómina RONOS (vs Planificador y Toast POS)
         </h2>
         <p style="margin: 6px 0 0 0; opacity: 0.95; font-size: 14px;">
           Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong> — Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong>
@@ -2561,9 +2854,9 @@ export function buildManagerDailyRonosReportHtml(params: {
         </table>
 
         <!-- Violations Table -->
-        <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 12.5px; text-align: left;">
+        <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 12.5px; text-align: left; border: 1px solid #cbd5e1;">
           <thead>
-            <tr style="background-color: #f1f5f9; color: #334155; border-bottom: 2px solid #cbd5e1;">
+            <tr style="background-color: #1e293b; color: #ffffff;">
               <th style="padding: 10px 8px;">Colaborador</th>
               <th style="padding: 10px 8px;">Turno Planificador</th>
               <th style="padding: 10px 8px;">Ponchadas RONOS</th>
@@ -2578,6 +2871,8 @@ export function buildManagerDailyRonosReportHtml(params: {
         </table>
 
         ${authorizedCallInsHtml}
+        ${authorizedEarlyOutsHtml}
+        ${extendedStaysHtml}
 
         <!-- Mandatory Manager Responsibilities Box -->
         <div style="background-color: #fff7ed; border: 1px solid #fdba74; border-left: 5px solid #ea580c; border-radius: 8px; padding: 16px 18px; margin-top: 22px; font-size: 13px; color: #431407; line-height: 1.6;">
@@ -2602,13 +2897,11 @@ export function buildManagerDailyRonosReportHtml(params: {
   return { subject, html }
 }
 
-
 /**
  * Construye el Reporte General Diario de Cadena (Todas las Tiendas) dirigido a Liderazgo Ejecutivo,
- * Supervisores de Zona y Cingular HR (CC: Stephany@cingularhr.com, raquel@tacosgavilan.com),
- * consolidando KPIs globales, tabla resumen por sucursal, detalle compacto Planificador vs RONOS vs Toast POS
- * y exenciones automáticas por cobertura/emergencia gerencial.
- * Usa CSS compacto en `<style>` y `showViolationDescriptions: false` para mantener el peso < 85 KB (evitando recorte en Gmail).
+ * Supervisores de Zona y Cingular HR (CC: Stephany@cingularhr.com, raquel@tacosgavilan.com).
+ * 100% Gmail-Safe: incluye `<!DOCTYPE html><html><head><style>...` más atributos nativos (`cellpadding="8"`, `border="1"`, `bgcolor`, `valign="top"`)
+ * y estilos `style="..."` inline en cada componente visual (4 columnas amplias 22% | 34% | 28% | 16%), manteniendo el peso < 80 KB.
  */
 export function buildChainDailyRonosGeneralReportHtml(
   params: ChainDailyRonosGeneralReportParams
@@ -2637,12 +2930,14 @@ export function buildChainDailyRonosGeneralReportHtml(
   let totalMeals = 0
   let totalViolationEvents = 0
   let totalAuthorizedCallIns = 0
+  let totalAuthorizedEarlyOuts = 0
   let projectedEmployeeEmails = 0
   let projectedManagerReports = 0
 
   const storeStats = stores.map((store) => {
     const items = Array.isArray(store.items) ? store.items : []
     const callIns = Array.isArray(store.authorizedCallIns) ? store.authorizedCallIns : []
+    const earlyOuts = Array.isArray(store.authorizedEarlyOuts) ? store.authorizedEarlyOuts : []
     const cats = countRonosReportCategories(items)
     const hasError = Boolean(store.error)
 
@@ -2660,6 +2955,7 @@ export function buildChainDailyRonosGeneralReportHtml(
     totalMeals += cats.mealCount
     totalViolationEvents += cats.totalViolationEvents
     totalAuthorizedCallIns += callIns.length
+    totalAuthorizedEarlyOuts += earlyOuts.length
 
     for (const item of items) {
       if (isPlannedOrDeliveredEmailItem(item)) projectedEmployeeEmails++
@@ -2670,6 +2966,7 @@ export function buildChainDailyRonosGeneralReportHtml(
       store,
       items,
       callIns,
+      earlyOuts,
       cats,
       hasError,
       hourlyCount,
@@ -2684,63 +2981,71 @@ export function buildChainDailyRonosGeneralReportHtml(
   const cleanSimTag = simulationTag ? String(simulationTag).trim() : ''
   const simPrefix = cleanSimTag ? `[SIMULACIÓN ${cleanSimTag}]` : '[SIMULACIÓN]'
   const subject = isSimulation
-    ? `${simPrefix} Reporte General Diario de Auditoría RONOS (Todas las Tiendas) — ${businessDate}`
-    : `📊 Reporte General Diario de Auditoría RONOS (Todas las Tiendas) — ${businessDate}`
+    ? `${simPrefix} Reporte General Diario de Nómina RONOS (vs Planificador y Toast POS) — ${businessDate}`
+    : `📊 Reporte General Diario de Nómina RONOS (vs Planificador y Toast POS) — ${businessDate}`
 
   const simBanner = isSimulation
-    ? `<div class="sim-box"><div class="sim-t">🧪 Simulación Segura Activa — Envío Exclusivo a Correo de Prueba</div><p style="margin:0 0 6px 0">Auditoría real en vivo enviada únicamente a ${simulationRecipientEmail ? `<strong>${escapeHtmlSafe(simulationRecipientEmail)}</strong>` : 'la cuenta de prueba'}. <strong>NO</strong> se enviaron correos a empleados, gerentes, supervisores ni a Cingular HR, y <strong>NO</strong> se escribió en <code>ronos_violation_notifications</code>.</p><div class="sim-in"><div><strong>Para (To):</strong> ${normalizedTo.map(escapeHtmlSafe).join(', ')}</div><div><strong>Copia (CC HR &amp; Op.):</strong> ${normalizedCc.map(escapeHtmlSafe).join(', ')}</div><div><strong>BCC:</strong> carlos@tacosgavilan.com</div><div class="sim-cnt"><strong>Proyección Producción (${escapeHtmlSafe(businessDate)}):</strong> ${projectedEmployeeEmails} avisos a empleados (${missingEmployeeEmails} sin correo) + ${projectedManagerReports} reportes de tienda + 1 reporte general = <strong>${projectedTotalEmails} correos</strong></div></div></div>`
+    ? `<div style="background:#fffbeb;border:2px solid #f59e0b;border-left:6px solid #d97706;border-radius:10px;padding:14px 16px;margin-bottom:16px;color:#78350f;font-size:12.5px;line-height:1.55"><div style="font-size:13.5px;font-weight:800;text-transform:uppercase;color:#92400e;margin-bottom:4px">🧪 Simulación Segura Activa — Envío Exclusivo a Correo de Prueba</div><p style="margin:0 0 8px 0">Auditoría real en vivo enviada únicamente a ${simulationRecipientEmail ? `<strong>${escapeHtmlSafe(simulationRecipientEmail)}</strong>` : 'la cuenta de prueba'}. <strong>NO</strong> se enviaron correos a empleados, gerentes, supervisores ni a Cingular HR, y <strong>NO</strong> se escribió en <code>ronos_violation_notifications</code>.</p><div style="background:#ffffff;border:1px solid #fde68a;border-radius:6px;padding:10px 12px"><div><strong>Para (To):</strong> ${normalizedTo.map(escapeHtmlSafe).join(', ')}</div><div><strong>Copia (CC Oficial Cingular HR &amp; Operaciones):</strong> ${normalizedCc.map(escapeHtmlSafe).join(', ')}</div><div><strong>BCC:</strong> carlos@tacosgavilan.com</div><div style="margin-top:6px;padding-top:6px;border-top:1px dashed #fcd34d"><strong>📊 Proyección en Producción (${escapeHtmlSafe(businessDate)}):</strong> <b>${projectedEmployeeEmails}</b> avisos individuales a empleados (${missingEmployeeEmails} sin correo en Toast) + <b>${projectedManagerReports}</b> reportes a Gerentes de Tienda + <b>1</b> Reporte General = <strong>${projectedTotalEmails} correos totales</strong></div></div></div>`
     : ''
 
   const summaryRowsHtml = storeStats
-    .map(({ store, items, callIns, cats, hasError, hourlyCount, salariedCount, managerEmails }) => {
-      const supLabel = store.supervisorName
-        ? `${escapeHtmlSafe(store.supervisorName)}${store.supervisorEmail ? `<div class="jt">${escapeHtmlSafe(store.supervisorEmail)}</div>` : ''}`
+    .map(({ store, items, callIns, earlyOuts, cats, hasError, hourlyCount, salariedCount, managerEmails }, idx) => {
+      const supPart = store.supervisorName
+        ? `Sup: <b>${escapeHtmlSafe(store.supervisorName)}</b>`
         : store.supervisorEmail
-          ? escapeHtmlSafe(store.supervisorEmail)
-          : '<span class="mut">No asignado</span>'
-      const mgrLabel = managerEmails.length > 0 ? `<div class="jt">Mgr: ${managerEmails.map(escapeHtmlSafe).join(', ')}</div>` : ''
+          ? `Sup: ${escapeHtmlSafe(store.supervisorEmail)}`
+          : 'Sup: N/A'
+      const mgrPart =
+        managerEmails.length > 0
+          ? ` • Mgr: ${managerEmails.map(escapeHtmlSafe).join(', ')}`
+          : ''
       const badge = hasError
-        ? '<span class="b bd">⚠️ Error</span>'
+        ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-weight:700;font-size:11px;display:inline-block">⚠️ Error</span>'
         : items.length === 0
-          ? '<span class="b bok">✅ 100%</span>'
-          : '<span class="b bw">⚠️ Alertas</span>'
+          ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;font-weight:700;font-size:11px;display:inline-block">✅ 100%</span>'
+          : '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-weight:700;font-size:11px;display:inline-block">⚠️ Alertas</span>'
       const cA = items.length > 0 ? '#b91c1c' : '#059669'
       const cP = cats.punctualityCount > 0 ? '#d97706' : '#64748b'
       const cR = cats.repairCount > 0 ? '#7c3aed' : '#64748b'
       const cM = cats.mealCount > 0 ? '#be185d' : '#64748b'
-      const cC = callIns.length > 0 ? '#0284c7' : '#64748b'
-      return `<tr><td class="nm">${escapeHtmlSafe(store.storeName)}${mgrLabel}</td><td>${supLabel}</td><td class="c">${badge}</td><td class="c"><b>${hourlyCount}</b>${salariedCount > 0 ? `<div class="jt">+${salariedCount} ex</div>` : ''}</td><td class="c" style="font-weight:800;color:${cA}">${items.length}</td><td class="c" style="font-weight:700;color:${cP}">${cats.punctualityCount}</td><td class="c" style="font-weight:700;color:${cR}">${cats.repairCount}</td><td class="c" style="font-weight:700;color:${cM}">${cats.mealCount}</td><td class="c" style="font-weight:700;color:${cC}">${callIns.length}</td></tr>`
+      const exCount = callIns.length + earlyOuts.length
+      const cC = exCount > 0 ? '#0284c7' : '#64748b'
+      const trAttr = idx % 2 === 1 ? ' bgcolor="#f8fafc"' : ''
+      return `<tr${trAttr}><td><b>${escapeHtmlSafe(store.storeName)}</b><br><small style="color:#64748b">${supPart}${mgrPart}</small></td><td align="center">${badge}</td><td align="center"><b>${hourlyCount}</b>${salariedCount > 0 ? ` <small style="color:#64748b">(+${salariedCount} ex)</small>` : ''}</td><td align="center" style="font-weight:800;color:${cA}">${items.length}</td><td align="center" style="font-weight:700;color:${cP}">${cats.punctualityCount}</td><td align="center" style="font-weight:700;color:${cR}">${cats.repairCount}</td><td align="center" style="font-weight:700;color:${cM}">${cats.mealCount}</td><td align="center" style="font-weight:700;color:${cC}">${exCount}</td></tr>`
     })
     .join('')
 
   const storeDetailsHtml = storeStats
-    .map(({ store, items, callIns, hasError, hourlyCount, salariedCount, managerEmails }) => {
+    .map(({ store, items, callIns, earlyOuts, hasError, hourlyCount, salariedCount, managerEmails }) => {
       const storeBody = hasError
-        ? `<div class="err-box"><strong>⚠️ Error de auditoría:</strong> ${escapeHtmlSafe(store.error)}</div>`
+        ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px 12px;color:#991b1b;font-size:12px"><strong>⚠️ Error de auditoría:</strong> ${escapeHtmlSafe(store.error)}</div>`
         : items.length === 0
-          ? '<div class="ok-box">✅ Sin infracciones ni reparaciones pendientes en esta sucursal.</div>'
-          : `<table class="tg-tbl" cellspacing="0" cellpadding="0"><thead><tr><th>Colaborador</th><th>Planificador</th><th>RONOS</th><th>Toast POS</th><th>Infracción / Alerta</th><th>Aviso</th></tr></thead><tbody>${items.map((it) => renderRonosReportTableRowHtml(it, { showViolationDescriptions: false, compact: true })).join('')}</tbody></table>`
+          ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 12px;color:#166534;font-size:12px;font-weight:600">✅ Sucursal al 100%: Sin infracciones de puntualidad (±3 min), comida (30 min / 5ta hora) ni reparaciones RONOS pendientes.</div>'
+          : `<table width="100%" cellpadding="8" cellspacing="0" border="1" bordercolor="#e2e8f0" style="width:100%;border-collapse:collapse;border:1px solid #cbd5e1;font:12px/1.45 Arial,sans-serif"><thead><tr bgcolor="#1e293b" style="background:#1e293b;color:#ffffff;font-size:11px;text-transform:uppercase"><th align="left" width="22%">Colaborador</th><th align="left" width="34%">Horarios (Plan · RONOS · Toast)</th><th align="left" width="28%">Infracción / Alerta</th><th align="left" width="16%">Aviso</th></tr></thead><tbody>${items.map((it, rIdx) => renderRonosReportTableRowHtml(it, { showViolationDescriptions: false, compact: true, rowIndex: rIdx })).join('')}</tbody></table>`
 
-      const callInsHtml = callIns.length > 0
-        ? `<div class="ci-box"><strong>🛡️ Coberturas Exentas (${callIns.length}):</strong><ul>${callIns.map((c) => `<li><b>${escapeHtmlSafe(c.employeeName)}</b>: ${escapeHtmlSafe(c.evaluation.scheduledShift.startTimeLA || '--')} ➔ ${escapeHtmlSafe(c.evaluation.ronosSummary.clockInLA || '--')} — ${escapeHtmlSafe(c.evaluation.exemptionReason || AUTHORIZED_EARLY_CALL_IN_EXEMPTION_REASON)}${c.evaluation.earlyCallInSignals.length > 0 ? ` <span class="ci-sig">(${c.evaluation.earlyCallInSignals.map(escapeHtmlSafe).join('; ')})</span>` : ''}</li>`).join('')}</ul></div>`
-        : ''
+      const callInsHtml =
+        callIns.length > 0
+          ? `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-left:4px solid #0284c7;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:11.5px;color:#0c4a6e"><strong>🛡️ Coberturas Exentas (${callIns.length}):</strong> ${callIns.map((c) => `<b>${escapeHtmlSafe(c.employeeName)}</b> (${escapeHtmlSafe(c.evaluation.scheduledShift.startTimeLA || '--')} ➔ ${escapeHtmlSafe(c.evaluation.ronosSummary.clockInLA || '--')})`).join(' • ')}</div>`
+          : ''
 
-      return `<div class="tg-card"><div class="tg-ch"><div class="tg-ct">🏪 ${escapeHtmlSafe(store.storeName)} <span class="tg-cs">(${hourlyCount} eval • ${salariedCount} ex • ${items.length} alerta)</span></div><div class="tg-cm"><b>Sup:</b> ${escapeHtmlSafe(store.supervisorName || 'N/A')}${store.supervisorEmail ? ` (${escapeHtmlSafe(store.supervisorEmail)})` : ''} • <b>Mgr:</b> ${managerEmails.length > 0 ? managerEmails.map(escapeHtmlSafe).join(', ') : 'N/A'}</div></div><div class="tg-cb">${storeBody}${callInsHtml}</div></div>`
+      const earlyOutsHtml =
+        earlyOuts.length > 0
+          ? `<div style="background:#f8fafc;border:1px solid #cbd5e1;border-left:4px solid #0ea5e9;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:11.5px;color:#1e293b"><strong style="color:#0369a1">📉 Salidas Anticipadas Exentas por Baja Venta / Cierre (${earlyOuts.length}):</strong> ${earlyOuts.map((e) => `<b>${escapeHtmlSafe(e.employeeName)}</b> (${escapeHtmlSafe(e.evaluation.scheduledShift.endTimeLA || '--')} ➔ ${escapeHtmlSafe(e.evaluation.ronosSummary.clockOutLA || '--')}: ${escapeHtmlSafe(e.evaluation.authorizedEarlyOutReason || 'Baja venta / cierre')})`).join(' • ')}</div>`
+          : ''
+
+      const alertBadgeBg = items.length > 0 ? '#fee2e2' : '#d1fae5'
+      const alertBadgeFg = items.length > 0 ? '#991b1b' : '#065f46'
+
+      return `<div style="border:1px solid #cbd5e1;border-radius:10px;margin:14px 0;overflow:hidden;background:#ffffff"><div style="background:#f1f5f9;border-bottom:1px solid #cbd5e1;padding:10px 14px"><div style="font-size:14.5px;font-weight:800;color:#0f172a">🏪 ${escapeHtmlSafe(store.storeName)} <span style="background:#e2e8f0;color:#334155;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;margin-left:6px">${hourlyCount} eval • ${salariedCount} ex</span> <span style="background:${alertBadgeBg};color:${alertBadgeFg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:800;margin-left:4px">${items.length} con alerta</span></div><div style="font-size:11.5px;color:#475569;margin-top:3px"><b>Sup:</b> ${escapeHtmlSafe(store.supervisorName || 'N/A')}${store.supervisorEmail ? ` (${escapeHtmlSafe(store.supervisorEmail)})` : ''} • <b>Mgr:</b> ${managerEmails.length > 0 ? managerEmails.map(escapeHtmlSafe).join(', ') : 'N/A'}</div></div><div style="padding:10px 12px">${storeBody}${callInsHtml}${earlyOutsHtml}</div></div>`
     })
     .join('')
 
-  const allCallInsList: Array<{ storeName: string; item: ManagerDailyRonosReportItem }> = []
-  for (const { store, callIns } of storeStats) {
-    for (const c of callIns) allCallInsList.push({ storeName: store.storeName, item: c })
-  }
+  const kpiTd = 'width:25%;border-radius:8px;padding:11px 8px;text-align:center'
+  const kpiLbl = 'font-size:10px;font-weight:700;text-transform:uppercase'
+  const kpiVal = 'font-size:21px;font-weight:800;margin-top:3px'
+  const kpiSub = 'font-size:10px;margin-top:2px'
 
-  const consolidatedCallInsHtml = allCallInsList.length > 0
-    ? `<div class="ci-all"><div class="ci-allt">🛡️ Exenciones Automáticas por Cobertura / Emergencia Gerencial (${allCallInsList.length})</div><table class="tg-tbl" cellspacing="0" cellpadding="0"><thead><tr><th>Sucursal</th><th>Colaborador</th><th>Turno ➔ RONOS</th><th>Motivo y Evidencia</th></tr></thead><tbody>${allCallInsList.map(({ storeName: stName, item }) => { const ev = item.evaluation; return `<tr><td class="nm">${escapeHtmlSafe(stName)}</td><td><b>${escapeHtmlSafe(item.employeeName)}</b></td><td class="nw">${escapeHtmlSafe(ev.scheduledShift.startTimeLA || '--')} ➔ <b>${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')}</b></td><td><b>${escapeHtmlSafe(ev.exemptionReason || AUTHORIZED_EARLY_CALL_IN_EXEMPTION_REASON)}</b>${ev.earlyCallInSignals.length > 0 ? `<div class="ci-sig">${ev.earlyCallInSignals.map(escapeHtmlSafe).join(' • ')}</div>` : ''}</td></tr>` }).join('')}</tbody></table></div>`
-    : '<div class="ci-none">🛡️ <strong>Exenciones por Cobertura / Emergencia Gerencial:</strong> Sin registros en esta jornada.</div>'
-
-  const css = `<style>.tg-w{font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:980px;margin:0 auto;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:#fff}.tg-hd{background:#0f172a;color:#fff;padding:18px 20px;border-top:5px solid #dc2626;text-align:center}.tg-bd{padding:18px}.sim-box{background:#fffbeb;border:2px solid #f59e0b;border-left:5px solid #d97706;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#78350f;font-size:12.5px;line-height:1.5}.sim-t{font-size:13px;font-weight:800;text-transform:uppercase;color:#92400e;margin-bottom:4px}.sim-in{background:#fff;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-top:6px}.sim-cnt{margin-top:6px;padding-top:6px;border-top:1px dashed #fcd34d}.tg-dist{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11.5px;color:#334155}.kpi{width:100%;border-collapse:separate;border-spacing:6px;margin:6px 0 14px}.kpi td{width:25%;border-radius:8px;padding:9px 6px;text-align:center;border:1px solid #cbd5e1}.kl{font-size:9.5px;font-weight:700;text-transform:uppercase}.kv{font-size:20px;font-weight:800;margin-top:2px}.ks{font-size:9.5px}.tg-h3{font-size:13.5px;font-weight:800;color:#0f172a;margin:16px 0 8px;text-transform:uppercase}.tg-tbl{width:100%;border-collapse:collapse;font-size:11.5px;text-align:left;border:1px solid #cbd5e1}.tg-tbl th{background:#f1f5f9;color:#334155;padding:7px 6px;border-bottom:2px solid #cbd5e1;font-size:11px}.tg-sum th{background:#1e293b;color:#fff;padding:8px 6px;font-size:11px}.tg-tbl td,.tg-sum td{padding:7px 6px;border-bottom:1px solid #e5e7eb;vertical-align:top}.c{text-align:center}.nm{font-weight:700;color:#111827}.nw{white-space:nowrap}.jt{font-size:10px;color:#64748b;font-weight:400}.sub{font-size:10px;color:#64748b}.subt{font-size:10px;color:#4338ca}.mut{color:#94a3b8}.err{color:#dc2626;font-weight:700}.b{padding:2px 7px;border-radius:9999px;font-weight:700;font-size:10.5px;display:inline-block}.bm{margin-bottom:3px}.bd{background:#fee2e2;color:#991b1b}.bw{background:#fef3c7;color:#92400e}.br{background:#ede9fe;color:#5b21b6}.bok{background:#d1fae5;color:#065f46}.st{font-size:11px;font-weight:600}.sok{color:#047857}.spl{color:#0369a1}.smn{color:#b45309}.tg-card{border:1px solid #cbd5e1;border-radius:8px;margin-top:12px;overflow:hidden}.tg-ch{background:#f8fafc;border-bottom:1px solid #cbd5e1;padding:9px 12px}.tg-ct{font-size:13.5px;font-weight:800;color:#0f172a}.tg-cs{font-size:11px;font-weight:700;color:#475569;margin-left:6px}.tg-cm{font-size:11px;color:#475569;margin-top:2px}.tg-cb{padding:10px 12px}.ok-box{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;color:#166534;font-size:12px;font-weight:600}.err-box{background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;color:#991b1b;font-size:12px}.ci-box{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:11.5px;color:#0c4a6e}.ci-box ul{margin:4px 0 0;padding-left:16px}.ci-sig{color:#0369a1;font-size:10.5px}.ci-all{background:#f0f9ff;border:1px solid #7dd3fc;border-left:5px solid #0284c7;border-radius:8px;padding:12px 14px;margin-top:16px;color:#0c4a6e}.ci-allt{font-size:13px;font-weight:800;text-transform:uppercase;margin-bottom:6px}.ci-none{background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;margin-top:16px;font-size:12px;color:#475569}.tg-ft{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;margin-top:16px;font-size:11.5px;color:#475569;line-height:1.45}.tg-cp{font-size:11.5px;color:#64748b;margin-top:16px;text-align:center}</style>`
-
-  const html = `<div class="tg-w">${css}<div class="tg-hd"><div style="font-size:10.5px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#fca5a5;margin-bottom:4px">TACOS GAVILAN • DIRECCIÓN DE OPERACIONES &amp; CINGULAR HR (RONOS)</div><h2 style="margin:0;font-size:19px;font-weight:800;text-transform:uppercase">${isSimulation ? `${escapeHtmlSafe(simPrefix)} ` : ''}Reporte General Diario de Auditoría RONOS (Todas las Tiendas)</h2><p style="margin:6px 0 0;font-size:13px">Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> (${escapeHtmlSafe(businessDate)})</p><p style="margin:3px 0 0;font-size:11px;opacity:.85">${isSimulation ? 'Simulación Segura — Evaluación en vivo sin despacho real ni escritura en BD.' : isManualDispatch ? 'Despacho manual desde el panel administrativo.' : 'Despacho diario automático (11:59 AM hora de California).'}</p></div><div class="tg-bd">${simBanner}<div class="tg-dist"><strong>Distribución Oficial:</strong> Para: <b>${normalizedTo.map(escapeHtmlSafe).join(', ')}</b> • CC: <b>${normalizedCc.map(escapeHtmlSafe).join(', ')}</b></div><table class="kpi"><tr><td style="background:#f8fafc"><div class="kl" style="color:#475569">Tiendas Auditadas</div><div class="kv" style="color:#0f172a">${auditedSuccessCount} / ${stores.length}</div>${errorStoresCount > 0 ? `<div class="ks" style="color:#b91c1c;font-weight:700">${errorStoresCount} con error</div>` : ''}</td><td style="background:#f0fdf4;border-color:#bbf7d0"><div class="kl" style="color:#166534">Colaboradores Evaluados</div><div class="kv" style="color:#15803d">${totalEvaluatedHourly}</div><div class="ks" style="color:#166534">Personal por hora</div></td><td style="background:#fef2f2;border-color:#fecaca"><div class="kl" style="color:#991b1b">Total de Alertas</div><div class="kv" style="color:#b91c1c">${totalViolationEvents}</div><div class="ks" style="color:#991b1b">${totalAlertEmployees} colaboradores</div></td><td style="background:#fffbeb;border-color:#fde68a"><div class="kl" style="color:#92400e">Puntualidad ±3m / No-Show</div><div class="kv" style="color:#d97706">${totalPunctuality}</div></td></tr><tr><td style="background:#f5f3ff;border-color:#ddd6fe"><div class="kl" style="color:#5b21b6">Reparar RONOS vs Toast</div><div class="kv" style="color:#7c3aed">${totalRepairs}</div></td><td style="background:#fdf2f8;border-color:#fbcfe8"><div class="kl" style="color:#9d174d">Comidas (30m / 5ta Hr)</div><div class="kv" style="color:#be185d">${totalMeals}</div></td><td style="background:#f0f9ff;border-color:#bae6fd"><div class="kl" style="color:#075985">Exentos Cobertura</div><div class="kv" style="color:#0284c7">${totalAuthorizedCallIns}</div></td><td style="background:#f1f5f9"><div class="kl" style="color:#334155">Asalariados Exentos</div><div class="kv" style="color:#1e293b">${totalExemptSalaried}</div><div class="ks" style="color:#475569">Managers / Sup.</div></td></tr></table><h3 class="tg-h3">📋 Resumen Ejecutivo por Sucursal</h3><table class="tg-tbl tg-sum" cellspacing="0" cellpadding="0"><thead><tr><th>Sucursal</th><th>Supervisor</th><th class="c">Estado</th><th class="c">Eval.</th><th class="c">Alerta</th><th class="c">Punt.</th><th class="c">Reparar</th><th class="c">Comida</th><th class="c">Ex.Cob</th></tr></thead><tbody>${summaryRowsHtml}</tbody><tfoot><tr style="background:#f1f5f9;font-weight:800;color:#0f172a;border-top:2px solid #94a3b8"><td colspan="3">TOTAL CADENA (${stores.length} sucursales)</td><td class="c">${totalEvaluatedHourly} (+${totalExemptSalaried} ex)</td><td class="c" style="color:#b91c1c">${totalAlertEmployees}</td><td class="c" style="color:#d97706">${totalPunctuality}</td><td class="c" style="color:#7c3aed">${totalRepairs}</td><td class="c" style="color:#be185d">${totalMeals}</td><td class="c" style="color:#0284c7">${totalAuthorizedCallIns}</td></tr></tfoot></table><h3 class="tg-h3">🔍 Detalle por Sucursal y Colaborador (Planificador vs RONOS vs Toast POS)</h3>${storeDetailsHtml}${consolidatedCallInsHtml}<div class="tg-ft"><strong>Políticas Aplicadas (NHP TEG SPANISH.pdf &amp; CA Labor Code § 512):</strong> Puntualidad estricta de ±3 min frente al Planificador (con exención automática por llamado gerencial/cobertura o ajuste AM/PM), reparación obligatoria de RONOS frente a Toast POS para proteger el cheque de pago, comida de 30 minutos exactos antes de la 5ta hora en turnos &gt; 6h, y exclusión de Managers y Supervisores asalariados.</div><p class="tg-cp"><strong>Sistema de Monitoreo</strong> — Tacos Gavilan • Reporte General de Cadena (CC: ${normalizedCc.map(escapeHtmlSafe).join(', ')})</p></div></div>`
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>table{border-collapse:collapse}td,th{border-color:#e2e8f0}small{color:#64748b;font-size:10.5px}</style></head><body style="margin:0;padding:12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#1f2937"><div style="max-width:960px;margin:0 auto;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:#ffffff"><div style="background:#0f172a;color:#ffffff;padding:20px 22px;border-top:5px solid #dc2626;text-align:center"><div style="font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#fca5a5;margin-bottom:4px">TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)</div><h2 style="margin:0;font-size:20px;font-weight:800;text-transform:uppercase">${isSimulation ? `${escapeHtmlSafe(simPrefix)} ` : ''}Reporte General Diario de Nómina RONOS (vs Planificador y Toast POS)</h2><p style="margin:6px 0 0;font-size:13.5px">Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> (${escapeHtmlSafe(businessDate)})</p><p style="margin:3px 0 0;font-size:11px;color:#cbd5e1">${isSimulation ? 'Simulación Segura — Evaluación real en vivo sin despacho a personal ni escritura en BD.' : isManualDispatch ? 'Despacho manual desde el panel administrativo.' : 'Despacho diario automático (11:59 AM hora de California).'}</p></div><div style="padding:20px">${simBanner}<div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1e3a8a;line-height:1.5"><strong>⚖️ Alcance del Reporte (Nómina RONOS vs Toast POS):</strong> Este reporte audita el reloj oficial de nómina <strong>RONOS (Cingular HR)</strong> —con el que se calcula el cheque de pago— cruzándolo contra el <strong>Planificador</strong> y <strong>Toast POS</strong>. Los avisos operativos exclusivos de Breaks/Lunches de Toast POS se gestionan por separado en el módulo Planificador.</div><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:12px;color:#334155"><strong>Distribución Oficial:</strong> Para: <b>${normalizedTo.map(escapeHtmlSafe).join(', ')}</b> &nbsp;•&nbsp; CC: <b>${normalizedCc.map(escapeHtmlSafe).join(', ')}</b></div><table width="100%" cellspacing="6" cellpadding="0" style="width:100%;border-collapse:separate;border-spacing:6px;margin:6px 0 16px"><tr><td style="${kpiTd};background:#f8fafc;border:1px solid #cbd5e1"><div style="${kpiLbl};color:#475569">Tiendas Auditadas</div><div style="${kpiVal};color:#0f172a">${auditedSuccessCount} / ${stores.length}</div>${errorStoresCount > 0 ? `<div style="${kpiSub};color:#b91c1c;font-weight:700">${errorStoresCount} con error</div>` : `<div style="${kpiSub};color:#64748b">100% activas</div>`}</td><td style="${kpiTd};background:#f0fdf4;border:1px solid #bbf7d0"><div style="${kpiLbl};color:#166534">Colaboradores Evaluados</div><div style="${kpiVal};color:#15803d">${totalEvaluatedHourly}</div><div style="${kpiSub};color:#166534">Personal por hora</div></td><td style="${kpiTd};background:#fef2f2;border:1px solid #fecaca"><div style="${kpiLbl};color:#991b1b">Total de Alertas</div><div style="${kpiVal};color:#b91c1c">${totalViolationEvents}</div><div style="${kpiSub};color:#991b1b">${totalAlertEmployees} colaboradores</div></td><td style="${kpiTd};background:#fffbeb;border:1px solid #fde68a"><div style="${kpiLbl};color:#92400e">Puntualidad ±3m / No-Show</div><div style="${kpiVal};color:#d97706">${totalPunctuality}</div><div style="${kpiSub};color:#92400e">vs Planificador</div></td></tr><tr><td style="${kpiTd};background:#f5f3ff;border:1px solid #ddd6fe"><div style="${kpiLbl};color:#5b21b6">Reparar RONOS vs Toast</div><div style="${kpiVal};color:#7c3aed">${totalRepairs}</div><div style="${kpiSub};color:#5b21b6">Protección cheque pago</div></td><td style="${kpiTd};background:#fdf2f8;border:1px solid #fbcfe8"><div style="${kpiLbl};color:#9d174d">Comidas (30m / 5ta Hr)</div><div style="${kpiVal};color:#be185d">${totalMeals}</div><div style="${kpiSub};color:#9d174d">CA Labor Code § 512</div></td><td style="${kpiTd};background:#f0f9ff;border:1px solid #bae6fd"><div style="${kpiLbl};color:#075985">Exentos Cob. / Baja Venta</div><div style="${kpiVal};color:#0284c7">${totalAuthorizedCallIns + totalAuthorizedEarlyOuts}</div><div style="${kpiSub};color:#0369a1">${totalAuthorizedCallIns} cob. • ${totalAuthorizedEarlyOuts} cierre/venta</div></td><td style="${kpiTd};background:#f1f5f9;border:1px solid #cbd5e1"><div style="${kpiLbl};color:#334155">Asalariados Exentos</div><div style="${kpiVal};color:#1e293b">${totalExemptSalaried}</div><div style="${kpiSub};color:#475569">Managers / Supervisores</div></td></tr></table><h3 style="font-size:14px;font-weight:800;color:#0f172a;margin:18px 0 8px;text-transform:uppercase">📋 Resumen Ejecutivo por Sucursal</h3><table width="100%" cellpadding="8" cellspacing="0" border="1" bordercolor="#e2e8f0" style="width:100%;border-collapse:collapse;border:1px solid #cbd5e1;font:12px Arial,sans-serif"><thead><tr bgcolor="#1e293b" style="background:#1e293b;color:#ffffff;font-size:11px;text-transform:uppercase"><th align="left" width="28%">Sucursal &amp; Mandos</th><th align="center" width="11%">Estado</th><th align="center" width="13%">Evaluados</th><th align="center" width="10%">Con Alerta</th><th align="center" width="10%">Puntualidad</th><th align="center" width="10%">Reparar</th><th align="center" width="9%">Comidas</th><th align="center" width="9%">Exentos</th></tr></thead><tbody>${summaryRowsHtml}</tbody><tfoot><tr bgcolor="#e2e8f0" style="background:#e2e8f0;font-weight:800;color:#0f172a;font-size:12px;border-top:2px solid #94a3b8"><td colspan="2">TOTAL CADENA (${stores.length} sucursales)</td><td align="center">${totalEvaluatedHourly} (+${totalExemptSalaried} ex)</td><td align="center" style="color:#b91c1c">${totalAlertEmployees}</td><td align="center" style="color:#d97706">${totalPunctuality}</td><td align="center" style="color:#7c3aed">${totalRepairs}</td><td align="center" style="color:#be185d">${totalMeals}</td><td align="center" style="color:#0284c7">${totalAuthorizedCallIns + totalAuthorizedEarlyOuts}</td></tr></tfoot></table><h3 style="font-size:14px;font-weight:800;color:#0f172a;margin:22px 0 8px;text-transform:uppercase">🔍 Detalle por Sucursal y Colaborador (Planificador · RONOS · Toast POS)</h3>${storeDetailsHtml}<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin-top:18px;font-size:11.5px;color:#475569;line-height:1.5"><strong>Marco de Políticas Aplicadas (NHP TEG SPANISH.pdf &amp; California Labor Code § 512):</strong> Puntualidad estricta de ±3 min frente al Planificador (con exención inteligente por llamado gerencial/cobertura o ajuste AM/PM), exención de salidas anticipadas voluntarias por baja venta comprobada o cierre operativo sincronizado, permanencia extendida voluntaria sin penalización, reparación obligatoria de RONOS frente a Toast POS para proteger el cheque de pago, comida de 30 minutos exactos antes de la 5ta hora en turnos &gt; 6h, y exclusión de Managers y Supervisores asalariados.</div><p style="font-size:11.5px;color:#64748b;margin-top:16px;text-align:center"><strong>Sistema de Monitoreo</strong> — Tacos Gavilan • Reporte General de Nómina RONOS (CC: ${normalizedCc.map(escapeHtmlSafe).join(', ')})</p></div></div></body></html>`
 
   return { subject, html }
 }

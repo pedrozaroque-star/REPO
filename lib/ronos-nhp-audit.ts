@@ -52,6 +52,7 @@ import {
   type RonosPolicyViolationItem,
   type SickDayHistoryItem,
   type StoreDayCoverageContext,
+  type StoreDayHourlySalesContext,
   type ToastPunchRecordInput,
   type ToastPunchSummary,
 } from './ronos-attendance-policy'
@@ -67,6 +68,8 @@ export interface StoreNhpAuditSummary {
   noShowCount: number
   medicalNoteAlertsCount: number
   authorizedEarlyCallIns: number
+  authorizedEarlyOuts?: number
+  voluntaryExtendedStays?: number
   exemptSalariedCount: number
 }
 
@@ -79,6 +82,8 @@ export interface EmployeeNhpSummary {
   noShowCount: number
   medicalNoteAlertsCount: number
   authorizedEarlyCallInsCount: number
+  authorizedEarlyOutsCount?: number
+  voluntaryExtendedStaysCount?: number
   totalActiveViolationsCount: number
 }
 
@@ -244,6 +249,7 @@ interface CrossRefContext {
   shiftsByStoreAndDate: Map<string, PlannerScheduledShiftInput[]>
   punchesByStoreDateGuid: Map<string, ToastPunchRecordInput[]>
   schedulesByStoreUserDate: Map<string, any>
+  salesCacheByStoreAndDate: Map<string, any>
 }
 
 interface StaticCrossRefBase {
@@ -380,7 +386,19 @@ async function loadCrossRefContext(params: {
     }
   }
 
-  const [shiftsRows, punchesRows, schedulesRows] = await Promise.all([
+  const neededSalesDatesSet = new Set<string>()
+  let salesCur = startDate
+  for (let i = 0; i < 15 && salesCur <= endDate; i++) {
+    neededSalesDatesSet.add(salesCur)
+    neededSalesDatesSet.add(addDaysIso(salesCur, -7))
+    neededSalesDatesSet.add(addDaysIso(salesCur, -14))
+    neededSalesDatesSet.add(addDaysIso(salesCur, -21))
+    neededSalesDatesSet.add(addDaysIso(salesCur, -28))
+    salesCur = addDaysIso(salesCur, 1)
+  }
+  const neededSalesDates = Array.from(neededSalesDatesSet)
+
+  const [shiftsRows, punchesRows, schedulesRows, salesRows] = await Promise.all([
     targetExternalIds.length > 0
       ? fetchPaginatedRows((from, to) => {
           let q = supabaseAdmin
@@ -433,6 +451,23 @@ async function loadCrossRefContext(params: {
           }
           return q
         })
+      : Promise.resolve([] as any[]),
+    targetExternalIds.length > 0 && neededSalesDates.length > 0
+      ? fetchPaginatedRows((from, to) => {
+          let q = supabaseAdmin
+            .from('sales_daily_cache')
+            .select(
+              'store_id, business_date, net_sales, order_count, labor_hours, labor_cost, hourly_data, hourly_tickets, hourly_labor'
+            )
+            .in('business_date', neededSalesDates)
+            .range(from, to)
+          if (companyIds.length === 1 && targetExternalIds.length === 1) {
+            q = q.eq('store_id', targetExternalIds[0])
+          } else {
+            q = q.in('store_id', targetExternalIds)
+          }
+          return q
+        }).catch(() => [] as any[])
       : Promise.resolve([] as any[]),
   ])
 
@@ -639,6 +674,13 @@ async function loadCrossRefContext(params: {
     schedulesByStoreUserDate.set(key, sc)
   }
 
+  const salesCacheByStoreAndDate = new Map<string, any>()
+  for (const sr of salesRows) {
+    if (!sr || !sr.store_id || !sr.business_date) continue
+    const sKey = `${String(sr.store_id).trim().toLowerCase()}::${String(sr.business_date).slice(0, 10)}`
+    salesCacheByStoreAndDate.set(sKey, sr)
+  }
+
   return {
     storesByTegId,
     storesByExternalId,
@@ -658,6 +700,7 @@ async function loadCrossRefContext(params: {
     shiftsByStoreAndDate,
     punchesByStoreDateGuid,
     schedulesByStoreUserDate,
+    salesCacheByStoreAndDate,
   }
 }
 
@@ -827,7 +870,7 @@ function resolveEmployeeMetadata(
     allUsers: ctx.allUsers,
   })
 
-  const isPlaceholderManagerAccount = /^manager\s+default$/i.test(emp.fullName.trim())
+  const isPlaceholderManagerAccount = /^manager\b/i.test(emp.fullName.trim())
   const resolvedJobTitle = isPlaceholderManagerAccount
     ? 'Manager'
     : simplifyRow?.job_title ||
@@ -1016,6 +1059,70 @@ function buildEmptyRonosDayStub(dateIso: string): RonosDailyPunchesRecord {
     punches: [],
     violations: [],
   }
+}
+
+const NAME_CONNECTORS = new Set([
+  'de',
+  'del',
+  'la',
+  'las',
+  'los',
+  'y',
+  'e',
+  'el',
+  'da',
+  'do',
+  'dos',
+  'san',
+  'santa',
+])
+
+const GENERIC_ROLE_TOKENS = new Set([
+  'manager',
+  'gerente',
+  'colaborador',
+  'employee',
+  'default',
+  'admin',
+  'cajero',
+  'taquero',
+  'cocinero',
+  'prep',
+])
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0
+  if (!a.length) return b.length
+  if (!b.length) return a.length
+  const prev = new Array<number>(b.length + 1)
+  const curr = new Array<number>(b.length + 1)
+  for (let j = 0; j <= b.length; j++) prev[j] = j
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j]
+  }
+  return prev[b.length]
+}
+
+function toBusinessDayMinutes(p: ReturnType<typeof parseTimeInLA>): number | null {
+  if (!p) return null
+  let rel = p.relativeMinutesFromBizDate
+  if (p.epochMs === null && rel < 360) {
+    rel += 1440
+  }
+  return rel
+}
+
+function extractNonConnectorTokens(rawName?: string | null): string[] {
+  if (!rawName) return []
+  return normalizeTextStrict(rawName)
+    .split(' ')
+    .map((t) => t.trim())
+    .filter((t) => Boolean(t) && !NAME_CONNECTORS.has(t))
 }
 
 /**
@@ -1304,6 +1411,383 @@ function applySecondPassStoreOperationalMatching(params: {
       }
     }
   }
+
+  // Fase 2 (Nivel C — Deducción Humana sobre el pool restante NO reclamado en la misma tienda)
+  const empsByCompany = new Map<number, RonosEmployeeTimecard[]>()
+  for (const emp of employees) {
+    const cId = Number((emp as any).companyId || defaultCompanyId)
+    const list = empsByCompany.get(cId) || []
+    list.push(emp)
+    empsByCompany.set(cId, list)
+  }
+
+  for (const [companyId, companyEmps] of empsByCompany.entries()) {
+    const storeRow = ctx.storesByCompanyId.get(companyId)
+    if (!storeRow?.external_id) continue
+    const storeExtId = storeRow.external_id
+
+    const getUnmatchedEmps = () =>
+      companyEmps.filter((emp) => {
+        const m = resolvedMetaByCompanyEmp.get(`${companyId}::${emp.employeeUserId}`)
+        return Boolean(m && !m.isInactiveMapping && !m.toastEmployeeId)
+      })
+
+    const getUnclaimedCands = () => {
+      const cIds = claimedIdsByCompany.get(companyId) || new Set<string>()
+      const cGuids = claimedGuidsByCompany.get(companyId) || new Set<string>()
+      return (ctx.toastCandidatesByStoreExtId.get(storeExtId) || []).filter(
+        (c) =>
+          Boolean(c?.id) &&
+          !cIds.has(c.id) &&
+          (!c.toast_guid || !cGuids.has(c.toast_guid))
+      )
+    }
+
+    const initialUnmatched = getUnmatchedEmps()
+    const initialUnclaimed = getUnclaimedCands()
+    if (initialUnmatched.length === 0 || initialUnclaimed.length === 0) continue
+
+    interface LevelCEdge {
+      emp: RonosEmployeeTimecard
+      meta: ResolvedEmployeeMeta
+      cand: ToastEmployeeCandidate
+      score: number
+    }
+
+    const candidateEdges: LevelCEdge[] = []
+    const empPunchDaysByUserId = new Map<number, number>()
+
+    for (const emp of initialUnmatched) {
+      const meta = resolvedMetaByCompanyEmp.get(`${companyId}::${emp.employeeUserId}`)!
+      const empNonConn = extractNonConnectorTokens(emp.fullName)
+      const empSigTokens = empNonConn.filter(
+        (t) => t.length >= 3 && !GENERIC_ROLE_TOKENS.has(t)
+      )
+      const empFirst = empNonConn[0] || ''
+
+      let empTotalPunchDays = 0
+      for (const d of emp.days || []) {
+        const dKey = String(d?.date || '').slice(0, 10)
+        if (!dKey) continue
+        if (
+          d.clockInTime ||
+          d.clockOutTime ||
+          Number(d.totalHours || 0) > 0 ||
+          (Array.isArray(d.punches) && d.punches.length > 0)
+        ) {
+          empTotalPunchDays++
+        }
+      }
+      empPunchDaysByUserId.set(emp.employeeUserId, empTotalPunchDays)
+
+      for (const cand of initialUnclaimed) {
+        const rawToast = ctx.toastById.get(cand.id)
+        const candGuids = Array.from(
+          new Set(
+            [cand.toast_guid, rawToast?.v2_toast_guid].filter((g): g is string => Boolean(g))
+          )
+        )
+        const candPrimaryNonConn = extractNonConnectorTokens(
+          `${cand.first_name || ''} ${cand.last_name || ''}`
+        )
+        const candFullNonConn = extractNonConnectorTokens(cand.full_name)
+        const candChosenNonConn = rawToast?.chosen_name
+          ? extractNonConnectorTokens(`${rawToast.chosen_name} ${cand.last_name || ''}`)
+          : []
+        const candTokenLists = [
+          candPrimaryNonConn,
+          candFullNonConn,
+          candChosenNonConn,
+        ].filter((arr) => arr.length > 0)
+
+        const candSigSet = new Set<string>()
+        for (const arr of candTokenLists) {
+          for (const t of arr) {
+            if (t.length >= 3 && !GENERIC_ROLE_TOKENS.has(t)) candSigSet.add(t)
+          }
+        }
+        const candSigTokens = Array.from(candSigSet)
+
+        const directFirstTokenMatch =
+          empFirst.length >= 3 &&
+          !GENERIC_ROLE_TOKENS.has(empFirst) &&
+          candTokenLists.some((arr) => arr[0] === empFirst)
+
+        const initialSecondMatch =
+          empNonConn.length >= 2 &&
+          empNonConn[1].length >= 3 &&
+          !GENERIC_ROLE_TOKENS.has(empNonConn[1]) &&
+          candTokenLists.some(
+            (arr) =>
+              arr.length >= 2 &&
+              arr[0][0] === empNonConn[0][0] &&
+              (arr[1] === empNonConn[1] ||
+                (arr[1].length >= 5 &&
+                  empNonConn[1].length >= 5 &&
+                  arr[1][0] === empNonConn[1][0] &&
+                  levenshteinDistance(arr[1], empNonConn[1]) <= 2))
+          )
+
+        const firstTokenMatch = directFirstTokenMatch || initialSecondMatch
+        const exactTokenHits = empSigTokens.filter((t) => candSigSet.has(t)).length
+        const fuzzyTokenHits = empSigTokens.filter(
+          (t1) =>
+            t1.length >= 5 &&
+            !candSigSet.has(t1) &&
+            candSigTokens.some(
+              (t2) =>
+                t2.length >= 5 && t1[0] === t2[0] && levenshteinDistance(t1, t2) <= 2
+            )
+        ).length
+
+        const rawEmail = String(cand.email || rawToast?.email || '')
+          .trim()
+          .toLowerCase()
+        const emailLocalClean = rawEmail.includes('@')
+          ? rawEmail.split('@')[0].replace(/[^a-z0-9]/g, '')
+          : ''
+        const emailTokenHits =
+          emailLocalClean.length >= 3
+            ? Array.from(new Set(empSigTokens)).filter((t) => emailLocalClean.includes(t))
+                .length
+            : 0
+
+        const sim = Math.max(
+          calculateNameSimilarity(emp.fullName, cand.full_name),
+          calculateNameSimilarity(
+            emp.fullName,
+            `${cand.first_name || ''} ${cand.last_name || ''}`.trim()
+          ),
+          rawToast?.chosen_name
+            ? calculateNameSimilarity(
+                emp.fullName,
+                `${rawToast.chosen_name} ${cand.last_name || ''}`.trim()
+              )
+            : 0
+        )
+
+        let matchingPunchDaysCount = 0
+        let dualPunchDaysCount = 0
+        let conflictingPunchDaysCount = 0
+
+        for (const d of emp.days || []) {
+          const dKey = String(d?.date || '').slice(0, 10)
+          if (!dKey) continue
+          const ronosInMin = toBusinessDayMinutes(parseTimeInLA(d.clockInTime, dKey))
+          if (ronosInMin === null) continue
+          const ronosOutMin = toBusinessDayMinutes(parseTimeInLA(d.clockOutTime, dKey))
+          const ronosLunchRaw =
+            d.lunchStartTime ||
+            (Array.isArray((d as any).mealBreaks) && (d as any).mealBreaks[0]?.startTime) ||
+            null
+          const ronosLunchMin = toBusinessDayMinutes(parseTimeInLA(ronosLunchRaw, dKey))
+
+          const dayToastPunches: ToastPunchRecordInput[] = []
+          for (const g of candGuids) {
+            const tList =
+              ctx.punchesByStoreDateGuid.get(`${storeExtId}::${dKey}::${g}`) || []
+            dayToastPunches.push(...tList)
+          }
+          if (dayToastPunches.length === 0) continue
+
+          let dayInMatched = false
+          let dayDualMatched = false
+          let minInDiff = Infinity
+
+          for (const tp of dayToastPunches) {
+            const toastInMin = toBusinessDayMinutes(
+              parseTimeInLA(tp.clock_in || tp.in_date || tp.clockInTime, dKey)
+            )
+            const toastOutMin = toBusinessDayMinutes(
+              parseTimeInLA(tp.clock_out || tp.out_date || tp.clockOutTime, dKey)
+            )
+            let toastLunchMin: number | null = null
+            if (Array.isArray(tp.breaks)) {
+              const unpaidBreak = tp.breaks.find((b) => b && b.paid !== true && b.inDate)
+              if (unpaidBreak?.inDate) {
+                toastLunchMin = toBusinessDayMinutes(
+                  parseTimeInLA(unpaidBreak.inDate, dKey)
+                )
+              }
+            }
+
+            if (toastInMin !== null) {
+              const inDiff = Math.abs(ronosInMin - toastInMin)
+              if (inDiff < minInDiff) minInDiff = inDiff
+              if (inDiff <= 5) {
+                dayInMatched = true
+                const outMatched =
+                  ronosOutMin !== null &&
+                  toastOutMin !== null &&
+                  (Math.abs(ronosOutMin - toastOutMin) <= 10 ||
+                    (toastOutMin >= 1790 &&
+                      toastOutMin <= 1805 &&
+                      ronosOutMin < toastOutMin))
+                const lunchMatched =
+                  ronosLunchMin !== null &&
+                  toastLunchMin !== null &&
+                  Math.abs(ronosLunchMin - toastLunchMin) <= 5
+                if (outMatched || lunchMatched) {
+                  dayDualMatched = true
+                }
+              }
+            }
+          }
+
+          if (dayInMatched) {
+            matchingPunchDaysCount++
+            if (dayDualMatched) dualPunchDaysCount++
+          } else if (minInDiff < Infinity && minInDiff > 30) {
+            conflictingPunchDaysCount++
+          }
+        }
+
+        const isLevelC1 = emailTokenHits >= 2 && conflictingPunchDaysCount === 0
+        const isLevelC2 =
+          matchingPunchDaysCount >= 1 &&
+          (dualPunchDaysCount >= 1 || matchingPunchDaysCount >= 1) &&
+          (firstTokenMatch ||
+            initialSecondMatch ||
+            exactTokenHits >= 1 ||
+            fuzzyTokenHits >= 1 ||
+            emailTokenHits >= 1 ||
+            sim >= 50)
+
+        if (isLevelC1 || isLevelC2) {
+          const score =
+            dualPunchDaysCount * 100 +
+            matchingPunchDaysCount * 40 +
+            (firstTokenMatch ? 30 : 0) +
+            emailTokenHits * 25 +
+            exactTokenHits * 15 +
+            fuzzyTokenHits * 15 +
+            sim
+          candidateEdges.push({ emp, meta, cand, score })
+        }
+      }
+    }
+
+    // Candado bipartite 1-a-1 obligatorio para Nivel C1 y Nivel C2 (ganador mutuo único sin empate)
+    while (candidateEdges.length > 0) {
+      const cIds = claimedIdsByCompany.get(companyId) || new Set<string>()
+      const cGuids = claimedGuidsByCompany.get(companyId) || new Set<string>()
+      const activeEdges = candidateEdges.filter(
+        (e) =>
+          !e.meta.toastEmployeeId &&
+          !cIds.has(e.cand.id) &&
+          (!e.cand.toast_guid || !cGuids.has(e.cand.toast_guid))
+      )
+      if (activeEdges.length === 0) break
+
+      const bestByEmp = new Map<number, { maxScore: number; count: number }>()
+      const bestByCand = new Map<string, { maxScore: number; count: number }>()
+
+      for (const e of activeEdges) {
+        const curEmp = bestByEmp.get(e.emp.employeeUserId)
+        if (!curEmp || e.score > curEmp.maxScore) {
+          bestByEmp.set(e.emp.employeeUserId, { maxScore: e.score, count: 1 })
+        } else if (e.score === curEmp.maxScore) {
+          curEmp.count++
+        }
+
+        const curCand = bestByCand.get(e.cand.id)
+        if (!curCand || e.score > curCand.maxScore) {
+          bestByCand.set(e.cand.id, { maxScore: e.score, count: 1 })
+        } else if (e.score === curCand.maxScore) {
+          curCand.count++
+        }
+      }
+
+      const mutualWinners = activeEdges
+        .filter((e) => {
+          const bEmp = bestByEmp.get(e.emp.employeeUserId)
+          const bCand = bestByCand.get(e.cand.id)
+          return (
+            bEmp &&
+            bCand &&
+            bEmp.maxScore === e.score &&
+            bEmp.count === 1 &&
+            bCand.maxScore === e.score &&
+            bCand.count === 1
+          )
+        })
+        .sort((a, b) => b.score - a.score)
+
+      if (mutualWinners.length === 0) break
+
+      for (const win of mutualWinners) {
+        if (win.meta.toastEmployeeId) continue
+        const curIds = claimedIdsByCompany.get(companyId) || new Set<string>()
+        const curGuids = claimedGuidsByCompany.get(companyId) || new Set<string>()
+        if (
+          curIds.has(win.cand.id) ||
+          (win.cand.toast_guid && curGuids.has(win.cand.toast_guid))
+        ) {
+          continue
+        }
+        assignCandidateToMeta(win.emp, companyId, win.meta, win.cand)
+      }
+    }
+
+    // Nivel C3 (Singleton de Gerente / Turno sin ponchadas de reloj o candidato corporativo sin ponchadas Toast)
+    const remUnmatchedEmps = getUnmatchedEmps()
+    const remUnclaimedCands = getUnclaimedCands()
+    if (remUnmatchedEmps.length > 0 && remUnclaimedCands.length > 0) {
+      for (const emp of remUnmatchedEmps) {
+        const empFirst = extractNonConnectorTokens(emp.fullName)[0] || ''
+        if (empFirst.length < 4 || GENERIC_ROLE_TOKENS.has(empFirst)) continue
+
+        const sameFirstEmps = remUnmatchedEmps.filter(
+          (e2) => (extractNonConnectorTokens(e2.fullName)[0] || '') === empFirst
+        )
+        if (sameFirstEmps.length > 1) {
+          const activeSameFirst = sameFirstEmps.filter(
+            (e2) => (empPunchDaysByUserId.get(e2.employeeUserId) || 0) > 0
+          )
+          if (activeSameFirst.length !== 1 || activeSameFirst[0].employeeUserId !== emp.employeeUserId) {
+            continue
+          }
+        }
+
+        const activeMatchingCands = remUnclaimedCands.filter((cand) => {
+          const rawToast = ctx.toastById.get(cand.id)
+          const candGuids = Array.from(
+            new Set([cand.toast_guid, rawToast?.v2_toast_guid].filter((g): g is string => Boolean(g)))
+          )
+          const cFirsts = new Set(
+            [
+              extractNonConnectorTokens(`${cand.first_name || ''} ${cand.last_name || ''}`)[0],
+              extractNonConnectorTokens(cand.full_name)[0],
+              rawToast?.chosen_name ? extractNonConnectorTokens(rawToast.chosen_name)[0] : '',
+            ].filter(Boolean)
+          )
+          if (!cFirsts.has(empFirst)) return false
+          const email = String(cand.email || rawToast?.email || '').trim().toLowerCase()
+          const isCorpEmail = email.endsWith('@tacosgavilan.com')
+          const hasShifts = periodDates.some((pDate) => {
+            const dayShifts = ctx.shiftsByStoreAndDate.get(`${storeExtId}::${pDate}`) || []
+            return dayShifts.some((s) => String(s.employee_id) === cand.id)
+          })
+          if (!isCorpEmail && !hasShifts) return false
+
+          const empHasPunches = (empPunchDaysByUserId.get(emp.employeeUserId) || 0) > 0
+          if (!empHasPunches || isCorpEmail) return true
+
+          const candHasToastPunches = periodDates.some((pDate) =>
+            candGuids.some(
+              (g) => (ctx.punchesByStoreDateGuid.get(`${storeExtId}::${pDate}::${g}`) || []).length > 0
+            )
+          )
+          return !candHasToastPunches
+        })
+
+        if (activeMatchingCands.length === 1) {
+          const meta = resolvedMetaByCompanyEmp.get(`${companyId}::${emp.employeeUserId}`)!
+          assignCandidateToMeta(emp, companyId, meta, activeMatchingCands[0])
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -1470,6 +1954,157 @@ export async function enrichStoreAuditWithNhpPolicy(
     return gapCtx
   }
 
+  // 2b. Calcular contexto de ventas horarias (StoreDayHourlySalesContext) y cohorte de salidas tempranas por (companyId, businessDate)
+  const salesContextCache = new Map<string, StoreDayHourlySalesContext | null>()
+  const getSalesContext = (
+    companyId: number,
+    businessDate: string
+  ): StoreDayHourlySalesContext | null => {
+    const cacheKey = `${companyId}::${businessDate}`
+    if (salesContextCache.has(cacheKey)) {
+      return salesContextCache.get(cacheKey)!
+    }
+    const storeRow = ctx.storesByCompanyId.get(companyId)
+    if (!storeRow?.external_id) {
+      salesContextCache.set(cacheKey, null)
+      return null
+    }
+    const storeKey = storeRow.external_id.trim().toLowerCase()
+    const curRow = ctx.salesCacheByStoreAndDate.get(`${storeKey}::${businessDate}`) || null
+    const priorRows = [-7, -14, -21, -28]
+      .map((off) => ctx.salesCacheByStoreAndDate.get(`${storeKey}::${addDaysIso(businessDate, off)}`))
+      .filter((r) => Boolean(r) && Number(r.net_sales || 0) > 0)
+
+    if (!curRow && priorRows.length === 0) {
+      salesContextCache.set(cacheKey, null)
+      return null
+    }
+
+    const dailyNetSales =
+      curRow && Number(curRow.net_sales || 0) > 0 ? Number(curRow.net_sales) : null
+    const avgDailyNetSales4Weeks =
+      priorRows.length > 0
+        ? Number(
+            (
+              priorRows.reduce((acc, r) => acc + Number(r.net_sales || 0), 0) / priorRows.length
+            ).toFixed(2)
+          )
+        : null
+    const dailySalesRatio =
+      dailyNetSales !== null && avgDailyNetSales4Weeks !== null && avgDailyNetSales4Weeks > 0
+        ? Number((dailyNetSales / avgDailyNetSales4Weeks).toFixed(4))
+        : null
+
+    const salesByHour: Record<number, number> = {}
+    const avgSalesByHour: Record<number, number> = {}
+    const ticketsByHour: Record<number, number> = {}
+    const laborPctByHour: Record<number, number> = {}
+
+    for (let h = 0; h < 24; h++) {
+      const hKey = String(h)
+      if (curRow?.hourly_data && (curRow.hourly_data[h] !== undefined || curRow.hourly_data[hKey] !== undefined)) {
+        const sVal = Number(curRow.hourly_data[h] ?? curRow.hourly_data[hKey] ?? 0)
+        salesByHour[h] = sVal
+        if (
+          sVal > 0 &&
+          curRow?.hourly_labor &&
+          (curRow.hourly_labor[h] !== undefined || curRow.hourly_labor[hKey] !== undefined)
+        ) {
+          const lCost = Number(curRow.hourly_labor[h] ?? curRow.hourly_labor[hKey] ?? 0)
+          laborPctByHour[h] = Number(((lCost / sVal) * 100).toFixed(2))
+        }
+      }
+      if (
+        curRow?.hourly_tickets &&
+        (curRow.hourly_tickets[h] !== undefined || curRow.hourly_tickets[hKey] !== undefined)
+      ) {
+        ticketsByHour[h] = Number(curRow.hourly_tickets[h] ?? curRow.hourly_tickets[hKey] ?? 0)
+      }
+      const pHourVals = priorRows
+        .filter(
+          (r) =>
+            r?.hourly_data && (r.hourly_data[h] !== undefined || r.hourly_data[hKey] !== undefined)
+        )
+        .map((r) => Number(r.hourly_data[h] ?? r.hourly_data[hKey] ?? 0))
+      if (pHourVals.length > 0) {
+        avgSalesByHour[h] = Number(
+          (pHourVals.reduce((a, b) => a + b, 0) / pHourVals.length).toFixed(2)
+        )
+      }
+    }
+
+    const salesCtx: StoreDayHourlySalesContext = {
+      businessDate,
+      dailyNetSales,
+      netSales: dailyNetSales,
+      avgDailyNetSales4Weeks,
+      avgDailyNetSales: avgDailyNetSales4Weeks,
+      dailySalesRatio,
+      salesByHour,
+      avgSalesByHour,
+      ticketsByHour,
+      laborPctByHour,
+    }
+    salesContextCache.set(cacheKey, salesCtx)
+    return salesCtx
+  }
+
+  const earlyOutCohortCache = new Map<string, number>()
+  const getEarlyOutCohortCount = (companyId: number, businessDate: string): number => {
+    const cacheKey = `${companyId}::${businessDate}`
+    if (earlyOutCohortCache.has(cacheKey)) {
+      return earlyOutCohortCache.get(cacheKey)!
+    }
+    const storeRow = ctx.storesByCompanyId.get(companyId)
+    if (!storeRow?.external_id) {
+      earlyOutCohortCache.set(cacheKey, 0)
+      return 0
+    }
+    const storeEmployees = employees.filter(
+      (e: any) => Number(e.companyId || storeAudit.ronosCompanyId) === companyId
+    )
+    let count = 0
+    for (const e of storeEmployees) {
+      const m =
+        resolvedMetaByCompanyEmp.get(`${companyId}::${e.employeeUserId}`) ||
+        resolvedMetaByEmployee.get(e.employeeUserId)
+      if (!m || m.isInactiveMapping || m.isSalaried || !m.toastEmployeeId) continue
+      const dayRec = (e.days || []).find(
+        (d) => String(d?.date || '').slice(0, 10) === businessDate
+      )
+      if (!dayRec?.clockInTime || !dayRec?.clockOutTime) continue
+      const shifts = getPlannerShiftsForEmployeeDate(m, storeRow.external_id, businessDate, ctx)
+      const shiftSum = summarizePlannerShiftForDay(shifts, businessDate)
+      if (!shiftSum.hasPublishedShift || !shiftSum.startTimeIso || !shiftSum.endTimeIso) continue
+      const sStartP = parseTimeInLA(shiftSum.startTimeIso, businessDate)
+      const sEndP = parseTimeInLA(shiftSum.endTimeIso, businessDate)
+      const rOutP = parseTimeInLA(dayRec.clockOutTime, businessDate)
+      if (!sStartP || !sEndP || !rOutP) continue
+      if (sStartP.minuteOfDay === sEndP.minuteOfDay) continue
+      let schedEndMin = sEndP.relativeMinutesFromBizDate
+      if (schedEndMin < sStartP.relativeMinutesFromBizDate) schedEndMin += 1440
+      let actualOutMin = rOutP.relativeMinutesFromBizDate
+      if (actualOutMin < sStartP.relativeMinutesFromBizDate - 120) actualOutMin += 1440
+      const endDiff = actualOutMin - schedEndMin
+      if (endDiff <= -15) {
+        const tPunches = getToastPunchesForEmployeeDate(m, storeRow.external_id, businessDate, ctx)
+        const tSum = summarizeToastPunchesForDay(tPunches, businessDate)
+        let toastMuchLater = false
+        if (tSum.hasToastPunches && tSum.clockOutTime && !tSum.isAutoClockOut) {
+          const tOutP = parseTimeInLA(tSum.clockOutTime, businessDate)
+          if (tOutP) {
+            let tOutMin = tOutP.relativeMinutesFromBizDate
+            if (tOutMin < sStartP.relativeMinutesFromBizDate - 120) tOutMin += 1440
+            if (tOutMin - actualOutMin >= 15) toastMuchLater = true
+          }
+        }
+        if (!toastMuchLater) count++
+      }
+    }
+    earlyOutCohortCache.set(cacheKey, count)
+    return count
+  }
+
   // 3. Evaluar cada colaborador y enriquecer sus días
   const asOfDate = options?.asOfDate || new Date()
   const nowPacificBusinessDate = getPacificBusinessDate(asOfDate)
@@ -1486,6 +2121,8 @@ export async function enrichStoreAuditWithNhpPolicy(
     noShowCount: 0,
     medicalNoteAlertsCount: 0,
     authorizedEarlyCallIns: 0,
+    authorizedEarlyOuts: 0,
+    voluntaryExtendedStays: 0,
     exemptSalariedCount: 0,
   }
 
@@ -1556,6 +2193,8 @@ export async function enrichStoreAuditWithNhpPolicy(
       noShowCount: 0,
       medicalNoteAlertsCount: 0,
       authorizedEarlyCallInsCount: 0,
+      authorizedEarlyOutsCount: 0,
+      voluntaryExtendedStaysCount: 0,
       totalActiveViolationsCount: 0,
     }
 
@@ -1644,6 +2283,8 @@ export async function enrichStoreAuditWithNhpPolicy(
 
       const scheduleEntry = getScheduleEntryForEmployeeDate(meta, storeRow?.id, dKey, ctx)
       const coverageCtx = getCoverageContext(empCompanyId, dKey)
+      const salesCtx = getSalesContext(empCompanyId, dKey)
+      const earlyOutCohortCount = getEarlyOutCohortCount(empCompanyId, dKey)
       const historyDays = buildSickHistoryDays(emp.days || [], meta, storeRow, dKey, ctx)
 
       const hasOpenClockInToday =
@@ -1664,6 +2305,8 @@ export async function enrichStoreAuditWithNhpPolicy(
         scheduledShifts,
         toastPunches,
         storeCoverageContext: coverageCtx,
+        storeSalesContext: salesCtx,
+        earlyOutCohortCount,
         scheduleEntry,
         historyDays,
         isCurrentOpenShift: hasOpenClockInToday,
@@ -1676,6 +2319,15 @@ export async function enrichStoreAuditWithNhpPolicy(
       if (evalResult.isAuthorizedEarlyCallIn) {
         empNhpSummary.authorizedEarlyCallInsCount++
         storeMetrics.authorizedEarlyCallIns++
+      }
+      if (evalResult.isAuthorizedVoluntaryEarlyOut) {
+        empNhpSummary.authorizedEarlyOutsCount = (empNhpSummary.authorizedEarlyOutsCount || 0) + 1
+        storeMetrics.authorizedEarlyOuts = (storeMetrics.authorizedEarlyOuts || 0) + 1
+      }
+      if (evalResult.isVoluntaryExtendedStay) {
+        empNhpSummary.voluntaryExtendedStaysCount =
+          (empNhpSummary.voluntaryExtendedStaysCount || 0) + 1
+        storeMetrics.voluntaryExtendedStays = (storeMetrics.voluntaryExtendedStays || 0) + 1
       }
 
       for (const v of evalResult.violations) {

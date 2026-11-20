@@ -17,6 +17,10 @@
  * @dataFlow
  * - Vercel Cron (`0 12 * * 1`) -> `stores` + `punches` + `toast_employees` -> `evaluatePunchBreakViolation` ->
  *   HTML ejecutivo con KPIs y agrupación por Supervisor -> `sendSystemEmail`.
+ *
+ * @notes
+ * - Especifica explícitamente en encabezado y asunto que audita `PLANIFICADOR (EXCLUSIVO TOAST POS)`,
+ *   diferenciándolo de las tarjetas de nómina de RONOS (Cingular HR).
  */
 
 import { NextResponse } from 'next/server'
@@ -232,8 +236,8 @@ export async function GET(req: Request) {
         const htmlBody = `
             <div style="font-family: Arial, Helvetica, sans-serif; color: #333; max-width: 860px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
                 <div style="background-color: #b91c1c; color: #ffffff; padding: 24px 20px; text-align: center;">
-                    <div style="font-size: 13px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.9; margin-bottom: 4px;">TACOS GAVILAN</div>
-                    <h1 style="margin: 0; font-size: 22px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">Reporte Semanal de Infracciones: Breaks y Lunches</h1>
+                    <div style="font-size: 13px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.9; margin-bottom: 4px;">TACOS GAVILAN • PLANIFICADOR (EXCLUSIVO TOAST POS)</div>
+                    <h1 style="margin: 0; font-size: 22px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">Reporte Semanal de Infracciones: Breaks y Lunches (Toast POS)</h1>
                     <p style="margin: 8px 0 0 0; opacity: 0.95; font-size: 14px;">Semana del ${escapeHtmlSafe(formatBusinessDateEs(mondayStr))} al ${escapeHtmlSafe(formatBusinessDateEs(sundayStr))}</p>
                 </div>
 
@@ -353,7 +357,7 @@ export async function GET(req: Request) {
             fromName: 'Sistema de Monitoreo',
             to: recipientsToSend.join(', '),
             bcc: isTest ? undefined : 'carlos@tacosgavilan.com',
-            subject: `${subjectPrefix}📊 Reporte Semanal de Infracciones de Break y Lunch (${mondayStr} a ${sundayStr})`,
+            subject: `${subjectPrefix}📊 Planificador (Toast POS): Reporte Semanal de Breaks y Lunches (${mondayStr} a ${sundayStr})`,
             html: htmlBody,
         })
 

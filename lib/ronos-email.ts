@@ -210,9 +210,9 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
               <table width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td>
-                    <span style="font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">TACOS GAVILAN</span>
+                    <span style="font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)</span>
                     <span style="display: block; font-size: 12px; color: #fecaca; font-weight: 600; text-transform: uppercase; margin-top: 2px;">
-                      Dirección de Recursos Humanos & Operaciones • Auditoría Laboral
+                      Dirección de Recursos Humanos & Operaciones • Auditoría de Reloj de Nómina RONOS
                     </span>
                   </td>
                   <td align="right">
@@ -232,7 +232,7 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
                 <tr>
                   <td width="28" valign="top" style="font-size: 18px;">⚠️</td>
                   <td style="font-size: 13px; color: #9f1239; font-weight: 600; line-height: 1.4;">
-                    <strong>Monitoreo Automatizado Activo:</strong> El sistema de auditoría laboral de Tacos Gavilan monitorea de forma continua todos los registros, entradas, descansos y salidas en el reloj checador.
+                    <strong>Monitoreo Automatizado Activo — Reloj de Nómina RONOS (Cingular HR):</strong> Este aviso proviene del módulo oficial de nómina RONOS (Cingular HR), el cual registra las horas para su cheque de pago y es independiente del sistema operativo de tienda Toast POS (Planificador), aunque sus entradas, comidas y salidas deberían coincidir en ambos sistemas.
                   </td>
                 </tr>
               </table>
@@ -389,7 +389,7 @@ export async function sendRonosViolationWarningEmail(payload: RonosViolationEmai
   const recipientsCc = escalera.allCcEmails.filter(e => e && e.includes('@'))
 
   try {
-    const subject = `⚠️ Aviso Oficial de Incumplimiento Laboral en Registro de Ponchadas — Tacos Gavilan ${storeName}`
+    const subject = `⚠️ Nómina RONOS (Cingular HR): Aviso Oficial de Incumplimiento Laboral en Registro de Ponchadas — Tacos Gavilan ${storeName}`
     const htmlContent = generateViolationWarningEmailHtml(payload, escalera)
 
     const info = await sendSystemEmail({

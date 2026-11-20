@@ -94,6 +94,7 @@ export interface ToastPunchSummary {
   lunchStartLA?: string | null
   lunchEndLA?: string | null
   lunchDurationMinutes?: number | null
+  isAutoClockOut?: boolean
   restBreaksCount: number
   totalHoursToast: number
   rawPunchesCount: number
@@ -125,6 +126,11 @@ export interface RonosDayAttendanceEvaluation {
   isAuthorizedEarlyCallIn: boolean
   exemptionReason: string | null
   earlyCallInSignals: string[]
+  isVoluntaryExtendedStay?: boolean
+  extendedStayMinutes?: number | null
+  voluntaryExtendedStayNote?: string | null
+  isAuthorizedVoluntaryEarlyOut?: boolean
+  authorizedEarlyOutReason?: string | null
   hasToastRonosDiscrepancy: boolean
   discrepancyDetails: string[]
   requiresMedicalNote: boolean
@@ -161,6 +167,8 @@ export interface EmployeeNhpSummary {
   noShowCount: number
   medicalNoteAlertsCount: number
   authorizedEarlyCallInsCount: number
+  authorizedVoluntaryEarlyOutsCount?: number
+  voluntaryExtendedStaysCount?: number
   totalActiveViolationsCount: number
 }
 
@@ -175,6 +183,8 @@ export interface StoreNhpAuditSummary {
   noShowCount: number
   medicalNoteAlertsCount: number
   authorizedEarlyCallIns: number
+  authorizedVoluntaryEarlyOuts?: number
+  voluntaryExtendedStays?: number
   exemptSalariedCount: number
 }
 

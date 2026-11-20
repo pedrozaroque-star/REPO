@@ -20,6 +20,8 @@
  * @notes
  * - Usa minutos enteros cumplidos (`Math.floor(durationSeconds / 60)`) para evitar discrepancias de redondeo
  *   entre el umbral exacto de segundos y el número entero impreso en pantalla/correo.
+ * - Todos los correos y reportes generados por este módulo especifican de forma explícita que corresponden a
+ *   `PLANIFICADOR (EXCLUSIVO TOAST POS)`, diferenciándolos de la tarjeta oficial de nómina en RONOS (Cingular HR).
  */
 
 export const AUTHORIZED_BREAK_MINUTES = 10
@@ -217,23 +219,27 @@ export function buildEmployeeBreakViolationEmailHtml(params: {
 
     const excessMinutes = Math.max(1, actualMinutes - allowedMinutes)
     const typeName = type === 'BRK' ? 'Break de 10 minutos' : 'Lunch de 30 minutos'
-    const subject = `⚠️ Aviso Oficial de Tiempo Excedido en ${typeName} — ${storeName}`
+    const subject = `⚠️ Planificador (Toast POS): Aviso de Tiempo Excedido en ${typeName} — ${storeName}`
 
     const html = `
         <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
             <div style="background-color: #b91c1c; color: #ffffff; padding: 22px 20px; text-align: center;">
-                <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.9; margin-bottom: 4px;">TACOS GAVILAN • CONTROL DE ASISTENCIA</div>
-                <h2 style="margin: 0; font-size: 20px; font-weight: 800; text-transform: uppercase;">Aviso de Tiempo Excedido</h2>
+                <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.9; margin-bottom: 4px;">TACOS GAVILAN • PLANIFICADOR (EXCLUSIVO TOAST POS)</div>
+                <h2 style="margin: 0; font-size: 20px; font-weight: 800; text-transform: uppercase;">Aviso de Tiempo Excedido (Toast POS)</h2>
                 <p style="margin: 6px 0 0 0; opacity: 0.95; font-size: 13px;">Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong></p>
             </div>
             <div style="padding: 24px;">
                 <p style="font-size: 15px; margin-top: 0;">Hola <strong>${escapeHtmlSafe(employeeName)}</strong>,</p>
                 <p style="font-size: 14px; line-height: 1.6; color: #374151;">
-                    El sistema de control de tiempo registró que excediste la duración autorizada de tu <strong>${escapeHtmlSafe(typeName)}</strong> correspondiente a la jornada del <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong>.
+                    En la terminal de Toast POS se registró que excediste la duración autorizada de tu <strong>${escapeHtmlSafe(typeName)}</strong> correspondiente a la jornada del <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong>.
                 </p>
 
+                <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; border-radius: 8px; padding: 12px 14px; margin: 16px 0; font-size: 13px; color: #1e3a8a; line-height: 1.55;">
+                    🖥️ <strong>Exclusivo Sistema Toast POS (Planificador):</strong> Este aviso proviene únicamente de tus ponchadas operativas de Break/Lunch registradas en Toast POS. Es independiente de tu tarjeta oficial de pago en RONOS (Cingular HR).
+                </div>
+
                 <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin: 20px 0;">
-                    <p style="margin: 0 0 8px 0; font-weight: 700; color: #991b1b; font-size: 14px;">Detalle oficial de tu ponchada en Toast POS:</p>
+                    <p style="margin: 0 0 8px 0; font-weight: 700; color: #991b1b; font-size: 14px;">Detalle oficial de tu ponchada en la terminal de Toast POS:</p>
                     <ul style="margin: 0; padding-left: 20px; color: #1f2937; font-size: 14px; line-height: 1.7;">
                         <li>Hora de salida: <strong>${escapeHtmlSafe(formatTimeLA(inDate))}</strong></li>
                         <li>Hora de regreso: <strong>${escapeHtmlSafe(formatTimeLA(outDate))}</strong></li>
@@ -244,11 +250,11 @@ export function buildEmployeeBreakViolationEmailHtml(params: {
 
                 <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin: 18px 0; font-size: 13px; color: #334155; line-height: 1.6;">
                     <strong>Compromiso y Responsabilidad Individual:</strong><br/>
-                    En <strong>Tacos Gavilan</strong> es responsabilidad directa de cada colaborador controlar su tiempo y registrar su regreso puntualmente al cumplirse los <strong>${allowedMinutes} minutos</strong> autorizados, respetando el turno de relevo de sus compañeros y la operación de la tienda. Tu Gerente de Tienda ha recibido copia de este registro para darle seguimiento directo contigo.
+                    En <strong>Tacos Gavilan</strong> es responsabilidad directa de cada colaborador controlar su tiempo y registrar su regreso puntualmente en la terminal de Toast POS al cumplirse los <strong>${allowedMinutes} minutos</strong> autorizados, respetando el turno de relevo de sus compañeros y la operación de la tienda. Tu Gerente de Tienda ha recibido copia de este registro para darle seguimiento directo contigo.
                 </div>
 
                 <p style="font-size: 13px; color: #475569; line-height: 1.5;">
-                    Si tuviste alguna incidencia legítima en el reloj checador, repórtalo de inmediato con tu Gerente de Tienda${managerContactEmail ? ` (<a href="mailto:${escapeHtmlSafe(managerContactEmail)}" style="color: #b91c1c; font-weight: 600;">${escapeHtmlSafe(managerContactEmail)}</a>)` : ''}.
+                    Si tuviste alguna incidencia legítima en la terminal de Toast POS, repórtalo de inmediato con tu Gerente de Tienda${managerContactEmail ? ` (<a href="mailto:${escapeHtmlSafe(managerContactEmail)}" style="color: #b91c1c; font-weight: 600;">${escapeHtmlSafe(managerContactEmail)}</a>)` : ''}.
                 </p>
 
                 <div style="border-top: 1px solid #e5e7eb; margin-top: 22px; padding-top: 14px; font-size: 12px; color: #6b7280;">
@@ -321,21 +327,21 @@ export function buildManagerDailyViolationReportHtml(params: {
         })
         .join('')
 
-    const subject = `📋 Acción Gerencial Requerida: Excesos de Break/Lunch en ${storeName} (${businessDate})`
+    const subject = `📋 Planificador (Toast POS): Acción Gerencial por Breaks/Lunches — ${storeName} (${businessDate})`
 
     const html = `
         <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 820px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
             <div style="background-color: #1e293b; color: #ffffff; padding: 22px 20px; text-align: center;">
-                <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #fca5a5; margin-bottom: 4px;">TACOS GAVILAN • AUDITORÍA DIARIA DE TIENDA</div>
-                <h2 style="margin: 0; text-transform: uppercase; font-size: 19px; font-weight: 800;">Reporte Diario de Control de Breaks y Lunches</h2>
+                <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #fca5a5; margin-bottom: 4px;">TACOS GAVILAN • PLANIFICADOR (EXCLUSIVO TOAST POS)</div>
+                <h2 style="margin: 0; text-transform: uppercase; font-size: 19px; font-weight: 800;">Reporte Diario de Control de Breaks y Lunches (Toast POS)</h2>
                 <p style="margin: 6px 0 0 0; opacity: 0.95; font-size: 14px;">Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong> — Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong></p>
-                <p style="margin: 4px 0 0 0; font-size: 11px; opacity: 0.75;">${isManualDispatch ? 'Despacho oficial inmediato registrado en el sistema.' : 'Despacho diario automático tras el cierre de la ventana matutina de revisión.'}</p>
+                <p style="margin: 4px 0 0 0; font-size: 11px; opacity: 0.75;">${isManualDispatch ? 'Despacho oficial inmediato registrado en la terminal de Toast POS.' : 'Despacho diario automático tras el cierre de la ventana matutina de revisión en Toast POS.'}</p>
             </div>
 
             <div style="padding: 24px;">
                 <p style="margin-top: 0; font-size: 15px;"><strong>Estimado(a) Gerente de Tienda (${escapeHtmlSafe(storeName)}):</strong></p>
                 <p style="color: #374151; font-size: 14px; line-height: 1.6;">
-                    Durante la jornada del <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> se registraron los siguientes excesos sobre los tiempos oficiales autorizados de descanso (<strong>10 minutos en Break</strong> y <strong>30 minutos en Lunch</strong>). Como Gerente de Tienda, es tu responsabilidad directa revisar cada caso hoy mismo y tomar acción inmediata con tu personal para evitar que estas situaciones se repitan.
+                    Durante la jornada del <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> se registraron en la terminal de <strong>Toast POS</strong> los siguientes excesos sobre los tiempos oficiales autorizados de descanso (<strong>10 minutos en Break</strong> y <strong>30 minutos en Lunch</strong>). Este reporte audita exclusivamente las ponchadas operativas de Toast POS (Planificador) y es independiente de la tarjeta de nómina de RONOS (Cingular HR). Como Gerente de Tienda, es tu responsabilidad directa revisar cada caso hoy mismo y tomar acción inmediata con tu personal para evitar que estas situaciones se repitan.
                 </p>
 
                 <!-- KPI Summary -->

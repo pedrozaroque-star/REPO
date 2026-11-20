@@ -5355,6 +5355,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                 nhp_source_ronos: "RONOS",
                 nhp_no_shift: "Sin turno publicado",
                 nhp_no_toast: "Sin ponchada Toast",
+                nhp_toast_auto_clockout: "(Auto-cierre POS)",
                 nhp_no_ronos: "Sin ponchada RONOS",
                 nhp_badge_on_time: "A Tiempo (±3 min)",
                 nhp_badge_early_unauth: "Entrada Temprana No Autorizada",
@@ -5386,7 +5387,13 @@ export const dictionaries: Record<Language, Dictionary> = {
                 nhp_hide_daily_breakdown: "Ocultar días",
                 nhp_view_today_crossref: "Cruce de Hoy",
                 nhp_filter_nhp_issues: "Con Alertas NHP",
-                nhp_error_audit: "No se pudo ejecutar la auditoría NHP diaria."
+                nhp_error_audit: "No se pudo ejecutar la auditoría NHP diaria.",
+                nhp_systems_diff_title: "⚖️ Nómina RONOS (Cingular HR) vs Toast POS (Planificador)",
+                nhp_systems_diff_note: "Aunque las ponchadas de entrada, comida (30m) y salida deberían coincidir en ambos relojes, son sistemas distintos: RONOS (Cingular HR) calcula el cheque de pago de nómina; Toast POS (Planificador) registra la operación en tienda y mide Breaks (10m) y Lunches (30m).",
+                nhp_badge_voluntary_early_out: "Salida Anticipada (Baja Venta / Cierre)",
+                nhp_badge_extended_stay: "Permanencia Extendida (+{min}m)",
+                nhp_voluntary_early_out_prefix: "Salida anticipada autorizada:",
+                nhp_extended_stay_prefix: "Permanencia voluntaria:"
             },
             payroll: {
                 title: "Auditoría y Conciliación de Nómina Cingular",
@@ -14506,6 +14513,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                 nhp_source_ronos: "RONOS",
                 nhp_no_shift: "No published shift",
                 nhp_no_toast: "No Toast punch",
+                nhp_toast_auto_clockout: "(POS Auto-Out)",
                 nhp_no_ronos: "No RONOS punch",
                 nhp_badge_on_time: "On Time (±3 min)",
                 nhp_badge_early_unauth: "Unauthorized Early Clock-In",
@@ -14537,7 +14545,13 @@ export const dictionaries: Record<Language, Dictionary> = {
                 nhp_hide_daily_breakdown: "Hide days",
                 nhp_view_today_crossref: "Today's Cross-Check",
                 nhp_filter_nhp_issues: "NHP Alerts",
-                nhp_error_audit: "Could not run the daily NHP audit."
+                nhp_error_audit: "Could not run the daily NHP audit.",
+                nhp_systems_diff_title: "⚖️ RONOS Payroll (Cingular HR) vs Toast POS (Planner)",
+                nhp_systems_diff_note: "Although clock-in, lunch (30m), and clock-out punches should match in both clocks, they are separate systems: RONOS (Cingular HR) calculates the payroll paycheck; Toast POS (Planner) tracks store operations and measures Breaks (10m) and Lunches (30m).",
+                nhp_badge_voluntary_early_out: "Early Clock-Out (Low Sales / Closing)",
+                nhp_badge_extended_stay: "Extended Stay (+{min}m)",
+                nhp_voluntary_early_out_prefix: "Authorized early out:",
+                nhp_extended_stay_prefix: "Voluntary extended stay:"
             },
             payroll: {
                 title: "Cingular Payroll Audit & Reconciliation",

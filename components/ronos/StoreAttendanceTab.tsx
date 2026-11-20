@@ -438,7 +438,7 @@ export default function StoreAttendanceTab({
             </span>
             <span>
               {toast?.hasToastPunches
-                ? `${toast.clockInLA || '--'} – ${toast.clockOutLA || '--'}${toast.lunchStartLA ? ` (L: ${toast.lunchStartLA}-${toast.lunchEndLA || '--'})` : ''}`
+                ? `${toast.clockInLA || '--'} – ${toast.clockOutLA || '--'}${toast.isAutoClockOut ? ` ${t('ronos.attendance.nhp_toast_auto_clockout') || '(Auto-cierre POS)'}` : ''}${toast.lunchStartLA ? ` (L: ${toast.lunchStartLA}-${toast.lunchEndLA || '--'})` : ''}`
                 : (t('ronos.attendance.nhp_no_toast') || 'Sin ponchada Toast')}
             </span>
           </span>
@@ -493,6 +493,43 @@ export default function StoreAttendanceTab({
             <span className="text-[11px] text-sky-700 dark:text-sky-300 font-medium">
               {t('ronos.attendance.nhp_exemption_reason_prefix') || 'No penalizado:'} {ev.exemptionReason}
               {ev.earlyCallInSignals?.length > 0 ? ` (${ev.earlyCallInSignals[0]})` : ''}
+            </span>
+          )}
+
+          {ev?.isAuthorizedVoluntaryEarlyOut && (
+            <span
+              title={ev.authorizedEarlyOutReason || undefined}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-sky-50 text-slate-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800"
+            >
+              <ShieldCheck className="w-3 h-3 shrink-0 text-sky-600 dark:text-sky-400" />
+              <span>{t('ronos.attendance.nhp_badge_voluntary_early_out') || 'Salida Anticipada (Baja Venta / Cierre)'}</span>
+            </span>
+          )}
+
+          {ev?.isAuthorizedVoluntaryEarlyOut && ev.authorizedEarlyOutReason && (
+            <span className="text-[11px] text-slate-600 dark:text-sky-300 font-medium">
+              {t('ronos.attendance.nhp_voluntary_early_out_prefix') || 'Salida anticipada autorizada:'} {ev.authorizedEarlyOutReason}
+            </span>
+          )}
+
+          {ev?.isVoluntaryExtendedStay && (
+            <span
+              title={ev.voluntaryExtendedStayNote || undefined}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800"
+            >
+              <Clock className="w-3 h-3 shrink-0 text-teal-600 dark:text-teal-400" />
+              <span>
+                {(t('ronos.attendance.nhp_badge_extended_stay') || 'Permanencia Extendida (+{min}m)').replace(
+                  '{min}',
+                  String(ev.extendedStayMinutes || 0)
+                )}
+              </span>
+            </span>
+          )}
+
+          {ev?.isVoluntaryExtendedStay && ev.voluntaryExtendedStayNote && (
+            <span className="text-[11px] text-teal-700 dark:text-teal-300 font-medium">
+              {t('ronos.attendance.nhp_extended_stay_prefix') || 'Permanencia voluntaria:'} {ev.voluntaryExtendedStayNote}
             </span>
           )}
 
@@ -801,6 +838,17 @@ export default function StoreAttendanceTab({
               </span>
             </button>
           </div>
+        </div>
+
+        {/* Leyenda de Diferenciación Nómina RONOS (Cingular HR) vs Toast POS (Planificador) */}
+        <div className="p-2.5 rounded-xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/80 dark:border-sky-800/80 text-[11px] text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center gap-1.5">
+          <span className="font-black text-sky-800 dark:text-sky-300 shrink-0">
+            {t('ronos.attendance.nhp_systems_diff_title') || '⚖️ Nómina RONOS (Cingular HR) vs Toast POS (Planificador)'}:
+          </span>
+          <span className="text-slate-600 dark:text-slate-300">
+            {t('ronos.attendance.nhp_systems_diff_note') ||
+              'Aunque las ponchadas de entrada, comida (30m) y salida deberían coincidir en ambos relojes, son sistemas distintos: RONOS (Cingular HR) calcula el cheque de pago de nómina; Toast POS (Planificador) registra la operación en tienda y mide Breaks (10m) y Lunches (30m).'}
+          </span>
         </div>
 
         {/* KPIs Semanales de Cumplimiento NHP (cuando storeData incluye nhpAuditSummary) */}
@@ -1561,6 +1609,31 @@ export default function StoreAttendanceTab({
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-indigo-700 dark:bg-sky-950 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
                                       <ShieldCheck className="w-3 h-3" />
                                       <span>{nhp!.authorizedEarlyCallInsCount} {t('ronos.attendance.nhp_kpi_call_ins') || 'Cobertura'}</span>
+                                    </span>
+                                  )}
+                                  {daysWithActivity.some(d => d.nhpEvaluation?.isAuthorizedVoluntaryEarlyOut) && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-slate-700 dark:bg-sky-950/40 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                                      <ShieldCheck className="w-3 h-3 text-sky-600 dark:text-sky-400" />
+                                      <span>
+                                        {daysWithActivity.filter(d => d.nhpEvaluation?.isAuthorizedVoluntaryEarlyOut).length}{' '}
+                                        {t('ronos.attendance.nhp_badge_voluntary_early_out') || 'Salida Anticipada (Baja Venta / Cierre)'}
+                                      </span>
+                                    </span>
+                                  )}
+                                  {daysWithActivity.some(d => d.nhpEvaluation?.isVoluntaryExtendedStay) && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                                      <Clock className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                                      <span>
+                                        {daysWithActivity
+                                          .filter(d => d.nhpEvaluation?.isVoluntaryExtendedStay)
+                                          .map(d =>
+                                            (t('ronos.attendance.nhp_badge_extended_stay') || 'Permanencia Extendida (+{min}m)').replace(
+                                              '{min}',
+                                              String(d.nhpEvaluation?.extendedStayMinutes || 0)
+                                            )
+                                          )
+                                          .join(', ')}
+                                      </span>
                                     </span>
                                   )}
                                   {isBroken && !(nhp?.repairViolationsCount) && (

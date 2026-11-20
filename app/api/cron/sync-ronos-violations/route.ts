@@ -479,6 +479,8 @@ async function handleSyncRonosViolations(req: Request) {
         const pendingNotices: PendingEmployeeNotice[] = []
         const allStoreViolatingItemsForGeneral: ManagerDailyRonosReportItem[] = []
         const authorizedCallIns: ManagerDailyRonosReportItem[] = []
+        const authorizedEarlyOuts: ManagerDailyRonosReportItem[] = []
+        const voluntaryExtendedStays: ManagerDailyRonosReportItem[] = []
         let skippedAlreadyNotified = 0
         let exemptSalariedCount = 0
         let evaluatedHourlyCount = 0
@@ -517,6 +519,28 @@ async function handleSyncRonosViolations(req: Request) {
               jobTitle: emp.jobTitle,
               evaluation: ev,
               deliveryStatusLabel: '🛡️ Exento (Cobertura / Solicitud Gerencial)',
+              emailDelivered: false,
+            })
+          }
+
+          if (ev.isAuthorizedVoluntaryEarlyOut) {
+            authorizedEarlyOuts.push({
+              employeeUserId: emp.employeeUserId,
+              employeeName: emp.fullName,
+              jobTitle: emp.jobTitle,
+              evaluation: ev,
+              deliveryStatusLabel: '📉 Exento (Baja Venta / Cierre Operativo)',
+              emailDelivered: false,
+            })
+          }
+
+          if (ev.isVoluntaryExtendedStay) {
+            voluntaryExtendedStays.push({
+              employeeUserId: emp.employeeUserId,
+              employeeName: emp.fullName,
+              jobTitle: emp.jobTitle,
+              evaluation: ev,
+              deliveryStatusLabel: '⏱️ Permanencia Extendida Voluntaria',
               emailDelivered: false,
             })
           }
@@ -588,6 +612,8 @@ async function handleSyncRonosViolations(req: Request) {
               employeesWithViolationsCount: pendingNotices.length,
               skippedAlreadyNotified,
               authorizedCallInsCount: authorizedCallIns.length,
+              authorizedEarlyOutsCount: authorizedEarlyOuts.length,
+              voluntaryExtendedStaysCount: voluntaryExtendedStays.length,
               exemptSalariedCount,
               emailsSent: 0,
               recordsInserted: 0,
@@ -613,6 +639,20 @@ async function handleSyncRonosViolations(req: Request) {
                 exemptionReason: c.evaluation.exemptionReason,
                 signals: c.evaluation.earlyCallInSignals,
               })),
+              authorizedEarlyOutsSample: authorizedEarlyOuts.slice(0, 8).map((c) => ({
+                employee: c.employeeName,
+                scheduledEnd: c.evaluation.scheduledShift.endTimeLA,
+                ronosClockOut: c.evaluation.ronosSummary.clockOutLA,
+                toastClockOut: c.evaluation.toastSummary.clockOutLA,
+                reason: c.evaluation.authorizedEarlyOutReason,
+              })),
+              voluntaryExtendedStaysSample: voluntaryExtendedStays.slice(0, 8).map((c) => ({
+                employee: c.employeeName,
+                scheduledEnd: c.evaluation.scheduledShift.endTimeLA,
+                ronosClockOut: c.evaluation.ronosSummary.clockOutLA,
+                extendedStayMinutes: c.evaluation.extendedStayMinutes,
+                note: c.evaluation.voluntaryExtendedStayNote,
+              })),
             },
             generalStoreInput: {
               storeName: storeJob.storeName,
@@ -625,6 +665,8 @@ async function handleSyncRonosViolations(req: Request) {
               exemptSalariedCount,
               items: allStoreViolatingItemsForGeneral,
               authorizedCallIns,
+              authorizedEarlyOuts,
+              voluntaryExtendedStays,
             } as ChainGeneralDailyStoreInput,
           }
         }
@@ -642,6 +684,8 @@ async function handleSyncRonosViolations(req: Request) {
               violationsCount: 0,
               skippedAlreadyNotified,
               authorizedCallInsCount: authorizedCallIns.length,
+              authorizedEarlyOutsCount: authorizedEarlyOuts.length,
+              voluntaryExtendedStaysCount: voluntaryExtendedStays.length,
               exemptSalariedCount,
               emailsSent: 0,
               recordsInserted: 0,
@@ -657,6 +701,8 @@ async function handleSyncRonosViolations(req: Request) {
               exemptSalariedCount,
               items: allStoreViolatingItemsForGeneral,
               authorizedCallIns,
+              authorizedEarlyOuts,
+              voluntaryExtendedStays,
             } as ChainGeneralDailyStoreInput,
           }
         }
@@ -773,6 +819,8 @@ async function handleSyncRonosViolations(req: Request) {
             businessDate: targetDate,
             items: managerTableItems,
             authorizedCallIns,
+            authorizedEarlyOuts,
+            voluntaryExtendedStays,
             isManualDispatch: forceRun,
           })
 
@@ -888,6 +936,8 @@ async function handleSyncRonosViolations(req: Request) {
             employeesWithViolationsCount: pendingNotices.length,
             skippedAlreadyNotified,
             authorizedCallInsCount: authorizedCallIns.length,
+            authorizedEarlyOutsCount: authorizedEarlyOuts.length,
+            voluntaryExtendedStaysCount: voluntaryExtendedStays.length,
             exemptSalariedCount,
             emailsSent: storeEmailsSent,
             recordsInserted,
@@ -903,6 +953,8 @@ async function handleSyncRonosViolations(req: Request) {
             exemptSalariedCount,
             items: generalStoreItems,
             authorizedCallIns,
+            authorizedEarlyOuts,
+            voluntaryExtendedStays,
           } as ChainGeneralDailyStoreInput,
         }
       } catch (storeErr: any) {
@@ -921,6 +973,8 @@ async function handleSyncRonosViolations(req: Request) {
             error: errMsg,
             violationsCount: 0,
             authorizedCallInsCount: 0,
+            authorizedEarlyOutsCount: 0,
+            voluntaryExtendedStaysCount: 0,
             emailsSent: 0,
             recordsInserted: 0,
           },
@@ -935,6 +989,8 @@ async function handleSyncRonosViolations(req: Request) {
             exemptSalariedCount: 0,
             items: [],
             authorizedCallIns: [],
+            authorizedEarlyOuts: [],
+            voluntaryExtendedStays: [],
             error: errMsg,
           } as ChainGeneralDailyStoreInput,
         }
@@ -955,6 +1011,14 @@ async function handleSyncRonosViolations(req: Request) {
     )
     const totalAuthorizedCallIns = storeSummaries.reduce(
       (sum, s) => sum + (s?.authorizedCallInsCount || 0),
+      0
+    )
+    const totalAuthorizedEarlyOuts = storeSummaries.reduce(
+      (sum, s) => sum + (s?.authorizedEarlyOutsCount || 0),
+      0
+    )
+    const totalVoluntaryExtendedStays = storeSummaries.reduce(
+      (sum, s) => sum + (s?.voluntaryExtendedStaysCount || 0),
       0
     )
 
@@ -1116,6 +1180,8 @@ async function handleSyncRonosViolations(req: Request) {
       business_date: targetDate,
       total_violations: isDryRun || generalOnly ? totalViolations : totalRecordsInserted || totalViolations,
       total_authorized_early_call_ins: totalAuthorizedCallIns,
+      total_authorized_early_outs: totalAuthorizedEarlyOuts,
+      total_voluntary_extended_stays: totalVoluntaryExtendedStays,
       emails_sent: totalEmailsSent,
       records_inserted: totalRecordsInserted,
       general_report: generalReportMeta,
