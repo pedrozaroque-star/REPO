@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import {
+  SILENCE_60MS_PCM16_GEMINI_JSON,
   StatefulMulaw8kToPcm16k,
   StatefulPcm24kToMulaw8k,
   base64ToUint8,
@@ -86,6 +87,30 @@ const PARTY_TRAYS = [
   { key: "25-30", guests: "25 a 30 personas", meatLbs: 10, aguasGal: 2, cornDoz: 20, flourDoz: 9 },
   { key: "30-40", guests: "30 a 40 personas", meatLbs: 13, aguasGal: 3, cornDoz: 25, flourDoz: 12 }
 ]
+
+/** Busca el item Fiesta Platter en app_menu_cache tolerando guiones con espacios ("15 - 20 People") o palabras ("15 to 20"). */
+function findPartyTrayMenuItem(menuItems: any[], key: string): any | null {
+  if (!Array.isArray(menuItems) || menuItems.length === 0) return null
+  const [lo, hi] = key.split("-")
+  const sizeRe = new RegExp(`\\b${lo}\\s*[-–a-z]*\\s*${hi}\\b`, "i")
+  return (
+    menuItems.find(
+      (m) =>
+        /fiesta\s*platter|party\s*tray|charola/i.test(String(m?.category_name || "")) &&
+        sizeRe.test(String(m?.name || "")) &&
+        Number.isFinite(Number(m?.price)) &&
+        Number(m?.price) > 0
+    ) ||
+    menuItems.find(
+      (m) =>
+        sizeRe.test(String(m?.name || "")) &&
+        /people|personas|fiesta|platter/i.test(String(m?.name || "")) &&
+        Number.isFinite(Number(m?.price)) &&
+        Number(m?.price) > 0
+    ) ||
+    null
+  )
+}
 
 let cachedSecrets: BridgeSecrets | null = null
 const deadGeminiKeyUntil = new Map<string, number>()
@@ -212,6 +237,9 @@ function expandStreetAddress(raw: string, lang: PhoneLang): string {
   return out
 }
 
+const BRIDGE_DAY_NAMES_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"] as const
+const BRIDGE_DAY_NAMES_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const
+
 function getPacificNow(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Los_Angeles",
@@ -233,21 +261,24 @@ function getPacificNow(now = new Date()) {
   const wkMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
   const dayOfWeek = wkMap[get("weekday")] ?? 0
   const dateStr = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-
-  const yest = new Date(now.getTime() - 24 * 3600 * 1000)
-  const yParts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(yest)
-  const yg = (t: string) => yParts.find((p) => p.type === t)?.value || ""
-  const yesterdayDateStr = `${yg("year")}-${yg("month")}-${yg("day")}`
+  const yesterdayDateStr = new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+  const yesterdayDayOfWeek = (dayOfWeek + 6) % 7
 
   const businessDate = hour < 6 ? yesterdayDateStr : dateStr
   const shift = hour >= 6 && hour < 17 ? "AM" : "PM"
   const isBreakfastOpen = hour >= 6 && hour < 14
-  return { dateStr, yesterdayDateStr, businessDate, shift, dayOfWeek, hour, minute, totalMin: hour * 60 + minute, isBreakfastOpen }
+  return {
+    dateStr,
+    yesterdayDateStr,
+    businessDate,
+    shift,
+    dayOfWeek,
+    yesterdayDayOfWeek,
+    hour,
+    minute,
+    totalMin: hour * 60 + minute,
+    isBreakfastOpen
+  }
 }
 
 function fmt12h(hhmm: string): string {
@@ -259,91 +290,190 @@ function fmt12h(hhmm: string): string {
   return `${h12}:${String(m).padStart(2, "0")} ${period}`
 }
 
-function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificNow()) {
+function atTimeEsBridge(fmt12: string): string {
+  return /^1:/i.test(fmt12.trim()) ? `a la ${fmt12}` : `a las ${fmt12}`
+}
+
+function parseMinBridge(hhmm: string): number {
+  const [h, m] = String(hhmm || "00:00").split(":").map(Number)
+  return (h || 0) * 60 + (m || 0)
+}
+
+function normalizeBridgeWeeklyMap(rawWeekly: unknown): Record<number, { open: string; close: string }> {
+  let list = rawWeekly
+  if (typeof rawWeekly === "string" && rawWeekly.trim().startsWith("[")) {
+    try {
+      list = JSON.parse(rawWeekly)
+    } catch {
+      list = []
+    }
+  }
   const byDay: Record<number, { open: string; close: string }> = {}
-  if (Array.isArray(store?.weekly_hours)) {
-    for (const d of store.weekly_hours) {
+  if (Array.isArray(list)) {
+    for (const d of list) {
       if (d && typeof d.day === "number") {
         byDay[d.day] = { open: String(d.open || "09:00"), close: String(d.close || "00:00") }
       }
     }
   }
-  const parseMin = (hhmm: string) => {
-    const [h, m] = String(hhmm || "00:00").split(":").map(Number)
-    return (h || 0) * 60 + (m || 0)
+  return byDay
+}
+
+function resolveBridgeDaySchedule(
+  storeIdNum: number,
+  regular: { open: string; close: string } | undefined,
+  dateStr: string,
+  specialHours: any[]
+): { isClosedAllDay: boolean; open: string; close: string; isSpecial: boolean; holidayName: string | null } {
+  const regOpen = regular?.open || "10:00"
+  const regClose = regular?.close || "00:00"
+  const regClosed = /^closed$/i.test(regOpen) || /^closed$/i.test(regClose)
+  const sp =
+    specialHours.find((s) => s.event_date === dateStr && s.store_id !== null && Number(s.store_id) === storeIdNum) ||
+    specialHours.find((s) => s.event_date === dateStr && s.store_id === null) ||
+    null
+
+  if (sp) {
+    const spOpen = sp.open_time ? String(sp.open_time).slice(0, 5) : ""
+    const spClose = sp.close_time ? String(sp.close_time).slice(0, 5) : ""
+    if (Boolean(sp.is_closed) || (regClosed && !(sp.store_id !== null && spOpen && spClose))) {
+      return {
+        isClosedAllDay: true,
+        open: "CLOSED",
+        close: "CLOSED",
+        isSpecial: true,
+        holidayName: sp.holiday_name || "día festivo"
+      }
+    }
+    const effOpen = spOpen
+      ? sp.store_id === null && !regClosed && parseMinBridge(spOpen) < parseMinBridge(regOpen)
+        ? regOpen
+        : spOpen
+      : regOpen
+    const effClose = spClose || regClose
+    return {
+      isClosedAllDay: false,
+      open: effOpen,
+      close: effClose,
+      isSpecial: true,
+      holidayName: sp.holiday_name || null
+    }
   }
 
-  // Verificar spillover nocturno del día anterior (00:00 a 05:59 AM)
+  return {
+    isClosedAllDay: regClosed,
+    open: regOpen,
+    close: regClose,
+    isSpecial: false,
+    holidayName: null
+  }
+}
+
+function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificNow()) {
+  const byDay = normalizeBridgeWeeklyMap(store?.weekly_hours)
+  const storeIdNum = Number(store?.id)
+  const dispEs = customerStoreDisplay(store, "es")
+  const dispEn = customerStoreDisplay(store, "en")
+  const todayDayEs = BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]
+  const todayDayEn = BRIDGE_DAY_NAMES_EN[pt.dayOfWeek]
+  const prevDayEs = BRIDGE_DAY_NAMES_ES[pt.yesterdayDayOfWeek]
+  const prevDayEn = BRIDGE_DAY_NAMES_EN[pt.yesterdayDayOfWeek]
+
+  let prevJustClosedInfo: { phraseEs: string; phraseEn: string } | null = null
+
+  // 1. Verificar spillover nocturno de la jornada laboral de ayer (00:00 a 05:59 AM)
   if (pt.hour < 6) {
-    const prevDow = (pt.dayOfWeek + 6) % 7
-    const prevSpecial =
-      specialHours.find((s) => s.event_date === pt.yesterdayDateStr && Number(s.store_id) === Number(store.id)) ||
-      specialHours.find((s) => s.event_date === pt.yesterdayDateStr && s.store_id === null)
-    if (!prevSpecial?.is_closed) {
-      const prevSched = prevSpecial
-        ? { open: prevSpecial.open_time || "09:00", close: prevSpecial.close_time || "00:00" }
-        : byDay[prevDow]
-      if (prevSched) {
-        const closeM = parseMin(prevSched.close)
-        const openM = parseMin(prevSched.open)
-        if (closeM > 0 && closeM <= openM && pt.totalMin < closeM) {
-          const dispEs = customerStoreDisplay(store, "es")
-          const dispEn = customerStoreDisplay(store, "en")
-          const closeFmt = fmt12h(prevSched.close)
+    const prevSched = resolveBridgeDaySchedule(storeIdNum, byDay[pt.yesterdayDayOfWeek], pt.yesterdayDateStr, specialHours)
+    if (!prevSched.isClosedAllDay) {
+      const closeM = parseMinBridge(prevSched.close)
+      const openM = parseMinBridge(prevSched.open)
+      if (closeM <= 359 && closeM <= openM) {
+        const closeFmt = fmt12h(prevSched.close)
+        if (closeM > 0 && pt.totalMin < closeM) {
           return {
             isOpenNow: true,
             todayCloseFmt: closeFmt,
-            statusEs: `Abierto ahora en ${dispEs}; cerramos esta madrugada a las ${closeFmt}.`,
-            statusEn: `Currently open at ${dispEn}; we close tonight at ${closeFmt}.`,
+            statusEs: `Abierto ahora en ${dispEs}: el turno nocturno de ${prevDayEs} cierra esta madrugada ${atTimeEsBridge(closeFmt)}.`,
+            statusEn: `Currently open at ${dispEn}: our ${prevDayEn} late-night shift closes at ${closeFmt}.`,
             closedPromptEs: "",
             closedPromptEn: ""
           }
+        }
+        prevJustClosedInfo = {
+          phraseEs: closeM === 0 ? "cerró a medianoche (12:00 AM)" : `cerró ${atTimeEsBridge(closeFmt)}`,
+          phraseEn: closeM === 0 ? "closed at midnight (12:00 AM)" : `closed at ${closeFmt}`
         }
       }
     }
   }
 
-  const todaySpecial =
-    specialHours.find((s) => s.event_date === pt.dateStr && Number(s.store_id) === Number(store.id)) ||
-    specialHours.find((s) => s.event_date === pt.dateStr && s.store_id === null)
+  // 2. Horario efectivo de hoy (respetando días festivos con open_time/close_time parciales)
+  const todaySched = resolveBridgeDaySchedule(storeIdNum, byDay[pt.dayOfWeek], pt.dateStr, specialHours)
 
-  const dispEs = customerStoreDisplay(store, "es")
-  const dispEn = customerStoreDisplay(store, "en")
-
-  if (todaySpecial?.is_closed) {
-    const hName = todaySpecial.holiday_name || "día festivo"
+  if (todaySched.isClosedAllDay) {
+    const hName = todaySched.holidayName || "día festivo"
+    const prevTailEs = prevJustClosedInfo ? `Nuestro turno de ${prevDayEs} ${prevJustClosedInfo.phraseEs}; hoy ` : "Hoy "
+    const prevTailEn = prevJustClosedInfo ? `Our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn}; today ` : "Today "
     return {
       isOpenNow: false,
       todayCloseFmt: "CERRADO",
-      statusEs: `Hoy permanecemos cerrados en ${dispEs} por ${hName}.`,
-      statusEn: `We are closed today at ${dispEn} for ${hName}.`,
-      closedPromptEs: `En este momento estamos cerrados por ${hName}. ¿En qué te ayudo hoy?`,
-      closedPromptEn: `We are currently closed for ${hName}. How can I help you today?`
+      statusEs: `Cerrado en ${dispEs}: ${prevTailEs}permanecemos cerrados todo el día por ${hName}.`,
+      statusEn: `Closed at ${dispEn}: ${prevTailEn}we are closed all day for ${hName}.`,
+      closedPromptEs: prevJustClosedInfo
+        ? `En este momento ya cerramos; el turno de ${prevDayEs} ${prevJustClosedInfo.phraseEs} y hoy permanecemos cerrados por ${hName}. ¿En qué te ayudo hoy?`
+        : `En este momento estamos cerrados por ${hName}. ¿En qué te ayudo hoy?`,
+      closedPromptEn: prevJustClosedInfo
+        ? `We are currently closed; our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn} and we are closed today for ${hName}. How can I help you today?`
+        : `We are currently closed for ${hName}. How can I help you today?`
     }
   }
 
-  const sched = todaySpecial
-    ? { open: todaySpecial.open_time || "09:00", close: todaySpecial.close_time || "00:00" }
-    : byDay[pt.dayOfWeek] || { open: "09:00", close: "01:00" }
-
-  const openM = parseMin(sched.open)
-  const rawCloseM = parseMin(sched.close)
+  const openM = parseMinBridge(todaySched.open)
+  const rawCloseM = parseMinBridge(todaySched.close)
   const closeEffective = rawCloseM <= openM ? rawCloseM + 1440 : rawCloseM
   const isOpenNow = pt.totalMin >= openM && pt.totalMin < closeEffective
-  const openFmt = fmt12h(sched.open)
-  const closeFmt = fmt12h(sched.close)
+  const openFmt = fmt12h(todaySched.open)
+  const closeFmt = fmt12h(todaySched.close)
+
+  if (isOpenNow) {
+    return {
+      isOpenNow: true,
+      todayCloseFmt: closeFmt,
+      statusEs: `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} nuestro horario es de ${openFmt} a ${closeFmt}.`,
+      statusEn: `Currently open at ${dispEn}; today's (${todayDayEn}) hours are ${openFmt} to ${closeFmt}.`,
+      closedPromptEs: "",
+      closedPromptEn: ""
+    }
+  }
+
+  if (pt.totalMin < openM) {
+    if (pt.hour < 6 && prevJustClosedInfo) {
+      return {
+        isOpenNow: false,
+        todayCloseFmt: closeFmt,
+        statusEs: `Cerrado en este momento en ${dispEs}: el turno nocturno de ${prevDayEs} ${prevJustClosedInfo.phraseEs} y volvemos a abrir hoy ${todayDayEs} ${atTimeEsBridge(openFmt)} (horario de hoy ${todayDayEs}: ${openFmt} a ${closeFmt}).`,
+        statusEn: `Currently closed at ${dispEn}: our ${prevDayEn} late-night shift ${prevJustClosedInfo.phraseEn} and we reopen today (${todayDayEn}) at ${openFmt} (today's hours: ${openFmt} to ${closeFmt}).`,
+        closedPromptEs: `En este momento ya cerramos; el turno de ${prevDayEs} ${prevJustClosedInfo.phraseEs} y abrimos hoy ${todayDayEs} ${atTimeEsBridge(openFmt)}. ¿En qué te ayudo hoy?`,
+        closedPromptEn: `We are currently closed; our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn} and we reopen today at ${openFmt}. How can I help you today?`
+      }
+    }
+    return {
+      isOpenNow: false,
+      todayCloseFmt: closeFmt,
+      statusEs: `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs} abrimos ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}.`,
+      statusEn: `Currently closed at ${dispEn}; today (${todayDayEn}) we open at ${openFmt} and close at ${closeFmt}.`,
+      closedPromptEs: `En este momento aún estamos cerrados; hoy ${todayDayEs} abrimos ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}. ¿En qué te ayudo hoy?`,
+      closedPromptEn: `We are currently closed; today we open at ${openFmt} and close at ${closeFmt}. How can I help you today?`
+    }
+  }
 
   return {
-    isOpenNow,
+    isOpenNow: false,
     todayCloseFmt: closeFmt,
-    statusEs: isOpenNow
-      ? `Abierto en este momento en ${dispEs} de ${openFmt} a ${closeFmt}.`
-      : `Cerrado en este momento en ${dispEs}; nuestro horario de hoy es de ${openFmt} a ${closeFmt}.`,
-    statusEn: isOpenNow
-      ? `Currently open at ${dispEn} from ${openFmt} to ${closeFmt}.`
-      : `Currently closed at ${dispEn}; today's hours are ${openFmt} to ${closeFmt}.`,
-    closedPromptEs: `En este momento ya estamos cerrados; abrimos de ${openFmt} a ${closeFmt}. ¿En qué te ayudo hoy?`,
-    closedPromptEn: `We are currently closed; our hours are ${openFmt} to ${closeFmt}. How can I help you today?`
+    statusEs: `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs} cerramos ${atTimeEsBridge(closeFmt)}.`,
+    statusEn: `Currently closed at ${dispEn}; we closed today at ${closeFmt}.`,
+    closedPromptEs: `En este momento ya cerramos por hoy (cerramos ${atTimeEsBridge(closeFmt)}). ¿En qué te ayudo hoy?`,
+    closedPromptEn: `We are currently closed for the night (closed at ${closeFmt}). How can I help you today?`
   }
 }
 
@@ -653,8 +783,11 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
           }).catch(() => null)
         }
       }
-      // Pre-calentar en RAM el clip μ-law de "¿En qué te ayudo hoy?" mientras suena el aviso CIPA (~5 s)
-      await fetchMulawPromptClip(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.questionOnly, activeLang)
+      // Pre-calentar en RAM el clip μ-law de "¿En qué te ayudo hoy?" y el contexto de tienda mientras suena el aviso CIPA (~10 s)
+      await Promise.all([
+        fetchMulawPromptClip(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.questionOnly, activeLang),
+        buildBridgeSystemPromptAndData(store.id, activeLang, fromNumber).catch(() => null)
+      ])
     })()
   )
 
@@ -796,7 +929,31 @@ const LIVE_TOOL_DECLARATIONS = [
   }
 ]
 
-async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, callerNumber: string) {
+type BridgePromptData = {
+  store: any
+  stores: any[]
+  config: any
+  specialHours: any[]
+  menuItems: any[]
+  schedEval: ReturnType<typeof evaluateStoreSchedule>
+  greetings: ReturnType<typeof buildInitialGreetingTexts>
+  spokenAddr: string
+  systemText: string
+}
+
+const prewarmedBridgeCache = new Map<string, { at: number; data: BridgePromptData }>()
+
+async function getPrewarmedOrBuildBridgeData(storeId: number, lang: PhoneLang, callerNumber: string): Promise<BridgePromptData> {
+  const key = `${storeId}|${lang}|${callerNumber || ""}`
+  const hit = prewarmedBridgeCache.get(key)
+  if (hit && Date.now() - hit.at < 45_000) {
+    prewarmedBridgeCache.delete(key)
+    return hit.data
+  }
+  return buildBridgeSystemPromptAndData(storeId, lang, callerNumber)
+}
+
+async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, callerNumber: string): Promise<BridgePromptData> {
   const [stores, configs, specialHours, menuItems, kbEntries, learnedItems] = await Promise.all([
     pgSelect("stores?is_active=eq.true&select=id,name,code,address,phone,has_drive_thru,weekly_hours&order=id.asc"),
     pgSelect("phone_agent_config?select=*"),
@@ -805,7 +962,7 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
       `app_menu_cache?store_id=eq.${storeId}&is_available=eq.true&select=category_name,name,description,price&order=category_name.asc,name.asc`
     ),
     pgSelect(
-      `phone_knowledge_base?is_active=eq.true&or=(store_id.is.null,store_id.eq.${storeId})&select=category,title,answer_es,answer_en,priority&order=priority.desc`
+      `phone_knowledge_base?is_active=eq.true&or=(store_id.is.null,store_id.eq.${storeId})&select=id,category,title,answer_es,answer_en,priority&order=priority.desc`
     ),
     pgSelect(
       `phone_learning_items?status=in.(approved,auto_applied)&applies_to_channels=in.(both,phone_only)&item_kind=in.(doubt_for_owner,learned_rule,fast_reply_macro,stt_synonym)&or=(store_id.is.null,store_id.eq.${storeId})&select=item_kind,status,applies_to_channels,category,question_or_trigger,proposed_rule_es,proposed_rule_en,store_id&order=status.asc,evidence_count.desc,updated_at.desc&limit=40`
@@ -843,24 +1000,33 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
   }
 
   const trayLines = PARTY_TRAYS.map((t) => {
-    const found = menuItems.find((m) => String(m.name || "").includes(t.key))
+    const found = findPartyTrayMenuItem(menuItems, t.key)
     const p = found ? `$${Number(found.price).toFixed(2)} USD` : "consultar en tacosgavilan.com"
     return `- Fiesta Platter ${t.key} (${t.guests}): ${p} — ${t.meatLbs} lbs carne (Asada/Pollo/Pastor), arroz y frijol, ${t.cornDoz} docenas maíz o ${t.flourDoz} docenas harina, ${t.aguasGal} gal agua fresca, salsas y utensilios.`
   }).join("\n")
 
+  // Directorio compacto con estatus en vivo y horario de HOY (para consultar horario semanal de otra tienda usar find_other_stores)
   const dirLines = stores
     .map((s) => {
       const lbl = customerStoreDisplay(s, lang)
       const la = LA_CROSS_STREETS[Number(s.id)]
-      const cross = la ? ` [Esquina: ${lang === "en" ? la.crossEn : la.crossEs}]` : ""
-      const ebt = ![1, 9].includes(Number(s.id)) ? "EBT en mostrador" : "Sin EBT"
-      return `- #${s.id} ${lbl}${cross}: ${expandStreetAddress(s.address || "", lang)} | Tel: ${s.phone} | ${s.has_drive_thru ? "CON Drive-Thru" : "Sin Drive-Thru"} | ${ebt} | Horario: ${compactWeeklySummary(s.weekly_hours)}`
+      const cross = la ? ` [${lang === "en" ? la.crossEn : la.crossEs}]` : ""
+      const ebt = ![1, 9].includes(Number(s.id)) ? "EBT comedor" : "Sin EBT"
+      const ev = evaluateStoreSchedule(s, specialHours, pt)
+      const stateTag = ev.isOpenNow ? "Abierta" : "Cerrada"
+      return `- #${s.id} ${lbl}${cross}: ${expandStreetAddress(s.address || "", lang)} | Tel: ${s.phone} | ${s.has_drive_thru ? "CON Drive-Thru" : "Sin Drive-Thru"} | ${ebt} | ${stateTag}: ${lang === "en" ? ev.statusEn : ev.statusEs}`
     })
     .join("\n")
 
+  // Omitir entrada duplicada de precios fijos (#084304c3) y resumen redundante largo si ya van en vivo arriba
   const kbLines = kbEntries
-    .filter((k) => String(k.category || "").toLowerCase() !== "staff")
-    .slice(0, 35)
+    .filter((k) => {
+      const cat = String(k.category || "").toLowerCase()
+      if (cat === "staff") return false
+      if (String(k.id || "") === "084304c3-8629-471b-9277-3b47518a962d") return false
+      return true
+    })
+    .slice(0, 30)
     .map((k) => `- [${k.category}] ${k.title}: ${lang === "en" ? k.answer_en || k.answer_es : k.answer_es || k.answer_en}`)
     .join("\n")
 
@@ -902,33 +1068,37 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     "",
     `Eres Kore, la recepcionista telefónica en vivo de **Tacos Gavilan** en **${spokenName}** (Sucursal #${store.id}${laMeta ? `, esquina oficial: ${lang === "en" ? laMeta.crossEn : laMeta.crossEs}` : ""}), California, EE. UU.`,
     `REGLAS INQUEBRANTABLES DE IDENTIDAD, VOZ Y NEGOCIO:`,
+    `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO INMEDIATO EN TU PRIMERA ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos, armamos ni procesamos órdenes nuevas de comida por teléfono. Si el cliente dice frases de intención de compra como 'quiero dos tacos y dos burritos', 'voy a querer...', 'dame...', 'me das...', 'puedo pedir...', 'me tomas la orden', 'I want two tacos...', 'can I order...':`,
+    `   - EN TU PRIMERA ORACIÓN dile con amabilidad que **no tomamos órdenes por teléfono** e invítalo a ordenar fácilmente en **tacosgavilan.com** para recoger${store.has_drive_thru ? " o directamente en caja o por el Drive-Thru" : " o directamente en caja"}.`,
+    `   - ESTRICTAMENTE PROHIBIDO actuar como cajera o preguntar '¿Regular o Super?', '¿qué carne?', '¿con todo?' o '¿algo más de tu orden?'.`,
+    `   - Si mencionan platillos, solo si aporta utilidad informativa da sus precios unitarios directos en USD (y para burrito/quesadilla/mulita sin especificar Super, informa ambos precios Regular y Super sin preguntar cuál prefiere ni decir 'tamaño'), cerrando sin tomar pedido. Excepción única: reclamos o condimentos de un pedido YA realizado (Regla #8).`,
+    `   - PROHIBIDO decir las palabras 'política', 'políticas', 'reglamentos' o 'policy'.`,
     `1. MARCA Y MONEDA: El nombre oficial es estrictamente **Tacos Gavilan** (JAMÁS digas 'Tacos El Gavilan'). Todos los precios son exclusivamente en **dólares y centavos estadounidenses (USD)** (PROHIBIDO decir 'pesos' o 'MXN').`,
-    `2. ESTILO DE VOZ EN VIVO (ÁGIL Y HUMANO): Tono cálido, amable, natural y directo. CERO muletillas iniciales (NO empieces con '¡Sí!', '¡Claro que sí!', '¡Por supuesto!' ni '¡Hola!'). Respuestas cortas y fluidas de **1 a 2 oraciones (8 a 22 palabras)**; solo usa hasta 55-65 palabras cuando coticen múltiples platillos, charolas Fiesta Platter o varias sucursales/festivos. Ya saludaste al contestar: NO vuelvas a saludar.`,
-    `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo 'Broadway', 'Central', 'Slauson', 'LA Broadway' o 'LA Central'. SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway, en Los Ángeles); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, en Los Ángeles, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway, en Los Ángeles). Pronuncia las calles completas sin abreviaturas.`,
-    `4. HORARIOS Y DESAYUNOS EN VIVO (${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT):`,
+    `2. ESTILO DE VOZ EN VIVO (ÁGIL Y HUMANO): Tono cálido, amable, natural y directo. CERO muletillas iniciales (NO empieces con '¡Sí!', '¡Claro que sí!', '¡Por supuesto!' ni '¡Hola!'). Respuestas cortas y fluidas de **1 a 2 oraciones (8 a 20 palabras)**; solo usa hasta 50-60 palabras cuando coticen múltiples platillos o Fiesta Platters. Ya saludaste al contestar: NO vuelvas a saludar. Si preguntan si grabamos su voz o si es legal, responde cálido y directo en 1 frase sin sonar robótico: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto en el momento para atenderte y por eso escuchaste el aviso al inicio.'`,
+    `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo 'Broadway', 'Central', 'Slauson', 'LA Broadway' o 'LA Central'. SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway). Pronuncia las calles completas sin abreviaturas.`,
+    `4. HORARIOS Y DESAYUNOS EN VIVO (Hoy ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]} ${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT${pt.hour < 6 ? " — ES MADRUGADA: si reabrimos esta misma mañana, di SIEMPRE 'hoy' / 'today', JAMÁS 'mañana' / 'tomorrow'" : ""}):`,
     `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn}`,
     `   - Horario semanal aquí: ${compactWeeklySummary(store.weekly_hours)}`,
     `   - Festivos anuales oficiales: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM en Thanksgiving, Nochebuena (24 dic) y Fin de Año (31 dic); abre 11:00 AM en Año Nuevo (1 ene) y Black Friday.`,
-    `   - **Desayunos (las 15 sucursales)**: Disponibles todos los días desde la apertura hasta las **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON POR HOY — ofrece nuestro menú regular"}). **Café caliente (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ están disponibles TODO EL DÍA**.`,
+    `   - **Desayunos (las 15 sucursales)**: Todos los días desde la apertura hasta las **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON POR HOY — ofrece nuestro menú regular"}). **Café caliente (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ disponibles TODO EL DÍA**.`,
     `5. DRIVE-THRU Y EBT CALFRESH:`,
     `   - Drive-Thru aquí: ${store.has_drive_thru ? "SÍ tenemos Drive-Thru." : "NO tenemos Drive-Thru aquí (solo comedor y para llevar)."} Las 6 tiendas con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate.`,
     `   - EBT CalFresh aquí: ${config.accepts_ebt ? "SÍ aceptamos EBT CalFresh ÚNICAMENTE pasando adentro a la caja del mostrador del comedor; JAMÁS se procesa EBT por la ventanilla del Drive-Thru." : "NO aceptamos EBT CalFresh en esta sucursal (Rialto y Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple Pay/Google Pay."}`,
-    `6. CERO PEDIDOS POR TELÉFONO: No tomamos órdenes nuevas de comida por teléfono. Invita con amabilidad a pedir fácilmente en **tacosgavilan.com** para recoger${store.has_drive_thru ? " o directamente en caja o por el Drive-Thru" : " o directamente en caja"}. PROHIBIDO decir 'política', 'políticas', 'reglamentos' o 'policy'.`,
-    `7. MENÚ, REGULAR VS SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
-    `   - Si piden varios platillos, cotiza TODOS con su precio unitario exacto en USD y el subtotal ('más impuestos' / 'plus tax').`,
-    `   - Comida sin palabra 'tamaño'/'size': burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; Supreme/Supremo = Super).`,
+    `6. MENÚ, REGULAR VS SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
+    `   - Si consultan varios precios, informa cada uno en USD y el subtotal aproximado ('más impuestos' / 'plus tax') si ya especificaron todo; si falta Regular/Super informa ambos precios SIN tomar pedido.`,
+    `   - Jamás digas 'tamaño'/'size' en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (Supreme/Supremo = Super).`,
     `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas). PROHIBIDO decir 'chica', 'pequeña' o 'small'.`,
-    `   - Postres: **SOLO Flan y Cheesecake individuales** (NO manejamos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni alcohol).`,
-    `   - Charolas Fiesta Platter: exclusivamente en **tacosgavilan.com** con mínimo 1 hora de anticipación.`,
+    `   - Postres: **SOLO Flan y Cheesecake individuales** (NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni alcohol).`,
+    `   - Charolas Fiesta Platter: exclusivamente en **tacosgavilan.com** con mínimo 1 hora de anticipación. Cuando pregunten precio o combinación por número de personas (especialmente +40 personas), INVOCA SIEMPRE \`get_fiesta_platter_packages\` para dar la combinación más económica exacta.`,
     `   - Correcciones fonéticas naturales: 'torta corona'='torta cubana', 'sasada'/'salad burrito'='asada', 'adobada'='pastor', 'muleta'='mulita', 'ibt'/'evt'/'tarjetas abc'='EBT', 'dritro'='Drive-Thru'.`,
-    `8. RECADOS AL GERENTE Y RECLAMOS (CERO TRANSFERENCIAS TELEFÓNICAS):`,
-    `   - Nunca transferimos llamadas a celulares personales. Usa \`create_manager_callback\` para enviar alertas prioritarias en vivo a la pantalla de tienda.`,
+    `7. RECADOS AL GERENTE Y RECLAMOS (CERO TRANSFERENCIAS TELEFÓNICAS):`,
+    `   - Nunca transferimos llamadas a celulares personales. Usa \`create_manager_callback\` para alertas prioritarias en la pantalla de tienda.`,
     `   - **Condimentos gratis en orden existente**: pide nombre, número/código de orden, condimentos y teléfono de 10 dígitos -> \`create_manager_callback\` (\`reason_category: 'condiments_note'\`, \`urgency: 'normal'\`), aclarando que aplica si la orden aún no ha salido.`,
     `   - **Uber Eats / DoorDash / Grubhub**: cambios con costo, dirección, cancelación o reembolso se gestionan en **Ayuda (Help)** de su app; para avisar al gerente o retrasos, pide nombre, teléfono de 10 dígitos y código (\`reason_category: 'delivery_issue'\`).`,
     `   - **Sucursal equivocada en tacosgavilan.com**: pregunta en cuál tienda cayó, toma nombre, teléfono de 10 dígitos y orden -> \`create_manager_callback\` con \`target_store_id\` (\`reason_category: 'wrong_store_order'\`).`,
     `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com**: pide SIEMPRE los **4 datos obligatorios**: **1) número de ticket, 2) fecha de compra, 3) nombre y 4) teléfono real de 10 dígitos**, advirtiendo con respeto que **sin el número de ticket es poco probable determinar la equivocación** ('Without the ticket number, it is unlikely we can verify the mistake'). Si confirma que perdió el ticket envía \`ticket_or_order_number: 'SIN TICKET'\` sin prometer reposición. EJECUTA \`create_manager_callback\` ANTES de confirmar, y luego ${callbackOutcome}`,
     `   - **Objetos olvidados, empleados, proveedores o gerente**: pide nombre real y teléfono real de 10 dígitos${callerNumber ? ` (Caller ID entrante: ${callerNumber}; si autoriza explícitamente usar este mismo número envía caller_phone='CALLER_ID')` : ""}, ejecuta \`create_manager_callback\` ANTES de confirmar y ${callbackOutcome}`,
-    `9. CIERRE LIMPIO Y SEÑAL TELEFÓNICA: Si un audio llega entrecortado o confuso por la señal telefónica, jamás adivines ni inventes respuesta: pide con calidez que lo repita brevemente ('Disculpa, se cortó un poco la señal, ¿me lo repites por favor?' / 'Sorry, the line broke up slightly, could you repeat that?'). NUNCA invoques \`end_call\` por palabras sueltas o ambiguas; solo cuando el cliente resuelva su duda y se despida claramente ('es todo, gracias', 'no gracias', 'adiós', 'that is all, thank you'), despídete cálidamente en una oración sin preguntas ('Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!' / 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!') e invoca \`end_call\`.`,
+    `8. CIERRE LIMPIO Y SEÑAL TELEFÓNICA: Si un audio llega entrecortado o confuso por la señal telefónica, jamás adivines ni inventes respuesta: pide con calidez que lo repita brevemente ('Disculpa, se cortó un poco la señal, ¿me lo repites por favor?' / 'Sorry, the line broke up slightly, could you repeat that?'). NUNCA invoques \`end_call\` por palabras sueltas o ambiguas; solo cuando el cliente resuelva su duda y se despida claramente ('es todo, gracias', 'no gracias', 'adiós', 'that is all, thank you'), despídete cálidamente en una oración sin preguntas ('Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!' / 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!') e invoca \`end_call\`.`,
     "",
     `DIRECTORIO EN VIVO DE LAS 15 SUCURSALES:`,
     dirLines,
@@ -944,7 +1114,7 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     .filter(Boolean)
     .join("\n")
 
-  return {
+  const built: BridgePromptData = {
     store,
     stores,
     config,
@@ -955,6 +1125,8 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     spokenAddr,
     systemText
   }
+  prewarmedBridgeCache.set(`${storeId}|${lang}|${callerNumber || ""}`, { at: Date.now(), data: built })
+  return built
 }
 
 async function connectGeminiLiveWithHedge(
@@ -1253,23 +1425,110 @@ async function executeBridgeTool(params: {
 
   if (toolName === "get_fiesta_platter_packages") {
     const guests = Math.max(1, Math.round(Number(toolArgs?.guest_count) || 20))
+    const ranges: Record<string, [number, number]> = {
+      "15-20": [15, 20],
+      "20-25": [20, 25],
+      "25-30": [25, 30],
+      "30-40": [30, 40]
+    }
     const packages = PARTY_TRAYS.map((t) => {
-      const found = menuItems.find((m) => String(m.name || "").includes(t.key))
+      const found = findPartyTrayMenuItem(menuItems, t.key)
+      const priceNum = found && Number.isFinite(Number(found.price)) && Number(found.price) > 0 ? Number(found.price) : null
+      const [minG, maxG] = ranges[t.key]
       return {
+        key: t.key,
         package: `Fiesta Platter ${t.key}`,
         serves: t.guests,
-        priceUsd: found ? `$${Number(found.price).toFixed(2)} USD` : "ver tacosgavilan.com",
+        minGuests: minG,
+        maxGuests: maxG,
+        priceNum,
+        priceUsd: priceNum !== null ? `$${priceNum.toFixed(2)} USD` : "ver tacosgavilan.com",
         meatLbs: t.meatLbs,
         aguasGallons: t.aguasGal,
         cornDozens: t.cornDoz,
         flourDozens: t.flourDoz
       }
     })
+    const allPricesOk = packages.every((p) => p.priceNum !== null)
+    let recommendationEs = ""
+    let recommendationEn = ""
+    if (guests <= 20) {
+      const p = packages[0]
+      recommendationEs = `Para ${guests} personas conviene 1 paquete de 15 a 20 personas (${p.priceUsd}).`
+      recommendationEn = `For ${guests} guests we recommend 1 package for 15 to 20 people (${p.priceUsd}).`
+    } else if (guests <= 25) {
+      const p = packages[1]
+      recommendationEs = `Para ${guests} personas conviene 1 paquete de 20 a 25 personas (${p.priceUsd}).`
+      recommendationEn = `For ${guests} guests we recommend 1 package for 20 to 25 people (${p.priceUsd}).`
+    } else if (guests <= 30) {
+      const p = packages[2]
+      recommendationEs = `Para ${guests} personas conviene 1 paquete de 25 a 30 personas (${p.priceUsd}).`
+      recommendationEn = `For ${guests} guests we recommend 1 package for 25 to 30 people (${p.priceUsd}).`
+    } else if (guests <= 40) {
+      const p = packages[3]
+      recommendationEs = `Para ${guests} personas conviene 1 paquete de 30 a 40 personas (${p.priceUsd}).`
+      recommendationEn = `For ${guests} guests we recommend 1 package for 30 to 40 people (${p.priceUsd}).`
+    } else {
+      const capped = Math.min(500, guests)
+      let best: { counts: number[]; total: number | null; score: number; trays: number; minCap: number; maxCap: number } | null = null
+      const max30 = Math.ceil(capped / 40) + 1
+      for (let c3 = 0; c3 <= max30; c3++) {
+        for (let c2 = 0; c2 <= 3; c2++) {
+          for (let c1 = 0; c1 <= 3; c1++) {
+            for (let c0 = 0; c0 <= 3; c0++) {
+              const trays = c0 + c1 + c2 + c3
+              if (trays === 0) continue
+              const maxCap = c0 * 20 + c1 * 25 + c2 * 30 + c3 * 40
+              if (maxCap < capped) continue
+              const minCap = c0 * 15 + c1 * 20 + c2 * 25 + c3 * 30
+              const total = allPricesOk
+                ? +(
+                    c0 * (packages[0].priceNum as number) +
+                    c1 * (packages[1].priceNum as number) +
+                    c2 * (packages[2].priceNum as number) +
+                    c3 * (packages[3].priceNum as number)
+                  ).toFixed(2)
+                : null
+              const score = total !== null ? total : maxCap - capped + trays * 0.25
+              if (!best || score < best.score - 0.001 || (Math.abs(score - best.score) < 0.001 && trays < best.trays)) {
+                best = { counts: [c0, c1, c2, c3], total, score, trays, minCap, maxCap }
+              }
+            }
+          }
+        }
+      }
+      if (best) {
+        const partsEs: string[] = []
+        const partsEn: string[] = []
+        for (let i = 3; i >= 0; i--) {
+          const q = best.counts[i]
+          if (q <= 0) continue
+          const pr = packages[i].priceNum !== null ? ` ($${(packages[i].priceNum as number).toFixed(2)}${q > 1 ? " c/u" : ""})` : ""
+          const prEn = packages[i].priceNum !== null ? ` ($${(packages[i].priceNum as number).toFixed(2)}${q > 1 ? " each" : ""})` : ""
+          partsEs.push(`${q} ${q === 1 ? "paquete" : "paquetes"} de ${packages[i].key.replace("-", " a ")} personas${pr}`)
+          partsEn.push(`${q} ${packages[i].key.replace("-", " to ")} people ${q === 1 ? "package" : "packages"}${prEn}`)
+        }
+        const totTail = best.total !== null ? `, total $${best.total.toFixed(2)} USD más impuestos` : ""
+        const totTailEn = best.total !== null ? `, total $${best.total.toFixed(2)} USD plus tax` : ""
+        recommendationEs = `Para ${capped} personas la combinación más económica es ${partsEs.join(" y ")} (cubre ${best.minCap} a ${best.maxCap} personas${totTail}).`
+        recommendationEn = `For ${capped} guests the most cost-effective combination is ${partsEn.join(" and ")} (serves ${best.minCap} to ${best.maxCap} guests${totTailEn}).`
+      }
+    }
     return {
       response: {
         requestedGuests: guests,
         orderOnlineOnly: "tacosgavilan.com con mínimo 1 hora de anticipación",
-        packages
+        recommendationEs,
+        recommendationEn,
+        packages: packages.map(({ package: pkg, serves, priceUsd, meatLbs, aguasGallons, cornDozens, flourDozens }) => ({
+          package: pkg,
+          serves,
+          priceUsd,
+          meatLbs,
+          aguasGallons,
+          cornDozens,
+          flourDozens
+        }))
       },
       shouldEndCall: false,
       hadCallback: false
@@ -1510,46 +1769,47 @@ function handleTwilioWebSocket(req: Request): Response {
 
   const inResampler = new StatefulMulaw8kToPcm16k()
   const outResampler = new StatefulPcm24kToMulaw8k()
+  let silentFramesAccum = 0
   let pcm16Batch: Uint8Array[] = []
   let pcm16BatchBytes = 0
   const preReadyPcmQueue: string[] = []
 
   const transcript: TranscriptEntry[] = []
   let openUserText = ""
+  let openUserStartedAtIso = ""
   let openAssistantText = ""
+  let openAssistantStartedAtIso = ""
   let bridgeData: Awaited<ReturnType<typeof buildBridgeSystemPromptAndData>> | null = null
   let secretsCache: BridgeSecrets | null = null
 
   const flushOpenUserTurn = () => {
     const clean = openUserText.replace(/\s+/g, " ").trim()
     if (clean) {
-      transcript.push({ role: "user", text: clean, timestamp: new Date().toISOString() })
+      transcript.push({ role: "user", text: clean, timestamp: openUserStartedAtIso || new Date().toISOString() })
     }
     openUserText = ""
+    openUserStartedAtIso = ""
   }
 
   const flushOpenAssistantTurn = () => {
     const clean = openAssistantText.replace(/\s+/g, " ").trim()
     if (clean) {
-      transcript.push({ role: "assistant", text: clean, timestamp: new Date().toISOString() })
+      transcript.push({ role: "assistant", text: clean, timestamp: openAssistantStartedAtIso || new Date().toISOString() })
     }
     openAssistantText = ""
+    openAssistantStartedAtIso = ""
   }
 
   const sendMulawToTwilio = (mulawBytes: Uint8Array) => {
     if (closed || !streamSid || mulawBytes.length === 0 || twilioWs.readyState !== WebSocket.OPEN) return
     const nowMs = Date.now()
     outboundAudioDrainUntilMs = Math.max(outboundAudioDrainUntilMs, nowMs) + Math.ceil(mulawBytes.length / 8)
-    const FRAME_SIZE = 640 // 80 ms a 8 kHz μ-law
+    const FRAME_SIZE = 1600 // 200 ms a 8 kHz μ-law (reduce 2.5x overhead JSON/Base64 en Edge Runtime sin añadir latencia)
     for (let offset = 0; offset < mulawBytes.length; offset += FRAME_SIZE) {
-      const slice = mulawBytes.subarray(offset, Math.min(offset + FRAME_SIZE, mulawBytes.length))
-      twilioWs.send(
-        JSON.stringify({
-          event: "media",
-          streamSid,
-          media: { payload: uint8ToBase64(slice) }
-        })
-      )
+      const slice = offset === 0 && mulawBytes.length <= FRAME_SIZE
+        ? mulawBytes
+        : mulawBytes.subarray(offset, Math.min(offset + FRAME_SIZE, mulawBytes.length))
+      twilioWs.send(`{"event":"media","streamSid":"${streamSid}","media":{"payload":"${uint8ToBase64(slice)}"}}`)
     }
   }
 
@@ -1687,11 +1947,13 @@ function handleTwilioWebSocket(req: Request): Response {
         }
 
         if (sc.inputTranscription?.text) {
+          if (!openUserStartedAtIso) openUserStartedAtIso = new Date().toISOString()
           openUserText += sc.inputTranscription.text
         }
 
         if (sc.outputTranscription?.text) {
           if (openUserText.trim()) flushOpenUserTurn()
+          if (!openAssistantStartedAtIso) openAssistantStartedAtIso = new Date().toISOString()
           openAssistantText += sc.outputTranscription.text
         }
 
@@ -1839,7 +2101,7 @@ function handleTwilioWebSocket(req: Request): Response {
         }
         authenticated = true
 
-        bridgeData = await buildBridgeSystemPromptAndData(storeId, activeLang, callerNumber)
+        bridgeData = await getPrewarmedOrBuildBridgeData(storeId, activeLang, callerNumber)
         transcript.push({
           role: "assistant",
           text: bridgeData.greetings.fullGreeting,
@@ -1857,9 +2119,9 @@ function handleTwilioWebSocket(req: Request): Response {
           realtimeInputConfig: {
             automaticActivityDetection: {
               startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
-              endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
-              prefixPaddingMs: 280,
-              silenceDurationMs: 560
+              endOfSpeechSensitivity: "END_SENSITIVITY_HIGH",
+              prefixPaddingMs: 80,
+              silenceDurationMs: 320
             }
           },
           systemInstruction: { parts: [{ text: bridgeData.systemText }] },
@@ -1934,13 +2196,38 @@ function handleTwilioWebSocket(req: Request): Response {
       const payloadB64 = msg.media?.payload
       if (!payloadB64) return
       const mulaw = base64ToUint8(payloadB64)
-      const inPlaybackWindow = Date.now() < outboundAudioDrainUntilMs + 180
+      const inPlaybackWindow = Date.now() < outboundAudioDrainUntilMs + 80
       const { pcmBytes: pcm16, speechActive } = inResampler.process(mulaw, { inPlaybackWindow })
+
+      // Ruta rápida cero-CPU en silencio (evita 50×/s de Base64 + JSON en el 80% de la llamada)
+      if (!speechActive && pcm16BatchBytes === 0) {
+        if (geminiReady && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+          silentFramesAccum++
+          if (silentFramesAccum >= 3) {
+            silentFramesAccum = 0
+            geminiWs.send(SILENCE_60MS_PCM16_GEMINI_JSON)
+          }
+        }
+        return
+      }
+      silentFramesAccum = 0
+
+      // Si una sola trama ya trae >= 640 bytes (20 ms de voz o +pre-roll), enviar directo sin copiar a array intermedio
+      if (pcm16BatchBytes === 0 && pcm16.length >= 640) {
+        const b64 = uint8ToBase64(pcm16)
+        if (geminiReady && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+          geminiWs.send(`{"realtimeInput":{"audio":{"data":"${b64}","mimeType":"audio/pcm;rate=16000"}}}`)
+        } else if (speechActive) {
+          if (preReadyPcmQueue.length >= 12) preReadyPcmQueue.shift()
+          preReadyPcmQueue.push(b64)
+        }
+        return
+      }
+
       pcm16Batch.push(pcm16)
       pcm16BatchBytes += pcm16.length
 
-      // Enviar cada ~40 ms (2 tramas Twilio = 1280 bytes a 16 kHz PCM16)
-      if (pcm16BatchBytes >= 1280) {
+      if (pcm16BatchBytes >= 640) {
         const merged = new Uint8Array(pcm16BatchBytes)
         let pos = 0
         for (const part of pcm16Batch) {
@@ -1952,11 +2239,7 @@ function handleTwilioWebSocket(req: Request): Response {
         const b64 = uint8ToBase64(merged)
 
         if (geminiReady && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-          geminiWs.send(
-            JSON.stringify({
-              realtimeInput: { audio: { data: b64, mimeType: "audio/pcm;rate=16000" } }
-            })
-          )
+          geminiWs.send(`{"realtimeInput":{"audio":{"data":"${b64}","mimeType":"audio/pcm;rate=16000"}}}`)
         } else if (speechActive) {
           // Solo encolar tramas de voz humana real antes de ready (descartar silencio/ruido inicial de conexión)
           if (preReadyPcmQueue.length >= 12) preReadyPcmQueue.shift()

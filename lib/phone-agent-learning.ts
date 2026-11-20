@@ -44,6 +44,7 @@
  * - Auditoría Aprendizaje Continuo 2026-11-19: rotación multi-llave con `generateGeminiLearningJson`, cobertura activa de
  *   llamadas `Kore 3.8 Live` (Twilio + `SIM_LIVE_*`), detección de correcciones/fricción del cliente y propuestas `stt_synonym`,
  *   más exclusión estricta de llamadas `in_progress`/`ringing` para no sellar `analyzed_at` prematuramente.
+ * - Blindaje Single-Key Paid Tier 1 (2026-11-20): cuando `pool.length <= 1`, acota concurrencia LLM y pre-warming TTS a `1` en secuencia.
  */
 
 import { createHash } from 'node:crypto'
@@ -51,6 +52,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
 import {
   generateGeminiLearningJson,
+  getGeminiKeyPoolWithRemote,
   getPhoneAgentSpeech,
   warmPhoneSpeechFromStorageOnly
 } from '@/lib/order-ready-tts'
@@ -276,10 +278,18 @@ export function inferAppliesToChannels(
     return 'both'
   }
 
-  // Reglas exclusivas de toma de orden en pantalla de altavoz Drive-Thru
+  // Reglas exclusivas de toma de orden / entrega en Ventana 2 del Drive-Thru
   const isDriveThruOnly =
-    /\b(?:confirm\s+order|add\s+item|modify\s+item|remove\s+item|set\s+fulfillment)\b/.test(norm) ||
-    /\b(?:pantalla\s+del\s+altavoz|carrito\s+del\s+altavoz|speaker\s+screen|push\s+to\s+talk|start\s+sensitivity\s+low|noise\s+gate)\b/.test(
+    /\b(?:confirm\s+order|add\s+item|modify\s+item|remove\s+item|set\s+fulfillment|register_driver_pickup|end_session)\b/.test(
+      norm
+    ) ||
+    /\b(?:pantalla\s+del\s+altavoz|carrito\s+del\s+altavoz|speaker\s+screen|push\s+to\s+talk|start\s+sensitivity\s+low|noise\s+gate|blindaje\s+delivery)\b/.test(
+      norm
+    ) ||
+    /\b(?:pregunta(?:r)?\s+(?:siempre\s+)?corto\s+.{0,16}(?:regular\s+o\s+super|que\s+carne)|ask\s+(?:briefly|shortly)\s+.{0,16}regular\s+or\s+super)\b/.test(
+      norm
+    ) ||
+    /\b(?:envia(?:lo|la|r)?\s+(?:siempre\s+)?a\s+(?:la\s+)?ventana\s+2|pasa\s+a\s+(?:la\s+)?ventana\s+2\s+por\s+(?:tu|su)\s+orden|send\s+(?:the\s+)?driver\s+to\s+window\s+2)\b/.test(
       norm
     ) ||
     /\b(?:pasar|pase|avanza|avance)\s+a\s+(?:la\s+)?(?:siguiente\s+|primera\s+|segunda\s+)?ventanilla\s+para\s+pagar\s+(?:su|tu|la)\s+orden\s+activa\b/.test(
@@ -1717,9 +1727,10 @@ export async function analyzeUnprocessedPhoneCalls(opts?: {
     const topForLlm = enrichmentCandidates.slice(0, MAX_LLM_CALL_ENRICHMENTS_PER_RUN)
     const overflow = enrichmentCandidates.slice(MAX_LLM_CALL_ENRICHMENTS_PER_RUN)
 
-    const LLM_CONCURRENCY = 3
-    for (let i = 0; i < topForLlm.length; i += LLM_CONCURRENCY) {
-      const slice = topForLlm.slice(i, i + LLM_CONCURRENCY)
+    const activePoolLen = (await getGeminiKeyPoolWithRemote()).length
+    const llmConcurrency = activePoolLen <= 1 ? 1 : 3
+    for (let i = 0; i < topForLlm.length; i += llmConcurrency) {
+      const slice = topForLlm.slice(i, i + llmConcurrency)
       await Promise.all(
         slice.map(async (item) => {
           const llmFindings = await extractLlmPhoneCallDoubts(item.call, item.sourceType, [
@@ -1895,29 +1906,32 @@ export async function prewarmApprovedFastReplies(
   isSmokeTest: boolean
 ): Promise<boolean> {
   if (isSmokeTest) return false
-  const tasks: Array<Promise<boolean>> = []
+  const specs: Array<{ text: string; lang: 'es' | 'en' }> = []
   if (fastReplyEs && fastReplyEs.length <= 220) {
-    tasks.push(
-      getPhoneAgentSpeech(fastReplyEs, 'es', 'Kore', false, {
-        awaitStoragePersist: true,
-        maxTotalMs: 10_000
-      })
-        .then((b) => Boolean(b && b.length > 44))
-        .catch(() => false)
-    )
+    specs.push({ text: fastReplyEs, lang: 'es' })
   }
   if (fastReplyEn && fastReplyEn.length <= 220) {
-    tasks.push(
-      getPhoneAgentSpeech(fastReplyEn, 'en', 'Kore', false, {
-        awaitStoragePersist: true,
-        maxTotalMs: 10_000
-      })
-        .then((b) => Boolean(b && b.length > 44))
-        .catch(() => false)
-    )
+    specs.push({ text: fastReplyEn, lang: 'en' })
   }
-  if (tasks.length === 0) return false
-  const outcomes = await Promise.all(tasks)
+  if (specs.length === 0) return false
+
+  const runOne = (s: { text: string; lang: 'es' | 'en' }) =>
+    getPhoneAgentSpeech(s.text, s.lang, 'Kore', false, {
+      awaitStoragePersist: true,
+      maxTotalMs: 10_000
+    })
+      .then((b) => Boolean(b && b.length > 44))
+      .catch(() => false)
+
+  const isSingleKey = (await getGeminiKeyPoolWithRemote()).length <= 1
+  if (isSingleKey) {
+    let anyOk = false
+    for (const s of specs) {
+      if (await runOne(s)) anyOk = true
+    }
+    return anyOk
+  }
+  const outcomes = await Promise.all(specs.map(runOne))
   return outcomes.some(Boolean)
 }
 

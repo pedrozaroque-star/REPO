@@ -221,6 +221,10 @@
  *   * Filtra en <2 ms monólogos largos de TV/radio/YouTube de fondo (`isCanonicalReply = true`) sin alucinar ni llamar LLM.
  *   * Prohibición estricta y saneamiento determinista contra llamar `"chica"`/`"pequeña"` a bebidas de 22 oz (siempre **Mediana**)
  *     y contra usar `"tamaño"` en burritos, quesadillas o mulitas (solo Regular vs Super).
+ * - CONSOLIDACIÓN SINGLE-KEY TIER 1 Y PARIDAD `AIzaSy` / `AQ.` (2026-11-20):
+ *   * Unificados `MODERN_CHAT_MODELS` y `CLASSIC_CHAT_MODELS` sin penalizar llaves pagadas `AIzaSy` frente a `AQ.`.
+ *   * Llave enviada exclusivamente por header `x-goog-api-key` (cero `?key=` en URL), detección de `quota_limit_value: "0"` en
+ *     `error.details` y protección `rawPool.length === 1` (cero `keyQuarantineUntil`, `bypassKeyQuarantine = true`, timeout primario `5s`).
  */
 
 import twilio from 'twilio'
@@ -267,11 +271,7 @@ const MODERN_CHAT_MODELS = [
   'gemini-3.5-flash-lite',
   'gemini-3-flash-preview'
 ]
-const CLASSIC_CHAT_MODELS = [
-  'gemini-3.1-flash-lite-preview',
-  'gemini-3.5-flash-lite',
-  'gemini-3-flash-preview'
-]
+const CLASSIC_CHAT_MODELS = MODERN_CHAT_MODELS
 
 const keyQuarantineUntil = new Map<string, number>()
 const modelUnavailableUntil = new Map<string, number>()
@@ -964,49 +964,61 @@ export function evaluateStoreSchedulePure(params: {
     return null
   }
 
-  // 1. Verificar primero si estamos en la madrugada (00:00 - 05:59 AM) y el turno de AYER sigue abierto
+  let prevJustClosedInfo: { dayEs: string; dayEn: string; phraseEs: string; phraseEn: string } | null = null
+
+  // 1. Verificar primero si estamos en la madrugada (00:00 - 05:59 AM) y el turno de AYER sigue abierto o acaba de cerrar
   const yesterdaySched = getScheduleForDay(pt.yesterdayDayOfWeek, pt.yesterdayDateStr)
-  if (!yesterdaySched.isClosedAllDay) {
+  if (!yesterdaySched.isClosedAllDay && pt.currentMinutes < 360) {
     const yOpenMin = parseTimeToMinutes(yesterdaySched.open)
     const yCloseMin = parseTimeToMinutes(yesterdaySched.close)
-    // Si cierra después de medianoche (ej. "01:00", "02:00", "03:00", "04:00"), yCloseMin <= 359 y yCloseMin > 0
-    if (yCloseMin > 0 && yCloseMin <= 359 && yCloseMin <= yOpenMin && pt.currentMinutes < yCloseMin) {
+    // Si cierra a medianoche ("00:00") o en la madrugada ("01:00"-"04:00"), yCloseMin <= 359 y yCloseMin <= yOpenMin
+    if (yCloseMin <= 359 && yCloseMin <= yOpenMin) {
       const openEs = formatTime12h(yesterdaySched.open, 'es')
       const closeEs = formatTime12h(yesterdaySched.close, 'es')
       const openEn = formatTime12h(yesterdaySched.open, 'en')
       const closeEn = formatTime12h(yesterdaySched.close, 'en')
       const dayEs = DAY_NAMES_ES[pt.yesterdayDayOfWeek]
       const dayEn = DAY_NAMES_EN[pt.yesterdayDayOfWeek]
-      const todayCalSched = getScheduleForDay(pt.dayOfWeek, pt.dateStr)
-      const closedDayNoteEs = todayCalSched.isClosedAllDay
-        ? ` (Nota: después de cerrar ${atTimeEs(closeEs)}, permaneceremos cerrados el resto del día por ${cleanSpokenHoliday(todayCalSched.holidayName) || 'día festivo'})`
-        : ''
-      const closedDayNoteEn = todayCalSched.isClosedAllDay
-        ? ` (Note: after closing at ${closeEn}, we remain closed for the rest of the day for ${cleanSpokenHoliday(todayCalSched.holidayNameEn || todayCalSched.holidayName) || 'the holiday'})`
-        : ''
 
-      return {
-        storeId,
-        storeName,
-        isOpenNow: true,
-        activeScheduleDate: pt.yesterdayDateStr,
-        activeDayLabelEs: dayEs,
-        activeDayLabelEn: dayEn,
-        todayOpen: yesterdaySched.open,
-        todayClose: yesterdaySched.close,
-        todayOpenFormattedEs: openEs,
-        todayCloseFormattedEs: closeEs,
-        todayOpenFormattedEn: openEn,
-        todayCloseFormattedEn: closeEn,
-        isAfterMidnightSpillover: true,
-        isSpecialHolidaySchedule: yesterdaySched.isSpecial || todayCalSched.isSpecial,
-        specialHolidayName: todayCalSched.holidayName || yesterdaySched.holidayName,
-        statusMessageEs: `La ${branchNounEs} está ABIERTA en este momento; nuestro turno nocturno de ${dayEs} cierra hoy ${atTimeEs(closeEs)}${closedDayNoteEs}.`,
-        statusMessageEn: `${ourLocCapEn} is OPEN right now; our ${dayEn} late-night shift closes at ${closeEn}${closedDayNoteEn}.`,
-        closedGreetingPromptEs: null,
-        closedGreetingPromptEn: null,
-        weeklySummaryEs: buildWeeklySummary(wh, 'es'),
-        weeklySummaryEn: buildWeeklySummary(wh, 'en')
+      if (yCloseMin > 0 && pt.currentMinutes < yCloseMin) {
+        const todayCalSched = getScheduleForDay(pt.dayOfWeek, pt.dateStr)
+        const closedDayNoteEs = todayCalSched.isClosedAllDay
+          ? ` (Nota: después de cerrar ${atTimeEs(closeEs)}, permaneceremos cerrados el resto del día por ${cleanSpokenHoliday(todayCalSched.holidayName) || 'día festivo'})`
+          : ''
+        const closedDayNoteEn = todayCalSched.isClosedAllDay
+          ? ` (Note: after closing at ${closeEn}, we remain closed for the rest of the day for ${cleanSpokenHoliday(todayCalSched.holidayNameEn || todayCalSched.holidayName) || 'the holiday'})`
+          : ''
+
+        return {
+          storeId,
+          storeName,
+          isOpenNow: true,
+          activeScheduleDate: pt.yesterdayDateStr,
+          activeDayLabelEs: dayEs,
+          activeDayLabelEn: dayEn,
+          todayOpen: yesterdaySched.open,
+          todayClose: yesterdaySched.close,
+          todayOpenFormattedEs: openEs,
+          todayCloseFormattedEs: closeEs,
+          todayOpenFormattedEn: openEn,
+          todayCloseFormattedEn: closeEn,
+          isAfterMidnightSpillover: true,
+          isSpecialHolidaySchedule: yesterdaySched.isSpecial || todayCalSched.isSpecial,
+          specialHolidayName: todayCalSched.holidayName || yesterdaySched.holidayName,
+          statusMessageEs: `La ${branchNounEs} está ABIERTA en este momento; nuestro turno nocturno de ${dayEs} cierra hoy ${atTimeEs(closeEs)}${closedDayNoteEs}.`,
+          statusMessageEn: `${ourLocCapEn} is OPEN right now; our ${dayEn} late-night shift closes at ${closeEn}${closedDayNoteEn}.`,
+          closedGreetingPromptEs: null,
+          closedGreetingPromptEn: null,
+          weeklySummaryEs: buildWeeklySummary(wh, 'es'),
+          weeklySummaryEn: buildWeeklySummary(wh, 'en')
+        }
+      }
+
+      prevJustClosedInfo = {
+        dayEs,
+        dayEn,
+        phraseEs: yCloseMin === 0 ? 'cerró a medianoche (12:00 AM)' : `cerró ${atTimeEs(closeEs)}`,
+        phraseEn: yCloseMin === 0 ? 'closed at midnight (12:00 AM)' : `closed at ${closeEn}`
       }
     }
   }
@@ -1042,37 +1054,44 @@ export function evaluateStoreSchedulePure(params: {
     const reopenSpokenEs = nextOpen ? ` y reanudamos servicio ${reopenDayPhraseEs} ${atTimeEs(nextOpenEs)}` : ''
     const reopenSpokenEn = nextOpen ? `, and we reopen ${reopenDayPhraseEn} at ${nextOpenEn}` : ''
 
-    return {
-      storeId,
-      storeName,
-      isOpenNow: false,
-      activeScheduleDate: pt.dateStr,
-      activeDayLabelEs: dayEs,
-      activeDayLabelEn: dayEn,
-      todayOpen: 'CLOSED',
-      todayClose: 'CLOSED',
-      todayOpenFormattedEs: 'Cerrado',
-      todayCloseFormattedEs: 'Cerrado',
-      todayOpenFormattedEn: 'Closed',
-      todayCloseFormattedEn: 'Closed',
-      isAfterMidnightSpillover: false,
-      isSpecialHolidaySchedule: todaySched.isSpecial,
-      specialHolidayName: todaySched.holidayName,
-      statusMessageEs: todaySched.isSpecial
-        ? `Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la ${branchNounEs} permanece cerrada todo el día por día festivo.${reopenTailEs}`
-        : `Hoy (${dayEs}) la ${branchNounEs} permanece cerrada todo el día.${reopenTailEs}`,
-      statusMessageEn: todaySched.isSpecial
-        ? `Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) ${ourLocLowEn} is closed all day for the holiday.${reopenTailEn}`
-        : `Today (${dayEn}) ${ourLocLowEn} is closed all day.${reopenTailEn}`,
-      closedGreetingPromptEs: todaySched.isSpecial
-        ? `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`
-        : `En este momento nuestra sucursal está cerrada; hoy permanecemos cerrados todo el día${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
-      closedGreetingPromptEn: todaySched.isSpecial
-        ? `Our location is currently closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`
-        : `Our location is currently closed all day${reopenSpokenEn}. How can I help you?`,
-      weeklySummaryEs: buildWeeklySummary(wh, 'es'),
-      weeklySummaryEn: buildWeeklySummary(wh, 'en')
-    }
+      const prevPrefixEs = prevJustClosedInfo
+        ? `Nuestro turno nocturno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs}; hoy `
+        : ''
+      const prevPrefixEn = prevJustClosedInfo
+        ? `Our ${prevJustClosedInfo.dayEn} late-night shift ${prevJustClosedInfo.phraseEn}; today `
+        : ''
+
+      return {
+        storeId,
+        storeName,
+        isOpenNow: false,
+        activeScheduleDate: pt.dateStr,
+        activeDayLabelEs: dayEs,
+        activeDayLabelEn: dayEn,
+        todayOpen: 'CLOSED',
+        todayClose: 'CLOSED',
+        todayOpenFormattedEs: 'Cerrado',
+        todayCloseFormattedEs: 'Cerrado',
+        todayOpenFormattedEn: 'Closed',
+        todayCloseFormattedEn: 'Closed',
+        isAfterMidnightSpillover: false,
+        isSpecialHolidaySchedule: todaySched.isSpecial,
+        specialHolidayName: todaySched.holidayName,
+        statusMessageEs: todaySched.isSpecial
+          ? `${prevPrefixEs}Hoy (${formatHolidayForParenhEs(todaySched.holidayName) || dayEs}) la ${branchNounEs} permanece cerrada todo el día por día festivo.${reopenTailEs}`
+          : `${prevPrefixEs}Hoy (${dayEs}) la ${branchNounEs} permanece cerrada todo el día.${reopenTailEs}`,
+        statusMessageEn: todaySched.isSpecial
+          ? `${prevPrefixEn}Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) ${ourLocLowEn} is closed all day for the holiday.${reopenTailEn}`
+          : `${prevPrefixEn}Today (${dayEn}) ${ourLocLowEn} is closed all day.${reopenTailEn}`,
+        closedGreetingPromptEs: todaySched.isSpecial
+          ? `En este momento nuestra sucursal está cerrada; ${prevPrefixEs}hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`
+          : `En este momento nuestra sucursal está cerrada; ${prevPrefixEs}hoy permanecemos cerrados todo el día${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
+        closedGreetingPromptEn: todaySched.isSpecial
+          ? `Our location is currently closed; ${prevPrefixEn}we are closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`
+          : `Our location is currently closed; ${prevPrefixEn}we are closed all day${reopenSpokenEn}. How can I help you?`,
+        weeklySummaryEs: buildWeeklySummary(wh, 'es'),
+        weeklySummaryEn: buildWeeklySummary(wh, 'en')
+      }
   }
 
   const openMin = parseTimeToMinutes(todaySched.open)
@@ -1102,15 +1121,30 @@ export function evaluateStoreSchedulePure(params: {
       statusMessageEn = `${ourLocCapEn} is OPEN right now. Today (${dayEn}) our hours are ${openEn} to ${closeEn}.`
     }
   } else if (pt.currentMinutes < openMin) {
+    const prevClosedNoteEs = prevJustClosedInfo
+      ? ` (el turno nocturno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs})`
+      : ''
+    const prevClosedNoteEn = prevJustClosedInfo
+      ? ` (our ${prevJustClosedInfo.dayEn} late-night shift ${prevJustClosedInfo.phraseEn})`
+      : ''
     if (todaySched.isSpecial && todaySched.holidayName) {
       const spokenHolEs = cleanSpokenHoliday(todaySched.holidayName)
       const spokenHolEn = expandHolidayMonthsEn(cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName))
       const hEs = formatHolidayForParenhEs(todaySched.holidayName)
       const hEn = formatHolidayForParenEn(todaySched.holidayNameEn || todaySched.holidayName)
-      statusMessageEs = `En este momento la ${branchNounEs} está cerrada. Hoy ${dayEs} (${hEs}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
-      statusMessageEn = `${ourLocCapEn} is currently closed. Today (${dayEn}, ${hEn}) we open at ${openEn} (special holiday hours) and close at ${closeEn}.`
-      closedGreetingPromptEs = `En este momento nuestra sucursal aún está cerrada; hoy por ${spokenHolEs} abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
-      closedGreetingPromptEn = `Our location is currently closed; today for ${spokenHolEn} we open at ${openEn} and close at ${closeEn}. How can I help you?`
+      statusMessageEs = `En este momento la ${branchNounEs} está cerrada${prevClosedNoteEs}. Hoy ${dayEs} (${hEs}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
+      statusMessageEn = `${ourLocCapEn} is currently closed${prevClosedNoteEn}. Today (${dayEn}, ${hEn}) we reopen at ${openEn} (special holiday hours) and close at ${closeEn}.`
+      closedGreetingPromptEs = prevJustClosedInfo
+        ? `En este momento ya cerramos; el turno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs} y hoy por ${spokenHolEs} abrimos ${atTimeEs(openEs)}. ¿En qué te puedo ayudar?`
+        : `En este momento nuestra sucursal aún está cerrada; hoy por ${spokenHolEs} abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
+      closedGreetingPromptEn = prevJustClosedInfo
+        ? `We are currently closed; our ${prevJustClosedInfo.dayEn} shift ${prevJustClosedInfo.phraseEn} and today for ${spokenHolEn} we reopen at ${openEn}. How can I help you?`
+        : `Our location is currently closed; today for ${spokenHolEn} we open at ${openEn} and close at ${closeEn}. How can I help you?`
+    } else if (prevJustClosedInfo) {
+      statusMessageEs = `En este momento la ${branchNounEs} está cerrada (el turno nocturno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs}). Volvemos a abrir hoy ${dayEs.toLowerCase()} ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
+      statusMessageEn = `${ourLocCapEn} is currently closed (our ${prevJustClosedInfo.dayEn} late-night shift ${prevJustClosedInfo.phraseEn}). Today, ${dayEn}, we reopen at ${openEn} and close at ${closeEn}.`
+      closedGreetingPromptEs = `En este momento ya cerramos; el turno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs} y abrimos hoy ${dayEs.toLowerCase()} ${atTimeEs(openEs)}. ¿En qué te puedo ayudar?`
+      closedGreetingPromptEn = `We are currently closed; our ${prevJustClosedInfo.dayEn} shift ${prevJustClosedInfo.phraseEn} and we reopen today, ${dayEn}, at ${openEn}. How can I help you?`
     } else {
       statusMessageEs = `En este momento la ${branchNounEs} está cerrada. Hoy ${dayEs} abrimos ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
       statusMessageEn = `${ourLocCapEn} is currently closed. Today (${dayEn}) we open at ${openEn} and close at ${closeEn}.`
@@ -4849,11 +4883,12 @@ async function executeSingleGeminiAttempt(params: {
   preferredModel?: string | null
   timeoutMs: number
   abortController?: AbortController
+  isSingleKeyPool?: boolean
 }): Promise<SingleGeminiAttemptOutcome> {
-  const { model, apiKey, body, preferredModel, timeoutMs, abortController } = params
+  const { model, apiKey, body, preferredModel, timeoutMs, abortController, isSingleKeyPool = false } = params
   const pairKey = `${apiKey}:${model}`
   const supportsMinimalThinking = !model.includes('3.8')
-  const url = `${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`
+  const url = `${GEMINI_BASE}/${model}:generateContent`
 
   const genCfg: Record<string, any> = {
     maxOutputTokens: 1024,
@@ -4883,7 +4918,7 @@ async function executeSingleGeminiAttempt(params: {
     const signal = abortController ? AbortSignal.any([abortController.signal, timeoutSignal]) : timeoutSignal
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       signal,
       body: JSON.stringify({
         ...body,
@@ -4916,24 +4951,37 @@ async function executeSingleGeminiAttempt(params: {
     }
 
     const msg = data?.error?.message || `HTTP ${res.status}${candidate?.finishReason ? ` (${candidate.finishReason})` : ''}`
+    const fullErrStr = data?.error ? JSON.stringify(data.error) : ''
     if (res.status === 404) {
       modelUnavailableUntil.set(model, Date.now() + 60 * 60 * 1000)
     } else if (res.status === 401 || res.status === 402 || res.status === 403) {
-      keyQuarantineUntil.set(apiKey, Date.now() + 6 * 60 * 60 * 1000)
+      if (!isSingleKeyPool) {
+        keyQuarantineUntil.set(apiKey, Date.now() + 6 * 60 * 60 * 1000)
+      } else {
+        keyModelCooldownUntil.set(pairKey, Date.now() + 3 * 1000)
+      }
     } else if (res.status === 400) {
       return { ok: false, status: 400, errorMessage: msg, deterministicBadRequest: true }
     } else if (res.status === 429) {
-      const isDailyQuota = /\bper\s*day\b|free_tier_requests|limit:\s*20|retry in \d+h/i.test(msg)
-      keyModelCooldownUntil.set(pairKey, Date.now() + (isDailyQuota ? 15 * 60 * 1000 : 45 * 1000))
-      if (isDailyQuota) {
+      const isZeroQuota = /"quota_limit_value"\s*:\s*"?0"?|\blimit:\s*0\b/i.test(fullErrStr)
+      const isDailyQuota =
+        isZeroQuota || /\bper\s*day\b|PerDay|free_tier_requests|limit:\s*20|retry in \d+h/i.test(`${msg} ${fullErrStr}`)
+      if (isZeroQuota && !isSingleKeyPool) {
+        keyQuarantineUntil.set(apiKey, Date.now() + 15 * 60 * 1000)
+      }
+      keyModelCooldownUntil.set(
+        pairKey,
+        Date.now() + (isDailyQuota ? (isSingleKeyPool ? 60 * 1000 : 15 * 60 * 1000) : isSingleKeyPool ? 8 * 1000 : 45 * 1000)
+      )
+      if (isDailyQuota && !isZeroQuota) {
         const fails = (modelConsecutiveFails.get(model) || 0) + 1
         modelConsecutiveFails.set(model, fails)
-        if (fails >= 2) {
-          modelUnavailableUntil.set(model, Date.now() + 15 * 60 * 1000)
+        if (fails >= (isSingleKeyPool ? 1 : 2)) {
+          modelUnavailableUntil.set(model, Date.now() + (isSingleKeyPool ? 60 * 1000 : 15 * 60 * 1000))
         }
       }
     } else {
-      keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+      keyModelCooldownUntil.set(pairKey, Date.now() + (isSingleKeyPool ? 5 * 1000 : 30 * 1000))
       if (res.status === 503) {
         const fails = (modelConsecutiveFails.get(model) || 0) + 1
         modelConsecutiveFails.set(model, fails)
@@ -4950,17 +4998,18 @@ async function executeSingleGeminiAttempt(params: {
       return { ok: false, status: 0, errorMessage: 'Aborted after faster peer succeeded' }
     }
     if (model === 'gemini-3.1-flash-lite-preview') {
-      // En primario (gemini-3.1-flash-lite-preview): enfriar únicamente la llave lenta 3 min (ej. ...pby7HA) sin banear el modelo completo por timeouts.
-      keyModelCooldownUntil.set(pairKey, Date.now() + 3 * 60 * 1000)
+      // En llave única: enfriar solo 5s para no desplazar el modelo primario por un pico puntual; en multi-llave: 3 min sobre esa llave.
+      keyModelCooldownUntil.set(pairKey, Date.now() + (isSingleKeyPool ? 5 * 1000 : 3 * 60 * 1000))
     } else if (model === 'gemini-3-flash-preview') {
-      // Timeout corto en gemini-3-flash-preview: enfriar solo la llave 15s (modelUnavailableUntil reservado para 503/404/cuota diaria).
-      keyModelCooldownUntil.set(pairKey, Date.now() + 15 * 1000)
+      keyModelCooldownUntil.set(pairKey, Date.now() + (isSingleKeyPool ? 5 * 1000 : 15 * 1000))
     } else {
-      keyModelCooldownUntil.set(pairKey, Date.now() + 45 * 1000)
-      const fails = (modelConsecutiveFails.get(model) || 0) + 1
-      modelConsecutiveFails.set(model, fails)
-      if (fails >= 3) {
-        modelUnavailableUntil.set(model, Date.now() + 20 * 1000)
+      keyModelCooldownUntil.set(pairKey, Date.now() + (isSingleKeyPool ? 5 * 1000 : 45 * 1000))
+      if (!isSingleKeyPool) {
+        const fails = (modelConsecutiveFails.get(model) || 0) + 1
+        modelConsecutiveFails.set(model, fails)
+        if (fails >= 3) {
+          modelUnavailableUntil.set(model, Date.now() + 20 * 1000)
+        }
       }
     }
     return { ok: false, status: 0, errorMessage: e?.message || 'Error de red' }
@@ -4978,36 +5027,37 @@ async function callGeminiPhoneWithFailover(
   }
 
   const now = Date.now()
-  const activePool = rawPool.filter((k) => (keyQuarantineUntil.get(k) || 0) <= now)
-  const bypassKeyQuarantine = activePool.length === 0
+  const isSingleKeyPool = rawPool.length === 1
+  const activePool = rawPool.filter((k) => isSingleKeyPool || (keyQuarantineUntil.get(k) || 0) <= now)
+  const bypassKeyQuarantine = isSingleKeyPool || activePool.length === 0
   const candidateKeys = bypassKeyQuarantine ? rawPool : activePool
 
   const startIdx = keyRoundRobin++ % candidateKeys.length
   const rotated = [...candidateKeys.slice(startIdx), ...candidateKeys.slice(0, startIdx)]
   const modernKeys = rotated.filter((k) => k.startsWith('AQ.'))
   const classicKeys = rotated.filter((k) => !k.startsWith('AQ.'))
-  const orderedKeys = modernKeys.length >= 3 ? modernKeys : [...modernKeys, ...classicKeys]
+  // Priorizar `AQ.` al frente conservando siempre las llaves `AIzaSy` pagadas sin excluirlas
+  const orderedKeys = [...modernKeys, ...classicKeys]
 
   const baseModels = Array.from(new Set([...MODERN_CHAT_MODELS, ...CLASSIC_CHAT_MODELS]))
   const primaryModel = MODERN_CHAT_MODELS[0]
   const primaryHasUnCooledKey = orderedKeys.some(
-    (k) => k.startsWith('AQ.') && (keyModelCooldownUntil.get(`${k}:${primaryModel}`) || 0) <= now
+    (k) => (keyModelCooldownUntil.get(`${k}:${primaryModel}`) || 0) <= now
   )
   const primaryHealthy = (modelUnavailableUntil.get(primaryModel) || 0) <= now && primaryHasUnCooledKey
   const lastHealthyValid =
     lastHealthyChatModel &&
     baseModels.includes(lastHealthyChatModel) &&
     (modelUnavailableUntil.get(lastHealthyChatModel) || 0) <= now &&
-    orderedKeys.some((k) => {
-      const mList = k.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
-      return mList.includes(lastHealthyChatModel as string) && (keyModelCooldownUntil.get(`${k}:${lastHealthyChatModel}`) || 0) <= now
-    })
+    orderedKeys.some(
+      (k) => MODERN_CHAT_MODELS.includes(lastHealthyChatModel as string) && (keyModelCooldownUntil.get(`${k}:${lastHealthyChatModel}`) || 0) <= now
+    )
       ? lastHealthyChatModel
       : null
   const secondaryModel = MODERN_CHAT_MODELS[1]
   const secondaryHealthy =
     (modelUnavailableUntil.get(secondaryModel) || 0) <= now &&
-    orderedKeys.some((k) => k.startsWith('AQ.') && (keyModelCooldownUntil.get(`${k}:${secondaryModel}`) || 0) <= now)
+    orderedKeys.some((k) => (keyModelCooldownUntil.get(`${k}:${secondaryModel}`) || 0) <= now)
   const leadModel =
     preferredModel && baseModels.includes(preferredModel)
       ? preferredModel
@@ -5042,8 +5092,7 @@ async function callGeminiPhoneWithFailover(
         for (const k of orderedKeys) {
           if (usedKeysInRace.has(k)) continue
           if ((keyModelCooldownUntil.get(`${k}:${m}`) || 0) > now) continue
-          const mList = k.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
-          if (!mList.includes(m)) continue
+          if (!MODERN_CHAT_MODELS.includes(m)) continue
           usedKeysInRace.add(k)
           return { model: m, key: k }
         }
@@ -5137,7 +5186,8 @@ async function callGeminiPhoneWithFailover(
             body,
             preferredModel,
             timeoutMs: Math.min(hedgeCapMs, Math.max(1200, rem - 200)),
-            abortController: ctrls[slotIdx]
+            abortController: ctrls[slotIdx],
+            isSingleKeyPool
           })
             .catch((err: any): SingleGeminiAttemptOutcome => ({
               ok: false,
@@ -5194,7 +5244,7 @@ async function callGeminiPhoneWithFailover(
 
   for (const pass of ['fresh', 'cooldown_fallback'] as const) {
     if (pass === 'cooldown_fallback' && deadlineMs - Date.now() < 1200) break
-    const passKeys = pass === 'cooldown_fallback' && modernKeys.length >= 3 ? [...modernKeys, ...classicKeys] : orderedKeys
+    const passKeys = orderedKeys
     const passModels =
       pass === 'fresh'
         ? [...orderedModels].sort((a, b) => {
@@ -5235,8 +5285,7 @@ async function callGeminiPhoneWithFailover(
         if (!bypassKeyQuarantine && (keyQuarantineUntil.get(key) || 0) > Date.now()) continue
         const pairKey = `${key}:${model}`
         if (pass === 'fresh' && (attemptedPairs.has(pairKey) || (keyModelCooldownUntil.get(pairKey) || 0) > Date.now())) continue
-        const modelsForKey = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
-        if (!modelsForKey.includes(model)) continue
+        if (!MODERN_CHAT_MODELS.includes(model)) continue
 
         const remaining = deadlineMs - Date.now()
         if (remaining < 900 || attempts >= MAX_ATTEMPTS) {
@@ -5252,7 +5301,8 @@ async function callGeminiPhoneWithFailover(
           apiKey: key,
           body,
           preferredModel,
-          timeoutMs: Math.min(attemptLimitMs, remaining - 250)
+          timeoutMs: Math.min(attemptLimitMs, remaining - 250),
+          isSingleKeyPool
         })
 
         if (outcome.ok) {
@@ -6501,6 +6551,9 @@ export async function fetchScopedCriticalPendingCallbacksWithCap(
 // el motor cede automáticamente el turno a Gemini para aplicar el texto actualizado en vivo.
 const CANONICAL_KB_EPOCH_MS = Date.parse('2026-11-19T06:40:00Z')
 
+const CONNECTION_FALLBACK_REPLY_RE =
+  /problema t[eé]cnico moment[aá]neo|inconveniente t[eé]cnico|breve problema de conexi[oó]n|se cort[oó] un poco la se[nñ]al|mala se[nñ]al en la l[ií]nea|no alcanc[eé] a escucharte|brief technical issue|connection broke up|poor connection/i
+
 function didAssistantOfferClosingFollowUp(assistantText: string | null | undefined): boolean {
   const raw = String(assistantText || '').trim()
   if (!raw || isPromptExpectingPhoneOrDetails(raw)) return false
@@ -6529,9 +6582,11 @@ export function isCallerEndingConversation(params: {
     !/\b(pero|dime|cuanto|a que hora|donde|cuando|cual|como|quien|quiero|necesito|tienen|venden|pregunta|duda|espera|espere|but|wait|actually|how much|what time)\b/i.test(
       trimmed
     ) &&
-    /\b(cuelgame|puedes colgar|ya voy a colgar|mejor luego llamo|mejor llamo luego|mejor llamo mas tarde|despues llamo|llamo despues|llamo mas tarde|te llamo luego|te llamo mas tarde|olvida(?:lo)?[\s,]+(?:adios|gracias|bye)|hang up|(?:ill|i\s+ll|i will) call back later|never mind[\s,]+(?:bye|goodbye|thanks))\b/i.test(
+    (/\b(cuelgame|puedes colgar|ya voy a colgar|ya me voy|me voy|nos vamos|mejor luego llamo|mejor llamo luego|mejor llamo mas tarde|despues llamo|llamo despues|llamo mas tarde|te llamo luego|te llamo mas tarde|olvida(?:lo)?[\s,]+(?:adios|gracias|bye)|hang up|(?:ill|i\s+ll|i will) call back later|never mind[\s,]+(?:bye|goodbye|thanks))\b/i.test(
       trimmed
-    )
+    ) ||
+      (CONNECTION_FALLBACK_REPLY_RE.test(prevAssistantText) &&
+        /\b(gracias|muchas gracias|ya no|adios|bye|thank you|thanks)\b/i.test(trimmed)))
   ) {
     return true
   }
@@ -6579,7 +6634,7 @@ export function isCallerEndingConversation(params: {
 
   // 3. Respuestas breves naturales cuando la asistente acaba de ofrecer "¿Algo más? / ¿Alguna otra duda? / How else can I help?"
   const shortClosingToken =
-    '(?:no|nop|nel|nope|nah|ninguna|ninguno|nada|nada mas|ya no|no ya no|no esto|todo gracias|ya esta|ya esta gracias|asi esta bien|esta bien|todo bien|con eso|con eso esta bien|listo|ya quedo|perfecto|muy bien|ok|okay|sale|orale|entendido|enterado|gracias|muchas gracias|muchisimas gracias|mil gracias|te lo agradezco|amable|muy amable|buen dia|buenos dias|buena tarde|buenas tardes|buena noche|buenas noches|igualmente|thank you|thanks|thank you so much|thanks so much|thanks a lot|so much|a lot|appreciate it|maam|miss|sir|(?:im|i\\s+m|i am) good|all good|(?:were|we\\s+re|we are) good|(?:im|i\\s+m|i am) all set|(?:were|we\\s+re|we are) all set|all set|(?:thats|that s|that is) it|have a good day|have a great day|have a good night|have a good one|bye)'
+    '(?:no|nop|nel|nope|nah|ninguna|ninguno|nada|nada mas|ya no|no ya no|ya me voy|me voy|nos vamos|no esto|todo gracias|ya esta|ya esta gracias|asi esta bien|esta bien|todo bien|con eso|con eso esta bien|listo|ya quedo|perfecto|muy bien|ok|okay|sale|orale|entendido|enterado|gracias|muchas gracias|muchisimas gracias|mil gracias|te lo agradezco|amable|muy amable|buen dia|buenos dias|buena tarde|buenas tardes|buena noche|buenas noches|igualmente|thank you|thanks|thank you so much|thanks so much|thanks a lot|so much|a lot|appreciate it|maam|miss|sir|(?:im|i\\s+m|i am) good|all good|(?:were|we\\s+re|we are) good|(?:im|i\\s+m|i am) all set|(?:were|we\\s+re|we are) all set|all set|(?:thats|that s|that is) it|have a good day|have a great day|have a good night|have a good one|bye)'
   if (offeredClosing && wordCount <= 12) {
     const shortClosingRe = new RegExp(`^${shortClosingToken}(?:[\\s,]+${shortClosingToken})*\\.?\\!*$`, 'i')
     if (shortClosingRe.test(trimmed)) {
@@ -6879,10 +6934,13 @@ export function resolveCanonicalPreparedReply(params: {
     !wantsFiestaContext &&
     !needsInteractiveFlow &&
     !isBreakfastHoursHit &&
-    !/\b(trabajo|empleo|vacante|solicitud|job|apply|cuanto|cuanta|cuesta|cuestan|precio|precios|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|a como|price|prices|how much|cost|costs|charge|total)\b/i.test(normUser) &&
-    /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|toman (?:(?:ordenes|pedidos)\s+)?(?:ordenes|pedidos) por telefono|aceptan (?:(?:ordenes|pedidos)\s+)?(?:ordenes|pedidos) por telefono|se puede (?:ordenar|pedir) por telefono|puedo (?:ordenar|pedir).{0,24}(?:por telefono|para llevar|para recoger)|puedo (?:ordenar|pedir)\s+(?:unos?|unas?|un|una|dos|tres|mi|mis|comida|tacos?|burritos?|tortas?|quesadillas?|mulitas?|platos?|sopes?|nachos?)|tomar (?:mi |una )?(?:orden|pedido)|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?(?:orden|pedido)|me pueden tomar (?:mi |una )?(?:orden|pedido)|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar|hacer una? (?:orden|pedido))|(?:estaba )?llamando para (?:ordenar|pedir|(?:hacer )?una? (?:orden|pedido))|llamaba para (?:ordenar|pedir|hacer una? (?:orden|pedido))|can i (?:order|place an? (?:\w+ )?order|call in an? order)|do you take (?:phone orders|orders over the phone|orders by phone)|place an? (?:\w+ )?order|order over the phone|put in an? order|take my order|i want to order|i\s*d like to (?:order|place an? (?:\w+ )?order)|like to place an? (?:\w+ )?order)\b/i.test(
+    !/\b(trabajo|empleo|vacante|solicitud|job|apply|cuanto|cuanta|cuesta|cuestan|precio|precios|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|a como|price|prices|how much|cost|costs|charge|total|tienen|manejan|venden|do you have|do you sell|ingredientes?|ingredients?|que lleva)\b/i.test(normUser) &&
+    (/\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|toman (?:(?:ordenes|pedidos)\s+)?(?:ordenes|pedidos) por telefono|aceptan (?:(?:ordenes|pedidos)\s+)?(?:ordenes|pedidos) por telefono|se puede (?:ordenar|pedir) por telefono|puedo (?:ordenar|pedir).{0,24}(?:por telefono|para llevar|para recoger)|puedo (?:ordenar|pedir)\s+(?:unos?|unas?|un|una|dos|tres|mi|mis|comida|tacos?|burritos?|tortas?|quesadillas?|mulitas?|platos?|sopes?|nachos?)|tomar (?:mi |una )?(?:orden|pedido)|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?(?:orden|pedido)|me pueden tomar (?:mi |una )?(?:orden|pedido)|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar|hacer una? (?:orden|pedido))|(?:estaba )?llamando para (?:ordenar|pedir|(?:hacer )?una? (?:orden|pedido))|llamaba para (?:ordenar|pedir|hacer una? (?:orden|pedido))|can i (?:order|place an? (?:\w+ )?order|call in an? order)|do you take (?:phone orders|orders over the phone|orders by phone)|place an? (?:\w+ )?order|order over the phone|put in an? order|take my order|i want to order|i\s*d like to (?:order|place an? (?:\w+ )?order)|like to place an? (?:\w+ )?order)\b/i.test(
       normUser
-    )
+    ) ||
+      /\b(?:(?:yo )?(?:voy a querer|quiero|quisiera|dame|deme|me das|me da|ponme|preparame|i want|i\s*d like|give me|let me get)\s+(?:unos?|unas?|un|una|dos|tres|cuatro|cinco|seis|media docena|one|two|three|four|five|six|\d+)\s+(?:tacos?|burritos?|super burritos?|tortas?|quesadillas?|mulitas?|sopes?|nachos?|platos?|taco plates?|aguas?|horchatas?|jamaicas?|combos?))\b/i.test(
+        normUser
+      ))
   if (isOrderByPhoneHit) topics.add('order_by_phone')
 
   const isTodayHoursHit =
@@ -8281,7 +8339,7 @@ export async function processPhoneAgentTurn(params: {
   const tomorrowHoliday = upcomingHolidays.find((h) => h.event_date === tomorrowDateStr) || null
   const todayHolName = todayHoliday ? (turnLangGuess === 'en' ? todayHoliday.holiday_name_en : todayHoliday.holiday_name_es) : ''
   const tomHolName = tomorrowHoliday ? (turnLangGuess === 'en' ? tomorrowHoliday.holiday_name_en : tomorrowHoliday.holiday_name_es) : ''
-  const calendarDateLine = `- Fecha calendario actual en California: HOY es ${todayDayLabelEs} ${ptNow.dateStr} (${todayHoliday ? `SÍ es festivo: ${todayHolName}` : 'día normal SIN horario festivo'}) | MAÑANA es ${tomorrowDayLabelEs} ${tomorrowDateStr} (${tomorrowHoliday ? `SÍ es festivo: ${tomHolName}` : 'día normal SIN horario festivo; aplica horario semanal regular'}).`
+  const calendarDateLine = `- Fecha calendario actual en California: HOY es ${todayDayLabelEs} ${ptNow.dateStr} (${todayHoliday ? `SÍ es festivo: ${todayHolName}` : 'día normal SIN horario festivo'}) | MAÑANA es ${tomorrowDayLabelEs} ${tomorrowDateStr} (${tomorrowHoliday ? `SÍ es festivo: ${tomHolName}` : 'día normal SIN horario festivo; aplica horario semanal regular'}).${ptNow.currentMinutes < 360 ? ` MADRUGADA ACTIVA (00:00–05:59 AM): si la tienda ya cerró su turno nocturno y reabre esta misma mañana, di SIEMPRE "hoy ${todayDayLabelEs.toLowerCase()}" o "en unas horas", JAMÁS "mañana".` : ''}`
 
   const holidaysContextLine = wantsHolidayContext || Boolean(todayHoliday || tomorrowHoliday)
     ? upcomingHolidays.length > 0
@@ -8582,8 +8640,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
    - **NO vendemos ni manejamos pasteles de cumpleaños**, pasteles enteros, churros, menudo, birria, pozole, suadero, tripa (descontinuada) ni alcohol/cerveza; si preguntan si tenemos alguno de estos productos o temas ajenos (música, deportes, chistes), acláralo con amabilidad (indicando que de postre solo ofrecemos Flan y Cheesecake individuales si preguntaron por pastel/postre), **NUNCA** digas que los busquen en \`tacosgavilan.com\` y **NUNCA** llames \`flag_unanswered_question\` por productos que no vendemos.
 3. **Charolas Fiesta Platters**:
    - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
-4. **Pedidos por Teléfono**:
-   - Explica de manera educada y seria que no tomamos órdenes por teléfono, e invítalo a hacer su pedido fácilmente en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}. Si insisten en preguntar por qué, mantente amable y seria indicando únicamente que los pedidos para recoger se toman en tacosgavilan.com o directamente en la sucursal. **PROHIBIDO** mencionar "políticas", "política", "pólizas", "reglamentos", "policy" o "policies" al responder sobre órdenes por teléfono.
+4. **Pedidos por Teléfono (CERO ÓRDENES — DETENER DE RAÍZ EN LA PRIMERA FRASE)**:
+   - Si el cliente intenta hacer un pedido diciendo \`"quiero dos tacos y dos burritos"\`, \`"voy a querer..."\`, \`"dame..."\`, \`"puedo pedir..."\`, etc., **EN TU PRIMERA ORACIÓN** explica amablemente que no tomamos órdenes por teléfono e invítalo a pedir en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}. **ESTRICTAMENTE PROHIBIDO** actuar como cajera o preguntar *"¿Regular o Super?"*, *"¿qué carne?"* o *"¿algo más de tu orden?"* (**PROHIBIDO** mencionar "políticas", "política", "pólizas", "reglamentos", "policy" o "policies"). Solo informa precios unitarios directos en USD si aportan utilidad informativa (dando ambos precios Regular y Super sin tomar pedido).
    - EXCEPCIÓN: Si el cliente ya hizo una orden y llama para agregar **condimentos gratis**, reportar **sucursal equivocada** o un **problema/retraso de entrega**, NO apliques esta regla de pedido nuevo: atiende según las reglas 5 y 6.
 ${postOrderRulesBlock}
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
@@ -8599,7 +8657,7 @@ ${postOrderRulesBlock}
     .filter(
       (t) =>
         (t.role === 'user' || t.role === 'assistant') &&
-        !/problema t[eé]cnico moment[aá]neo|brief technical issue/i.test(String(t.text || ''))
+        !CONNECTION_FALLBACK_REPLY_RE.test(String(t.text || ''))
     )
     .slice(-10)
   while (historyEntries.length > 0 && historyEntries[0].role !== 'user') historyEntries.shift()
@@ -9910,10 +9968,17 @@ ${postOrderRulesBlock}
             ? `${scheduleEval.statusMessageEn} Our address is ${spokenStoreAddress}.`
             : `${scheduleEval.statusMessageEs} Nuestra dirección es ${spokenStoreAddress}.`
       } else {
+        const alreadyApologized = transcript
+          .slice(-4)
+          .some((t) => t.role === 'assistant' && CONNECTION_FALLBACK_REPLY_RE.test(t.text || ''))
         replyText =
           turnLangGuess === 'en'
-            ? 'Sorry, I had a brief technical issue. Could you please repeat your question?'
-            : 'Disculpa, tuve un problema técnico momentáneo. ¿Me puedes repetir tu pregunta, por favor?'
+            ? alreadyApologized
+              ? 'Sorry about the poor connection. How else can I assist you with Tacos Gavilan?'
+              : 'Sorry, the connection broke up slightly. Could you please repeat your question?'
+            : alreadyApologized
+              ? 'Disculpa la mala señal en la línea. ¿En qué más te puedo ayudar sobre Tacos Gavilan?'
+              : 'Disculpa, se cortó un poco la señal. ¿Me puedes repetir tu pregunta, por favor?'
       }
     } else {
       replyText =

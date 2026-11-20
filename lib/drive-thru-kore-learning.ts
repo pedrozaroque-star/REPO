@@ -3,9 +3,11 @@
  * @description Motor de Aprendizaje Continuo Bidireccional (Continuous Learning) entre el asistente de voz
  * "Kore Drive-Thru" (`dt_kore_learning_items` + `dt_kore_sim_sessions`) y la Contestadora IA Telefónica
  * (`/admin/llamadas` -> `phone_knowledge_base` + `phone_calls`) de Tacos Gavilan:
- *   1) Analiza simulaciones de `dt_kore_sim_sessions` (`analyzed_at IS NULL`) y llamadas terminadas de `phone_calls`
+ *   1) Analiza simulaciones de `dt_kore_sim_sessions` (`analyzed_at IS NULL`, priorizando intervenciones humanas en
+ *      headset `A1` donde `transcript` contiene `role === 'cashier'` o `order_json.cashierIntervention?.triggered === true`)
+ *      y llamadas terminadas de `phone_calls`
  *      (`kore_analyzed_at IS NULL`, `turns_count > 0`, `unanswered_question` + `transcript` JSONB) para detectar
- *      errores conversacionales, dudas sin respuesta, fricciones con clientes y colisiones fonéticas de STT.
+ *      errores conversacionales, dudas sin respuesta, resoluciones reales de cajeras y colisiones fonéticas de STT.
  *   2) Sincroniza en tiempo real (`syncLearningItemToPhoneKnowledgeBase`) toda duda o regla con
  *      `applies_to_channels IN ('both', 'phone_only')` hacia `public.phone_knowledge_base` y `public.phone_learning_items`
  *      (incluyendo generación de `fast_reply_es/en` `<= 220` chars, `trigger_keywords` y pre-calentamiento WAV `Kore 3.8`
@@ -223,8 +225,16 @@ export function inferAppliesToChannels(
   }
 
   if (
-    /\b(?:confirm\s+order|add\s+item|modify\s+item|remove\s+item|set\s+fulfillment)\b/.test(combined) ||
-    /\b(?:pantalla\s+del\s+altavoz|carrito\s+del\s+altavoz|speaker\s+screen|push\s+to\s+talk|start\s+sensitivity\s+low|noise\s+gate)\b/.test(
+    /\b(?:confirm\s+order|add\s+item|modify\s+item|remove\s+item|set\s+fulfillment|register_driver_pickup|end_session)\b/.test(
+      combined
+    ) ||
+    /\b(?:pantalla\s+del\s+altavoz|carrito\s+del\s+altavoz|speaker\s+screen|push\s+to\s+talk|start\s+sensitivity\s+low|noise\s+gate|blindaje\s+delivery)\b/.test(
+      combined
+    ) ||
+    /\b(?:pregunta(?:r)?\s+(?:siempre\s+)?corto\s+.{0,16}(?:regular\s+o\s+super|que\s+carne)|ask\s+(?:briefly|shortly)\s+.{0,16}regular\s+or\s+super)\b/.test(
+      combined
+    ) ||
+    /\b(?:envia(?:lo|la|r)?\s+(?:siempre\s+)?a\s+(?:la\s+)?ventana\s+2|pasa\s+a\s+(?:la\s+)?ventana\s+2\s+por\s+(?:tu|su)\s+orden|send\s+(?:the\s+)?driver\s+to\s+window\s+2)\b/.test(
       combined
     ) ||
     /\b(?:pasar|pase|avanza|avance)\s+a\s+(?:la\s+)?(?:siguiente\s+|primera\s+|segunda\s+)?ventanilla\s+para\s+pagar\s+(?:su|tu|la)\s+orden\s+activa\b/.test(
@@ -1224,6 +1234,95 @@ function extractDeterministicSessionFindings(
 }
 
 /**
+ * Construye de forma determinista un hallazgo prioritario cuando la cajera abrió su línea `A1` del headset
+ * (`role === 'cashier'` en `transcript` o `order_json.cashierIntervention?.triggered === true`), capturando
+ * exactamente qué pidió el cliente antes de la intervención y cómo lo resolvió la cajera en la bocina exterior.
+ */
+export function buildDeterministicCashierInterventionFinding(
+  session: any,
+  sourceType: KoreLearningSourceType = 'auto_analysis'
+): CandidateFinding | null {
+  const turns: Array<{ role: string; text: string }> = Array.isArray(session?.transcript) ? session.transcript : []
+  const cashierTurns = turns.filter((t) => t?.role === 'cashier' && String(t.text || '').trim().length > 0)
+  const ciMeta = session?.order_json?.cashierIntervention
+  const triggeredMeta = Boolean(ciMeta && typeof ciMeta === 'object' && ciMeta.triggered === true)
+  if (cashierTurns.length === 0 && !triggeredMeta) return null
+
+  const sessionId = String(session.id)
+  const storeId = Number.isInteger(Number(session.store_id)) ? Number(session.store_id) : null
+  const avgLat = Number.isFinite(Number(session.avg_latency_ms)) ? Number(session.avg_latency_ms) : null
+  const firstCashierIdx = turns.findIndex((t) => t?.role === 'cashier' && String(t.text || '').trim().length > 0)
+  const sliceEnd = firstCashierIdx >= 0 ? firstCashierIdx : turns.length
+
+  const priorCustomerTurns = turns
+    .slice(0, sliceEnd)
+    .filter((t) => t?.role === 'customer' && String(t.text || '').trim().length > 0)
+  const lastCustomerBefore =
+    priorCustomerTurns[priorCustomerTurns.length - 1]?.text ||
+    [...turns].reverse().find((t) => t?.role === 'customer' && String(t.text || '').trim().length > 0)?.text ||
+    ''
+  const priorKoreTurn = turns
+    .slice(0, sliceEnd)
+    .reverse()
+    .find((t) => t?.role === 'kore' && String(t.text || '').trim().length > 0)
+
+  const cashierJoinedRaw = cashierTurns.map((t) => String(t.text || '').trim()).filter(Boolean).join(' / ')
+  const cleanCust = sanitizeRuleText(lastCustomerBefore, 240)
+  const cleanCashier = sanitizeRuleText(cashierJoinedRaw, 240)
+  const triggerSrc = String(ciMeta?.triggerSource || (cashierTurns.length > 0 ? 'verbal_cue' : 'manual_button'))
+
+  const fpSeed = normalizeQuestionFingerprint(cleanCust || cleanCashier || sessionId)
+  const dedupeKey = `cashier_takeover:${shortHash(fpSeed || sessionId)}`
+
+  const questionOrTrigger = cleanCust
+    ? `Intervención de cajera en Headset (${triggerSrc}): "${cleanCust.slice(0, 125)}"`
+    : `Intervención de cajera en Headset (${triggerSrc}) durante atención en Drive-Thru`
+
+  const koreQuoteParts: string[] = []
+  if (cleanCashier) koreQuoteParts.push(`[Cajera Headset A1]: ${cleanCashier}`)
+  else if (priorKoreTurn?.text) koreQuoteParts.push(sanitizeRuleText(priorKoreTurn.text, 220))
+  const koreQuote = sanitizeRuleText(koreQuoteParts.join(' | '), 260) || null
+
+  const hasCashierResolution = cleanCashier.length >= 6
+  const proposedRuleEs = hasCashierResolution
+    ? sanitizeRuleText(
+        `Cuando el cliente plantee "${cleanCust || 'esta situación especial'}", aplicar el criterio dado por caja en Tacos Gavilan: ${cleanCashier}`,
+        380
+      )
+    : 'Definir la respuesta oficial que Kore debe dar en Tacos Gavilan para evitar que la cajera tenga que intervenir por headset.'
+  const proposedRuleEn = hasCashierResolution
+    ? sanitizeRuleText(
+        `When a customer asks "${cleanCust || 'this special case'}", apply the Tacos Gavilan cashier's resolution: ${cleanCashier}`,
+        380,
+        'en'
+      )
+    : 'Define the official Tacos Gavilan response Kore should give so the cashier does not need to take over on the headset.'
+
+  return {
+    storeId,
+    sourceSessionId: sessionId,
+    dedupeKey,
+    sourceType,
+    itemKind: hasCashierResolution ? 'learned_rule' : 'doubt_for_owner',
+    status: 'needs_owner_input',
+    appliesToChannels: inferAppliesToChannels({
+      questionOrTrigger,
+      proposedRuleEs,
+      proposedRuleEn,
+      customerQuote: cleanCust,
+      dedupeKey,
+      itemKind: hasCashierResolution ? 'learned_rule' : 'doubt_for_owner'
+    }),
+    questionOrTrigger,
+    customerQuote: cleanCust || null,
+    koreQuote,
+    proposedRuleEs,
+    proposedRuleEn,
+    avgLatencyMs: avgLat
+  }
+}
+
+/**
  * Extrae hallazgos forenses de una llamada telefónica terminada (`phone_calls`), analizando tanto `unanswered_question`
  * como el `transcript` JSONB (respuestas "no cuento con información", correcciones del cliente, fricciones de menú/recados).
  * Deduplica dentro de la misma llamada por `dedupeKey` para que un `phone_calls.id` jamás sume más de +1.
@@ -1384,28 +1483,40 @@ export function extractPhoneCallFindings(call: any): CandidateFinding[] {
   return out
 }
 
-async function extractLlmSessionDoubts(session: any, sourceType: KoreLearningSourceType): Promise<CandidateFinding[]> {
+async function extractLlmSessionDoubts(
+  session: any,
+  sourceType: KoreLearningSourceType,
+  cashierFallback: CandidateFinding | null = null
+): Promise<CandidateFinding[]> {
   const turns: Array<{ role: string; text: string }> = Array.isArray(session.transcript) ? session.transcript : []
   const meaningfulCustomerTurns = turns.filter((t) => t.role === 'customer' && FOOD_OR_DT_WORDS_RE.test(t.text))
-  if (meaningfulCustomerTurns.length < 2 || session.outcome === 'confirmed') return []
+  if (!cashierFallback && (meaningfulCustomerTurns.length < 2 || session.outcome === 'confirmed')) return []
 
   try {
     const compactTranscript = turns
-      .slice(0, 24)
-      .map((t) => `${t.role.toUpperCase()}: ${String(t.text || '').slice(0, 180)}`)
+      .slice(0, 28)
+      .map((t) => `${t.role.toUpperCase()}: ${String(t.text || '').slice(0, 200)}`)
       .join('\n')
-    const prompt = [
-      'Analiza esta transcripción de simulación del Drive-Thru de Tacos Gavilan.',
-      'Devuelve SOLO JSON {"items":[...]} (máximo 1 hallazgo nuevo, o [] si ya está cubierto por: (a) no decir tamaño en burritos, (b) ruido de TV de fondo, (c) colisión "Quiero dos nada").',
-      'Solo reporta una duda genuina de negocio/menú donde el dueño deba definir cómo contestar.',
-      'Formato de cada item: {"questionOrTrigger":"...","customerQuote":"...","koreQuote":"...","proposedRuleEs":"...","proposedRuleEn":"..."}',
-      compactTranscript
-    ].join('\n')
+    const prompt = cashierFallback
+      ? [
+          'Analiza esta sesión de Drive-Thru de Tacos Gavilan donde la CAJERA HUMANA abrió su línea de Headset (CASHIER) para resolver una situación especial o anómala.',
+          'Identifica exactamente: (1) qué pidió o preguntó el cliente justo antes de que entrara la cajera, y (2) cómo lo resolvió/contestó la cajera en la bocina exterior.',
+          'Usa estrictamente la marca "Tacos Gavilan" (jamás agregues "El"), precios solo en USD (jamás pesos) y Regular o Super en comida.',
+          'Devuelve SOLO JSON {"items":[{"itemKind":"learned_rule","questionOrTrigger":"...","customerQuote":"...","koreQuote":"[Cajera Headset A1]: ...","proposedRuleEs":"...","proposedRuleEn":"..."}]} (usa "doubt_for_owner" si la cajera no dio un criterio reutilizable claro).',
+          compactTranscript
+        ].join('\n')
+      : [
+          'Analiza esta transcripción de simulación del Drive-Thru de Tacos Gavilan.',
+          'Devuelve SOLO JSON {"items":[...]} (máximo 1 hallazgo nuevo, o [] si ya está cubierto por: (a) no decir tamaño en burritos, (b) ruido de TV de fondo, (c) colisión "Quiero dos nada").',
+          'Solo reporta una duda genuina de negocio/menú donde el dueño deba definir cómo contestar.',
+          'Formato de cada item: {"questionOrTrigger":"...","customerQuote":"...","koreQuote":"...","proposedRuleEs":"...","proposedRuleEn":"..."}',
+          compactTranscript
+        ].join('\n')
 
     const llmRes = await generateGeminiLearningJson<{ items?: any[] }>({
       models: GEMINI_REST_MODELS,
       prompt,
-      maxOutputTokens: 350,
+      maxOutputTokens: 380,
       temperature: 0.1,
       timeoutMs: 5500
     })
@@ -1416,20 +1527,26 @@ async function extractLlmSessionDoubts(session: any, sourceType: KoreLearningSou
     for (const it of arr) {
       const trigger = sanitizeRuleText(it?.questionOrTrigger, 180)
       if (trigger.length < 10) continue
-      if (/tamañ|size|red bull|verstappen|checo|dos nada/i.test(trigger)) continue
+      if (!cashierFallback && /tamañ|size|red bull|verstappen|checo|dos nada/i.test(trigger)) continue
+      const rawKind = it?.itemKind === 'learned_rule' ? 'learned_rule' : cashierFallback?.itemKind || 'doubt_for_owner'
+      const rawKoreQuote = sanitizeRuleText(it?.koreQuote, 240)
+      const finalKoreQuote =
+        cashierFallback && rawKoreQuote && !/cajera/i.test(rawKoreQuote)
+          ? sanitizeRuleText(`[Cajera Headset A1]: ${rawKoreQuote}`, 260)
+          : rawKoreQuote || cashierFallback?.koreQuote || null
       out.push({
         storeId: Number.isInteger(Number(session.store_id)) ? Number(session.store_id) : null,
         sourceSessionId: String(session.id),
-        dedupeKey: `doubt:llm:${shortHash(trigger)}`,
+        dedupeKey: cashierFallback ? cashierFallback.dedupeKey : `doubt:llm:${shortHash(trigger)}`,
         sourceType,
-        itemKind: 'doubt_for_owner',
+        itemKind: rawKind,
         status: 'needs_owner_input',
-        appliesToChannels: 'both',
+        appliesToChannels: cashierFallback ? cashierFallback.appliesToChannels : 'both',
         questionOrTrigger: trigger,
-        customerQuote: sanitizeRuleText(it?.customerQuote, 240) || null,
-        koreQuote: sanitizeRuleText(it?.koreQuote, 240) || null,
-        proposedRuleEs: sanitizeRuleText(it?.proposedRuleEs, 360) || null,
-        proposedRuleEn: sanitizeRuleText(it?.proposedRuleEn, 360, 'en') || null,
+        customerQuote: sanitizeRuleText(it?.customerQuote, 240) || cashierFallback?.customerQuote || null,
+        koreQuote: finalKoreQuote,
+        proposedRuleEs: sanitizeRuleText(it?.proposedRuleEs, 380) || cashierFallback?.proposedRuleEs || null,
+        proposedRuleEn: sanitizeRuleText(it?.proposedRuleEn, 380, 'en') || cashierFallback?.proposedRuleEn || null,
         avgLatencyMs: Number.isFinite(Number(session.avg_latency_ms)) ? Number(session.avg_latency_ms) : null
       })
     }
@@ -1591,8 +1708,13 @@ export async function analyzeUnprocessedKoreSessions(opts?: {
 
   for (const s of list) {
     const det = extractDeterministicSessionFindings(s, sourceType)
-    const llm = await extractLlmSessionDoubts(s, sourceType)
-    for (const f of [...det, ...llm]) {
+    const cashierFallback = buildDeterministicCashierInterventionFinding(s, sourceType)
+    const llm = await extractLlmSessionDoubts(s, sourceType, cashierFallback)
+    const combinedFindings =
+      cashierFallback && !llm.some((item) => item.dedupeKey === cashierFallback.dedupeKey)
+        ? [...det, cashierFallback, ...llm]
+        : [...det, ...llm]
+    for (const f of combinedFindings) {
       const outcome = await upsertCandidateFinding(f)
       if (outcome === 'inserted') insertedItems++
       else if (outcome === 'incremented') incrementedItems++

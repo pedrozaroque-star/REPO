@@ -72,6 +72,14 @@
  * - ROTACIÓN MULTI-LLAVE PARA APRENDIZAJE CONTINUO (`generateGeminiLearningJson`, 2026-11-19): expone helper JSON con caché
  *   de llave sana en RAM + enfriamiento automático `429` (`quota_limit_value = 0` / `PerDay`) y carrera en bloques de 5 llaves
  *   para `lib/phone-agent-learning.ts` y `lib/drive-thru-kore-learning.ts`.
+ * - CONSOLIDACIÓN SINGLE-KEY TIER 1 + PURGA DE MODELOS PREVIEW TTS (2026-11-20):
+ *   1) `_config/gemini-keys.json` soporta `replaceEnv: true` y `disabledSuffixes` (más override `GEMINI_ONLY_KEYS`), sincronizando
+ *      `gTts.__tegRemoteKeyPoolCache` con SWR no bloqueante (TTL 2 min) para aislar llaves env obsoletas sin romper `phone-live-bridge`.
+ *   2) Eliminados los modelos preview con apagado 18-dic-2026 (`gemini-3.1-flash-tts-preview`, `gemini-2.5-flash-preview-tts`,
+ *      `gemini-2.5-pro-preview-tts`); `MODELS` y `PHONE_EMERGENCY_FALLBACK_MODELS` usan exclusivamente `gemini-3.8-flash-tts` y
+ *      `gemini-3.8-flash-lite-tts`, permitiendo llaves pagadas `AIzaSy` y `AQ.` sin inanición.
+ *   3) Blindaje `pool.length === 1`: cero bloqueo duro de 6h sobre llave única, enfriamientos transitorios `<= 3s`, rescate de pares
+ *      `kmKey` con bloqueo suave cuando no existen alternativas libres, unicidad de llave por ola SSE y filtro `!p?.thought` en aprendizaje.
  */
 
 import { createHash } from 'node:crypto'
@@ -97,17 +105,15 @@ const DEFAULT_PHONE_VOICE: PhoneFemaleVoiceId = 'Kore'
 const CACHE_VERSION = 'v4'
 const MODELS = [
   'gemini-3.8-flash-tts',
-  'gemini-3.8-flash-lite-tts',
-  'gemini-3.1-flash-tts-preview',
-  'gemini-2.5-flash-preview-tts',
-  'gemini-2.5-pro-preview-tts'
+  'gemini-3.8-flash-lite-tts'
 ]
 const PHONE_KORE38_MODELS = [
   'gemini-3.8-flash-tts',
   'gemini-3.8-flash-lite-tts'
 ] as const
 const PHONE_EMERGENCY_FALLBACK_MODELS = [
-  'gemini-3.1-flash-tts-preview'
+  'gemini-3.8-flash-lite-tts',
+  'gemini-3.8-flash-tts'
 ] as const
 
 export type TtsLang = 'en' | 'es'
@@ -131,7 +137,18 @@ const hardBlockedKeys: Map<string, number> =
 function isHardBlocked(k: string, now = Date.now()): boolean {
   return (hardBlockedKeys.get(k) || 0) > now
 }
-let remoteKeyPoolCache: { keys: string[]; fetchedAt: number } | null = gTts.__tegRemoteKeyPoolCache || null
+interface RemoteGeminiKeyPoolEntry {
+  keys: string[]
+  replaceEnv?: boolean
+  disabledSuffixes?: string[]
+  fetchedAt: number
+}
+const REMOTE_KEY_POOL_TTL_MS = 2 * 60 * 1000
+let remoteKeyPoolCache: RemoteGeminiKeyPoolEntry | null = gTts.__tegRemoteKeyPoolCache || null
+function setRemoteKeyPoolCache(next: RemoteGeminiKeyPoolEntry | null) {
+  remoteKeyPoolCache = next
+  gTts.__tegRemoteKeyPoolCache = next
+}
 let remoteKeyFetchInFlight: Promise<void> | null = null
 
 function buildAuthenticatedStorageUrl(storagePath: string): { url: string; headers: Record<string, string> } | null {
@@ -160,6 +177,32 @@ function setMemoryPhoneCache(path: string, wav: Buffer) {
 }
 
 export function getGeminiKeyPool(): string[] {
+  const disabledSuffixes = (remoteKeyPoolCache?.disabledSuffixes || [])
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+  const sortAndFilterKeys = (list: string[]): string[] => {
+    const deduped = Array.from(new Set(list.map((k) => (k || '').trim()).filter(Boolean)))
+    const filtered =
+      disabledSuffixes.length > 0
+        ? deduped.filter((k) => !disabledSuffixes.some((suf) => k.endsWith(suf)))
+        : deduped
+    const aqKeys = filtered.filter((k) => k.startsWith('AQ.'))
+    const classicKeys = filtered.filter((k) => !k.startsWith('AQ.'))
+    // Priorizar llaves `AQ.` al frente conservando también llaves `AIzaSy` pagadas sin inanición
+    return [...aqKeys, ...classicKeys]
+  }
+
+  const onlyKeysEnv = (process.env.GEMINI_ONLY_KEYS || '').trim()
+  if (onlyKeysEnv) {
+    const explicitOnly = sortAndFilterKeys(onlyKeysEnv.split(','))
+    if (explicitOnly.length > 0) return explicitOnly
+  }
+
+  if (remoteKeyPoolCache?.replaceEnv === true && Array.isArray(remoteKeyPoolCache.keys) && remoteKeyPoolCache.keys.length > 0) {
+    const remoteOnly = sortAndFilterKeys(remoteKeyPoolCache.keys)
+    if (remoteOnly.length > 0) return remoteOnly
+  }
+
   const numberedEnvKeys: Array<{ idx: number; val: string }> = []
   for (const [envName, envVal] of Object.entries(process.env)) {
     if (!envVal) continue
@@ -179,18 +222,14 @@ export function getGeminiKeyPool(): string[] {
     ...(process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(',') : []),
     ...numberedEnvKeys.map((e) => e.val)
   ]
-  const deduped = Array.from(new Set(raw.map((k) => (k || '').trim()).filter(Boolean)))
-  const aqKeys = deduped.filter((k) => k.startsWith('AQ.'))
-  const classicKeys = deduped.filter((k) => !k.startsWith('AQ.'))
-  // Conservar el 100% de las llaves configuradas priorizando las llaves modernas `AQ.` al frente de la rotación
-  return [...aqKeys, ...classicKeys]
+  return sortAndFilterKeys(raw)
 }
 
 async function refreshRemoteKeyPoolSafe(): Promise<void> {
   if (remoteKeyFetchInFlight) return remoteKeyFetchInFlight
   remoteKeyFetchInFlight = (async () => {
     const now = Date.now()
-    const retryFetchedAt = now - 9.5 * 60 * 1000
+    const retryFetchedAt = now - (REMOTE_KEY_POOL_TTL_MS - 30 * 1000)
     let loadedNonEmpty = false
     let timeoutTimer: ReturnType<typeof setTimeout> | null = null
     try {
@@ -216,21 +255,27 @@ async function refreshRemoteKeyPoolSafe(): Promise<void> {
       })
       if (parsed && Array.isArray(parsed?.keys)) {
         const keys = parsed.keys.map((k: any) => String(k || '').trim()).filter(Boolean)
+        const replaceEnv = Boolean(parsed?.replaceEnv)
+        const disabledSuffixes = Array.isArray(parsed?.disabledSuffixes)
+          ? parsed.disabledSuffixes.map((s: any) => String(s || '').trim()).filter(Boolean)
+          : undefined
         if (keys.length > 0) {
-          remoteKeyPoolCache = { keys, fetchedAt: now }
+          setRemoteKeyPoolCache({ keys, replaceEnv, disabledSuffixes, fetchedAt: now })
           loadedNonEmpty = true
         } else {
-          remoteKeyPoolCache = { keys: [], fetchedAt: retryFetchedAt }
+          setRemoteKeyPoolCache({ keys: [], replaceEnv: false, disabledSuffixes, fetchedAt: retryFetchedAt })
         }
       }
     } catch {
       // Ignorar si no existe o falló la descarga/parseo
     }
     if (!loadedNonEmpty) {
-      remoteKeyPoolCache = {
+      setRemoteKeyPoolCache({
         keys: remoteKeyPoolCache?.keys || [],
+        replaceEnv: remoteKeyPoolCache?.replaceEnv,
+        disabledSuffixes: remoteKeyPoolCache?.disabledSuffixes,
         fetchedAt: retryFetchedAt
-      }
+      })
     }
   })().finally(() => {
     remoteKeyFetchInFlight = null
@@ -240,16 +285,14 @@ async function refreshRemoteKeyPoolSafe(): Promise<void> {
 
 export async function getGeminiKeyPoolWithRemote(): Promise<string[]> {
   const now = Date.now()
-  const localKeys = getGeminiKeyPool()
-  const localAqCount = localKeys.filter((k) => k.startsWith('AQ.')).length
-  const cacheStale = !remoteKeyPoolCache || now - remoteKeyPoolCache.fetchedAt > 10 * 60 * 1000
+  const cacheStale = !remoteKeyPoolCache || now - remoteKeyPoolCache.fetchedAt > REMOTE_KEY_POOL_TTL_MS
   if (cacheStale) {
-    // En cold start sin el pool completo de llaves modernas `AQ.` (< 6), esperar `_config/gemini-keys.json` (~70 ms)
-    // para que Vercel y servidor local usen el 100% de las llaves desde el primer turno.
-    if (remoteKeyPoolCache && localAqCount >= 6) {
-      remoteKeyPoolCache = { keys: remoteKeyPoolCache.keys, fetchedAt: now }
+    if (remoteKeyPoolCache && remoteKeyPoolCache.keys.length > 0) {
+      // SWR no bloqueante (0 ms): conservar pool activo y refrescar en segundo plano
+      setRemoteKeyPoolCache({ ...remoteKeyPoolCache, fetchedAt: now })
       void refreshRemoteKeyPoolSafe().catch(() => null)
     } else {
+      // Cold start: esperar `_config/gemini-keys.json` (~70 ms) para aplicar `replaceEnv` desde el turno 0
       await refreshRemoteKeyPoolSafe()
     }
   }
@@ -684,13 +727,15 @@ async function generateTextWithGeminiDetailed(
   const allKeys = await getGeminiKeyPoolWithRemote()
   if (allKeys.length === 0) throw new Error('No hay ninguna GEMINI_API_KEY configurada')
 
-  // Priorizar llaves que no estén bloqueadas a nivel global por 401/402/403
+  // Priorizar llaves no bloqueadas; en modo llave única (allKeys.length === 1) jamás bloquear la única llave activa
   const now = Date.now()
-  const unblockedKeys = allKeys.filter((k) => !isHardBlocked(k, now) && (keyBlockedUntil.get(k) || 0) <= now)
-  if (unblockedKeys.length === 0) {
+  const isSingleKeyPool = allKeys.length === 1
+  const nonHardKeys = allKeys.filter((k) => isSingleKeyPool || !isHardBlocked(k, now))
+  const unblockedKeys = nonHardKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
+  const candidateKeys = unblockedKeys.length > 0 ? unblockedKeys : nonHardKeys
+  if (candidateKeys.length === 0) {
     throw new Error('GEMINI_TTS_QUOTA_EXHAUSTED: Cuota diaria de Gemini TTS alcanzada en todas las llaves (429 RESOURCE_EXHAUSTED). Use voz local del navegador.')
   }
-  const candidateKeys = unblockedKeys
 
   // Rotación balanceada (round-robin), priorizando llaves modernas (AQ.) para modelos 3.8
   const startIndex = (poolIndex++) % candidateKeys.length
@@ -722,10 +767,9 @@ async function generateTextWithGeminiDetailed(
     for (let attempt = 0; attempt < maxKeyTries; attempt++) {
       if (opts?.signal?.aborted) return { wav: null, wasSlowFailure: false }
       try {
-        const promptText =
-          model.includes('3.8') || model.includes('2.5')
-            ? textToSpeak
-            : buildInlineNaturalFemalePrompt(textToSpeak, lang)
+        const promptText = model.includes('3.8')
+          ? textToSpeak
+          : buildInlineNaturalFemalePrompt(textToSpeak, lang)
 
         const timeoutMs = opts?.attemptTimeoutMs ?? 18000
         const timeoutSig = AbortSignal.timeout(timeoutMs)
@@ -797,12 +841,12 @@ async function generateTextWithGeminiDetailed(
             }
             return { wav: null, wasSlowFailure: false }
           } else if (res.status === 401 || res.status === 402 || res.status === 403 || /prepayment|depleted|leaked|API_KEY_INVALID/i.test(errText)) {
-            const until = Date.now() + 6 * 60 * 60 * 1000
+            const until = Date.now() + (isSingleKeyPool ? 2500 : 6 * 60 * 60 * 1000)
             keyBlockedUntil.set(key, until)
-            hardBlockedKeys.set(key, until)
+            if (!isSingleKeyPool) hardBlockedKeys.set(key, until)
             return { wav: null, wasSlowFailure: false }
           } else if (res.status >= 500) {
-            keyBlockedUntil.set(kmKey, Date.now() + 45 * 1000)
+            keyBlockedUntil.set(kmKey, Date.now() + (isSingleKeyPool ? 2500 : 45 * 1000))
             return { wav: null, wasSlowFailure: true }
           } else if (res.status === 404) {
             keyBlockedUntil.set(kmKey, Date.now() + 6 * 60 * 60 * 1000)
@@ -810,9 +854,9 @@ async function generateTextWithGeminiDetailed(
           } else if (res.status === 400) {
             // HTTP 400 suele ser texto/parámetro rechazado: JAMÁS envenenar el pool completo por 6 horas salvo error explícito de llave
             if (/API_KEY_INVALID|key.*invalid|permission/i.test(errText)) {
-              const until = Date.now() + 6 * 60 * 60 * 1000
+              const until = Date.now() + (isSingleKeyPool ? 2500 : 6 * 60 * 60 * 1000)
               keyBlockedUntil.set(key, until)
-              hardBlockedKeys.set(key, until)
+              if (!isSingleKeyPool) hardBlockedKeys.set(key, until)
               return { wav: null, wasSlowFailure: false }
             }
             return { wav: null, wasSlowFailure: true }
@@ -823,7 +867,7 @@ async function generateTextWithGeminiDetailed(
       } catch (fetchErr: any) {
         lastErr = `${model}: ${fetchErr.message}`
         if (!opts?.signal?.aborted) {
-          keyBlockedUntil.set(kmKey, Date.now() + 75 * 1000)
+          keyBlockedUntil.set(kmKey, Date.now() + (isSingleKeyPool ? 2500 : 75 * 1000))
         }
         if (attempt + 1 < maxKeyTries && !opts?.signal?.aborted) {
           const ok = await sleepAbortable(400, opts?.signal)
@@ -836,27 +880,48 @@ async function generateTextWithGeminiDetailed(
     return { wav: null, wasSlowFailure: true }
   }
 
-  // Recorrer TODAS las llaves sanas por modelo: 3.8 usa AQ.; 3.1/2.5 intentan AQ. primero y respaldan con classicKeys (AIza) si todas las AQ. fallan
+  // Recorrer TODAS las llaves sanas por modelo (AQ. primero seguidas de AIzaSy pagadas sin inanición)
+  let attemptedUnblockedPair = false
   for (const model of modelsList) {
     if (opts?.signal?.aborted) break
-    const keysForModel = model.includes('3.8') && aqKeys.length > 0 ? aqKeys : rotatedKeys
+    const keysForModel = rotatedKeys
     let slowFailuresOnModel = 0
     const maxSlowFailures = opts?.maxAttemptsPerModel ?? keysForModel.length
     for (const key of keysForModel) {
       if (opts?.signal?.aborted || slowFailuresOnModel >= maxSlowFailures) break
-      if ((keyBlockedUntil.get(key) || 0) > Date.now()) {
+      if (!isSingleKeyPool && (keyBlockedUntil.get(key) || 0) > Date.now()) {
         continue
       }
       const kmKey = `${key}:${model}`
+      if (isHardBlocked(kmKey, Date.now())) {
+        continue
+      }
       const blockedUntil = keyBlockedUntil.get(kmKey) || 0
       if (blockedUntil > Date.now()) {
         recordRpmCandidate(model, key, blockedUntil)
         continue
       }
 
+      attemptedUnblockedPair = true
       const { wav, wasSlowFailure } = await tryModelKey(model, key)
       if (wav) return { wav, modelUsed: model }
       if (wasSlowFailure) slowFailuresOnModel++
+    }
+  }
+
+  // Rescate anti-bloqueo suave (GAP 4): si todos los pares estaban en enfriamiento transitorio (sin candidato RPM elegible), intentar pares no hard-blocked
+  if (!attemptedUnblockedPair && !earliestRpmCandidate && !opts?.signal?.aborted) {
+    for (const model of modelsList) {
+      if (opts?.signal?.aborted) break
+      for (const key of rotatedKeys) {
+        if (opts?.signal?.aborted) break
+        const checkNow = Date.now()
+        if (!isSingleKeyPool && isHardBlocked(key, checkNow)) continue
+        const kmKey = `${key}:${model}`
+        if (isHardBlocked(kmKey, checkNow)) continue
+        const { wav } = await tryModelKey(model, key)
+        if (wav) return { wav, modelUsed: model }
+      }
     }
   }
 
@@ -1507,16 +1572,19 @@ export async function* streamPhoneAgentSpeechPcm(
 
   // 3. Síntesis neuronal en tiempo real vía SSE (`:streamGenerateContent?alt=sse`)
   const allKeys = await getGeminiKeyPoolWithRemote()
+  const isSingleKeyPool = allKeys.length === 1
   const now = Date.now()
-  // Jamás resucitar llaves 401/402/403/leaked/depleted con bypassEmergencyBlock
-  const nonHardBlockedKeys = allKeys.filter((k) => !isHardBlocked(k, now))
+  // En pool multi-llave jamás resucitar llaves 401/402/403/leaked/depleted; en llave única nunca bloquear la única llave activa
+  const nonHardBlockedKeys = allKeys.filter((k) => isSingleKeyPool || !isHardBlocked(k, now))
   const unblocked = nonHardBlockedKeys.filter((k) => (keyBlockedUntil.get(k) || 0) <= now)
-  const bypassEmergencyBlock = unblocked.length === 0
+  const bypassEmergencyBlock = isSingleKeyPool || unblocked.length === 0
   const candidatePool = bypassEmergencyBlock ? nonHardBlockedKeys : unblocked
   const startIdx = candidatePool.length > 0 ? (poolIndex++) % candidatePool.length : 0
   const rotated = [...candidatePool.slice(startIdx), ...candidatePool.slice(0, startIdx)]
   const aqKeys = rotated.filter((k) => k.startsWith('AQ.'))
-  const streamKeys = aqKeys.length > 0 ? aqKeys : rotated
+  const classicKeys = rotated.filter((k) => !k.startsWith('AQ.'))
+  // Priorizar llaves `AQ.` al frente incluyendo también llaves `AIzaSy` pagadas sin inanición
+  const streamKeys = [...aqKeys, ...classicKeys]
   const stylePrompt = getPhoneStylePrompt(lang)
 
   let earliestStreamRpmCandidate: { model: string; key: string; readyAt: number } | null = null
@@ -1597,38 +1665,61 @@ export async function* streamPhoneAgentSpeechPcm(
         recordStreamRpmCandidate(model, key, readyAt)
       }
     } else if (status === 401 || status === 402 || status === 403 || /prepayment|API_KEY_INVALID|leaked|depleted/i.test(errText)) {
-      const until = Date.now() + 6 * 60 * 60 * 1000
+      const until = Date.now() + (isSingleKeyPool ? 2500 : 6 * 60 * 60 * 1000)
       keyBlockedUntil.set(key, until)
-      hardBlockedKeys.set(key, until)
+      if (!isSingleKeyPool) hardBlockedKeys.set(key, until)
     } else if (status >= 500) {
-      keyBlockedUntil.set(kmKey, Date.now() + 45 * 1000)
+      keyBlockedUntil.set(kmKey, Date.now() + (isSingleKeyPool ? 2500 : 45 * 1000))
       slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
     } else if (status === 400 && !/API_KEY_INVALID|key.*invalid|permission/i.test(errText)) {
       slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
     } else {
-      keyBlockedUntil.set(kmKey, Date.now() + 10 * 60 * 1000)
+      keyBlockedUntil.set(kmKey, Date.now() + (isSingleKeyPool ? 2500 : 10 * 60 * 1000))
       slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
     }
   }
 
-  let pairIdx = 0
+  const consumedPairIndices = new Set<number>()
   let usedStreamRpmWait = false
-  const pullEligiblePair = (): { model: string; key: string; kmKey: string } | null => {
+  let usedSoftBlockRescue = false
+  const pullEligiblePair = (
+    excludeWaveKeys: ReadonlySet<string>,
+    allowSoftBlockedKm = false
+  ): { model: string; key: string; kmKey: string } | null => {
     const slowCap = fastLivePhone ? 2 : 4
-    while (pairIdx < candidatePairs.length) {
-      const { model, key } = candidatePairs[pairIdx++]
-      if ((slowModelFailures.get(model) || 0) >= slowCap) continue
-      if (fastLivePhone && (quotaFailuresOnModel.get(model) || 0) >= maxQuotaFailuresPerModel) continue
-      const checkNow = Date.now()
-      if (isHardBlocked(key, checkNow)) continue
-      if (!bypassEmergencyBlock && (keyBlockedUntil.get(key) || 0) > checkNow) continue
-      const kmKey = `${key}:${model}`
-      if (isHardBlocked(kmKey, checkNow)) continue
-      const blockedUntil = keyBlockedUntil.get(kmKey) || 0
-      if (!bypassEmergencyBlock && blockedUntil > checkNow) {
-        recordStreamRpmCandidate(model, key, blockedUntil)
+    for (let idx = 0; idx < candidatePairs.length; idx++) {
+      if (consumedPairIndices.has(idx)) continue
+      const { model, key } = candidatePairs[idx]
+      if (excludeWaveKeys.has(key)) continue
+      if ((slowModelFailures.get(model) || 0) >= slowCap) {
+        consumedPairIndices.add(idx)
         continue
       }
+      if (fastLivePhone && (quotaFailuresOnModel.get(model) || 0) >= maxQuotaFailuresPerModel) {
+        consumedPairIndices.add(idx)
+        continue
+      }
+      const checkNow = Date.now()
+      if (!isSingleKeyPool && isHardBlocked(key, checkNow)) {
+        consumedPairIndices.add(idx)
+        continue
+      }
+      if (!bypassEmergencyBlock && !allowSoftBlockedKm && (keyBlockedUntil.get(key) || 0) > checkNow) {
+        consumedPairIndices.add(idx)
+        continue
+      }
+      const kmKey = `${key}:${model}`
+      if (isHardBlocked(kmKey, checkNow)) {
+        consumedPairIndices.add(idx)
+        continue
+      }
+      const blockedUntil = keyBlockedUntil.get(kmKey) || 0
+      if (!allowSoftBlockedKm && blockedUntil > checkNow) {
+        recordStreamRpmCandidate(model, key, blockedUntil)
+        consumedPairIndices.add(idx)
+        continue
+      }
+      consumedPairIndices.add(idx)
       return { model, key, kmKey }
     }
     return null
@@ -1641,13 +1732,15 @@ export async function* streamPhoneAgentSpeechPcm(
       options?.onStreamCompleted?.(false)
       return
     }
-    // Carrera paralela escalonada de hasta 3 llaves distintas (0 ms / 160 ms / 340 ms) para abrir el stream SSE más rápido
+    // Carrera paralela escalonada de hasta 3 llaves SIEMPRE distintas (0 ms / 160 ms / 340 ms; 1 sola llave cuando streamKeys.length === 1)
     const waveSize = streamKeys.length >= 3 ? 3 : Math.max(1, streamKeys.length)
     const wave: Array<{ model: string; key: string; kmKey: string }> = []
+    const waveKeys = new Set<string>()
     while (wave.length < waveSize) {
-      const nextP = pullEligiblePair()
+      const nextP = pullEligiblePair(waveKeys, false)
       if (!nextP) break
       wave.push(nextP)
+      waveKeys.add(nextP.key)
     }
     if (wave.length === 0) {
       if (!usedStreamRpmWait && earliestStreamRpmCandidate && !options?.signal?.aborted) {
@@ -1665,7 +1758,18 @@ export async function* streamPhoneAgentSpeechPcm(
           }
         }
       }
-      break
+      if (!usedSoftBlockRescue && !options?.signal?.aborted) {
+        usedSoftBlockRescue = true
+        consumedPairIndices.clear()
+        const rescued = pullEligiblePair(waveKeys, true)
+        if (rescued) {
+          wave.push(rescued)
+          waveKeys.add(rescued.key)
+        }
+      }
+      if (wave.length === 0) {
+        break
+      }
     }
 
     type OpenedSseSlot = {
@@ -1767,7 +1871,7 @@ export async function* streamPhoneAgentSpeechPcm(
               connectTimers[idx] = null
             }
             if (!settled && !options?.signal?.aborted) {
-              keyBlockedUntil.set(slot.kmKey, Date.now() + 30 * 1000)
+              keyBlockedUntil.set(slot.kmKey, Date.now() + (isSingleKeyPool ? 2500 : 30 * 1000))
             }
             inFlight = Math.max(0, inFlight - 1)
             const nextWaiting = wave.findIndex((_, k) => k > idx && !launched.has(k))
@@ -2037,7 +2141,7 @@ export async function* streamPhoneAgentSpeechPcm(
     } catch (streamErr: any) {
       if (!options?.signal?.aborted) {
         if (!receivedAnyAudioBytes) {
-          keyBlockedUntil.set(kmKey, Date.now() + 30 * 1000)
+          keyBlockedUntil.set(kmKey, Date.now() + (isSingleKeyPool ? 2500 : 30 * 1000))
         }
         slowModelFailures.set(model, (slowModelFailures.get(model) || 0) + 1)
       }
@@ -2478,7 +2582,14 @@ export async function generateGeminiLearningJson<T = Record<string, any>>(opts: 
       }
 
       const json = (await res.json()) as any
-      const rawText = String(json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim()
+      const parts: any[] = Array.isArray(json?.candidates?.[0]?.content?.parts)
+        ? json.candidates[0].content.parts
+        : []
+      const rawText = parts
+        .filter((p: any) => !p?.thought && typeof p?.text === 'string')
+        .map((p: any) => p.text)
+        .join('')
+        .trim()
       if (!rawText) return { data: null }
       const cleaned = rawText
         .replace(/^```(?:json)?\s*/i, '')

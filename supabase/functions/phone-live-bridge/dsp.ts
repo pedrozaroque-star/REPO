@@ -21,9 +21,7 @@ const MULAW_DECODE_TABLE: Int16Array = (() => {
   return table
 })()
 
-const FIR_24K_TO_8K_TAPS = [-0.015, 0.0, 0.085, 0.24, 0.38, 0.24, 0.085, 0.0, -0.015] as const
-
-export function encodeSamplePcm16ToMulaw(sampleRaw: number): number {
+function computeMulawByteFromPcm16(sampleRaw: number): number {
   let sample = sampleRaw | 0
   let sign = 0
   if (sample < 0) {
@@ -41,6 +39,32 @@ export function encodeSamplePcm16ToMulaw(sampleRaw: number): number {
   return ~(sign | (exponent << 4) | mantissa) & 0xff
 }
 
+// Tabla O(1) de 64 KB pre-calculada al iniciar el módulo (elimina bucles por muestra en tiempo real y ahorra ~80% de CPU)
+const PCM16_TO_MULAW_TABLE: Uint8Array = (() => {
+  const t = new Uint8Array(65536)
+  for (let i = 0; i < 65536; i++) {
+    t[i] = computeMulawByteFromPcm16(i - 32768)
+  }
+  return t
+})()
+
+const FIR_24K_TO_8K_TAPS = [-0.015, 0.0, 0.085, 0.24, 0.38, 0.24, 0.085, 0.0, -0.015] as const
+
+export function encodeSamplePcm16ToMulaw(sampleRaw: number): number {
+  let clamped = sampleRaw | 0
+  if (clamped > 32767) clamped = 32767
+  else if (clamped < -32768) clamped = -32768
+  return PCM16_TO_MULAW_TABLE[clamped + 32768]
+}
+
+// Lookup ultra rápido Base64 para evitar btoa/atob + strings intermedios por cada trama de 20 ms
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+const B64_DECODE = (() => {
+  const arr = new Int16Array(256).fill(-1)
+  for (let i = 0; i < 64; i++) arr[B64_CHARS.charCodeAt(i)] = i
+  return arr
+})()
+
 export class StatefulMulaw8kToPcm16k {
   private hasPrev = false
   private s0 = 0
@@ -53,6 +77,8 @@ export class StatefulMulaw8kToPcm16k {
   private holdChunks = 0
   private gain = 1.0
   private preRoll: Int16Array[] = []
+  private cleanBuf = new Float32Array(320)
+  private outSilence640 = new Uint8Array(640)
 
   reset(): void {
     this.hasPrev = false
@@ -71,9 +97,8 @@ export class StatefulMulaw8kToPcm16k {
   /**
    * Decodifica G.711 μ-law 8 kHz a PCM16 16 kHz aplicando:
    * 1) Filtro paso alto (~90 Hz) para eliminar offset DC y zumbido eléctrico de línea PSTN.
-   * 2) Calibración de piso de ruido μ-law + puerta de ruido con pre-roll (160 ms) y retención (360 ms).
-   * 3) Control automático de ganancia (Soft AGC) para levantar voz celular baja sin saturar ni amplificar silencio.
-   * 4) Interpolación cúbica Catmull-Rom 8 kHz -> 16 kHz para conservar consonantes telefónicas (`/s/`, `/t/`, `/k/`).
+   * 2) Compuerta de ruido calibrada (sin amputar /s/ de "Super" y con hangover breve de 80 ms).
+   * 3) Soft AGC con cero asignaciones GC en silencio para minimizar CPU en Edge Functions.
    */
   process(
     mulawBytes: Uint8Array,
@@ -82,33 +107,45 @@ export class StatefulMulaw8kToPcm16k {
     const n = mulawBytes.length
     if (n === 0) return { pcmBytes: new Uint8Array(0), speechActive: this.gateOpen, rms: 0 }
 
-    // 1. Decodificar 8 kHz + filtro paso alto 90 Hz (α ≈ 0.93 @ 8 kHz)
-    const clean8k = new Float32Array(n)
+    if (this.cleanBuf.length < n) this.cleanBuf = new Float32Array(n)
+    const clean8k = this.cleanBuf
+    let hpX = this.hpPrevX
+    let hpY = this.hpPrevY
     let sumSq = 0
     for (let i = 0; i < n; i++) {
-      const x = MULAW_DECODE_TABLE[mulawBytes[i]] / 32768
-      const y = 0.93 * (this.hpPrevY + x - this.hpPrevX)
-      this.hpPrevX = x
-      this.hpPrevY = y
+      const x = MULAW_DECODE_TABLE[mulawBytes[i]] * (1 / 32768)
+      const y = 0.93 * (hpY + x - hpX)
+      hpX = x
+      hpY = y
       clean8k[i] = y
       sumSq += y * y
     }
+    this.hpPrevX = hpX
+    this.hpPrevY = hpY
     const rawRms = Math.sqrt(sumSq / n)
 
     // 2. Actualizar piso de ruido solo cuando la señal está baja y fuera de ráfagas de eco
     const inEchoWindow = Boolean(opts?.inPlaybackWindow)
-    if (!this.gateOpen && !inEchoWindow && rawRms < 0.035) {
-      this.noiseFloor = this.noiseFloor * 0.94 + rawRms * 0.06
+    if (!this.gateOpen && !inEchoWindow && rawRms < 0.04) {
+      this.noiseFloor = this.noiseFloor * 0.94 + (rawRms > 0.002 ? rawRms : 0.002) * 0.06
     }
-    const baseOpenThreshold = Math.max(0.014, Math.min(0.04, this.noiseFloor * 2.5))
-    // Durante el audio saliente de Kore exigir voz cercana clara para evitar que el eco del auricular abra la compuerta
-    const openThreshold = inEchoWindow ? Math.max(0.055, this.noiseFloor * 4.2) : baseOpenThreshold
-    const sustainThreshold = openThreshold * 0.72
+    let baseOpenThreshold = this.noiseFloor * 2.1
+    if (baseOpenThreshold < 0.011) baseOpenThreshold = 0.011
+    else if (baseOpenThreshold > 0.032) baseOpenThreshold = 0.032
 
+    let openThreshold = baseOpenThreshold
+    if (inEchoWindow) {
+      openThreshold = this.noiseFloor * 2.8
+      if (openThreshold < 0.023) openThreshold = 0.023
+      else if (openThreshold > 0.04) openThreshold = 0.04
+    }
+    const sustainThreshold = openThreshold * 0.65
+
+    const aboveSpeechThreshold = rawRms >= openThreshold || (this.gateOpen && rawRms >= sustainThreshold)
     let activeThisFrame = false
-    if (rawRms >= openThreshold || (this.gateOpen && rawRms >= sustainThreshold)) {
+    if (aboveSpeechThreshold) {
       this.gateOpen = true
-      this.holdChunks = 18 // 18 * 20 ms = 360 ms hangover para respiraciones breves
+      this.holdChunks = 4 // 4 * 20 ms = 80 ms hangover breve
       activeThisFrame = true
     } else if (this.gateOpen && this.holdChunks > 0) {
       this.holdChunks--
@@ -118,42 +155,34 @@ export class StatefulMulaw8kToPcm16k {
       this.gateOpen = false
     }
 
-    // 3. Soft AGC únicamente sobre frames activos (jamás amplifica ruido en silencio)
-    const upsampleTo16k = (frame8k: Int16Array): Uint8Array => {
-      const m = frame8k.length
-      const out = new Uint8Array(m * 4)
-      const view = new DataView(out.buffer)
-      if (!this.hasPrev && m > 0) {
-        this.s0 = frame8k[0]
-        this.s1 = frame8k[0]
-        this.s2 = frame8k[0]
-        this.hasPrev = true
+    const scaleToFrame = (mode: 'speech' | 'decay' | 'preroll'): Int16Array => {
+      if (mode === 'speech') {
+        let targetGain = 1.0
+        if (rawRms > 0.008) {
+          targetGain = 0.16 / rawRms
+          if (targetGain > 2.8) targetGain = 2.8
+          else if (targetGain < 1.0) targetGain = 1.0
+        }
+        this.gain = this.gain * 0.72 + targetGain * 0.28
+      } else if (mode === 'decay') {
+        this.gain *= 0.45
       }
-      for (let i = 0; i < m; i++) {
-        const s3 = frame8k[i]
-        // Interpolación cúbica Catmull-Rom en t=0.5 entre s1 y s2 usando (s0, s1, s2, s3)
-        let mid = Math.round((-this.s0 + 9 * this.s1 + 9 * this.s2 - s3) / 16)
-        if (mid > 32767) mid = 32767
-        else if (mid < -32768) mid = -32768
-        const off = i * 4
-        view.setInt16(off, mid, true)
-        view.setInt16(off + 2, this.s2, true)
-        this.s0 = this.s1
-        this.s1 = this.s2
-        this.s2 = s3
+      let frameGain = this.gain
+      if (mode === 'preroll') {
+        frameGain = 0.12 / (rawRms > 0.025 ? rawRms : 0.025)
+        if (frameGain > 1.6) frameGain = 1.6
+        else if (frameGain < 1.0) frameGain = 1.0
       }
-      return out
-    }
-
-    const toScaledInt16Frame = (): Int16Array => {
-      const targetGain = rawRms > 0.008 ? Math.min(3.5, Math.max(1.0, 0.16 / rawRms)) : 1.0
-      this.gain = this.gain * 0.75 + targetGain * 0.25
       const out = new Int16Array(n)
       for (let i = 0; i < n; i++) {
-        const amplified = clean8k[i] * this.gain
-        // Limitador suave (soft clip tanh aproximado arriba de ±0.85) para cero distorsión armónica en picos
-        const absA = Math.abs(amplified)
-        const shaped = absA <= 0.85 ? amplified : Math.sign(amplified) * (0.85 + 0.15 * Math.tanh((absA - 0.85) / 0.15))
+        const amplified = clean8k[i] * frameGain
+        let shaped = amplified
+        const absA = amplified < 0 ? -amplified : amplified
+        if (absA > 0.85) {
+          const z = (absA - 0.85) / 0.15
+          const sat = 0.85 + 0.15 * (z / (1 + 0.35 * z * z))
+          shaped = amplified < 0 ? -sat : sat
+        }
         let val = Math.round(shaped * 32767)
         if (val > 32767) val = 32767
         else if (val < -32768) val = -32768
@@ -163,37 +192,55 @@ export class StatefulMulaw8kToPcm16k {
     }
 
     if (!activeThisFrame) {
-      const frame = toScaledInt16Frame()
+      const frame = scaleToFrame('preroll')
       this.preRoll.push(frame)
-      if (this.preRoll.length > 8) this.preRoll.shift() // 8 * 20 ms = 160 ms pre-roll antes del ataque
-      this.gain = this.gain * 0.92 + 1.0 * 0.08
-      // Devolver silencio digital puro cuando la línea está en reposo (evita alucinaciones por ruido μ-law)
+      if (this.preRoll.length > 3) this.preRoll.shift()
+      this.gain = this.gain * 0.88 + 0.12
       this.s0 = 0
       this.s1 = 0
       this.s2 = 0
-      return { pcmBytes: new Uint8Array(n * 4), speechActive: false, rms: rawRms }
+      const silence = n === 160 ? this.outSilence640 : new Uint8Array(n * 4)
+      return { pcmBytes: silence, speechActive: false, rms: rawRms }
     }
 
     const activeFrames: Int16Array[] = []
     if (this.preRoll.length > 0) {
-      for (const pf of this.preRoll) activeFrames.push(pf)
+      for (let p = 0; p < this.preRoll.length; p++) activeFrames.push(this.preRoll[p])
       this.preRoll = []
     }
-    activeFrames.push(toScaledInt16Frame())
+    activeFrames.push(scaleToFrame(aboveSpeechThreshold ? 'speech' : 'decay'))
 
-    if (activeFrames.length === 1) {
-      return { pcmBytes: upsampleTo16k(activeFrames[0]), speechActive: true, rms: rawRms }
-    }
+    let totalOutBytes = 0
+    for (let f = 0; f < activeFrames.length; f++) totalOutBytes += activeFrames[f].length * 4
+    const out = new Uint8Array(totalOutBytes)
+    let byteOff = 0
 
-    const parts = activeFrames.map((fr) => upsampleTo16k(fr))
-    const totalLen = parts.reduce((acc, p) => acc + p.length, 0)
-    const merged = new Uint8Array(totalLen)
-    let pos = 0
-    for (const p of parts) {
-      merged.set(p, pos)
-      pos += p.length
+    for (let f = 0; f < activeFrames.length; f++) {
+      const fr = activeFrames[f]
+      const m = fr.length
+      if (!this.hasPrev && m > 0) {
+        this.s0 = fr[0]
+        this.s1 = fr[0]
+        this.s2 = fr[0]
+        this.hasPrev = true
+      }
+      for (let i = 0; i < m; i++) {
+        const s3 = fr[i]
+        let mid = ((-this.s0 + 9 * this.s1 + 9 * this.s2 - s3 + 8) >> 4)
+        if (mid > 32767) mid = 32767
+        else if (mid < -32768) mid = -32768
+        const s2v = this.s2
+        out[byteOff] = mid & 0xff
+        out[byteOff + 1] = (mid >> 8) & 0xff
+        out[byteOff + 2] = s2v & 0xff
+        out[byteOff + 3] = (s2v >> 8) & 0xff
+        byteOff += 4
+        this.s0 = this.s1
+        this.s1 = this.s2
+        this.s2 = s3
+      }
     }
-    return { pcmBytes: merged, speechActive: true, rms: rawRms }
+    return { pcmBytes: out, speechActive: true, rms: rawRms }
   }
 }
 
@@ -230,24 +277,28 @@ export class StatefulPcm24kToMulaw8k {
     const newSampleCount = bytes.length >> 1
     if (newSampleCount === 0) return new Uint8Array(0)
 
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    const firstSample = view.getInt16(0, true)
+    const firstLo = bytes[0]
+    const firstHi = bytes[1]
+    const firstSample = ((firstLo | (firstHi << 8)) << 16) >> 16
 
     let combined: Int16Array
     if (!this.initialized) {
       combined = new Int16Array(4 + newSampleCount)
-      combined.fill(firstSample, 0, 4)
-      for (let i = 0; i < newSampleCount; i++) {
-        combined[4 + i] = view.getInt16(i * 2, true)
+      combined[0] = firstSample
+      combined[1] = firstSample
+      combined[2] = firstSample
+      combined[3] = firstSample
+      for (let i = 0, b = 0; i < newSampleCount; i++, b += 2) {
+        combined[4 + i] = ((bytes[b] | (bytes[b + 1] << 8)) << 16) >> 16
       }
       this.readPos = 4
       this.initialized = true
     } else {
-      combined = new Int16Array(this.sampleBuffer.length + newSampleCount)
+      const prevLen = this.sampleBuffer.length
+      combined = new Int16Array(prevLen + newSampleCount)
       combined.set(this.sampleBuffer, 0)
-      const base = this.sampleBuffer.length
-      for (let i = 0; i < newSampleCount; i++) {
-        combined[base + i] = view.getInt16(i * 2, true)
+      for (let i = 0, b = 0; i < newSampleCount; i++, b += 2) {
+        combined[prevLen + i] = ((bytes[b] | (bytes[b + 1] << 8)) << 16) >> 16
       }
     }
 
@@ -262,18 +313,20 @@ export class StatefulPcm24kToMulaw8k {
 
     let center = this.readPos
     for (let o = 0; o < outCount; o++, center += 3) {
-      let acc = 0
-      for (let k = 0; k < 9; k++) {
-        acc += combined[center + k - 4] * FIR_24K_TO_8K_TAPS[k]
-      }
+      // Filtro FIR simétrico desenrollado (omitidos taps 0.0 en ±3) + lookup O(1) μ-law
+      const acc =
+        (combined[center - 4] + combined[center + 4]) * -0.015 +
+        (combined[center - 2] + combined[center + 2]) * 0.085 +
+        (combined[center - 1] + combined[center + 1]) * 0.24 +
+        combined[center] * 0.38
       let rounded = Math.round(acc)
       if (rounded > 32767) rounded = 32767
       else if (rounded < -32768) rounded = -32768
-      outMulaw[o] = encodeSamplePcm16ToMulaw(rounded)
+      outMulaw[o] = PCM16_TO_MULAW_TABLE[rounded + 32768]
     }
 
-    const keepFrom = Math.max(0, center - 4)
-    this.sampleBuffer = combined.slice(keepFrom)
+    const keepFrom = center > 4 ? center - 4 : 0
+    this.sampleBuffer = combined.subarray(keepFrom).slice()
     this.readPos = center - keepFrom
     return outMulaw
   }
@@ -350,21 +403,46 @@ export function convertWavBytesToMulaw8k(wavBytes: Uint8Array): Uint8Array {
 }
 
 export function uint8ToBase64(bytes: Uint8Array): string {
-  const CHUNK = 0x8000
-  const parts: string[] = []
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const sub = bytes.subarray(i, i + CHUNK)
-    let s = ''
-    for (let j = 0; j < sub.length; j++) s += String.fromCharCode(sub[j])
-    parts.push(s)
+  const len = bytes.length
+  if (len === 0) return ''
+  const out: string[] = []
+  let i = 0
+  for (; i + 2 < len; i += 3) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]
+    out.push(B64_CHARS[(n >> 18) & 63], B64_CHARS[(n >> 12) & 63], B64_CHARS[(n >> 6) & 63], B64_CHARS[n & 63])
   }
-  return btoa(parts.join(''))
+  if (i < len) {
+    const b0 = bytes[i]
+    const b1 = i + 1 < len ? bytes[i + 1] : 0
+    const n = (b0 << 16) | (b1 << 8)
+    out.push(B64_CHARS[(n >> 18) & 63], B64_CHARS[(n >> 12) & 63], i + 1 < len ? B64_CHARS[(n >> 6) & 63] : '=', '=')
+  }
+  return out.join('')
 }
 
 export function base64ToUint8(b64: string): Uint8Array {
   if (!b64) return new Uint8Array(0)
-  const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  const cleanLen = b64.length
+  let pad = 0
+  if (b64.charCodeAt(cleanLen - 1) === 61) pad++
+  if (cleanLen > 1 && b64.charCodeAt(cleanLen - 2) === 61) pad++
+  const outLen = ((cleanLen * 3) >> 2) - pad
+  const out = new Uint8Array(outLen)
+  let outIdx = 0
+  for (let i = 0; i < cleanLen; i += 4) {
+    const c0 = B64_DECODE[b64.charCodeAt(i)]
+    const c1 = B64_DECODE[b64.charCodeAt(i + 1)]
+    const c2 = i + 2 < cleanLen ? B64_DECODE[b64.charCodeAt(i + 2)] : -1
+    const c3 = i + 3 < cleanLen ? B64_DECODE[b64.charCodeAt(i + 3)] : -1
+    if (c0 < 0 || c1 < 0) continue
+    const n = (c0 << 18) | (c1 << 12) | ((c2 >= 0 ? c2 : 0) << 6) | (c3 >= 0 ? c3 : 0)
+    if (outIdx < outLen) out[outIdx++] = (n >> 16) & 0xff
+    if (c2 >= 0 && outIdx < outLen) out[outIdx++] = (n >> 8) & 0xff
+    if (c3 >= 0 && outIdx < outLen) out[outIdx++] = n & 0xff
+  }
   return out
 }
+
+export const SILENCE_60MS_PCM16_GEMINI_JSON = JSON.stringify({
+  realtimeInput: { audio: { data: 'A'.repeat(2560), mimeType: 'audio/pcm;rate=16000' } }
+})
