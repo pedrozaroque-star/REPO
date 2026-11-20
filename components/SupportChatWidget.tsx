@@ -13,10 +13,11 @@
  * - User Input -> POST /api/support-chat (with conversation_id & user metadata) -> Gemini Tool Loop & Animated Chart Extraction -> Supabase persistence -> Markdown Render with Recharts Visualizations & Interactive Suggestion Pills.
  * - History Navigation -> GET /api/support-chat/conversations -> GET /api/support-chat/conversations/[id] -> Load thread (rehydrates charts & suggestions).
  * - Predictive Starters -> GET /api/support-chat/conversations/predictive-suggestions -> Personalize initial cards.
- * @notes Permanent spinning circular bubble without periodic size expansion, with dual compact history drawer and expanded sidebar.
+ * @notes Permanent spinning circular bubble without periodic size expansion, with dual compact history drawer and expanded sidebar. Listens for `teg:open-support-chat` from the Mobile OS Home `Asistente IA` squircle and hides the floating FAB on `< lg` when `/inicio` is in `homeViewMode === 'os'`.
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
+import { usePathname } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
@@ -25,9 +26,33 @@ import {
   HelpCircle, ChevronRight, BarChart2, Download, Copy, Check, FileSpreadsheet
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { DOCK_UPDATED_EVENT, getOSUserStorageKey, type MobileHomeViewMode, type OSUserLike } from '@/lib/mobile-os-catalog'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ChatAnimatedChart, { ChartConfig } from '@/components/ChatAnimatedChart'
+
+function subscribeSupportHomeMode(onStoreChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener(DOCK_UPDATED_EVENT, onStoreChange)
+  window.addEventListener('storage', onStoreChange)
+  return () => {
+    window.removeEventListener(DOCK_UPDATED_EVENT, onStoreChange)
+    window.removeEventListener('storage', onStoreChange)
+  }
+}
+
+function getSupportHomeModeSnapshot(): MobileHomeViewMode {
+  if (typeof window === 'undefined') return 'os'
+  try {
+    const rawUser = window.localStorage.getItem('teg_user')
+    const parsedUser = rawUser ? (JSON.parse(rawUser) as OSUserLike) : null
+    const userKey = getOSUserStorageKey(parsedUser)
+    const rawMode = window.localStorage.getItem(`teg_mobile_home_mode_v1:${userKey}`)
+    return rawMode === 'web' ? 'web' : 'os'
+  } catch {
+    return 'os'
+  }
+}
 
 // Helper to trigger browser CSV download with UTF-8 BOM for Excel compatibility
 function triggerCsvFileDownload(csvText: string, filenamePrefix = 'reporte-tacos-gavilan') {
@@ -452,6 +477,13 @@ function formatTimeAgo(isoString: string, lang: 'es' | 'en'): string {
 }
 
 export default function SupportChatWidget() {
+  const pathname = usePathname()
+  const homeViewMode = useSyncExternalStore<MobileHomeViewMode>(
+    subscribeSupportHomeMode,
+    getSupportHomeModeSnapshot,
+    () => 'os'
+  )
+  const hideLauncherOnMobileOSHome = pathname === '/inicio' && homeViewMode === 'os'
   const { language } = useLanguage()
   const txt = PROMPTS[language] || PROMPTS.es
 
@@ -553,13 +585,21 @@ export default function SupportChatWidget() {
   useEffect(() => { if (isOpen && inputRef.current) setTimeout(() => inputRef.current?.focus(), 300) }, [isOpen, isExpanded, showExplore, showHistoryCompact])
   useEffect(() => { if (isExpanded) { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } } }, [isExpanded])
 
-  const openChat = () => { 
+  const openChat = useCallback(() => { 
     setIsOpen(true)
     setIsExpanded(false)
     setShowHistoryCompact(false)
     loadSavedConversations()
     loadPredictiveSuggestions()
-  }
+  }, [loadSavedConversations, loadPredictiveSuggestions])
+
+  useEffect(() => {
+    const handleOpenSupportChat = () => {
+      openChat()
+    }
+    window.addEventListener('teg:open-support-chat', handleOpenSupportChat)
+    return () => window.removeEventListener('teg:open-support-chat', handleOpenSupportChat)
+  }, [openChat])
 
   const closeChat = () => { 
     setIsOpen(false) 
@@ -1181,7 +1221,7 @@ export default function SupportChatWidget() {
             whileHover={{ scale: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={openChat}
-            className="fixed bottom-[calc(88px+env(safe-area-inset-bottom))] lg:bottom-6 right-4 lg:right-6 z-[45] group"
+            className={`${hideLauncherOnMobileOSHome ? 'hidden lg:block ' : ''}fixed bottom-[calc(88px+env(safe-area-inset-bottom))] lg:bottom-6 right-4 lg:right-6 z-[45] group`}
           >
             {/* Outer glow ring - spinning gradient */}
             <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 opacity-50 blur-sm group-hover:opacity-80 transition-opacity animate-[spin_4s_linear_infinite]"/>

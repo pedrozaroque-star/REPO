@@ -1,26 +1,29 @@
 /**
  * @module app/inicio/page
  * @description Pantalla de Inicio (Main Modules Launchpad) de Tacos Gavilan.
- * Muestra todos los módulos del sistema organizados por departamento con sus mismos iconos,
- * etiquetas animadas (`new`, `Building`, `BETA`) y una breve descripción de cada uno.
- * Presenta el acceso al Dashboard Ejecutivo original (`/dashboard`) como el primer enlace
- * disponible y más llamativo de toda la pantalla, además de soporte para fijar módulos
- * favoritos ("Mis Accesos Rápidos") y búsqueda instantánea con atajo de teclado (`/`).
+ * En Desktop (`>= 1024px`, `lg:`) conserva intacto el panel ejecutivo por departamentos con
+ * banner principal de Dashboard, favoritos fijados ("Mis Accesos Rápidos") y buscador rápido (`/`).
+ * En Móvil y Tablet (`< 1024px`, `< lg`) ofrece la experiencia Phone / Tablet OS (`MobileOSHome`)
+ * con widgets en vivo (`/api/mobile-os/summary`), los 6 grupos oficiales no editables como carpetas
+ * esmeriladas, barra inferior editable (`BottomTabBar` + `DockEditorSheet`) y cambio instantáneo
+ * de 1 toque entre `Modo OS` y `Versión Web`.
  *
  * @businessRules
  * - Al iniciar sesión, el usuario aterriza en `/inicio` en lugar de entrar directamente a `/dashboard`.
  * - En `/inicio`, la barra lateral (`AppSidebar`) se mantiene colapsada por defecto para maximizar el espacio visual.
  * - Al presionar cualquier módulo, la barra lateral se despliega automáticamente como se maneja en el resto del sistema.
  * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
+ * - En `< 1024px`, respeta `homeViewMode` (`'os' | 'web'`) persistido por usuario sin afectar jamás Desktop (`>= 1024px`).
  *
  * @dataFlow
  * - Consume `useAuth()` de `components/ProtectedRoute` para el contexto y permisos del usuario.
  * - Consume `useLanguage()` de `lib/i18n` para soporte bilingüe completo (ES/EN).
+ * - Consume `useMobileDockPreferences()` de `lib/mobile-os-catalog` para alternar `Modo OS` ↔ `Versión Web` y abrir el editor de barra.
  * - Coordina con `components/ClientLayout` mediante cambio de ruta y evento `teg:expand-sidebar` para expandir la barra lateral al abrir un módulo.
- * - Persiste los módulos favoritos del usuario en `localStorage` (`teg_favorite_modules`).
+ * - Persiste y sincroniza módulos favoritos del usuario en `localStorage` (`teg_favorite_modules_v1`).
  *
  * @notes
- * - Mantiene paridad 1:1 de iconos, rutas, permisos e insignias con `components/AppSidebar.tsx`.
+ * - Mantiene paridad 1:1 de iconos, rutas, permisos e insignias con `components/AppSidebar.tsx` y `lib/mobile-os-catalog.tsx`.
  */
 
 'use client'
@@ -29,13 +32,15 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
+import MobileOSHome, { FAVORITES_UPDATED_EVENT } from '@/components/mobile-os/MobileOSHome'
+import { openDockEditor, useMobileDockPreferences } from '@/lib/mobile-os-catalog'
 import {
     QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard,
     Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare,
     CalendarCheck, UserCog, Monitor, ChefHat, Zap, ExternalLink, Globe, Shield,
     Sparkles, Truck, Timer, Shirt, Car, Calculator, Package, BarChart3,
     UserCheck, Bell, Receipt, Wrench, Smartphone, ShieldCheck, Search,
-    ArrowRight, ChevronRight, Star, LayoutGrid, PhoneCall
+    ArrowRight, ChevronRight, Star, LayoutGrid, PhoneCall, SlidersHorizontal
 } from 'lucide-react'
 
 const BasecampIcon = ({ size = 20 }: { size?: number }) => (
@@ -158,24 +163,38 @@ const SECTION_THEMES: Record<string, {
 
 const FAVORITES_STORAGE_KEY = 'teg_favorite_modules_v1'
 
+function readStoredFavoriteIds(): string[] {
+    if (typeof window === 'undefined') return []
+    try {
+        const raw = localStorage.getItem(FAVORITES_STORAGE_KEY)
+        if (!raw) return []
+        const parsed: unknown = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+        return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0)
+    } catch {
+        return []
+    }
+}
+
 function InicioHubContent() {
     const { user } = useAuth()
     const { t } = useLanguage()
+    const { homeViewMode, setHomeViewMode, canCustomizeDock } = useMobileDockPreferences(user, t)
     const [searchQuery, setSearchQuery] = useState('')
     const [activeCategory, setActiveCategory] = useState<string>('all')
-    const [favoriteIds, setFavoriteIds] = useState<string[]>([])
+    const [favoriteIds, setFavoriteIds] = useState<string[]>(readStoredFavoriteIds)
     const searchInputRef = useRef<HTMLInputElement>(null)
 
-    // Load user's pinned favorite modules from localStorage
+    // Keep user's pinned favorite modules synced across Mobile OS & Web Hub
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem(FAVORITES_STORAGE_KEY)
-            if (raw) {
-                const parsed = JSON.parse(raw)
-                if (Array.isArray(parsed)) setFavoriteIds(parsed)
-            }
-        } catch {
-            // ignore storage errors
+        const syncFavorites = () => {
+            setFavoriteIds(readStoredFavoriteIds())
+        }
+        window.addEventListener(FAVORITES_UPDATED_EVENT, syncFavorites)
+        window.addEventListener('storage', syncFavorites)
+        return () => {
+            window.removeEventListener(FAVORITES_UPDATED_EVENT, syncFavorites)
+            window.removeEventListener('storage', syncFavorites)
         }
     }, [])
 
@@ -205,6 +224,7 @@ function InicioHubContent() {
                 : [...prev, moduleId]
             try {
                 localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(next))
+                window.dispatchEvent(new CustomEvent(FAVORITES_UPDATED_EVENT))
             } catch {
                 // ignore
             }
@@ -997,8 +1017,41 @@ function InicioHubContent() {
     }
 
     return (
-        <div className="space-y-4 pb-8">
-            {/* ── Compact, Friendly Header + Instant Search Bar ── */}
+        <>
+            <div className={homeViewMode === 'os' ? 'lg:hidden' : 'hidden'}>
+                <MobileOSHome />
+            </div>
+
+            <div className={homeViewMode === 'web' ? 'block' : 'hidden lg:block'}>
+                <div className="space-y-4 pb-8">
+                    {/* ── Mobile & Tablet (< 1024px) Quick Switch Pill Bar when viewing Classic Web Mode ── */}
+                    <div className="lg:hidden flex items-center justify-between gap-2 bg-slate-900 dark:bg-slate-800 text-white rounded-2xl px-3.5 py-2.5 shadow-xs border border-slate-700/80">
+                        <span className="text-xs font-bold text-slate-200 truncate">
+                            {t('mobile_os.view_mode_label')}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                            {canCustomizeDock && (
+                                <button
+                                    type="button"
+                                    onClick={() => openDockEditor()}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-colors cursor-pointer outline-none"
+                                >
+                                    <SlidersHorizontal size={13} />
+                                    <span>{t('mobile_os.edit_dock')}</span>
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setHomeViewMode('os')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-[#fdc82f] to-amber-400 text-slate-950 shadow-xs active:scale-95 transition-transform cursor-pointer outline-none"
+                            >
+                                <Smartphone size={13} />
+                                <span>{t('mobile_os.switch_to_os')}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ── Compact, Friendly Header + Instant Search Bar ── */}
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 shadow-xs">
                 <div className="flex items-start sm:items-center gap-3.5">
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#50050a] to-red-700 flex items-center justify-center shadow-sm border border-red-500/30 shrink-0 p-1.5">
@@ -1236,7 +1289,9 @@ function InicioHubContent() {
                     })}
                 </div>
             )}
-        </div>
+                </div>
+            </div>
+        </>
     )
 }
 

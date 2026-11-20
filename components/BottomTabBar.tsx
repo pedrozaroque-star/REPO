@@ -1,98 +1,218 @@
 /**
  * @module components/BottomTabBar
- * @description Barra de navegación inferior móvil con cápsulas táctiles de alto contraste e iconos ampliados
- * para acceso rápido a Inicio (`/inicio`), tareas operativas, ventas, planificador y el menú completo (`AppSidebar` drawer).
+ * @description Barra de navegación inferior móvil y Dock flotante de tablet (`lg:hidden`, `< 1024px`) personalizable
+ * estilo sistema operativo (`OS Dock` en `Modo OS` y barra anclada clásica en `Versión Web`).
  *
  * @businessRules
- * - Adapta las pestañas según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
- * - Sincroniza el estado activo con `isDrawerOpen` para resaltar el botón de menú (`Más`) mientras el drawer móvil está abierto.
- * - Utiliza diccionarios bilingües `t('bottom_nav.*')` de `lib/i18n.tsx` (ES/EN) sin etiquetas hardcodeadas.
+ * - En roles restringidos de módulo único (`isPlanificadorOnly` -> `/planificador`, `isEmployeeOnly` -> `/mis-horarios`),
+ *   renderiza únicamente su pestaña asignada con personalización deshabilitada (`canCustomizeDock === false`).
+ * - Para el resto de roles, mantiene fijos los extremos `Inicio` (`/inicio`) a la izquierda y `Más` (`__drawer__`) a la derecha,
+ *   permitiendo personalizar de 1 a 4 accesos directos intermedios (`dockItems`) persistidos por usuario.
+ * - Resolución inteligente de ruta activa (`resolveActiveDockIndex`): prioriza `Más` cuando `isDrawerOpen` es `true`,
+ *   evalúa coincidencia por prefijo más largo (`longest path prefix`) y respeta `STANDALONE_SIBLING_PATHS` para que
+ *   subrutas hermanas independientes como `/ventas/reportes` nunca iluminen falsamente `/ventas` salvo que `/ventas/reportes`
+ *   también esté anclado en la barra.
+ * - Soporta apertura del editor (`DockEditorSheet`) tanto por evento global `DOCK_OPEN_EDITOR_EVENT` (`'teg:open-dock-editor'`)
+ *   como mediante gesto de pulsación larga (`long-press` ~450ms con cancelación por movimiento `>10px`, vibración háptica sutil
+ *   y bloqueo de navegación accidental al soltar el dedo).
  *
  * @dataFlow
- * - Consume `useAuth()` para permisos de rol y `useLanguage()` para traducciones en vivo.
- * - Se coordina con `components/ClientLayout.tsx` (espaciado inferior `pb-[102px]` en móvil) y `AppSidebar`.
+ * - Consume `useAuth()` de `ProtectedRoute`, `useLanguage()` de `lib/i18n.tsx` y `useMobileDockPreferences()` de `lib/mobile-os-catalog.tsx`.
+ * - Se coordina con `components/ClientLayout.tsx` (`onOpenDrawer`, `isDrawerOpen`) y monta `components/mobile-os/DockEditorSheet.tsx`.
+ *
+ * @notes
+ * - En `Modo OS` (`isOSGlassMode`), renderiza una cápsula translúcida estilo iOS Home Screen Dock (`rounded-[34px]`, `backdrop-blur-2xl`)
+ *   con iconos `squircle` sólidos de alto impacto (`54px–58px`, `rounded-[14px]`), ocultando etiquetas de texto en `/inicio` para paridad 1:1
+ *   con el Home Screen de iPhone y mostrando etiquetas compactas en páginas internas (`pathname !== '/inicio'`).
+ * - Conserva `outline-none focus:outline-none` en todos los elementos `<Link>` y `<button>` para evitar bordes de enfoque del navegador.
+ * - Limpia cualquier temporizador de `long-press` al desmontar el componente y evita `setState` síncrono en `useEffect`.
  */
 
 'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAuth } from './ProtectedRoute'
-import {
-    Home,
-    ClipboardCheck,
-    CheckSquare,
-    CircleDollarSign,
-    CalendarCheck,
-    ClipboardList,
-    Clock,
-    LayoutGrid,
-    type LucideIcon,
-} from 'lucide-react'
-import { useLanguage } from '@/lib/i18n'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import {
+    CalendarCheck,
+    Clock,
+    Home,
+    LayoutGrid,
+} from 'lucide-react'
+import { useAuth } from './ProtectedRoute'
+import { useLanguage } from '@/lib/i18n'
+import DockEditorSheet from './mobile-os/DockEditorSheet'
+import {
+    DOCK_OPEN_EDITOR_EVENT,
+    OS_SECTION_THEMES,
+    STANDALONE_SIBLING_PATHS,
+    useMobileDockPreferences,
+    type OSGroupId,
+} from '@/lib/mobile-os-catalog'
 
-type TabColorStyle = {
+interface TabColorStyle {
     activeIcon: string
+    inactiveOSIcon: string
     activeBg: string
+    inactiveOSBg: string
     activeText: string
     indicatorColor: string
 }
 
-// Color map aligned with department palette (brand red, operations blue, sales rose, staff cyan)
-const TAB_COLORS: Record<string, TabColorStyle> = {
+const ANCHOR_TAB_COLORS: Record<'home' | 'planner' | 'schedule' | 'more', TabColorStyle> = {
     home: {
         activeIcon: 'text-red-600 dark:text-red-400',
-        activeBg: 'bg-red-500/12 dark:bg-red-500/25 ring-1 ring-red-500/25',
+        inactiveOSIcon: 'text-red-600 dark:text-red-400',
+        activeBg: 'bg-red-500/15 dark:bg-red-500/25 ring-1 ring-red-500/30',
+        inactiveOSBg: 'bg-red-500/8 dark:bg-red-500/15 border border-red-500/20',
         activeText: 'text-red-600 dark:text-red-400',
         indicatorColor: 'bg-red-600',
     },
-    inspect: {
-        activeIcon: 'text-blue-600 dark:text-blue-400',
-        activeBg: 'bg-blue-500/12 dark:bg-blue-500/25 ring-1 ring-blue-500/25',
-        activeText: 'text-blue-600 dark:text-blue-400',
-        indicatorColor: 'bg-blue-600',
-    },
-    tasks: {
-        activeIcon: 'text-blue-600 dark:text-blue-400',
-        activeBg: 'bg-blue-500/12 dark:bg-blue-500/25 ring-1 ring-blue-500/25',
-        activeText: 'text-blue-600 dark:text-blue-400',
-        indicatorColor: 'bg-blue-600',
-    },
-    actividades: {
-        activeIcon: 'text-blue-600 dark:text-blue-400',
-        activeBg: 'bg-blue-500/12 dark:bg-blue-500/25 ring-1 ring-blue-500/25',
-        activeText: 'text-blue-600 dark:text-blue-400',
-        indicatorColor: 'bg-blue-600',
-    },
-    sales: {
-        activeIcon: 'text-rose-600 dark:text-rose-400',
-        activeBg: 'bg-rose-500/12 dark:bg-rose-500/25 ring-1 ring-rose-500/25',
-        activeText: 'text-rose-600 dark:text-rose-400',
-        indicatorColor: 'bg-rose-600',
-    },
     planner: {
         activeIcon: 'text-cyan-600 dark:text-cyan-400',
-        activeBg: 'bg-cyan-500/12 dark:bg-cyan-500/25 ring-1 ring-cyan-500/25',
+        inactiveOSIcon: 'text-cyan-600 dark:text-cyan-400',
+        activeBg: 'bg-cyan-500/15 dark:bg-cyan-500/25 ring-1 ring-cyan-500/30',
+        inactiveOSBg: 'bg-cyan-500/8 dark:bg-cyan-500/15 border border-cyan-500/20',
         activeText: 'text-cyan-600 dark:text-cyan-400',
         indicatorColor: 'bg-cyan-600',
     },
     schedule: {
         activeIcon: 'text-cyan-600 dark:text-cyan-400',
-        activeBg: 'bg-cyan-500/12 dark:bg-cyan-500/25 ring-1 ring-cyan-500/25',
+        inactiveOSIcon: 'text-cyan-600 dark:text-cyan-400',
+        activeBg: 'bg-cyan-500/15 dark:bg-cyan-500/25 ring-1 ring-cyan-500/30',
+        inactiveOSBg: 'bg-cyan-500/8 dark:bg-cyan-500/15 border border-cyan-500/20',
         activeText: 'text-cyan-600 dark:text-cyan-400',
         indicatorColor: 'bg-cyan-600',
     },
     more: {
         activeIcon: 'text-red-600 dark:text-red-400',
-        activeBg: 'bg-red-500/12 dark:bg-red-500/25 ring-1 ring-red-500/25',
+        inactiveOSIcon: 'text-slate-700 dark:text-slate-200',
+        activeBg: 'bg-red-500/15 dark:bg-red-500/25 ring-1 ring-red-500/30',
+        inactiveOSBg: 'bg-slate-200/75 dark:bg-slate-800/85 border border-slate-300/70 dark:border-slate-700/80',
         activeText: 'text-red-600 dark:text-red-400',
         indicatorColor: 'bg-red-600',
     },
 }
 
-const STANDALONE_SIBLING_PATHS = ['/ventas/reportes']
+const GROUP_TAB_COLORS: Record<OSGroupId, TabColorStyle> = {
+    analisis: {
+        activeIcon: 'text-rose-600 dark:text-rose-400',
+        inactiveOSIcon: 'text-rose-600 dark:text-rose-400',
+        activeBg: 'bg-rose-500/15 dark:bg-rose-500/25 ring-1 ring-rose-500/30',
+        inactiveOSBg: 'bg-rose-500/10 dark:bg-rose-500/18 border border-rose-500/20',
+        activeText: 'text-rose-600 dark:text-rose-400',
+        indicatorColor: 'bg-rose-600',
+    },
+    operaciones: {
+        activeIcon: 'text-blue-600 dark:text-blue-400',
+        inactiveOSIcon: 'text-blue-600 dark:text-blue-400',
+        activeBg: 'bg-blue-500/15 dark:bg-blue-500/25 ring-1 ring-blue-500/30',
+        inactiveOSBg: 'bg-blue-500/10 dark:bg-blue-500/18 border border-blue-500/20',
+        activeText: 'text-blue-600 dark:text-blue-400',
+        indicatorColor: 'bg-blue-600',
+    },
+    inventario: {
+        activeIcon: 'text-purple-600 dark:text-purple-400',
+        inactiveOSIcon: 'text-purple-600 dark:text-purple-400',
+        activeBg: 'bg-purple-500/15 dark:bg-purple-500/25 ring-1 ring-purple-500/30',
+        inactiveOSBg: 'bg-purple-500/10 dark:bg-purple-500/18 border border-purple-500/20',
+        activeText: 'text-purple-600 dark:text-purple-400',
+        indicatorColor: 'bg-purple-600',
+    },
+    equipo: {
+        activeIcon: 'text-cyan-600 dark:text-cyan-400',
+        inactiveOSIcon: 'text-cyan-600 dark:text-cyan-400',
+        activeBg: 'bg-cyan-500/15 dark:bg-cyan-500/25 ring-1 ring-cyan-500/30',
+        inactiveOSBg: 'bg-cyan-500/10 dark:bg-cyan-500/18 border border-cyan-500/20',
+        activeText: 'text-cyan-600 dark:text-cyan-400',
+        indicatorColor: 'bg-cyan-600',
+    },
+    finanzas: {
+        activeIcon: 'text-emerald-600 dark:text-emerald-400',
+        inactiveOSIcon: 'text-emerald-600 dark:text-emerald-400',
+        activeBg: 'bg-emerald-500/15 dark:bg-emerald-500/25 ring-1 ring-emerald-500/30',
+        inactiveOSBg: 'bg-emerald-500/10 dark:bg-emerald-500/18 border border-emerald-500/20',
+        activeText: 'text-emerald-600 dark:text-emerald-400',
+        indicatorColor: 'bg-emerald-600',
+    },
+    gestion: {
+        activeIcon: 'text-amber-600 dark:text-amber-400',
+        inactiveOSIcon: 'text-amber-600 dark:text-amber-400',
+        activeBg: 'bg-amber-500/15 dark:bg-amber-500/25 ring-1 ring-amber-500/30',
+        inactiveOSBg: 'bg-amber-500/10 dark:bg-amber-500/18 border border-amber-500/20',
+        activeText: 'text-amber-600 dark:text-amber-400',
+        indicatorColor: 'bg-amber-600',
+    },
+}
+
+const LONG_PRESS_DURATION_MS = 450
+const LONG_PRESS_MOVE_TOLERANCE_PX = 10
+
+interface RenderedDockTab {
+    key: string
+    label: string
+    path: string
+    openInNewTab?: boolean
+    squircleBg: string
+    colors: TabColorStyle
+    renderIcon: (isActive: boolean, isOSSquircle: boolean) => React.ReactNode
+}
+
+/**
+ * Resolves the active dock item index:
+ * 1. Prioritizes `__drawer__` (`Más`) whenever `isDrawerOpen` is true.
+ * 2. Evaluates longest-prefix route matching across dock items.
+ * 3. Respects `STANDALONE_SIBLING_PATHS` so standalone sub-routes (e.g. `/ventas/reportes`)
+ *    never falsely highlight a shorter parent route (`/ventas`) unless that standalone route itself is in the dock.
+ */
+export function resolveActiveDockIndex(
+    items: ReadonlyArray<{ path: string }>,
+    pathname: string | null,
+    isDrawerOpen: boolean,
+    standaloneSiblingPaths: readonly string[] = STANDALONE_SIBLING_PATHS
+): number {
+    if (isDrawerOpen) {
+        return items.findIndex(item => item.path === '__drawer__')
+    }
+    if (!pathname) return -1
+
+    let bestIndex = -1
+    let bestSpecificity = -1
+
+    for (let i = 0; i < items.length; i++) {
+        const rawPath = items[i].path
+        if (!rawPath || rawPath === '__drawer__') continue
+        const cleanPath = rawPath.split('?')[0]
+
+        if (pathname === cleanPath) {
+            const specificity = cleanPath.length + 10000
+            if (specificity > bestSpecificity) {
+                bestSpecificity = specificity
+                bestIndex = i
+            }
+            continue
+        }
+
+        if (cleanPath !== '/' && pathname.startsWith(cleanPath + '/')) {
+            const blockedByStandaloneSibling = standaloneSiblingPaths.some(
+                sibling =>
+                    sibling !== cleanPath &&
+                    sibling.startsWith(cleanPath + '/') &&
+                    (pathname === sibling || pathname.startsWith(sibling + '/'))
+            )
+            if (blockedByStandaloneSibling) continue
+
+            const specificity = cleanPath.length
+            if (specificity > bestSpecificity) {
+                bestSpecificity = specificity
+                bestIndex = i
+            }
+        }
+    }
+
+    return bestIndex
+}
 
 interface BottomTabBarProps {
     onOpenDrawer: () => void
@@ -104,172 +224,416 @@ export default function BottomTabBar({ onOpenDrawer, isDrawerOpen = false }: Bot
     const { user } = useAuth()
     const { t } = useLanguage()
 
-    const rawRole = (user?.role || user?.user_type || '').toLowerCase()
-    const userRole =
-        rawRole === 'gerente'
-            ? 'manager'
-            : rawRole === 'regional_manager'
-                ? 'supervisor'
-                : rawRole === 'assistant'
-                    ? 'asistente'
-                    : rawRole
-    const userEmailNorm = (user?.email || '').trim().toLowerCase()
-    const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador'
-    const isEmployeeOnly = (user?.user_type || '').toLowerCase() === 'employee' || rawRole === 'employee'
-    const isVikesh = userEmailNorm === 'vikesh@tacosgavilan.com'
+    const {
+        dockItems,
+        permittedGroups,
+        canCustomizeDock,
+        isPlanificadorOnly,
+        isEmployeeOnly,
+        isSavingSync,
+        homeViewMode,
+        setHomeViewMode,
+        replaceDockSlot,
+        moveDockSlot,
+        addDockSlot,
+        removeDockSlot,
+        resetDockToDefaults,
+    } = useMobileDockPreferences(user, t)
 
-    const tabs = useMemo(() => {
-        if (isPlanificadorOnly) {
-            return [{ label: t('bottom_nav.planner'), icon: CalendarCheck, path: '/planificador', id: 'planner' }]
+    const [isEditorOpen, setIsEditorOpen] = useState(false)
+    const [editorSessionKey, setEditorSessionKey] = useState(0)
+
+    const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
+    const longPressTriggeredRef = useRef(false)
+
+    const clearLongPressTimer = useCallback(() => {
+        if (longPressTimerRef.current !== null) {
+            clearTimeout(longPressTimerRef.current)
+            longPressTimerRef.current = null
         }
-        if (isEmployeeOnly) {
-            return [{ label: t('bottom_nav.schedule'), icon: Clock, path: '/mis-horarios', id: 'schedule' }]
-        }
+        pointerStartRef.current = null
+    }, [])
 
-        const items: { label: string; icon: LucideIcon; path: string; id: string }[] = [
-            { label: t('bottom_nav.home'), icon: Home, path: '/inicio', id: 'home' },
-        ]
+    const openEditorModal = useCallback(() => {
+        if (!canCustomizeDock) return
+        setEditorSessionKey(prev => prev + 1)
+        setIsEditorOpen(true)
+    }, [canCustomizeDock])
 
-        if (['supervisor', 'admin', 'auditor'].includes(userRole)) {
-            items.push({ label: t('bottom_nav.inspect'), icon: ClipboardCheck, path: '/inspecciones', id: 'inspect' })
-        } else if (userRole === 'manager') {
-            items.push({ label: t('bottom_nav.tasks'), icon: CheckSquare, path: '/checklists-manager', id: 'tasks' })
-        } else {
-            items.push({ label: t('bottom_nav.tasks'), icon: CheckSquare, path: '/checklists', id: 'tasks' })
-        }
-
-        if (['admin', 'manager', 'supervisor'].includes(userRole)) {
-            if (!isVikesh) {
-                items.push({ label: t('bottom_nav.sales'), icon: CircleDollarSign, path: '/ventas', id: 'sales' })
+    // Cleanup any active long-press timer on unmount
+    useEffect(() => {
+        return () => {
+            if (longPressTimerRef.current !== null) {
+                clearTimeout(longPressTimerRef.current)
             }
-            items.push({ label: t('bottom_nav.planner'), icon: CalendarCheck, path: '/planificador', id: 'planner' })
-        } else if (userRole !== 'auditor') {
-            items.push({ label: t('bottom_nav.activities'), icon: ClipboardList, path: '/actividades', id: 'actividades' })
-            items.push({ label: t('bottom_nav.schedule'), icon: Clock, path: '/mis-horarios', id: 'schedule' })
+        }
+    }, [])
+
+    // Listen for global DOCK_OPEN_EDITOR_EVENT ('teg:open-dock-editor') from /inicio "Editar Barra" button
+    useEffect(() => {
+        if (!canCustomizeDock) return
+        const handleOpenDockEditor = () => {
+            openEditorModal()
+        }
+        window.addEventListener(DOCK_OPEN_EDITOR_EVENT, handleOpenDockEditor)
+        return () => window.removeEventListener(DOCK_OPEN_EDITOR_EVENT, handleOpenDockEditor)
+    }, [canCustomizeDock, openEditorModal])
+
+    const handlePointerDown = useCallback(
+        (event: React.PointerEvent<HTMLDivElement>) => {
+            if (!canCustomizeDock) return
+            if (event.pointerType === 'mouse' && event.button !== 0) return
+
+            clearLongPressTimer()
+            longPressTriggeredRef.current = false
+            pointerStartRef.current = { x: event.clientX, y: event.clientY }
+
+            longPressTimerRef.current = setTimeout(() => {
+                longPressTimerRef.current = null
+                longPressTriggeredRef.current = true
+                if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+                    try {
+                        navigator.vibrate(18)
+                    } catch {
+                        // Ignore haptic errors on unsupported browsers
+                    }
+                }
+                openEditorModal()
+            }, LONG_PRESS_DURATION_MS)
+        },
+        [canCustomizeDock, clearLongPressTimer, openEditorModal]
+    )
+
+    const handlePointerMove = useCallback(
+        (event: React.PointerEvent<HTMLDivElement>) => {
+            if (longPressTimerRef.current === null || pointerStartRef.current === null) return
+            const dx = event.clientX - pointerStartRef.current.x
+            const dy = event.clientY - pointerStartRef.current.y
+            if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+                clearLongPressTimer()
+            }
+        },
+        [clearLongPressTimer]
+    )
+
+    const handlePointerEnd = useCallback(() => {
+        clearLongPressTimer()
+    }, [clearLongPressTimer])
+
+    const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (longPressTriggeredRef.current) {
+            event.preventDefault()
+            event.stopPropagation()
+            longPressTriggeredRef.current = false
+        }
+    }, [])
+
+    const handleContextMenu = useCallback(
+        (event: React.MouseEvent<HTMLDivElement>) => {
+            if (!canCustomizeDock) return
+            event.preventDefault()
+        },
+        [canCustomizeDock]
+    )
+
+    const handleMoveSlotLeft = useCallback(
+        (slotIndex: number) => {
+            moveDockSlot(slotIndex, slotIndex - 1)
+        },
+        [moveDockSlot]
+    )
+
+    const handleMoveSlotRight = useCallback(
+        (slotIndex: number) => {
+            moveDockSlot(slotIndex, slotIndex + 1)
+        },
+        [moveDockSlot]
+    )
+
+    // Assemble rendered tabs: restricted single-tab roles vs [Inicio, ...editableDockItems, Más]
+    const allItems: RenderedDockTab[] = useMemo(() => {
+        if (isPlanificadorOnly) {
+            return [
+                {
+                    key: 'fixed-planner',
+                    label: t('bottom_nav.planner'),
+                    path: '/planificador',
+                    squircleBg: 'bg-gradient-to-br from-cyan-500 to-teal-600',
+                    colors: ANCHOR_TAB_COLORS.planner,
+                    renderIcon: (isActive, isOSSquircle) => (
+                        <CalendarCheck
+                            size={isOSSquircle ? 26 : isActive ? 25 : 23}
+                            strokeWidth={isOSSquircle ? 2.3 : isActive ? 2.45 : 2.15}
+                        />
+                    ),
+                },
+            ]
         }
 
-        return items
-    }, [userRole, isPlanificadorOnly, isEmployeeOnly, isVikesh, t])
-
-    // All items including "Más" / "More" drawer launcher
-    const allItems = useMemo(() => {
-        if (isPlanificadorOnly || isEmployeeOnly) {
-            return tabs
+        if (isEmployeeOnly) {
+            return [
+                {
+                    key: 'fixed-schedule',
+                    label: t('bottom_nav.schedule'),
+                    path: '/mis-horarios',
+                    squircleBg: 'bg-gradient-to-br from-cyan-500 to-teal-600',
+                    colors: ANCHOR_TAB_COLORS.schedule,
+                    renderIcon: (isActive, isOSSquircle) => (
+                        <Clock
+                            size={isOSSquircle ? 26 : isActive ? 25 : 23}
+                            strokeWidth={isOSSquircle ? 2.3 : isActive ? 2.45 : 2.15}
+                        />
+                    ),
+                },
+            ]
         }
+
+        const middleTabs: RenderedDockTab[] = dockItems.map(item => {
+            const sectionTheme = OS_SECTION_THEMES[item.groupId]
+            const baseColors = GROUP_TAB_COLORS[item.groupId] || GROUP_TAB_COLORS.operaciones
+            const colors: TabColorStyle = sectionTheme
+                ? {
+                      ...baseColors,
+                      activeIcon: sectionTheme.activeIcon || baseColors.activeIcon,
+                      activeBg: sectionTheme.activeBg || baseColors.activeBg,
+                      activeText: sectionTheme.activeText || baseColors.activeText,
+                      indicatorColor: sectionTheme.indicatorColor || baseColors.indicatorColor,
+                  }
+                : baseColors
+
+            return {
+                key: `dock-${item.id}`,
+                label: item.shortTitle || item.title,
+                path: item.path,
+                openInNewTab: item.openInNewTab,
+                squircleBg:
+                    item.appTileBg ||
+                    sectionTheme?.squircleGradient ||
+                    'bg-gradient-to-br from-blue-500 to-indigo-600',
+                colors,
+                renderIcon: (isActive, isOSSquircle) =>
+                    item.renderIcon(isOSSquircle ? 26 : isActive ? 24 : 22),
+            }
+        })
+
         return [
-            ...tabs,
-            { label: t('bottom_nav.more'), icon: LayoutGrid, path: '__drawer__', id: 'more' }
+            {
+                key: 'anchor-home',
+                label: t('bottom_nav.home'),
+                path: '/inicio',
+                squircleBg: 'bg-gradient-to-br from-rose-500 to-red-600',
+                colors: ANCHOR_TAB_COLORS.home,
+                renderIcon: (isActive, isOSSquircle) => (
+                    <Home
+                        size={isOSSquircle ? 26 : isActive ? 24 : 22}
+                        strokeWidth={isOSSquircle ? 2.3 : isActive ? 2.45 : 2.15}
+                    />
+                ),
+            },
+            ...middleTabs,
+            {
+                key: 'anchor-more',
+                label: t('bottom_nav.more'),
+                path: '__drawer__',
+                squircleBg: 'bg-gradient-to-br from-slate-600 to-slate-800',
+                colors: ANCHOR_TAB_COLORS.more,
+                renderIcon: (isActive, isOSSquircle) => (
+                    <LayoutGrid
+                        size={isOSSquircle ? 26 : isActive ? 24 : 22}
+                        strokeWidth={isOSSquircle ? 2.25 : isActive ? 2.45 : 2.15}
+                    />
+                ),
+            },
         ]
-    }, [tabs, isPlanificadorOnly, isEmployeeOnly, t])
+    }, [dockItems, isEmployeeOnly, isPlanificadorOnly, t])
 
-    // Determine active tab index (prioritize drawer button while drawer is open; exclude standalone sibling sub-routes)
-    const activeIndex = useMemo(() => {
-        if (isDrawerOpen) {
-            return allItems.findIndex(item => item.path === '__drawer__')
-        }
-        const isStandaloneSibling = STANDALONE_SIBLING_PATHS.some(
-            p => pathname === p || pathname.startsWith(p + '/')
-        )
-        const idx = allItems.findIndex(
-            item =>
-                item.path !== '__drawer__' &&
-                (pathname === item.path || (!isStandaloneSibling && pathname.startsWith(item.path + '/')))
-        )
-        return idx >= 0 ? idx : -1
-    }, [pathname, allItems, isDrawerOpen])
+    const activeIndex = useMemo(
+        () => resolveActiveDockIndex(allItems, pathname, isDrawerOpen, STANDALONE_SIBLING_PATHS),
+        [allItems, pathname, isDrawerOpen]
+    )
+
+    const isOSGlassMode = canCustomizeDock && homeViewMode === 'os'
+    const isOnHomeScreen = pathname === '/inicio'
+    const hideOSDockLabels = isOSGlassMode && isOnHomeScreen
 
     return (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
-            {/* Elevated mobile navigation bar with opaque safe-area surface */}
+        <>
             <div
-                className="bg-white/95 dark:bg-slate-950/95 backdrop-blur-xl border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-6px_24px_-6px_rgba(15,23,42,0.10)]"
-                style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+                style={isOSGlassMode ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}
+                className="lg:hidden fixed bottom-0 left-0 right-0 z-50 pointer-events-none md:px-4"
             >
-                <div className="flex items-stretch justify-around h-[74px] px-1.5">
-                    {allItems.map((tab, index) => {
-                        const isActive = index === activeIndex
-                        const isDrawer = tab.path === '__drawer__'
-                        const Icon = tab.icon
-                        const colors = TAB_COLORS[tab.id] || TAB_COLORS.more
+                <div
+                    style={!isOSGlassMode ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}
+                    className={
+                        isOSGlassMode
+                            ? `pointer-events-auto mx-3 mb-2 px-3 py-2.5 rounded-[34px] ${
+                                  isOnHomeScreen
+                                      ? 'bg-white/26 dark:bg-white/14 border-white/30 dark:border-white/15'
+                                      : 'bg-white/82 dark:bg-slate-950/78 border-slate-200/85 dark:border-white/15'
+                              } backdrop-blur-2xl border shadow-[0_14px_38px_rgba(0,0,0,0.32)] md:max-w-2xl md:mx-auto transition-all duration-200`
+                            : 'pointer-events-auto bg-white/95 dark:bg-slate-950/95 backdrop-blur-xl border-t border-slate-200/90 dark:border-slate-800 shadow-[0_-6px_24px_-6px_rgba(15,23,42,0.10)] md:max-w-2xl md:mx-auto md:mb-2 md:rounded-3xl md:border md:shadow-2xl transition-all duration-200'
+                    }
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerEnd}
+                    onPointerCancel={handlePointerEnd}
+                    onPointerLeave={handlePointerEnd}
+                    onClickCapture={handleClickCapture}
+                    onContextMenu={handleContextMenu}
+                >
+                    <div
+                        className={
+                            isOSGlassMode
+                                ? 'flex items-center justify-around gap-1.5 sm:gap-3'
+                                : 'flex items-stretch justify-around h-[74px] px-1.5 md:px-3'
+                        }
+                    >
+                        {allItems.map((tab, index) => {
+                            const isActive = index === activeIndex
+                            const isDrawer = tab.path === '__drawer__'
+                            const colors = tab.colors
 
-                        const content = (
-                            <div className="relative flex flex-col items-center justify-center gap-1.5 flex-1 h-full py-1.5 select-none">
-                                {/* Active top indicator bar */}
-                                {isActive && (
-                                    <motion.div
-                                        layoutId="bottomTabIndicator"
-                                        className={`absolute top-0 left-1/2 -translate-x-1/2 w-10 h-[3.5px] rounded-b-full ${colors.indicatorColor}`}
-                                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                                    />
-                                )}
+                            const content = isOSGlassMode ? (
+                                <div className="relative flex flex-col items-center justify-center gap-1 select-none py-0.5">
+                                    {/* Large Vivid Solid-Gradient iOS Squircle App Icon */}
+                                    <div
+                                        className={`w-[54px] h-[54px] sm:w-[58px] sm:h-[58px] ${
+                                            allItems.length >= 6
+                                                ? 'max-[380px]:w-[47px] max-[380px]:h-[47px]'
+                                                : ''
+                                        } rounded-[14px] ${tab.squircleBg} text-white shadow-[0_6px_16px_rgba(0,0,0,0.28)] border border-white/20 flex items-center justify-center relative transition-transform duration-200 group-active:scale-90 group-focus-visible:ring-2 group-focus-visible:ring-white/80 ${
+                                            isActive
+                                                ? 'ring-2 ring-white/90 scale-[1.03]'
+                                                : 'group-hover:scale-[1.03]'
+                                        }`}
+                                    >
+                                        <span className="relative z-10 flex items-center justify-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.22)]">
+                                            {tab.renderIcon(isActive, true)}
+                                        </span>
+                                    </div>
 
-                                {/* Enlarged tactile icon capsule */}
-                                <div
-                                    className={`w-[52px] h-[38px] rounded-2xl flex items-center justify-center relative transition-all duration-200 group-focus-visible:ring-2 group-focus-visible:ring-slate-400/40 ${
-                                        isActive
-                                            ? ''
-                                            : 'bg-slate-100/75 dark:bg-slate-900/75 border border-slate-200/70 dark:border-slate-800/80 group-hover:bg-slate-200/70 dark:group-hover:bg-slate-800'
-                                    }`}
-                                >
+                                    {/* Pure 1:1 iPhone Home Dock on /inicio (no text labels); compact labels on inner pages */}
+                                    {!hideOSDockLabels ? (
+                                        <span
+                                            className={`text-[10px] sm:text-[11px] leading-tight tracking-tight truncate max-w-[64px] px-0.5 ${
+                                                isActive
+                                                    ? `${colors.activeText} font-extrabold`
+                                                    : 'text-slate-700 dark:text-slate-200 font-bold'
+                                            }`}
+                                        >
+                                            {tab.label}
+                                        </span>
+                                    ) : (
+                                        isActive && (
+                                            <motion.span
+                                                layoutId="osDockActiveDot"
+                                                className="w-1.5 h-1.5 rounded-full bg-white/90 shadow-xs"
+                                                transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+                                            />
+                                        )
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="relative flex flex-col items-center justify-center gap-1 flex-1 h-full py-1.5 select-none">
+                                    {/* Active top spring indicator */}
                                     {isActive && (
                                         <motion.div
-                                            layoutId="bottomTabPill"
-                                            className={`absolute inset-0 rounded-2xl ${colors.activeBg}`}
-                                            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                                            layoutId="bottomTabIndicator"
+                                            className={`absolute top-0 left-1/2 -translate-x-1/2 w-9 h-[3.5px] rounded-b-full ${colors.indicatorColor}`}
+                                            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                                         />
                                     )}
-                                    <Icon
-                                        size={isActive ? 25 : 23}
-                                        strokeWidth={isActive ? 2.45 : 2.15}
-                                        className={`relative z-10 transition-transform duration-200 group-active:scale-90 ${
+
+                                    {/* Classic Web Mode tactile capsule */}
+                                    <div
+                                        className={`w-[52px] h-[38px] rounded-2xl flex items-center justify-center relative transition-all duration-200 group-focus-visible:ring-2 group-focus-visible:ring-slate-400/40 ${
                                             isActive
-                                                ? colors.activeIcon
-                                                : 'text-slate-600 dark:text-slate-300'
+                                                ? ''
+                                                : 'bg-slate-100/75 dark:bg-slate-900/75 border border-slate-200/70 dark:border-slate-800/80 group-hover:bg-slate-200/70 dark:group-hover:bg-slate-800'
                                         }`}
-                                    />
+                                    >
+                                        {isActive && (
+                                            <motion.div
+                                                layoutId="bottomTabPill"
+                                                className={`absolute inset-0 rounded-2xl ${colors.activeBg}`}
+                                                transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                                            />
+                                        )}
+                                        <span
+                                            className={`relative z-10 flex items-center justify-center transition-transform duration-200 group-active:scale-90 ${
+                                                isActive
+                                                    ? colors.activeIcon
+                                                    : 'text-slate-600 dark:text-slate-300'
+                                            }`}
+                                        >
+                                            {tab.renderIcon(isActive, false)}
+                                        </span>
+                                    </div>
+
+                                    {/* Clear Bilingual Label */}
+                                    <span
+                                        className={`text-[10.5px] sm:text-[11px] leading-tight tracking-tight transition-colors duration-200 truncate max-w-full px-0.5 ${
+                                            isActive
+                                                ? `${colors.activeText} font-extrabold`
+                                                : 'text-slate-600 dark:text-slate-400 font-semibold'
+                                        }`}
+                                    >
+                                        {tab.label}
+                                    </span>
                                 </div>
+                            )
 
-                                {/* Clear Label */}
-                                <span
-                                    className={`text-[10.5px] sm:text-[11px] leading-tight tracking-tight transition-colors duration-200 truncate max-w-full px-0.5 ${
-                                        isActive
-                                            ? `${colors.activeText} font-extrabold`
-                                            : 'text-slate-600 dark:text-slate-400 font-semibold'
-                                    }`}
-                                >
-                                    {tab.label}
-                                </span>
-                            </div>
-                        )
+                            if (isDrawer) {
+                                return (
+                                    <button
+                                        key={tab.key}
+                                        type="button"
+                                        onClick={onOpenDrawer}
+                                        aria-label={tab.label}
+                                        aria-expanded={isDrawerOpen}
+                                        className="flex-1 min-w-0 flex flex-col outline-none focus:outline-none group cursor-pointer"
+                                    >
+                                        {content}
+                                    </button>
+                                )
+                            }
 
-                        if (isDrawer) {
                             return (
-                                <button
-                                    key={tab.id}
-                                    type="button"
-                                    onClick={onOpenDrawer}
+                                <Link
+                                    key={tab.key}
+                                    href={tab.path}
+                                    target={tab.openInNewTab ? '_blank' : undefined}
+                                    rel={tab.openInNewTab ? 'noopener noreferrer' : undefined}
                                     aria-label={tab.label}
-                                    aria-expanded={isDrawerOpen}
-                                    className="flex-1 min-w-0 flex flex-col outline-none focus:outline-none group cursor-pointer"
+                                    className="flex-1 min-w-0 flex flex-col outline-none focus:outline-none group"
                                 >
                                     {content}
-                                </button>
+                                </Link>
                             )
-                        }
-
-                        return (
-                            <Link
-                                key={tab.id}
-                                href={tab.path}
-                                aria-label={tab.label}
-                                className="flex-1 min-w-0 flex flex-col outline-none focus:outline-none group"
-                            >
-                                {content}
-                            </Link>
-                        )
-                    })}
+                        })}
+                    </div>
                 </div>
             </div>
-        </div>
+
+            {canCustomizeDock && (
+                <DockEditorSheet
+                    key={editorSessionKey}
+                    isOpen={isEditorOpen}
+                    onClose={() => setIsEditorOpen(false)}
+                    dockItems={dockItems}
+                    permittedGroups={permittedGroups}
+                    homeViewMode={homeViewMode}
+                    onChangeHomeViewMode={setHomeViewMode}
+                    onReplaceSlot={replaceDockSlot}
+                    onMoveSlotLeft={handleMoveSlotLeft}
+                    onMoveSlotRight={handleMoveSlotRight}
+                    onAddSlot={addDockSlot}
+                    onRemoveSlot={removeDockSlot}
+                    onResetDefaults={resetDockToDefaults}
+                    isSavingSync={isSavingSync}
+                />
+            )}
+        </>
     )
 }

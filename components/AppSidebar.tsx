@@ -18,6 +18,7 @@
  * @notes
  * - Ancho expandido de `276px` (y `64px` colapsado) sincronizado con `components/ClientLayout.tsx`, donde `/app` y `/gavilan-pos` están registrados en `publicRoutes` para renderizarse a pantalla completa sin el sidebar administrativo.
  * - Optimización 2026-11-19 (Paquete 1B): deshabilita `<NotificationBell />` en rutas kiosko/cocina (`/order-ready-board`, `/inventory/preparador`, `/inventory/preparador/*`) y pasa `enableEntranceEffects={false}` a la instancia móvil mientras `NotificationBell` comparte un único store singleton de polling (180s) por pestaña.
+ * - En `/inicio` bajo `homeViewMode === 'os'`, oculta únicamente el `<header>` superior web móvil (`lg:hidden`) para pantalla completa tipo iOS Home Screen manteniendo 100% operativo el Mobile Drawer `<aside>` (`mobileDrawerOpen`).
  */
 
 'use client'
@@ -42,6 +43,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 import { SYSTEM_VERSION } from '@/lib/version'
 import { ChangelogModal } from './ChangelogModal'
+import { useMobileDockPreferences } from '@/lib/mobile-os-catalog'
 
 const BasecampIcon = ({ size = 20 }: { size?: number }) => (
     <svg 
@@ -225,6 +227,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const router = useRouter()
     const { user } = useAuth()
     const { t, language, setLanguage } = useLanguage()
+    const { homeViewMode } = useMobileDockPreferences(user, t)
+    const hideMobileTopBarOnOSHome = pathname === '/inicio' && homeViewMode === 'os'
     const hideNotificationsOnKiosk = isNotificationKioskRoute(pathname)
 
     const [expandedSubItems, setExpandedSubItems] = useState<Record<string, boolean>>({})
@@ -1792,7 +1796,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             </div>
 
             {/* ============ MOBILE TOP BAR ============ */}
-            <header className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800/70 flex items-center justify-between px-2.5">
+            <header className={`${hideMobileTopBarOnOSHome ? 'hidden' : 'lg:hidden flex'} fixed top-0 left-0 right-0 z-50 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800/70 items-center justify-between px-2.5`}>
                 <div className="flex items-center gap-2">
                     <button
                         type="button"

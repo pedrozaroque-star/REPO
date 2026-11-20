@@ -12,6 +12,11 @@
  * 
  * @dataFlow
  * - Utiliza usePathname() para determinar si la ruta activa es pública, `/inicio` o administrativa.
+ *
+ * @notes
+ * - En `/inicio` cuando `homeViewMode === 'os'` (`< lg`), elimina los márgenes web móviles (`pt-0 lg:pt-14`, `px-0 lg:px-8`)
+ *   mediante `ProtectedMainContent` para que `MobileOSHome` ocupe el viewport de borde a borde, preservando Desktop (`lg:`)
+ *   y `homeViewMode === 'web'` (`pt-14 px-4`) intactos.
  */
 
 'use client'
@@ -21,9 +26,64 @@ import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
 import SupportChatWidget from './SupportChatWidget'
 import SupervisorAutoTracker from './miles/SupervisorAutoTracker'
-import ProtectedRoute from './ProtectedRoute'
+import ProtectedRoute, { useAuth } from './ProtectedRoute'
 import { useState, useEffect, useRef } from 'react'
-import { LanguageProvider } from '@/lib/i18n'
+import { LanguageProvider, useLanguage } from '@/lib/i18n'
+import { useMobileDockPreferences } from '@/lib/mobile-os-catalog'
+
+function ProtectedMainContent({
+    pathname,
+    isCollapsed,
+    isFullWidth,
+    children,
+}: {
+    pathname: string | null
+    isCollapsed: boolean
+    isFullWidth: boolean
+    children: React.ReactNode
+}) {
+    const { user } = useAuth()
+    const { t } = useLanguage()
+    const { homeViewMode } = useMobileDockPreferences(user, t)
+    const isMobileOSHome = pathname === '/inicio' && homeViewMode === 'os'
+
+    return (
+        <>
+            {/* Background pattern (hidden on mobile OS Home wallpaper, intact on web & desktop) */}
+            <div
+                className={`${isMobileOSHome ? 'hidden lg:block ' : ''}fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] print:hidden`}
+                aria-hidden="true"
+            />
+
+            {/* Main Content Area */}
+            <div
+                className={`relative min-h-screen overflow-x-clip transition-all duration-300 ease-in-out print:ml-0! print:pt-0! print:pb-0! ${
+                    /* Desktop: offset by sidebar width */
+                    isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[276px]'
+                } ${
+                    /* Mobile: full-bleed on OS Home, offset by top bar + bottom dock otherwise */
+                    isMobileOSHome
+                        ? 'pt-0 pb-0 lg:pt-14 lg:pb-0'
+                        : 'pt-14 pb-[calc(102px+env(safe-area-inset-bottom))] lg:pt-14 lg:pb-0'
+                }`}
+            >
+                <main
+                    className={`w-full mx-auto animate-in fade-in duration-500 print:max-w-none! print:p-0! ${
+                        pathname === '/inicio'
+                            ? isMobileOSHome
+                                ? 'max-w-[1720px] px-0 lg:px-8 pt-0 pb-0 lg:pt-2 lg:pb-6'
+                                : 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
+                            : isFullWidth
+                                ? 'max-w-full px-2 sm:px-4 lg:px-5 py-3 lg:py-4'
+                                : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
+                    }`}
+                >
+                    {children}
+                </main>
+            </div>
+        </>
+    )
+}
 
 export default function ClientLayout({
     children,
@@ -202,12 +262,6 @@ export default function ClientLayout({
             ) : (
                 <ProtectedRoute>
                     <div className="min-h-screen bg-transparent relative transition-colors duration-300">
-                        {/* Background pattern */}
-                        <div
-                            className="fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] print:hidden"
-                            aria-hidden="true"
-                        />
-
                         {/* Sidebar (desktop) + Mobile top bar + Mobile drawer (oculto al imprimir) */}
                         <div className="print:hidden">
                             <AppSidebar
@@ -218,28 +272,13 @@ export default function ClientLayout({
                             />
                         </div>
 
-                        {/* Main Content Area */}
-                        <div
-                            className={`relative min-h-screen overflow-x-clip transition-all duration-300 ease-in-out print:ml-0! print:pt-0! print:pb-0! ${
-                                /* Desktop: offset by sidebar width */
-                                isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[276px]'
-                            } ${
-                                /* Mobile: offset by top bar height + floating bottom tab bar */
-                                'pt-14 pb-[calc(102px+env(safe-area-inset-bottom))] lg:pt-14 lg:pb-0'
-                            }`}
+                        <ProtectedMainContent
+                            pathname={pathname}
+                            isCollapsed={isCollapsed}
+                            isFullWidth={isFullWidth}
                         >
-                            <main
-                                className={`w-full mx-auto animate-in fade-in duration-500 print:max-w-none! print:p-0! ${
-                                    pathname === '/inicio'
-                                        ? 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
-                                        : isFullWidth
-                                            ? 'max-w-full px-2 sm:px-4 lg:px-5 py-3 lg:py-4'
-                                            : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
-                                }`}
-                            >
-                                {children}
-                            </main>
-                        </div>
+                            {children}
+                        </ProtectedMainContent>
 
                         {/* Bottom Tab Bar (mobile only) & floating widgets (ocultos al imprimir) */}
                         <div className="print:hidden">
