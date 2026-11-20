@@ -15,7 +15,7 @@
  *
  * @dataFlow
  * - `POST { storeId, startedAt, endedAt, lang, outcome, transcript[], order }` -> validación -> re-cotización ->
- *   `INSERT dt_kore_sim_sessions` -> `201 { session }`.
+ *   `INSERT dt_kore_sim_sessions` -> `after(() => analyzeUnprocessedKoreSessions(...))` en segundo plano -> `201 { session }`.
  * - `GET ?storeId=14&limit=20` -> `SELECT ... ORDER BY created_at DESC` -> `{ sessions: [...] }` (camelCase).
  *
  * @notes
@@ -23,11 +23,12 @@
  * - `taxRatePct` enviado por el cliente se ignora: se usa siempre la tasa del servidor (marcada como estimada).
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { authorizePhoneModuleRequest, type PhoneAuthorizedUser } from '@/lib/phone-agent-access'
 import { supabaseAdmin } from '@/lib/supabase'
 import { KORE_LIVE_MODEL, KORE_SIM_ALLOWED_ROLES, getKoreStoreTaxRate, loadKoreMenu, loadKoreStore } from '@/lib/drive-thru-kore'
 import { computeKoreTotals, rebuildKoreOrderFromMenu } from '@/lib/drive-thru-kore-order'
+import { analyzeUnprocessedKoreSessions } from '@/lib/drive-thru-kore-learning'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -221,6 +222,25 @@ export async function POST(request: NextRequest) {
       console.error('[Kore DT sessions] insert error:', error?.message)
       return jsonError('No se pudo guardar la simulación.', 500)
     }
+
+    const isSmokeOrTest =
+      /\b(?:smoke|test)\b/i.test(insertPayload.created_by_name) ||
+      tr.turns.some((t) => /\bTEST_SMOKE\b/i.test(t.text))
+    if (!isSmokeOrTest) {
+      after(async () => {
+        try {
+          await analyzeUnprocessedKoreSessions({
+            storeId: store.id,
+            limit: 6,
+            includePhoneCalls: false,
+            triggerSource: 'auto_analysis'
+          })
+        } catch (e) {
+          console.warn('[Kore DT auto-learn]', e)
+        }
+      })
+    }
+
     return NextResponse.json({ session: mapRow(data) }, { status: 201, headers: NO_STORE_HEADERS })
   } catch (err: any) {
     console.error('[Kore DT sessions] POST error:', String(err?.message || err).slice(0, 300))

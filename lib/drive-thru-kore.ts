@@ -645,8 +645,8 @@ export function buildKoreSystemPrompt(params: {
     '5. FAST TOOLS: NEVER call search_menu before add_item/add_items if the item is in LIVE MENU below. When the customer orders 2+ items at once, ALWAYS use add_items in ONE batch. Never confirm an edit unless the tool returned ok:true.',
     '6. BURRITOS, QUESADILLAS & MULITAS ("¿REGULAR O SUPER?") & NO "CHICA" ON DRINKS: When a customer orders Burritos, Quesadillas or Mulitas without specifying Regular or Super, ALWAYS ask short "¿Regular o Super?" / "Regular or Super?" (plus meat if missing). Food items NEVER have sizes (chico/mediano/grande) — STRICTLY FORBIDDEN to say "tamaño" or "size" for food! ONLY drinks have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz — NEVER say "chica", "chico", "pequeña" or "small".',
     '7. UNIFORM PRICES, TACO PLATE VS PLATO & SUPREME=SUPER: (a) If asked the price of tacos, tortas, Super Nachos, sopes, mulitas, burritos or platos without a meat, state the uniform price ONCE (e.g. "cuesta $9.69 dólares con la carne de tu preferencia") — NEVER list all 8 meats at the same price! (b) Distinguish Taco Plate (3 plain tacos of choice + rice & beans; also "plato de tres tacos"/"combo de 3 tacos"/"Taco Play") from Plato <meat> (meat + salad, rice, beans, guacamole & tortillas). (c) "Supreme"/"Supremo"/"Suprema" = Super (Super Burrito, Super Quesadilla, Super Mulita, Super Nachos); "unos nachos" = 1 Super Nachos; "adobada" = Pastor; "torta corona" = Torta Cubana; "tacos sasada" = Taco Asada.',
-    '8. FREE CONDIMENTS (NEVER ASK PROACTIVELY + CEBOLLA ASADA & FRIJOL DE LA OLLA $0.00 FREE): Tacos come Served Plain in POS ("Side Condiments") and cashiers already know each dish\'s condiments — NEVER ask about free condiments (salsas, onion/cilantro, limes, jalapeños) on your own! If the customer says "con todo"/"with everything", accept it directly at $0.00 without questioning. If the customer DOES request free condiments, add them at $0.00 — including Cebolla Asada (Grilled Onions) and Frijol de la Olla (Whole Pot Beans), BOTH 100% FREE ($0.00, NEVER charge Sides Beans $2.49!). Ask ONLY required groups (Taco Plate=3 tacos; Super Nachos=queso on chips/side; Platos=tortillas; Huevos Rancheros=egg style). Desserts: ONLY Flan & Cheesecake. Fiesta Platters need advance order at tacosgavilan.com. Max ONE drink/dessert upsell.',
-    '9. DELIVERY DRIVERS + LIVE DELIVERY ARMOR + WINDOW 2 (DoorDash, Uber Eats, Grubhub, Caviar, Postmates, Tacos Gavilan Online): drivers may pick up 1 OR MULTIPLE orders in one car. If the driver hasn\'t stated which order(s) they seek, ask which order(s) they are picking up (customer name and/or order code). Call register_driver_pickup ($0.00; call again if another order pings them): it checks live Delivery Armor status (suggested_reply_es/en). State the REAL status of EACH order and ALWAYS send them to WINDOW 2 (ventana 2): if ready -> "¡La orden de [Nombre] ya está lista! Pasa a la ventana 2 por tu orden" (or "¡Las órdenes ya están listas! Pasa a la ventana 2 por tus órdenes" for multiple); if preparing -> state we found it in preparation/packing and pull forward to ventana 2 (for mixed statuses, state each one); if already_handed or not_found/ambiguous -> state that clearly and ask to confirm code/initial or pull forward to ventana 2 to verify.',
+    '8. FREE CONDIMENTS (NEVER ASK PROACTIVELY + CEBOLLA ASADA/"CEBOLLITAS" & FRIJOL DE LA OLLA $0.00 FREE — MUST CALL TOOL): Tacos come Served Plain in POS ("Side Condiments") and cashiers already know each dish\'s condiments — NEVER ask about free condiments (salsas, onion/cilantro, limes, jalapeños) on your own! If the customer says "con todo"/"with everything", accept it directly at $0.00 without questioning. If the customer DOES request free condiments — especially Cebolla Asada / "cebollitas" / "cebollas asadas" (Grilled Onions) or Frijol(es) de la Olla (Whole Pot Beans), BOTH 100% FREE ($0.00, NEVER charge Sides Beans $2.49!) — YOU MUST CALL add_item / add_items / update_item at $0.00 BEFORE verbally saying you added them (STRICTLY FORBIDDEN to confirm adding courtesy beans or cebollitas verbally without registering them on the ticket!). Ask ONLY required groups (Taco Plate=3 tacos; Super Nachos=queso on chips/side; Platos=tortillas; Huevos Rancheros=egg style). Desserts: ONLY Flan & Cheesecake. Fiesta Platters need advance order at tacosgavilan.com. Max ONE drink/dessert upsell.',
+    '9. DELIVERY DRIVERS + LIVE DELIVERY ARMOR + WINDOW 2 (DoorDash, Uber Eats, Grubhub, Caviar, Postmates, Tacos Gavilan Online): drivers may pick up 1 OR MULTIPLE orders in one car (in driver context, Spanish STT transcriptions like "de gordas", "por gordas", "redor da", "nasredor da", "dordash", or "ordash" mean DoorDash!). If the driver hasn\'t stated which order(s) they seek, ask which order(s) they are picking up (customer name and/or order code). Call register_driver_pickup ($0.00; call again if another order pings them): it checks live Delivery Armor status (suggested_reply_es/en). State the REAL status of EACH order and ALWAYS send them to WINDOW 2 (ventana 2): if ready -> "¡La orden de [Nombre] ya está lista! Pasa a la ventana 2 por tu orden" (or "¡Las órdenes ya están listas! Pasa a la ventana 2 por tus órdenes" for multiple); if preparing -> state we found it in preparation/packing and pull forward to ventana 2 (for mixed statuses, state each one); if already_handed or not_found/ambiguous -> state that clearly and ask to confirm code/initial or pull forward to ventana 2 to verify.',
     ebtBranchRule,
     `11. BREAKFAST HOURS (ALL 15 LOCATIONS — UNTIL 2:00 PM PT), ${breakfastLiveStatus}: Breakfast items (Breakfast category: egg burritos, Huevos a la Mexicana/Rancheros/con Chorizo/Jamon/Salchicha, egg tortas) are served only until 2:00 PM every day. If asked until what time: "Tenemos desayunos disponibles hasta las 2:00 de la tarde en todas nuestras sucursales" / "Breakfast is available until 2:00 PM at all our locations". If a customer orders breakfast after 2:00 PM (or add_item returns breakfast_closed), kindly and briefly say breakfast ended at 2:00 PM and offer Regular/Super burritos, tacos, quesadillas, mulitas, tortas or platos. Coffee and Champurrado are NOT breakfast-only. The add_item tool enforces the live cutoff — never add a breakfast item it rejected.`,
     `12. CLOSING & AUTO-END CAR SESSION (confirm_order -> end_session): (Step A) When the customer first says that's all ("Ya es todo", "Eso sería todo", "That's all"), call confirm_order, read back the items + exact "total" (includes ${taxRatePct}% est. tax) and ask briefly "¿Está correcta su orden?" / "Does everything look right?" (unless they ALREADY heard the full summary + total and are confirming it's right with nothing else needed, in which case go straight to Step B). (Step B) As soon as the customer confirms the order and it is clear there is nothing else ("Sí, está bien", "Correcto, gracias", "Sí, ya es todo", "Así mero", "Yes, thank you"), OR when a delivery driver says thanks/acknowledges after hearing their Window 2 status, OR when a customer with a cancelled/EBT order confirms they will go inside or leave: YOU MUST call end_session and give ONLY ONE brief warm send-off ("¡Perfecto, muchas gracias! Pase a la ventanilla por favor." / "Thank you! Please pull forward to the window." — or a warm dining-room send-off for EBT) with NO further questions so this car's session closes automatically.`,
@@ -708,12 +708,31 @@ function sanitizeProviderMessage(raw: string, keys: string[]): string {
   return out.replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted]').replace(/\bAQ\.[0-9A-Za-z_.-]{10,}/g, '[redacted]')
 }
 
-const deadKoreLiveKeyUntil = new Map<string, number>()
+const deadKoreLiveKeyUntil: Map<string, number> =
+  (globalThis as any).__koreDeadLiveKeyUntil ||
+  ((globalThis as any).__koreDeadLiveKeyUntil = new Map<string, number>())
+const coolKoreLiveKeyUntil: Map<string, number> =
+  (globalThis as any).__koreCoolLiveKeyUntil ||
+  ((globalThis as any).__koreCoolLiveKeyUntil = new Map<string, number>())
+const healthyKoreLiveKeyAt: Map<string, number> =
+  (globalThis as typeof globalThis & { __koreHealthyLiveKeyAt?: Map<string, number> }).__koreHealthyLiveKeyAt ||
+  ((globalThis as typeof globalThis & { __koreHealthyLiveKeyAt?: Map<string, number> }).__koreHealthyLiveKeyAt = new Map<string, number>())
+
+const KORE_HEALTHY_KEY_TTL_MS = 10 * 60 * 1000
+const KORE_ZERO_QUOTA_COOLDOWN_MS = 10 * 60 * 1000
+const KORE_TRANSIENT_429_COOLDOWN_MS = 90 * 1000
+
+function compute429CooldownMs(rawBody: string): number {
+  if (/"quota_limit_value"\s*:\s*"?0"?/i.test(rawBody)) {
+    return KORE_ZERO_QUOTA_COOLDOWN_MS
+  }
+  return KORE_TRANSIENT_429_COOLDOWN_MS
+}
 
 /**
- * Crea un token efímero de un solo uso con el setup BLOQUEADO (`bidiGenerateContentSetup`), rotando TODAS las llaves
- * sanas del pool (`AQ.` primero) y corriendo carrera paralela (0 ms / 350 ms) entre 2 llaves distintas para respuesta inmediata,
- * verificando además que la llave tenga crédito/cuota real activa (para no entregar tokens de proyectos agotados con HTTP 402).
+ * Crea un token efímero de un solo uso con el setup BLOQUEADO (`bidiGenerateContentSetup`), priorizando llaves
+ * comprobadas sanas recientemente (`healthyKoreLiveKeyAt`), rotando llaves activas (`AQ.` primero) y corriendo carrera
+ * paralela (0 ms / 350 ms) entre las 2 primeras llaves más lotes paralelos de 4 como respaldo ultrarrápido.
  */
 export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.now()): Promise<KoreEphemeralToken> {
   const rawKeys = await getGeminiKeyPoolWithRemote()
@@ -721,14 +740,27 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
 
   const unblocked = rawKeys.filter((k) => (deadKoreLiveKeyUntil.get(k) || 0) <= now)
   const pool = unblocked.length > 0 ? unblocked : rawKeys
-  const aqPool = pool.filter((k) => k.startsWith('AQ.'))
-  const classicPool = pool.filter((k) => !k.startsWith('AQ.'))
+  const freshPool = pool.filter((k) => (coolKoreLiveKeyUntil.get(k) || 0) <= now)
+  const activePool = freshPool.length > 0 ? freshPool : pool
+  const fallbackCooled = freshPool.length > 0 ? pool.filter((k) => !freshPool.includes(k)) : []
+  const healthyPool = activePool.filter((k) => {
+    const okAt = healthyKoreLiveKeyAt.get(k) || 0
+    return okAt > 0 && now - okAt <= KORE_HEALTHY_KEY_TTL_MS
+  })
+  const healthySet = new Set(healthyPool)
+  const remainingActive = activePool.filter((k) => !healthySet.has(k))
+  const aqPool = remainingActive.filter((k) => k.startsWith('AQ.'))
+  const classicPool = remainingActive.filter((k) => !k.startsWith('AQ.'))
+  const rotHealthyStart = healthyPool.length > 0 ? keyCursor % healthyPool.length : 0
   const rotAqStart = aqPool.length > 0 ? keyCursor % aqPool.length : 0
   keyCursor++
   const orderedKeys = [
+    ...healthyPool.slice(rotHealthyStart),
+    ...healthyPool.slice(0, rotHealthyStart),
     ...aqPool.slice(rotAqStart),
     ...aqPool.slice(0, rotAqStart),
-    ...classicPool
+    ...classicPool,
+    ...fallbackCooled
   ]
 
   const expiresAt = new Date(now + TOKEN_EXPIRE_MS).toISOString()
@@ -738,8 +770,8 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
   const verifiedCreditKeyUntil = (globalThis as any).__koreVerifiedCreditKeyUntil || ((globalThis as any).__koreVerifiedCreditKeyUntil = new Map<string, number>())
 
   const mintWithSingleKey = async (key: string, signal: AbortSignal): Promise<string | null> => {
-    // Verificación ligera cacheada (15 min) de que la llave no tenga saldo prepagado agotado (HTTP 402),
-    // ya que `v1alpha/auth_tokens` emite token aun en cuentas 402 que luego cierran el WebSocket en el navegador.
+    // Verificación ligera cacheada (15 min) de que la llave no tenga saldo prepagado agotado (HTTP 402) ni cuota 429,
+    // ya que `v1beta/auth_tokens` emite token aun en cuentas 402 que luego cierran el WebSocket en el navegador.
     if ((verifiedCreditKeyUntil.get(key) || 0) <= Date.now()) {
       const probeRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens', {
         method: 'POST',
@@ -750,6 +782,14 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
       }).catch(() => null)
       if (probeRes && (probeRes.status === 401 || probeRes.status === 402 || probeRes.status === 403)) {
         deadKoreLiveKeyUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
+        healthyKoreLiveKeyAt.delete(key)
+        return null
+      }
+      if (probeRes && probeRes.status === 429) {
+        const probeErrTxt = await probeRes.text().catch(() => '')
+        lastError = `HTTP 429: ${sanitizeProviderMessage(probeErrTxt, rawKeys)}`
+        coolKoreLiveKeyUntil.set(key, Date.now() + compute429CooldownMs(probeErrTxt))
+        healthyKoreLiveKeyAt.delete(key)
         return null
       }
       if (probeRes?.ok) {
@@ -773,13 +813,23 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
         parsed = null
       }
       const token = typeof parsed?.name === 'string' ? parsed.name : ''
-      if (token.startsWith('auth_tokens/')) return token
+      if (token.startsWith('auth_tokens/')) {
+        coolKoreLiveKeyUntil.delete(key)
+        healthyKoreLiveKeyAt.set(key, Date.now())
+        return token
+      }
       return null
     }
     const sanitized = sanitizeProviderMessage(text, rawKeys)
     lastError = `HTTP ${res.status}: ${sanitized}`
     if (res.status === 401 || res.status === 402 || res.status === 403 || /prepayment|depleted|API_KEY_INVALID|leaked/i.test(text)) {
       deadKoreLiveKeyUntil.set(key, Date.now() + 6 * 60 * 60 * 1000)
+      healthyKoreLiveKeyAt.delete(key)
+      return null
+    }
+    if (res.status === 429 || /RESOURCE_EXHAUSTED|Quota exceeded|rate/i.test(text)) {
+      coolKoreLiveKeyUntil.set(key, Date.now() + compute429CooldownMs(text))
+      healthyKoreLiveKeyAt.delete(key)
       return null
     }
     const keyProblem = /api[_ ]?key|API_KEY|permission|quota|billing|RESOURCE_EXHAUSTED|UNAUTHENTICATED/i.test(text)
@@ -868,19 +918,64 @@ export async function createKoreEphemeralToken(setup: KoreLiveSetup, now = Date.
   }
 
   const startFrom = orderedKeys.length >= 2 ? 2 : 0
-  for (let i = startFrom; i < orderedKeys.length; i++) {
-    const key = orderedKeys[i]
-    totalAttempts++
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TOKEN_REQUEST_TIMEOUT_MS)
+  const FALLBACK_BATCH_SIZE = 4
+  for (let i = startFrom; i < orderedKeys.length; i += FALLBACK_BATCH_SIZE) {
+    const batch = orderedKeys.slice(i, i + FALLBACK_BATCH_SIZE)
+    const batchCtrls = batch.map(() => new AbortController())
+    const batchTimers = batchCtrls.map((c) => setTimeout(() => c.abort(), TOKEN_REQUEST_TIMEOUT_MS))
     try {
-      const tok = await mintWithSingleKey(key, controller.signal)
-      if (tok) return { token: tok, expiresAt, newSessionExpiresAt, attempts: totalAttempts }
-    } catch (err: any) {
-      if (err instanceof KoreTokenError) throw err
-      lastError = err?.name === 'AbortError' ? 'timeout' : sanitizeProviderMessage(String(err?.message || err), rawKeys)
+      const batchWinner = await new Promise<string | null>((resolve) => {
+        let settled = false
+        let remaining = batch.length
+        batch.forEach((key, bIdx) => {
+          totalAttempts++
+          void mintWithSingleKey(key, batchCtrls[bIdx].signal)
+            .then((tok) => {
+              remaining--
+              if (settled) return
+              if (tok) {
+                settled = true
+                batchCtrls.forEach((c, cIdx) => {
+                  if (cIdx !== bIdx) c.abort()
+                })
+                resolve(tok)
+                return
+              }
+              if (remaining <= 0) {
+                settled = true
+                resolve(null)
+              }
+            })
+            .catch((err) => {
+              remaining--
+              if (settled) return
+              if (err instanceof KoreTokenError) {
+                settled = true
+                batchCtrls.forEach((c, cIdx) => {
+                  if (cIdx !== bIdx) c.abort()
+                })
+                resolve(`__DETERMINISTIC_ERR__:${err.message}`)
+                return
+              }
+              lastError =
+                err?.name === 'AbortError'
+                  ? 'timeout'
+                  : sanitizeProviderMessage(String(err?.message || err), rawKeys)
+              if (remaining <= 0) {
+                settled = true
+                resolve(null)
+              }
+            })
+        })
+      })
+      if (batchWinner?.startsWith('__DETERMINISTIC_ERR__:')) {
+        throw new KoreTokenError(batchWinner.slice('__DETERMINISTIC_ERR__:'.length), 502)
+      }
+      if (batchWinner) {
+        return { token: batchWinner, expiresAt, newSessionExpiresAt, attempts: totalAttempts }
+      }
     } finally {
-      clearTimeout(timer)
+      for (const tm of batchTimers) clearTimeout(tm)
     }
   }
   throw new KoreTokenError(`No se pudo crear el token efímero de Gemini con ninguna llave (${lastError}).`, 502)

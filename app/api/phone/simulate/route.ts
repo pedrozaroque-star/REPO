@@ -42,6 +42,7 @@ import {
   PhoneLang,
   processPhoneAgentTurn
 } from '@/lib/phone-agent'
+import { analyzeUnprocessedPhoneCalls } from '@/lib/phone-agent-learning'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -406,6 +407,22 @@ export async function POST(request: NextRequest) {
               .eq('id', existing.id)
               .is('ended_at', null)
             if (endUpdErr) throw endUpdErr
+          }
+
+          const isSmokeCall = /\bTEST_SMOKE_/i.test(callSid) || /\bTEST_SMOKE_/i.test(String(auth.user.email || ''))
+          if (!isSmokeCall && Number(existing.turns_count || 0) > 0) {
+            after(async () => {
+              try {
+                await analyzeUnprocessedPhoneCalls({
+                  storeId: Number(existing.store_id) || undefined,
+                  limit: 4,
+                  prewarmAudio: false,
+                  triggerSource: 'simulator_call'
+                })
+              } catch (err) {
+                console.warn('[api/phone/simulate after-learn]', err)
+              }
+            })
           }
         }
       }

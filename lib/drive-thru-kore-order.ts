@@ -558,12 +558,14 @@ const CON_TODO_TOKEN = 'zzcontodo'
 const COURTESY_CEBOLLA_ASADA_TOKEN = 'zzcebollaasada'
 const COURTESY_FRIJOL_OLLA_TOKEN = 'zzfrijoldelaolla'
 const COURTESY_CONTAINER_TOKENS = new Set([
-  'side', 'vasito', 'vasitos', 'vaso', 'vasos', 'porcion', 'porciones', 'bolsita', 'bolsitas', 'cortesia', 'cortesias', 'gratis', 'free', 'cup', 'cups'
+  'side', 'vasito', 'vasitos', 'vaso', 'vasos', 'porcion', 'porciones', 'porcione', 'bolsita', 'bolsitas',
+  'cortesia', 'cortesias', 'gratis', 'grati', 'free', 'cup', 'cups', 'orden', 'ordenes', 'ordene',
+  'quiero', 'quisiera', 'dame', 'deme', 'regala', 'regalame', 'unas', 'unos', 'una', 'un'
 ])
 
 /** Reescrituras de frases (sobre texto ya normalizado) aplicadas igual a consultas y a nombres del menú. */
 const PHRASE_REWRITES: Array<[RegExp, string]> = [
-  [/\b(?:ceboll(?:a|as|ita|itas)\s+(?:asad(?:a|as)|toread(?:a|as)|al\s+grill)|(?:grilled|roasted|charred)\s+onions?)\b/g, ` ${COURTESY_CEBOLLA_ASADA_TOKEN} `],
+  [/\b(?:ceboll(?:a|as|ita|itas)\s+(?:asad(?:a|as)|toread(?:a|as)|al\s+grill|cambray)|cebollitas?\b|(?:grilled|roasted|charred)\s+onions?)\b/g, ` ${COURTESY_CEBOLLA_ASADA_TOKEN} `],
   [
     /\b(?:frijol(?:es|itos)?\s+(?:de\s+(?:la\s+)?olla|enteros?|en\s+caldo|caldosos?)|(?:whole(?:\s+pot)?|pot)\s+beans?|beans?\s+(?:from|in)\s+the\s+pot|frijol\s+d\s*l\s*o)\b/g,
     ` ${COURTESY_FRIJOL_OLLA_TOKEN} `
@@ -1808,7 +1810,7 @@ function toolSearchMenu(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
 }
 
 const DRIVER_PLATFORM_MAP: Array<[RegExp, string]> = [
-  [/\bdoor\s*dash\b/i, 'DoorDash'],
+  [/\b(?:door\s*dash|dor\s*dash|dordash|ordash|(?:nas)?redor\s*da\w*|(?:de|por|para)\s+gordas|gordash)\b/i, 'DoorDash'],
   [/\buber(?:\s*eats)?\b/i, 'Uber Eats'],
   [/\bgrub\s*hub\b/i, 'Grubhub'],
   [/\bcaviar\b/i, 'Caviar'],
@@ -2181,6 +2183,24 @@ export function detectKoreSpokenLanguage(text: string, fallback: 'es' | 'en' = '
     .replace(/\bfrijol(?:es)?\s+de\s+la\s+olla\b/g, ' ')
     .replace(/\bhuevos?\s+a\s+la\s+mexicana\b/g, ' ')
     .replace(/\bcebolla\s+asada\b/g, ' ')
+
+  // Prioridad #0: petición explícita de cambio de idioma (incluso dicha en el otro idioma, ej. "en inglés, por favor")
+  if (/\bno\s+hablo\s+(?:en\s+)?(?:ingles|english)\b/.test(stripped)) return 'es'
+  if (/\b(?:dont|do\s+not)\s+speak\s+(?:in\s+)?(?:spanish|espanol)\b/.test(stripped)) return 'en'
+  if (
+    /\b(?:en\s+ingles|habla[sr]?(?:\s+en)?\s+ingles|puedes?\s+hablar(?:\s+en)?\s+ingles|cambiar?(?:lo)?\s+a\s+ingles|in\s+english|speak\s+english|english\s+please|switch\s+to\s+english)\b/.test(
+      stripped
+    )
+  ) {
+    return 'en'
+  }
+  if (
+    /\b(?:en\s+espanol|habla[sr]?(?:\s+en)?\s+espanol|puedes?\s+hablar(?:\s+en)?\s+espanol|cambiar?(?:lo)?\s+a\s+espanol|in\s+spanish|speak\s+spanish|spanish\s+please|switch\s+to\s+spanish)\b/.test(
+      stripped
+    )
+  ) {
+    return 'es'
+  }
 
   let enScore = 0
   let esScore = 0

@@ -155,6 +155,23 @@ export function evaluateKoreTurnCompleteAutoEnd(params: {
     }
     return null
 }
+/** Umbral RMS mínimo en modo VAD mientras suena un clip local pregrabado (evita retroalimentación de bocinas sin audífonos). */
+export const KORE_LOCAL_CLIP_ECHO_RMS_FLOOR = 0.06
+/** Segundo refresco automático del panel de aprendizaje tras terminar `after()` en backend. */
+export const KORE_POST_SAVE_LEARNING_REFRESH_MS = 3500
+
+export function shouldSuppressLocalFastClipSpeakerEcho(params: {
+    playbackActive: boolean
+    localFastClipStartedAt: number
+    micMode: 'vad' | 'ptt'
+    rms: number
+}): boolean {
+    if (!params.playbackActive || !(params.localFastClipStartedAt > 0) || params.micMode !== 'vad') {
+        return false
+    }
+    return !(Number.isFinite(params.rms) && params.rms >= KORE_LOCAL_CLIP_ECHO_RMS_FLOOR)
+}
+
 /** Si el socket acumula más de esto sin enviar, se descartan bloques de mic (backpressure). */
 const WS_BACKPRESSURE_BYTES = 512 * 1024
 
@@ -864,6 +881,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const fastClipSeedRef = useRef(0)
     const previewCtxRef = useRef<AudioContext | null>(null)
     const previewSourceRef = useRef<AudioBufferSourceNode | null>(null)
+    const postSaveLearnTimerRef = useRef<number | null>(null)
     const transcriptRef = useRef<TranscriptEntry[]>([])
     const openEntryRef = useRef<{ customer: string | null; kore: string | null }>({ customer: null, kore: null })
     const startedAtRef = useRef<number | null>(null)
@@ -1169,6 +1187,35 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             return
         }
 
+        const echoSuppressed = shouldSuppressLocalFastClipSpeakerEcho({
+            playbackActive: Boolean(playbackRef.current?.isActive),
+            localFastClipStartedAt: localFastClipStartedAtRef.current,
+            micMode: micModeRef.current,
+            rms: data.rms,
+        })
+        if (echoSuppressed) {
+            noiseGateRef.current.reset()
+            const decayedEcho = meterLevelRef.current * 0.8
+            meterLevelRef.current = decayedEcho < 0.01 ? 0 : decayedEcho
+            if (meterRef.current) meterRef.current.style.width = `${Math.round(meterLevelRef.current * 100)}%`
+            if (!noiseGatedRef.current && Number.isFinite(data.rms) && data.rms >= 0.004) {
+                noiseGatedRef.current = true
+                setNoiseGatedNow(true)
+            }
+            if (!liveRef.current) return
+            const wsSilent = wsRef.current
+            if (!wsSilent || wsSilent.readyState !== WebSocket.OPEN || wsSilent.bufferedAmount > WS_BACKPRESSURE_BYTES) return
+            sendJson({
+                realtimeInput: {
+                    audio: {
+                        data: bytesToBase64(new Uint8Array(data.pcm.byteLength)),
+                        mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
+                    },
+                },
+            })
+            return
+        }
+
         const gate = noiseGateRef.current.process(data.pcm, data.rms)
         const raw = Math.min(1, gate.effectiveRms * 5)
         const level = Math.max(raw, meterLevelRef.current * 0.82)
@@ -1182,14 +1229,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
 
         if (!liveRef.current) return
-        if (gate.speechActive && (!playbackRef.current?.isActive || micModeRef.current === 'ptt' || data.rms >= 0.025)) {
+        const minSpeechRms =
+            playbackRef.current?.isActive && localFastClipStartedAtRef.current > 0 && micModeRef.current === 'vad'
+                ? KORE_LOCAL_CLIP_ECHO_RMS_FLOOR
+                : 0.025
+        if (gate.speechActive && (!playbackRef.current?.isActive || micModeRef.current === 'ptt' || data.rms >= minSpeechRms)) {
             initialGreetingPendingRef.current = false
             lastCustomerVoiceMsRef.current = performance.now()
             koreTurnFirstAudioRecordedRef.current = false
             if (
                 localFastClipStartedAtRef.current > 0 &&
                 performance.now() - localFastClipStartedAtRef.current > 350 &&
-                ((micModeRef.current === 'ptt' && pttTalkingRef.current) || data.rms >= 0.04)
+                ((micModeRef.current === 'ptt' && pttTalkingRef.current) || data.rms >= KORE_LOCAL_CLIP_ECHO_RMS_FLOOR)
             ) {
                 customerSpokeSinceFastClipRef.current = true
             }
@@ -1355,6 +1406,13 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             }
             setSavedOk(true)
             setLearningRefreshKey(k => k + 1)
+            if (postSaveLearnTimerRef.current !== null) {
+                window.clearTimeout(postSaveLearnTimerRef.current)
+            }
+            postSaveLearnTimerRef.current = window.setTimeout(() => {
+                postSaveLearnTimerRef.current = null
+                if (mountedRef.current) setLearningRefreshKey(k => k + 1)
+            }, KORE_POST_SAVE_LEARNING_REFRESH_MS)
         } catch (e) {
             setError(tRef.current('drive_thru.kore_err_save', { message: e instanceof Error ? e.message : String(e) }))
         }
@@ -2299,6 +2357,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     }
     const teardownRef = useRef<() => void>(() => undefined)
     teardownRef.current = () => {
+        if (postSaveLearnTimerRef.current !== null) {
+            window.clearTimeout(postSaveLearnTimerRef.current)
+            postSaveLearnTimerRef.current = null
+        }
         stopFastClipPreview(true)
         teardownMedia()
     }

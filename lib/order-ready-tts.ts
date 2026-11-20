@@ -67,7 +67,11 @@
  *   1) En `streamPhoneAgentSpeechPcm`, `gemini-3.8-flash-tts` (modelo primario verificado 100% femenino) reduce `PRE_VERIFY_PCM_BYTES`
  *      a `15,360` bytes (`0.32 s`, ~16–19 tramas YIN suficientes), manteniendo `PRE_VERIFY_LITE_PCM_BYTES = 38,400` (`0.80 s`) estrictos
  *      en `gemini-3.8-flash-lite-tts`, el techo anti-silencio inicial `MAX_PRE_VERIFY_PCM_BYTES = 48,000` (`1.0 s`) y el `fullGate`
+ *      (`PRE_VERIFY_LITE_PCM_BYTES = 38,400`), el techo anti-silencio inicial `MAX_PRE_VERIFY_PCM_BYTES = 48,000` (`1.0 s`) y el `fullGate`
  *      completo antes de persistir en Supabase Storage.
+ * - ROTACIÓN MULTI-LLAVE PARA APRENDIZAJE CONTINUO (`generateGeminiLearningJson`, 2026-11-19): expone helper JSON con caché
+ *   de llave sana en RAM + enfriamiento automático `429` (`quota_limit_value = 0` / `PerDay`) y carrera en bloques de 5 llaves
+ *   para `lib/phone-agent-learning.ts` y `lib/drive-thru-kore-learning.ts`.
  */
 
 import { createHash } from 'node:crypto'
@@ -614,7 +618,9 @@ function buildInlineNaturalFemalePrompt(textToSpeak: string, lang: TtsLang): str
 }
 
 function isDailyOrHardQuotaError(errText: string): boolean {
-  return /PerDay|per_day|per_model_per_day|limit:\s*0\b|Please retry in [0-9]+h/i.test(errText)
+  return /PerDay|per_day|per_model_per_day|limit:\s*0\b|"quota_limit_value"\s*:\s*"?0"?|Please retry in [0-9]+h/i.test(
+    errText
+  )
 }
 
 function parseDailyQuotaBlockMs(errText: string): number {
@@ -626,6 +632,9 @@ function parseDailyQuotaBlockMs(errText: string): number {
     if (Number.isFinite(parsedMs) && parsedMs > 60_000) {
       return Math.min(8 * 60 * 60 * 1000, parsedMs)
     }
+  }
+  if (/"quota_limit_value"\s*:\s*"?0"?/i.test(errText) && !/PerDay|per_day|per_model_per_day/i.test(errText)) {
+    return 15 * 60 * 1000
   }
   return 2 * 60 * 60 * 1000
 }
@@ -2368,4 +2377,161 @@ export async function getPhoneAgentSpeech(
       inflight.delete(path)
     }
   }
+}
+
+const healthyLearningKeyAt: Map<string, number> =
+  gTts.__tegLearningHealthyKeyAt || (gTts.__tegLearningHealthyKeyAt = new Map<string, number>())
+const coolLearningKeyUntil: Map<string, number> =
+  gTts.__tegLearningCoolKeyUntil || (gTts.__tegLearningCoolKeyUntil = new Map<string, number>())
+const LEARNING_HEALTHY_KEY_TTL_MS = 10 * 60 * 1000
+
+/**
+ * Ejecuta `generateContent` en modo JSON (`responseMimeType: 'application/json'`) para Aprendizaje Continuo
+ * rotando dinámicamente entre las llaves del pool: prioriza la última llave sana en RAM y, ante `429`/errores,
+ * aplica cooldown automático y compite en lotes paralelos de hasta 5 llaves antes de caer al siguiente modelo.
+ */
+export async function generateGeminiLearningJson<T = Record<string, any>>(opts: {
+  models: readonly string[]
+  prompt: string
+  maxOutputTokens?: number
+  temperature?: number
+  timeoutMs?: number
+}): Promise<{ data: T; modelUsed: string } | null> {
+  const allKeys = await getGeminiKeyPoolWithRemote()
+  if (allKeys.length === 0 || !opts.models.length) return null
+
+  const now = Date.now()
+  const nonHardBlocked = allKeys.filter((k) => !isHardBlocked(k, now))
+  const uncooled = nonHardBlocked.filter((k) => (coolLearningKeyUntil.get(k) || 0) <= now)
+  const pool = uncooled.length > 0 ? uncooled : nonHardBlocked.length > 0 ? nonHardBlocked : allKeys
+
+  const healthyKeys = pool
+    .filter((k) => {
+      const okAt = healthyLearningKeyAt.get(k) || 0
+      return okAt > 0 && now - okAt <= LEARNING_HEALTHY_KEY_TTL_MS
+    })
+    .sort((a, b) => (healthyLearningKeyAt.get(b) || 0) - (healthyLearningKeyAt.get(a) || 0))
+
+  const healthySet = new Set(healthyKeys)
+  const rest = pool.filter((k) => !healthySet.has(k))
+  const aqRest = rest.filter((k) => k.startsWith('AQ.'))
+  const classicRest = rest.filter((k) => !k.startsWith('AQ.'))
+  const uncachedKeys = [...aqRest, ...classicRest]
+
+  const timeoutMs = Math.max(2000, Math.min(15_000, opts.timeoutMs ?? 5000))
+  const maxOutputTokens = opts.maxOutputTokens ?? 450
+  const temperature = opts.temperature ?? 0.1
+
+  const tryKey = async (
+    model: string,
+    key: string,
+    parentSignal?: AbortSignal
+  ): Promise<{ data: T | null; deadModel?: boolean }> => {
+    if (parentSignal?.aborted) return { data: null }
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    const onParentAbort = () => ctrl.abort()
+    parentSignal?.addEventListener('abort', onParentAbort, { once: true })
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: opts.prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            maxOutputTokens,
+            temperature
+          }
+        }),
+        signal: ctrl.signal
+      })
+
+      if (res.status === 404) {
+        return { data: null, deadModel: true }
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '')
+        healthyLearningKeyAt.delete(key)
+        if (res.status === 429 || /RESOURCE_EXHAUSTED|Quota exceeded|rate/i.test(errText)) {
+          const coolMs = isDailyOrHardQuotaError(errText)
+            ? parseDailyQuotaBlockMs(errText)
+            : parseTransientRpmWaitMs(errText)
+          coolLearningKeyUntil.set(key, Date.now() + coolMs)
+        } else if (res.status === 401 || res.status === 403 || /API_KEY_INVALID|billing|PERMISSION_DENIED/i.test(errText)) {
+          coolLearningKeyUntil.set(key, Date.now() + 60 * 60 * 1000)
+        }
+        return { data: null }
+      }
+
+      const json = (await res.json()) as any
+      const rawText = String(json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim()
+      if (!rawText) return { data: null }
+      const cleaned = rawText
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim()
+      const parsed = JSON.parse(cleaned) as T
+      healthyLearningKeyAt.set(key, Date.now())
+      coolLearningKeyUntil.delete(key)
+      return { data: parsed }
+    } catch {
+      return { data: null }
+    } finally {
+      clearTimeout(timer)
+      parentSignal?.removeEventListener('abort', onParentAbort)
+    }
+  }
+
+  for (const model of opts.models) {
+    let modelDead = false
+    for (const hKey of healthyKeys) {
+      const r = await tryKey(model, hKey)
+      if (r.deadModel) {
+        modelDead = true
+        break
+      }
+      if (r.data) return { data: r.data, modelUsed: model }
+    }
+    if (modelDead) continue
+
+    const BATCH_SIZE = 5
+    for (let i = 0; i < uncachedKeys.length; i += BATCH_SIZE) {
+      const batch = uncachedKeys.slice(i, i + BATCH_SIZE)
+      const winner = await new Promise<{ data: T | null; deadModel: boolean }>((resolve) => {
+        const batchCtrl = new AbortController()
+        let remaining = batch.length
+        let settled = false
+        let sawDeadModel = false
+        for (const key of batch) {
+          void tryKey(model, key, batchCtrl.signal).then((r) => {
+            if (settled) return
+            if (r.deadModel) sawDeadModel = true
+            if (r.data) {
+              settled = true
+              batchCtrl.abort()
+              resolve({ data: r.data, deadModel: false })
+              return
+            }
+            if (sawDeadModel) {
+              settled = true
+              batchCtrl.abort()
+              resolve({ data: null, deadModel: true })
+              return
+            }
+            remaining--
+            if (remaining <= 0) {
+              settled = true
+              resolve({ data: null, deadModel: false })
+            }
+          })
+        }
+      })
+      if (winner.deadModel) break
+      if (winner.data) return { data: winner.data, modelUsed: model }
+    }
+  }
+
+  return null
 }

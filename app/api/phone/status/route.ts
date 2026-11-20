@@ -10,7 +10,8 @@
  * - Si `turns_count === 0` (colgaron durante el saludo sin hacer preguntas), mantiene `resolved_by_ai = false`.
  *
  * @dataFlow
- * - Twilio StatusCallback -> `POST /api/phone/status` -> `upsertPhoneCallStatusTombstone` -> `reconcileCallWithTerminalTombstone` -> `public.phone_calls`.
+ * - Twilio StatusCallback -> `POST /api/phone/status` -> `upsertPhoneCallStatusTombstone` -> `reconcileCallWithTerminalTombstone`
+ *   -> `public.phone_calls` -> `after(() => analyzeUnprocessedPhoneCalls(...))` para aprendizaje continuo inmediato en llamadas terminadas.
  *
  * @notes
  * - Registra `duration_seconds` autoritativo reportado por Twilio (`CallDuration`), reemplazando cualquier duración provisional
@@ -25,7 +26,7 @@
  *   Si falla cualquier operación necesaria de base de datos, el tombstone permanece intacto y el endpoint responde HTTP 500 (`{ ok: false }`).
  */
 
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import {
@@ -35,9 +36,10 @@ import {
   upsertPhoneCallStatusTombstone,
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
+import { analyzeUnprocessedPhoneCalls } from '@/lib/phone-agent-learning'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 15
+export const maxDuration = 30
 export const preferredRegion = 'sfo1'
 
 const TERMINAL_TWILIO_STATUSES = new Set(['completed', 'busy', 'failed', 'no-answer', 'canceled', 'cancelled'])
@@ -164,6 +166,27 @@ export async function POST(request: Request) {
           throw new Error(`No se pudo reconciliar el cierre de phone_calls para CallSid=${callSid}`)
         }
       }
+    }
+
+    const isSmokeCall = /\bTEST_SMOKE_/i.test(callSid)
+    if (!isSmokeCall) {
+      const reqUrl = new URL(request.url)
+      const qStoreId = reqUrl.searchParams.get('storeId')
+      const targetStoreId = qStoreId && /^\d+$/.test(qStoreId) && Number(qStoreId) > 0 ? Number(qStoreId) : null
+      after(async () => {
+        try {
+          // Dar 1.5s para que phone-live-bridge termine su persistCallSnapshot(true) al cerrar el stream
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          await analyzeUnprocessedPhoneCalls({
+            storeId: targetStoreId,
+            limit: 5,
+            prewarmAudio: false,
+            triggerSource: 'twilio_call'
+          })
+        } catch (learnErr) {
+          console.warn('[api/phone/status after-learn]', learnErr)
+        }
+      })
     }
 
     return NextResponse.json({ ok: true })

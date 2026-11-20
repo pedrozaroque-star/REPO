@@ -45,12 +45,14 @@
  * - En `DELETE /api/phone/dashboard?entity=knowledge_base`, consultar primero `findLearningItemIdsBySyncedKbId(id)` antes
  *   del `DELETE` porque la FK `synced_kb_id` tiene `ON DELETE SET NULL`.
  * - Proyecto exclusivo de base de datos: `teg-tacos-gavilan` (`ywwwdcvgfculqmcfkihq`).
+ * - Auditoría Aprendizaje Continuo 2026-11-19: usa `generateGeminiLearningJson` con rotación multi-llave/multi-modelo
+ *   (evita fallo 429 en `keys[0]`) y amplía detector de fricciones/repeticiones telefónicas (`me pregunta fue...`).
  */
 
 import { createHash } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
-import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts'
+import { generateGeminiLearningJson } from '@/lib/order-ready-tts'
 import { invalidateStorePhoneContextCache } from '@/lib/phone-agent'
 import { invalidateKoreKnowledgeCache } from '@/lib/drive-thru-kore'
 
@@ -130,7 +132,7 @@ interface CandidateFinding {
 export const SELECT_LEARNING_COLS =
   'id, store_id, source_session_id, source_phone_call_id, synced_kb_id, synced_phone_item_id, applies_to_channels, dedupe_key, source_type, item_kind, status, question_or_trigger, customer_quote, kore_quote, proposed_rule_es, proposed_rule_en, owner_instruction, evidence_count, avg_latency_ms, resolved_by, resolved_by_name, resolved_at, created_at, updated_at'
 
-const GEMINI_REST_MODELS = ['gemini-3.5-flash-lite', 'gemini-3-flash-preview'] as const
+const GEMINI_REST_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite-preview', 'gemini-3-flash-preview'] as const
 const ACTIVE_RULES_TTL_MS = 15_000
 const activeRulesCache = new Map<string, { rules: ActiveKoreLearnedRule[]; fetchedAt: number }>()
 
@@ -1059,8 +1061,7 @@ export async function buildBilingualRuleFromOwnerInstruction(params: {
   const fallbackEn = explicitEn || (cleanTrigger ? `When "${cleanTrigger}": ${cleanOwner}` : cleanOwner)
 
   try {
-    const keys = await getGeminiKeyPoolWithRemote()
-    if (keys.length === 0 || !cleanOwner) return { ruleEs: fallbackEs, ruleEn: fallbackEn }
+    if (!cleanOwner) return { ruleEs: fallbackEs, ruleEn: fallbackEn }
     const prompt = [
       'Convierte la instrucción operativa del dueño de Tacos Gavilan en una regla imperativa concisa (1 oración) en español y en inglés para la asistente de voz Kore (Drive-Thru y Teléfono).',
       'Reglas estrictas: usa siempre "Tacos Gavilan" (jamás agregues "El"), precios solo en dólares USD (jamás pesos), burritos/quesadillas/mulitas son Regular o Super (nunca tamaños). Responde SOLO JSON válido {"es":"...","en":"..."}.',
@@ -1068,31 +1069,17 @@ export async function buildBilingualRuleFromOwnerInstruction(params: {
       `Instrucción del dueño: ${cleanOwner}`
     ].join('\n')
 
-    for (const model of GEMINI_REST_MODELS) {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 4000)
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-          method: 'POST',
-          headers: { 'x-goog-api-key': keys[0], 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 280, temperature: 0.1 }
-          }),
-          signal: controller.signal
-        })
-        if (!res.ok) continue
-        const json = (await res.json()) as any
-        const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-        const parsed = JSON.parse(raw)
-        const es = sanitizeRuleText(parsed?.es, 400)
-        const en = sanitizeRuleText(parsed?.en, 400, 'en')
-        if (es && en) return { ruleEs: es, ruleEn: en }
-      } catch {
-        // Fallback determinista si expira o falla la red
-      } finally {
-        clearTimeout(timer)
-      }
+    const llmRes = await generateGeminiLearningJson<{ es?: string; en?: string }>({
+      models: GEMINI_REST_MODELS,
+      prompt,
+      maxOutputTokens: 280,
+      temperature: 0.1,
+      timeoutMs: 5000
+    })
+    if (llmRes?.data) {
+      const es = sanitizeRuleText(llmRes.data?.es, 400)
+      const en = sanitizeRuleText(llmRes.data?.en, 400, 'en')
+      if (es && en) return { ruleEs: es, ruleEn: en }
     }
   } catch {
     // Fallback determinista
@@ -1369,7 +1356,7 @@ export function extractPhoneCallFindings(call: any): CandidateFinding[] {
       const cur = turns[i]
       if (cur.role !== 'user') continue
       if (
-        /\b(pero\s+yo\s+no\s+(?:le\s+)?dije|no\s+ped[ií]\s+eso|eso\s+no\s+fue\s+lo\s+que\s+pregunt[eé]|genera\s+la\s+respuesta\s+que\s+no\s+existe|no\s+me\s+entendiste)\b/i.test(
+        /\b(pero\s+yo\s+no\s+(?:le\s+)?dije|no\s+ped[ií]\s+eso|eso\s+no\s+fue\s+lo\s+que\s+pregunt[eé]|me\s+pregunta\s+fue|mi\s+pregunta\s+(?:era|fue|es)|te\s+estoy\s+preguntando|genera\s+la\s+respuesta\s+que\s+no\s+existe|no\s+me\s+entendiste|that'?s\s+not\s+what\s+i\s+asked|you\s+misunderstood)\b/i.test(
           String(cur.text || '')
         )
       ) {
@@ -1403,8 +1390,6 @@ async function extractLlmSessionDoubts(session: any, sourceType: KoreLearningSou
   if (meaningfulCustomerTurns.length < 2 || session.outcome === 'confirmed') return []
 
   try {
-    const keys = await getGeminiKeyPoolWithRemote()
-    if (keys.length === 0) return []
     const compactTranscript = turns
       .slice(0, 24)
       .map((t) => `${t.role.toUpperCase()}: ${String(t.text || '').slice(0, 180)}`)
@@ -1417,47 +1402,38 @@ async function extractLlmSessionDoubts(session: any, sourceType: KoreLearningSou
       compactTranscript
     ].join('\n')
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 4500)
-    try {
-      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent', {
-        method: 'POST',
-        headers: { 'x-goog-api-key': keys[0], 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 350, temperature: 0.1 }
-        }),
-        signal: controller.signal
+    const llmRes = await generateGeminiLearningJson<{ items?: any[] }>({
+      models: GEMINI_REST_MODELS,
+      prompt,
+      maxOutputTokens: 350,
+      temperature: 0.1,
+      timeoutMs: 5500
+    })
+    if (!llmRes?.data) return []
+
+    const arr = Array.isArray(llmRes.data?.items) ? llmRes.data.items.slice(0, 1) : []
+    const out: CandidateFinding[] = []
+    for (const it of arr) {
+      const trigger = sanitizeRuleText(it?.questionOrTrigger, 180)
+      if (trigger.length < 10) continue
+      if (/tamañ|size|red bull|verstappen|checo|dos nada/i.test(trigger)) continue
+      out.push({
+        storeId: Number.isInteger(Number(session.store_id)) ? Number(session.store_id) : null,
+        sourceSessionId: String(session.id),
+        dedupeKey: `doubt:llm:${shortHash(trigger)}`,
+        sourceType,
+        itemKind: 'doubt_for_owner',
+        status: 'needs_owner_input',
+        appliesToChannels: 'both',
+        questionOrTrigger: trigger,
+        customerQuote: sanitizeRuleText(it?.customerQuote, 240) || null,
+        koreQuote: sanitizeRuleText(it?.koreQuote, 240) || null,
+        proposedRuleEs: sanitizeRuleText(it?.proposedRuleEs, 360) || null,
+        proposedRuleEn: sanitizeRuleText(it?.proposedRuleEn, 360, 'en') || null,
+        avgLatencyMs: Number.isFinite(Number(session.avg_latency_ms)) ? Number(session.avg_latency_ms) : null
       })
-      if (!res.ok) return []
-      const json = (await res.json()) as any
-      const parsed = JSON.parse(json?.candidates?.[0]?.content?.parts?.[0]?.text || '{}')
-      const arr = Array.isArray(parsed?.items) ? parsed.items.slice(0, 1) : []
-      const out: CandidateFinding[] = []
-      for (const it of arr) {
-        const trigger = sanitizeRuleText(it?.questionOrTrigger, 180)
-        if (trigger.length < 10) continue
-        if (/tamañ|size|red bull|verstappen|checo|dos nada/i.test(trigger)) continue
-        out.push({
-          storeId: Number.isInteger(Number(session.store_id)) ? Number(session.store_id) : null,
-          sourceSessionId: String(session.id),
-          dedupeKey: `doubt:llm:${shortHash(trigger)}`,
-          sourceType,
-          itemKind: 'doubt_for_owner',
-          status: 'needs_owner_input',
-          appliesToChannels: 'both',
-          questionOrTrigger: trigger,
-          customerQuote: sanitizeRuleText(it?.customerQuote, 240) || null,
-          koreQuote: sanitizeRuleText(it?.koreQuote, 240) || null,
-          proposedRuleEs: sanitizeRuleText(it?.proposedRuleEs, 360) || null,
-          proposedRuleEn: sanitizeRuleText(it?.proposedRuleEn, 360, 'en') || null,
-          avgLatencyMs: Number.isFinite(Number(session.avg_latency_ms)) ? Number(session.avg_latency_ms) : null
-        })
-      }
-      return out
-    } finally {
-      clearTimeout(timer)
     }
+    return out
   } catch {
     return []
   }

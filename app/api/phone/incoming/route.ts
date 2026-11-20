@@ -44,6 +44,7 @@ import {
   resolveStoreFromIncomingCall,
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
+import { SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -364,12 +365,31 @@ export async function POST(request: Request) {
     // El primer <Gather input="dtmf" numDigits="1" timeout="1"> escucha ÚNICAMENTE tonos de teclado (tecla 9 tras "For English, press nine.")
     // con CERO captura de voz (0 speech). timeout="1" es el entero positivo mínimo válido en Twilio (evita Error 13313 y su fallback de 5s de silencio).
     const respondUrl = `${baseUrl}/api/phone/respond?storeId=${store.id}&lang=${lang}&turn0=1`
+    const streamTs = Date.now()
+    const streamSig =
+      process.env.PHONE_LIVE_BRIDGE_DISABLED === '1'
+        ? ''
+        : signTwilioStreamParams({ callSid, storeId: store.id, lang, ts: streamTs })
+    const liveStreamBlock = streamSig
+      ? `\n  <Connect>
+    <Stream url="${escapeXml(SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL)}">
+      <Parameter name="callSid" value="${escapeXml(callSid)}" />
+      <Parameter name="storeId" value="${store.id}" />
+      <Parameter name="lang" value="${lang}" />
+      <Parameter name="callerNumber" value="${escapeXml(fromNumber)}" />
+      <Parameter name="toNumber" value="${escapeXml(toNumber)}" />
+      <Parameter name="forwardedFrom" value="${escapeXml(forwardedFrom)}" />
+      <Parameter name="ts" value="${streamTs}" />
+      <Parameter name="sig" value="${escapeXml(streamSig)}" />
+    </Stream>
+  </Connect>`
+      : ''
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="1" timeout="1" action="${escapeXml(respondUrl)}&amp;preconsent=1" method="POST">
     ${disclosureTag}
-  </Gather>
+  </Gather>${liveStreamBlock}
   <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>
     ${questionTag}
   </Gather>

@@ -41,13 +41,16 @@
  * - Proyecto exclusivo de base de datos: `teg-tacos-gavilan` (`ywwwdcvgfculqmcfkihq`).
  * - Sin columnas generadas (`GENERATED ALWAYS AS`) en ningún payload de `INSERT` o `UPDATE`.
  * - Evita importación estática circular hacia `lib/phone-agent.ts` usando `import('@/lib/phone-agent')` dinámico solo al invalidar KB.
+ * - Auditoría Aprendizaje Continuo 2026-11-19: rotación multi-llave con `generateGeminiLearningJson`, cobertura activa de
+ *   llamadas `Kore 3.8 Live` (Twilio + `SIM_LIVE_*`), detección de correcciones/fricción del cliente y propuestas `stt_synonym`,
+ *   más exclusión estricta de llamadas `in_progress`/`ringing` para no sellar `analyzed_at` prematuramente.
  */
 
 import { createHash } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
 import {
-  getGeminiKeyPoolWithRemote,
+  generateGeminiLearningJson,
   getPhoneAgentSpeech,
   warmPhoneSpeechFromStorageOnly
 } from '@/lib/order-ready-tts'
@@ -161,11 +164,11 @@ interface CandidatePhoneFinding {
 const SELECT_PHONE_LEARNING_COLS =
   'id, store_id, source_call_id, dedupe_key, source_type, item_kind, status, applies_to_channels, synced_dt_item_id, category, question_or_trigger, trigger_keywords, customer_quote, kore_quote, doubt_for_owner, proposed_rule_es, proposed_rule_en, fast_reply_es, fast_reply_en, owner_instruction, evidence_count, avg_latency_ms, audio_prewarmed, kb_entry_id, resolved_by, resolved_by_name, resolved_at, created_at, updated_at'
 
-const GEMINI_LEARNING_MODELS = ['gemini-3.1-flash-lite-preview', 'gemini-3.5-flash-lite'] as const
+const GEMINI_LEARNING_MODELS = ['gemini-3.1-flash-lite-preview', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview'] as const
 const ACTIVE_RULES_TTL_MS = 15_000
 const MAX_STALE_SWR_MS = 5 * 60_000
 const MAX_PREWARMS_PER_RUN = 8
-const MAX_LLM_CALL_ENRICHMENTS_PER_RUN = 6
+const MAX_LLM_CALL_ENRICHMENTS_PER_RUN = 10
 
 const activePhoneRulesCache = new Map<string, { rules: ActivePhoneLearnedRule[]; fetchedAt: number }>()
 const activePhoneRulesInFlight = new Map<string, Promise<ActivePhoneLearnedRule[]>>()
@@ -542,6 +545,7 @@ export function matchLearnedPhoneFastReply(
   let bestMatch: { rule: ActivePhoneLearnedRule; replyText: string; score: number } | null = null
 
   for (const rule of rules) {
+    if (rule.itemKind === 'stt_synonym') continue
     if (rule.status !== 'approved' && rule.itemKind !== 'fast_reply_macro') continue
     const replyText = lang === 'en' ? rule.fastReplyEn || rule.fastReplyEs : rule.fastReplyEs || rule.fastReplyEn
     if (!replyText || replyText.length > 220 || !rule.triggerKeywords || rule.triggerKeywords.length === 0) continue
@@ -576,6 +580,7 @@ export function matchLearnedPhoneFastReply(
 export async function buildBilingualPhoneRuleAndFastReply(params: {
   questionOrTrigger: string
   ownerInstruction: string
+  itemKind?: PhoneLearningItemKind | string | null
   proposedRuleEs?: string | null
   proposedRuleEn?: string | null
   fastReplyEs?: string | null
@@ -588,6 +593,7 @@ export async function buildBilingualPhoneRuleAndFastReply(params: {
   fastReplyEn: string | null
   triggerKeywords: string[]
 }> {
+  const isSttSynonym = params.itemKind === 'stt_synonym'
   const cleanTrigger = sanitizePhoneLearningText(params.questionOrTrigger, 200, 'es')
   const cleanOwner = sanitizePhoneLearningText(params.ownerInstruction, 420, 'es')
   const explicitRuleEs = sanitizePhoneLearningText(params.proposedRuleEs || '', 400, 'es')
@@ -607,12 +613,12 @@ export async function buildBilingualPhoneRuleAndFastReply(params: {
             .filter((s) => s.length >= 4)
         )
 
-  if (explicitRuleEs && explicitRuleEn && explicitFastEs && explicitFastEn) {
+  if (explicitRuleEs && explicitRuleEn && (isSttSynonym || (explicitFastEs && explicitFastEn))) {
     return {
       ruleEs: explicitRuleEs,
       ruleEn: explicitRuleEn,
-      fastReplyEs: explicitFastEs,
-      fastReplyEn: explicitFastEn,
+      fastReplyEs: isSttSynonym ? null : explicitFastEs,
+      fastReplyEn: isSttSynonym ? null : explicitFastEn,
       triggerKeywords: defaultKeywords
     }
   }
@@ -631,20 +637,22 @@ export async function buildBilingualPhoneRuleAndFastReply(params: {
   const isSmokeTest = /\bTEST_SMOKE_/i.test(cleanTrigger) || /\bTEST_SMOKE_/i.test(cleanOwner)
   const isAiMetaDirective =
     !isSmokeTest &&
-    /\b(?:jam[aá]s\s+(?:preguntes|digas)|nunca\s+(?:preguntes|digas)|never\s+(?:ask|say)|antes\s+de\s+agregar\s+al\s+ticket|pregunta\s+[uú]nicamente|definir\s+criterio)\b/i.test(
-      capitalizedSpokenEs
-    )
-  const fallbackFastEs =
-    explicitFastEs ||
-    (isAiMetaDirective
-      ? ''
-      : sanitizePhoneLearningText(
-          capitalizedSpokenEs
-            ? `${/[.!?]$/.test(capitalizedSpokenEs) ? capitalizedSpokenEs : `${capitalizedSpokenEs}.`} ¿Te puedo ayudar con algo más?`
-            : '',
-          220,
-          'es'
-        ))
+    (isSttSynonym ||
+      /\b(?:jam[aá]s\s+(?:preguntes|digas)|nunca\s+(?:preguntes|digas)|never\s+(?:ask|say)|antes\s+de\s+agregar\s+al\s+ticket|pregunta\s+[uú]nicamente|definir\s+criterio|interpreta\s+que|sin[oó]nimo\s+fon[eé]tico)\b/i.test(
+        capitalizedSpokenEs
+      ))
+  const fallbackFastEs = isSttSynonym
+    ? ''
+    : explicitFastEs ||
+      (isAiMetaDirective
+        ? ''
+        : sanitizePhoneLearningText(
+            capitalizedSpokenEs
+              ? `${/[.!?]$/.test(capitalizedSpokenEs) ? capitalizedSpokenEs : `${capitalizedSpokenEs}.`} ¿Te puedo ayudar con algo más?`
+              : '',
+            220,
+            'es'
+          ))
 
   if (isSmokeTest) {
     const strippedTrigger = cleanTrigger.replace(/\bTEST_SMOKE_[A-Z0-9_]*\b/gi, '').replace(/\s+/g, ' ').trim()
@@ -665,14 +673,15 @@ export async function buildBilingualPhoneRuleAndFastReply(params: {
   }
 
   try {
-    const keys = await getGeminiKeyPoolWithRemote()
-    if (keys.length > 0 && cleanOwner) {
+    if (cleanOwner) {
       const prompt = [
         'Eres el redactor oficial de políticas telefónicas de Tacos Gavilan en California, EE. UU.',
         'Convierte la instrucción del dueño en:',
         '1) ruleEs / ruleEn: regla operativa clara (1-2 oraciones) para el prompt del agente telefónico Kore.',
-        '2) fastReplyEs / fastReplyEn: respuesta hablada cálida, directa y natural de cajera (MÁXIMO 200 caracteres cada una, terminando con "¿Te puedo ayudar con algo más?" / "Can I help you with anything else?").',
-        '3) triggerKeywords: arreglo de 3 a 8 frases cortas clave (español e inglés en minúsculas) para detectar esta pregunta.',
+        isSttSynonym
+          ? '2) fastReplyEs / fastReplyEn: devuelve cadena vacía "" en ambos (es una corrección fonética STT, NO un macro hablado directo).'
+          : '2) fastReplyEs / fastReplyEn: respuesta hablada cálida, directa y natural de cajera (MÁXIMO 200 caracteres cada una, terminando con "¿Te puedo ayudar con algo más?" / "Can I help you with anything else?").',
+        '3) triggerKeywords: arreglo de 3 a 8 frases cortas clave (español e inglés en minúsculas) para detectar esta pregunta o variante fonética.',
         'REGLAS ESTRICTAS:',
         '- Marca exacta: "Tacos Gavilan" (jamás "Tacos El Gavilan").',
         '- Moneda: dólares y centavos USD (jamás "pesos").',
@@ -683,49 +692,36 @@ export async function buildBilingualPhoneRuleAndFastReply(params: {
         `Instrucción oficial de Carlos (dueño): ${cleanOwner}`
       ].join('\n')
 
-      for (const model of GEMINI_LEARNING_MODELS) {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 4500)
-        try {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-            {
-              method: 'POST',
-              headers: { 'x-goog-api-key': keys[0], 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                  responseMimeType: 'application/json',
-                  maxOutputTokens: 450,
-                  temperature: 0.1
-                }
-              }),
-              signal: controller.signal
-            }
-          )
-          if (!res.ok) continue
-          const json = (await res.json()) as any
-          const rawText = json?.candidates?.[0]?.content?.parts?.[0]?.text || ''
-          const parsed = JSON.parse(rawText)
-          const ruleEs = explicitRuleEs || sanitizePhoneLearningText(parsed?.ruleEs, 400, 'es')
-          const ruleEn = explicitRuleEn || sanitizePhoneLearningText(parsed?.ruleEn, 400, 'en')
-          const fastEs = explicitFastEs || sanitizePhoneLearningText(parsed?.fastReplyEs, 220, 'es')
-          const fastEn = explicitFastEn || sanitizePhoneLearningText(parsed?.fastReplyEn, 220, 'en')
-          const llmKw = normalizeTriggerKeywords(parsed?.triggerKeywords)
-          const mergedKw = explicitKeywords.length > 0 ? explicitKeywords : llmKw.length > 0 ? llmKw : defaultKeywords
-          if (ruleEs && ruleEn) {
-            return {
-              ruleEs,
-              ruleEn,
-              fastReplyEs: fastEs || fallbackFastEs || null,
-              fastReplyEn: fastEn || null,
-              triggerKeywords: mergedKw
-            }
+      const llmRes = await generateGeminiLearningJson<{
+        ruleEs?: string
+        ruleEn?: string
+        fastReplyEs?: string
+        fastReplyEn?: string
+        triggerKeywords?: unknown
+      }>({
+        models: GEMINI_LEARNING_MODELS,
+        prompt,
+        maxOutputTokens: 450,
+        temperature: 0.1,
+        timeoutMs: 5500
+      })
+
+      if (llmRes?.data) {
+        const parsed = llmRes.data
+        const ruleEs = explicitRuleEs || sanitizePhoneLearningText(parsed?.ruleEs, 400, 'es')
+        const ruleEn = explicitRuleEn || sanitizePhoneLearningText(parsed?.ruleEn, 400, 'en')
+        const fastEs = isSttSynonym ? '' : explicitFastEs || sanitizePhoneLearningText(parsed?.fastReplyEs, 220, 'es')
+        const fastEn = isSttSynonym ? '' : explicitFastEn || sanitizePhoneLearningText(parsed?.fastReplyEn, 220, 'en')
+        const llmKw = normalizeTriggerKeywords(parsed?.triggerKeywords)
+        const mergedKw = explicitKeywords.length > 0 ? explicitKeywords : llmKw.length > 0 ? llmKw : defaultKeywords
+        if (ruleEs && ruleEn) {
+          return {
+            ruleEs,
+            ruleEn,
+            fastReplyEs: isSttSynonym ? null : fastEs || fallbackFastEs || null,
+            fastReplyEn: isSttSynonym ? null : fastEn || null,
+            triggerKeywords: mergedKw
           }
-        } catch {
-          // Siguiente modelo o fallback determinista
-        } finally {
-          clearTimeout(timer)
         }
       }
     }
@@ -791,6 +787,38 @@ const UNOFFICIAL_ADMISSION_RE =
   /\b(no\s+cuento\s+con\s+(?:esa\s+|la\s+)?(?:informaci[oó]n|pol[ií]tica|historia)|no\s+tengo\s+ese\s+dato|don'?t\s+have\s+(?:an?\s+)?official\s+(?:information|policy))\b/i
 const OFF_TOPIC_IGNORE_RE =
   /\b(chiste|joke|cancion|canta|song|heroes\s+del\s+silencio|futbol|soccer|nfl|nba|clima|weather|presidente|paneles\s+solares|google\s+listing|prestamo\s+comercial|agencias)\b/i
+const CALLER_CORRECTION_OR_FRICTION_RE =
+  /\b(me\s+pregunta\s+fue|mi\s+pregunta\s+(?:era|fue|es)|lo\s+que\s+(?:te\s+)?pregunt[eé]|(?:pero\s+)?(?:yo\s+)?no\s+(?:te\s+)?(?:dije|pregunt[eé]|ped[ií])\s+eso|eso\s+no\s+(?:fue|es)\s+lo\s+que\s+pregunt[eé]|no\s+me\s+(?:entendiste|entiendes|est[aá]s\s+entendiendo)|me\s+entendiste\s+mal|no\s+(?:contestaste|respondiste)\s+(?:mi\s+pregunta|lo\s+que\s+pregunt[eé])|te\s+estoy\s+preguntando|that'?s\s+not\s+what\s+i\s+(?:asked|said|meant)|you\s+(?:didn'?t\s+understand|misunderstood)|my\s+question\s+was|i\s+was\s+asking)\b/i
+const TRIVIAL_CLOSE_OR_GREETING_RE =
+  /^(?:gracias|muchas\s+gracias|es\s+todo(?:\s+gracias)?|eso\s+es\s+todo(?:\s+gracias)?|todo\s+bien|adios|hasta\s+luego|bye|thank\s+you|thanks|that'?s\s+all(?:\s+thank\s+you)?|hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|9)$/i
+
+function isSyntheticSmokeCall(call: any): boolean {
+  const sid = String(call?.call_sid || '')
+  if (/\b(?:TEST_SMOKE_|SMOKE_TEST_)\w*/i.test(sid)) return true
+  const summary = String(call?.summary || '')
+  if (/\b(?:TEST_SMOKE_|SMOKE_TEST_)\w*/i.test(summary)) return true
+  if (Array.isArray(call?.transcript)) {
+    return call.transcript.some((t: any) => /\b(?:TEST_SMOKE_|SMOKE_TEST_)\w*/i.test(String(t?.text || '')))
+  }
+  return false
+}
+
+function areTurnsLikelyRetryPair(prevUserRaw: string | undefined, curUserRaw: string): boolean {
+  if (!prevUserRaw) return false
+  const normPrev = normalizeMatchToken(prevUserRaw)
+  const normCur = normalizeMatchToken(curUserRaw)
+  // Repetición idéntica de prueba o eco idéntico no indica corrección de malentendido
+  if (normPrev === normCur) return false
+  const prevToks = normPrev.split(' ').filter((w) => w.length >= 3)
+  const curToks = normCur.split(' ').filter((w) => w.length >= 3)
+  if (prevToks.length < 3 || curToks.length < 3) return false
+  const prevSet = new Set(prevToks)
+  let overlap = 0
+  for (const w of curToks) {
+    if (prevSet.has(w)) overlap++
+  }
+  return overlap >= 3 || (overlap >= 2 && overlap / Math.min(prevToks.length, curToks.length) >= 0.45)
+}
 
 function extractForensicCallFindings(
   call: any,
@@ -799,13 +827,24 @@ function extractForensicCallFindings(
     string,
     { text: string; lang: 'es' | 'en'; trigger: string; count: number; callId: string; callIds: Set<string> }
   >
-): { findings: CandidatePhoneFinding[]; needsLlmEnrichment: boolean } {
+): {
+  findings: CandidatePhoneFinding[]
+  enrichmentPriority: 0 | 1 | 2 | 3
+  correctionFallback: CandidatePhoneFinding | null
+} {
+  if (isSyntheticSmokeCall(call)) {
+    return { findings: [], enrichmentPriority: 0, correctionFallback: null }
+  }
   const findings: CandidatePhoneFinding[] = []
   const callId = String(call.id)
   const storeId = Number.isInteger(Number(call.store_id)) && Number(call.store_id) > 0 ? Number(call.store_id) : null
   const callLang: 'es' | 'en' = call.language === 'en' ? 'en' : 'es'
   const pairs = extractTurnPairs(call.transcript)
-  let needsLlmEnrichment = false
+  const callSid = String(call.call_sid || '')
+  const isLiveSimulator = callSid.startsWith('SIM_LIVE_')
+  let enrichmentPriority: 0 | 1 | 2 | 3 = 0
+  let correctionFallback: CandidatePhoneFinding | null = null
+  let meaningfulCustomerTurns = 0
 
   // 1) Columna explícita `unanswered_question` registrada en `phone_calls`
   const rawUnanswered = String(call.unanswered_question || '').trim()
@@ -1238,17 +1277,62 @@ function extractForensicCallFindings(
       }
     }
 
-    // Marcar si una llamada real tuvo fallo técnico o pregunta repetida no cubierta arriba para enriquecimiento LLM
+    if (normU && !OFF_TOPIC_IGNORE_RE.test(normU) && !TRIVIAL_CLOSE_OR_GREETING_RE.test(normU) && normU.split(' ').length >= 2) {
+      meaningfulCustomerTurns++
+    }
+
+    const prevPair = idx > 0 ? pairs[idx - 1] : undefined
+    const explicitCorrection = CALLER_CORRECTION_OR_FRICTION_RE.test(normU)
+    const retryPair = Boolean(prevPair && areTurnsLikelyRetryPair(prevPair.userText, p.userText))
+
+    if ((explicitCorrection || retryPair) && !OFF_TOPIC_IGNORE_RE.test(normU)) {
+      enrichmentPriority = 3
+      if (explicitCorrection && !correctionFallback) {
+        const quotePair = retryPair && prevPair
+          ? `${sanitizePhoneLearningText(prevPair.userText, 120, callLang)} -> ${sanitizePhoneLearningText(p.userText, 120, callLang)}`
+          : sanitizePhoneLearningText(p.userText, 240, callLang)
+        const refAssistant = prevPair?.assistantText || p.assistantText
+        correctionFallback = {
+          storeId,
+          sourceCallId: callId,
+          dedupeKey: `phone_friction:correction:${shortHash(normalizeQuestionFingerprint(refAssistant || quotePair))}`,
+          sourceType,
+          itemKind: 'doubt_for_owner',
+          status: 'needs_owner_input',
+          appliesToChannels: 'both',
+          category: 'general',
+          questionOrTrigger: `Fricción o malentendido reportado por el cliente: "${sanitizePhoneLearningText(p.userText, 110, 'es')}"`,
+          triggerKeywords: normalizeTriggerKeywords(normU.split(' ').filter((w) => w.length >= 4).slice(0, 6)),
+          customerQuote: quotePair,
+          koreQuote: sanitizePhoneLearningText(refAssistant, 240, callLang) || null,
+          doubtForOwner: `Durante la llamada, el cliente tuvo que aclarar o corregir a Kore ("${sanitizePhoneLearningText(p.userText, 140, 'es')}"). Revisa qué contestó Kore y confirma la regla oficial o corrección de interpretación.`,
+          proposedRuleEs: null,
+          proposedRuleEn: null,
+          avgLatencyMs: p.latencyMs
+        }
+      }
+    }
+
     if (
-      call.source === 'twilio' &&
-      (TECHNICAL_FALLBACK_RE.test(p.assistantText) || RAW_CSV_FALLBACK_RE.test(p.assistantText)) &&
+      (call.source === 'twilio' || isLiveSimulator) &&
+      (TECHNICAL_FALLBACK_RE.test(p.assistantText) ||
+        RAW_CSV_FALLBACK_RE.test(p.assistantText) ||
+        UNOFFICIAL_ADMISSION_RE.test(p.assistantText)) &&
       normU.length > 6
     ) {
-      needsLlmEnrichment = true
+      enrichmentPriority = 3
     }
   }
 
-  return { findings, needsLlmEnrichment }
+  if (String(call.unanswered_question || '').trim().length >= 6) {
+    enrichmentPriority = 3
+  } else if (enrichmentPriority < 2 && call.source === 'twilio' && meaningfulCustomerTurns >= 2) {
+    enrichmentPriority = 2
+  } else if (enrichmentPriority < 1 && isLiveSimulator && meaningfulCustomerTurns >= 2) {
+    enrichmentPriority = 1
+  }
+
+  return { findings, enrichmentPriority, correctionFallback }
 }
 
 async function extractLlmPhoneCallDoubts(
@@ -1259,79 +1343,96 @@ async function extractLlmPhoneCallDoubts(
   const pairs = extractTurnPairs(call.transcript)
   if (pairs.length === 0) return []
   try {
-    const keys = await getGeminiKeyPoolWithRemote()
-    if (keys.length === 0) return []
     const transcriptCompact = pairs
-      .slice(0, 12)
-      .map((p) => `CLIENTE: ${p.userText.slice(0, 180)}\nKORE: ${p.assistantText.slice(0, 200)}`)
+      .slice(0, 14)
+      .map((p) => `CLIENTE: ${p.userText.slice(0, 180)}\nKORE: ${p.assistantText.slice(0, 220)}`)
       .join('\n---\n')
 
+    const coveredSnippet = alreadyCoveredTriggers.slice(0, 35).join(' | ') || 'ninguno'
     const prompt = [
-      'Analiza esta llamada real a la Contestadora IA de Tacos Gavilan en California.',
-      'Identifica MÁXIMO 1 duda genuina de negocio/política o fallo de respuesta que requiera decisión del dueño Carlos (o devuelve {"items":[]} si la llamada se resolvió bien o ya está en la lista cubierta).',
-      `Temas ya cubiertos (NO repetir): ${alreadyCoveredTriggers.join(' | ') || 'ninguno'}.`,
-      'Ignora ruido suelto ("it", "3177"), bromas o ventas spam.',
-      'Devuelve SOLO JSON válido: {"items":[{"category":"menu|hours|policies|catering|payments","questionOrTrigger":"...","customerQuote":"...","koreQuote":"...","doubtForOwner":"Explicación clara en español para Carlos","proposedRuleEs":"...","proposedRuleEn":"..."}]}',
+      'Audita esta llamada telefónica real o simulación Kore 3.8 Live de Tacos Gavilan en California (cada llamada ya entra en la línea directa de una sucursal específica).',
+      'Si Kore respondió correctamente con datos reales (horario de esa tienda, lista de 6 Drive-Thru, regla de desayunos hasta 2 PM, precios USD) y el cliente no reportó error, DEVUELVE {"items":[]} obligatoriamente.',
+      'Solo reporta MÁXIMO 1 hallazgo genuino NO cubierto:',
+      '  A) itemKind="stt_synonym": cuando el audio/transcripción deformó una palabra real (ej. "ibt"->"EBT", "hadas"->"asada", "sasada"->"asada", "dritro"->"Drive-Thru") generando confusión o repetición.',
+      '  B) itemKind="doubt_for_owner": cuando Kore dio una respuesta falsa, fuera de tema (ej. responder cancelación cuando preguntan ubicaciones), o faltó una política real de negocio.',
+      `Temas ya cubiertos en sistema/bandeja (NO repetir ni duplicar): ${coveredSnippet}.`,
+      'PROHIBIDO reportar: tecla "9" (es nuestro comando DTMF oficial para cambiar Español/Inglés), preguntar por horario o ubicación cuando Kore ya contestó con los datos de su tienda, preguntas sobre el modelo de IA, ruido suelto ("it", "3177") o spam.',
+      'Reglas de marca obligatorias: usa "Tacos Gavilan" (jamás "El"), precios en dólares USD (jamás pesos).',
+      'Devuelve SOLO JSON válido usando exactamente "doubt_for_owner" o "stt_synonym" en itemKind (sin barra "|"): {"items":[{"itemKind":"doubt_for_owner","category":"menu|hours|policies|catering|payments|general","spokenVariant":"solo si stt_synonym, ej: ibt","intendedTerm":"solo si stt_synonym, ej: EBT","questionOrTrigger":"...","customerQuote":"...","koreQuote":"...","doubtForOwner":"Explicación clara en español para Carlos","proposedRuleEs":"Regla operativa clara para Kore ES","proposedRuleEn":"Clear operational rule for Kore EN"}]}',
+      'Si itemKind="stt_synonym", redacta proposedRuleEs exactamente indicando qué palabra deformada escuchar e interpretar como cuál término oficial.',
       transcriptCompact
     ].join('\n')
 
-    for (const model of GEMINI_LEARNING_MODELS) {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 4000)
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-          {
-            method: 'POST',
-            headers: { 'x-goog-api-key': keys[0], 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseMimeType: 'application/json',
-                maxOutputTokens: 420,
-                temperature: 0.1
-              }
-            }),
-            signal: controller.signal
-          }
-        )
-        if (!res.ok) continue
-        const json = (await res.json()) as any
-        const parsed = JSON.parse(json?.candidates?.[0]?.content?.parts?.[0]?.text || '{}')
-        const arr = Array.isArray(parsed?.items) ? parsed.items.slice(0, 1) : []
-        const out: CandidatePhoneFinding[] = []
-        for (const it of arr) {
-          const trigger = sanitizePhoneLearningText(it?.questionOrTrigger, 180, 'es')
-          const doubt = sanitizePhoneLearningText(it?.doubtForOwner, 420, 'es')
-          if (trigger.length < 12 || doubt.length < 15) continue
-          if (/desayuno|breakfast|supreme|supremo|raquel|115|pastel|escuela|\bit\b|3177/i.test(trigger)) continue
-          out.push({
-            storeId: Number.isInteger(Number(call.store_id)) && Number(call.store_id) > 0 ? Number(call.store_id) : null,
-            sourceCallId: String(call.id),
-            dedupeKey: `doubt:llm_phone:${shortHash(normalizeMatchToken(trigger))}`,
-            sourceType,
-            itemKind: 'doubt_for_owner',
-            status: 'needs_owner_input',
-            category: String(it?.category || 'general').slice(0, 40),
-            questionOrTrigger: trigger,
-            customerQuote: sanitizePhoneLearningText(it?.customerQuote, 260, 'es') || null,
-            koreQuote: sanitizePhoneLearningText(it?.koreQuote, 260, 'es') || null,
-            doubtForOwner: doubt,
-            proposedRuleEs: sanitizePhoneLearningText(it?.proposedRuleEs, 380, 'es') || null,
-            proposedRuleEn: sanitizePhoneLearningText(it?.proposedRuleEn, 380, 'en') || null
-          })
-        }
-        return out
-      } catch {
-        // Siguiente modelo o ignorar
-      } finally {
-        clearTimeout(timer)
-      }
+    const llmRes = await generateGeminiLearningJson<{ items?: any[] }>({
+      models: GEMINI_LEARNING_MODELS,
+      prompt,
+      maxOutputTokens: 600,
+      temperature: 0.1,
+      timeoutMs: 6500
+    })
+    if (!llmRes?.data) return []
+
+    const arr = Array.isArray(llmRes.data?.items) ? llmRes.data.items.slice(0, 1) : []
+    const out: CandidatePhoneFinding[] = []
+    const coveredNorms = new Set(alreadyCoveredTriggers.map((t) => normalizeMatchToken(t)).filter((t) => t.length >= 6))
+
+    for (const it of arr) {
+      const spokenVariant = sanitizePhoneLearningText(it?.spokenVariant || '', 60, 'es')
+      const intendedTerm = sanitizePhoneLearningText(it?.intendedTerm || '', 60, 'es')
+      const rawKindStr = String(it?.itemKind || '').trim().toLowerCase()
+      const hasSttPair =
+        spokenVariant.length >= 2 &&
+        intendedTerm.length >= 2 &&
+        normalizeMatchToken(spokenVariant) !== normalizeMatchToken(intendedTerm)
+      const rawKind: 'stt_synonym' | 'doubt_for_owner' =
+        rawKindStr === 'stt_synonym' || (hasSttPair && (rawKindStr.includes('stt_synonym') || rawKindStr !== 'doubt_for_owner'))
+          ? 'stt_synonym'
+          : 'doubt_for_owner'
+      const trigger = sanitizePhoneLearningText(it?.questionOrTrigger, 180, 'es')
+      const doubt = sanitizePhoneLearningText(it?.doubtForOwner, 420, 'es')
+      if (trigger.length < 10 || doubt.length < 15) continue
+      if (/^(?:\bit\b|3177)$/i.test(trigger) || /\bTEST_SMOKE_/i.test(trigger)) continue
+
+      const normTrig = normalizeMatchToken(trigger)
+      if (coveredNorms.has(normTrig)) continue
+
+      const dedupeKey =
+        rawKind === 'stt_synonym' && spokenVariant && intendedTerm
+          ? `stt:${shortHash(`${normalizeMatchToken(spokenVariant)}=>${normalizeMatchToken(intendedTerm)}`)}`
+          : `doubt:llm_phone:${shortHash(normTrig)}`
+
+      const triggerKeywords =
+        rawKind === 'stt_synonym'
+          ? normalizeTriggerKeywords([spokenVariant, intendedTerm])
+          : normalizeTriggerKeywords(normTrig.split(' ').filter((w) => w.length >= 4).slice(0, 6))
+
+      out.push({
+        storeId:
+          rawKind === 'stt_synonym'
+            ? null
+            : Number.isInteger(Number(call.store_id)) && Number(call.store_id) > 0
+              ? Number(call.store_id)
+              : null,
+        sourceCallId: String(call.id),
+        dedupeKey,
+        sourceType,
+        itemKind: rawKind,
+        status: 'needs_owner_input',
+        appliesToChannels: 'both',
+        category: String(it?.category || 'general').slice(0, 40),
+        questionOrTrigger: trigger,
+        triggerKeywords,
+        customerQuote: sanitizePhoneLearningText(it?.customerQuote, 260, 'es') || null,
+        koreQuote: sanitizePhoneLearningText(it?.koreQuote, 260, 'es') || null,
+        doubtForOwner: doubt,
+        proposedRuleEs: sanitizePhoneLearningText(it?.proposedRuleEs, 380, 'es') || null,
+        proposedRuleEn: sanitizePhoneLearningText(it?.proposedRuleEn, 380, 'en') || null
+      })
     }
+    return out
   } catch {
     return []
   }
-  return []
 }
 
 async function upsertPhoneLearningFinding(
@@ -1496,12 +1597,14 @@ export async function analyzeUnprocessedPhoneCalls(opts?: {
     : 'auto_analysis'
 
   const selectCols =
-    'id, store_id, source, language, primary_intent, status, resolved_by_ai, turns_count, unanswered_question, summary, transcript, started_at, analyzed_at'
+    'id, call_sid, store_id, source, language, primary_intent, status, resolved_by_ai, turns_count, unanswered_question, summary, transcript, started_at, analyzed_at'
 
   const applyFilters = (q: any) => {
     if (opts?.storeId && Number.isInteger(opts.storeId) && opts.storeId > 0) {
       q = q.eq('store_id', Math.trunc(opts.storeId))
     }
+    // Nunca sellar `analyzed_at` sobre llamadas vivas aún en curso (`in_progress` / `ringing`)
+    q = q.not('status', 'in', '("in_progress","in-progress","ringing","queued","initiated")')
     if (opts?.reanalyzeRecentHours && Number(opts.reanalyzeRecentHours) > 0) {
       const sinceIso = new Date(Date.now() - Number(opts.reanalyzeRecentHours) * 3600_000).toISOString()
       q = q.or(`analyzed_at.is.null,started_at.gte.${sinceIso}`)
@@ -1539,7 +1642,31 @@ export async function analyzeUnprocessedPhoneCalls(opts?: {
   >()
   const aggregatedFindings = new Map<string, CandidatePhoneFinding>()
 
-  let llmCallsUsed = 0
+  const mergeFinding = (f: CandidatePhoneFinding) => {
+    const prev = aggregatedFindings.get(f.dedupeKey)
+    if (!prev) {
+      aggregatedFindings.set(f.dedupeKey, { ...f, evidenceDelta: 1 })
+    } else {
+      const prevDelta = prev.evidenceDelta || 1
+      const nextDelta = prevDelta + 1
+      prev.evidenceDelta = nextDelta
+      if (f.avgLatencyMs !== null && f.avgLatencyMs !== undefined) {
+        prev.avgLatencyMs =
+          prev.avgLatencyMs !== null && prev.avgLatencyMs !== undefined
+            ? Math.round((prev.avgLatencyMs * prevDelta + f.avgLatencyMs) / nextDelta)
+            : f.avgLatencyMs
+      }
+    }
+  }
+
+  const enrichmentCandidates: Array<{
+    call: any
+    sourceType: PhoneLearningSourceType
+    detTriggers: string[]
+    priority: 1 | 2 | 3
+    correctionFallback: CandidatePhoneFinding | null
+  }> = []
+
   for (const call of callsToAnalyze) {
     const itemSource: PhoneLearningSourceType =
       baseTrigger === 'cron_daily'
@@ -1548,37 +1675,68 @@ export async function analyzeUnprocessedPhoneCalls(opts?: {
           ? 'twilio_call'
           : 'auto_analysis'
 
-    const { findings: detFindings, needsLlmEnrichment } = extractForensicCallFindings(
+    const { findings: detFindings, enrichmentPriority, correctionFallback } = extractForensicCallFindings(
       call,
       itemSource,
       prewarmCandidates
     )
 
-    let llmFindings: CandidatePhoneFinding[] = []
-    if (needsLlmEnrichment && llmCallsUsed < MAX_LLM_CALL_ENRICHMENTS_PER_RUN) {
-      llmCallsUsed++
-      llmFindings = await extractLlmPhoneCallDoubts(
+    for (const f of detFindings) mergeFinding(f)
+
+    if (enrichmentPriority > 0) {
+      enrichmentCandidates.push({
         call,
-        itemSource,
-        detFindings.map((d) => d.questionOrTrigger)
+        sourceType: itemSource,
+        detTriggers: detFindings.map((d) => d.questionOrTrigger),
+        priority: enrichmentPriority as 1 | 2 | 3,
+        correctionFallback
+      })
+    } else if (correctionFallback) {
+      mergeFinding(correctionFallback)
+    }
+  }
+
+  if (enrichmentCandidates.length > 0) {
+    enrichmentCandidates.sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority
+      return Date.parse(String(b.call.started_at || '')) - Date.parse(String(a.call.started_at || ''))
+    })
+
+    const { data: existingRuleRows } = await supabaseAdmin
+      .from('phone_learning_items')
+      .select('question_or_trigger')
+      .neq('item_kind', 'audio_prewarm')
+      .neq('item_kind', 'latency_insight')
+      .order('updated_at', { ascending: false })
+      .limit(50)
+
+    const globalCovered = (existingRuleRows || [])
+      .map((r: any) => String(r?.question_or_trigger || '').trim())
+      .filter(Boolean)
+
+    const topForLlm = enrichmentCandidates.slice(0, MAX_LLM_CALL_ENRICHMENTS_PER_RUN)
+    const overflow = enrichmentCandidates.slice(MAX_LLM_CALL_ENRICHMENTS_PER_RUN)
+
+    const LLM_CONCURRENCY = 3
+    for (let i = 0; i < topForLlm.length; i += LLM_CONCURRENCY) {
+      const slice = topForLlm.slice(i, i + LLM_CONCURRENCY)
+      await Promise.all(
+        slice.map(async (item) => {
+          const llmFindings = await extractLlmPhoneCallDoubts(item.call, item.sourceType, [
+            ...globalCovered,
+            ...item.detTriggers
+          ])
+          if (llmFindings.length > 0) {
+            for (const lf of llmFindings) mergeFinding(lf)
+          } else if (item.correctionFallback) {
+            mergeFinding(item.correctionFallback)
+          }
+        })
       )
     }
 
-    for (const f of [...detFindings, ...llmFindings]) {
-      const prev = aggregatedFindings.get(f.dedupeKey)
-      if (!prev) {
-        aggregatedFindings.set(f.dedupeKey, { ...f, evidenceDelta: 1 })
-      } else {
-        const prevDelta = prev.evidenceDelta || 1
-        const nextDelta = prevDelta + 1
-        prev.evidenceDelta = nextDelta
-        if (f.avgLatencyMs !== null && f.avgLatencyMs !== undefined) {
-          prev.avgLatencyMs =
-            prev.avgLatencyMs !== null && prev.avgLatencyMs !== undefined
-              ? Math.round((prev.avgLatencyMs * prevDelta + f.avgLatencyMs) / nextDelta)
-              : f.avgLatencyMs
-        }
-      }
+    for (const item of overflow) {
+      if (item.correctionFallback) mergeFinding(item.correctionFallback)
     }
   }
 
@@ -2382,6 +2540,7 @@ export async function resolveOwnerPhoneLearningDecision(params: {
   const built = await buildBilingualPhoneRuleAndFastReply({
     questionOrTrigger: String(existing.question_or_trigger || ''),
     ownerInstruction: rawInstruction,
+    itemKind: existing.item_kind as PhoneLearningItemKind,
     proposedRuleEs: params.proposedRuleEs ?? existing.proposed_rule_es,
     proposedRuleEn: params.proposedRuleEn ?? existing.proposed_rule_en,
     fastReplyEs: params.fastReplyEs ?? existing.fast_reply_es,

@@ -105,6 +105,10 @@ import {
   MessageSquareQuote,
   Zap
 } from 'lucide-react'
+import {
+  KorePhoneLiveSimulator,
+  type KorePhoneLiveSimulatorHandle
+} from '@/components/phone/KorePhoneLiveSimulator'
 
 type VoiceId = 'Kore' | 'Aoede' | 'Zephyr'
 
@@ -1020,6 +1024,8 @@ export default function ContestadoraIaPage() {
   } | null>(null)
 
   // Simulator state
+  const [simEngineMode, setSimEngineMode] = useState<'kore_live' | 'classic'>('kore_live')
+  const koreLiveSimRef = useRef<KorePhoneLiveSimulatorHandle | null>(null)
   const [simStoreId, setSimStoreId] = useState<number>(14)
   const [simLang, setSimLang] = useState<'es' | 'en'>('es')
   const [simActive, setSimActive] = useState(false)
@@ -2411,10 +2417,14 @@ export default function ContestadoraIaPage() {
     [ensureUnlockedAudioCtx, stopAllSimAudio]
   )
 
+  const handleLiveDashboardRefresh = useCallback(() => {
+    void fetchDashboard(true)
+  }, [fetchDashboard])
+
   // Pre-calentar en RAM el contexto, menú en vivo y saludo SOLO antes de iniciar llamada (jamás competir con una llamada activa)
   const hasSimStoreLoaded = stores.some((s) => s.id === simStoreId)
   useEffect(() => {
-    if (loading || activeTab !== 'simulator' || !hasSimStoreLoaded || simActive || simBusy) return
+    if (loading || activeTab !== 'simulator' || simEngineMode === 'kore_live' || !hasSimStoreLoaded || simActive || simBusy) return
     const ctrl = new AbortController()
     const timer = window.setTimeout(() => {
       fetch('/api/phone/simulate', {
@@ -2432,7 +2442,7 @@ export default function ContestadoraIaPage() {
       window.clearTimeout(timer)
       ctrl.abort()
     }
-  }, [loading, activeTab, simStoreId, simLang, simActive, simBusy, hasSimStoreLoaded, getAuthHeaders])
+  }, [loading, activeTab, simEngineMode, simStoreId, simLang, simActive, simBusy, hasSimStoreLoaded, getAuthHeaders])
 
   const playVoiceUrl = useCallback(
     async (
@@ -4262,6 +4272,43 @@ export default function ContestadoraIaPage() {
             {/* LEFT PANEL */}
             <div className="lg:col-span-5 space-y-4">
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-sm">
+                <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (simEngineMode !== 'kore_live') {
+                        stopMicrophone()
+                        stopAllSimAudio(true)
+                        if (simActive) void handleEndSimCall()
+                        setSimEngineMode('kore_live')
+                      }
+                    }}
+                    className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-black transition ${
+                      simEngineMode === 'kore_live'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {t('phone_agent.sim_mode_live_badge')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (simEngineMode !== 'classic') {
+                        void koreLiveSimRef.current?.endCall()
+                        setSimEngineMode('classic')
+                      }
+                    }}
+                    className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-black transition ${
+                      simEngineMode === 'classic'
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {t('phone_agent.sim_mode_classic_badge')}
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
@@ -4276,6 +4323,9 @@ export default function ContestadoraIaPage() {
                         stopAllSimAudio(true)
                         if (simActive) {
                           void handleEndSimCall()
+                        }
+                        if (simEngineMode === 'kore_live') {
+                          void koreLiveSimRef.current?.endCall()
                         }
                         setSimTranscript([])
                         setSimLastTools([])
@@ -4311,6 +4361,9 @@ export default function ContestadoraIaPage() {
                         stopAllSimAudio(true)
                         if (simActive) {
                           void handleEndSimCall()
+                        }
+                        if (simEngineMode === 'kore_live') {
+                          void koreLiveSimRef.current?.endCall()
                         }
                         setSimTranscript([])
                         setSimLastTools([])
@@ -4421,43 +4474,46 @@ export default function ContestadoraIaPage() {
                   </div>
                 )}
 
-                {/* Call Start / Hangup Buttons */}
-                <div className="flex flex-wrap gap-3 pt-1">
-                  {!simActive ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleStartSimCall()}
-                      disabled={simBusy || !hasSimStoreLoaded}
-                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm shadow-md transition"
-                    >
-                      <PhoneCall size={18} />
-                      {t('phone_agent.sim_start_call')}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void handleEndSimCall()}
-                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-sm shadow-md transition"
-                    >
-                      <PhoneOff size={18} />
-                      {t('phone_agent.sim_end_call')}
-                    </button>
-                  )}
+                {/* Call Start / Hangup Buttons (Classic Mode) */}
+                {simEngineMode === 'classic' && (
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    {!simActive ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartSimCall()}
+                        disabled={simBusy || !hasSimStoreLoaded}
+                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm shadow-md transition"
+                      >
+                        <PhoneCall size={18} />
+                        {t('phone_agent.sim_start_call')}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleEndSimCall()}
+                        disabled={simBusy}
+                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-sm shadow-md transition"
+                      >
+                        <PhoneOff size={18} />
+                        {t('phone_agent.sim_end_call')}
+                      </button>
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={toggleMicrophone}
-                    disabled={simBusy || !hasSimStoreLoaded}
-                    className={`inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-sm transition disabled:opacity-50 ${
-                      simListening
-                        ? 'bg-rose-600 text-white animate-pulse'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    }`}
-                  >
-                    {simListening ? <MicOff size={18} /> : <Mic size={18} />}
-                    {simListening ? t('phone_agent.sim_mic_listening') : t('phone_agent.sim_mic_speak')}
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={toggleMicrophone}
+                      disabled={simBusy || !hasSimStoreLoaded}
+                      className={`inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-sm transition disabled:opacity-50 ${
+                        simListening
+                          ? 'bg-rose-600 text-white animate-pulse'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      {simListening ? <MicOff size={18} /> : <Mic size={18} />}
+                      {simListening ? t('phone_agent.sim_mic_listening') : t('phone_agent.sim_mic_speak')}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* QUICK 1-CLICK SCENARIOS */}
@@ -4506,8 +4562,15 @@ export default function ContestadoraIaPage() {
                     <button
                       key={sc.id}
                       type="button"
-                      onClick={() => void handleSendSimTurn(simLang === 'en' ? sc.textEn : sc.textEs)}
-                      disabled={simBusy || !hasSimStoreLoaded}
+                      onClick={() => {
+                        const txt = simLang === 'en' ? sc.textEn : sc.textEs
+                        if (simEngineMode === 'kore_live') {
+                          void koreLiveSimRef.current?.sendScenarioOrText(txt)
+                        } else {
+                          void handleSendSimTurn(txt)
+                        }
+                      }}
+                      disabled={(simEngineMode === 'classic' && simBusy) || !hasSimStoreLoaded}
                       className="text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 disabled:opacity-50 transition text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between gap-2"
                     >
                       <span>{simLang === 'en' ? sc.labelEn : sc.labelEs}</span>
@@ -4519,6 +4582,20 @@ export default function ContestadoraIaPage() {
             </div>
 
             {/* RIGHT PANEL: Live Conversation Transcript & Tool Telemetry */}
+            {simEngineMode === 'kore_live' ? (
+              <div className="lg:col-span-7">
+                <KorePhoneLiveSimulator
+                  ref={koreLiveSimRef}
+                  storeId={simStoreId}
+                  storeDisplayName={currentSimStoreDisplayName || 'Tacos Gavilan'}
+                  lang={simLang}
+                  onLangChange={(next) => setSimLang(next)}
+                  disabled={!hasSimStoreLoaded}
+                  getAuthHeaders={getAuthHeaders}
+                  onDashboardRefresh={handleLiveDashboardRefresh}
+                />
+              </div>
+            ) : (
             <div className="lg:col-span-7 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-h-[560px]">
               {/* Phone Call Top Bar */}
               <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
@@ -4722,6 +4799,7 @@ export default function ContestadoraIaPage() {
                 </button>
               </div>
             </div>
+            )}
           </div>
         )}
 

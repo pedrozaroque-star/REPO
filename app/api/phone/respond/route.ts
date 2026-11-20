@@ -40,6 +40,7 @@ import {
   processPhoneAgentTurn,
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
+import { SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
   getPhoneAgentSpeech,
@@ -327,10 +328,30 @@ export async function POST(request: Request) {
           ])
         })
 
+        const streamTs = Date.now()
+        const streamSig =
+          process.env.PHONE_LIVE_BRIDGE_DISABLED === '1'
+            ? ''
+            : signTwilioStreamParams({ callSid, storeId, lang: switchedLang, ts: streamTs })
+        const switchedLiveStreamBlock = streamSig
+          ? `\n  <Connect>
+    <Stream url="${escapeXml(SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL)}">
+      <Parameter name="callSid" value="${escapeXml(callSid)}" />
+      <Parameter name="storeId" value="${storeId}" />
+      <Parameter name="lang" value="${switchedLang}" />
+      <Parameter name="callerNumber" value="${escapeXml((params.From || '').trim())}" />
+      <Parameter name="toNumber" value="${escapeXml((params.To || '').trim())}" />
+      <Parameter name="forwardedFrom" value="${escapeXml((params.ForwardedFrom || '').trim())}" />
+      <Parameter name="ts" value="${streamTs}" />
+      <Parameter name="sig" value="${escapeXml(streamSig)}" />
+    </Stream>
+  </Connect>`
+          : ''
+
         return new Response(
           `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${discTag}
+  ${discTag}${switchedLiveStreamBlock}
   <Gather ${buildTwilioGatherAttrs(switchedLang, nextUrl)}>
     ${qTag}
   </Gather>
