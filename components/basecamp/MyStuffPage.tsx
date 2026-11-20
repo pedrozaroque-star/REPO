@@ -20,6 +20,7 @@ import { useLanguage } from '@/lib/i18n'
 import { ClipboardList, Calendar, History, FileText, CheckCircle2, Loader2 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
+import { normalizePersonName } from '@/lib/basecamp-person-resolver'
 
 interface MyStuffPageProps {
     navigateTo: (params: { project?: string; tool?: string; section?: string; todoId?: string }) => void
@@ -42,13 +43,19 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
         const loadMyStuff = async () => {
             setLoading(true)
             try {
-                // 2. Resolve person record in bc_people
-                const { data: person } = await supabase
+                // 2. Resolve person record in bc_people (case-insensitive email or normalized name fallback)
+                const { data: allPeople } = await supabase
                     .from('bc_people')
-                    .select('id')
-                    .eq('email', user.email || '')
-                    .limit(1)
-                    .single()
+                    .select('id, name, email')
+                    .limit(5000)
+
+                const userEmail = (user.email || '').trim().toLowerCase()
+                const normUserName = normalizePersonName(user.name || currentUserName)
+                const person =
+                    (allPeople || []).find(
+                        (p: any) => p.email && !String(p.email).includes('•') && String(p.email).trim().toLowerCase() === userEmail
+                    ) ||
+                    (allPeople || []).find((p: any) => normUserName && normalizePersonName(p.name) === normUserName)
 
                 if (!person) {
                     setLoading(false)

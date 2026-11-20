@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getValidToken, basecampFetch, resolveHtmlAttachmentsFromCache } from '@/lib/basecamp-api'
+import { stripTegAuthorBanner, normalizePersonName } from '@/lib/basecamp-person-resolver'
 import { getServerUser } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
@@ -67,16 +68,20 @@ export async function GET(request: Request) {
     // 4. Persist live updates into Supabase so cache is 100% synchronized
     const supabase = getAdminSupabase()
     const urlCache = new Map<string, string>()
-    const resolvedTodoDescription = await resolveHtmlAttachmentsFromCache(
+    const rawResolvedDesc = await resolveHtmlAttachmentsFromCache(
       todo.description || '',
       supabase,
       urlCache
     )
+    const { cleanHtml: resolvedTodoDescription } = stripTegAuthorBanner(rawResolvedDesc)
+
     const { data: dbTodo } = await supabase
       .from('bc_todos')
-      .select('id, project_id, is_completed, comments_count')
+      .select('id, project_id, is_completed, comments_count, created_by_person_id')
       .eq('bc_id', Number(todoId))
       .maybeSingle()
+
+    const commentAuthorNameByBcId = new Map<number, string>()
 
     if (dbTodo?.id) {
       if (
@@ -95,13 +100,53 @@ export async function GET(request: Request) {
       }
 
       if (comments.length > 0) {
-        const { data: peopleRows } = await supabase.from('bc_people').select('id, bc_id').limit(5000)
+        const [{ data: peopleRows }, { data: existingComments }] = await Promise.all([
+          supabase.from('bc_people').select('id, bc_id, name').limit(5000),
+          supabase
+            .from('bc_comments')
+            .select('id, bc_id, author_person_id')
+            .eq('parent_id', dbTodo.id),
+        ])
+
         const peopleMap = new Map<number, string>()
-        ;(peopleRows || []).forEach((p: any) => peopleMap.set(Number(p.bc_id), p.id))
+        const personNameById = new Map<string, string>()
+        ;(peopleRows || []).forEach((p: any) => {
+          peopleMap.set(Number(p.bc_id), p.id)
+          if (p.id && p.name) personNameById.set(p.id, p.name)
+        })
+
+        const existingAuthorByCommentBcId = new Map<number, string>()
+        ;(existingComments || []).forEach((ec: any) => {
+          if (ec.bc_id && ec.author_person_id) {
+            existingAuthorByCommentBcId.set(Number(ec.bc_id), ec.author_person_id)
+          }
+        })
 
         const commentUpserts = []
         for (const c of comments) {
-          let authorUuid = c.creator?.id ? peopleMap.get(Number(c.creator.id)) || null : null
+          const rawCommentHtml = await resolveHtmlAttachmentsFromCache(
+            c.content || '',
+            supabase,
+            urlCache
+          )
+          const { cleanHtml: resolvedCommentContent, extractedAuthorName } = stripTegAuthorBanner(rawCommentHtml)
+          c._resolvedContent = resolvedCommentContent
+
+          // Priority 1: Preserve existing local author_person_id in Supabase (never overwrite TEG user with OAuth owner)
+          let authorUuid: string | null = existingAuthorByCommentBcId.get(Number(c.id)) || null
+
+          // Priority 2: If comment had an embedded TEG author stamp, resolve by normalized name
+          if (!authorUuid && extractedAuthorName && peopleRows) {
+            const normExtracted = normalizePersonName(extractedAuthorName)
+            const matched = peopleRows.find((p: any) => normalizePersonName(p.name) === normExtracted)
+            if (matched?.id) authorUuid = matched.id
+          }
+
+          // Priority 3: Fallback to Basecamp API creator
+          if (!authorUuid) {
+            authorUuid = c.creator?.id ? peopleMap.get(Number(c.creator.id)) || null : null
+          }
+
           if (!authorUuid && c.creator?.id) {
             const { data: newPerson } = await supabase
               .from('bc_people')
@@ -117,20 +162,21 @@ export async function GET(request: Request) {
                 },
                 { onConflict: 'bc_id' }
               )
-              .select('id')
+              .select('id, name')
               .maybeSingle()
             if (newPerson?.id) {
               authorUuid = newPerson.id
               peopleMap.set(Number(c.creator.id), newPerson.id)
+              if (newPerson.name) personNameById.set(newPerson.id, newPerson.name)
             }
           }
 
-          const resolvedCommentContent = await resolveHtmlAttachmentsFromCache(
-            c.content || '',
-            supabase,
-            urlCache
-          )
-          c._resolvedContent = resolvedCommentContent
+          const finalAuthorName =
+            (authorUuid ? personNameById.get(authorUuid) : null) ||
+            extractedAuthorName ||
+            c.creator?.name ||
+            'Unknown'
+          commentAuthorNameByBcId.set(Number(c.id), finalAuthorName)
 
           commentUpserts.push({
             bc_id: c.id,
@@ -155,7 +201,7 @@ export async function GET(request: Request) {
       comments: comments.map((c: any) => ({
         id: String(c.id),
         bc_id: c.id,
-        author: c.creator?.name || 'Unknown',
+        author: commentAuthorNameByBcId.get(Number(c.id)) || c.creator?.name || 'Unknown',
         text: c._resolvedContent ?? c.content ?? '',
         timestamp: c.created_at,
       })),

@@ -53,9 +53,16 @@ import {
   extractDeterministicBlobKey,
   healPartiallyMigratedBcAttachmentHrefs,
   parseHtmlAttachments,
+  assertSafeBasecampApiUrl,
   resolveHtmlAttachmentsFromCache,
   type BasecampProject,
 } from '@/lib/basecamp-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
+import {
+  stripTegAuthorBanner,
+  normalizePersonName,
+  isMaskedOrEmptyEmail,
+} from '@/lib/basecamp-person-resolver'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutos máximo para Vercel
@@ -196,8 +203,14 @@ async function downloadAndUploadAttachment(
       return validCached.supabase_url
     }
 
-    let targetUrl = basecampUrl.replace('preview.app.basecamp.com', '3.basecampapi.com')
-    targetUrl = targetUrl.replace('storage.app.basecamp.com', '3.basecampapi.com')
+    const parsedAttachmentUrl = new URL(basecampUrl)
+    if (
+      parsedAttachmentUrl.hostname.toLowerCase() === 'preview.app.basecamp.com' ||
+      parsedAttachmentUrl.hostname.toLowerCase() === 'storage.app.basecamp.com'
+    ) {
+      parsedAttachmentUrl.hostname = '3.basecampapi.com'
+    }
+    const targetUrl = assertSafeBasecampApiUrl(parsedAttachmentUrl.toString())
 
     const res = await fetch(targetUrl, {
       headers: {
@@ -336,7 +349,14 @@ async function resolveOrCreatePerson(
 }
 
 export async function GET(request: Request) {
+  const auth = verifyStaffAuth(request, { allowCron: true })
+  if (!auth.authorized) {
+    return auth.response!
+  }
+
   const authHeader = request.headers.get('authorization')
+  const cronAuthHeader = request.headers.get('x-cron-auth')
+  const cookieHeader = request.headers.get('cookie')
   const userAgent = request.headers.get('user-agent')
   const vercelCronHeader = request.headers.get('x-vercel-cron')
   const mockRequest = new Request(request.url, {
@@ -344,8 +364,10 @@ export async function GET(request: Request) {
     body: JSON.stringify({ full: false }),
     headers: {
       'Content-Type': 'application/json',
-      'x-internal-cron': '1',
+      ...(!auth.user ? { 'x-internal-cron': '1' } : {}),
       ...(authHeader ? { Authorization: authHeader } : {}),
+      ...(cronAuthHeader ? { 'x-cron-auth': cronAuthHeader } : {}),
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
       ...(userAgent ? { 'user-agent': userAgent } : {}),
       ...(vercelCronHeader ? { 'x-vercel-cron': vercelCronHeader } : {}),
     },
@@ -355,10 +377,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  // Note: /api/basecamp/sync only pulls data from Basecamp 3 API into Supabase using server-side OAuth tokens
-  // and is strictly protected against concurrency/abuse by the bc_sync_log mutex lock.
-  // Allowing same-origin auto-sync, cron jobs, and authenticated sessions ensures auto-sync never fails
-  // even when a user's 7-day teg_token cookie expires while their localStorage session remains active.
+  const auth = verifyStaffAuth(request, { allowCron: true })
+  if (!auth.authorized) {
+    return auth.response!
+  }
+
   const urlObj = (() => {
     try {
       return new URL(request.url)
@@ -367,10 +390,7 @@ export async function POST(request: Request) {
     }
   })()
   const forceRun = urlObj?.searchParams.get('force') === '1' || urlObj?.searchParams.get('force') === 'true'
-  const isInternalCron =
-    request.headers.get('x-internal-cron') === '1' ||
-    (request.headers.get('user-agent') || '').toLowerCase().includes('vercel-cron') ||
-    Boolean(request.headers.get('x-vercel-cron'))
+  const isInternalCron = !auth.user
 
   const { hour: laHour, minute: laMinute } = getLATimeParts()
   if (isInternalCron && !forceRun && (laHour >= 22 || laHour < 7)) {
@@ -549,16 +569,25 @@ export async function POST(request: Request) {
       if (people.length > 0) {
         const nowIso = new Date().toISOString()
         const changedPeopleRows = people
-          .map((p) => ({
-            bc_id: p.id,
-            name: p.name,
-            email: p.email_address || '',
-            avatar_url: p.avatar_url || '',
-            role: p.employee ? 'employee' : p.client ? 'client' : 'user',
-            title: p.title || '',
-            is_active: p.status !== 'archived',
-            updated_at: nowIso,
-          }))
+          .map((p) => {
+            const prev = existingPeopleByBcId.get(Number(p.id))
+            const incomingEmail = p.email_address || ''
+            // Never overwrite an existing real TEG email with Basecamp's masked bullet email ("e•••@•••")
+            const preservedEmail =
+              isMaskedOrEmptyEmail(incomingEmail) && prev?.email && !isMaskedOrEmptyEmail(prev.email)
+                ? prev.email
+                : incomingEmail
+            return {
+              bc_id: p.id,
+              name: p.name,
+              email: preservedEmail,
+              avatar_url: p.avatar_url || '',
+              role: p.employee ? 'employee' : p.client ? 'client' : 'user',
+              title: p.title || '',
+              is_active: p.status !== 'archived',
+              updated_at: nowIso,
+            }
+          })
           .filter((row) => {
             if (forceFullSync) return true
             const prev = existingPeopleByBcId.get(Number(row.bc_id))
@@ -925,18 +954,32 @@ export async function POST(request: Request) {
 
       console.log(`\n📁 Processing project: "${project.name}" (bc_id: ${project.id})`)
 
-      // Preload existing todos and messages metadata for accurate delta comparison
-      const [{ data: existingProjectTodos }, { data: existingProjectMessages }] = await Promise.all([
+      // Preload existing todos, messages, and comments metadata for delta comparison & TEG author preservation
+      const [
+        { data: existingProjectTodos },
+        { data: existingProjectMessages },
+        { data: existingProjectComments },
+        { data: allKnownPeople },
+      ] = await Promise.all([
         supabase
           .from('bc_todos')
-          .select('id, bc_id, is_completed, comments_count, title, due_date')
+          .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
           .eq('project_id', projectUuid)
           .limit(5000),
         supabase
           .from('bc_messages')
-          .select('id, bc_id, comments_count, title')
+          .select('id, bc_id, comments_count, title, author_person_id')
           .eq('project_id', projectUuid)
           .limit(2000),
+        supabase
+          .from('bc_comments')
+          .select('bc_id, author_person_id')
+          .eq('project_id', projectUuid)
+          .limit(5000),
+        supabase
+          .from('bc_people')
+          .select('id, name')
+          .limit(5000),
       ])
 
       const existingTodoByBcId = new Map<number, any>()
@@ -944,6 +987,19 @@ export async function POST(request: Request) {
 
       const existingMsgByBcId = new Map<number, any>()
       ;(existingProjectMessages || []).forEach((em: any) => existingMsgByBcId.set(Number(em.bc_id), em))
+
+      const existingCommentAuthorByBcId = new Map<number, string>()
+      ;(existingProjectComments || []).forEach((ec: any) => {
+        if (ec.bc_id && ec.author_person_id) {
+          existingCommentAuthorByBcId.set(Number(ec.bc_id), ec.author_person_id)
+        }
+      })
+
+      const personIdByNormalizedName = new Map<string, string>()
+      ;(allKnownPeople || []).forEach((p: any) => {
+        const norm = normalizePersonName(p.name)
+        if (norm && p.id) personIdByNormalizedName.set(norm, p.id)
+      })
 
       // ---- MEMBERSHIPS ----
       try {
@@ -1072,8 +1128,14 @@ export async function POST(request: Request) {
                   continue
                 }
 
-                const authorUuid = await resolveOrCreatePerson(t.creator, supabase, peopleMap)
-                const processedTodoDesc = await processHtmlContent(t.description || '', token, 'todos', t.id, supabase, urlCache)
+                const bcAuthorUuid = await resolveOrCreatePerson(t.creator, supabase, peopleMap)
+                const rawProcessedTodoDesc = await processHtmlContent(t.description || '', token, 'todos', t.id, supabase, urlCache)
+                const { cleanHtml: processedTodoDesc, extractedAuthorName: extractedTodoAuthor } = stripTegAuthorBanner(rawProcessedTodoDesc)
+                const finalTodoAuthorUuid =
+                  existingTodo?.created_by_person_id ||
+                  (extractedTodoAuthor ? personIdByNormalizedName.get(normalizePersonName(extractedTodoAuthor)) || null : null) ||
+                  bcAuthorUuid
+
                 const { data: dbTodo, error: todoErr } = await supabase
                   .from('bc_todos')
                   .upsert({
@@ -1087,7 +1149,7 @@ export async function POST(request: Request) {
                     due_date: t.due_on || null,
                     position: t.position,
                     comments_count: t.comments_count || 0,
-                    created_by_person_id: authorUuid,
+                    created_by_person_id: finalTodoAuthorUuid,
                     created_at: t.created_at || new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                   }, { onConflict: 'bc_id' })
@@ -1137,14 +1199,19 @@ export async function POST(request: Request) {
                     const comments = await fetchComments(project.id, t.id)
                     const commentRows = []
                     for (const c of comments) {
-                      const processedCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                      const rawCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                      const { cleanHtml: processedCommentContent, extractedAuthorName: extractedCommentAuthor } = stripTegAuthorBanner(rawCommentContent)
+                      const finalCommentAuthorUuid =
+                        existingCommentAuthorByBcId.get(Number(c.id)) ||
+                        (extractedCommentAuthor ? personIdByNormalizedName.get(normalizePersonName(extractedCommentAuthor)) || null : null) ||
+                        (await resolveOrCreatePerson(c.creator, supabase, peopleMap))
                       commentRows.push({
                         bc_id: c.id,
                         project_id: projectUuid,
                         parent_type: 'todo',
                         parent_id: todoUuid,
                         content: processedCommentContent,
-                        author_person_id: await resolveOrCreatePerson(c.creator, supabase, peopleMap),
+                        author_person_id: finalCommentAuthorUuid,
                         created_at: c.created_at || new Date().toISOString(),
                       })
                     }
@@ -1251,8 +1318,13 @@ export async function POST(request: Request) {
               continue
             }
 
-            const authorUuid = await resolveOrCreatePerson(m.creator, supabase, peopleMap)
-            const processedMsgContent = await processHtmlContent(m.content || '', token, 'messages', m.id, supabase, urlCache)
+            const bcMsgAuthorUuid = await resolveOrCreatePerson(m.creator, supabase, peopleMap)
+            const rawMsgContent = await processHtmlContent(m.content || '', token, 'messages', m.id, supabase, urlCache)
+            const { cleanHtml: processedMsgContent, extractedAuthorName: extractedMsgAuthor } = stripTegAuthorBanner(rawMsgContent)
+            const finalMsgAuthorUuid =
+              existingMsg?.author_person_id ||
+              (extractedMsgAuthor ? personIdByNormalizedName.get(normalizePersonName(extractedMsgAuthor)) || null : null) ||
+              bcMsgAuthorUuid
             const { data: dbMsg, error: msgErr } = await supabase
               .from('bc_messages')
               .upsert({
@@ -1262,7 +1334,7 @@ export async function POST(request: Request) {
                 title: m.subject || m.title,
                 content: processedMsgContent,
                 category: m.category?.name || 'General',
-                author_person_id: authorUuid,
+                author_person_id: finalMsgAuthorUuid,
                 comments_count: m.comments_count || 0,
                 created_at: m.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),

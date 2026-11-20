@@ -47,6 +47,11 @@ import {
   createScheduleEntry as bcCreateScheduleEntry,
   createDocument as bcCreateDocument,
 } from '@/lib/basecamp-api'
+import {
+  resolveOrCreateTegPerson,
+  buildBasecampDescriptionWithAuthor,
+  buildBasecampCommentWithAuthor,
+} from '@/lib/basecamp-person-resolver'
 
 export const dynamic = 'force-dynamic'
 
@@ -76,38 +81,14 @@ export async function POST(request: Request) {
   // Alias supabase to supabaseAdmin to bypass RLS for all DB calls in the route
   const supabase = supabaseAdmin
 
-  // 2. Resolve local person in bc_people
-  // Strategy: Try email match first (case-insensitive), then fallback to name match
-  let authorPersonId: string | null = null
-  let authorBcId: number | null = null
-  
-  // Attempt 1: Match by email (case-insensitive)
-  const { data: dbPersonByEmail } = await supabase
-    .from('bc_people')
-    .select('id, bc_id, name')
-    .ilike('email', user.email || '')
-    .limit(1)
-    .single()
-  
-  if (dbPersonByEmail) {
-    authorPersonId = dbPersonByEmail.id
-    authorBcId = dbPersonByEmail.bc_id
-  } else if (user.name) {
-    // Attempt 2: Fallback — match by name (full_name from JWT)
-    const userName = user.name.trim()
-    const { data: dbPersonByName } = await supabase
-      .from('bc_people')
-      .select('id, bc_id, name')
-      .ilike('name', `%${userName}%`)
-      .limit(1)
-      .single()
-    
-    if (dbPersonByName) {
-      authorPersonId = dbPersonByName.id
-      authorBcId = dbPersonByName.bc_id
-      console.log(`ℹ️ [Basecamp Action] Resolved author by name fallback: "${userName}" → ${dbPersonByName.name} (${dbPersonByName.id})`)
-    }
-  }
+  // 2. Resolve or auto-create local person in bc_people (handles masked Basecamp emails & spelling variants like Erick/Erik, Velazquez/Velasquez)
+  const resolvedAuthor = await resolveOrCreateTegPerson(supabase, {
+    email: user.email,
+    name: user.name,
+    role: user.role,
+  })
+  const authorPersonId: string | null = resolvedAuthor?.id || null
+  const authorDisplayName: string = resolvedAuthor?.name || user.name || user.email || 'Usuario TEG'
 
   // 3. Parse action request
   let body
@@ -299,18 +280,28 @@ export async function POST(request: Request) {
             }
           }
 
+          const bcDescriptionWithAuthor = buildBasecampDescriptionWithAuthor(
+            description,
+            authorDisplayName,
+            user.email
+          )
+
           const bcResult = await basecampBestEffort('create_todo', () =>
             bcCreateTodo(bcProjectId, todolistRow.bc_id, {
               content: title,
-              description: description || undefined,
+              description: bcDescriptionWithAuthor || undefined,
               assignee_ids: assigneeBcIds.length > 0 ? assigneeBcIds : undefined,
               due_on: due_date || undefined,
             })
           )
 
-          // If Basecamp API succeeded, update the Supabase record with the real bc_id
+          // If Basecamp API succeeded, update the Supabase record with the real bc_id and re-assert local authorPersonId
           if (bcResult && dbTodo) {
-            await supabase.from('bc_todos').update({ bc_id: bcResult.id }).eq('id', dbTodo.id)
+            await supabase.from('bc_todos').delete().eq('bc_id', bcResult.id).neq('id', dbTodo.id)
+            await supabase
+              .from('bc_todos')
+              .update({ bc_id: bcResult.id, created_by_person_id: authorPersonId })
+              .eq('id', dbTodo.id)
           }
         }
 
@@ -344,15 +335,24 @@ export async function POST(request: Request) {
         // 2. Mirror to Basecamp API (best-effort)
         const { data: boardRow } = await supabase.from('bc_message_boards').select('bc_id').eq('id', boardDbId).single()
         if (boardRow?.bc_id) {
+          const bcMsgContentWithAuthor = buildBasecampCommentWithAuthor(
+            content || '',
+            authorDisplayName,
+            user.email
+          )
           const bcResult = await basecampBestEffort('create_message', () =>
             bcCreateMessage(bcProjectId, boardRow.bc_id, {
               subject: title,
-              content: content || undefined,
+              content: bcMsgContentWithAuthor || undefined,
             })
           )
 
           if (bcResult && dbMsg) {
-            await supabase.from('bc_messages').update({ bc_id: bcResult.id }).eq('id', dbMsg.id)
+            await supabase.from('bc_messages').delete().eq('bc_id', bcResult.id).neq('id', dbMsg.id)
+            await supabase
+              .from('bc_messages')
+              .update({ bc_id: bcResult.id, author_person_id: authorPersonId })
+              .eq('id', dbMsg.id)
           }
         }
 
@@ -382,12 +382,21 @@ export async function POST(request: Request) {
         // 2. Mirror to Basecamp API (best-effort)
         const { data: campfireRow } = await supabase.from('bc_campfires').select('bc_id').eq('id', campfireDbId).single()
         if (campfireRow?.bc_id) {
+          const bcLineContentWithAuthor = buildBasecampCommentWithAuthor(
+            content,
+            authorDisplayName,
+            user.email
+          )
           const bcResult = await basecampBestEffort('create_campfire_line', () =>
-            bcCreateCampfireLine(bcProjectId, campfireRow.bc_id, content)
+            bcCreateCampfireLine(bcProjectId, campfireRow.bc_id, bcLineContentWithAuthor)
           )
 
           if (bcResult && dbLine) {
-            await supabase.from('bc_campfire_lines').update({ bc_id: bcResult.id }).eq('id', dbLine.id)
+            await supabase.from('bc_campfire_lines').delete().eq('bc_id', bcResult.id).neq('id', dbLine.id)
+            await supabase
+              .from('bc_campfire_lines')
+              .update({ bc_id: bcResult.id, author_person_id: authorPersonId })
+              .eq('id', dbLine.id)
           }
         }
 
@@ -439,12 +448,21 @@ export async function POST(request: Request) {
         if (parentTable) {
           const { data: parentRow } = await supabase.from(parentTable).select('bc_id').eq('id', parentDbId).single()
           if (parentRow?.bc_id) {
+            const bcCommentWithAuthor = buildBasecampCommentWithAuthor(
+              content,
+              authorDisplayName,
+              user.email
+            )
             const bcResult = await basecampBestEffort('create_comment', () =>
-              bcCreateComment(bcProjectId, parentRow.bc_id, content)
+              bcCreateComment(bcProjectId, parentRow.bc_id, bcCommentWithAuthor)
             )
 
             if (bcResult && dbComment) {
-              await supabase.from('bc_comments').update({ bc_id: bcResult.id }).eq('id', dbComment.id)
+              await supabase.from('bc_comments').delete().eq('bc_id', bcResult.id).neq('id', dbComment.id)
+              await supabase
+                .from('bc_comments')
+                .update({ bc_id: bcResult.id, author_person_id: authorPersonId })
+                .eq('id', dbComment.id)
             }
           }
         }
@@ -475,12 +493,17 @@ export async function POST(request: Request) {
         // 2. Mirror to Basecamp API (best-effort)
         const { data: questionRow } = await supabase.from('bc_questions').select('bc_id').eq('id', questionDbId).single()
         if (questionRow?.bc_id) {
+          const bcAnswerWithAuthor = buildBasecampCommentWithAuthor(content, authorDisplayName, user.email)
           const bcResult = await basecampBestEffort('create_answer', () =>
-            bcCreateAnswer(bcProjectId, questionRow.bc_id, content)
+            bcCreateAnswer(bcProjectId, questionRow.bc_id, bcAnswerWithAuthor)
           )
 
           if (bcResult && dbAnswer) {
-            await supabase.from('bc_answers').update({ bc_id: bcResult.id }).eq('id', dbAnswer.id)
+            await supabase.from('bc_answers').delete().eq('bc_id', bcResult.id).neq('id', dbAnswer.id)
+            await supabase
+              .from('bc_answers')
+              .update({ bc_id: bcResult.id, author_person_id: authorPersonId })
+              .eq('id', dbAnswer.id)
           }
         }
 
@@ -515,10 +538,11 @@ export async function POST(request: Request) {
         // 2. Mirror to Basecamp API (best-effort)
         const { data: scheduleRow } = await supabase.from('bc_schedules').select('bc_id').eq('id', scheduleDbId).single()
         if (scheduleRow?.bc_id) {
+          const bcDescWithAuthor = buildBasecampDescriptionWithAuthor(description, authorDisplayName, user.email)
           const bcResult = await basecampBestEffort('create_schedule_entry', () =>
             bcCreateScheduleEntry(bcProjectId, scheduleRow.bc_id, {
               summary: title,
-              description: description || undefined,
+              description: bcDescWithAuthor || undefined,
               starts_at,
               ends_at,
               all_day: all_day || false,
@@ -526,7 +550,11 @@ export async function POST(request: Request) {
           )
 
           if (bcResult && dbEvent) {
-            await supabase.from('bc_schedule_entries').update({ bc_id: bcResult.id }).eq('id', dbEvent.id)
+            await supabase.from('bc_schedule_entries').delete().eq('bc_id', bcResult.id).neq('id', dbEvent.id)
+            await supabase
+              .from('bc_schedule_entries')
+              .update({ bc_id: bcResult.id, author_person_id: authorPersonId })
+              .eq('id', dbEvent.id)
           }
         }
 
@@ -585,12 +613,17 @@ export async function POST(request: Request) {
         // 2. Mirror to Basecamp API (best-effort)
         const { data: vaultRow } = await supabase.from('bc_vaults').select('bc_id').eq('id', vaultDbId).single()
         if (vaultRow?.bc_id) {
+          const bcDocContentWithAuthor = buildBasecampDescriptionWithAuthor(content || '', authorDisplayName, user.email)
           const bcResult = await basecampBestEffort('create_document', () =>
-            bcCreateDocument(bcProjectId, vaultRow.bc_id, { title, content: content || '' })
+            bcCreateDocument(bcProjectId, vaultRow.bc_id, { title, content: bcDocContentWithAuthor })
           )
 
           if (bcResult && dbDoc) {
-            await supabase.from('bc_documents').update({ bc_id: bcResult.id }).eq('id', dbDoc.id)
+            await supabase.from('bc_documents').delete().eq('bc_id', bcResult.id).neq('id', dbDoc.id)
+            await supabase
+              .from('bc_documents')
+              .update({ bc_id: bcResult.id, author_person_id: authorPersonId })
+              .eq('id', dbDoc.id)
           }
         }
 

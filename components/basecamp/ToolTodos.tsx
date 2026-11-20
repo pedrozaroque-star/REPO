@@ -136,7 +136,88 @@ const rewriteHtmlUrls = (html: string) => {
         }
     )
     
-    return rewritten
+    return sanitizeBasecampHtml(rewritten)
+}
+
+export const sanitizeBasecampHtml = (html: string): string => {
+    if (!html || typeof html !== 'string') return ''
+    let clean = html.replace(/<!--[\s\S]*?-->/g, '')
+
+    let prev = ''
+    while (clean !== prev) {
+        prev = clean
+        clean = clean
+            .replace(/<\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+            .replace(/<\s*\/?\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template|input|button|textarea|select)\b[^>]*\/?>/gi, '')
+            .replace(/(<[^>]*?)(?:[\s/]+)(on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*))/gi, '$1')
+            .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*)/gi, '')
+    }
+
+    clean = clean.replace(
+        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)(["'])([\s\S]*?)\2/gi,
+        (full, attrPrefix, quote, rawVal) => {
+            const decoded = String(rawVal)
+                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+                .replace(/[\u0000-\u0020]+/g, '')
+                .toLowerCase()
+
+            if (
+                decoded.startsWith('javascript:') ||
+                decoded.startsWith('vbscript:') ||
+                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
+            ) {
+                const safeFallback = /href/i.test(attrPrefix) ? '#' : ''
+                return `${attrPrefix}${quote}${safeFallback}${quote}`
+            }
+            return full
+        }
+    )
+
+    clean = clean.replace(
+        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)([^\s>"']+)/gi,
+        (full, attrPrefix, rawVal) => {
+            const decoded = String(rawVal)
+                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+                .replace(/[\u0000-\u0020]+/g, '')
+                .toLowerCase()
+
+            if (
+                decoded.startsWith('javascript:') ||
+                decoded.startsWith('vbscript:') ||
+                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
+            ) {
+                const safeFallback = /href/i.test(attrPrefix) ? '"#"' : '""'
+                return `${attrPrefix}${safeFallback}`
+            }
+            return full
+        }
+    )
+
+    return clean
+}
+
+const sanitizeAttachmentHref = (rawUrl?: string): string => {
+    if (!rawUrl || typeof rawUrl !== 'string') return '#'
+    const trimmed = rawUrl.trim()
+    if (trimmed.startsWith('/api/basecamp/attachment?')) return trimmed
+    try {
+        const parsed = new URL(trimmed)
+        if (parsed.protocol !== 'https:') return '#'
+        const host = parsed.hostname.toLowerCase()
+        if (host.endsWith('.supabase.co')) return parsed.toString()
+        if (
+            host === '3.basecampapi.com' ||
+            host === 'preview.app.basecamp.com' ||
+            host === 'storage.app.basecamp.com'
+        ) {
+            return `/api/basecamp/attachment?url=${encodeURIComponent(parsed.toString())}`
+        }
+        return '#'
+    } catch {
+        return '#'
+    }
 }
 
 export default function ToolTodos({ project, currentUserName, selectedTodoId, onCloseDetail, navigateTo }: ToolTodosProps) {
@@ -551,8 +632,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         if (!project.db_id) return
         if (!opts?.silent) setLoading(true)
         try {
-            // Run parallel queries including an explicit selected todo query to bypass database pagination limits
-            const [listsResult, activeTodosResult, completedTodosResult, selectedTodoResult] = await Promise.all([
+            // Run parallel queries including an explicit selected todo query and full bc_people map
+            const [listsResult, activeTodosResult, completedTodosResult, selectedTodoResult, allPeopleResult] = await Promise.all([
                 // Query 1: Todolists
                 supabase
                     .from('bc_todolists')
@@ -602,7 +683,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         `)
                         .eq('id', selectedTodoId)
                         .maybeSingle()
-                    : Promise.resolve({ data: null, error: null } as any)
+                    : Promise.resolve({ data: null, error: null } as any),
+
+                // Query 4: All people for accurate creator_name resolution
+                supabase
+                    .from('bc_people')
+                    .select('id, name')
+                    .limit(5000)
             ])
 
             if (listsResult.error) throw listsResult.error
@@ -620,8 +707,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 dbTodos = [...dbTodos, selectedTodo]
             }
 
-            // Build a quick lookup map for project people to resolve creator_name
+            // Build a quick lookup map for all bc_people + project people to resolve creator_name
             const peopleLookup = new Map<string, string>()
+            if (Array.isArray(allPeopleResult?.data)) {
+                allPeopleResult.data.forEach((p: any) => {
+                    if (p?.id && p?.name) peopleLookup.set(p.id, p.name)
+                })
+            }
             if (Array.isArray(project.people)) {
                 project.people.forEach((p: any) => {
                     if (p?.id && p?.name) peopleLookup.set(p.id, p.name)
@@ -1204,10 +1296,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             {task.task_name}
                                         </span>
 
-                                        {/* Informational creation date & time badge */}
+                                        {/* Informational creation date, time & creator badge */}
                                         {task.created_at && (
                                             <span
-                                                title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}`}
+                                                title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}${task.creator_name ? ` — ${t('basecamp.added_by')} ${task.creator_name}` : ''}`}
                                                 style={{
                                                     display: 'inline-flex',
                                                     alignItems: 'center',
@@ -1224,6 +1316,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             >
                                                 <Clock size={10} style={{ color: '#94A3B8', flexShrink: 0 }} />
                                                 {formatCreatedDateTime(task.created_at)}
+                                                {task.creator_name && (
+                                                    <span style={{ color: '#475569', fontWeight: 600 }}>
+                                                        · {getShortName(task.creator_name)}
+                                                    </span>
+                                                )}
                                             </span>
                                         )}
 
@@ -2625,7 +2722,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 <div
                                                     className="bc-rich-text text-sm text-slate-800 dark:text-slate-200 leading-relaxed"
                                                     onClick={handleHtmlClick}
-                                                    dangerouslySetInnerHTML={{ __html: richHtml }}
+                                                    dangerouslySetInnerHTML={{ __html: sanitizeBasecampHtml(richHtml) }}
                                                 />
                                             )}
 
@@ -2635,7 +2732,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     {nonImageAttachments.map((att: any, attIdx: number) => (
                                                         <a
                                                             key={attIdx}
-                                                            href={att.url ? `/api/basecamp/attachment?url=${encodeURIComponent(att.url)}` : '#'}
+                                                            href={sanitizeAttachmentHref(att.url)}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#1D7DB5] text-xs font-semibold text-slate-700 dark:text-slate-200 transition-all shadow-2xs hover:shadow-xs"
@@ -2695,7 +2792,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                         <div
                                                             className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
                                                             onClick={handleHtmlClick}
-                                                            dangerouslySetInnerHTML={{ __html: rewriteHtmlUrls(c.text) }}
+                                                            dangerouslySetInnerHTML={{ __html: sanitizeBasecampHtml(rewriteHtmlUrls(c.text)) }}
                                                         />
                                                     </div>
                                                 </div>

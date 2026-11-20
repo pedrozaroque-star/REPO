@@ -18,6 +18,7 @@
  * @notes Bebidas For Here/To Go de caja: cada Medium entrega vaso ELDP22 de 22 oz y cada Large vaso ELDP32 de 32 oz. El cliente se sirve soda Coca-Cola, agua fresca o mezcla; Toast solo prueba el vaso, no sabor ni volumen líquido consumido. Sabor y tamaño de bebidas preparadas sí se observan en Drive Thru, TakeOut de plataformas, Delivery y Party Trays. TakeOut de plataformas y Toast Online conservan empaque Delivery. Viele & Sons sigue manual.
  * @notes Contestadora IA ↔ Kore Drive-Thru 2026-11-19/20: sincronizado Puente Bidireccional Completo en Tiempo Real (`phone_learning_items` ↔ `dt_kore_learning_items` ↔ `phone_knowledge_base` con `applies_to_channels` e aislamiento automático `drive_thru_only` para toma de órdenes "¿Regular o Super?" y "Ventana 2 / Blindaje Delivery", `synced_dt_item_id` y `synced_phone_item_id`), motor compartido isomórfico de habla y menú `lib/kore-shared-speech.ts`, **Telefonía en Vivo Bidireccional `Kore 3.8 Live` (`gemini-3.8-live`)** tanto en el Simulador de `/admin/llamadas` (`KorePhoneLiveSimulator.tsx` + `/api/phone/live-session`, `/api/phone/live-tool`, `/api/phone/live-end`) como en llamadas reales PSTN de Twilio (`<Connect><Stream>` ↔ Supabase Edge Function `phone-live-bridge` v8 en `us-west-1` con pre-calentamiento RAM en `POST`, DSP O(1) con tabla `PCM16_TO_MULAW`, ruta cero-CPU en silencio `SILENCE_60MS_PCM16_GEMINI_JSON` para soportar llamadas largas sin cortes `CPUTime`, evaluador horario `resolveBridgeDaySchedule` + `evaluateStoreSchedule` / `evaluateStoreSchedulePure` con soporte exacto de festivos parciales Thanksgiving/Black Friday y explicación explícita de madrugada `00:00–05:59 AM` sobre cuándo cerró el turno nocturno previo vs apertura "hoy" sin decir "mañana", optimizador económico DP exacto en `get_fiesta_platter_packages` con `findPartyTrayMenuItem` para nombres `app_menu_cache` con guiones espaciados como `30 - 40 People`, respuesta natural de privacidad/no-grabación de voz, streaming de `20 ms`, protección de fricativas `/s/`, VAD `320 ms / END_SENSITIVITY_HIGH`, Regla #0 prioritaria y cierre automático unificado via `CONNECTION_FALLBACK_REPLY_RE` + `isCallerEndingConversation`).
  * @notes Blindaje Gemini Paid Tier 1 & Maps (2026-11-20): pool centralizado vía `getGeminiKeyPoolWithRemote()` (`replaceEnv: true` en Supabase Storage `_config/gemini-keys.json`), modelos 3.x unificados sin `2.5` ni `3.6-flash` (`gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3-flash-preview`), header `x-goog-api-key`, protección single-key en 429 transitorio sin abortar modelos de respaldo, TTS 100% sobre `gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts`, y cálculo de millas en `/api/miles/calculate-distance` sobre ruta real OSRM + respaldo Haversine.
+ * @notes Gemini 3.8 Multimodal, Interactions API (@google/genai) & Smart Transcribe (2026-11-20): enrutamiento inteligente en TEG Assistant (`gemini-3.5-flash` para texto puro ahorrando 2.5x en tokens y `gemini-3.8-flash` cuando el usuario adjunta imágenes/PDFs), dictado inteligente con `gemini-3.5-transcribe` (`/api/support-chat/transcribe`, tope 90s / 4 MB), escáner estructurado de recibos/facturas (`/api/ai/scan-receipt`) en Millas y Mantenimiento con bloqueo de garantía `$0`, y diagnóstico visual de equipos/placas (`/api/mantenimiento/ai-diagnose`).
  * @notes Mobile & Tablet OS Home Screen + Editable Dock (2026-11-20): en móvil y tableta (`< lg`, `< 1024px`), `/inicio` incorpora `MobileOSHome` con selector instantáneo en 1 toque entre **Modo OS** (estilo iOS/iPadOS con widgets en vivo y carpetas 3x3) y **Versión Web** (vista clásica en lista por secciones) persistido por usuario, Widgets en Vivo (`/api/mobile-os/summary` en `USD` y horario laboral `America/Los_Angeles` 6:00 AM–5:59 AM), los 6 grupos departamentales oficiales no editables y Barra Inferior Editable (`BottomTabBar` + `DockEditorSheet`, 1 a 4 accesos entre `Inicio` y `Más` vía `"Editar Barra"` o pulsación larga, sincronizada en `localStorage` y `/api/mobile-os/preferences` sobre `public.user_ui_preferences`), manteniendo Escritorio (`>= 1024px`) intacto.
  */
 
@@ -28,17 +29,47 @@ import { TOOL_DECLARATIONS, executeTool } from '@/lib/chat-tools';
 
 import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts';
 
+export const maxDuration = 60;
+
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const MODERN_CHAT_MODELS = [
+const MULTIMODAL_CHAT_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite'
+];
+const TEXT_ONLY_CHAT_MODELS = [
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3-flash-preview'
+  'gemini-3.8-flash'
 ];
-const CLASSIC_CHAT_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3-flash-preview'
-];
+
+function buildModelSafeRequestBody(baseBody: any, targetModel: string, preferredModel?: string | null): any {
+  const isCrossModelFallback = Boolean(preferredModel && preferredModel !== targetModel);
+  const safeContents = isCrossModelFallback && Array.isArray(baseBody?.contents)
+    ? baseBody.contents.map((turn: any) => {
+        if (turn?.role !== 'model' || !Array.isArray(turn?.parts)) return turn;
+        const cleanedParts = turn.parts
+          .filter((p: any) => !p?.thought)
+          .map((p: any) =>
+            p?.functionCall
+              ? { ...p, thoughtSignature: 'skip_thought_signature_validator' }
+              : p
+          );
+        return { ...turn, parts: cleanedParts.length > 0 ? cleanedParts : [{ text: '...' }] };
+      })
+    : baseBody?.contents;
+
+  const baseGenConfig = { ...(baseBody?.generationConfig || {}) };
+  if (targetModel.includes('3.8')) {
+    delete baseGenConfig.temperature;
+  }
+
+  return {
+    ...baseBody,
+    contents: safeContents,
+    generationConfig: baseGenConfig,
+  };
+}
 
 // In-memory circuit breaker for depleted (402), invalid (401/403), or rate-limited (429) keys
 const chatKeyQuarantineUntil = new Map<string, number>();
@@ -47,7 +78,8 @@ let chatKeyRoundRobin = 0;
 async function callGeminiChatWithFailover(
   body: any,
   preferredModel?: string | null,
-  preferredKey?: string | null
+  preferredKey?: string | null,
+  hasMultimodalAttachments = false
 ): Promise<{ ok: true; data: any; usedModel: string; usedKey: string } | { ok: false; status: number; error: string }> {
   const rawPool = await getGeminiKeyPoolWithRemote();
   if (rawPool.length === 0) {
@@ -72,13 +104,14 @@ async function callGeminiChatWithFailover(
   let lastError = 'AI service temporarily unavailable.';
 
   for (const key of orderedKeys) {
-    const defaultModels = key.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS;
+    const defaultModels = hasMultimodalAttachments ? MULTIMODAL_CHAT_MODELS : TEXT_ONLY_CHAT_MODELS;
     const modelsToTry = preferredModel
       ? [preferredModel, ...defaultModels.filter((m) => m !== preferredModel)]
       : defaultModels;
 
     for (const model of modelsToTry) {
       const url = `${GEMINI_BASE}/${model}:generateContent`;
+      const modelBody = buildModelSafeRequestBody(body, model, preferredModel);
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -86,11 +119,16 @@ async function callGeminiChatWithFailover(
             'x-goog-api-key': key,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(body)
+          body: JSON.stringify(modelBody),
+          signal: AbortSignal.timeout(35000)
         });
         const data = await res.json().catch(() => ({}));
 
-        if (res.ok && data?.candidates?.[0]?.content?.parts) {
+        const candidateParts = data?.candidates?.[0]?.content?.parts;
+        const hasActionableOutput = Array.isArray(candidateParts) && candidateParts.some((p: any) =>
+          Boolean(p?.functionCall) || (typeof p?.text === 'string' && !p?.thought && p.text.trim().length > 0)
+        );
+        if (res.ok && hasActionableOutput) {
           return { ok: true, data, usedModel: model, usedKey: key };
         }
 
@@ -313,7 +351,7 @@ CRITICAL JOIN RULE: Toast-synced tables (sales_daily_cache, food_cost_daily_cach
 2.  **users**: System employee roster.
     *   Columns: \`id\` (BIGINT PRIMARY KEY), \`auth_id\` (UUID), \`full_name\` (TEXT), \`role\` (TEXT - 'admin', 'supervisor', 'manager', 'asistente'), \`email\` (TEXT), \`store_id\` (BIGINT REFERENCES stores), \`store_scope\` (TEXT[]), \`position_type\` (TEXT - 'kitchen', 'cashier'), \`is_active\` (BOOLEAN)
 3.  **shifts**: Scheduled employee shifts.
-    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`employee_id\` (TEXT), \`business_date\` (DATE), \`start_time\` (TIME), \`end_time\` (TIME), \`breaks_schedule\` (JSONB - California breaks plan), \`published\` (BOOLEAN)
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT - matches stores.external_id), \`employee_id\` (TEXT), \`job_id\` (TEXT), \`shift_date\` (DATE), \`start_time\` (TIME), \`end_time\` (TIME), \`breaks_schedule\` (JSONB - California breaks plan), \`status\` (TEXT - 'published', 'draft')
 4.  **punches**: Actual hours worked and clock ins.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT - matches stores.external_id), \`employee_toast_guid\` (TEXT - joins toast_employees.toast_guid), \`job_toast_guid\` (TEXT), \`business_date\` (DATE), \`clock_in\` (TIMESTAMPTZ), \`clock_out\` (TIMESTAMPTZ), \`regular_hours\` (NUMERIC), \`overtime_hours\` (NUMERIC), \`tips\` (NUMERIC), \`hourly_wage\` (NUMERIC), \`breaks\` (JSONB - actual break stamps)
 5.  **sales_daily_cache**: Consolidated daily restaurant sales.
@@ -969,7 +1007,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 ## PANTALLA DE INICIO (/inicio), SELECTOR POST-LOGIN, BASECAMP 6 CAPAS, SITIO WEB, GAVILAN POS Y WAKE LOCK (SM TEG v2.23.0)
 - **Selector Corporativo de Destino Post-Login (Tras Splash Original)**: Al iniciar sesión (\`app/login/page.tsx\` y \`app/auth/sso/page.tsx\`), primero se reproduce la animación completa del Splash original de Tacos Gavilan y después se presenta la tarjeta corporativa para elegir entre **Menú de Inicio** (\`/inicio\`, con barra lateral colapsada por defecto) o **Dashboard** (\`/dashboard\`, con barra lateral desplegada).
 - **Catálogo Completo de 45 Módulos en \`/inicio\`, Sidebar Inteligente con Grupos Cerrados por Defecto y Reorganización por Modelo Mental**: Muestra todos los módulos organizados en sus 6 departamentos con paleta cromática diferenciada por categoría (**Análisis y Ventas** en Rose/Carmesí, **Finanzas y Contabilidad** en Verde Esmeralda, **Operaciones de Tienda** en Azul, **Inventario y Mercancía** en Morado, **Personal y Horarios** en Cyan, y **Administración y Sistema** en Ámbar). En \`AppSidebar\`, las 6 secciones inician **cerradas por defecto** (abriendo automáticamente solo la categoría de la ruta activa con auto-scroll suave), e incorporan buscador instantáneo de módulos insensible a acentos, accesos rápidos fijos (\`Inicio\` / \`Dashboard\`) y control para abrir/cerrar todos los grupos. \`Feedback Staff\` (\`/evaluacion\`) reside en **Análisis y Ventas** junto a \`Feedback Clientes\` (\`/feedback\`), y \`RONOS\` (\`/admin/ronos\`) reside en **Finanzas y Contabilidad** tanto en \`/inicio\` como en \`AppSidebar\`.
-- **Basecamp Auto-Sync de 6 Capas, Fechas de Creación y Orden Cronológico (\`created_at ASC\`)**: Sincronización bidireccional en tiempo real de 6 capas (webhooks, OAuth2 cifrado y Supabase Realtime) con badge informativo de fecha y hora exacta de creación junto a cada tarea (To-do) y ordenamiento predeterminado por fecha de creación ascendente (\`created_at ASC\`, tareas más antiguas primero) tanto en el backend (\`/api/basecamp\`) como en todas las vistas de frontend (\`/basecamp\`).
+- **Basecamp Auto-Sync de 6 Capas, Fechas de Creación, Orden Cronológico (\`created_at ASC\`) y Preservación de Autoría TEG (\`lib/basecamp-person-resolver.ts\`)**: Sincronización bidireccional en tiempo real de 6 capas (webhooks, OAuth2 cifrado y Supabase Realtime) con badge informativo de fecha, hora exacta de creación y autor junto a cada tarea (To-do), ordenamiento predeterminado por fecha de creación ascendente (\`created_at ASC\`, tareas más antiguas arriba y más recientes abajo) con botón para invertir orden, y resolutor universal de identidad (\`resolveOrCreateTegPerson\`) que vincula a todos los usuarios de TEG con \`bc_people\` (des-enmascarando correos y normalizando variantes como \`Erick\`/\`Erik\` o \`Velazquez\`/\`Velasquez\`), preserva el autor local real frente al token OAuth2 compartido en Webhooks/Sync/Detalle, y estampa \`👤 Solicitado por: <Nombre>\` hacia Basecamp 3.
 - **Motor IA de Descansos V27 — Cobertura Estricta 1x1 por Estación (\`lib/breaks-ai-engine.ts\`, \`/breaks\`)**: Ningún descanso o almuerzo puede traslaparse dentro de la misma estación (cajera, taquero, planchero, etc.); el motor V27 evalúa simultáneamente todos los descansos requeridos del día laboral (10m y 30m), aplica holgura anti-violación de \`-15 min\` en comidas (iniciando máximo a las \`4h 45m\`), escalona primero a quien entró más temprano, respeta el \`maxConcurrentBreaks\` global de la sucursal y desempata hacia horarios fuera de hora pico.
 - **Dashboard Ejecutivo (\`/dashboard\`) — Supresión Inteligente de Alertas en Días Libres y Vacaciones**: El motor de alertas del Dashboard filtra del banner rojo superior de inspecciones pendientes a cualquier supervisor que se encuentre en su **Día Libre (OFF)** semanal o con **Vacaciones / Permiso Aprobado** en la fecha seleccionada, mostrando su estado informativo con insignia ámbar (\`🌴 VACACIONES\` / \`🏖️ DÍA LIBRE\`) en la tabla de rendimiento.
 - **Sitio Web \`tacosgavilan.com\` y Módulo \`Website / Sitio Web\` (\`/nueva-web\`)**: Rediseño en Modo Claro SM TEG alineado a ancho completo con contador propio en tiempo real de visitas web y clics hacia "Ordenar en Línea" (\`api/track.js\` y sensor en \`js/compliance-a11y.js\` en las 37 páginas), cruce automático en ventana de 30 minutos entre clics en \`tacosgavilan.com\` y órdenes pagadas en línea, simulador de hardware iPad (\`768px\`) / iPhone 15 Pro (\`390px\`), textos de pedido limpios ("Ordenar" / "Ordenar en Línea" sin menciones a Toast o DoorDash), citación legal expresa de \`order.online\` (DoorDash, Inc.) en Privacy/Terms/Accessibility, cumplimiento CCPA/CPRA 2026 con Consent Mode v2 estricto y señal GPC, 0 violaciones \`axe-core\` WCAG 2.2 AA en 12 contextos, filtro heurístico anti-bots en \`api/contact.js\` (\`isAutomatedBotSubmission\`) y páginas legales sin duplicados en la raíz.
@@ -1018,27 +1056,53 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
   - **Pantalla de Inicio \`Modo OS\` (\`MobileOSHome\`)**: Integra (1) **Widgets de Resumen en Vivo (\`/api/mobile-os/summary\`)** con datos reales del día laboral en \`America/Los_Angeles\` (\`6:00 AM–5:59 AM\`, turno PM desde \`5:00 PM\`): Pulso Financiero en dólares estadounidenses \`USD\` (Ventas Hoy / Último Cierre, Órdenes, Ticket Promedio, Labor % y Food Cost %, según permisos del rol/sucursal) y Pulso Operativo / Turnos (Inspecciones, Checklists de Gerente y Staff, Turnos Hoy y Próximo Turno); y (2) **las 6 Carpetas Oficiales No Editables de Departamentos** (\`Análisis y Ventas\`, \`Operaciones de Tienda\`, \`Inventario y Mercancía\`, \`Personal y Horarios\`, \`Finanzas y Contabilidad\` y \`Administración y Sistema\`) con iconos squircle de 1 toque y hojas de carpeta tipo cristal expandibles (\`OSFolderModal\`), más buscador instantáneo sin bordes de enfoque rosa y FAB de chat (\`z-[120]\`).
   - **Barra Inferior Editable / OS Dock (\`BottomTabBar\` + \`DockEditorSheet\`)**: Entre los anclajes fijos **\`Inicio\`** (\`/inicio\`) y **\`Más\`** (menú completo), cada usuario puede personalizar, reordenar (\`←\` / \`→\`), agregar o quitar de **1 a 4 accesos directos**, o restaurar los predeterminados de su rol, tocando el botón **\`"Editar Barra"\` / \`"Edit Dock"\`** en \`/inicio\` o **manteniendo presionada la barra inferior** (*long-press*), con sincronización automática por usuario en \`localStorage\` y \`/api/mobile-os/preferences\` (\`public.user_ui_preferences\`).
   - **Planificador Móvil (\`/planificador\`)**: Vistas táctiles **\`Por Día\`**, **\`Semana\`** (tabla semanal del equipo con desplazamiento horizontal) y **\`Budget\`**; cálculo exacto de horas reales de la semana; hoja individual por empleado y menú móvil de despacho (**Correo \`.ics\` individual o masivo**, **WhatsApp / SMS prellenado**, **Copiar / Compartir nativo** y hoja **PDF / Imprimir**).
-  - **Ventas, Inspecciones, Checklists, Actividades y Auto-Programación**: \`/ventas\` con banner plegable de Proyección Inteligente, ordenamiento en tarjetas móviles, Proyectado/Varianza/Food Cost y \`0\` órdenes reales sin inflar a \`1\`; \`/inspecciones\` y \`ChecklistReviewModal\` con acciones táctiles (sin menús hover-only) y cierre integrado; \`/checklists\` y \`/checklists-manager\` con filtros por tipo/estado y vista read-only para managers; \`/actividades\` con pestañas auto-centradas y grilla semanal desplazable; y \`/mis-horarios\` con resumen semanal filtrado (\`Lun–Dom\`), acordeón auto-expandido para hoy/turnos propios y modales sobre \`BottomTabBar\`.`;
+  - **Ventas, Inspecciones, Checklists, Actividades y Auto-Programación**: \`/ventas\` con banner plegable de Proyección Inteligente, ordenamiento en tarjetas móviles, Proyectado/Varianza/Food Cost y \`0\` órdenes reales sin inflar a \`1\`; \`/inspecciones\` y \`ChecklistReviewModal\` con acciones táctiles (sin menús hover-only) y cierre integrado; \`/checklists\` y \`/checklists-manager\` con filtros por tipo/estado y vista read-only para managers; \`/actividades\` con pestañas auto-centradas y grilla semanal desplazable; y \`/mis-horarios\` con resumen semanal filtrado (\`Lun–Dom\`), acordeón auto-expandido para hoy/turnos propios y modales sobre \`BottomTabBar\`.
+- **Suite Multimodal Gemini 3.8 + Transcripción Inteligente + Escáner de Recibos y Diagnóstico Visual (\`lib/gemini-interactions.ts\` sobre \`@google/genai\` Interactions API)**:
+  - **Burbuja Multimodal \`TEG Assistant\` (\`gemini-3.8-flash\` + \`gemini-3.5-transcribe\`)**: Acepta dictado por micrófono en modo \`smart\` con vocabulario de las 15 sucursales y edición por voz (\`POST /api/support-chat/transcribe\`), además de adjuntar fotografías y documentos \`PDF\` (tickets de Toast, recibos, facturas o reportes) directamente en el chat para analizarlos y cruzarlos con datos reales en \`USD\`.
+  - **Escáner IA de Recibos y Facturas (\`POST /api/ai/scan-receipt\`)**: Integrado en **Millas (\`/miles\`, \`TripModal\`)** para leer fotos o PDFs de tickets de estacionamiento (\`parking\`), casetas/peajes (\`tolls\` / \`FasTrak\`) o gastos y llenar montos en \`USD\`, fecha y nota automáticamente; y en **Mantenimiento (\`/mantenimiento/registro\` Paso 5 y \`/admin/mantenimiento\`)** para autocompletar folio de factura, costo total en \`USD\`, empresa proveedora y refacciones.
+  - **Diagnóstico Visual IA de Equipos en Mantenimiento (\`POST /api/mantenimiento/ai-diagnose\`)**: En el Paso 4 del registro QR (\`/mantenimiento/registro\`), analiza la fotografía del equipo dañado, placa metálica de serie/modelo o código de error digital y autocompleta equipo, categoría, tipo/urgencia y resumen técnico bilingüe (\`es\`/\`en\`).`;
 
 export async function POST(req: NextRequest) {
   const auth = await verifyStaffAuth(req);
   if (!auth.authorized) return auth.response!;
+  if (auth.user?.role === 'planificador' || auth.user?.role === 'employee') {
+    return NextResponse.json(
+      { error: 'Acceso restringido para este perfil.' },
+      { status: 403 }
+    );
+  }
 
   try {
     const keyPool = await getGeminiKeyPoolWithRemote();
     if (keyPool.length === 0) return NextResponse.json({ error: 'Missing Gemini API Key.' }, { status: 500 });
 
-    const { messages, language, conversation_id, user } = await req.json();
+    const { messages, language, conversation_id } = await req.json();
     if (!messages || !Array.isArray(messages)) return NextResponse.json({ error: 'Invalid format.' }, { status: 400 });
 
-    // Extract the latest user question
-    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user')?.content || '';
+    const effectiveUser = auth.user;
+
+    // Extract the latest user question + optional multimodal attachments
+    const latestUserEntry = [...messages].reverse().find((m: any) => m.role === 'user');
+    const rawLastText = String(latestUserEntry?.content || '').trim();
+    const latestAttachments = Array.isArray(latestUserEntry?.attachments)
+      ? latestUserEntry.attachments.slice(0, 4).filter((a: any) => a && typeof a.data === 'string' && typeof a.mimeType === 'string')
+      : [];
+    const attachmentLabels = latestAttachments
+      .map((a: any) => `📎 **${String(a.name || 'archivo').slice(0, 80)}**`)
+      .join(' · ');
+    const fallbackAttachmentPrompt = language === 'en'
+      ? 'Please analyze the attached image/document in detail for Tacos Gavilan.'
+      : 'Por favor analiza en detalle la imagen o documento adjunto para Tacos Gavilan.';
+    const lastUserMsg = rawLastText || (latestAttachments.length > 0 ? fallbackAttachmentPrompt : '');
+    const persistedUserContent = attachmentLabels
+      ? (rawLastText ? `${attachmentLabels}\n\n${rawLastText}` : `${attachmentLabels}\n\n${fallbackAttachmentPrompt}`)
+      : lastUserMsg;
 
     // Database conversation handling (Save every question asked by each user)
     let activeConversationId: string | null = conversation_id || null;
     let conversationTitle: string = '';
 
-    if (user && (user.email || user.id) && lastUserMsg) {
+    if (effectiveUser && (effectiveUser.email || effectiveUser.id) && persistedUserContent) {
       try {
         if (activeConversationId) {
           const { data: existingConv } = await supabaseAdmin
@@ -1052,7 +1116,7 @@ export async function POST(req: NextRequest) {
             await supabaseAdmin.from('assistant_messages').insert({
               conversation_id: activeConversationId,
               role: 'user',
-              content: lastUserMsg
+              content: persistedUserContent
             });
             await supabaseAdmin.from('assistant_conversations').update({
               updated_at: new Date().toISOString()
@@ -1063,17 +1127,18 @@ export async function POST(req: NextRequest) {
         }
 
         if (!activeConversationId) {
-          const cleanTitle = lastUserMsg.length > 70 ? lastUserMsg.slice(0, 67) + '...' : lastUserMsg;
+          const titleSource = rawLastText || (latestAttachments[0]?.name ? `📎 ${latestAttachments[0].name}` : lastUserMsg);
+          const cleanTitle = titleSource.length > 70 ? titleSource.slice(0, 67) + '...' : titleSource;
           conversationTitle = cleanTitle || 'Consulta Operativa';
 
           const { data: newConv, error: newConvErr } = await supabaseAdmin
             .from('assistant_conversations')
             .insert({
-              user_id: user.id ? String(user.id) : null,
-              user_name: user.name || null,
-              user_email: user.email || null,
-              user_role: user.role || null,
-              store_id: user.store_id ? String(user.store_id) : null,
+              user_id: effectiveUser.id ? String(effectiveUser.id) : null,
+              user_name: effectiveUser.user_metadata?.full_name || null,
+              user_email: effectiveUser.email || null,
+              user_role: effectiveUser.role || null,
+              store_id: effectiveUser.user_metadata?.store_id ? String(effectiveUser.user_metadata.store_id) : null,
               title: conversationTitle
             })
             .select('id')
@@ -1084,7 +1149,7 @@ export async function POST(req: NextRequest) {
             await supabaseAdmin.from('assistant_messages').insert({
               conversation_id: activeConversationId,
               role: 'user',
-              content: lastUserMsg
+              content: persistedUserContent
             });
           }
         }
@@ -1094,28 +1159,58 @@ export async function POST(req: NextRequest) {
     }
 
     // Light context + language instruction
-    const liveContext = await fetchLightContext(user);
+    const liveContext = await fetchLightContext(effectiveUser);
     const langInstruction = language === 'en'
       ? "\n\nCRITICAL: Reply in ENGLISH."
       : "\n\nCRÍTICO: Responde en ESPAÑOL.";
     const fullPrompt = BASE_SYSTEM_PROMPT + langInstruction + '\n\n--- LIVE CONTEXT ---\n' + liveContext;
 
-    // Normalize message history (strict alternating user/model)
+    // Normalize message history (strict alternating user/model + multimodal inlineData parts)
+    const ALLOWED_CHAT_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'application/pdf']);
     const validContents: any[] = [];
     let lastRole = '';
     messages.forEach((msg: any) => {
       if (msg.role !== 'user' && msg.role !== 'model') return;
-      if (msg.role === 'model' && (msg.content.includes('Soy TEG Assistant') || msg.content.includes('Error de conexión') || msg.content.includes('Connection error') || msg.content.includes('prepayment credits') || msg.content.includes('Todos los modelos') || msg.content.includes('operator does not exist') || msg.content.includes('no puedo adjuntar un archivo') || msg.content.includes('escalar este problema al equipo técnico'))) return;
+      const msgText = String(msg.content || '').trim();
+      if (msg.role === 'model' && (msgText.includes('Soy TEG Assistant') || msgText.includes('Error de conexión') || msgText.includes('Connection error') || msgText.includes('prepayment credits') || msgText.includes('Todos los modelos') || msgText.includes('operator does not exist') || msgText.includes('no puedo adjuntar un archivo') || msgText.includes('escalar este problema al equipo técnico'))) return;
+
+      const msgParts: any[] = [];
+      const rawAtts = msg.role === 'user' && Array.isArray(msg.attachments) ? msg.attachments.slice(0, 4) : [];
+      for (const att of rawAtts) {
+        const cleanMime = String(att?.mimeType || '').split(';')[0].trim().toLowerCase() === 'image/jpg'
+          ? 'image/jpeg'
+          : String(att?.mimeType || '').split(';')[0].trim().toLowerCase();
+        const cleanData = String(att?.data || '').replace(/^data:[^;]+;base64,/, '').trim();
+        if (cleanData && ALLOWED_CHAT_MIMES.has(cleanMime)) {
+          msgParts.push({ inlineData: { mimeType: cleanMime, data: cleanData } });
+        }
+      }
+      const effectiveText = msgText || (msgParts.length > 0 ? fallbackAttachmentPrompt : '');
+      if (effectiveText) {
+        msgParts.unshift({ text: effectiveText });
+      }
+      if (msgParts.length === 0) return;
+
       if (msg.role === lastRole && validContents.length > 0) {
-        validContents[validContents.length - 1].parts[0].text += '\n\n' + msg.content;
+        const prevParts = validContents[validContents.length - 1].parts;
+        if (prevParts[0]?.text && msgParts[0]?.text) {
+          prevParts[0].text += '\n\n' + msgParts[0].text;
+          prevParts.push(...msgParts.slice(1));
+        } else {
+          prevParts.push(...msgParts);
+        }
       } else {
-        validContents.push({ role: msg.role, parts: [{ text: msg.content }] });
+        validContents.push({ role: msg.role, parts: msgParts });
         lastRole = msg.role;
       }
     });
 
     if (validContents.length > 0 && validContents[0].role === 'model') validContents.shift();
     if (validContents.length === 0) return NextResponse.json({ error: 'No messages.' }, { status: 400 });
+
+    const hasMultimodalAttachments = validContents.some((turn: any) =>
+      Array.isArray(turn?.parts) && turn.parts.some((p: any) => Boolean(p?.inlineData))
+    );
 
     // ── Function Calling Loop with Multi-Key & Multi-Model Automatic Failover ──
     let currentContents = [...validContents];
@@ -1135,7 +1230,7 @@ export async function POST(req: NextRequest) {
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }]
       };
 
-      const callResult = await callGeminiChatWithFailover(body, stickyModel, stickyKey);
+      const callResult = await callGeminiChatWithFailover(body, stickyModel, stickyKey, hasMultimodalAttachments);
 
       if (!callResult.ok) {
         const errMsg = callResult.error || 'Unknown error';
@@ -1206,18 +1301,6 @@ export async function POST(req: NextRequest) {
     // Strip any raw <br> HTML tags so ReactMarkdown renders clean line breaks
     finalReply = finalReply.replace(/<br\s*\/?>/gi, '\n');
 
-    // Server-side guarantee: if a tool produced a large Markdown table (e.g. 42-week matrix or SQL export)
-    // and the model omitted the table or truncated it to a 5-week summary, inject the complete table automatically!
-    if (lastToolMarkdownTable) {
-      const replyTableMatch = finalReply.match(/(\|[^\n]+\|\n\|[\s:|-]+\|\n(?:\|[^\n]+\|\n?)+)/);
-      const hasCsvFence = /```csv[\s\S]+?```/i.test(finalReply);
-      const replyTableLen = replyTableMatch ? replyTableMatch[1].length : 0;
-      const isTruncatedLargeTable = lastToolMarkdownTable.length > 1500 && replyTableLen < lastToolMarkdownTable.length * 0.45 && !hasCsvFence;
-      if ((!replyTableMatch && !hasCsvFence && /(export|csv|excel|tabla|semanas|todas|link|descarga)/i.test(lastUserMsg)) || isTruncatedLargeTable) {
-        finalReply = `${finalReply}\n\n### 📊 Tabla Completa (Lista para Descargar en CSV / Excel)\n[⬇️ Descargar archivo CSV (Excel)](#download-csv)\n\n${lastToolMarkdownTable}`;
-      }
-    }
-
     // ── Extract Animated Chart Configuration ──
     let chartConfig: any = null;
     const chartMatch = finalReply.match(/(?:<<<CHART>>>|\[CHART\])([\s\S]*?)(?:<<<END_CHART>>>|<<<CHART>>>|\[END_CHART\]|$)/i);
@@ -1244,6 +1327,18 @@ export async function POST(req: NextRequest) {
 
       // Strip suggestions block from visible markdown text
       finalReply = finalReply.replace(/(?:<<<SUGGESTIONS>>>|\[SUGGESTIONS\])[\s\S]*?(?:<<<END_SUGGESTIONS>>>|<<<SUGGESTIONS>>>|\[END_SUGGESTIONS\]|$)/i, '').trim();
+    }
+
+    // Server-side guarantee: if a tool produced a large Markdown table (e.g. 42-week matrix or SQL export)
+    // and the model omitted the table or truncated it to a 5-week summary, inject the complete table automatically!
+    if (lastToolMarkdownTable) {
+      const replyTableMatch = finalReply.match(/(\|[^\n]+\|\n\|[\s:|-]+\|\n(?:\|[^\n]+\|\n?)+)/);
+      const hasCsvFence = /```csv[\s\S]+?```/i.test(finalReply);
+      const replyTableLen = replyTableMatch ? replyTableMatch[1].length : 0;
+      const isTruncatedLargeTable = lastToolMarkdownTable.length > 1500 && replyTableLen < lastToolMarkdownTable.length * 0.45 && !hasCsvFence;
+      if ((!replyTableMatch && !hasCsvFence && /(export|csv|excel|tabla|semanas|todas|link|descarga)/i.test(lastUserMsg)) || isTruncatedLargeTable) {
+        finalReply = `${finalReply}\n\n### 📊 Tabla Completa (Lista para Descargar en CSV / Excel)\n[⬇️ Descargar archivo CSV (Excel)](#download-csv)\n\n${lastToolMarkdownTable}`;
+      }
     }
 
     // Persist assistant reply (with chart JSON preserved for historical rehydration) to database
