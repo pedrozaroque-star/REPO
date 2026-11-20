@@ -76,10 +76,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     Mic, MicOff, PhoneCall, PhoneOff, Headphones, Loader2, AlertTriangle, Volume2, Car,
-    History, RefreshCw, ShieldAlert, Bot, User, Wrench, X, Radio, Info, Gauge, Sliders, Truck, Zap
+    History, RefreshCw, ShieldAlert, Bot, User, Wrench, X, Radio, Info, Gauge, Sliders, Truck, Zap,
+    ChevronDown, ChevronUp
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
-import { CANONICAL_CUSTOMER_STORES_BY_ID, formatCustomerStoreName } from '@/lib/customer-store-names'
+import { CANONICAL_CUSTOMER_STORES_BY_ID, formatCustomerGreetingTarget, formatCustomerStoreName } from '@/lib/customer-store-names'
 import {
     applyKoreTool,
     computeKoreTotals,
@@ -91,7 +92,12 @@ import {
     type KoreOrderState,
     type KoreSessionKind,
 } from '@/lib/drive-thru-kore-order'
-import { matchKoreFastClipForToolOutcome, type KoreFastClipMatch } from '@/lib/drive-thru-kore-fast-match'
+import {
+    KORE_FAST_CLIP_SPECS,
+    matchKoreFastClipForToolOutcome,
+    type KoreFastClipCategory,
+    type KoreFastClipMatch,
+} from '@/lib/drive-thru-kore-fast-match'
 import {
     KORE_CAPTURE_PROCESSOR,
     KORE_CHUNK_SAMPLES,
@@ -152,16 +158,22 @@ export function evaluateKoreTurnCompleteAutoEnd(params: {
 /** Si el socket acumula más de esto sin enviar, se descartan bloques de mic (backpressure). */
 const WS_BACKPRESSURE_BYTES = 512 * 1024
 
-/** Señal de llegada del carro (no es texto visible: es la instrucción que recibe Kore). */
+/** Señal de llegada del carro cuando no hay saludo pregrabado en caché. */
 const ARRIVAL_CUE: Record<KoreLang, string> = {
-    es: '[SIMULACIÓN DRIVE-THRU] Un cliente acaba de llegar a la bocina. Salúdalo ahora.',
-    en: '[DRIVE-THRU SIMULATION] A customer just pulled up to the speaker. Greet them now.',
+    es: '[SIMULACIÓN DRIVE-THRU — IDIOMA ACTIVO: ESPAÑOL] Un cliente acaba de llegar a la bocina. Salúdalo ahora 100% en español.',
+    en: '[DRIVE-THRU SIMULATION — ACTIVE LANGUAGE: ENGLISH] A customer just pulled up to the speaker. Greet them now 100% in English.',
 }
 
-/** Directiva silenciosa para conmutar idioma en caliente (solo cuando Kore no está reproduciendo audio). */
+/** Contexto inicial inyectado en `clientContent` junto al saludo pregrabado para fijar el idioma base sin sesgo. */
+export const KORE_SEEDED_GREETING_CUE: Record<'es' | 'en', string> = {
+    es: '[SIMULACIÓN DRIVE-THRU — IDIOMA ACTIVO: ESPAÑOL. El cliente está en la bocina; responde 100% en español salvo que te hablen en inglés.]',
+    en: '[DRIVE-THRU SIMULATION — ACTIVE LANGUAGE: ENGLISH. The customer is at the speaker; respond 100% in English unless they speak Spanish.]',
+}
+
+/** Directiva silenciosa para conmutar o bloquear idioma en caliente (solo cuando Kore no está reproduciendo audio). */
 export const KORE_SYSTEM_LANG_SWITCH_CUE: Record<'es' | 'en', string> = {
     en: '[SYSTEM LANGUAGE SWITCH -> ENGLISH] Customer is speaking English. Respond strictly in 100% English from now on.',
-    es: '[SYSTEM LANGUAGE SWITCH -> SPANISH] El cliente habla español. Responde estrictamente 100% en español de ahora en adelante.',
+    es: '[SYSTEM LANGUAGE LOCK -> SPANISH] El cliente está hablando en ESPAÑOL. PROHIBIDO responder en inglés. Responde estrictamente 100% en español.',
 }
 
 /** Evalúa el siguiente idioma activo de la sesión a partir de lo hablado por el cliente. */
@@ -377,6 +389,81 @@ export function decodeKoreFastClipsPayload(data: unknown): {
               }
             : null
     return { map, stats }
+}
+
+export type KoreFastClipCatalogFilter = 'all' | 'greeting' | KoreFastClipCategory
+
+export interface KoreFastClipCatalogRow {
+    clipId: string
+    category: 'greeting' | KoreFastClipCategory
+    greetingNum?: number
+    textEs: string
+    textEn: string
+    hasEs: boolean
+    hasEn: boolean
+}
+
+/** Construye la lista completa y legible del catálogo de audios pregrabados (ES/EN) para la tienda activa. */
+export function buildKoreFastClipCatalogRows(
+    storeId: number,
+    map: ReadonlyMap<string, KoreDecodedFastClipPair>
+): KoreFastClipCatalogRow[] {
+    const rows: KoreFastClipCatalogRow[] = []
+    const seen = new Set<string>()
+    if (Number.isInteger(storeId) && storeId > 0) {
+        const targetEs = formatCustomerGreetingTarget(storeId, 'es')
+        const targetEn = formatCustomerGreetingTarget(storeId, 'en')
+        const esGreetings = [
+            `¡Bienvenido a Tacos Gavilan ${targetEs}! ¿Cómo le podemos ayudar?`,
+            `¡Bienvenido a Tacos Gavilan ${targetEs}! ¿Qué se le antoja ordenar hoy?`,
+            `¡Bienvenido a Tacos Gavilan ${targetEs}! ¿Cómo le podemos ayudar hoy?`,
+            `¡Hola, bienvenido a Tacos Gavilan ${targetEs}! ¿Qué le gustaría ordenar hoy?`,
+        ]
+        const enGreetings = [
+            `Welcome to Tacos Gavilan ${targetEn}! How can we help you?`,
+            `Welcome to Tacos Gavilan ${targetEn}! What are you craving today?`,
+            `Welcome to Tacos Gavilan ${targetEn}! How can we help you today?`,
+            `Hi, welcome to Tacos Gavilan ${targetEn}! What would you like to order today?`,
+        ]
+        for (let v = 0; v < 4; v++) {
+            const clipId = `greeting_v${v}`
+            const pair = map.get(clipId)
+            seen.add(clipId)
+            rows.push({
+                clipId,
+                category: 'greeting',
+                greetingNum: v + 1,
+                textEs: pair?.es?.text || esGreetings[v],
+                textEn: pair?.en?.text || enGreetings[v],
+                hasEs: Boolean(pair?.es && pair.es.samples.length > 0),
+                hasEn: Boolean(pair?.en && pair.en.samples.length > 0),
+            })
+        }
+    }
+    for (const spec of KORE_FAST_CLIP_SPECS) {
+        const pair = map.get(spec.clipId)
+        seen.add(spec.clipId)
+        rows.push({
+            clipId: spec.clipId,
+            category: spec.category,
+            textEs: pair?.es?.text || spec.textEs,
+            textEn: pair?.en?.text || spec.textEn,
+            hasEs: Boolean(pair?.es && pair.es.samples.length > 0),
+            hasEn: Boolean(pair?.en && pair.en.samples.length > 0),
+        })
+    }
+    for (const [clipId, pair] of map.entries()) {
+        if (seen.has(clipId)) continue
+        rows.push({
+            clipId,
+            category: clipId.startsWith('greeting') ? 'greeting' : 'ops',
+            textEs: pair.es?.text || '—',
+            textEn: pair.en?.text || '—',
+            hasEs: Boolean(pair.es && pair.es.samples.length > 0),
+            hasEn: Boolean(pair.en && pair.en.samples.length > 0),
+        })
+    }
+    return rows
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -723,6 +810,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const [fastClipsStats, setFastClipsStats] = useState<KoreFastClipsStats | null>(null)
     const [fastClipsLoading, setFastClipsLoading] = useState(false)
     const [fastClipsWarming, setFastClipsWarming] = useState(false)
+    const [fastClipsVersion, setFastClipsVersion] = useState(0)
+    const [showFastClipsCatalog, setShowFastClipsCatalog] = useState(false)
+    const [fastClipsCategory, setFastClipsCategory] = useState<KoreFastClipCatalogFilter>('all')
+    const [previewingClipKey, setPreviewingClipKey] = useState<string | null>(null)
 
     // ─── Refs de sesión (los handlers del socket SOLO leen refs) ───
     const tRef = useRef(t)
@@ -771,6 +862,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const localFastClipStartedAtRef = useRef(0)
     const customerSpokeSinceFastClipRef = useRef(false)
     const fastClipSeedRef = useRef(0)
+    const previewCtxRef = useRef<AudioContext | null>(null)
+    const previewSourceRef = useRef<AudioBufferSourceNode | null>(null)
     const transcriptRef = useRef<TranscriptEntry[]>([])
     const openEntryRef = useRef<{ customer: string | null; kore: string | null }>({ customer: null, kore: null })
     const startedAtRef = useRef<number | null>(null)
@@ -871,6 +964,66 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
     }, [])
 
+    const stopFastClipPreview = useCallback((closeCtx = false) => {
+        const src = previewSourceRef.current
+        previewSourceRef.current = null
+        if (src) {
+            src.onended = null
+            try { src.stop() } catch { /* ya detenida */ }
+            try { src.disconnect() } catch { /* ya desconectada */ }
+        }
+        setPreviewingClipKey(null)
+        if (closeCtx) {
+            const pctx = previewCtxRef.current
+            previewCtxRef.current = null
+            if (pctx && pctx.state !== 'closed') {
+                pctx.close().catch(() => undefined)
+            }
+        }
+    }, [])
+
+    const playFastClipPreview = async (clipId: string, clipLang: KoreLang) => {
+        if (isBusy) return
+        const key = `${clipId}:${clipLang}`
+        if (previewingClipKey === key) {
+            stopFastClipPreview(false)
+            return
+        }
+        stopFastClipPreview(false)
+        const variant = fastClipsMapRef.current.get(clipId)?.[clipLang]
+        if (!variant || variant.samples.length === 0) return
+        try {
+            let pctx = previewCtxRef.current
+            if (!pctx || pctx.state === 'closed') {
+                const Ctor: typeof AudioContext | undefined =
+                    window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+                if (!Ctor) return
+                pctx = new Ctor({ latencyHint: 'interactive' })
+                previewCtxRef.current = pctx
+            }
+            if (pctx.state === 'suspended') {
+                await pctx.resume().catch(() => undefined)
+            }
+            const buffer = pctx.createBuffer(1, variant.samples.length, variant.sampleRate)
+            buffer.copyToChannel(variant.samples as Float32Array<ArrayBuffer>, 0)
+            const src = pctx.createBufferSource()
+            src.buffer = buffer
+            src.connect(pctx.destination)
+            previewSourceRef.current = src
+            setPreviewingClipKey(key)
+            src.onended = () => {
+                try { src.disconnect() } catch { /* noop */ }
+                if (previewSourceRef.current === src) {
+                    previewSourceRef.current = null
+                    setPreviewingClipKey(null)
+                }
+            }
+            src.start(0)
+        } catch {
+            stopFastClipPreview(false)
+        }
+    }
+
     const loadFastClips = useCallback(async (forStoreId: number) => {
         if (!Number.isInteger(forStoreId) || forStoreId <= 0) return
         const reqId = ++fastClipsReqRef.current
@@ -884,6 +1037,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             fastClipsMapRef.current = decoded.map
             fastClipsStoreIdRef.current = forStoreId
             setFastClipsStats(decoded.stats)
+            setFastClipsVersion(v => v + 1)
         } catch {
             // Degradación silenciosa: si el banco pregrabado no responde, Gemini Live habla directo
         } finally {
@@ -912,12 +1066,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
     useEffect(() => {
         if (isBusy) return
+        stopFastClipPreview(false)
         if (!selectedStore) {
             historyReqRef.current += 1
             fastClipsReqRef.current += 1
             fastClipsMapRef.current = new Map()
             fastClipsStoreIdRef.current = 0
             setFastClipsStats(null)
+            setFastClipsVersion(v => v + 1)
             setFastClipsLoading(false)
             setHistory([])
             setHistoryError(null)
@@ -1305,7 +1461,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             sendJson({
                 clientContent: {
                     turns: [
-                        { role: 'user', parts: [{ text: ARRIVAL_CUE[activeLang] }] },
+                        { role: 'user', parts: [{ text: KORE_SEEDED_GREETING_CUE[activeLang] }] },
                         { role: 'model', parts: [{ text: greetClip.text }] },
                     ],
                     turnComplete: false,
@@ -1491,14 +1647,19 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 if (autoEndModeRef.current === 'confirmed_sendoff' && spokenKoreTurn.length > 0) {
                     clearAutoEnd(true)
                 }
-                // Red de seguridad sin cortar audio: si la sesión está en inglés pero Kore contestó en español
-                if (
-                    autoEndModeRef.current === 'none' &&
-                    sessionMetaRef.current.lang === 'en' &&
-                    spokenKoreTurn.length > 0 &&
-                    detectKoreSpokenLanguage(spokenKoreTurn, 'en') === 'es'
-                ) {
-                    scheduleSilentLangCueWhenIdle('en', gen)
+                // Red de seguridad bidireccional sin cortar audio: re-bloquea ES o EN si Gemini se desvió de idioma
+                if (autoEndModeRef.current === 'none' && spokenKoreTurn.length > 0) {
+                    if (
+                        sessionMetaRef.current.lang === 'es' &&
+                        detectKoreSpokenLanguage(spokenKoreTurn, 'es') === 'en'
+                    ) {
+                        scheduleSilentLangCueWhenIdle('es', gen)
+                    } else if (
+                        sessionMetaRef.current.lang === 'en' &&
+                        detectKoreSpokenLanguage(spokenKoreTurn, 'en') === 'es'
+                    ) {
+                        scheduleSilentLangCueWhenIdle('en', gen)
+                    }
                 }
             }
         }
@@ -1726,7 +1887,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 targetEntry.response = {
                     ...targetEntry.response,
                     fast_clip_spoken: true,
-                    instruction: `Respond ONLY with exact text: "${spokenText}"`,
+                    instruction:
+                        finalLang === 'en'
+                            ? `Respond ONLY in English with exact text: "${spokenText}"`
+                            : `Responde ÚNICAMENTE en español con este texto exacto: "${spokenText}"`,
                 }
             }
         }
@@ -1814,6 +1978,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     // ─────────────────────────────────────────────
     const startSession = async () => {
         if (!selectedStore || isBusy || endingRef.current) return
+        stopFastClipPreview(true)
         const gen = ++genRef.current
         const meta = { storeId: selectedStore.id, lang }
         sessionMetaRef.current = meta
@@ -2133,7 +2298,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         } catch { /* noop */ }
     }
     const teardownRef = useRef<() => void>(() => undefined)
-    teardownRef.current = teardownMedia
+    teardownRef.current = () => {
+        stopFastClipPreview(true)
+        teardownMedia()
+    }
 
     useEffect(() => {
         mountedRef.current = true
@@ -2156,6 +2324,26 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     // Derivados de UI
     // ─────────────────────────────────────────────
     const totals = useMemo(() => computeKoreTotals(order, sessionStore?.taxRatePct ?? 0), [order, sessionStore])
+    const fastClipCatalogRows = useMemo(
+        () => buildKoreFastClipCatalogRows(selectedStore?.id ?? 0, fastClipsMapRef.current),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [selectedStore?.id, fastClipsVersion]
+    )
+    const filteredFastClipRows = useMemo(
+        () => (fastClipsCategory === 'all' ? fastClipCatalogRows : fastClipCatalogRows.filter(r => r.category === fastClipsCategory)),
+        [fastClipCatalogRows, fastClipsCategory]
+    )
+    const fastClipCategoryTabs: { id: KoreFastClipCatalogFilter; labelKey: string; count: number }[] = useMemo(() => {
+        const countOf = (cat: KoreFastClipCatalogRow['category']) => fastClipCatalogRows.filter(r => r.category === cat).length
+        return [
+            { id: 'all', labelKey: 'drive_thru.kore_fast_clips_cat_all', count: fastClipCatalogRows.length },
+            { id: 'greeting', labelKey: 'drive_thru.kore_fast_clips_cat_greeting', count: countOf('greeting') },
+            { id: 'clarify', labelKey: 'drive_thru.kore_fast_clips_cat_clarify', count: countOf('clarify') },
+            { id: 'item_ack', labelKey: 'drive_thru.kore_fast_clips_cat_item_ack', count: countOf('item_ack') },
+            { id: 'ops', labelKey: 'drive_thru.kore_fast_clips_cat_ops', count: countOf('ops') },
+            { id: 'sendoff', labelKey: 'drive_thru.kore_fast_clips_cat_sendoff', count: countOf('sendoff') },
+        ]
+    }, [fastClipCatalogRows])
     const customerDisplayName = useMemo(() => {
         if (sessionStore?.customerName) return sessionStore.customerName
         if (!selectedStore) return null
@@ -2442,53 +2630,180 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     </div>
                 )}
 
-                {hasDtAccess && (fastClipsLoading || fastClipsStats) && (
-                    <div className="flex items-center justify-between gap-2.5 flex-wrap rounded-xl border border-emerald-200 dark:border-emerald-900/70 bg-emerald-50/70 dark:bg-emerald-950/30 px-3.5 py-2">
-                        <div className="min-w-0 flex-1 space-y-0.5">
-                            <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
-                                {fastClipsLoading && !fastClipsStats ? (
-                                    <>
-                                        <Loader2 size={13} className="animate-spin shrink-0" />
-                                        <span>{t('drive_thru.kore_fast_clips_loading')}</span>
-                                    </>
-                                ) : fastClipsStats ? (
-                                    <>
-                                        <Zap size={14} className="text-amber-500 shrink-0" />
-                                        <span>
-                                            {t('drive_thru.kore_fast_clips_status', {
-                                                cached: fastClipsStats.cachedClips,
-                                                total: fastClipsStats.totalClips,
-                                                tickets: new Intl.NumberFormat(language === 'en' ? 'en-US' : 'es-MX').format(
-                                                    fastClipsStats.historicalDtOrdersCount || fastClipsStats.historicalDetailedSnapshotsCount
-                                                ),
-                                            })}
-                                        </span>
-                                    </>
-                                ) : null}
-                            </p>
-                            {fastClipsStats && fastClipsStats.topDriveThruItems.length > 0 && (
-                                <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 truncate">
-                                    {t('drive_thru.kore_fast_clips_top_hint', { items: fastClipsStats.topDriveThruItems.slice(0, 4).join(' · ') })}
+                {hasDtAccess && (
+                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/70 bg-emerald-50/70 dark:bg-emerald-950/30 px-3.5 py-2.5 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2.5 flex-wrap">
+                            <div className="min-w-0 flex-1 space-y-0.5">
+                                <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
+                                    {fastClipsLoading && !fastClipsStats ? (
+                                        <>
+                                            <Loader2 size={13} className="animate-spin shrink-0" />
+                                            <span>{t('drive_thru.kore_fast_clips_loading')}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Zap size={14} className="text-amber-500 shrink-0" />
+                                            <span>
+                                                {t('drive_thru.kore_fast_clips_status', {
+                                                    cached: fastClipsStats?.cachedClips ?? 0,
+                                                    total: fastClipsStats?.totalClips ?? fastClipCatalogRows.length * 2,
+                                                    tickets: new Intl.NumberFormat(language === 'en' ? 'en-US' : 'es-MX').format(
+                                                        fastClipsStats?.historicalDtOrdersCount || fastClipsStats?.historicalDetailedSnapshotsCount || 0
+                                                    ),
+                                                })}
+                                            </span>
+                                        </>
+                                    )}
                                 </p>
-                            )}
-                        </div>
-                        {fastClipsStats && fastClipsStats.totalClips > 0 && (
-                            fastClipsStats.cachedClips >= fastClipsStats.totalClips ? (
-                                <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-600 text-white px-2.5 py-0.5 text-[11px] font-black">
-                                    <Zap size={11} />
-                                    <span>{t('drive_thru.kore_fast_clips_ready_badge')}</span>
-                                </span>
-                            ) : (
+                                {fastClipsStats && fastClipsStats.topDriveThruItems.length > 0 && (
+                                    <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 truncate">
+                                        {t('drive_thru.kore_fast_clips_top_hint', { items: fastClipsStats.topDriveThruItems.slice(0, 4).join(' · ') })}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <button
                                     type="button"
-                                    onClick={() => void handleWarmFastClips()}
-                                    disabled={fastClipsWarming}
-                                    className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-xs font-bold shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+                                    onClick={() => {
+                                        if (showFastClipsCatalog) stopFastClipPreview(false)
+                                        setShowFastClipsCatalog(v => !v)
+                                    }}
+                                    className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-slate-800 text-emerald-800 dark:text-emerald-200 px-2.5 py-1 text-xs font-bold shadow-sm transition-all cursor-pointer"
                                 >
-                                    {fastClipsWarming ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
-                                    <span>{fastClipsWarming ? t('drive_thru.kore_fast_clips_warming') : t('drive_thru.kore_fast_clips_warm_btn')}</span>
+                                    <Volume2 size={13} />
+                                    <span>{showFastClipsCatalog ? t('drive_thru.kore_fast_clips_hide_btn') : t('drive_thru.kore_fast_clips_view_btn')}</span>
+                                    {showFastClipsCatalog ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                                 </button>
-                            )
+                                {fastClipsStats && fastClipsStats.totalClips > 0 && (
+                                    fastClipsStats.cachedClips >= fastClipsStats.totalClips ? (
+                                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-600 text-white px-2.5 py-0.5 text-[11px] font-black">
+                                            <Zap size={11} />
+                                            <span>{t('drive_thru.kore_fast_clips_ready_badge')}</span>
+                                        </span>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleWarmFastClips()}
+                                            disabled={fastClipsWarming}
+                                            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-xs font-bold shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+                                        >
+                                            {fastClipsWarming ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                                            <span>{fastClipsWarming ? t('drive_thru.kore_fast_clips_warming') : t('drive_thru.kore_fast_clips_warm_btn')}</span>
+                                        </button>
+                                    )
+                                )}
+                            </div>
+                        </div>
+
+                        {showFastClipsCatalog && (
+                            <div className="rounded-xl border border-emerald-200/80 dark:border-slate-700 bg-white dark:bg-slate-900/95 p-3 space-y-2.5">
+                                <div>
+                                    <p className="text-xs font-black text-slate-800 dark:text-white">{t('drive_thru.kore_fast_clips_catalog_title')}</p>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('drive_thru.kore_fast_clips_catalog_sub')}</p>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {fastClipCategoryTabs.map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            onClick={() => setFastClipsCategory(tab.id)}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                                fastClipsCategory === tab.id
+                                                    ? 'bg-emerald-600 text-white shadow-sm'
+                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                            }`}
+                                        >
+                                            {t(tab.labelKey)} ({tab.count})
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                                    {filteredFastClipRows.map(row => {
+                                        const esKey = `${row.clipId}:es`
+                                        const enKey = `${row.clipId}:en`
+                                        const playingEs = previewingClipKey === esKey
+                                        const playingEn = previewingClipKey === enKey
+                                        const catLabelKey =
+                                            row.category === 'greeting'
+                                                ? 'drive_thru.kore_fast_clips_cat_greeting'
+                                                : row.category === 'clarify'
+                                                    ? 'drive_thru.kore_fast_clips_cat_clarify'
+                                                    : row.category === 'item_ack'
+                                                        ? 'drive_thru.kore_fast_clips_cat_item_ack'
+                                                        : row.category === 'sendoff'
+                                                            ? 'drive_thru.kore_fast_clips_cat_sendoff'
+                                                            : 'drive_thru.kore_fast_clips_cat_ops'
+                                        return (
+                                            <div key={row.clipId} className="px-3 py-2.5 space-y-1.5 text-xs">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                                        {t(catLabelKey)}
+                                                    </span>
+                                                    <code className="text-[11px] font-mono font-bold text-violet-700 dark:text-violet-300">
+                                                        {row.greetingNum ? `${t('drive_thru.kore_fast_clips_greeting_label', { num: row.greetingNum })} (${row.clipId})` : row.clipId}
+                                                    </code>
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1.5">
+                                                        <p className="min-w-0 flex-1 text-slate-700 dark:text-slate-200 break-words">
+                                                            <strong className="text-emerald-700 dark:text-emerald-400 mr-1">{t('drive_thru.kore_fast_clips_lang_es_tag')}</strong>
+                                                            <span>{row.textEs}</span>
+                                                        </p>
+                                                        <div className="shrink-0 flex items-center gap-1.5">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                                row.hasEs
+                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                                                    : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                                                            }`}>
+                                                                {row.hasEs ? t('drive_thru.kore_fast_clips_recorded') : t('drive_thru.kore_fast_clips_pending')}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                disabled={!row.hasEs || isBusy}
+                                                                onClick={() => void playFastClipPreview(row.clipId, 'es')}
+                                                                className={`px-2 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                                                                    playingEs
+                                                                        ? 'bg-rose-600 text-white shadow-sm'
+                                                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                                                                }`}
+                                                            >
+                                                                {playingEs ? t('drive_thru.kore_fast_clips_stop') : t('drive_thru.kore_fast_clips_play_es')}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1.5">
+                                                        <p className="min-w-0 flex-1 text-slate-700 dark:text-slate-200 break-words">
+                                                            <strong className="text-sky-700 dark:text-sky-400 mr-1">{t('drive_thru.kore_fast_clips_lang_en_tag')}</strong>
+                                                            <span>{row.textEn}</span>
+                                                        </p>
+                                                        <div className="shrink-0 flex items-center gap-1.5">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                                row.hasEn
+                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                                                                    : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                                                            }`}>
+                                                                {row.hasEn ? t('drive_thru.kore_fast_clips_recorded') : t('drive_thru.kore_fast_clips_pending')}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                disabled={!row.hasEn || isBusy}
+                                                                onClick={() => void playFastClipPreview(row.clipId, 'en')}
+                                                                className={`px-2 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                                                                    playingEn
+                                                                        ? 'bg-rose-600 text-white shadow-sm'
+                                                                        : 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm'
+                                                                }`}
+                                                            >
+                                                                {playingEn ? t('drive_thru.kore_fast_clips_stop') : t('drive_thru.kore_fast_clips_play_en')}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}

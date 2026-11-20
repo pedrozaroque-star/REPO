@@ -1463,14 +1463,26 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     }
     const ambiguousOptions = bwAmb.open ? res.ambiguous : res.ambiguous.filter((a) => !isKoreBreakfastItem(a))
     if (ambiguousOptions.length > 0) {
-      const sizeHint = res.askedSmallSize
-        ? ' There is no small size: Medium (22 oz) is the smallest (never say "chica", "pequeña", or "small").'
-        : ''
+      const isEn = opts?.lang === 'en'
       const hasFoodFamily = ambiguousOptions.some((a) =>
         /\b(burritos?|quesadillas?|mulitas?|tortas?|sopes?|tacos?|nachos?|platos?)\b/i.test(a.category)
       )
+      if (!isEn) {
+        const sizeHintEs = res.askedSmallSize
+          ? ' No existe tamaño chico: el menor tamaño es Mediana (22 oz); jamás digas "chica" ni "pequeña".'
+          : ''
+        const regSuperHintEs = hasFoodFamily
+          ? ' JAMÁS digas "tamaño" en comida: pregunta en ESPAÑOL qué carne desea (y "¿Regular o Super?" para burritos, quesadillas o mulitas). PROHIBIDO responder en inglés.'
+          : ' Pregunta brevemente en ESPAÑOL cuál opción prefiere.'
+        return fail(state, 'ambiguous_item', `"${rawName}" coincide con varias opciones del menú.${sizeHintEs}${regSuperHintEs}`, opts, {
+          options: suggestionList(ambiguousOptions)
+        })
+      }
+      const sizeHint = res.askedSmallSize
+        ? ' There is no small size: Medium (22 oz) is the smallest (never say "chica", "pequeña", or "small").'
+        : ''
       const regSuperHint = hasFoodFamily
-        ? ' Never say "tamaño" or "size" for food items — ask which meat (and Regular vs Super for burritos/quesadillas/mulitas).'
+        ? ' Never say "tamaño" or "size" for food items — ask which meat (and Regular or Super for burritos/quesadillas/mulitas).'
         : ''
       return fail(state, 'ambiguous_item', `"${rawName}" matches several menu items. Ask the customer which one.${sizeHint}${regSuperHint}`, opts, {
         options: suggestionList(ambiguousOptions)
@@ -1539,7 +1551,11 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   }
   const groupErrors = validateGroups(item, modRes.modifiers)
   if (groupErrors.length > 0) {
-    return fail(state, 'modifier_rules', groupErrors.join(' '), opts, { item: item.name })
+    const errMsg =
+      opts?.lang === 'en'
+        ? groupErrors.join(' ')
+        : `Falta elegir opción obligatoria (pregunta brevemente 100% en ESPAÑOL): ${groupErrors.join(' ')}`
+    return fail(state, 'modifier_rules', errMsg, opts, { item: item.name })
   }
   if (totalPieces(state.lines) + quantity > KORE_MAX_ORDER_ITEMS) {
     return fail(state, 'order_too_large', `A drive-thru order is limited to ${KORE_MAX_ORDER_ITEMS} items.`, opts)
@@ -1618,14 +1634,23 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
     }
   }
   if (failedItems.length === 0) {
-    return ok(working, 'added_batch', `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}`, opts, {
+    const batchMsg =
+      opts?.lang === 'en'
+        ? `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}`
+        : `Agregados (${addedLines.length}): ${addedLines.join(' | ')}. Confirma brevemente 100% en ESPAÑOL.`
+    return ok(working, 'added_batch', batchMsg, opts, {
       added_count: addedLines.length,
       line_ids: lineIds
     })
   }
-  const msg = addedLines.length
-    ? `Added ${addedLines.join(' | ')}; clarify remaining item(s): ${failedItems.map((f) => String(f.message)).join(' ')}`
-    : failedItems.map((f) => String(f.message)).join(' ')
+  const msg =
+    opts?.lang === 'en'
+      ? addedLines.length
+        ? `Added ${addedLines.join(' | ')}; clarify remaining item(s): ${failedItems.map((f) => String(f.message)).join(' ')}`
+        : failedItems.map((f) => String(f.message)).join(' ')
+      : addedLines.length
+        ? `Ya se agregó ${addedLines.join(' | ')}; falta aclarar 100% en ESPAÑOL: ${failedItems.map((f) => String(f.message)).join(' ')} (PROHIBIDO hablar en inglés).`
+        : failedItems.map((f) => String(f.message)).join(' ')
   return fail(working, String(failedItems[0].error_code || 'batch_error'), msg, opts, {
     partial: addedLines.length > 0,
     added_lines: addedLines,
@@ -1921,12 +1946,12 @@ function toolConfirm(state: KoreOrderState, opts?: KoreToolOptions): KoreToolOut
       'confirmed',
       isEn
         ? `Driver pickup confirmed (${state.driverPickup.platform}, ${count} order${count === 1 ? '' : 's'}, total $0.00). Confirm the ${count} order(s) briefly in English ONLY and ask the driver to pull forward to Drive-Thru Window 2.`
-        : `Driver pickup confirmed (${state.driverPickup.platform}, ${count} order${count === 1 ? '' : 's'}, total $0.00). Confirm the ${count} order(s) briefly and ask the driver to pull forward to Drive-Thru Window 2 (ventana 2).`,
+        : `Recolección de repartidor confirmada (${state.driverPickup.platform}, ${count} orden${count === 1 ? '' : 'es'}, total $0.00). Confirma brevemente en ESPAÑOL y pide avanzar a la Ventana 2 (PROHIBIDO hablar en inglés).`,
       opts,
       { window_number: 2 }
     )
   }
-  if (state.lines.length === 0) return fail(state, 'empty_order', 'The order is empty; nothing to confirm.', opts)
+  if (state.lines.length === 0) return fail(state, 'empty_order', isEn ? 'The order is empty; nothing to confirm.' : 'La orden está vacía; aún no hay nada que confirmar.', opts)
   const warnings = state.status === 'cancelled' ? ['The order had been cancelled; it is now restored and confirmed.'] : []
   const next = bump(state, state.lines, { status: 'confirmed' })
   return ok(
@@ -1934,9 +1959,14 @@ function toolConfirm(state: KoreOrderState, opts?: KoreToolOptions): KoreToolOut
     'confirmed',
     isEn
       ? 'Order confirmed (SIMULATION, not sent to the kitchen). In 100% English ONLY, read back the items + exact total and briefly ask "Does everything look right?"; once the customer confirms and there is nothing else, call end_session to send them to the window and close the car session.'
-      : 'Order confirmed (SIMULATION, not sent to the kitchen). Read back the items + exact total and briefly ask "¿Está correcta su orden?" / "Does everything look right?"; once the customer confirms and there is nothing else, call end_session to send them to the window and close the car session.',
+      : 'Orden confirmada (SIMULACIÓN). Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés; cuando confirme que no falta nada, llama end_session).',
     opts,
-    warnings.length ? { warnings } : undefined
+    {
+      instruction: isEn
+        ? 'Read back the items + exact total in 100% English ONLY and ask "Does everything look right?".'
+        : 'Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés).',
+      ...(warnings.length ? { warnings } : {})
+    }
   )
 }
 
@@ -1956,14 +1986,15 @@ function toolCancel(state: KoreOrderState, args: Record<string, any>, opts?: Kor
           ebt_accepted_in_city: true,
           instruction: isEn
             ? 'EBT is NOT accepted at the Drive-Thru window, but IS valid in this city inside at the dining-room counter. Reply in English ONLY: "We gladly accept EBT inside at the dining-room counter, just not at the Drive-Thru window."'
-            : 'EBT is NOT accepted at the Drive-Thru window, but IS valid in this city inside at the dining-room counter. Kindly tell the customer they can pay with EBT inside at the dining-room counter (ES: "Con gusto, el pago con EBT se hace adentro en el mostrador del comedor.").'
+            : 'El pago con EBT NO se recibe en ventanilla de Drive-Thru, pero SÍ es válido en esta ciudad adentro en el mostrador del comedor. Responde 100% en ESPAÑOL: "Con gusto, el pago con EBT se hace adentro en el mostrador del comedor." (PROHIBIDO hablar en inglés).'
         }
       : {
           ebt_dining_room_only: false,
           ebt_accepted_in_city: false,
           ebt_not_accepted_in_city: true,
-          instruction:
-            'EBT is NOT valid or accepted in this city (neither at the Drive-Thru nor inside the dining room; only cash, debit/credit cards, Apple Pay and Google Pay). Kindly explain that EBT is not available at this location.'
+          instruction: isEn
+            ? 'EBT is NOT valid or accepted in this city (neither at the Drive-Thru nor inside the dining room; only cash, debit/credit cards, Apple Pay and Google Pay). Kindly explain in English that EBT is not available at this location.'
+            : 'En esta ciudad NO se acepta EBT ni en comedor ni en Drive-Thru (solo efectivo, tarjetas, Apple Pay y Google Pay). Explícalo amablemente 100% en ESPAÑOL.'
         }
     : {}
   if (state.status === 'cancelled') {
@@ -1975,10 +2006,14 @@ function toolCancel(state: KoreOrderState, args: Record<string, any>, opts?: Kor
   }
   const next = bump(state, state.lines, { status: 'cancelled', ...(reason ? { cancelReason: reason } : {}) })
   const msg = !isEbt
-    ? 'Order cancelled.'
+    ? isEn ? 'Order cancelled.' : 'Orden cancelada.'
     : ebtValidInCity
-      ? 'Order cancelled so the customer can pay with EBT inside at the dining-room counter.'
-      : 'Order cancelled because EBT is not valid/accepted in this city.'
+      ? isEn
+        ? 'Order cancelled so the customer can pay with EBT inside at the dining-room counter.'
+        : 'Orden cancelada para que el cliente pase a pagar con EBT al mostrador del comedor.'
+      : isEn
+        ? 'Order cancelled because EBT is not valid/accepted in this city.'
+        : 'Orden cancelada porque en esta ciudad no se acepta EBT.'
   return ok(next, 'cancelled', msg, opts, { ...(reason ? { reason } : {}), ...ebtExtra })
 }
 
@@ -1999,7 +2034,7 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
         reason,
         instruction: isEn
           ? 'Give ONE brief warm goodbye in English ONLY (with NO question); the session will close automatically right after your audio finishes.'
-          : 'Give ONE brief warm goodbye; the session will close automatically right after your audio finishes.'
+          : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (SIN hacer ninguna pregunta); la sesión se cerrará automáticamente al terminar tu voz.'
       }
     }
   }
@@ -2019,7 +2054,7 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
         reason,
         instruction: isEn
           ? 'Give ONE brief warm send-off in English ONLY (e.g. "Awesome, thank you! Please pull forward to the window.") with NO question; the lane session will close automatically right after your audio finishes.'
-          : 'Give ONE brief warm send-off (e.g. "¡Perfecto, muchas gracias! Pase a la ventanilla por favor." / "Awesome, thank you! Please pull forward to the window.") with NO question; the lane session will close automatically right after your audio finishes.'
+          : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (ej. "¡Perfecto, muchas gracias! Pase a la ventanilla por favor.") SIN ninguna pregunta; la sesión se cerrará automáticamente al terminar tu voz.'
       }
     }
   }
@@ -2086,7 +2121,7 @@ const KORE_LANG_NEUTRAL_MENU_WORDS = new Set([
   'champurrado', 'cebolla', 'cilantro', 'frijol', 'frijoles', 'olla', 'salsa', 'salsas',
   'roja', 'verde', 'guacamole', 'crema', 'queso', 'tortilla', 'tortillas', 'maiz', 'harina',
   'limon', 'limones', 'jalapeno', 'jalapenos', 'arroz', 'chips', 'totopos',
-  'regular', 'super', 'supreme', 'supremo', 'suprema',
+  'regular', 'super', 'supreme', 'supremo', 'suprema', 'extra', 'extras', 'normal', 'menu', 'auto',
   'uber', 'eats', 'doordash', 'grubhub', 'caviar', 'postmates', 'ebt', 'calfresh', 'snap',
   'tacosgavilan', 'gavilan', 'coca', 'cola', 'sprite', 'fanta', 'pepsi', 'jarritos', 'sidral',
   'mundet', 'sangria', 'senorial', 'agua', 'aguas', 'fresca', 'frescas',
@@ -2162,22 +2197,22 @@ export function detectKoreSpokenLanguage(text: string, fallback: 'es' | 'en' = '
     else if (KORE_LANG_ES_WORDS.has(tok)) esScore += 1
   }
 
-  if (enScore > 0 && enScore >= esScore) return 'en'
+  if (enScore > esScore) return 'en'
   if (esScore > enScore) return 'es'
   return fallback
 }
 
 function attachToolLanguageDirective(outcome: KoreToolOutcome, opts?: KoreToolOptions): KoreToolOutcome {
-  if (opts?.lang !== 'en' && opts?.lang !== 'es') return outcome
+  const effectiveLang: 'es' | 'en' = opts?.lang === 'en' ? 'en' : 'es'
   const languageDirective =
-    opts.lang === 'en'
+    effectiveLang === 'en'
       ? 'CRITICAL: Customer is speaking ENGLISH. Reply 100% in natural English ONLY (NEVER in Spanish).'
-      : 'El cliente habla español; responde en español.'
+      : 'CRÍTICO: El cliente habló en ESPAÑOL. Responde ESTRICTAMENTE 100% en ESPAÑOL (PROHIBIDO usar frases en inglés como "Sure thing", "Got it" o "Does everything look right?").'
   return {
     state: outcome.state,
     result: {
       ...outcome.result,
-      reply_language: opts.lang,
+      reply_language: effectiveLang,
       language_directive: languageDirective
     }
   }
