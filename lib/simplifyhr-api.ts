@@ -355,8 +355,8 @@ const globalApiLimiter = new ConcurrencyLimiter(6)
 // AUTENTICACIÓN CON MUTEX Y REINTENTOS
 // ==========================================
 export async function getSimplifyHrAuthToken(forceRefresh = false): Promise<string> {
-  const user = process.env.SIMPLIFYHR_USER
-  const pass = process.env.SIMPLIFYHR_PASS
+  const user = process.env.SIMPLIFYHR_USER?.trim()
+  const pass = process.env.SIMPLIFYHR_PASS?.trim()
   if (!user || !pass) {
     throw new Error('Variables de entorno SIMPLIFYHR_USER o SIMPLIFYHR_PASS no configuradas')
   }

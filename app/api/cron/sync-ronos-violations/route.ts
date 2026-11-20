@@ -24,8 +24,8 @@
  *   - Modo de Simulación Segura (`general_only=true` + `test_to`): evalúa todas las tiendas en vivo con datos reales
  *     sin enviar correos a empleados ni gerentes ni escribir en `ronos_violation_notifications`, despachando únicamente
  *     el `[SIMULACIÓN] Reporte General Diario de Auditoría RONOS (Todas las Tiendas)` al correo `test_to`.
- *   - Ventana horaria en `America/Los_Angeles` (`11:50 AM – 12:30 PM`) para que el par de crons UTC (`59 18 * * *` y `59 19 * * *`)
- *     ejecute exactamente una vez al día todo el año (PST y PDT).
+ *   - Ventana horaria en `America/Los_Angeles` (`11:55 AM – 12:55 PM`) para que el par de crons UTC (`59 18 * * *` y `59 19 * * *`)
+ *     ejecute exactamente una vez al día todo el año (PST y PDT), absorbiendo hasta 56 min de jitter de despacho en Vercel.
  *   - Día laboral de Tacos Gavilan: 6:00 AM a 5:59 AM del siguiente día.
  *
  * @dataFlow
@@ -42,6 +42,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { authorizeStoreScope, getServerUser } from '@/lib/auth-server'
 import {
   getPacificBusinessDate,
+  getRonosAuthToken,
   getRonosStoreAudit,
   getRonosWeeks,
   mapConcurrent,
@@ -219,14 +220,14 @@ async function handleSyncRonosViolations(req: Request) {
   const hasExplicitOverride =
     forceRun || isDryRun || Boolean(testTo) || Boolean(explicitDateParam) || generalOnly
 
-  const inScheduledWindow = laTotalMinutes >= 11 * 60 + 50 && laTotalMinutes <= 12 * 60 + 30
+  const inScheduledWindow = laTotalMinutes >= 11 * 60 + 55 && laTotalMinutes <= 12 * 60 + 55
   if (!hasExplicitOverride && !inScheduledWindow) {
     return NextResponse.json({
       success: true,
       skipped: true,
       la_hour: laHour,
       la_minute: laMinute,
-      reason: 'Waiting for 11:50 AM–12:30 PM America/Los_Angeles execution window',
+      reason: 'Waiting for 11:55 AM–12:55 PM America/Los_Angeles execution window',
     })
   }
 
@@ -374,6 +375,26 @@ async function handleSyncRonosViolations(req: Request) {
         stores_processed: [],
         duration_ms: Date.now() - startTime,
       })
+    }
+
+    // 3b. Pre-validar sesión OAuth2 en RONOS antes de iterar las tiendas:
+    //     1) Pre-calienta `cachedSession` una sola vez para el pool concurrente.
+    //     2) Si faltan credenciales (`RONOS_USER` / `RONOS_PASS`) o RONOS rechaza el login,
+    //        retorna HTTP 500 explícito en lugar de omitir silenciosamente las 15 sucursales.
+    try {
+      await getRonosAuthToken(forceRun)
+    } catch (authErr: any) {
+      const msg = authErr?.message || String(authErr)
+      console.error('[CRON 11:59 AM RONOS NHP] Fatal RONOS Auth failure:', msg)
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Fallo de autenticación con RONOS API: ${msg}`,
+          business_date: targetDate,
+          duration_ms: Date.now() - startTime,
+        },
+        { status: 500 }
+      )
     }
 
     // 4. Auditar cada tienda con concurrencia controlada (pool de 4 tiendas)

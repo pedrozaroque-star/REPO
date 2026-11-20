@@ -131,15 +131,15 @@ async function handleSyncViolations(req: Request) {
         forceRun || isDryRun || Boolean(testTo) || url.searchParams.has('date')
 
     // Evitar disparo prematuro a las 10:59 AM PST en invierno o doble corrida a las 12:59 PM PDT en verano,
-    // absorbiendo cualquier jitter de despacho de Vercel tras las 11:59 AM (ej. 12:00 PM – 12:25 PM).
-    const inScheduledWindow = laTotalMinutes >= 11 * 60 + 50 && laTotalMinutes <= 12 * 60 + 30
+    // absorbiendo hasta 56 min de jitter de despacho de Vercel tras las 11:59 AM (11:55 AM – 12:55 PM LA).
+    const inScheduledWindow = laTotalMinutes >= 11 * 60 + 55 && laTotalMinutes <= 12 * 60 + 55
     if (!hasExplicitOverride && !inScheduledWindow) {
         return NextResponse.json({
             success: true,
             skipped: true,
             la_hour: laHour,
             la_minute: laMinute,
-            reason: 'Waiting for 11:50 AM–12:30 PM America/Los_Angeles execution window',
+            reason: 'Waiting for 11:55 AM–12:55 PM America/Los_Angeles execution window',
         })
     }
 

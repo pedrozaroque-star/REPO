@@ -543,8 +543,8 @@ export async function getRonosAuthToken(forceRefresh = false): Promise<string> {
   }
 
   authPromiseMutex = (async () => {
-    const username = process.env.RONOS_USER
-    const password = process.env.RONOS_PASS
+    const username = process.env.RONOS_USER?.trim()
+    const password = process.env.RONOS_PASS?.trim()
 
     if (!username || !password) {
       authPromiseMutex = null
@@ -775,6 +775,26 @@ export async function getRonosWeeks(ronosCompanyId: number, forceRefresh = false
     return sortedWeeks.length > 0 ? sortedWeeks : staleDbWeeks
   } catch (apiErr: any) {
     console.error(`[RONOS Weeks] Error crítico consultando semanas para compañía ${ronosCompanyId}:`, apiErr?.message || String(apiErr))
+    if (staleDbWeeks.length === 0) {
+      try {
+        const { data: fallbackWeeks, error: fbErr } = await supabaseAdmin
+          .from('ronos_work_weeks')
+          .select('week_id, company_id, start_date, end_date')
+          .eq('company_id', ronosCompanyId)
+          .order('start_date', { ascending: false })
+        if (!fbErr && Array.isArray(fallbackWeeks) && fallbackWeeks.length > 0) {
+          const parsedFb = fallbackWeeks.map(w => ({
+            weekId: safeNum(w.week_id),
+            companyId: safeNum(w.company_id, ronosCompanyId),
+            startDate: String(w.start_date || ''),
+            endDate: String(w.end_date || '')
+          })).filter(w => w.weekId > 0)
+          staleDbWeeks = sortWeeksChronologically(parsedFb, 'desc')
+        }
+      } catch (fbCatchErr) {
+        console.warn(`[RONOS Weeks] Error en fallback Supabase para compañía ${ronosCompanyId}:`, fbCatchErr)
+      }
+    }
     return staleDbWeeks
   }
 }

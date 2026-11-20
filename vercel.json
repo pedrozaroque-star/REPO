@@ -13,7 +13,7 @@
         },
         {
             "path": "/api/cron/sync-labor",
-            "schedule": "50 19 * * *"
+            "schedule": "50 18,19 * * *"
         },
         {
             "path": "/api/cron/sync-reviews",
@@ -57,11 +57,11 @@
         },
         {
             "path": "/api/cron/sync-daily-payroll",
-            "schedule": "59 18 * * *"
+            "schedule": "54 18 * * *"
         },
         {
             "path": "/api/cron/sync-daily-payroll",
-            "schedule": "59 19 * * *"
+            "schedule": "54 19 * * *"
         },
         {
             "path": "/api/inventory/sync-quickbooks",

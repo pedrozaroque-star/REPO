@@ -14,6 +14,7 @@
  * @notes
  *   - Admite ejecución manual vía GET o POST con parámetros opcionales (?store_id=X&force=true).
  *   - Requiere CRON_SECRET; valida store_id, weeks y force antes de ejecutar escrituras.
+ *   - Timeout extendido a maxDuration = 300s (Vercel Pro) para escanear hasta 15 tiendas × 4 semanas sin corte.
  */
 
 import { NextResponse } from 'next/server'
@@ -21,7 +22,7 @@ import { syncRonosAbsencesToSchedules } from '@/lib/sync-ronos-absences'
 import { getCronSecret } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   try {

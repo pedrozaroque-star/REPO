@@ -7,19 +7,19 @@
  *   - Detecta cheques de separación / finiquitos (supplemental batches) y concilia facturas PEO de Cingular HR.
  *
  * @businessRules
- *   - El horario de ejecución oficial solicitado por Gerencia General es diariamente a las 11:59 AM PT.
- *   - En horario de verano (PDT, UTC-7): 18:59 UTC ("59 18 * * *").
- *   - En horario estándar (PST, UTC-8): 19:59 UTC ("59 19 * * *").
+ *   - El horario de ejecución oficial es diariamente a las 11:54 AM PT (5 minutos antes de la auditoría RONOS de las 11:59 AM PT).
+ *   - En horario de verano (PDT, UTC-7): 18:54 UTC ("54 18 * * *").
+ *   - En horario estándar (PST, UTC-8): 19:54 UTC ("54 19 * * *").
  *   - El día laboral de Tacos Gavilan inicia a las 6:00 AM y termina a las 5:59 AM del siguiente día.
  *   - Las tarifas se persisten en Supabase (toast_employees.wage_data) como caché offline resiliente.
  *   - Ante fallos de conexión externa, el sistema no colapsa: utiliza la caché persistida y notifica métricas.
  *
  * @dataFlow
- *   Vercel Cron (11:59 AM PT) → sync-daily-payroll → [Simplify HR OS API + RONOS API] → Supabase Cache → Motor de Nómina TEG
+ *   Vercel Cron (11:54 AM PT) → sync-daily-payroll → [Simplify HR OS API + RONOS API] → Supabase Cache → Motor de Nómina TEG
  *
  * @notes
  *   - Protegido con CRON_SECRET para asegurar que solo Vercel Scheduler pueda detonarlo.
- *   - Timeout configurado en maxDuration = 120s para permitir la sincronización completa de las 16 tiendas.
+ *   - Timeout configurado en maxDuration = 300s para permitir la sincronización completa de las 16 tiendas.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -27,13 +27,13 @@ import { syncAllStoresSimplifyHrRates } from '@/lib/simplifyhr-api'
 import { getRonosChainWideAudit } from '@/lib/ronos-api'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300
 
 /**
  * Vercel Cron only accepts UTC schedules. We register the two possible UTC
- * instants for 11:59 AM Los Angeles and allow exactly the one that maps to
- * 11:59 locally. This prevents the inactive DST schedule from running the
- * payroll synchronization an hour early or late.
+ * instants for 11:54 AM Los Angeles ("54 18 * * *" and "54 19 * * *") and allow
+ * 11:50 AM – 12:50 PM LA so up to 56 minutes of Vercel Cron jitter is absorbed
+ * while blocking 10:54 AM PST (winter) and 12:54 PM PDT (summer).
  */
 function isPayrollSyncMinuteInLosAngeles(date = new Date()): boolean {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -46,8 +46,7 @@ function isPayrollSyncMinuteInLosAngeles(date = new Date()): boolean {
   const minute = parseInt(parts.find(part => part.type === 'minute')?.value || '0', 10)
   const hour = rawHour === 24 ? 0 : rawHour
   const totalMinutes = hour * 60 + minute
-  // Acepta 11:50 AM – 12:30 PM LA para absorber el jitter de despacho de Vercel tras las 11:59 AM sin cruzar con 10:59 AM PST ni 12:59 PM PDT
-  return totalMinutes >= 11 * 60 + 50 && totalMinutes <= 12 * 60 + 30
+  return totalMinutes >= 11 * 60 + 50 && totalMinutes <= 12 * 60 + 50
 }
 
 export async function GET(request: NextRequest) {
@@ -58,11 +57,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  if (!isPayrollSyncMinuteInLosAngeles()) {
+  const forceRun = request.nextUrl.searchParams.get('force') === 'true'
+  if (!forceRun && !isPayrollSyncMinuteInLosAngeles()) {
     return NextResponse.json({
       success: true,
       skipped: true,
-      reason: 'Outside the scheduled 11:59 AM America/Los_Angeles minute',
+      reason: 'Outside the scheduled 11:50 AM–12:50 PM America/Los_Angeles window',
       timestamp: new Date().toISOString()
     })
   }
