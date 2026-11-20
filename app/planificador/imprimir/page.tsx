@@ -209,7 +209,9 @@ function PrintViewContent() {
                                 </td>
                                 {weekDays.map((date, i) => {
                                     const dateStr = formatDateISO(date)
-                                    const dayShifts = visibleShifts.filter(s => s.employee_id === emp.id && s.shift_date === dateStr)
+                                    const dayShifts = visibleShifts
+                                        .filter(s => s.employee_id === emp.id && s.shift_date === dateStr)
+                                        .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                     return (
                                         <td key={i} className="py-1 px-1 text-center border border-gray-300 align-top h-[50px]">
                                             {dayShifts.map(s => {

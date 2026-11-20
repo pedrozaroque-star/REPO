@@ -84,6 +84,90 @@ export const getLAHoursMinutes = (input: string | Date): { hour: number; minute:
     };
 }
 
+export const addCalendarDaysISO = (dateStr: string, days: number): string => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const utcNoon = new Date(Date.UTC(y, (m || 1) - 1, d || 1, 12, 0, 0));
+    utcNoon.setUTCDate(utcNoon.getUTCDate() + days);
+    return utcNoon.toISOString().slice(0, 10);
+}
+
+export const laWallClockToDate = (calendarDateStr: string, hour: number, minute: number): Date => {
+    const [y, m, d] = calendarDateStr.split('-').map(Number);
+    const targetUtcRef = Date.UTC(y, (m || 1) - 1, d || 1, hour, minute, 0, 0);
+    let guess = targetUtcRef;
+    for (let i = 0; i < 2; i++) {
+        const la = getLAParts(new Date(guess));
+        const laAsUtc = Date.UTC(la.year, la.month, la.day, la.hour, la.minute, 0, 0);
+        guess += (targetUtcRef - laAsUtc);
+    }
+    return new Date(guess);
+}
+
+/**
+ * Builds exact America/Los_Angeles start & end Date objects for a business date (6:00 AM -> 5:59 AM next day).
+ * - Start times 00:00..05:59 belong to the next calendar morning of the same business date.
+ * - End times <= start time automatically roll into the next calendar day.
+ */
+export const buildShiftTimestampsForBusinessDate = (
+    businessDateStr: string,
+    startHHMM: string,
+    endHHMM: string
+): { start: Date; end: Date } => {
+    const [shRaw, smRaw] = (startHHMM || '09:00').split(':').map(Number);
+    const [ehRaw, emRaw] = (endHHMM || '17:00').split(':').map(Number);
+    const sh = Number.isFinite(shRaw) ? shRaw : 9;
+    const sm = Number.isFinite(smRaw) ? smRaw : 0;
+    const eh = Number.isFinite(ehRaw) ? ehRaw : 17;
+    const em = Number.isFinite(emRaw) ? emRaw : 0;
+
+    const startCalendarDate = sh < 6 ? addCalendarDaysISO(businessDateStr, 1) : businessDateStr;
+    const start = laWallClockToDate(startCalendarDate, sh, sm);
+    let end = laWallClockToDate(startCalendarDate, eh, em);
+    if (end.getTime() <= start.getTime()) {
+        end = laWallClockToDate(addCalendarDaysISO(startCalendarDate, 1), eh, em);
+    }
+    return { start, end };
+}
+
+/**
+ * Detects whether a candidate shift [start_time, end_time) overlaps any existing shift for the same employee.
+ * Back-to-back shifts (candidate start === existing end) do NOT overlap and are allowed.
+ */
+export const findOverlappingShift = (
+    existingShifts: any[],
+    candidate: {
+        employee_id?: string | null;
+        is_open?: boolean;
+        start_time: string | Date;
+        end_time: string | Date;
+        excludeId?: string | null;
+    }
+): any | null => {
+    if (candidate.is_open || !candidate.employee_id || !Array.isArray(existingShifts)) {
+        return null;
+    }
+    const candStart = new Date(candidate.start_time).getTime();
+    const candEnd = new Date(candidate.end_time).getTime();
+    if (!Number.isFinite(candStart) || !Number.isFinite(candEnd) || candEnd <= candStart) {
+        return null;
+    }
+
+    for (const s of existingShifts) {
+        if (!s || s.is_open || !s.employee_id) continue;
+        if (String(s.employee_id) !== String(candidate.employee_id)) continue;
+        if (candidate.excludeId && String(s.id) === String(candidate.excludeId)) continue;
+
+        const exStart = new Date(s.start_time).getTime();
+        const exEnd = new Date(s.end_time).getTime();
+        if (!Number.isFinite(exStart) || !Number.isFinite(exEnd)) continue;
+
+        if (candStart < exEnd && candEnd > exStart) {
+            return s;
+        }
+    }
+    return null;
+}
+
 export const getBusinessTodayISO = (now: Date = new Date()): string => {
     const { hour } = getLAParts(now);
     const todayISO = formatDateISO(now);
@@ -308,7 +392,9 @@ export function buildEmployeeScheduleText(params: {
         const dStr = formatDateISO(d);
         const dayLabel = d.toLocaleDateString(locale, { timeZone: TIMEZONE, weekday: 'short' }).replace('.', '');
         const niceDay = `${dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1)} ${d.getDate()}`;
-        const dayShifts = shifts.filter(s => s.shift_date === dStr);
+        const dayShifts = shifts
+            .filter(s => s.shift_date === dStr)
+            .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
         if (dayShifts.length === 0) {
             lines.push(`• ${niceDay}: ${isEn ? 'OFF' : 'Libre'}`);
         } else {
@@ -352,7 +438,9 @@ export function buildTeamScheduleText(params: {
     weekDays.forEach((d) => {
         const dStr = formatDateISO(d);
         const dayHeader = d.toLocaleDateString(locale, { timeZone: TIMEZONE, weekday: 'short', month: 'short', day: 'numeric' });
-        const dayShifts = shifts.filter(s => s.shift_date === dStr);
+        const dayShifts = shifts
+            .filter(s => s.shift_date === dStr)
+            .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
         lines.push(`*${dayHeader.toUpperCase()}*`);
         if (dayShifts.length === 0) {
             lines.push(isEn ? '  - No shifts scheduled' : '  - Sin turnos programados');

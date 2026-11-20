@@ -72,7 +72,9 @@ import {
     getLAHoursMinutes,
     formatPhoneForWhatsApp,
     buildEmployeeScheduleText,
-    buildTeamScheduleText
+    buildTeamScheduleText,
+    buildShiftTimestampsForBusinessDate,
+    findOverlappingShift
 } from '../lib/utils'
 import { useLanguage } from '@/lib/i18n'
 import Link from 'next/link'
@@ -443,12 +445,22 @@ export function MobilePlannerView({
             isOvernight = true
         }
 
-        const start = new Date(selectedDate)
-        start.setHours(startHour, startMin, 0, 0)
+        const startHHMM = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`
+        const endHHMM = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`
+        const { start, end } = buildShiftTimestampsForBusinessDate(dateStr, startHHMM, endHHMM)
 
-        const end = new Date(selectedDate)
-        if (isOvernight) end.setDate(end.getDate() + 1)
-        end.setHours(endHour, endMin, 0, 0)
+        const conflict = findOverlappingShift(shifts, {
+            employee_id: emp.id,
+            is_open: false,
+            start_time: start,
+            end_time: end
+        })
+        if (conflict) {
+            const conflictRange = `${formatTime12h(conflict.start_time)} - ${formatTime12h(conflict.end_time)}`
+            showToast(t('planner.modal_shift.overlap_error').replace('{time}', conflictRange), 'error')
+            setSelectedEmployeeForPreset(null)
+            return
+        }
 
         const shiftPayload = {
             employee_id: emp.id,
@@ -479,26 +491,28 @@ export function MobilePlannerView({
             const nextDayDate = addDays(selectedDate, 1)
             const nextDayStr = formatDateISO(nextDayDate)
 
+            const originalStart = new Date(shift.start_time)
+            const originalEnd = new Date(shift.end_time)
+            const durationMs = Math.max(0, originalEnd.getTime() - originalStart.getTime())
+            const origLA = getLAHoursMinutes(shift.start_time)
+
+            const { start: newStart } = buildShiftTimestampsForBusinessDate(nextDayStr, origLA.hhmm, origLA.hhmm)
+            const newEnd = new Date(newStart.getTime() + durationMs)
+
             if (shift.employee_id) {
-                const existingTomorrow = shifts.find(
-                    s => String(s.employee_id) === String(shift.employee_id) && s.shift_date === nextDayStr
-                )
-                if (existingTomorrow) {
-                    const existingRange = `${formatTime12h(existingTomorrow.start_time)} - ${formatTime12h(existingTomorrow.end_time)}`
+                const overlappingTomorrow = findOverlappingShift(shifts, {
+                    employee_id: shift.employee_id,
+                    is_open: shift.is_open || false,
+                    start_time: newStart,
+                    end_time: newEnd
+                })
+                if (overlappingTomorrow) {
+                    const existingRange = `${formatTime12h(overlappingTomorrow.start_time)} - ${formatTime12h(overlappingTomorrow.end_time)}`
                     showToast(t('planner.mobile.already_has_shift_tomorrow').replace('{time}', existingRange), 'error')
                     setSelectedShiftForActions(null)
                     return
                 }
             }
-
-            const originalStart = new Date(shift.start_time)
-            const originalEnd = new Date(shift.end_time)
-            const durationMs = Math.max(0, originalEnd.getTime() - originalStart.getTime())
-            const { hour: startH, minute: startM } = getLAHoursMinutes(shift.start_time)
-
-            const newStart = new Date(nextDayDate)
-            newStart.setHours(startH, startM, 0, 0)
-            const newEnd = new Date(newStart.getTime() + durationMs)
 
             const duplicatePayload = {
                 employee_id: shift.employee_id,
@@ -1026,7 +1040,9 @@ export function MobilePlannerView({
                                 </div>
                             ) : (
                                 filteredEmployees.map((emp) => {
-                                    const empShifts = dayShifts.filter(s => String(s.employee_id) === String(emp.id))
+                                    const empShifts = dayShifts
+                                        .filter(s => String(s.employee_id) === String(emp.id))
+                                        .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                     const hasShift = empShifts.length > 0
                                     const jobTitle = getEmployeeJobTitle(emp)
                                     const jobColor = stringToColor(jobTitle)
@@ -1163,6 +1179,17 @@ export function MobilePlannerView({
                                                             </div>
                                                         )
                                                     })}
+
+                                                    {canEdit && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onAddShift(selectedDate, emp.id)}
+                                                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/25 hover:bg-indigo-100/80 dark:hover:bg-indigo-950/45 text-indigo-600 dark:text-indigo-400 font-black text-[11px] uppercase tracking-wider border border-dashed border-indigo-200 dark:border-indigo-800/70 active:scale-[0.99] transition-all"
+                                                        >
+                                                            <Plus size={13} />
+                                                            <span>{t('planner.mobile.add_second_shift')}</span>
+                                                        </button>
+                                                    )}
 
                                                     {(realIn || realOut || (matchedPunch?.breaks && matchedPunch.breaks.length > 0)) && (
                                                         <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-0.5">
@@ -1316,9 +1343,9 @@ export function MobilePlannerView({
                                                     <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
                                                         {empTotalHrs.toFixed(1)} {t('planner.mobile.hours_short')}
                                                     </span>
-                                                    {empTotalHrs > 40 && (
+                                                    {(weeklyEmpStats?.[emp.id]?.totalOT > 0 || empTotalHrs > 40) && (
                                                         <div className="text-[10px] font-black text-red-600 dark:text-red-400">
-                                                            +{(empTotalHrs - 40).toFixed(1)}h OT
+                                                            +{(weeklyEmpStats?.[emp.id]?.totalOT ?? Math.max(0, empTotalHrs - 40)).toFixed(1)}h OT
                                                         </div>
                                                     )}
                                                 </div>
@@ -1329,7 +1356,9 @@ export function MobilePlannerView({
                                                 {weekDays.map((d) => {
                                                     const dIso = formatDateISO(d)
                                                     const dayLetter = d.toLocaleDateString(locale, { weekday: 'short' }).replace('.', '').slice(0, 2)
-                                                    const dayMatches = empWeekShifts.filter(s => s.shift_date === dIso)
+                                                    const dayMatches = empWeekShifts
+                                                        .filter(s => s.shift_date === dIso)
+                                                        .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                                     const firstShift = dayMatches[0]
                                                     const dayHasDraft = dayMatches.some(s => s.status === 'draft')
 
@@ -1358,9 +1387,13 @@ export function MobilePlannerView({
                                                                 {dayLetter} {d.getDate()}
                                                             </span>
                                                             {firstShift ? (
-                                                                <div className="mt-0.5 text-[9px] font-black text-indigo-900 dark:text-indigo-200 leading-tight text-center">
-                                                                    <div>{formatCompactTime(firstShift.start_time)}</div>
-                                                                    <div className="opacity-75">{formatCompactTime(firstShift.end_time)}</div>
+                                                                <div className="mt-0.5 text-[9px] font-black text-indigo-900 dark:text-indigo-200 leading-tight text-center space-y-0.5">
+                                                                    {dayMatches.map((dm: any) => (
+                                                                        <div key={dm.id} className={dayMatches.length > 1 ? 'border-b last:border-b-0 border-indigo-200/60 dark:border-indigo-800/60 pb-0.5 last:pb-0' : ''}>
+                                                                            <div>{formatCompactTime(dm.start_time)}</div>
+                                                                            <div className="opacity-75">{formatCompactTime(dm.end_time)}</div>
+                                                                        </div>
+                                                                    ))}
                                                                 </div>
                                                             ) : (
                                                                 <span className="text-xs font-bold text-gray-300 dark:text-slate-600 mt-1">—</span>
@@ -1678,6 +1711,19 @@ export function MobilePlannerView({
 
                                 <button
                                     type="button"
+                                    onClick={() => {
+                                        const { employee } = selectedShiftForActions
+                                        setSelectedShiftForActions(null)
+                                        onAddShift(selectedDate, employee.id)
+                                    }}
+                                    className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-bold text-xs active:scale-98 transition-all"
+                                >
+                                    <Plus size={18} />
+                                    <span>{t('planner.mobile.add_second_shift')}</span>
+                                </button>
+
+                                <button
+                                    type="button"
                                     onClick={handleDuplicateToNextDay}
                                     className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-xs active:scale-98 transition-all"
                                 >
@@ -1848,7 +1894,9 @@ export function MobilePlannerView({
                                         {weekDays.map((d) => {
                                             const dayIso = formatDateISO(d)
                                             const dayLabel = d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' })
-                                            const dayMatchShifts = empWeekShifts.filter(s => s.shift_date === dayIso)
+                                            const dayMatchShifts = empWeekShifts
+                                                .filter(s => s.shift_date === dayIso)
+                                                .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                             const isSelectedDay = dayIso === dateStr
 
                                             return (
@@ -1898,18 +1946,31 @@ export function MobilePlannerView({
                                 {canEdit && (
                                     <div className="pt-1">
                                         {todayShift ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const s = todayShift
-                                                    setSelectedEmployeeForContact(null)
-                                                    onEditShift(s, selectedDate, emp.id)
-                                                }}
-                                                className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-black text-xs active:scale-98 transition-all"
-                                            >
-                                                <Settings size={15} />
-                                                <span>{t('planner.mobile.edit_shift')} ({formatTime12h(todayShift.start_time)} - {formatTime12h(todayShift.end_time)})</span>
-                                            </button>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const s = todayShift
+                                                        setSelectedEmployeeForContact(null)
+                                                        onEditShift(s, selectedDate, emp.id)
+                                                    }}
+                                                    className="flex items-center justify-center gap-1.5 p-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-black text-xs active:scale-98 transition-all"
+                                                >
+                                                    <Settings size={15} />
+                                                    <span className="truncate">{t('planner.mobile.edit_shift')}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedEmployeeForContact(null)
+                                                        onAddShift(selectedDate, emp.id)
+                                                    }}
+                                                    className="flex items-center justify-center gap-1.5 p-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs active:scale-98 transition-all shadow-xs"
+                                                >
+                                                    <Plus size={15} />
+                                                    <span className="truncate">{t('planner.mobile.add_second_shift')}</span>
+                                                </button>
+                                            </div>
                                         ) : (
                                             <button
                                                 type="button"

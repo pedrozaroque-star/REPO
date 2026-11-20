@@ -39,7 +39,7 @@ import { useLanguage } from '@/lib/i18n'
 
 // Libs & Types
 import { Shift, Employee, Job } from './lib/types'
-import { toast, formatDateISO, formatDateNice, addDays, getMonday, getRoleWeight, formatStoreName } from './lib/utils'
+import { toast, formatDateISO, formatDateNice, formatTime12h, addDays, getMonday, getRoleWeight, formatStoreName, getLAHoursMinutes, buildShiftTimestampsForBusinessDate, findOverlappingShift } from './lib/utils'
 import { evaluatePunchBreakViolation } from '@/lib/break-violations-policy'
 
 // Components
@@ -471,12 +471,19 @@ export default function SchedulePlanner() {
             let userStoreId: any = null
 
             if (user) {
-                const { data: uData } = await supabase.from('users').select('google_email_connected, role, store_id').eq('id', user.id).single()
+                const { data: uData } = await supabase.from('users').select('email, google_email_connected, role, store_id').eq('id', user.id).single()
 
                 if (uData) {
-                    if (uData.google_email_connected) {
+                    const isProtectedExec = (em?: string | null) => {
+                        const c = String(em || '').trim().toLowerCase()
+                        return c === 'carlos@tacosgavilan.com' || c === 'roque@tacosgavilan.com'
+                    }
+                    if (uData.google_email_connected && !isProtectedExec(uData.google_email_connected) && !isProtectedExec(uData.email)) {
                         setGoogleConnected(true)
                         setGoogleEmail(uData.google_email_connected)
+                    } else if (isProtectedExec(uData.email) || isProtectedExec(uData.google_email_connected) || (uData.role || '').toLowerCase() === 'admin') {
+                        setGoogleConnected(true)
+                        setGoogleEmail('noreply@tacosgavilan.com')
                     }
                     userRole = uData.role || 'staff'
                     userStoreId = uData.store_id
@@ -543,6 +550,61 @@ export default function SchedulePlanner() {
         }
         if (user) checkGoogleAndBasics()
     }, [user])
+
+    // --- STORE SENDER BADGE SYNC (Reflect active Store Manager OAuth or noreply@tacosgavilan.com) ---
+    useEffect(() => {
+        if (!selectedStoreId || !user) return
+        let cancelled = false
+        ;(async () => {
+            try {
+                const supabase = await getSupabaseClient()
+                const isProtectedExec = (em?: string | null) => {
+                    const c = String(em || '').trim().toLowerCase()
+                    return c === 'carlos@tacosgavilan.com' || c === 'roque@tacosgavilan.com'
+                }
+
+                const { data: mgrs } = await supabase
+                    .from('users')
+                    .select('email, google_email_connected, role, is_active')
+                    .eq('store_id', Number(selectedStoreId))
+                    .in('role', ['manager', 'gerente'])
+                    .eq('is_active', true)
+                    .order('id', { ascending: true })
+
+                const activeStoreMgr = (mgrs || []).find(
+                    (m: any) => m.google_email_connected && !isProtectedExec(m.email) && !isProtectedExec(m.google_email_connected)
+                )
+
+                if (cancelled) return
+
+                if (activeStoreMgr?.google_email_connected) {
+                    setGoogleConnected(true)
+                    setGoogleEmail(activeStoreMgr.google_email_connected)
+                    return
+                }
+
+                const { data: uData } = await supabase
+                    .from('users')
+                    .select('email, google_email_connected, role')
+                    .eq('id', user.id)
+                    .maybeSingle()
+
+                if (cancelled) return
+
+                if (uData?.google_email_connected && !isProtectedExec(uData.email) && !isProtectedExec(uData.google_email_connected)) {
+                    setGoogleConnected(true)
+                    setGoogleEmail(uData.google_email_connected)
+                } else {
+                    // System OAuth fallback (noreply@tacosgavilan.com) powers stores without individual manager OAuth (e.g., Bell)
+                    setGoogleConnected(true)
+                    setGoogleEmail('noreply@tacosgavilan.com')
+                }
+            } catch (err) {
+                console.warn('Error resolving store sender email:', err)
+            }
+        })()
+        return () => { cancelled = true }
+    }, [selectedStoreId, user])
 
     // --- PERSISTENCE WATCHER (Save state on change) ---
     useEffect(() => {
@@ -915,27 +977,30 @@ export default function SchedulePlanner() {
                 }
             })
 
-            // 1. Generate optimistic shifts and apply to UI state
-            const optimisticItems: Shift[] = shiftData.map((s, idx) => ({
-                ...s,
-                id: s.id || `temp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-                store_id: storeGuid,
-                status: 'draft'
-            }))
+            // 1. Generate optimistic shifts with computed shift_date (supports multiple shifts on the same day without overwriting!)
+            const optimisticItems: Shift[] = shiftData.map((s, idx) => {
+                const formatted = formatShiftPayload(s)
+                return {
+                    ...formatted,
+                    id: s.id || `temp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+                    store_id: storeGuid,
+                    status: 'draft'
+                }
+            })
 
             setShifts(prev => {
-                let updated = [...prev]
+                const updated = [...prev]
                 optimisticItems.forEach(opt => {
                     const optId = opt.id || ''
                     const isTemp = optId.startsWith('temp-')
-                    const matchIdx = updated.findIndex(s => {
-                        const sId = s.id || ''
-                        if (sId && sId === optId) return true
-                        if (isTemp && opt.employee_id && s.employee_id === opt.employee_id && s.shift_date === opt.shift_date) return true
-                        return false
-                    })
-                    if (matchIdx >= 0) updated[matchIdx] = opt
-                    else updated.push(opt)
+                    if (!isTemp) {
+                        const matchIdx = updated.findIndex(s => String(s.id || '') === optId)
+                        if (matchIdx >= 0) {
+                            updated[matchIdx] = opt
+                            return
+                        }
+                    }
+                    updated.push(opt)
                 })
                 return updated
             })
@@ -943,6 +1008,7 @@ export default function SchedulePlanner() {
             // 2. Separate into updates and inserts
             const toUpdate = optimisticItems.filter(s => s.id && !s.id.startsWith('temp-'))
             const toInsert = optimisticItems.filter(s => !s.id || s.id.startsWith('temp-'))
+            const tempInsertIds = toInsert.map(s => s.id!)
 
             try {
                 // Execute individual updates
@@ -974,14 +1040,10 @@ export default function SchedulePlanner() {
 
                 if (savedRows.length > 0) {
                     setShifts(prev => {
-                        let current = [...prev]
+                        // Remove temporary placeholders created for this batch before merging real DB rows
+                        const current = prev.filter(s => !tempInsertIds.includes(String(s.id || '')))
                         savedRows.forEach(row => {
-                            const matchIdx = current.findIndex(s => {
-                                const sId = s.id || ''
-                                if (sId && sId === row.id) return true
-                                if (sId.startsWith('temp-') && s.employee_id === row.employee_id && s.shift_date === row.shift_date) return true
-                                return false
-                            })
+                            const matchIdx = current.findIndex(s => String(s.id || '') === String(row.id))
                             const rowWithDraft = { ...row, status: 'draft' as const }
                             if (matchIdx >= 0) current[matchIdx] = rowWithDraft
                             else current.push(rowWithDraft)
@@ -1010,13 +1072,19 @@ export default function SchedulePlanner() {
             }
         }
 
-        const tempId = shiftData.id || `temp-${Date.now()}`
-        const optimisticShift: Shift = { ...shiftData, id: tempId, store_id: storeGuid, status: 'draft' }
+        const payload = formatShiftPayload(shiftData)
+        const tempId = shiftData.id || `temp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
+        const optimisticShift: Shift = {
+            ...shiftData,
+            shift_date: payload.shift_date,
+            id: tempId,
+            store_id: storeGuid,
+            status: 'draft'
+        }
 
         if (shiftData.id) setShifts(prev => prev.map(s => s.id === shiftData.id ? optimisticShift : s))
         else setShifts(prev => [...prev, optimisticShift])
 
-        const payload = formatShiftPayload(shiftData)
         delete payload.id
 
         let result;
@@ -1659,10 +1727,24 @@ export default function SchedulePlanner() {
         const duration = new Date(draggedShift.end_time).getTime() - new Date(draggedShift.start_time).getTime()
         const targetDateStr = formatDateISO(targetDate)
 
-        const origStart = new Date(draggedShift.start_time)
-        const newStart = new Date(targetDate)
-        newStart.setHours(origStart.getHours(), origStart.getMinutes(), 0, 0)
+        const origLA = getLAHoursMinutes(draggedShift.start_time)
+        const { start: newStart } = buildShiftTimestampsForBusinessDate(targetDateStr, origLA.hhmm, origLA.hhmm)
         const newEnd = new Date(newStart.getTime() + duration)
+
+        const conflict = findOverlappingShift(shifts, {
+            employee_id: targetEmpId,
+            is_open: !targetEmpId,
+            start_time: newStart,
+            end_time: newEnd,
+            excludeId: isCopy ? null : draggedShift.id
+        })
+
+        if (conflict) {
+            const conflictTime = `${formatTime12h(conflict.start_time)} - ${formatTime12h(conflict.end_time)}`
+            toast.error(t('planner.modal_shift.overlap_error').replace('{time}', conflictTime))
+            setDraggedShift(null)
+            return
+        }
 
         const payload: any = {
             employee_id: targetEmpId,
@@ -1987,7 +2069,7 @@ export default function SchedulePlanner() {
                                             emp={emp}
                                             totals={laborStats[emp.id]}
                                             weekDays={weekDays}
-                                            getShiftsForCell={(id: string | null, d: Date) => shifts.filter(s => (s.employee_id === id) && s.shift_date === formatDateISO(d))}
+                                            getShiftsForCell={(id: string | null, d: Date) => shifts.filter(s => (s.employee_id === id) && s.shift_date === formatDateISO(d)).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())}
                                             jobs={jobs}
                                             weeklyStats={shiftStats}
                                             punches={punches}

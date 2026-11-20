@@ -1479,7 +1479,9 @@ export async function POST(req: Request) {
 
                     const cells = reportDates
                         .map((dateStr: string) => {
-                            const dayShifts = empShifts.filter((s: any) => s.shift_date === dateStr)
+                            const dayShifts = empShifts
+                                .filter((s: any) => s.shift_date === dateStr)
+                                .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                             if (dayShifts.length === 0)
                                 return `<td style="border: 1px solid #eee; background: #fafafa;"></td>`
 
@@ -1634,7 +1636,9 @@ export async function POST(req: Request) {
                 const row = [`${emp.first_name} ${emp.last_name?.charAt(0) || ''}.`]
 
                 reportDates.forEach((dateStr: string) => {
-                    const dayShifts = empShifts.filter((s: any) => s.shift_date === dateStr)
+                    const dayShifts = empShifts
+                        .filter((s: any) => s.shift_date === dateStr)
+                        .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                     if (dayShifts.length === 0) {
                         row.push('')
                     } else {

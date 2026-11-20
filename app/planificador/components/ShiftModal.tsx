@@ -10,7 +10,7 @@
  * - Employees can only be scheduled for job roles configured for them in Toast POS.
  * - Multi-day selector defaults to the day clicked by the manager, but allows toggling any of the 7 week days.
  * - Quick presets allow 1-tap selection of weekdays (Lun-Vie), weekends (Sáb-Dom), or all week.
- * - If an existing shift is detected on a selected target day, it updates that day's shift rather than creating duplicate overlapping shifts.
+ * - Supports multiple shifts on the same day (split shifts / 2nd shift) per employee while blocking overlapping time intervals.
  * - Full bilingual support (Spanish/English) using useLanguage().
  * 
  * @dataFlow
@@ -19,6 +19,7 @@
  * @notes
  * - Solves the friction of having to repeatedly copy or recreate the same shift day-by-day.
  * - Automatically adjusts button label to indicate the exact number of shifts being created (e.g. "Guardar 5 Turnos").
+ * - Fixed Create Mode bug where adding a 2nd shift on the same day overwrote the 1st shift's ID instead of inserting a new shift.
  */
 
 'use client'
@@ -26,7 +27,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Trash2, Calendar, Clock, Check, Sparkles } from 'lucide-react'
-import { toast, formatDateISO, addDays, getMonday, getLAHoursMinutes } from '../lib/utils'
+import { toast, formatDateISO, formatTime12h, addDays, getMonday, getLAHoursMinutes, buildShiftTimestampsForBusinessDate, findOverlappingShift } from '../lib/utils'
 import { useLanguage } from '@/lib/i18n'
 
 interface ShiftModalProps {
@@ -91,22 +92,13 @@ export function ShiftModal({
                 setIsOpenShift(initialData.is_open || !initialData.employee_id)
                 setNotes(initialData.notes || '')
 
-                const start = new Date(initialData.start_time)
-                const end = new Date(initialData.end_time)
-                setStartTime(start.toTimeString().slice(0, 5))
-                setEndTime(end.toTimeString().slice(0, 5))
+                setStartTime(getLAHoursMinutes(initialData.start_time).hhmm)
+                setEndTime(getLAHoursMinutes(initialData.end_time).hhmm)
 
-                const initialDateStr = initialData.shift_date || formatDateISO(start)
+                const initialDateStr = initialData.shift_date || formatDateISO(new Date(initialData.start_time))
                 setSelectedDayDates([initialDateStr])
             } else {
-                // Create Mode
-                setEmpId(defaultEmpId || '')
-                setIsOpenShift(!defaultEmpId)
-                setJobId(jobs.length > 0 ? jobs[0].id : '')
-                setStartTime('09:00')
-                setEndTime('17:00')
-                setNotes('')
-
+                // Create Mode (supports 1st shift OR 2nd/3rd split shift on the same day)
                 let initialDateStr = ''
                 if (defaultDate) {
                     const d = typeof defaultDate === 'string'
@@ -116,10 +108,47 @@ export function ShiftModal({
                 } else if (computedWeekDays[0]) {
                     initialDateStr = formatDateISO(computedWeekDays[0])
                 }
+
+                const dayExisting = (defaultEmpId && initialDateStr && Array.isArray(existingShifts))
+                    ? existingShifts
+                        .filter((s: any) => !s.is_open && String(s.employee_id) === String(defaultEmpId) && s.shift_date === initialDateStr)
+                        .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+                    : []
+
+                setEmpId(defaultEmpId || '')
+                setIsOpenShift(!defaultEmpId)
+                setNotes('')
+
+                if (dayExisting.length > 0) {
+                    const lastShift = dayExisting[dayExisting.length - 1]
+                    setJobId(lastShift.job_id || (jobs.length > 0 ? jobs[0].id : ''))
+                    const lastEndLA = getLAHoursMinutes(lastShift.end_time)
+                    const lastEndMs = new Date(lastShift.end_time).getTime()
+
+                    if (lastEndLA.hour >= 6 && lastEndLA.hour < 16) {
+                        setStartTime('17:00')
+                        setEndTime('22:00')
+                    } else if (lastEndLA.hour >= 16 && lastEndLA.hour <= 20) {
+                        const sugStartMs = lastEndMs + 60 * 60 * 1000
+                        const sugEndMs = sugStartMs + 4 * 60 * 60 * 1000
+                        setStartTime(getLAHoursMinutes(new Date(sugStartMs)).hhmm)
+                        setEndTime(getLAHoursMinutes(new Date(sugEndMs)).hhmm)
+                    } else {
+                        const sugStartMs = lastEndMs + 30 * 60 * 1000
+                        const sugEndMs = sugStartMs + 4 * 60 * 60 * 1000
+                        setStartTime(getLAHoursMinutes(new Date(sugStartMs)).hhmm)
+                        setEndTime(getLAHoursMinutes(new Date(sugEndMs)).hhmm)
+                    }
+                } else {
+                    setJobId(jobs.length > 0 ? jobs[0].id : '')
+                    setStartTime('09:00')
+                    setEndTime('17:00')
+                }
+
                 setSelectedDayDates(initialDateStr ? [initialDateStr] : [])
             }
         }
-    }, [isOpen, initialData, defaultEmpId, defaultDate, jobs, computedWeekDays])
+    }, [isOpen, initialData, defaultEmpId, defaultDate, jobs, computedWeekDays, existingShifts])
 
     // Constraint Logic: Compute Available Jobs for selected Employee
     const availableJobs = useMemo(() => {
@@ -197,44 +226,59 @@ export function ShiftModal({
     }
 
     // Submit Handler: Saves single or multiple shifts
+    const currentDayExistingShifts = useMemo(() => {
+        if (isOpenShift || !empId || selectedDayDates.length !== 1 || !Array.isArray(existingShifts)) return []
+        const targetDay = selectedDayDates[0]
+        return existingShifts
+            .filter((s: any) => !s.is_open && String(s.employee_id) === String(empId) && s.shift_date === targetDay && (!initialData || String(s.id) !== String(initialData.id)))
+            .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+    }, [isOpenShift, empId, selectedDayDates, existingShifts, initialData])
+
     const handleSubmit = () => {
         if (!jobId) return toast.error(t('planner.modal_shift.select_role_error'))
         if (!isOpenShift && !empId) return toast.error(t('planner.modal_shift.select_emp_error'))
         if (selectedDayDates.length === 0) return toast.error(t('planner.modal_shift.select_day_error'))
+        if (startTime === endTime) return toast.error(t('planner.modal_shift.zero_duration_error'))
 
-        const [sh, sm] = startTime.split(':').map(Number)
-        const [eh, em] = endTime.split(':').map(Number)
-        const isOvernight = (eh < sh) || (eh === sh && em < sm)
+        const shiftsToSave: any[] = []
 
-        const shiftsToSave = selectedDayDates.map(dStr => {
-            const dateBase = new Date(dStr + 'T12:00:00')
-            const start = new Date(dateBase)
-            start.setHours(sh, sm, 0, 0)
+        for (const dStr of selectedDayDates) {
+            const { start, end } = buildShiftTimestampsForBusinessDate(dStr, startTime, endTime)
 
-            const end = new Date(dateBase)
-            if (isOvernight) end.setDate(end.getDate() + 1)
-            end.setHours(eh, em, 0, 0)
-
-            // Look up existing shift for this employee on this specific date
-            const existing = existingShifts?.find((s: any) =>
-                (isOpenShift ? s.is_open : s.employee_id === empId) && s.shift_date === dStr
+            // Only preserve ID when editing the original shift; Create Mode ALWAYS inserts a new shift (enabling 2nd/split shifts!)
+            const isInitialDay = Boolean(
+                initialData &&
+                initialData.id &&
+                (initialData.shift_date === dStr || formatDateISO(new Date(initialData.start_time)) === dStr)
             )
+            const shiftId = isInitialDay ? initialData.id : undefined
 
-            // If initialData matches this exact date, preserve its id; otherwise update existing or insert new
-            const isInitialDay = initialData && (initialData.shift_date === dStr || formatDateISO(new Date(initialData.start_time)) === dStr)
-            const shiftId = isInitialDay ? initialData.id : (existing?.id || undefined)
+            const conflict = findOverlappingShift(existingShifts || [], {
+                employee_id: isOpenShift ? null : empId,
+                is_open: isOpenShift,
+                start_time: start,
+                end_time: end,
+                excludeId: shiftId || null
+            })
 
-            return {
+            if (conflict) {
+                const conflictTime = `${formatTime12h(conflict.start_time)} - ${formatTime12h(conflict.end_time)}`
+                toast.error(t('planner.modal_shift.overlap_error').replace('{time}', conflictTime))
+                return
+            }
+
+            shiftsToSave.push({
                 id: shiftId,
                 employee_id: isOpenShift ? null : empId,
                 job_id: jobId,
                 start_time: start.toISOString(),
                 end_time: end.toISOString(),
+                shift_date: dStr,
                 is_open: isOpenShift,
                 notes,
                 status: 'draft' // Any shift created or edited via ShiftModal is a draft until published
-            }
-        })
+            })
+        }
 
         if (shiftsToSave.length === 1) {
             onSave(shiftsToSave[0])
@@ -325,6 +369,19 @@ export function ShiftModal({
                         </select>
                     </div>
 
+                    {/* Existing Split-Shift Context Banner */}
+                    {currentDayExistingShifts.length > 0 && (
+                        <div className="px-3 py-2 rounded-xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/70 text-[11px] font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
+                            <Clock size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <span>
+                                {t('planner.modal_shift.existing_day_shifts_banner').replace(
+                                    '{shifts}',
+                                    currentDayExistingShifts.map((s: any) => `${formatTime12h(s.start_time)} - ${formatTime12h(s.end_time)}`).join(', ')
+                                )}
+                            </span>
+                        </div>
+                    )}
+
                     {/* Time Pickers (Start / End) */}
                     <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -389,7 +446,7 @@ export function ShiftModal({
                                         {hasExistingShift && (
                                             <div
                                                 className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-300' : 'bg-amber-500'}`}
-                                                title="Ya tiene un turno en este día (se actualizará con este nuevo horario)"
+                                                title={t('planner.modal_shift.already_has_shift_tip')}
                                             />
                                         )}
                                         <span className="text-[9px] uppercase font-bold tracking-tight opacity-90">{dayName}</span>

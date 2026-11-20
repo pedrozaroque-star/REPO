@@ -1,3 +1,23 @@
+/**
+ * @module app/planificador/components/EmployeeRow
+ * @descriptionFila semanal interactiva por empleado en el Planificador de Tacos Gavilan (vista Desktop).
+ * Renderiza uno o múltiples turnos por día (split shifts / doble turno), alertas de Overtime de California,
+ * superposición de ponchadas reales y breaks de Toast POS, reordenamiento y botón '+' para turnos adicionales.
+ *
+ * @businessRules
+ * - Soporta múltiples turnos en el mismo `shift_date` ordenados cronológicamente por `start_time`.
+ * - Cuando un empleado tiene 2+ turnos el mismo día, cada ponchada real (`punches`) se asocia únicamente
+ *   al turno cuyo `start_time` sea más cercano al `clock_in` para evitar duplicar entradas/breaks en ambos bloques.
+ * - Los Gerentes Generales (`Manager` puro) ocultan salario por privacidad ejecutiva.
+ *
+ * @dataFlow
+ * `app/planificador/page.tsx` -> `EmployeeRow` -> `ShiftModal` / `handleDrop`
+ *
+ * @notes
+ * - El botón `+` usa `type="button"` y `e.stopPropagation()` para garantizar apertura limpia en modo creación
+ *   incluso debajo de un turno ya existente en la misma celda.
+ */
+
 import React from 'react'
 import { Reorder, useDragControls } from 'framer-motion'
 import { GripVertical, Plus, Mail, Phone } from 'lucide-react'
@@ -155,30 +175,57 @@ export function EmployeeRow({
 
             {
                 weekDays.map((day: Date) => {
-                    const cellShifts = getShiftsForCell(emp.id, day);
+                    const cellShifts = [...(getShiftsForCell(emp.id, day) || [])].sort(
+                        (a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+                    );
+                    const cellDateStr = cellShifts[0]?.shift_date;
+                    const dayPunches = (punches && punches.length > 0 && cellDateStr)
+                        ? punches.filter((p: any) => p.employee_toast_guid === emp.toast_guid && p.business_date === cellDateStr)
+                        : [];
+
+                    // Map each punch to the closest shift in the cell so split shifts don't duplicate morning punches on evening shifts
+                    const punchesByShiftId = new Map<string, any[]>();
+                    if (cellShifts.length === 1 && dayPunches.length > 0) {
+                        punchesByShiftId.set(String(cellShifts[0].id), [dayPunches[0]]);
+                    } else if (cellShifts.length > 1 && dayPunches.length > 0) {
+                        dayPunches.forEach((p: any) => {
+                            const pMs = p.clock_in ? new Date(p.clock_in).getTime() : NaN;
+                            let bestShift = cellShifts[0];
+                            if (Number.isFinite(pMs)) {
+                                let bestDiff = Infinity;
+                                for (const cs of cellShifts) {
+                                    const diff = Math.abs(new Date(cs.start_time).getTime() - pMs);
+                                    if (diff < bestDiff) {
+                                        bestDiff = diff;
+                                        bestShift = cs;
+                                    }
+                                }
+                            }
+                            const key = String(bestShift.id);
+                            punchesByShiftId.set(key, [...(punchesByShiftId.get(key) || []), p]);
+                        });
+                    }
+
                     return (
                         <td
                             key={`${emp.id}-${day.toISOString()}`}
-                            className="border-r border-b border-gray-200 dark:border-slate-800 h-24 p-1.5 relative transition-colors bg-transparent"
+                            className="group/cell border-r border-b border-gray-200 dark:border-slate-800 h-24 p-1.5 relative transition-colors bg-transparent align-top"
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => handleDrop(e, emp.id, day)}
                         >
-                            <div className="w-full h-full flex flex-col gap-1.5">
+                            <div className="w-full min-h-[84px] h-full flex flex-col gap-1.5">
                                 {cellShifts.map((shift: any) => {
                                     const job = jobs.find((j: any) => j.id === shift.job_id)
                                     const jobTitle = job?.title || 'Rol'
                                     const sStats = weeklyStats[shift.id] || { totalOT: 0, dailyOT: 0, weeklyOT: 0 };
                                     const isPublished = shift.status === 'published'
 
-                                    // ⚡ Live Punch Match ⚡ 
-                                    let matchedPunch = null;
-                                    if (punches && punches.length > 0) {
-                                        matchedPunch = punches.find((p: any) => p.employee_toast_guid === emp.toast_guid && p.business_date === shift.shift_date);
-                                    }
+                                    // ⚡ Live Punch Match ⚡
+                                    const matchedPunch = (punchesByShiftId.get(String(shift.id)) || [])[0] || null;
 
                                     const formatRealTime = (isoString?: string) => {
                                         if (!isoString) return null;
-                                        return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+                                        return formatTime12h(isoString);
                                     };
 
                                     const realIn = formatRealTime(matchedPunch?.clock_in);
@@ -247,8 +294,13 @@ export function EmployeeRow({
                                 })}
 
                                 <button
-                                    onClick={() => setModalConfig({ isOpen: true, data: null, targetDate: day, targetEmpId: emp.id })}
-                                    className="hidden group-hover:flex w-full py-1 items-center justify-center text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded text-xs transition-colors mt-auto opacity-0 group-hover:opacity-100"
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setModalConfig({ isOpen: true, data: null, targetDate: day, targetEmpId: emp.id })
+                                    }}
+                                    title={cellShifts.length > 0 ? t('planner.mobile.add_second_shift') : t('planner.modal_shift.new_title')}
+                                    className="flex w-full py-1 items-center justify-center text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 rounded text-xs transition-all mt-auto opacity-30 lg:opacity-0 lg:group-hover/cell:opacity-100 focus:opacity-100 cursor-pointer"
                                 >
                                     <Plus size={16} />
                                 </button>

@@ -1837,7 +1837,8 @@ export const dictionaries: Record<Language, Dictionary> = {
                 no_email_for_emp: 'Sin correo registrado para envío oficial',
                 connect_gmail_first: 'Conecta tu Gmail para enviar horarios oficiales por correo',
                 shifts_count: '{n} turnos',
-                hours_short: 'hrs'
+                hours_short: 'hrs',
+                add_second_shift: 'Agregar otro turno'
             },
             modal_shift: {
                 new_title: 'Nuevo Turno',
@@ -1864,7 +1865,9 @@ export const dictionaries: Record<Language, Dictionary> = {
                 day_singular: 'día',
                 day_plural: 'días',
                 reset_days: 'Reiniciar',
-                already_has_shift_tip: 'Ya tiene un turno este día (se actualizará al guardar)',
+                already_has_shift_tip: 'Ya tiene turno(s) este día (se agregará turno adicional)',
+                existing_day_shifts_banner: 'Turnos actuales este día: {shifts} • Agregando turno adicional',
+                overlap_error: 'El horario se traslapa con otro turno de este empleado ({time})',
                 close_modal: 'Cerrar modal',
                 quick_time_presets: 'Horarios Rápidos',
                 zero_duration_error: 'La hora de fin debe ser diferente a la de inicio'
@@ -10985,7 +10988,8 @@ export const dictionaries: Record<Language, Dictionary> = {
                 no_email_for_emp: 'No email registered for official dispatch',
                 connect_gmail_first: 'Connect your Gmail to send official schedule emails',
                 shifts_count: '{n} shifts',
-                hours_short: 'hrs'
+                hours_short: 'hrs',
+                add_second_shift: 'Add another shift'
             },
             modal_shift: {
                 new_title: 'New Shift',
@@ -11012,7 +11016,9 @@ export const dictionaries: Record<Language, Dictionary> = {
                 day_singular: 'day',
                 day_plural: 'days',
                 reset_days: 'Reset',
-                already_has_shift_tip: 'Already has a shift this day (will update on save)',
+                already_has_shift_tip: 'Already has shift(s) this day (will add an additional shift)',
+                existing_day_shifts_banner: 'Existing shifts this day: {shifts} • Adding additional shift',
+                overlap_error: 'This schedule overlaps with an existing shift for this employee ({time})',
                 close_modal: 'Close modal',
                 quick_time_presets: 'Quick Presets',
                 zero_duration_error: 'End time must be different from start time'

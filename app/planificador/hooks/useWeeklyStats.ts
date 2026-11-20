@@ -43,23 +43,17 @@ export function useWeeklyStats(shifts: Shift[], employees: Employee[], jobs: Job
             let totalOT = 0;
             let regularHoursAccumulator = 0;
 
-            // Para acumular horas por jornada diaria (shift_date)
-            let dailyHoursAccumulator = 0;
-            let lastShiftDate = "";
+            // Acumular horas diarias por shift_date (soporta múltiples turnos/split shifts el mismo día sin depender de adyacencia)
+            const dailyHoursByDate: Record<string, number> = {};
 
             sorted.forEach(s => {
                 const duration = calcDuration(s);
+                const dateKey = s.shift_date || new Date(s.start_time).toISOString().slice(0, 10);
 
-                // Si cambiamos de fecha de turno (shift_date), reseteamos el acumulador diario
-                if (s.shift_date !== lastShiftDate) {
-                    dailyHoursAccumulator = 0;
-                    lastShiftDate = s.shift_date;
-                }
-
-                // --- 1. DAILY OT (Acumulado por jornada) ---
+                // --- 1. DAILY OT (Acumulado por jornada laboral shift_date) ---
                 let dailyOT = 0;
-                const hoursBeforeThisShift = dailyHoursAccumulator;
-                dailyHoursAccumulator += duration;
+                const hoursBeforeThisShift = dailyHoursByDate[dateKey] || 0;
+                dailyHoursByDate[dateKey] = hoursBeforeThisShift + duration;
 
                 if (hoursBeforeThisShift >= 8) {
                     // Ya estábamos en OT desde el principio de este turno

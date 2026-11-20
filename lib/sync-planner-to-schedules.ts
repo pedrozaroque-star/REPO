@@ -286,18 +286,30 @@ export async function syncPlannerToSchedules(params: SyncPlannerParams): Promise
         const user = first.user;
         const dateStr = first.dateStr;
 
-        // Si hay múltiples turnos el mismo día, calcular el rango de inicio más temprano y fin más tardío
-        let earliestStart = formatToLATime(first.shift.start_time);
-        let latestEnd = formatToLATime(first.shift.end_time);
+        // Si hay múltiples turnos el mismo día, comparar por timestamp real (soporta cierres post-medianoche < 6:00 AM)
+        let earliestShift = first.shift;
+        let latestShift = first.shift;
+        let minStartMs = new Date(first.shift.start_time).getTime();
+        let maxEndMs = new Date(first.shift.end_time).getTime();
 
         for (let i = 1; i < items.length; i++) {
-            const st = formatToLATime(items[i].shift.start_time);
-            const et = formatToLATime(items[i].shift.end_time);
-            if (st < earliestStart) earliestStart = st;
-            if (et > latestEnd) latestEnd = et;
+            const cur = items[i].shift;
+            const sMs = new Date(cur.start_time).getTime();
+            const eMs = new Date(cur.end_time).getTime();
+            if (Number.isFinite(sMs) && (!Number.isFinite(minStartMs) || sMs < minStartMs)) {
+                minStartMs = sMs;
+                earliestShift = cur;
+            }
+            if (Number.isFinite(eMs) && (!Number.isFinite(maxEndMs) || eMs > maxEndMs)) {
+                maxEndMs = eMs;
+                latestShift = cur;
+            }
         }
 
-        const label = matchPresetLabel(earliestStart, latestEnd);
+        const earliestStart = formatToLATime(earliestShift.start_time);
+        const latestEnd = formatToLATime(latestShift.end_time);
+
+        const label = items.length > 1 ? 'Doble Turno' : matchPresetLabel(earliestStart, latestEnd);
 
         newScheduleEntries.push({
             user_id: user.id,
