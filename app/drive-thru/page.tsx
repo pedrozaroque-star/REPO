@@ -1,8 +1,10 @@
 /**
  * @module app/drive-thru/page
- * @description Módulo completo de Drive-Thru con 4 pestañas: Leaderboard (ranking de tiendas),
- *   Timeline (vista por media hora de una tienda), Lookup (búsqueda de orden por número), y
- *   Reports (reportes por período con exportación CSV y sección de Tiempo Ideal).
+ * @description Módulo completo de Drive-Thru con 5 pestañas: Leaderboard (ranking de tiendas),
+ *   Timeline (vista por media hora de una tienda), Lookup (búsqueda de orden por número),
+ *   Reports (reportes por período con exportación CSV y sección de Tiempo Ideal) y Kore IA
+ *   (simulador de voz: un gerente hace de cliente y la asistente Kore toma la orden — SIMULACIÓN,
+ *   no se envía a Toast ni a cocina).
  *
  * @businessRules
  * - Umbrales de tiempo: 🟢 ≤ 3:30 (≤210s), 🟡 3:31-5:00 (211-300s), 🔴 > 5:00 (>300s)
@@ -10,7 +12,7 @@
  * - El turno PM inicia a las 5 PM
  * - Zona horaria: America/Los_Angeles
  * - Solo muestra tiendas con Drive-Thru: LA Central, Lynwood, West Covina, Norwalk, La Puente, South Gate
- * - Auto-refresh cada 60 segundos en Leaderboard tab
+ * - Auto-refresh cada 180 segundos en Leaderboard tab cuando la pestaña está visible
  * - Navegación por media hora con slots de 30 minutos: "06:00", "06:30", "07:00", etc.
  *
  * @dataFlow
@@ -19,27 +21,34 @@
  * - Tab Lookup:      GET /api/drive-thru/lookup?orderNumber=X&storeId=X&date=X
  * - Tab Reports:     GET /api/drive-thru/reports?startDate=X&endDate=X&storeId=X&groupBy=X
  * - Ideal Time:      GET /api/drive-thru/ideal-time?storeId=UUID
+ * - Tab Kore IA:     components/drive-thru/KoreDriveThruSimulator (import dinámico ssr:false) →
+ *                    POST /api/drive-thru/kore/session (token efímero Gemini Live) → WebSocket directo
+ *                    navegador↔Gemini; POST/GET /api/drive-thru/kore/sessions (historial dt_kore_sim_sessions)
  * - Datos provienen de dt_halfhour_stats y dt_orders (pre-agregados por el cron sync-drive-thru)
  *
  * @notes
  * - Diseño inspirado en HME ZOOM Nitro con podio visual y barras de progreso con colores
  * - Soporte de pantalla completa (Fullscreen / Tablet mode) para el Leaderboard
  * - Click en una tienda del leaderboard navega a la tab Consultar Orden (Lookup) con esa tienda y fecha preseleccionadas
- * - Soporta URL param ?store=UUID [&tab=lookup|timeline] para preseleccionar tienda
+ * - Soporta URL param ?store=UUID [&tab=lookup|timeline|kore] para preseleccionar tienda
+ * - [2026-11-19] Nueva pestaña `kore` (Kore IA): simulador de toma de orden por voz con Gemini Live API
+ *   (`gemini-3.8-live`, voz Kore), ticket en vivo y tope de 8 min por sesión. Sin SSR porque usa
+ *   micrófono/AudioWorklet/WebSocket. Solo tiendas con Drive-Thru.
  * - Exportar CSV genera un archivo descargable con los datos del reporte activo
  * - Los tabs tienen animaciones suaves y soportan dark mode completo
- * - Optimización 2026-11-19 (Paquete 2B): auto-refresh del tab Leaderboard KPI elevado de 60s a 180s con guardia `visibilityState === 'visible'`.
+ * - Optimización 2026-11-19 (Paquete 2B): auto-refresh del tab Leaderboard KPI elevado de 60s a 180s con guardia `visibilityState === 'visible'` (Kore IA intacto).
  */
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import {
     Timer, Trophy, Zap, Car, AlertTriangle, TrendingUp, Clock,
     ChevronLeft, ChevronRight, Search, Download, BarChart3, Calendar,
-    ArrowUp, ArrowDown, Minus, Maximize, Minimize, ArrowLeft
+    ArrowUp, ArrowDown, Minus, Maximize, Minimize, ArrowLeft, Bot
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────
@@ -146,7 +155,20 @@ const DT_STORES = [
     { id: '95866cfc-eeb8-4af9-9586-f78931e1ea04', name: 'South Gate' },
 ]
 
-type TabId = 'leaderboard' | 'timeline' | 'lookup' | 'reports'
+type TabId = 'leaderboard' | 'timeline' | 'lookup' | 'reports' | 'kore'
+
+/** Simulador de voz Kore (Gemini Live): solo navegador (mic/WebSocket/AudioWorklet) → ssr:false */
+function KoreLoadingFallback() {
+    const { t } = useLanguage()
+    return (
+        <div className="p-10 text-center text-sm text-slate-400 animate-pulse">{t('drive_thru.kore_loading')}</div>
+    )
+}
+
+const KoreDriveThruSimulator = dynamic(() => import('@/components/drive-thru/KoreDriveThruSimulator'), {
+    ssr: false,
+    loading: () => <KoreLoadingFallback />,
+})
 
 // ─────────────────────────────────────────────────────────
 // Funciones helper
@@ -409,7 +431,7 @@ function DriveThruContent() {
     const [tlError, setTlError] = useState<string | null>(null)
     const tlAbortRef = useRef<AbortController | null>(null)
 
-    // Preseleccionar tienda y fecha desde URL params ?store=UUID [&tab=lookup|timeline] [&date=YYYY-MM-DD]
+    // Preseleccionar tienda y fecha desde URL params ?store=UUID [&tab=lookup|timeline|kore] [&date=YYYY-MM-DD]
     useEffect(() => {
         const storeParam = searchParams.get('store')
         const tabParam = searchParams.get('tab')
@@ -425,7 +447,10 @@ function DriveThruContent() {
             setLuDate(dateFromUrl)
         }
 
-        if (storeParam) {
+        if (tabParam === 'kore') {
+            // Simulador Kore: la tienda (?store=UUID) se preselecciona dentro del componente
+            setActiveTab('kore')
+        } else if (storeParam) {
             if (tabParam === 'timeline') {
                 setTlStoreId(storeParam)
                 setActiveTab('timeline')
@@ -716,6 +741,7 @@ function DriveThruContent() {
         { id: 'timeline', icon: <Clock size={16} />, label: t('drive_thru.timeline') },
         { id: 'lookup', icon: <Search size={16} />, label: t('drive_thru.lookup') },
         { id: 'reports', icon: <BarChart3 size={16} />, label: t('drive_thru.reports') },
+        { id: 'kore', icon: <Bot size={16} />, label: t('drive_thru.kore_tab') },
     ]
 
     // Click en tienda del leaderboard → Consultar Orden (Lookup)
@@ -1870,6 +1896,26 @@ function DriveThruContent() {
                                 )}
                             </>
                         )}
+                    </div>
+                )}
+
+                {/* ─────────────────────────────────── */}
+                {/* TAB 5: KORE IA (SIMULADOR DE VOZ DRIVE-THRU) */}
+                {/* ─────────────────────────────────── */}
+                {activeTab === 'kore' && (
+                    <div className="space-y-4">
+                        {!isFullscreen && (
+                            <div className="flex items-center justify-between">
+                                <button
+                                    onClick={() => setActiveTab('leaderboard')}
+                                    className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors cursor-pointer group"
+                                >
+                                    <ArrowLeft size={18} className="transition-transform group-hover:-translate-x-1" />
+                                    <span>{t('drive_thru.back_to_leaderboard')}</span>
+                                </button>
+                            </div>
+                        )}
+                        <KoreDriveThruSimulator defaultStoreExternalId={searchParams.get('store')} />
                     </div>
                 )}
 

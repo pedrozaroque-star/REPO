@@ -14,6 +14,7 @@
  *
  * @notes
  *   - Define los 5 estados reales de auditoría documental (reconciled, estimated, requires_investigation, insufficient_data, error) erradicando cualquier concepto de cuadre exacto ficticio.
+ *   - Incluye los tipos de validación cruzada Planificador + Toast POS + RONOS y evaluación de políticas NHP TEG SPANISH.pdf (`RonosDayAttendanceEvaluation`, `EmployeeNhpSummary`, `StoreNhpAuditSummary`).
  */
 
 export interface StoreOption {
@@ -56,7 +57,125 @@ export interface DailyViolation {
   title: string
   description: string
   severity: 'critical' | 'warning' | 'info'
+  uiSeverity?: 'critical' | 'warning' | 'info'
+  category?: 'punctuality' | 'attendance' | 'meal_rest' | 'timecard_repair' | string
+  isViolation?: boolean
+  policyReference?: string
+  actionRequired?: string
   estimatedCostUsd?: number
+  minutes?: number
+  diffMinutes?: number
+  exemptionReason?: string | null
+}
+
+export interface PlannerShiftSummary {
+  hasPublishedShift: boolean
+  shiftId?: string | null
+  shiftDate: string
+  startTimeIso?: string | null
+  endTimeIso?: string | null
+  startTimeLA?: string | null
+  endTimeLA?: string | null
+  startTime24?: string | null
+  endTime24?: string | null
+  scheduledDurationHours?: number | null
+  notes?: string | null
+  isCallback?: boolean
+}
+
+export interface ToastPunchSummary {
+  hasToastPunches: boolean
+  clockInTime?: string | null
+  clockOutTime?: string | null
+  clockInLA?: string | null
+  clockOutLA?: string | null
+  lunchStartTime?: string | null
+  lunchEndTime?: string | null
+  lunchStartLA?: string | null
+  lunchEndLA?: string | null
+  lunchDurationMinutes?: number | null
+  restBreaksCount: number
+  totalHoursToast: number
+  rawPunchesCount: number
+}
+
+export type RonosPunctualityStatus =
+  | 'ON_TIME'
+  | 'UNAUTHORIZED_EARLY_IN'
+  | 'AUTHORIZED_EARLY_CALL_IN'
+  | 'LATE_CLOCK_IN'
+  | 'NO_SHOW'
+  | 'REPAIR_RONOS_PUNCH'
+  | 'EXEMPT_SALARIED'
+  | 'REST_OR_PTO'
+  | 'UNSCHEDULED_WORKED'
+  | 'NO_SHIFT_NO_PUNCH'
+
+export interface RonosDayAttendanceEvaluation {
+  businessDate: string
+  isExemptSalaried: boolean
+  salariedExemptionReason: string | null
+  punctualityStatus: RonosPunctualityStatus
+  punctualityLabelEs: string
+  punctualityLabelEn: string
+  punctualityBadgeColor: 'emerald' | 'rose' | 'amber' | 'sky' | 'purple' | 'slate'
+  diffMinutesFromSchedule: number | null
+  endDiffMinutesFromSchedule: number | null
+  isViolation: boolean
+  isAuthorizedEarlyCallIn: boolean
+  exemptionReason: string | null
+  earlyCallInSignals: string[]
+  hasToastRonosDiscrepancy: boolean
+  discrepancyDetails: string[]
+  requiresMedicalNote: boolean
+  consecutiveSickDays: number
+  scheduledShift: PlannerShiftSummary
+  toastSummary: ToastPunchSummary
+  ronosSummary: {
+    hasRonosPunches: boolean
+    clockInTime?: string | null
+    clockOutTime?: string | null
+    clockInLA?: string | null
+    clockOutLA?: string | null
+    lunchStartTime?: string | null
+    lunchEndTime?: string | null
+    lunchStartLA?: string | null
+    lunchEndLA?: string | null
+    lunchDurationMinutes: number
+    totalHours: number
+    clockInAddedPunch: boolean
+    clockOutAddedPunch: boolean
+    isSick: boolean
+    isVacation: boolean
+    isHoliday: boolean
+  }
+  violations: DailyViolation[]
+}
+
+export interface EmployeeNhpSummary {
+  isExemptSalaried: boolean
+  salariedExemptionReason: string | null
+  punctualityViolationsCount: number
+  repairViolationsCount: number
+  mealViolationsCount: number
+  noShowCount: number
+  medicalNoteAlertsCount: number
+  authorizedEarlyCallInsCount: number
+  totalActiveViolationsCount: number
+}
+
+export interface StoreNhpAuditSummary {
+  startDate: string
+  endDate: string
+  evaluatedDaysCount: number
+  totalViolations: number
+  punctualityViolations: number
+  repairViolations: number
+  mealViolations: number
+  noShowCount: number
+  medicalNoteAlertsCount: number
+  authorizedEarlyCallIns: number
+  exemptSalariedCount: number
 }
 
 export interface EmployeeDayPunch {
@@ -77,6 +196,9 @@ export interface EmployeeDayPunch {
   doubleTimeHours: number
   punches?: PunchRecord[]
   violations?: DailyViolation[]
+  scheduledShift?: PlannerShiftSummary
+  toastSummary?: ToastPunchSummary
+  nhpEvaluation?: RonosDayAttendanceEvaluation
 }
 
 export interface EmployeeTimecard {
@@ -98,10 +220,14 @@ export interface EmployeeTimecard {
   complianceScore?: number
   payRate?: number
   isSalaried?: boolean
+  isInactiveMapping?: boolean
+  userRole?: string | null
   toastEmail?: string | null
   toastEmployeeId?: string | null
+  toastGuid?: string | null
   toastFullName?: string | null
   mappingType?: 'auto' | 'manual' | 'unmapped'
+  nhpSummary?: EmployeeNhpSummary
   days?: EmployeeDayPunch[]
 }
 
@@ -121,6 +247,7 @@ export interface StoreAuditData {
   brokenTimecardsCount: number
   estimatedPenaltyCostUsd: number
   complianceScore: number
+  nhpAuditSummary?: StoreNhpAuditSummary
   employees: EmployeeTimecard[]
   cachedAt: string
 }

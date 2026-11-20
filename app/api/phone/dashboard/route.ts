@@ -36,7 +36,8 @@
  *   (`cleanupOrReconcileExpiredTombstones`), mientras el fallback visual de configuración ausente usa `is_enabled: false`.
  * - Blindaje 2026-11-19: autorización RBAC ANTES de consultar `phone_callback_requests` en `PATCH callback_request` (cierra oráculo UUID sin sesión);
  *   bandeja dedicada para recados `urgency='high'` para que notas de empaque `condiments_note` (`normal`) nunca desplacen alertas urgentes de gerente;
- *   desambiguación explícita `stores!phone_callback_requests_store_id_fkey(id, name)` contra futuras FKs en `origin_store_id`; y validación horaria 06:00–05:59 exacta en festivos.
+ *   desambiguación explícita `stores!phone_callback_requests_store_id_fkey(id, name)` contra futuras FKs en `origin_store_id`; validación horaria 06:00–05:59 exacta en festivos;
+ *   y sincronización bidireccional en vivo con Kore Drive-Thru (`invalidateKoreKnowledgeCache` + `syncPhoneKbMutationBackToLearning`).
  * - Optimización 2026-11-19 (Paquete 1B): ruta rápida de 1 sola consulta (`{ count: 'exact' }.limit(51)`) en `callbacksOnly=true&status=pending`
  *   cuando existen `<= 50` recados pendientes en el alcance (ordenando por urgencia en JS con `mergeAndSortCallbacks` y cayendo al esquema
  *   completo de 6 consultas únicamente cuando `count > 50`).
@@ -45,6 +46,18 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
+import { invalidateKoreKnowledgeCache } from '@/lib/drive-thru-kore'
+import {
+  findLearningItemIdsBySyncedKbId,
+  syncPhoneKbCreatedFromCallToLearning,
+  syncPhoneKbMutationBackToLearning
+} from '@/lib/drive-thru-kore-learning'
+import {
+  findPhoneLearningItemIdsByKbId,
+  invalidatePhoneLearnedRulesCache,
+  syncPhoneKbCreatedFromCallToPhoneLearning,
+  syncPhoneKbMutationToPhoneLearning
+} from '@/lib/phone-agent-learning'
 import {
   authorizePhoneModuleRequest,
   extractPhoneDigits,
@@ -892,12 +905,19 @@ export async function POST(request: NextRequest) {
 
       if (error) throw error
       invalidateStorePhoneContextCache()
+      invalidatePhoneLearnedRulesCache()
+      invalidateKoreKnowledgeCache(storeId ?? undefined)
 
       if (body?.resolveCallId && UUID_RE.test(String(body.resolveCallId))) {
+        const resolvedCallUuid = String(body.resolveCallId)
+        await Promise.all([
+          syncPhoneKbCreatedFromCallToLearning({ kbRow: created, resolveCallId: resolvedCallUuid }),
+          syncPhoneKbCreatedFromCallToPhoneLearning({ kbRow: created, resolveCallId: resolvedCallUuid })
+        ])
         await supabaseAdmin
           .from('phone_calls')
           .update({ unanswered_question: null })
-          .eq('id', String(body.resolveCallId))
+          .eq('id', resolvedCallUuid)
       }
 
       return NextResponse.json({ ok: true, item: sanitizeNestedStore(created) })
@@ -1326,6 +1346,10 @@ export async function PATCH(request: NextRequest) {
         throw error
       }
       invalidateStorePhoneContextCache()
+      await Promise.all([
+        syncPhoneKbMutationBackToLearning({ kbId: id, action: 'updated', row: updated }),
+        syncPhoneKbMutationToPhoneLearning({ kbId: id, action: 'updated', row: updated })
+      ])
 
       if (body?.resolveCallId && UUID_RE.test(String(body.resolveCallId))) {
         await supabaseAdmin
@@ -1475,9 +1499,25 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (entity === 'knowledge_base') {
+      const [linkedLearningIds, linkedPhoneLearningIds] = await Promise.all([
+        findLearningItemIdsBySyncedKbId(id),
+        findPhoneLearningItemIdsByKbId(id)
+      ])
       const { error } = await supabaseAdmin.from('phone_knowledge_base').delete().eq('id', id)
       if (error) throw error
       invalidateStorePhoneContextCache()
+      await Promise.all([
+        syncPhoneKbMutationBackToLearning({
+          kbId: id,
+          action: 'deleted',
+          preFetchedLearningIds: linkedLearningIds
+        }),
+        syncPhoneKbMutationToPhoneLearning({
+          kbId: id,
+          action: 'deleted',
+          preFetchedPhoneLearningIds: linkedPhoneLearningIds
+        })
+      ])
       return NextResponse.json({ ok: true })
     }
 

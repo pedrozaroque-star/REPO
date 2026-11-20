@@ -702,9 +702,20 @@ function RonosLaborAuditContent() {
   }
 
   // 12. MODAL EMAIL: ABRIR Y ENVIAR AVISO
-  const handleOpenEmailModal = (employee: EmployeeTimecard) => {
+  const handleOpenEmailModal = (
+    employee: EmployeeTimecard,
+    dayContext?: { date: string; violation?: import('@/components/ronos/types').DailyViolation }
+  ) => {
     const today = new Date()
-    const dateStr = getPacificDateString(today)
+    const firstViolationDay = (employee.days || []).find(d =>
+      (d.violations || []).some(v => v && v.isViolation !== false)
+    )
+    const fallbackViolation = firstViolationDay?.violations?.find(v => v && v.isViolation !== false)
+    const targetViolation = dayContext?.violation || fallbackViolation
+    const dateStr =
+      dayContext?.date?.slice(0, 10) ||
+      firstViolationDay?.date?.slice(0, 10) ||
+      getPacificDateString(today)
     const storeInfo = stores.find(s => s.ronosCompanyId === selectedCompanyId)
 
     setEmailModal({
@@ -715,9 +726,11 @@ function RonosLaborAuditContent() {
       employeePin: employee.pin || '',
       employeeJobTitle: employee.jobTitle || 'Team Member',
       violationDate: dateStr,
-      violationType: 'MEAL_PENALTY',
-      violationTitle: 'Aviso de Incidencia - Omisión de Descanso de Comida (30 min)',
-      violationDescription: 'Se detectó que el turno excedió las 5.0 horas sin registrar su descanso de 30 minutos conforme al Código Laboral de California § 512.',
+      violationType: targetViolation?.type || 'MEAL_PENALTY',
+      violationTitle: targetViolation?.title || 'Aviso de Incidencia - Omisión de Descanso de Comida (30 min)',
+      violationDescription:
+        targetViolation?.description ||
+        'Se detectó que el turno excedió las 5.0 horas sin registrar su descanso de 30 minutos conforme al Código Laboral de California § 512.',
       additionalNotes: '',
       warningStage: 'first',
       storeName: storeInfo?.tegName || 'Lynwood',

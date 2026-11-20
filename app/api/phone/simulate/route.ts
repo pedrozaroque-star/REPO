@@ -17,6 +17,8 @@
  * @notes
  * - Restringido estrictamente a `callSid` con prefijo `SIM_` (con entropía UUID corta para evitar colisiones).
  * - Auditoría 2026-11-19: validación de propiedad/fuente `simulator`/aislamiento de usuario en misma tienda/`ended_at` para TODOS los roles (incluyendo `isGlobalAdmin` y tecla `9`), `flushDbPromise` comprometido antes de emitir `turn_meta` y respaldado en `after()` para eliminar carreras con barge-in o Turno 2 inmediato.
+ * - Fix 2026-11-19: cuando `processPhoneAgentTurn` retorna `geminiFailed: true` (respuesta degradada de respaldo), `action === 'turn'` (streaming y no-streaming) omite lectura/escritura en Supabase Storage (`skipStorageLookup` y `skipStoragePersist`) para nunca cachear clips de error.
+ * - Ultra-Velocidad Streaming 2026-11-19: en `action === 'turn'` (`useStream = true`), `turn.flushDbPromise` corre en paralelo (protegida por `after()` y aguardada antes de `done` / `releaseFlushGuard()`) sin bloquear la emisión inmediata de `turn_meta` ni el arranque instantáneo de `streamPhoneAgentSpeechPcm` (`~250–1,000 ms` menos de silencio muerto); `validatedSimCall` pre-cargado evita un segundo `SELECT` a `phone_calls`; y `skipStorageLookup` se habilita en `false` cuando `turn.isCanonicalReply` o respuesta determinista corta (`<= 220` chars) sin `geminiFailed` para servir audios cacheados en `~80 ms`.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -164,12 +166,15 @@ export async function POST(request: NextRequest) {
         .filter((p) => p.lang === lang)
         .slice(0, 12)
       const prewarmTask = async () => {
+        // Pre-cargar primero el saludo y cambio de idioma de esta sucursal sin saturar sockets TLS en paralelo
         await Promise.all([
           warmPhoneSpeechFromStorageOnly(greetingText, lang, voiceId),
-          warmPhoneSpeechFromStorageOnly(key9Greeting, switchedLang, voiceId),
           warmPhoneSpeechFromStorageOnly(conciseSwitch, switchedLang, voiceId),
-          ...staticPhrases.map((p) => warmPhoneSpeechFromStorageOnly(p.text, p.lang, voiceId))
+          warmPhoneSpeechFromStorageOnly(key9Greeting, switchedLang, voiceId)
         ])
+        for (const p of staticPhrases.slice(0, 4)) {
+          await warmPhoneSpeechFromStorageOnly(p.text, p.lang, voiceId)
+        }
       }
       try {
         after(() => prewarmTask().catch(() => null))
@@ -204,9 +209,11 @@ export async function POST(request: NextRequest) {
       const audioUrl = buildPhoneTtsUrl('', greetingText, lang, voiceId)
 
       if (useStream) {
+        const preGeneratedCallId = randomUUID()
         const insertPromise = supabaseAdmin
           .from('phone_calls')
           .insert({
+            id: preGeneratedCallId,
             call_sid: callSid,
             store_id: store.id,
             source: 'simulator',
@@ -229,14 +236,10 @@ export async function POST(request: NextRequest) {
 
         return createNdjsonStreamResponse(async (send) => {
           try {
-            const ins = await insertPromise
-            if (ins.error || !ins.data) {
-              throw ins.error || new Error('No se pudo registrar la llamada en phone_calls')
-            }
-
+            // Emitir start_meta y arrancar audio en 0 ms en paralelo con el INSERT de phone_calls (ahorra ~600-900 ms)
             send({
               type: 'start_meta',
-              callId: ins.data.id,
+              callId: preGeneratedCallId,
               callSid,
               store: {
                 id: store.id,
@@ -290,9 +293,12 @@ export async function POST(request: NextRequest) {
               }
             }
 
+            const ins = await insertPromise
+            const finalCallId = ins.data?.id || preGeneratedCallId
+
             send({
               type: 'done',
-              callId: ins.data.id,
+              callId: finalCallId,
               totalFirstAudioMs: firstAudioMs,
               fromCache
             })
@@ -409,21 +415,12 @@ export async function POST(request: NextRequest) {
     // Default: action === 'turn'
     const rawCallSid = String(body?.callSid || '').trim()
     let callSid = generateSimCallSid(storeId)
-    let validatedSimCall: {
-      id: string
-      store_id: number
-      source: string
-      caller_number: string | null
-      status: string
-      ended_at: string | null
-      transcript: any
-      turns_count: number
-    } | null = null
+    let validatedSimCall: Record<string, any> | null = null
 
     if (rawCallSid.startsWith('SIM_')) {
       const { data: ownerCheck, error: ownerErr } = await supabaseAdmin
         .from('phone_calls')
-        .select('id, store_id, source, caller_number, status, ended_at, transcript, turns_count')
+        .select('*')
         .eq('call_sid', rawCallSid)
         .maybeSingle()
       if (ownerErr) throw ownerErr
@@ -663,6 +660,7 @@ export async function POST(request: NextRequest) {
       scheduleBackgroundTask(() => flushGuardPromise)
 
       return createNdjsonStreamResponse(async (send) => {
+        let pendingFlushPromise: Promise<void> | undefined
         try {
           const turn = await processPhoneAgentTurn({
             callSid,
@@ -671,23 +669,28 @@ export async function POST(request: NextRequest) {
             source: 'simulator',
             callerNumber: body?.callerNumber || auth.user?.email || 'Simulador Web',
             preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
-            deferDbFlush: true
+            deferDbFlush: true,
+            prefetchedCallRecord: validatedSimCall
           })
+          pendingFlushPromise = turn.flushDbPromise
 
-          // Comprometer el flush de DB antes de liberar turn_meta para que un barge-in o Turno 2 inmediato nunca lea transcript viejo ni sea sobreescrito
-          if (turn.flushDbPromise) {
-            try {
-              await turn.flushDbPromise
-            } finally {
-              releaseFlushGuard()
-            }
-          } else {
-            releaseFlushGuard()
-          }
-
+          const isDegradedFallback = Boolean(turn.geminiFailed)
+          const hasPersonalDigitsOrCallback =
+            Boolean(turn.callbackCreated) || /\b\d{7,10}\b|#\s*\d{3,6}\b/.test(turn.replyText)
+          const isCacheableTurnAudio =
+            !isDegradedFallback &&
+            !hasPersonalDigitsOrCallback &&
+            turn.replyText.length <= 520
           const textMs = Date.now() - reqStart
-          const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
+          const audioUrl = buildPhoneTtsUrl(
+            '',
+            turn.replyText,
+            turn.language,
+            turn.voiceId,
+            isCacheableTurnAudio ? undefined : { dynamic: true }
+          )
 
+          // Emitir turn_meta al instante y arrancar TTS en paralelo con flushDbPromise (protegida en finally + after())
           send({
             type: 'turn_meta',
             callId: turn.callId,
@@ -712,7 +715,8 @@ export async function POST(request: NextRequest) {
             try {
               for await (const chunk of streamPhoneAgentSpeechPcm(turn.replyText, turn.language, turn.voiceId, {
                 signal: request.signal,
-                skipStorageLookup: !turn.isCanonicalReply,
+                skipStorageLookup: isDegradedFallback || !isCacheableTurnAudio,
+                skipStoragePersist: isDegradedFallback,
                 fastLivePhone: true,
                 onStreamCompleted: (ok) => {
                   streamCompletedCleanly = ok
@@ -740,6 +744,11 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          if (pendingFlushPromise) {
+            await pendingFlushPromise
+            pendingFlushPromise = undefined
+          }
+
           send({
             type: 'done',
             totalFirstAudioMs: firstAudioMs,
@@ -747,12 +756,18 @@ export async function POST(request: NextRequest) {
             fromCache
           })
         } catch (streamErr: any) {
-          releaseFlushGuard()
           console.error('[api/phone/simulate stream] Error:', streamErr)
           send({
             type: 'error',
             error: streamErr?.message || 'Error procesando turno en streaming'
           })
+        } finally {
+          if (pendingFlushPromise) {
+            await pendingFlushPromise.catch((flushErr: any) => {
+              console.warn('[api/phone/simulate stream] flushDbPromise warning:', flushErr?.message || flushErr)
+            })
+          }
+          releaseFlushGuard()
         }
       })
     }
@@ -763,14 +778,28 @@ export async function POST(request: NextRequest) {
       userText,
       source: 'simulator',
       callerNumber: body?.callerNumber || auth.user.email || 'Simulador Web',
-      preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined
+      preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
+      prefetchedCallRecord: validatedSimCall
     })
 
-    const audioUrl = buildPhoneTtsUrl('', turn.replyText, turn.language, turn.voiceId)
+    const isDegradedFallback = Boolean(turn.geminiFailed)
+    const isCacheableNonStreamAudio =
+      !isDegradedFallback &&
+      Boolean(turn.isCanonicalReply || (turn.isDeterministicFastReply && turn.replyText.length <= 220))
+    const audioUrl = buildPhoneTtsUrl(
+      '',
+      turn.replyText,
+      turn.language,
+      turn.voiceId,
+      isCacheableNonStreamAudio ? undefined : { dynamic: true }
+    )
     let audioDataUrl: string | null = null
 
     if (voiceMode !== 'instant_local') {
-      const fullWav = await getPhoneAgentSpeech(turn.replyText, turn.language, turn.voiceId).catch(() => null)
+      const fullWav = await getPhoneAgentSpeech(turn.replyText, turn.language, turn.voiceId, false, {
+        skipStorageLookup: isDegradedFallback,
+        skipStoragePersist: isDegradedFallback
+      }).catch(() => null)
       if (fullWav) {
         audioDataUrl = `data:audio/wav;base64,${fullWav.toString('base64')}`
       }

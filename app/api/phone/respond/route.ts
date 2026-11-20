@@ -21,6 +21,7 @@
  * - Todos los `<Gather input="speech dtmf">` usan `buildTwilioGatherAttrs()` (`speechTimeout` adaptativo `"1"` estándar / `"3"` paciente + `timeout` `"4"`/`"7"` vía `isPromptExpectingPhoneOrDetails`, `speechModel="phone_call"`/`"default"` + hints Tacos Gavilan).
  * - Optimización 2026-11-12: cero suplantación de Lynwood #14, `deferDbFlush: true`, tecla `9` concisa a mitad de llamada, DTMF `0`/no asignados seguros, `&retry=1` correcto tras silencio y rama muerta `<Dial>` eliminada definitivamente por política.
  * - Blindaje Cross-Lambda 2026-11-19: todas las respuestas `<Play>` (incluyendo dinámicas) persisten en Supabase Storage con `awaitStoragePersist: true` antes de emitir TwiML; `restChunk` solo emite `<Play>` cuando su síntesis y persistencia confirmaron éxito (de lo contrario emite `<Say>` Google Chirp3-HD-Kore, cero drops 502 silenciosos); presupuesto TTS estrictamente acotado a `11.5s` de reloj; y respaldo de `TWILIO_WEBHOOK_BASE_URL`.
+ * - Ultra-Velocidad Caché Storage 2026-11-19: cuando `turn.isCanonicalReply` o respuesta determinista corta (`<= 220` chars) sin `geminiFailed` es verdadero, `synthesizeRespondPlayOrFallback` y el flujo `<Play>` operan con `opts.dynamic = false` (`skipStorageLookup: false`) para servir la 2ª llamada en `~80 ms` directo desde `phone_v6/Kore/`.
  */
 
 import { after } from 'next/server'
@@ -537,15 +538,18 @@ export async function POST(request: Request) {
       deferDbFlush: true
     })
 
-    // Solo dividir respuestas muy largas (> 210 chars); respuestas ágiles van en un solo <Play> para eliminar
-    // pausas mudas entre oraciones y evitar llamadas TTS duplicadas en tiempo real.
+    // Solo dividir respuestas muy largas (> 220 chars); respuestas ágiles van en un solo <Play> vía synthesizeRespondPlayOrFallback
+    // para eliminar pausas mudas entre oraciones y reutilizar al 100% la caché de Supabase Storage (~80 ms en la 2ª llamada).
     const { firstChunk, restChunk } =
-      turn.replyText.length > 210
+      turn.replyText.length > 220
         ? splitPhoneReplyForStreaming(turn.replyText)
         : { firstChunk: turn.replyText, restChunk: null }
 
     const ttsBudgetMs = getRespondTtsBudgetMs()
-    const isDynamicTurnAudio = !turn.isCanonicalReply
+    const isCacheableTurnAudio =
+      !turn.geminiFailed &&
+      Boolean(turn.isCanonicalReply || (turn.isDeterministicFastReply && turn.replyText.length <= 220))
+    const isDynamicTurnAudio = !isCacheableTurnAudio
     const canTryFirstTts = ttsBudgetMs >= 1200 || isPhoneSpeechInRamCache(firstChunk, turn.language, turn.voiceId)
 
     let playTags: string
@@ -553,7 +557,18 @@ export async function POST(request: Request) {
     let restSynthStatus: 'pending' | 'ready' | 'failed' = restChunk ? 'pending' : 'ready'
     let restSynthPromise: Promise<Buffer | null> | null = null
 
-    if (canTryFirstTts) {
+    if (!restChunk) {
+      const singleRes = await synthesizeRespondPlayOrFallback(
+        baseUrl,
+        firstChunk,
+        turn.language,
+        turn.voiceId,
+        ttsBudgetMs,
+        { dynamic: isDynamicTurnAudio }
+      )
+      usedFirstChunkPlay = singleRes.playedKore38
+      playTags = `    ${singleRes.tag}`
+    } else if (canTryFirstTts) {
       const firstSynthPromise = getPhoneAgentSpeech(firstChunk, turn.language, turn.voiceId, false, {
         skipStorageLookup: isDynamicTurnAudio,
         // Persistir SIEMPRE en Supabase Storage (privado) y esperar confirmación acotada para que cualquier Lambda en /api/phone/tts acierte en caché

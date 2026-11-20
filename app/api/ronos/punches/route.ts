@@ -1,20 +1,27 @@
 /**
  * @module api/ronos/punches
- * @description Endpoint de consulta para auditoría laboral, ponchadas y cumplimiento de Cingular HR (RONOS).
+ * @description Endpoint de consulta para auditoría laboral, ponchadas y cumplimiento de Cingular HR (RONOS),
+ *   enriquecido con validación cruzada contra el Planificador (`shifts`), ponchadas de Toast POS (`punches`)
+ *   y reglas oficiales de asistencia del Manual del Empleado (`NHP TEG SPANISH.pdf`).
  *
  * @businessRules
  *   - Permite consultar la auditoría individual de una sucursal o el consolidado global de las 15 tiendas + Bodega.
- *   - Devuelve métricas calculadas de Meal Penalties, horas extras, puntualidad y fotografías de reloj checador.
+ *   - Devuelve métricas calculadas de Meal Penalties, horas extras, puntualidad (±3 min vs Planificador),
+ *     exención inteligente por cobertura/emergencia gerencial, discrepancias Toast POS vs RONOS y fotografías.
+ *   - Excluye automáticamente de alertas disciplinarias a Managers y Supervisores asalariados.
  *
  * @dataFlow
- *   Frontend /admin/ronos -> GET /api/ronos/punches?companyId=34&weekId=155969 -> ronos-api -> JSON response.
+ *   Frontend /admin/ronos -> GET /api/ronos/punches?companyId=34&weekId=155969
+ *     -> getRonosStoreAudit -> enrichStoreAuditWithNhpPolicy (shifts + punches + simplify_employee_rates) -> JSON response.
  *
  * @notes
  *   - Si no se especifica companyId o si se envía companyId=0, retorna por defecto la auditoría de toda la cadena con semanas de referencia.
+ *   - Si el enriquecimiento NHP falla de forma transitoria, degrada limpiamente devolviendo la auditoría base de RONOS.
  */
 
 import { NextResponse } from 'next/server'
 import { getRonosStoreAudit, getRonosChainWideAudit, getRonosChainWideStoreAudit, getRonosWeeks, getDynamicRonosStores, RonosWeekNotFoundError } from '@/lib/ronos-api'
+import { enrichStoreAuditWithNhpPolicy } from '@/lib/ronos-nhp-audit'
 import { verifyAdminAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
@@ -130,6 +137,14 @@ export async function GET(request: Request) {
     } else {
       storeAudit = await getRonosStoreAudit(ronosCompanyId, weekId, forceLive, startDateParam)
       availableWeeks = await getRonosWeeks(ronosCompanyId, forceLive)
+    }
+
+    // 5. Enriquecer con Planificador (shifts) + Toast POS (punches) + Reglas NHP TEG SPANISH.pdf
+    try {
+      const { enrichedAudit } = await enrichStoreAuditWithNhpPolicy(storeAudit)
+      storeAudit = enrichedAudit
+    } catch (enrichErr: any) {
+      console.warn('[/api/ronos/punches] Advertencia enriqueciendo con políticas NHP/Toast/Planificador:', enrichErr?.message)
     }
 
     return NextResponse.json({

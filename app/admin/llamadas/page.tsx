@@ -9,6 +9,8 @@
  *    estacionamiento y saludo personalizado) y Asistente de Desvío Condicional para Spectrum Business y AT&T Android.
  * 4. Bitácora de Llamadas (`phone_calls`) con filtro de origen (Twilio Real vs Simulador) y reproducción de voz bajo demanda,
  *    más Panel de Recados Prioritarios (`phone_callback_requests`) con notas de resolución.
+ * 5. Aprendizaje Continuo Diario IA (`phone_learning_items` / `/api/phone/learning` + cron diario 5:35 AM PT) con Bandeja de Dudas
+ *    Reales (`needs_owner_input`), enseñanza instantánea bilingüe y pre-calentamiento automático de audios WAV (`~80 ms`).
  *
  * @businessRules
  * - Un solo módulo unificado atiende a las 15 sucursales de Tacos Gavilan.
@@ -21,7 +23,8 @@
  * - Cumple 100% con el protocolo bilingüe `useLanguage()` (`es` y `en` vía `t('phone_agent.*')`).
  *
  * @dataFlow
- * - UI `/admin/llamadas` -> `/api/phone/dashboard` (GET/POST/PATCH/DELETE con polling autenticado) &
+ * - UI `/admin/llamadas` -> `/api/phone/dashboard` (GET/POST/PATCH/DELETE con polling autenticado),
+ *   `/api/phone/learning` (GET/POST/PATCH Aprendizaje Continuo Diario),
  *   `/api/phone/simulate` (POST NDJSON PCM stream) & `/api/phone/tts` (POST WAV replay).
  *
  * @notes
@@ -44,6 +47,11 @@
  *   * `computeAdaptiveSilenceDurationMs` con normalización Unicode, dedup de Chrome Android, detección de dígitos al final
  *     (no suma ticket+fecha+teléfono) y pausa inteligente en nombre/ticket/fecha; 6 escenarios rápidos corregidos sin `555-01XX`
  *     + nuevos escenarios Paquete 1+2A+2B y DT/Comedor `SIN TICKET`.
+ * - Upgrade 2026-11-19 (Aprendizaje Continuo Diario IA + Puente Bidireccional con Kore Drive-Thru): pestaña bilingüe
+ *   `Aprendizaje Continuo IA` conectada a `/api/phone/learning` con KPIs ejecutivos, bandeja de dudas reales (`needs_owner_input`),
+ *   alcance por canal (`Teléfono + Drive-Thru`, `Solo Teléfono`, `Solo Drive-Thru`), insignia de enlace en vivo con Drive-Thru
+ *   (`syncedDtItemId`), respuesta rápida de voz opcional (`<= 220` car., `~80 ms`) y sincronización espejo con `phone_knowledge_base`
+ *   y `dt_kore_learning_items`.
  * - Optimización 2026-11-19 (Paquete 1B): polling silencioso del dashboard elevado de 12s a 60s con guardia `visibilityState === 'visible'`.
  */
 
@@ -91,7 +99,11 @@ import {
   PhoneForwarded,
   ShieldCheck,
   ShoppingBag,
-  RotateCcw
+  RotateCcw,
+  Loader2,
+  Gauge,
+  MessageSquareQuote,
+  Zap
 } from 'lucide-react'
 
 type VoiceId = 'Kore' | 'Aoede' | 'Zephyr'
@@ -236,6 +248,117 @@ interface CallbackRow {
   resolution_notes: string | null
   created_at: string
   stores?: { id: number; name: string } | null
+}
+
+type PhoneLearningChannelScope = 'both' | 'phone_only' | 'drive_thru_only'
+
+interface PhoneLearningItemRow {
+  id: string
+  storeId: number | null
+  sourceCallId: string | null
+  sourceType: string
+  itemKind: string
+  status: string
+  category: string
+  appliesToChannels: PhoneLearningChannelScope
+  syncedDtItemId: string | null
+  kbEntryId: string | null
+  questionOrTrigger: string
+  triggerKeywords: string[]
+  customerQuote: string | null
+  koreQuote: string | null
+  doubtForOwner: string | null
+  proposedRuleEs: string | null
+  proposedRuleEn: string | null
+  fastReplyEs: string | null
+  fastReplyEn: string | null
+  ownerInstruction: string | null
+  evidenceCount: number
+  avgLatencyMs: number | null
+  audioPrewarmed: boolean
+  resolvedByName: string | null
+  resolvedAt: string | null
+  createdAt: string | null
+}
+
+interface PhoneLearningStats {
+  pendingDoubts: number
+  activeRules: number
+  prewarmedClips: number
+  analyzedCalls: number
+  avgTurnLatencyMs: number | null
+}
+
+function inferDefaultPhoneLearningChannels(
+  rawChannel: unknown,
+  categoryRaw: unknown,
+  textRaw: unknown
+): PhoneLearningChannelScope {
+  if (rawChannel === 'phone_only' || rawChannel === 'drive_thru_only' || rawChannel === 'both') {
+    return rawChannel
+  }
+  const cat = String(categoryRaw ?? '').toLowerCase().trim()
+  const txt = String(textRaw ?? '').toLowerCase()
+  if (
+    cat === 'staff' ||
+    /\b(no tomamos [oó]rdenes por tel[eé]fono|recado|alerta prioritaria|desv[ií]o|spectrum|at&t|colgar llamada|transferir llamada)\b/i.test(
+      txt
+    )
+  ) {
+    return 'phone_only'
+  }
+  return 'both'
+}
+
+function normalizePhoneLearningItem(raw: Record<string, any>): PhoneLearningItemRow {
+  const rawStoreId = raw.storeId !== undefined ? raw.storeId : raw.store_id
+  const parsedStoreId =
+    rawStoreId !== null && rawStoreId !== undefined && Number.isFinite(Number(rawStoreId))
+      ? Number(rawStoreId)
+      : null
+  const rawLat = raw.avgLatencyMs !== undefined ? raw.avgLatencyMs : raw.avg_latency_ms
+  const category = String(raw.category ?? 'general')
+  const questionOrTrigger = String(raw.questionOrTrigger ?? raw.question_or_trigger ?? '')
+  const rawChannel = raw.appliesToChannels ?? raw.applies_to_channels
+  const rawSyncedDt = raw.syncedDtItemId ?? raw.synced_dt_item_id ?? null
+  const rawKbId = raw.kbEntryId ?? raw.kb_entry_id ?? null
+  return {
+    id: String(raw.id ?? ''),
+    storeId: parsedStoreId,
+    sourceCallId: raw.sourceCallId ?? raw.source_call_id ?? null,
+    sourceType: String(raw.sourceType ?? raw.source_type ?? 'cron_daily'),
+    itemKind: String(raw.itemKind ?? raw.item_kind ?? 'learned_rule'),
+    status: String(raw.status ?? 'needs_owner_input'),
+    category,
+    appliesToChannels: inferDefaultPhoneLearningChannels(
+      rawChannel,
+      category,
+      `${questionOrTrigger} ${raw.doubtForOwner ?? raw.doubt_for_owner ?? ''} ${raw.proposedRuleEs ?? raw.proposed_rule_es ?? ''}`
+    ),
+    syncedDtItemId: rawSyncedDt ? String(rawSyncedDt) : null,
+    kbEntryId: rawKbId ? String(rawKbId) : null,
+    questionOrTrigger,
+    triggerKeywords: Array.isArray(raw.triggerKeywords)
+      ? raw.triggerKeywords.map(String)
+      : Array.isArray(raw.trigger_keywords)
+        ? raw.trigger_keywords.map(String)
+        : [],
+    customerQuote: raw.customerQuote ?? raw.customer_quote ?? null,
+    koreQuote: raw.koreQuote ?? raw.kore_quote ?? null,
+    doubtForOwner: raw.doubtForOwner ?? raw.doubt_for_owner ?? null,
+    proposedRuleEs: raw.proposedRuleEs ?? raw.proposed_rule_es ?? null,
+    proposedRuleEn: raw.proposedRuleEn ?? raw.proposed_rule_en ?? null,
+    fastReplyEs: raw.fastReplyEs ?? raw.fast_reply_es ?? null,
+    fastReplyEn: raw.fastReplyEn ?? raw.fast_reply_en ?? null,
+    ownerInstruction: raw.ownerInstruction ?? raw.owner_instruction ?? null,
+    evidenceCount: Math.max(1, Number(raw.evidenceCount ?? raw.evidence_count ?? 1) || 1),
+    avgLatencyMs:
+      typeof rawLat === 'number' && Number.isFinite(rawLat) ? Math.round(rawLat) : null,
+    audioPrewarmed: Boolean(raw.audioPrewarmed ?? raw.audio_prewarmed ?? false),
+    resolvedByName: raw.resolvedByName ?? raw.resolved_by_name ?? null,
+    resolvedAt: raw.resolvedAt ?? raw.resolved_at ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? null
+  }
 }
 
 const CLIENT_BLOCKED_NANP_AREA_CODES = new Set([
@@ -849,7 +972,7 @@ export default function ContestadoraIaPage() {
   const { t, language } = useLanguage()
   const isEn = language === 'en'
 
-  const [activeTab, setActiveTab] = useState<'simulator' | 'knowledge' | 'stores' | 'calls'>('simulator')
+  const [activeTab, setActiveTab] = useState<'simulator' | 'knowledge' | 'learning' | 'stores' | 'calls'>('simulator')
   const [loading, setLoading] = useState(true)
   const [viewer, setViewer] = useState<ViewerInfo | null>(null)
   const [stores, setStores] = useState<StoreRow[]>([])
@@ -1067,6 +1190,42 @@ export default function ContestadoraIaPage() {
   const [callbackNotes, setCallbackNotes] = useState<Record<string, string>>({})
   const [replayingMsgIdx, setReplayingMsgIdx] = useState<number | null>(null)
 
+  // Continuous AI Learning state (/api/phone/learning)
+  const [learningStoreFilter, setLearningStoreFilter] = useState<string>('all')
+  const [learningItems, setLearningItems] = useState<PhoneLearningItemRow[]>([])
+  const [learningStats, setLearningStats] = useState<PhoneLearningStats>({
+    pendingDoubts: 0,
+    activeRules: 0,
+    prewarmedClips: 0,
+    analyzedCalls: 0,
+    avgTurnLatencyMs: null
+  })
+  const [learningLoading, setLearningLoading] = useState(false)
+  const [learningAnalyzing, setLearningAnalyzing] = useState(false)
+  const [learningBusyId, setLearningBusyId] = useState<string | null>(null)
+  const [learningError, setLearningError] = useState<string | null>(null)
+  const [learningDraftInstruction, setLearningDraftInstruction] = useState<Record<string, string>>({})
+  const [learningDraftFastEs, setLearningDraftFastEs] = useState<Record<string, string>>({})
+  const [learningDraftFastEn, setLearningDraftFastEn] = useState<Record<string, string>>({})
+  const [learningDraftGlobal, setLearningDraftGlobal] = useState<Record<string, boolean>>({})
+  const [learningDraftChannels, setLearningDraftChannels] = useState<
+    Record<string, PhoneLearningChannelScope>
+  >({})
+  const [learningExpandedFastIds, setLearningExpandedFastIds] = useState<Record<string, boolean>>({})
+  const [learningShowManualForm, setLearningShowManualForm] = useState(false)
+  const [learningManualTrigger, setLearningManualTrigger] = useState('')
+  const [learningManualInstruction, setLearningManualInstruction] = useState('')
+  const [learningManualFastEs, setLearningManualFastEs] = useState('')
+  const [learningManualFastEn, setLearningManualFastEn] = useState('')
+  const [learningManualGlobal, setLearningManualGlobal] = useState(true)
+  const [learningManualChannels, setLearningManualChannels] =
+    useState<PhoneLearningChannelScope>('both')
+  const [learningCreatingManual, setLearningCreatingManual] = useState(false)
+  const learningReqIdRef = useRef(0)
+  const learningAbortRef = useRef<AbortController | null>(null)
+  const learningAnalyzingRef = useRef(false)
+  const learningMutatingRef = useRef(false)
+
   const isGlobalAdmin = viewer ? viewer.isGlobalAdmin : false
 
   const showFeedback = useCallback((kind: 'ok' | 'err', text: string) => {
@@ -1261,6 +1420,378 @@ export default function ContestadoraIaPage() {
       setActiveTab('simulator')
     }
   }, [viewer, activeTab])
+
+  // Alinear filtro de aprendizaje para usuarios acotados a sucursal
+  useEffect(() => {
+    if (viewer && !viewer.isGlobalAdmin && stores.length > 0) {
+      setLearningStoreFilter((prev) => {
+        if (prev !== 'all' && stores.some((s) => String(s.id) === prev)) return prev
+        return String(stores[0].id)
+      })
+    }
+  }, [viewer, stores])
+
+  const fetchPhoneLearning = useCallback(
+    async (silent = false) => {
+      if (!viewer) return
+      if (!viewer.isGlobalAdmin && learningStoreFilter === 'all') {
+        if (stores.length === 0) return
+      }
+      if (learningAbortRef.current) {
+        learningAbortRef.current.abort()
+      }
+      const ctrl = new AbortController()
+      learningAbortRef.current = ctrl
+      const reqId = ++learningReqIdRef.current
+      if (!silent) {
+        setLearningLoading(true)
+        setLearningError(null)
+      }
+      try {
+        const effectiveStoreParam =
+          !viewer.isGlobalAdmin && learningStoreFilter === 'all' && stores.length > 0
+            ? String(stores[0].id)
+            : learningStoreFilter
+        const qs =
+          effectiveStoreParam && effectiveStoreParam !== 'all'
+            ? `?storeId=${encodeURIComponent(effectiveStoreParam)}`
+            : ''
+        const res = await fetch(`/api/phone/learning${qs}`, {
+          headers: getAuthHeaders(),
+          cache: 'no-store',
+          signal: ctrl.signal
+        })
+        const data: any = await res.json().catch(() => null)
+        if (!mountedRef.current || reqId !== learningReqIdRef.current) return
+        if (!res.ok) {
+          const msg = data && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+          if (!silent) {
+            setLearningError(tRef.current('phone_agent.learning_load_err', { message: msg }))
+          }
+          return
+        }
+        const rawItems = Array.isArray(data?.items) ? data.items : []
+        const normalized = rawItems
+          .filter((r: unknown) => typeof r === 'object' && r !== null)
+          .map((r: Record<string, any>) => normalizePhoneLearningItem(r))
+        const rawStats = (data && typeof data.stats === 'object' && data.stats) || {}
+        const rawAvgLat =
+          rawStats.avgTurnLatencyMs ??
+          rawStats.avgLatencyMs ??
+          rawStats.avg_turn_latency_ms ??
+          null
+        setLearningItems(normalized)
+        const actionablePendingDoubts = viewer.isGlobalAdmin
+          ? Number(
+              rawStats.pendingDoubts ??
+                rawStats.pending_doubts ??
+                normalized.filter((i: PhoneLearningItemRow) => i.status === 'needs_owner_input').length
+            ) || 0
+          : normalized.filter(
+              (i: PhoneLearningItemRow) => i.status === 'needs_owner_input' && i.storeId !== null
+            ).length
+        setLearningStats({
+          pendingDoubts: actionablePendingDoubts,
+          activeRules:
+            Number(rawStats.activeRules ?? rawStats.active_rules ?? normalized.filter((i: PhoneLearningItemRow) => i.status === 'approved' || i.status === 'auto_applied').length) || 0,
+          prewarmedClips:
+            Number(rawStats.prewarmedClips ?? rawStats.prewarmed_clips ?? rawStats.audioPrewarmedCount ?? normalized.filter((i: PhoneLearningItemRow) => i.audioPrewarmed).length) || 0,
+          analyzedCalls: Number(rawStats.analyzedCalls ?? rawStats.analyzed_calls ?? 0) || 0,
+          avgTurnLatencyMs:
+            typeof rawAvgLat === 'number' && Number.isFinite(rawAvgLat) ? Math.round(rawAvgLat) : null
+        })
+        setLearningError(null)
+      } catch (e: any) {
+        if (e?.name === 'AbortError' || !mountedRef.current || reqId !== learningReqIdRef.current) return
+        if (!silent) {
+          setLearningError(
+            tRef.current('phone_agent.learning_load_err', {
+              message: e instanceof Error ? e.message : String(e)
+            })
+          )
+        }
+      } finally {
+        if (learningAbortRef.current === ctrl) {
+          learningAbortRef.current = null
+        }
+        if (mountedRef.current && reqId === learningReqIdRef.current) {
+          setLearningLoading(false)
+        }
+      }
+    },
+    [viewer, learningStoreFilter, stores, getAuthHeaders]
+  )
+
+  useEffect(() => {
+    if (!viewer) return
+    void fetchPhoneLearning(activeTab !== 'learning')
+  }, [viewer, learningStoreFilter, activeTab, fetchPhoneLearning])
+
+  const handleAnalyzeCallsNow = async () => {
+    if (learningAnalyzingRef.current) return
+    learningAnalyzingRef.current = true
+    setLearningAnalyzing(true)
+    setLearningError(null)
+    try {
+      const storeIdPayload =
+        !isGlobalAdmin
+          ? Number(learningStoreFilter !== 'all' ? learningStoreFilter : stores[0]?.id || viewer?.assignedStoreId || 0) || null
+          : learningStoreFilter === 'all'
+            ? null
+            : Number(learningStoreFilter) || null
+      const res = await fetch('/api/phone/learning', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          action: 'analyze_now',
+          storeId: storeIdPayload
+        })
+      })
+      const data: any = await res.json().catch(() => null)
+      if (!mountedRef.current) return
+      if (!res.ok) {
+        const msg = data && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+        throw new Error(msg)
+      }
+      const analysis = data?.analysis || data?.summary || data || {}
+      const callsCount = Number(
+        analysis.analyzedCallsCount ??
+          analysis.analyzedCalls ??
+          analysis.callsAnalyzed ??
+          analysis.scannedCalls ??
+          analysis.processedCalls ??
+          0
+      ) || 0
+      const doubtsCount =
+        Number(analysis.insertedItems ?? 0) + Number(analysis.incrementedItems ?? 0) ||
+        Number(
+          analysis.doubtsCreated ??
+            analysis.newDoubts ??
+            analysis.pendingDoubts ??
+            data?.stats?.pendingDoubts ??
+            0
+        ) ||
+        0
+      const prewarmsCount = Number(
+        analysis.prewarmedNowCount ??
+          analysis.prewarmedClips ??
+          analysis.audiosPrewarmed ??
+          analysis.prewarmedCount ??
+          0
+      ) || 0
+      showFeedback(
+        'ok',
+        t('phone_agent.learning_analyze_done', {
+          calls: callsCount,
+          doubts: doubtsCount,
+          prewarms: prewarmsCount
+        })
+      )
+      await Promise.all([fetchPhoneLearning(true), fetchDashboard(true)])
+    } catch (e: any) {
+      if (!mountedRef.current) return
+      const msg = e instanceof Error ? e.message : String(e)
+      setLearningError(t('phone_agent.learning_action_err', { message: msg }))
+      showFeedback('err', t('phone_agent.learning_action_err', { message: msg }))
+    } finally {
+      learningAnalyzingRef.current = false
+      if (mountedRef.current) setLearningAnalyzing(false)
+    }
+  }
+
+  const getLearningInstructionValue = (item: PhoneLearningItemRow): string => {
+    if (item.id in learningDraftInstruction) return learningDraftInstruction[item.id]
+    return item.ownerInstruction || ''
+  }
+
+  const getLearningFastEsValue = (item: PhoneLearningItemRow): string => {
+    if (item.id in learningDraftFastEs) return learningDraftFastEs[item.id]
+    return item.fastReplyEs || ''
+  }
+
+  const getLearningFastEnValue = (item: PhoneLearningItemRow): string => {
+    if (item.id in learningDraftFastEn) return learningDraftFastEn[item.id]
+    return item.fastReplyEn || ''
+  }
+
+  const getLearningGlobalValue = (item: PhoneLearningItemRow): boolean => {
+    if (!isGlobalAdmin) return false
+    if (item.id in learningDraftGlobal) return learningDraftGlobal[item.id]
+    return item.storeId === null
+  }
+
+  const getLearningChannelsValue = (item: PhoneLearningItemRow): PhoneLearningChannelScope => {
+    if (item.id in learningDraftChannels) return learningDraftChannels[item.id]
+    return item.appliesToChannels || 'both'
+  }
+
+  const handleAnswerLearningDoubt = async (item: PhoneLearningItemRow) => {
+    if (learningMutatingRef.current) return
+    const instruction = getLearningInstructionValue(item).trim()
+    if (!instruction) {
+      setLearningError(t('phone_agent.learning_validation_err'))
+      showFeedback('err', t('phone_agent.learning_validation_err'))
+      return
+    }
+    const fastEs = getLearningFastEsValue(item).trim()
+    const fastEn = getLearningFastEnValue(item).trim()
+    const applyGlobal = getLearningGlobalValue(item)
+    const appliesToChannels = getLearningChannelsValue(item)
+    const fallbackStoreId =
+      item.storeId ??
+      (learningStoreFilter !== 'all' ? Number(learningStoreFilter) : stores[0]?.id ?? viewer?.assignedStoreId ?? null)
+    const targetStoreId = isGlobalAdmin ? (applyGlobal ? null : fallbackStoreId) : fallbackStoreId
+
+    learningMutatingRef.current = true
+    setLearningBusyId(item.id)
+    setLearningError(null)
+    try {
+      const res = await fetch('/api/phone/learning', {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          action: 'answer_doubt',
+          status: 'approved',
+          id: item.id,
+          ownerInstruction: instruction,
+          fastReplyEs: fastEs || undefined,
+          fastReplyEn: fastEn || undefined,
+          storeId: targetStoreId,
+          applyAllStores: applyGlobal,
+          appliesToChannels
+        })
+      })
+      const data: any = await res.json().catch(() => null)
+      if (!mountedRef.current) return
+      if (!res.ok) {
+        const msg = data && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+        throw new Error(msg)
+      }
+      setLearningDraftInstruction((prev) => {
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+      setLearningDraftFastEs((prev) => {
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+      setLearningDraftFastEn((prev) => {
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+      setLearningDraftChannels((prev) => {
+        const next = { ...prev }
+        delete next[item.id]
+        return next
+      })
+      showFeedback('ok', t('phone_agent.learning_saved_ok'))
+      await Promise.all([fetchPhoneLearning(true), fetchDashboard(true)])
+    } catch (e: any) {
+      if (!mountedRef.current) return
+      const msg = e instanceof Error ? e.message : String(e)
+      setLearningError(t('phone_agent.learning_action_err', { message: msg }))
+      showFeedback('err', t('phone_agent.learning_action_err', { message: msg }))
+    } finally {
+      learningMutatingRef.current = false
+      if (mountedRef.current) setLearningBusyId(null)
+    }
+  }
+
+  const handleDismissLearningItem = async (id: string) => {
+    if (learningMutatingRef.current) return
+    learningMutatingRef.current = true
+    setLearningBusyId(id)
+    setLearningError(null)
+    try {
+      const res = await fetch('/api/phone/learning', {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          action: 'dismiss',
+          status: 'dismissed',
+          id
+        })
+      })
+      const data: any = await res.json().catch(() => null)
+      if (!mountedRef.current) return
+      if (!res.ok) {
+        const msg = data && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+        throw new Error(msg)
+      }
+      showFeedback('ok', t('phone_agent.learning_dismissed_ok'))
+      await fetchPhoneLearning(true)
+    } catch (e: any) {
+      if (!mountedRef.current) return
+      const msg = e instanceof Error ? e.message : String(e)
+      setLearningError(t('phone_agent.learning_action_err', { message: msg }))
+      showFeedback('err', t('phone_agent.learning_action_err', { message: msg }))
+    } finally {
+      learningMutatingRef.current = false
+      if (mountedRef.current) setLearningBusyId(null)
+    }
+  }
+
+  const handleCreateManualLearnedRule = async () => {
+    if (learningMutatingRef.current) return
+    const trigger = learningManualTrigger.trim()
+    const instruction = learningManualInstruction.trim()
+    if (!trigger || !instruction) {
+      setLearningError(t('phone_agent.learning_manual_validation_err'))
+      showFeedback('err', t('phone_agent.learning_manual_validation_err'))
+      return
+    }
+    const applyGlobal = isGlobalAdmin && learningManualGlobal
+    const fallbackStoreId =
+      learningStoreFilter !== 'all'
+        ? Number(learningStoreFilter)
+        : stores[0]?.id ?? viewer?.assignedStoreId ?? null
+    const targetStoreId = applyGlobal ? null : fallbackStoreId
+
+    learningMutatingRef.current = true
+    setLearningCreatingManual(true)
+    setLearningError(null)
+    try {
+      const res = await fetch('/api/phone/learning', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          action: 'create_rule',
+          questionOrTrigger: trigger,
+          ownerInstruction: instruction,
+          fastReplyEs: learningManualFastEs.trim() || undefined,
+          fastReplyEn: learningManualFastEn.trim() || undefined,
+          storeId: targetStoreId,
+          applyAllStores: applyGlobal,
+          appliesToChannels: learningManualChannels
+        })
+      })
+      const data: any = await res.json().catch(() => null)
+      if (!mountedRef.current) return
+      if (!res.ok) {
+        const msg = data && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+        throw new Error(msg)
+      }
+      setLearningManualTrigger('')
+      setLearningManualInstruction('')
+      setLearningManualFastEs('')
+      setLearningManualFastEn('')
+      setLearningManualChannels('both')
+      setLearningShowManualForm(false)
+      showFeedback('ok', t('phone_agent.learning_saved_ok'))
+      await Promise.all([fetchPhoneLearning(true), fetchDashboard(true)])
+    } catch (e: any) {
+      if (!mountedRef.current) return
+      const msg = e instanceof Error ? e.message : String(e)
+      setLearningError(t('phone_agent.learning_action_err', { message: msg }))
+      showFeedback('err', t('phone_agent.learning_action_err', { message: msg }))
+    } finally {
+      learningMutatingRef.current = false
+      if (mountedRef.current) setLearningCreatingManual(false)
+    }
+  }
 
   // Polling autenticado silencioso cada 60s + recarga al volver a la pestaña o recuperar red
   useEffect(() => {
@@ -1678,6 +2209,10 @@ export default function ContestadoraIaPage() {
       if (dashboardAbortRef.current) {
         dashboardAbortRef.current.abort()
         dashboardAbortRef.current = null
+      }
+      if (learningAbortRef.current) {
+        learningAbortRef.current.abort()
+        learningAbortRef.current = null
       }
       if (feedbackTimerRef.current !== null && typeof window !== 'undefined') {
         window.clearTimeout(feedbackTimerRef.current)
@@ -2173,21 +2708,19 @@ export default function ContestadoraIaPage() {
     let startMeta: any = null
 
     try {
-      const [, res] = await Promise.all([
-        playPhoneRingTone(),
-        fetch('/api/phone/simulate', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          signal: abortCtrl.signal,
-          body: JSON.stringify({
-            action: 'start',
-            storeId: simStoreId,
-            lang: simLang,
-            voiceMode: 'neural_turbo',
-            stream: true
-          })
+      void playPhoneRingTone()
+      const res = await fetch('/api/phone/simulate', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        signal: abortCtrl.signal,
+        body: JSON.stringify({
+          action: 'start',
+          storeId: simStoreId,
+          lang: simLang,
+          voiceMode: 'neural_turbo',
+          stream: true
         })
-      ])
+      })
 
       if (reqId !== simReqIdRef.current) {
         void res.body?.cancel?.().catch(() => {})
@@ -2482,28 +3015,26 @@ export default function ContestadoraIaPage() {
           setSimSynthesizingAudio(false)
           if (clientFirstAudioMs === undefined) {
             clientFirstAudioMs = Math.round(performance.now() - turnStart)
+            const immediateMs = clientFirstAudioMs
+            const isFromCache = Boolean(evt.fromCache)
+            if (assistantMsgTimestamp) {
+              setSimTranscript((prev) =>
+                prev.map((m) =>
+                  m.timestamp === assistantMsgTimestamp
+                    ? { ...m, firstAudioMs: immediateMs, fromCache: isFromCache }
+                    : m
+                )
+              )
+            }
           }
           pcmPlayer.pushPcmBase64(evt.pcmBase64, evt.sampleRate || 24000)
         } else if (evt.type === 'tts_fallback_required' || evt.type === 'audio_stream_truncated') {
-          if (evt.type === 'audio_stream_truncated') {
-            stopAllSimAudio(false)
-          }
           setSimSynthesizingAudio(false)
-          handledFallbackSpeech = true
-          const fullText = evt.text || turnMeta?.replyText || ''
-          const clipLang: 'es' | 'en' =
-            evt.language === 'en' ? 'en' : evt.language === 'es' ? 'es' : turnMeta?.language === 'en' ? 'en' : 'es'
-          // Cuando el servidor ya agotó el stream TTS (`tts_fallback_required`), hablar de inmediato (0 ms) sin repetir otro fetch lento a /api/phone/tts
-          if (evt.type === 'audio_stream_truncated' && turnMeta?.audioUrl) {
-            void playVoiceUrl(
-              turnMeta.audioUrl,
-              fullText,
-              clipLang,
-              null,
-              finalizeAutoHangupIfNeeded,
-              { voice: (turnMeta.voiceId as VoiceId) || turnVoice }
-            )
-          } else {
+          if (evt.type === 'tts_fallback_required' || clientFirstAudioMs === undefined) {
+            handledFallbackSpeech = true
+            const fullText = evt.text || turnMeta?.replyText || ''
+            const clipLang: 'es' | 'en' =
+              evt.language === 'en' ? 'en' : evt.language === 'es' ? 'es' : turnMeta?.language === 'en' ? 'en' : 'es'
             speakWithFemaleBrowserVoice(
               fullText,
               clipLang,
@@ -3667,6 +4198,28 @@ export default function ContestadoraIaPage() {
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={() => setActiveTab('learning')}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition ${
+              activeTab === 'learning'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <Sparkles size={17} />
+            {t('phone_agent.tab_learning')}
+            {learningStats.pendingDoubts > 0 ? (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500 text-white font-black tabular-nums">
+                {learningStats.pendingDoubts}
+              </span>
+            ) : learningStats.activeRules > 0 ? (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 tabular-nums">
+                {learningStats.activeRules}
+              </span>
+            ) : null}
+          </button>
+
           {isGlobalAdmin && (
             <button
               type="button"
@@ -4728,6 +5281,764 @@ export default function ContestadoraIaPage() {
             </div>
           </div>
         )}
+
+        {/* ================================================================= */}
+        {/* TAB 2B: APRENDIZAJE CONTINUO DIARIO IA                            */}
+        {/* ================================================================= */}
+        {activeTab === 'learning' && (() => {
+          const learningDoubts = learningItems.filter(
+            (it) => it.status === 'needs_owner_input' && (isGlobalAdmin || it.storeId !== null)
+          )
+          const learningActive = learningItems.filter(
+            (it) => it.status === 'approved' || it.status === 'auto_applied'
+          )
+          const renderLearningKindLabel = (kind: string) => {
+            if (kind === 'doubt_for_owner') return t('phone_agent.learning_kind_doubt')
+            if (kind === 'fast_reply_macro') return t('phone_agent.learning_kind_fast_macro')
+            if (kind === 'stt_synonym') return t('phone_agent.learning_kind_stt')
+            if (kind === 'audio_prewarm') return t('phone_agent.learning_kind_prewarm')
+            if (kind === 'latency_insight') return t('phone_agent.learning_kind_latency')
+            return t('phone_agent.learning_kind_rule')
+          }
+          const renderLearningScopeBadge = (storeId: number | null) => {
+            if (storeId === null) {
+              return (
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300">
+                  {t('phone_agent.learning_scope_global')}
+                </span>
+              )
+            }
+            const storeObj = stores.find((s) => s.id === storeId)
+            const label = storeObj
+              ? `#${storeObj.id} ${storeObj.name}`
+              : t('phone_agent.learning_scope_store', { id: storeId })
+            return (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                {label}
+              </span>
+            )
+          }
+          const renderLearningChannelBadge = (channel: PhoneLearningChannelScope) => {
+            if (channel === 'phone_only') {
+              return (
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  {t('phone_agent.learning_channel_phone_only')}
+                </span>
+              )
+            }
+            if (channel === 'drive_thru_only') {
+              return (
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300">
+                  {t('phone_agent.learning_channel_drive_thru_only')}
+                </span>
+              )
+            }
+            return (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
+                {t('phone_agent.learning_channel_both')}
+              </span>
+            )
+          }
+          const renderLearningDtSyncBadge = (
+            item: PhoneLearningItemRow,
+            activeChannel: PhoneLearningChannelScope
+          ) => {
+            if (!item.syncedDtItemId || activeChannel === 'phone_only') return null
+            if (item.status === 'needs_owner_input') {
+              return (
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-cyan-100 text-cyan-800 dark:bg-cyan-950/70 dark:text-cyan-300">
+                  {t('phone_agent.learning_linked_dt_doubt_badge')}
+                </span>
+              )
+            }
+            return (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-teal-100 text-teal-800 dark:bg-teal-950/70 dark:text-teal-300">
+                {t('phone_agent.learning_synced_dt_badge')}
+              </span>
+            )
+          }
+          const renderLearningOriginDtBadge = (item: PhoneLearningItemRow) => {
+            const src = item.sourceType.toLowerCase()
+            if (src !== 'drive_thru' && src !== 'dt_kore_learning' && src !== 'kore_sim') return null
+            return (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300">
+                {t('phone_agent.learning_src_dt_badge')}
+              </span>
+            )
+          }
+
+          return (
+            <div className="space-y-5">
+              {/* Header + Cron Daily Notice + Filter + Analyze Now */}
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-3 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl shadow-md shadow-orange-500/20 shrink-0">
+                      <Sparkles className="text-white" size={22} />
+                    </div>
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                        {t('phone_agent.learning_title')}
+                      </h2>
+                      <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-3xl">
+                        {t('phone_agent.learning_subtitle')}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
+                          <Clock size={13} className="shrink-0" />
+                          <span>{t('phone_agent.learning_cron_notice')}</span>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 text-[11px] font-bold text-indigo-800 dark:text-indigo-300">
+                          <Sparkles size={13} className="shrink-0" />
+                          <span>{t('phone_agent.learning_bridge_notice')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <select
+                      value={learningStoreFilter}
+                      disabled={!isGlobalAdmin && stores.length <= 1}
+                      onChange={(e) => setLearningStoreFilter(e.target.value)}
+                      className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-75"
+                    >
+                      {isGlobalAdmin && (
+                        <option value="all">{t('phone_agent.learning_filter_all_stores')}</option>
+                      )}
+                      {stores.map((s) => (
+                        <option key={s.id} value={String(s.id)}>
+                          #{s.id} - {s.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      disabled={learningAnalyzing}
+                      onClick={() => void handleAnalyzeCallsNow()}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-black shadow-sm transition active:scale-95 disabled:opacity-60 cursor-pointer"
+                    >
+                      {learningAnalyzing ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={15} />
+                      )}
+                      <span>
+                        {learningAnalyzing
+                          ? t('phone_agent.learning_analyzing')
+                          : t('phone_agent.learning_analyze_btn')}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={learningLoading}
+                      onClick={() => void fetchPhoneLearning(false)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw size={14} className={learningLoading ? 'animate-spin' : ''} />
+                      <span>{t('phone_agent.learning_refresh_btn')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4 Executive KPIs */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                  <div
+                    className={`rounded-xl border p-3.5 ${
+                      learningStats.pendingDoubts > 0
+                        ? 'border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/30'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50'
+                    }`}
+                  >
+                    <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                      <HelpCircle size={13} />
+                      <span>{t('phone_agent.learning_kpi_doubts')}</span>
+                    </p>
+                    <p className="text-2xl font-black tabular-nums text-slate-900 dark:text-white mt-1">
+                      {learningStats.pendingDoubts}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/25 p-3.5">
+                    <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                      <BookOpen size={13} />
+                      <span>{t('phone_agent.learning_kpi_rules')}</span>
+                    </p>
+                    <p className="text-2xl font-black tabular-nums text-emerald-700 dark:text-emerald-300 mt-1">
+                      {learningStats.activeRules}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-sky-200 dark:border-sky-900/60 bg-sky-50/60 dark:bg-sky-950/25 p-3.5">
+                    <p className="text-[11px] font-bold text-sky-700 dark:text-sky-400 flex items-center gap-1.5">
+                      <Zap size={13} />
+                      <span>{t('phone_agent.learning_kpi_prewarmed')}</span>
+                    </p>
+                    <p className="text-2xl font-black tabular-nums text-sky-700 dark:text-sky-300 mt-1">
+                      {learningStats.prewarmedClips}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3.5">
+                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Gauge size={13} />
+                      <span>{t('phone_agent.learning_kpi_analyzed')}</span>
+                    </p>
+                    <div className="flex items-baseline justify-between gap-2 mt-1">
+                      <p className="text-2xl font-black tabular-nums text-slate-900 dark:text-white">
+                        {learningStats.analyzedCalls}
+                      </p>
+                      {learningStats.avgTurnLatencyMs !== null && (
+                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                          {t('phone_agent.learning_kpi_avg_latency', {
+                            ms: learningStats.avgTurnLatencyMs
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {learningError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 px-3.5 py-2.5 text-xs sm:text-sm text-rose-700 dark:text-rose-300">
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                    <span className="flex-1 break-words">{learningError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setLearningError(null)}
+                      className="shrink-0 hover:opacity-75 cursor-pointer"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {learningLoading && learningItems.length === 0 ? (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 text-sm text-slate-500 flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-emerald-600" />
+                  <span>{t('phone_agent.learning_loading')}</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {/* BANDEJA 1: DUDAS REALES (needs_owner_input) */}
+                  <div className="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/30 dark:bg-amber-950/15 p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                          <HelpCircle size={18} className="text-amber-500 shrink-0" />
+                          <span>{t('phone_agent.learning_doubts_title')}</span>
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {t('phone_agent.learning_doubts_subtitle')}
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 tabular-nums shrink-0">
+                        {learningDoubts.length}
+                      </span>
+                    </div>
+
+                    {learningDoubts.length === 0 ? (
+                      <div className="bg-white/80 dark:bg-slate-900/70 rounded-xl border border-amber-100 dark:border-amber-900/40 p-5 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                        {t('phone_agent.learning_doubts_empty')}
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5 max-h-[720px] overflow-y-auto pr-1">
+                        {learningDoubts.map((item) => {
+                          const isBusy = learningBusyId === item.id
+                          const proposedDraft = isEn
+                            ? item.proposedRuleEn || item.proposedRuleEs
+                            : item.proposedRuleEs || item.proposedRuleEn
+                          const fastExpanded = Boolean(learningExpandedFastIds[item.id])
+                          const instructionVal = getLearningInstructionValue(item)
+                          const fastEsVal = getLearningFastEsValue(item)
+                          const fastEnVal = getLearningFastEnValue(item)
+                          const applyGlobalVal = getLearningGlobalValue(item)
+                          const channelVal = getLearningChannelsValue(item)
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-white dark:bg-slate-900 p-4 space-y-3 shadow-sm"
+                            >
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300">
+                                  {renderLearningKindLabel(item.itemKind)}
+                                </span>
+                                {renderLearningScopeBadge(item.storeId)}
+                                {renderLearningChannelBadge(channelVal)}
+                                {renderLearningDtSyncBadge(item, channelVal)}
+                                {renderLearningOriginDtBadge(item)}
+                                {item.evidenceCount > 1 && (
+                                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300 tabular-nums">
+                                    {t('phone_agent.learning_evidence_count', {
+                                      count: item.evidenceCount
+                                    })}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-sm font-black text-slate-900 dark:text-white break-words">
+                                {item.questionOrTrigger}
+                              </p>
+
+                              {(item.customerQuote || item.koreQuote) && (
+                                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/60 p-3 space-y-1.5 text-xs">
+                                  {item.customerQuote && (
+                                    <p className="text-slate-800 dark:text-slate-200 break-words">
+                                      <MessageSquareQuote
+                                        size={13}
+                                        className="inline mr-1 text-orange-500"
+                                      />
+                                      <strong className="font-bold">
+                                        {t('phone_agent.learning_customer_quote')}
+                                      </strong>{' '}
+                                      “{item.customerQuote}”
+                                    </p>
+                                  )}
+                                  {item.koreQuote && (
+                                    <p className="text-slate-600 dark:text-slate-300 break-words">
+                                      <strong className="font-bold">
+                                        {t('phone_agent.learning_kore_quote')}
+                                      </strong>{' '}
+                                      “{item.koreQuote}”
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              {item.doubtForOwner && (
+                                <div className="rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-3 py-2 text-xs text-amber-950 dark:text-amber-200 break-words">
+                                  <strong className="font-black">
+                                    {t('phone_agent.learning_doubt_label')}
+                                  </strong>{' '}
+                                  {item.doubtForOwner}
+                                </div>
+                              )}
+
+                              {proposedDraft && (
+                                <div className="flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-2.5 py-2 text-xs text-slate-600 dark:text-slate-300">
+                                  <span className="break-words">
+                                    <strong>{t('phone_agent.learning_proposed_hint')}</strong>{' '}
+                                    {proposedDraft}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() =>
+                                      setLearningDraftInstruction((prev) => ({
+                                        ...prev,
+                                        [item.id]: proposedDraft
+                                      }))
+                                    }
+                                    className="shrink-0 px-2 py-1 rounded-md bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-[11px] font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
+                                  >
+                                    {t('phone_agent.learning_use_proposed_btn')}
+                                  </button>
+                                </div>
+                              )}
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                  {t('phone_agent.learning_instruction_label')}
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={instructionVal}
+                                  disabled={isBusy}
+                                  onChange={(e) =>
+                                    setLearningDraftInstruction((prev) => ({
+                                      ...prev,
+                                      [item.id]: e.target.value
+                                    }))
+                                  }
+                                  placeholder={t('phone_agent.learning_instruction_placeholder')}
+                                  className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                                />
+                              </div>
+
+                              {/* Opción colapsable de respuesta rápida editable */}
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLearningExpandedFastIds((prev) => ({
+                                      ...prev,
+                                      [item.id]: !prev[item.id]
+                                    }))
+                                  }
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 dark:text-sky-400 hover:underline cursor-pointer"
+                                >
+                                  {fastExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                  <span>{t('phone_agent.learning_fast_reply_toggle')}</span>
+                                </button>
+
+                                {fastExpanded && (
+                                  <div className="mt-2 rounded-xl border border-sky-200 dark:border-sky-900/60 bg-sky-50/40 dark:bg-sky-950/20 p-3 space-y-2">
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                      {t('phone_agent.learning_fast_reply_placeholder')}
+                                    </p>
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        {t('phone_agent.learning_fast_reply_es_label')}
+                                      </label>
+                                      <input
+                                        type="text"
+                                        maxLength={220}
+                                        value={fastEsVal}
+                                        disabled={isBusy}
+                                        onChange={(e) =>
+                                          setLearningDraftFastEs((prev) => ({
+                                            ...prev,
+                                            [item.id]: e.target.value
+                                          }))
+                                        }
+                                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        {t('phone_agent.learning_fast_reply_en_label')}
+                                      </label>
+                                      <input
+                                        type="text"
+                                        maxLength={220}
+                                        value={fastEnVal}
+                                        disabled={isBusy}
+                                        onChange={(e) =>
+                                          setLearningDraftFastEn((prev) => ({
+                                            ...prev,
+                                            [item.id]: e.target.value
+                                          }))
+                                        }
+                                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                  {t('phone_agent.learning_channel_label')}
+                                </label>
+                                <select
+                                  value={channelVal}
+                                  disabled={isBusy}
+                                  onChange={(e) =>
+                                    setLearningDraftChannels((prev) => ({
+                                      ...prev,
+                                      [item.id]: inferDefaultPhoneLearningChannels(
+                                        e.target.value,
+                                        item.category,
+                                        ''
+                                      )
+                                    }))
+                                  }
+                                  className="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer"
+                                >
+                                  <option value="both">
+                                    {t('phone_agent.learning_channel_both')}
+                                  </option>
+                                  <option value="phone_only">
+                                    {t('phone_agent.learning_channel_phone_only')}
+                                  </option>
+                                  <option value="drive_thru_only">
+                                    {t('phone_agent.learning_channel_drive_thru_only')}
+                                  </option>
+                                </select>
+                              </div>
+
+                              {isGlobalAdmin && (
+                                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={applyGlobalVal}
+                                    disabled={isBusy}
+                                    onChange={(e) =>
+                                      setLearningDraftGlobal((prev) => ({
+                                        ...prev,
+                                        [item.id]: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                  />
+                                  <span>{t('phone_agent.learning_apply_all_stores')}</span>
+                                </label>
+                              )}
+
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleAnswerLearningDoubt(item)}
+                                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition disabled:opacity-50 cursor-pointer"
+                                >
+                                  {isBusy ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 size={14} />
+                                  )}
+                                  <span>
+                                    {isBusy
+                                      ? t('phone_agent.learning_saving')
+                                      : t('phone_agent.learning_save_teach_btn')}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleDismissLearningItem(item.id)}
+                                  className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 disabled:opacity-50 cursor-pointer"
+                                >
+                                  <Trash2 size={13} />
+                                  <span>{t('phone_agent.learning_dismiss_btn')}</span>
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BANDEJA 2: REGLAS Y AUDIOS APRENDIDOS ACTIVOS (approved / auto_applied) */}
+                  <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/25 dark:bg-emerald-950/15 p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div>
+                        <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                          <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                          <span>{t('phone_agent.learning_active_title')}</span>
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {t('phone_agent.learning_active_subtitle')}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setLearningShowManualForm((v) => !v)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer"
+                      >
+                        <Plus size={14} />
+                        <span>
+                          {learningShowManualForm
+                            ? t('phone_agent.learning_cancel_btn')
+                            : t('phone_agent.learning_add_manual_btn')}
+                        </span>
+                      </button>
+                    </div>
+
+                    {learningShowManualForm && (
+                      <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 p-4 space-y-3 shadow-sm">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                            {t('phone_agent.learning_manual_trigger_label')}
+                          </label>
+                          <input
+                            type="text"
+                            value={learningManualTrigger}
+                            disabled={learningCreatingManual}
+                            onChange={(e) => setLearningManualTrigger(e.target.value)}
+                            placeholder={t('phone_agent.learning_manual_trigger_placeholder')}
+                            className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                            {t('phone_agent.learning_instruction_label')}
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={learningManualInstruction}
+                            disabled={learningCreatingManual}
+                            onChange={(e) => setLearningManualInstruction(e.target.value)}
+                            placeholder={t('phone_agent.learning_instruction_placeholder')}
+                            className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              {t('phone_agent.learning_fast_reply_es_label')}
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={220}
+                              value={learningManualFastEs}
+                              disabled={learningCreatingManual}
+                              onChange={(e) => setLearningManualFastEs(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              {t('phone_agent.learning_fast_reply_en_label')}
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={220}
+                              value={learningManualFastEn}
+                              disabled={learningCreatingManual}
+                              onChange={(e) => setLearningManualFastEn(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                            {t('phone_agent.learning_channel_label')}
+                          </label>
+                          <select
+                            value={learningManualChannels}
+                            disabled={learningCreatingManual}
+                            onChange={(e) =>
+                              setLearningManualChannels(
+                                inferDefaultPhoneLearningChannels(e.target.value, 'general', '')
+                              )
+                            }
+                            className="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer"
+                          >
+                            <option value="both">{t('phone_agent.learning_channel_both')}</option>
+                            <option value="phone_only">
+                              {t('phone_agent.learning_channel_phone_only')}
+                            </option>
+                            <option value="drive_thru_only">
+                              {t('phone_agent.learning_channel_drive_thru_only')}
+                            </option>
+                          </select>
+                        </div>
+                        {isGlobalAdmin && (
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={learningManualGlobal}
+                              disabled={learningCreatingManual}
+                              onChange={(e) => setLearningManualGlobal(e.target.checked)}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span>{t('phone_agent.learning_apply_all_stores')}</span>
+                          </label>
+                        )}
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            disabled={learningCreatingManual}
+                            onClick={() => void handleCreateManualLearnedRule()}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition disabled:opacity-50 cursor-pointer"
+                          >
+                            {learningCreatingManual ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 size={14} />
+                            )}
+                            <span>
+                              {learningCreatingManual
+                                ? t('phone_agent.learning_saving')
+                                : t('phone_agent.learning_save_teach_btn')}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {learningActive.length === 0 ? (
+                      <div className="bg-white/80 dark:bg-slate-900/70 rounded-xl border border-emerald-100 dark:border-emerald-900/40 p-5 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                        {t('phone_agent.learning_active_empty')}
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[720px] overflow-y-auto pr-1">
+                        {learningActive.map((rule) => {
+                          const isBusy = learningBusyId === rule.id
+                          const ruleBody = isEn
+                            ? rule.proposedRuleEn || rule.ownerInstruction || rule.proposedRuleEs || ''
+                            : rule.proposedRuleEs || rule.ownerInstruction || rule.proposedRuleEn || ''
+                          const fastPreview = isEn
+                            ? rule.fastReplyEn || rule.fastReplyEs
+                            : rule.fastReplyEs || rule.fastReplyEn
+
+                          return (
+                            <div
+                              key={rule.id}
+                              className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-3.5 space-y-1.5 shadow-sm"
+                            >
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                                      rule.status === 'auto_applied'
+                                        ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300'
+                                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    }`}
+                                  >
+                                    {rule.status === 'auto_applied'
+                                      ? t('phone_agent.learning_status_auto')
+                                      : t('phone_agent.learning_status_approved')}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                    {renderLearningKindLabel(rule.itemKind)}
+                                  </span>
+                                  {renderLearningScopeBadge(rule.storeId)}
+                                  {renderLearningChannelBadge(rule.appliesToChannels)}
+                                  {renderLearningDtSyncBadge(rule, rule.appliesToChannels)}
+                                  {renderLearningOriginDtBadge(rule)}
+                                  {rule.audioPrewarmed && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
+                                      <Zap size={11} />
+                                      {t('phone_agent.learning_audio_ready_badge')}
+                                    </span>
+                                  )}
+                                </div>
+                                {(isGlobalAdmin || rule.storeId !== null) && (
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() => void handleDismissLearningItem(rule.id)}
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isBusy ? (
+                                      <Loader2 size={12} className="animate-spin" />
+                                    ) : (
+                                      <Trash2 size={12} />
+                                    )}
+                                    <span>{t('phone_agent.learning_dismiss_btn')}</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <p className="text-xs font-black text-slate-800 dark:text-slate-200 break-words">
+                                {rule.questionOrTrigger}
+                              </p>
+                              {ruleBody && (
+                                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 break-words">
+                                  {ruleBody}
+                                </p>
+                              )}
+                              {fastPreview && fastPreview !== ruleBody && (
+                                <p className="text-[11px] text-sky-800 dark:text-sky-300 bg-sky-50/70 dark:bg-sky-950/30 rounded-lg px-2.5 py-1 break-words">
+                                  <strong>{t('phone_agent.learning_fast_reply_preview')}</strong>{' '}
+                                  “{fastPreview}”
+                                </p>
+                              )}
+                              {rule.resolvedByName && (
+                                <p className="text-[11px] text-slate-400">
+                                  {t('phone_agent.learning_resolved_by', {
+                                    name: rule.resolvedByName
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* ================================================================= */}
         {/* TAB 3: 15 SUCURSALES & DESVÍO CONDICIONAL (SPECTRUM / AT&T)       */}

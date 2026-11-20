@@ -48,6 +48,7 @@
  * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports, /api/cron/sync-external-accounting): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional cada 15 min y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit, acceso global exclusivo validado por ID y email con expiración estricta JWT (ignoreExpiration: false) para Raquel (45), Roberto (46) y Roque (47), aislamiento Zero-Trust service_role en las 24 tablas external_accounting_*, RPCs y Storage, OAuth QBO con HMAC-SHA256 + nonce cookie y lock distribuido fn_acquire_ext_acct_token_refresh_lock, updates QBO con sparse: true y worker FOR UPDATE SKIP LOCKED (fn_claim_ext_acct_outbox_batch), cobertura ACID PostgreSQL total, protección de transacciones Reconciled (permitiendo reclasificar cuenta de gasto/ingreso pero bloqueando monto/banco/fecha/VOID/DELETE) y conciliación 1:1 para Bancos y Tarjetas de Crédito (PayDownCreditCard, Expense, CreditCardCredit y reversión de cargos/intereses al reabrir/eliminar), paginación determinista fetchAllTableRows sin tope de 1,000 filas, subida directa firmada hasta 15 MB hacia Supabase Storage (create_attachment_upload_url + finalize_attachment_upload con validación MIME/SHA-256), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts), guardas AbortController contra condiciones de carrera al cambiar de empresa, y motor de reportes CPA con paridad $0.00 en Accrual y Cash Basis sobre balance_sheet, trial_balance, pnl y kpi_scorecard más controles comparePeriod, only1099, hideZeroRows y showCents (.xlsx / .pdf).
  * - Auditoría Semanal Automática de Correos de Empleados Activos (/api/cron/audit-employee-emails, lib/employee-email-auditor.ts, scripts/run-weekly-email-audit.ts): ejecutada todos los sábados por la tarde hora LA California (0 22 * * 6 UTC = 2:00 PM PST / 3:00 PM PDT, con pre-escaneo local puerto 25 a la 1:30 PM), sincroniza las 15 sucursales desde Toast POS (syncToastEmployees), audita todos los correos activos (placeholders @example.com, typos de dominio, reglas de proveedor, Microsoft GetCredentialType, SMTP RCPT TO puerto 25 y caché persistente en integrations employee_email_audit_state) y notifica automáticamente desde el Sistema de Monitoreo (noreply@tacosgavilan.com) a cada Store Manager involucrado (CC Supervisor) más resumen ejecutivo interno.
  * - Temporizador Digital Cooper TFS4 de Cocción de Frijoles (/inventory/preparador/bodega, components/BeanCookingTimerTFS4.tsx, lib/bean-timer.ts, /api/preparador/bean-timer): reemplaza el temporizador físico Cooper-Atkins TFS4 en la Tableta 2 de Cocina Trasera con 4 canales por color (T1 Azul, T2 Verde, T3 Amarillo, T4 Rojo), botón rojo superior de paro de alarma y únicamente 2 botones preconfigurados y bloqueados (Frijoles de la Olla = 11:00 min / 660s y Frijoles Enteros = 12:00 min / 720s en bean_timer_presets, editables solo por admin), registrando cada tanda, turno AM/PM (corte 5:00 PM) y segundos de sobrecocción (overtime_seconds) en bean_cooking_logs bajo la regla 6:00 AM America/Los_Angeles.
+ * - Simulador Kore Drive-Thru (/drive-thru pestaña "Kore IA", lib/drive-thru-kore-order.ts, lib/drive-thru-kore.ts, /api/drive-thru/kore/{session,sessions,driver-lookup,learning}): simulador de toma de orden por voz con Gemini Live API (gemini-3.8-live, voz Kore, tokens efímeros con bidiGenerateContentSetup bloqueado, menú real de app_menu_cache, Cebolla Asada y Frijol de la Olla gratis $0.00, aceptación directa de "con todo" a $0.00, cruce en tiempo real de repartidores con fetchOffPremiseOrders de Blindaje Delivery hacia Ventana 2, centavos enteros USD y cero envío a Toast por falta de orders:write) persistido en dt_kore_sim_sessions y consultable en solo lectura mediante get_kore_drivethru_simulations.
  * @dataFlow
  * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
  * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat. La recuperación histórica de tickets Toast 2026 se archiva localmente y comprimida por defecto, sin PII; los snapshots no representan por sí solos consumo real ni autorizan pedidos automáticos.
@@ -64,6 +65,7 @@ import {
   resolveShiftStationSummary,
 } from '@/lib/breaks-engine'
 import { getRonosStoreAudit, getRonosChainWideAudit, RONOS_STORES_MAP } from '@/lib/ronos-api'
+import { enrichStoreAuditWithNhpPolicy } from '@/lib/ronos-nhp-audit'
 import { calculateCingularPayrollReport } from '@/lib/payroll-calculator'
 import { calculateTicketPackaging, type ToastTicketSelection } from '@/lib/inventory/ticket-packaging'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
@@ -425,7 +427,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_ronos_labor_audit',
-    description: 'Query live labor compliance, meal penalty violations, broken timecards, overtime, and punch clock photos from RONOS API (Cingular HR) for any store or chain-wide.',
+    description: 'Query live labor compliance, NHP attendance policy (±3m punctuality vs Planner, authorized coverage call-in exemptions, Toast POS vs RONOS punch-repair discrepancies, 30m meal / 5th hour violations, salaried manager exemptions), broken timecards, overtime, and punch clock photos from RONOS API (Cingular HR) for any store or chain-wide.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -653,6 +655,19 @@ export const TOOL_DECLARATIONS = [
         limit: { type: 'NUMBER', description: 'Máximo de registros históricos (por defecto 30, máx 100).' }
       }
     }
+  },
+  {
+    name: 'get_kore_drivethru_simulations',
+    description: 'Consultar en solo lectura el historial de simulaciones de voz del módulo Kore Drive-Thru (/drive-thru pestaña "Kore IA", dt_kore_sim_sessions) y su Aprendizaje Continuo Bidireccional con Llamadas (dt_kore_learning_items <-> phone_knowledge_base) para las sucursales con Drive-Thru (#3 West Covina, #6 LA Central, #10 La Puente, #12 Norwalk, #14 Lynwood y #15 South Gate): resultados, duración, totales en USD, dudas pendientes y reglas sincronizadas con /admin/llamadas.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_id: { type: 'NUMBER', description: 'ID numérico opcional de la sucursal (stores.id, ej. 14 para Lynwood, 6 para LA Central).' },
+        store_name: { type: 'STRING', description: 'Nombre opcional de la sucursal (ej. "Lynwood", "West Covina", "Central").' },
+        outcome: { type: 'STRING', description: 'Filtro opcional de resultado: confirmed, cancelled o abandoned.' },
+        limit: { type: 'NUMBER', description: 'Máximo de simulaciones recientes a devolver (por defecto 20, máx 50).' }
+      }
+    }
   }
 ]
 
@@ -728,6 +743,7 @@ export async function executeTool(name: string, rawArgs: any, viewerUser?: any):
       case 'query_training_academy': return await queryTrainingAcademyTool(args)
       case 'query_phone_agent_status': return await queryPhoneAgentStatusTool(args, viewerUser)
       case 'query_bean_cooking_logs': return await queryBeanCookingLogsTool(args)
+      case 'get_kore_drivethru_simulations': return await getKoreDrivethruSimulationsTool(args, viewerUser)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -2802,24 +2818,37 @@ ${storeRows}`
   }
 
   const audit = await getRonosStoreAudit(targetCompanyId, args.week_id)
+  let nhpSummaryLine = ''
+  let enrichedEmployees: any[] = audit.employees
 
-  const topViolators = audit.employees
-    .filter(e => e.totalViolationsCount > 0 || e.mealPenaltyCount > 0 || e.brokenHours)
+  try {
+    const { enrichedAudit } = await enrichStoreAuditWithNhpPolicy(audit)
+    enrichedEmployees = enrichedAudit.employees
+    const s = enrichedAudit.nhpAuditSummary
+    if (s) {
+      nhpSummaryLine = `\n- **Auditoría NHP & Planificador/Toast**: ${s.totalViolations} alertas (${s.punctualityViolations} puntualidad ±3m, ${s.repairViolations} reparar Toast vs RONOS, ${s.mealViolations} comidas, ${s.noShowCount} no-show, ${s.authorizedEarlyCallIns} coberturas gerenciales exentas, ${s.exemptSalariedCount} asalariados exentos)`
+    }
+  } catch {}
+
+  const topViolators = enrichedEmployees
+    .filter(e => !e.isSalaried && ((e.totalViolationsCount || 0) > 0 || (e.mealPenaltyCount || 0) > 0 || e.brokenHours || (e.nhpSummary?.totalActiveViolationsCount || 0) > 0))
     .slice(0, 10)
     .map(e => {
       const issues = []
       if (e.mealPenaltyCount > 0) issues.push(`${e.mealPenaltyCount} Meal Penalty (5ta hora)`)
       if (e.brokenHours) issues.push(`Ponchada Incompleta`)
-      return `- **${e.fullName}** (PIN: ${e.pin}): ${e.totalWeeklyHours} hrs (${e.overtimeHours}h OT) ➔ ${issues.join(', ')} | Fuga: $${e.totalEstimatedPenaltyCostUsd}`
+      if ((e.nhpSummary?.punctualityViolationsCount || 0) > 0) issues.push(`${e.nhpSummary.punctualityViolationsCount} Puntualidad ±3m`)
+      if ((e.nhpSummary?.repairViolationsCount || 0) > 0) issues.push(`${e.nhpSummary.repairViolationsCount} Reparar Toast vs RONOS`)
+      return `- **${e.fullName}** (PIN: ${e.pin}): ${e.totalWeeklyHours} hrs (${e.overtimeHours}h OT) ➔ ${issues.join(', ')} | Fuga: ${e.totalEstimatedPenaltyCostUsd}`
     }).join('\n')
 
   return `⏱️ **Auditoría Laboral RONOS — ${audit.storeName}:**
 - **Semana**: #${audit.weekId} (${audit.startDate.substring(0, 10)} al ${audit.endDate.substring(0, 10)})
 - **Colaboradores**: ${audit.activeEmployeesCount} activos de ${audit.totalEmployees} registrados
 - **Horas Totales**: ${audit.totalChainHours}h (Regulares: ${audit.totalRegularHours}h | Overtime: ${audit.totalOvertimeHours}h)
-- **Meal Penalties (Violaciones 5ta hora)**: ${audit.totalMealPenaltiesCount} multas ($${audit.totalEstimatedPenaltyCostUsd} USD)
+- **Meal Penalties (Violaciones 5ta hora)**: ${audit.totalMealPenaltiesCount} multas (${audit.totalEstimatedPenaltyCostUsd} USD)
 - **Tarjetas Incompletas (Broken)**: ${audit.totalBrokenTimecardsCount}
-- **Índice de Cumplimiento Legal**: ${audit.complianceScorePercent}%
+- **Índice de Cumplimiento Legal**: ${audit.complianceScorePercent}%${nhpSummaryLine}
 
 ${topViolators ? `🚨 **Colaboradores con Alertas de Nómina:**\n${topViolators}` : '✅ *No se detectaron penalizaciones ni anomalías en esta sucursal.*'}`
 }
@@ -3737,6 +3766,15 @@ async function queryPhoneAgentStatusTool(args: any, viewerUser?: any): Promise<s
 
     let scopedAllowedIds: number[] | null = null;
     const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor', 'regional_manager']);
+    const KORE_SIM_ALLOWED_ROLES = new Set([
+      'admin',
+      'administrador',
+      'supervisor',
+      'regional_manager',
+      'manager',
+      'general_manager',
+      'gerente',
+    ]);
     const STORE_SCOPED_ROLES = new Set(['manager', 'general_manager', 'gerente', 'asistente', 'assistant']);
     const numericId = Number(viewerUser.id);
     let userRow: any = null;
@@ -4236,3 +4274,207 @@ async function queryBeanCookingLogsTool(args: any): Promise<string> {
 
 
 
+
+/**
+ * Consulta en solo lectura las simulaciones recientes de Kore Drive-Thru (`dt_kore_sim_sessions`),
+ * aplicando RBAC fail-closed sobre `public.users` (`is_active`, paridad de `email` y `KORE_SIM_ALLOWED_ROLES`).
+ */
+async function getKoreDrivethruSimulationsTool(args: any, viewerUser?: any): Promise<string> {
+  try {
+    if (!viewerUser || (!viewerUser.id && !viewerUser.email)) {
+      return 'Acceso denegado: Se requiere sesión administrativa autenticada para consultar simulaciones de Kore Drive-Thru.';
+    }
+
+    const limit = Math.min(50, Math.max(1, Math.trunc(Number(args?.limit) || 20)));
+    const { data: storesData, error: stErr } = await supabaseAdmin
+      .from('stores')
+      .select('id, code, name, has_drive_thru, is_active')
+      .eq('is_active', true)
+      .order('id', { ascending: true });
+    if (stErr) return `Error consultando sucursales Drive-Thru: ${stErr.message}`;
+
+    const activeStores = storesData || [];
+    const activeIdSet = new Set(activeStores.map((s: any) => Number(s.id)));
+    const dtStores = activeStores.filter((s: any) => s.has_drive_thru === true);
+    const storeMap = new Map<number, string>();
+    for (const s of activeStores) {
+      const cleanName = String(s.name || '').replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-–—:]?\s*/i, '').trim();
+      storeMap.set(Number(s.id), cleanName || `Tienda #${s.id}`);
+    }
+
+    const normTok = (v: unknown) =>
+      String(v ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/^tacos\s+(?:el\s+)?gavilan\s*[-–—:]?\s*/i, '')
+        .replace(/[^a-z0-9]/g, '');
+
+    const GLOBAL_ADMIN_ROLES = new Set(['admin', 'administrador', 'supervisor', 'regional_manager']);
+    const KORE_SIM_ALLOWED_ROLES = new Set([
+      'admin',
+      'administrador',
+      'supervisor',
+      'regional_manager',
+      'manager',
+      'general_manager',
+      'gerente',
+    ]);
+    const numericId = Number(viewerUser.id);
+    let userRow: any = null;
+    if (Number.isFinite(numericId) && numericId > 0) {
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('id, email, role, store_id, store_scope, is_active')
+        .eq('id', numericId)
+        .maybeSingle();
+      if (error) return `Error verificando usuario administrativo: ${error.message}`;
+      userRow = data;
+      if (
+        userRow &&
+        viewerUser.email &&
+        userRow.email &&
+        String(userRow.email).trim().toLowerCase() !== String(viewerUser.email).trim().toLowerCase()
+      ) {
+        return 'Acceso denegado: La sesión autenticada no coincide con el registro administrativo.';
+      }
+    }
+    if (!userRow && viewerUser.email) {
+      const safeEmail = String(viewerUser.email).trim().replace(/[\\%_]/g, '\\$&');
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('id, email, role, store_id, store_scope, is_active')
+        .ilike('email', safeEmail)
+        .maybeSingle();
+      if (error) return `Error verificando correo administrativo: ${error.message}`;
+      userRow = data;
+    }
+    if (!userRow || userRow.is_active === false) {
+      return 'Acceso denegado: Usuario inactivo o sin padrón administrativo para consultar Kore Drive-Thru.';
+    }
+    const liveRole = String(userRow.role || '').trim().toLowerCase();
+    if (!KORE_SIM_ALLOWED_ROLES.has(liveRole)) {
+      return `Acceso denegado: El rol '${liveRole}' no tiene autorización para consultar simulaciones de Kore Drive-Thru.`;
+    }
+
+    let allowedIds: number[] | null = null;
+    if (!GLOBAL_ADMIN_ROLES.has(liveRole)) {
+      const allowedSet = new Set<number>();
+      const assignedNum = Number(userRow.store_id);
+      if (Number.isFinite(assignedNum) && activeIdSet.has(assignedNum)) allowedSet.add(assignedNum);
+      if (Array.isArray(userRow.store_scope)) {
+        const scopeNormSet = new Set(userRow.store_scope.map(normTok).filter(Boolean));
+        for (const rawItem of userRow.store_scope) {
+          const n = Number(rawItem);
+          if (Number.isFinite(n) && activeIdSet.has(n)) allowedSet.add(n);
+          const meta = resolveCustomerStoreMeta(String(rawItem ?? ''));
+          if (meta && activeIdSet.has(meta.id)) allowedSet.add(meta.id);
+        }
+        for (const s of activeStores) {
+          if (
+            scopeNormSet.has(normTok(s.code)) ||
+            scopeNormSet.has(normTok(s.name)) ||
+            scopeNormSet.has(normTok(String(s.id)))
+          ) {
+            allowedSet.add(Number(s.id));
+          }
+        }
+      }
+      if (allowedSet.size === 0) {
+        return 'Acceso denegado: tu cuenta no tiene ninguna sucursal activa asignada.';
+      }
+      allowedIds = Array.from(allowedSet);
+    }
+
+    let filterStoreId: number | null =
+      args?.store_id !== undefined && args?.store_id !== null && Number.isInteger(Number(args.store_id))
+        ? Number(args.store_id)
+        : null;
+    if (!filterStoreId && args?.store_name) {
+      const q = normTok(args.store_name);
+      const meta = resolveCustomerStoreMeta(String(args.store_name));
+      if (meta && activeIdSet.has(meta.id)) {
+        filterStoreId = meta.id;
+      } else {
+        const hit = activeStores.find(
+          (s: any) => normTok(s.name).includes(q) || normTok(s.code) === q || String(s.id) === q
+        );
+        if (hit) filterStoreId = Number(hit.id);
+      }
+    }
+    if (filterStoreId && allowedIds && !allowedIds.includes(filterStoreId)) {
+      return `Acceso denegado: tu cuenta no tiene permisos sobre la sucursal #${filterStoreId}.`;
+    }
+
+    let query = supabaseAdmin
+      .from('dt_kore_sim_sessions')
+      .select('id, store_id, started_at, ended_at, duration_sec, lang, subtotal_cents, tax_cents, total_cents, tax_rate_pct, item_count, outcome, session_kind, avg_latency_ms, barge_in_count, model, created_by_name, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (filterStoreId) query = query.eq('store_id', filterStoreId);
+    else if (allowedIds) query = query.in('store_id', allowedIds);
+
+    const rawOutcome = String(args?.outcome || '').trim().toLowerCase();
+    if (['confirmed', 'cancelled', 'abandoned'].includes(rawOutcome)) {
+      query = query.eq('outcome', rawOutcome);
+    }
+
+    let learnQuery = supabaseAdmin
+      .from('dt_kore_learning_items')
+      .select('id, store_id, item_kind, status, applies_to_channels, synced_kb_id, source_phone_call_id, question_or_trigger, proposed_rule_es')
+      .order('created_at', { ascending: false })
+      .limit(40);
+    if (filterStoreId) learnQuery = learnQuery.or(`store_id.is.null,store_id.eq.${filterStoreId}`);
+    else if (allowedIds) learnQuery = learnQuery.or(`store_id.is.null,store_id.in.(${allowedIds.join(',')})`);
+
+    const [{ data: rows, error }, { data: learnRows }] = await Promise.all([query, learnQuery]);
+    if (error) return `Error consultando dt_kore_sim_sessions: ${error.message}`;
+
+    const fmtUsd = (cents: unknown) => {
+      const c = Number.isFinite(Number(cents)) ? Math.round(Number(cents)) : 0;
+      return `$${(c / 100).toFixed(2)}`;
+    };
+
+    const list = rows || [];
+    const lItems = learnRows || [];
+    const pendingDoubts = lItems.filter((x: any) => x.status === 'needs_owner_input');
+    const activeRules = lItems.filter((x: any) => (x.status === 'approved' || x.status === 'auto_applied') && x.item_kind !== 'latency_insight');
+    const syncedToPhone = activeRules.filter((x: any) => Boolean(x.synced_kb_id) && x.applies_to_channels !== 'drive_thru_only');
+    const confirmedCount = list.filter((r: any) => r.outcome === 'confirmed').length;
+    const cancelledCount = list.filter((r: any) => r.outcome === 'cancelled').length;
+    const abandonedCount = list.filter((r: any) => r.outcome === 'abandoned').length;
+
+    let out = `🎙️ **Simulador Kore Drive-Thru + Aprendizaje Continuo Bidireccional (/drive-thru ↔ /admin/llamadas)**\n`;
+    out += `• **Sucursales con Drive-Thru (${dtStores.length})**: ${dtStores.map((s: any) => `#${s.id} ${storeMap.get(Number(s.id))}`).join(', ')}\n`;
+    out += `• **Simulaciones mostradas**: ${list.length} (Confirmadas: ${confirmedCount} | Canceladas: ${cancelledCount} | Abandonadas: ${abandonedCount})\n`;
+    out += `• **Aprendizaje Continuo**: Reglas activas = **${activeRules.length}** | Sincronizadas con Llamadas (\`phone_knowledge_base\`) = **${syncedToPhone.length}** | Dudas pendientes = **${pendingDoubts.length}**\n`;
+    out += `• **Modo**: 100% Simulación (Gemini Live \`gemini-3.8-live\`, voz \`Kore\`; no se envía a Toast POS)\n\n`;
+
+    if (pendingDoubts.length > 0) {
+      out += `### ❓ Dudas Pendientes de Definir Criterio (${pendingDoubts.length}):\n`;
+      for (const d of pendingDoubts.slice(0, 5)) {
+        out += `- ${d.question_or_trigger}\n`;
+      }
+      out += `\n`;
+    }
+
+    if (list.length === 0) {
+      out += `No hay simulaciones registradas${filterStoreId ? ` para #${filterStoreId} ${storeMap.get(filterStoreId) || ''}` : ''}.\n`;
+      return out;
+    }
+
+    for (const r of list) {
+      const stLabel = `#${r.store_id} ${storeMap.get(Number(r.store_id)) || ''}`.trim();
+      const when = r.created_at
+        ? new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '-';
+      const kindBadge = r.session_kind === 'driver_pickup' ? '🚗 Repartidor' : '🌮 Cliente';
+      const latLabel = r.avg_latency_ms ? ` | Latencia ${r.avg_latency_ms}ms` : '';
+      out += `- **${stLabel}** | ${when} | ${kindBadge} | \`${r.outcome}\` | ${r.lang?.toUpperCase() || 'ES'} | ${r.duration_sec || 0}s | ${r.item_count || 0} pzas${latLabel} | Subtotal ${fmtUsd(r.subtotal_cents)} + Tax est. ${fmtUsd(r.tax_cents)} = **${fmtUsd(r.total_cents)}** | Por: ${r.created_by_name || '-'}\n`;
+    }
+    return out;
+  } catch (e: any) {
+    return `Error consultando simulaciones Kore Drive-Thru: ${e.message}`;
+  }
+}

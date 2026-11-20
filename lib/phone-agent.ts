@@ -183,9 +183,54 @@
  *      el texto STT normalizado, y `inspectMissingCallbackGuard` evita colisión ticket+teléfono y mutilación de nombres (Miguel/Elena/Laura).
  *   5) Eliminación total de `"por política de Tacos Gavilan"` en pedidos/recados, refuerzo de `existingPending` (`storeOpenNow` +
  *      escalación de `condiments_note`), guardia monotónica `turns_count` en `deferDbFlush`, y paridad byte-a-byte de prewarm Drive-Thru.
+ * - UPGRADE 2026-11-19 (Failover Adaptativo Cross-Model, Motor Multi-Platillo y Fallback Natural):
+ *   1) `MODERN_CHAT_MODELS` / `CLASSIC_CHAT_MODELS` ordenados `['gemini-3.1-flash-lite-preview', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview']`
+ *      (`3.1` y `3.5` con 500+ RPD y ~1.0-1.8s con prompt podado 12-16 KB; `3-flash-preview` en 3º lugar por su límite Free Tier de 20 RPD/llave);
+ *      cooldown 60s tras >=4 fallos 503 en primario / 3 min tras >=2 503 en secundarios / 15 min tras >=2 429 de cuota diaria (`free_tier_requests`/PerDay, 45s en 429 RPM);
+ *      timeouts nunca banean `3.1-flash-lite` ni `3-flash` (3 min solo esa llave en `3.1-flash-lite`, 15s en `3-flash`, 45s/20s en `3.5-flash-lite`),
+ *      **Hedge Cross-Model 3-vías (`0 / 650 / 1250 ms`)**: `cand1` = `orderedModels[0]` + Llave A, `cand2` = **2º modelo sano distinto** (ej. `3.5-flash-lite`) + Llave B,
+ *      `cand3` = 2ª llave distinta de `cand1.model` (o 3er modelo sano si `cand1.model` dio 5xx/bloqueo); `3200 ms` tanto para `3.1` como `3.5` y `maxAttemptsOnThisModel = 2` para `3.5` en `fresh`.
+ *   2) Motor inteligente multi-platillo (`splitMenuQueryIntoClauses`, `resolveMenuPriceClauses`, `rankMenuItemsForPrompt` sin doble
+ *      conteo singular/plural): protege compuestos (`arroz y frijoles`, `frijol, arroz y queso`), distingue `Taco Plate` de `Plato <carne>`,
+ *      colapsa categorías de precio uniforme (`isAnyMeatCategory`), preserva Regular vs Super y detalla tamaños de bebidas.
+ *   3) Poda contextual de catálogo (`menuCatalogSummary`) y reglas post-orden (`postOrderRulesBlock`) cuando `COTIZACIÓN VERIFICADA`
+ *      ya cubre todas las cláusulas (~10-15 KB en vez de ~30 KB para evitar picos 503), `composeNaturalMenuPriceFallback` mixto
+ *      (ubicación/horario/Drive-Thru + cotización) y exposición de `geminiFailed` en `processPhoneAgentTurn`.
+ * - UPGRADE 2026-11-19 (Ultra-Velocidad Determinista <2ms en Precios/Ruido/FAQs, Aprendizaje Continuo en Vivo y Cero Bloqueo DB):
+ *   1) Fast-Path Determinista de Precios del Menú (`composeNaturalMenuPriceReply` / `composeNaturalMenuPriceFallback`, <2 ms CPU, 0 llamadas LLM):
+ *      resuelve al instante consultas de 1, 2, 3 o más platillos (incluyendo combinadas simples con horario/dirección/Drive-Thru de la misma
+ *      sucursal), con redacción cálida de cajera en California, concordancia femenina en `Super Mulita` / `Super Quesadilla`, soporte de
+ *      `"supreme"` -> `Super`, caja de Champurrado 96 oz y marcado `isCanonicalReply = true` en consultas cortas (<=200 chars) para caché WAV ~80 ms.
+ *   2) Recuperación instantánea (<2 ms, audio pre-calentado) ante ruido/fragmentos cortos STT de Twilio (`"it"`, `"3177"`, `"vamos a"`),
+ *      eco literal de altavoz de la propia voz de Kore, y glosario STT real (`"party Play"`, `"Taco Play"`, `"sasada"`, `"dritro"`, `"Drive Truck"`,
+ *      `"el plan"`->`"flan"`, `"thansgiving"`, `"primero de enero"`), además de fix al falso bloqueo de 4 campos cuando piden hablar con el gerente
+ *      sin haber reportado orden equivocada/incompleta (`userExplicitWrongOrderEvidence`).
+ *   3) Integración en vivo con `lib/phone-agent-learning.ts` (`loadActivePhoneLearnedRules` en `Promise.all` con SWR 15s, `matchLearnedPhoneFastReply`
+ *      en <1 ms con prioridad sobre FAQs estáticas, e inyección de `REGLAS APRENDIDAS DE LLAMADAS REALES` en `systemInstruction`).
+ *   4) Eliminación de bloqueos de latencia en DB: omite `reconcileCallWithTerminalTombstone` al inicio de turnos ya activos (`in_progress`),
+ *      reconciliando atómicamente en `flushDbPromise`; crea llamadas nuevas en 1 solo viaje (`upsert(...).select('*').maybeSingle()`); y acepta
+ *      `prefetchedCallRecord` desde el simulador.
+ * - SINCRONIZACIÓN BIDIRECCIONAL TELÉFONO <-> DRIVE-THRU 2026-11-19:
+ *   * Integra el módulo isomórfico `lib/kore-shared-speech.ts` (`normalizeKoreCustomerSpeech`, `isLikelyBackgroundMediaSpeech`,
+ *     `isKoreBreakfastOpen` `06:00 <= hh:mm < 14:00 PT` / `2:00 PM` y `isKoreBreakfastCategory`).
+ *   * Regla Oficial de Desayunos (`2:00 PM` en las 15 sucursales): Fast-Path determinista `<2 ms` (`breakfast_hours`) sensible a la hora
+ *     en vivo de California (antes de 2:00 PM vs después de 2:00 PM / madrugada, apertura de tienda y festivos) + aviso automático en
+ *     `composeNaturalMenuPriceReply` cuando cotizan platillos `Breakfast` fuera de horario (`Coffee` y `Champurrado` siguen disponibles).
+ *   * Regla Oficial EBT CalFresh (`payments_ebt`): aceptado únicamente adentro en el mostrador del comedor en sucursales participantes
+ *     (nunca en ventanilla de Drive-Thru; no disponible en `#1 Rialto` ni `#9 Santa Ana`).
+ *   * Filtra en <2 ms monólogos largos de TV/radio/YouTube de fondo (`isCanonicalReply = true`) sin alucinar ni llamar LLM.
+ *   * Prohibición estricta y saneamiento determinista contra llamar `"chica"`/`"pequeña"` a bebidas de 22 oz (siempre **Mediana**)
+ *     y contra usar `"tamaño"` en burritos, quesadillas o mulitas (solo Regular vs Super).
  */
 
 import twilio from 'twilio'
+import {
+  KORE_BREAKFAST_CUTOFF_LABEL,
+  isKoreBreakfastCategory,
+  isKoreBreakfastOpen,
+  isLikelyBackgroundMediaSpeech,
+  normalizeKoreCustomerSpeech
+} from '@/lib/kore-shared-speech'
 import {
   formatCustomerGreetingTarget,
   formatCustomerStoreName,
@@ -201,6 +246,11 @@ import { PARTY_TRAY_GUIDELINES } from '@/lib/inventory/party-tray-guidelines'
 import { getOfficialStoreHolidaySchedule, getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
 import { extractPhoneDigits, isFictitiousNanpPhone, normalizeUsPhoneE164 } from '@/lib/phone-agent-access'
 import {
+  loadActivePhoneLearnedRules,
+  matchLearnedPhoneFastReply,
+  type ActivePhoneLearnedRule
+} from '@/lib/phone-agent-learning'
+import {
   expandStreetAbbreviationsInText,
   extractZipCodeFromAddress,
   formatStoreAddressForAgent,
@@ -208,24 +258,26 @@ import {
 } from '@/lib/phone-speech-format'
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
-// Orden validado con benchmark en vivo (2026-11-12):
-// - gemini-3.5-flash-lite (~0.41-0.85s, 7/7 llaves activas GA, soporta thinking minimal + functionCall) como primario.
-// - gemini-3-flash-preview y gemini-3.1-flash-lite-preview como respaldos automáticos con salto rápido si hay 429/503.
+// Orden validado por cuota RPD y latencia en vivo (2026-11-19):
+// - gemini-3.1-flash-lite-preview y gemini-3.5-flash-lite (500+ RPD/llave, ~1.0-1.8s con prompt podado 12-16 KB) compiten en Hedge Cross-Model.
+// - gemini-3-flash-preview en 3º lugar como respaldo de alta calidad (Free Tier limitado a 20 RPD/llave).
 // ('gemini-3.6-flash' y 'gemini-3.8-flash' se omiten: sufrieron 429/503 y 3.8 rechaza thinking minimal).
 const MODERN_CHAT_MODELS = [
-  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite-preview',
+  'gemini-3.5-flash-lite',
   'gemini-3-flash-preview'
 ]
 const CLASSIC_CHAT_MODELS = [
-  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite-preview',
+  'gemini-3.5-flash-lite',
   'gemini-3-flash-preview'
 ]
 
 const keyQuarantineUntil = new Map<string, number>()
 const modelUnavailableUntil = new Map<string, number>()
 const keyModelCooldownUntil = new Map<string, number>()
+const modelConsecutiveFails = new Map<string, number>()
+let lastHealthyChatModel: string | null = null
 let keyRoundRobin = 0
 
 // Cachés en RAM con SWR (Stale-While-Revalidate) y Singleflight para mantener ~0 ms de latencia DB por turno
@@ -1950,136 +2002,1378 @@ export function buildLiveMenuCatalogText(
     '- Bebidas Físicas y Sabores Oficiales (cita SIEMPRE los precios en vivo listados arriba en Medium Drinks, Large Drinks y Misc. Drinks; nunca inventes precios): Mediana = vaso de 22 oz, Grande = vaso de 32 oz, Galón Agua Fresca = 128 oz (~5 vasos medianos). Sabores Agua Fresca: Horchata, Jamaica, Piña y Tamarindo (NO Pepino). Champurrado individual = vaso térmico de 16 oz; Caja Champurrado To-Go = 96 oz (rinde 6×16 oz e incluye 8 vasos de cortesía de 12 oz). Café = vaso térmico de 16 oz.'
   )
   lines.push(
-    '- Quesos, Desayunos y Postres Oficiales (cita SIEMPRE los precios en vivo en DÓLARES USD listados arriba; JAMÁS digas pesos): Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast: Burrito de Huevo incluye arroz y frijol; Plato de Huevos incluye arroz, frijol c/cotija, ensalada y tortillas; Torta de Huevo se sirve en pan telera. Postres (Desserts): ÚNICAMENTE Flan y Cheesecake individuales (NO manejamos ni vendemos pasteles de cumpleaños, pasteles enteros ni churros).'
+    '- Quesos, Desayunos (HASTA LAS 2:00 PM) y Postres Oficiales (cita SIEMPRE los precios en vivo en DÓLARES USD listados arriba; JAMÁS digas pesos): Tortas (Cubana, Milanesa, etc.) = Queso Fresco en rebanada (NUNCA crema ni queso fundido; sí mayonesa y aguacate). Quesadillas/Mulitas/Super Burritos = Queso blanco Monterey Jack fundido. Sopes/Platos/Taco Plate/Desayunos = Queso Cotija (Sope Queso añade Queso Fresco). Super Nachos = Queso Amarillo caliente Nacho Cheese. Breakfast (DISPONIBLES EN LAS 15 SUCURSALES TODOS LOS DÍAS DESDE LA APERTURA HASTA LAS 2:00 PM PT; el Café y el Champurrado sí siguen disponibles después de las 2:00 PM): Burrito de Huevo incluye arroz y frijol; Plato de Huevos incluye arroz, frijol c/cotija, ensalada y tortillas; Torta de Huevo se sirve en pan telera. Postres (Desserts): ÚNICAMENTE Flan y Cheesecake individuales (NO manejamos ni vendemos pasteles de cumpleaños, pasteles enteros ni churros).'
   )
   return `CATÁLOGO EN VIVO DE ${storeName.toUpperCase()} (Toast POS — TODOS los precios son en DÓLARES ESTADOUNIDENSES USD, JAMÁS pesos; "Large"=Grande, "Medium"=Mediana):\n${lines.join('\n')}`
 }
 
 /**
  * Normaliza colisiones fonéticas frecuentes de Speech-to-Text en telefonía/navegador para tacos, bebidas y servicios
- * (ej. "torta corona" -> "torta cubana", "salad burrito" -> "asada burrito", "muleta" -> "mulita", "driver" -> "drive-thru").
+ * delegando al módulo isomórfico compartido con Kore Drive-Thru (`lib/kore-shared-speech.ts`).
  */
 export function normalizePhoneSttTranscript(rawText: string): string {
-  const input = String(rawText || '')
-  const hasDeliveryDriverContext =
-    /\b(uber(?:\s*eats)?|doordash|door\s*dash|grubhub|postmates|repartidor(?:es)?|asignad[oa]s?|entreg[aoó]|delivery\s+driver)\b/i.test(
-      input
-    )
-  let out = input
-    .replace(/\btorta(?:s)?\s+corona\b/gi, 'torta cubana')
-    .replace(/\b(?:a\s+)?salad\s+burritos?\b/gi, 'asada burrito')
-    .replace(/\bfiesta\s+(?:playas?|platers?|platos?|plaza|planes)\b/gi, 'fiesta platter')
-    .replace(/(?<!\b(?:dej[eé]|olvid[eé]|perd[ií]|mis?)\s+)\bmuletas\b/gi, 'mulitas')
-    .replace(/(?<!\b(?:dej[eé]|olvid[eé]|perd[ií]|mi)\s+)\bmuleta\b/gi, 'mulita')
-    .replace(/\bch[ao]mpur{1,2}ado\b/gi, 'champurrado')
-    .replace(/\b(?:chapurrado|champorado)\b/gi, 'champurrado')
-    .replace(/\borchata\b/gi, 'horchata')
-    .replace(/\blingua\b/gi, 'lengua')
-    .replace(/(?<!\b(?:soy|llamo|nombre\s+es|habla|apellido)\s+(?:[A-Za-zÁÉÍÓÚÑáéíóúñ]+\s+)?)\b(?:puche|guche)\b/gi, 'buche')
-    .replace(/\b(drive\s*tru|drive\s*true|drive\s*through|drai\s*tru|draiv\s*tru|dray\s*tru|dry\s*thru|ray\s*tru|raid\s*(?:tru|true|thru|through|threw))\b/gi, 'drive-thru')
-    .replace(/\b(tienen?|hay|cuentan?\s+con|con|por\s+el|en\s+el|al|del)\s+(?:raid|ride|drai|dray|dry|drive)\b(?!\s*(?:thru|through|tru|true|-|to\b|in\b|from\b|home\b|away\b|back\b))/gi, '$1 drive-thru')
-    .replace(/\b(?:tiquet|tique|tiket|tiquete)\b/gi, 'ticket')
-    .replace(/\b(?:cal|call|car)\s+fresh\b/gi, 'calfresh')
-    .replace(/\b(?:e[\s.-]b[\s.-]t\.?|i[\s.-]b[\s.-]t\.?)\b/gi, 'ebt')
-    .replace(/\b(?:tarjetas?\s+abc|abc\s+(?:card|tarjetas?))\b/gi, 'ebt')
-  if (!hasDeliveryDriverContext) {
-    out = out.replace(/\b(tienen?|con|hay|por\s+el|en\s+el|al|del)\s+drivers?\b(?!\s+(?:de|for|from|assigned|is|was|never|has|did))/gi, '$1 drive-thru')
+  return normalizeKoreCustomerSpeech(rawText, { mode: 'phone' })
+}
+
+const MENU_RANK_STOP_WORDS = new Set([
+  'de', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'uno', 'con', 'por', 'para', 'del', 'al', 'que',
+  'cuesta', 'cuestan', 'cuanto', 'cuanta', 'como', 'precio', 'precios', 'tienen', 'hay', 'me', 'puedes', 'decir',
+  'hola', 'quiero', 'saber', 'cobras', 'cobra', 'cobran', 'cobrarian', 'vale', 'valen', 'sale', 'salen', 'saldria',
+  'saldrian', 'seria', 'serian', 'total', 'cuenta', 'dame', 'quisiera', 'tambien', 'plus', 'also', 'charge',
+  'would', 'please', 'favor', 'porfa', 'how', 'much', 'is', 'are', 'the', 'and', 'for', 'do', 'you', 'have',
+  'can', 'tell', 'cost', 'costs', 'what', 'price', 'prices'
+])
+
+const MENU_RANK_SYNONYM_MAP: Record<string, string[]> = {
+  grande: ['large'], grandes: ['large'], large: ['grande'],
+  mediana: ['medium'], mediano: ['medium'], medianas: ['medium'], medium: ['mediana', 'mediano'],
+  chico: ['medium'], chica: ['medium'], pequena: ['medium'], pequeno: ['medium'], small: ['medium'],
+  galon: ['gallon'], galones: ['gallon'], gallon: ['galon'],
+  caja: ['box', '96oz'],
+  plato: ['plate', 'plato'], platos: ['plate', 'plato'], plate: ['plato', 'plate'], plates: ['plato', 'plate'],
+  tres: ['three'], three: ['tres'],
+  supreme: ['super'], supremo: ['super'], suprema: ['super'],
+  adobada: ['pastor'],
+  cubano: ['cubana'],
+  vegetariana: ['vegetariano'], veggie: ['vegetariano'],
+  ranchero: ['rancheros'],
+  nacho: ['nachos'],
+  agua: ['horchata', 'jamaica', 'pina', 'tamarindo', 'lemonade', 'water', 'fresca'],
+  aguas: ['horchata', 'jamaica', 'pina', 'tamarindo', 'fresca'],
+  fresca: ['agua', 'horchata', 'jamaica', 'pina', 'tamarindo'],
+  embotellada: ['bottled', 'water'],
+  botella: ['bottled', 'water'],
+  bottled: ['water', 'embotellada'],
+  water: ['bottled', 'agua'],
+  fresa: ['strawberry'],
+  naranja: ['orange'],
+  dieta: ['diet'],
+  frijol: ['beans', 'frijol'], frijoles: ['beans', 'frijol'], beans: ['frijol', 'beans'],
+  arroz: ['rice'], rice: ['arroz', 'rice'],
+  queso: ['cheese', 'queso'], cheese: ['queso', 'cheese'], crema: ['sour', 'cream'],
+  cafe: ['coffee'], coffee: ['cafe', 'coffee'], coca: ['coke'], totopos: ['chips'],
+  limonada: ['lemonade'], helado: ['iced', 'tea'], te: ['tea', 'iced'],
+  pineapple: ['pina', 'agua'], hibiscus: ['jamaica', 'agua'], tamarind: ['tamarindo', 'agua'],
+  chicken: ['pollo'], beef: ['asada', 'carne'], steak: ['asada', 'carne'],
+  pork: ['carnitas', 'pastor'], tongue: ['lengua'], head: ['cabeza'],
+  sausage: ['chorizo', 'salchicha', 'wiener'],
+  refresco: ['coke', 'sprite', 'fanta'], soda: ['coke', 'sprite', 'fanta'],
+  postre: ['flan', 'cheesecake'], postres: ['flan', 'cheesecake'],
+  dessert: ['flan', 'cheesecake'], desserts: ['flan', 'cheesecake'],
+  pastel: ['flan', 'cheesecake'], pasteles: ['flan', 'cheesecake'],
+  cake: ['cheesecake', 'flan'], cakes: ['cheesecake', 'flan'],
+  desayuno: ['huevos', 'breakfast'], huevo: ['huevos', 'breakfast'],
+  egg: ['huevos', 'huevo', 'breakfast'], eggs: ['huevos', 'huevo', 'breakfast'],
+  milanesa: ['breaded', 'milanesa'], breaded: ['milanesa'],
+  jamon: ['ham', 'jamon'], ham: ['jamon'],
+  salchicha: ['wiener', 'salchicha'], wiener: ['salchicha']
+}
+
+const MENU_CLAUSE_USEFUL_RE =
+  /\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|platos?|plates?|combos?|sopes?|nachos?|flan(?:es)?|cheesecakes?|postres?|desserts?|huevos?|eggs?|rancheros?|mexicana|desayunos?|breakfast|fiesta\s*platters?|party\s*trays?|charolas?|asadas?|pastor(?:es)?|adobada|pollos?|chicken|beef|steak|pork|cabezas?|head|lenguas?|tongue|buches?|chorizos?|sausage|carnitas|cuban[oa]s?|milanesas?|breaded|jamon(?:es)?|ham|salchichas?|wiener|vegetarian[oa]s?|veggie|aguas?|frescas?|horchatas?|jamaicas?|hibiscus|pinas?|pineapples?|tamarindos?|tamarinds?|lemonades?|limonadas?|cocas?|cokes?|diet|dieta|sprites?|fantas?|strawberr(?:y|ies)|fresas?|oranges?|naranjas?|iced\s*teas?|champurrados?|cafes?|coffees?|sodas?|refrescos?|bebidas?|drinks?|waters?|embotelladas?|botellas?|bottled|galon(?:es)?|gallons?|cajas?|box(?:es)?|96\s*oz|22\s*oz|32\s*oz|128\s*oz|16\s*oz|arroz|rice|frijol(?:es)?|beans?|queso|cheese|chips|totopos|guacamole|guac|crema|sour\s*cream|menudo|birria|quesabirrias?|pozole|suadero|tripas?|cervezas?|beers?|micheladas?|alcohol(?:ic)?|churros?|pastel(?:es)?|cakes?|tres\s*leches)\b/i
+
+const CLAUSE_QTY_WORDS: Record<string, number> = {
+  dos: 2, two: 2,
+  tres: 3, three: 3,
+  cuatro: 4, four: 4,
+  cinco: 5, five: 5,
+  seis: 6, six: 6,
+  siete: 7, seven: 7,
+  ocho: 8, eight: 8,
+  nueve: 9, nine: 9,
+  diez: 10, ten: 10,
+  once: 11, eleven: 11,
+  doce: 12, twelve: 12, docena: 12, dozen: 12,
+  trece: 13, thirteen: 13,
+  catorce: 14, fourteen: 14,
+  quince: 15, fifteen: 15,
+  dieciseis: 16, sixteen: 16,
+  diecisiete: 17, seventeen: 17,
+  dieciocho: 18, eighteen: 18,
+  diecinueve: 19, nineteen: 19,
+  veinte: 20, twenty: 20
+}
+
+export interface ResolvedMenuClause {
+  rawClause: string
+  cleanClause: string
+  kind: 'item' | 'unsupported'
+  quantity: number
+  primaryItem: any | null
+  variantItems: any[]
+  altSuperItem: any | null
+  noMeatAltItem: any | null
+  altBoxItem: any | null
+  categoryName: string
+  unitPrice: number | null
+  isAnyMeatCategory: boolean
+  hasSizeVariants: boolean
+  spokenLabelEs: string
+  spokenLabelEn: string
+  spokenPluralVerbEs?: boolean
+  pluralLabelEs?: string
+  pluralLabelEn?: string
+  unitNounEs?: string
+  unsupportedLabelEs?: string
+  unsupportedLabelEn?: string
+  isBirthdayCakeOrPastry?: boolean
+  isSidesPair?: boolean
+}
+
+function buildTokenFormsUnit(tok: string): { key: string; forms: string[] } {
+  const forms = new Set<string>([tok])
+  if (tok.length > 4 && /(?:[aeiou](?:n|l|r)es|ciones|siones|ces)$/.test(tok)) {
+    forms.add(tok.slice(0, -2))
+    forms.add(tok.slice(0, -1))
+  } else if (tok.length > 4 && tok.endsWith('s')) {
+    forms.add(tok.slice(0, -1))
+  } else if (tok.length >= 3 && !tok.endsWith('s')) {
+    forms.add(`${tok}s`)
+    if (/[lnr]$/.test(tok)) forms.add(`${tok}es`)
   }
+  const ordered = Array.from(forms).sort((a, b) => a.length - b.length)
+  return { key: ordered[0], forms: Array.from(forms) }
+}
+
+function textMatchesAnyTokenForm(haystack: string, forms: string[]): boolean {
+  for (const form of forms) {
+    if (form === 'te') {
+      if (/(?:^|\s)te(?:\s|$)|\btea\b/i.test(haystack)) return true
+      continue
+    }
+    if (form === 'oz') {
+      if (/(?:\b|\d)oz\b/i.test(haystack)) return true
+      continue
+    }
+    if (haystack.includes(form)) return true
+  }
+  return false
+}
+
+/**
+ * Divide una consulta multi-platillo en cláusulas independientes protegiendo frases compuestas del menú
+ * (ej. "arroz y frijoles", "frijol, arroz y queso", "crema y guacamole") y limpiando prefijos interrogativos.
+ */
+export function splitMenuQueryIntoClauses(rawQuery: string): string[] {
+  const rawInput = String(rawQuery || '').trim()
+  if (!rawInput) return []
+  const sttFixed = normalizePhoneSttTranscript(rawInput)
+  const hasTeaAccent = /(?:^|[^\p{L}])t[éÉ](?![\p{L}])/u.test(sttFixed)
+
+  let work = sttFixed
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/(?<=[a-z0-9])['’](?=[a-z0-9])/gi, '')
+    .toLowerCase()
+    .replace(/[/\-]+/g, ' ')
+    .replace(/[¿¡()"'’]+/g, ' ')
+
+  const protectedPhrases: string[] = []
+  const protect = (re: RegExp) => {
+    work = work.replace(re, (m) => {
+      const idx = protectedPhrases.length
+      protectedPhrases.push(m.replace(/\s+/g, ' ').trim())
+      return ` __cmp_${idx}__ `
+    })
+  }
+
+  // Frases compuestas de 3 ingredientes primero
+  protect(/\bfrijol(?:es)?\s*,?\s*arroz\s*,?\s+y\s+queso\b/g)
+  protect(/\barroz\s*,?\s*frijol(?:es)?\s*,?\s+y\s+queso\b/g)
+  protect(/\bbeans?\s*,?\s*rice\s*,?\s+and\s+cheese\b/g)
+  protect(/\brice\s*,?\s*beans?\s*,?\s+and\s+cheese\b/g)
+  // Frases compuestas de 2 ingredientes
+  protect(/\barroz\s+y\s+frijol(?:es)?\b/g)
+  protect(/\bfrijol(?:es)?\s+y\s+arroz\b/g)
+  protect(/\brice\s+and\s+beans?\b/g)
+  protect(/\bbeans?\s+and\s+rice\b/g)
+  protect(/\bfrijol(?:es)?\s+y\s+queso\b/g)
+  protect(/\bqueso\s+y\s+frijol(?:es)?\b/g)
+  protect(/\bbeans?\s+and\s+cheese\b/g)
+  protect(/\bcheese\s+and\s+beans?\b/g)
+  protect(/\bcrema\s+y\s+guacamole\b/g)
+  protect(/\bguacamole\s+y\s+crema\b/g)
+  protect(/\bsour\s+cream\s+and\s+guacamole\b/g)
+  protect(/\bguacamole\s+and\s+sour\s+cream\b/g)
+  protect(/\bcebolla\s+y\s+cilantro\b/g)
+  protect(/\bcilantro\s+y\s+cebolla\b/g)
+  protect(/\bonions?\s+and\s+cilantro\b/g)
+  protect(/\bcilantro\s+and\s+onions?\b/g)
+  protect(/\bjamon\s+y\s+queso\b/g)
+  protect(/\bqueso\s+y\s+jamon\b/g)
+  protect(/\bjamon\s+y\s+huevo\b/g)
+  protect(/\bhuevo\s+y\s+jamon\b/g)
+  protect(/\bham\s+and\s+(?:cheese|egg)\b/g)
+
+  const segments = work
+    .split(/(?:\s*[,;!?]+\s*|\s*\.(?!\d)\s*|\s+\b(?:y|e|and|plus|tambien)\b\s+)/i)
+    .map((seg) =>
+      seg
+        .replace(/__cmp_(\d+)__/g, (_, idx) => protectedPhrases[Number(idx)] || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter(Boolean)
+
+  const out: string[] = []
+  for (const seg of segments) {
+    let clean = seg
+    for (let pass = 0; pass < 5; pass++) {
+      const prev = clean
+      clean = clean
+        .replace(
+          /^(?:hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|disculpa|disculpe|perdon|oye|oiga|hey|hi|hello|excuse\s+me)\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:en\s+(?:esta\s+(?:tienda|sucursal)|(?:la\s+)?sucursal|lynwood|rialto|west\s+covina|azusa|broadway|central|slauson|hollywood|santa\s+ana|la\s+puente|huntington\s+park|norwalk|bell|south\s+gate|downey|los\s+angeles)|hoy|ahorita|at\s+this\s+location)\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:me\s+(?:puedes?|podrias?)\s+(?:decir|dar|cotizar|checar|confirmar)|puedes?\s+(?:decirme|darme|cotizarme)|podrias?\s+(?:decirme|darme)|quisiera\s+(?:saber|preguntar|ver)|quiero\s+(?:saber|preguntar)|solo\s+(?:queria|quiero)\s+(?:saber|preguntar)|te\s+(?:queria|quiero)\s+preguntar)\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:cuanto\s+(?:me\s+|nos\s+)?(?:cuesta(?:n)?|cobrarias?|cobras?|cobra|cobran|vale(?:n)?|sale(?:n)?|saldria(?:n)?|seria(?:n)?)(?:\s+(?:por|de))?)\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:a\s+como\s+(?:tienen?|estan?|esta|salen?|sale|dan|venden?|son|cobran?))\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:cual\s+(?:es|seria)\s+(?:el\s+)?precios?\s+(?:de|del|por)|(?:el|los)\s+precios?\s+(?:de|del|por)|precios?\s+(?:de|del|por))\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:how\s+much\s+(?:is|are|for|do\s+you\s+charge\s+for|would\s+(?:it|they)\s+be(?:\s+for)?|does|do)|what\s+(?:is|are|s|would\s+be)\s+(?:the\s+)?prices?\s+(?:of|for)|can\s+you\s+tell\s+me\s+(?:how\s+much|the\s+price\s+(?:of|for)))\b[\s,]*/i,
+          ''
+        )
+        .replace(
+          /^(?:tienen|venden|hay|manejan|sirven|dame|quiero|quisiera|necesito|tambien|aparte|ademas|por\s+ultimo|also|plus|do\s+you\s+(?:have|sell|serve)|i\s+(?:want|would\s+like|need)|can\s+i\s+get)\b[\s,]*/i,
+          ''
+        )
+        .replace(/^(?:y|e|and|de|por)\s+(?=\S)/i, '')
+        .replace(
+          /[\s,]+\b(?:por\s+favor|porfa|please|gracias|muchas\s+gracias|thank\s+you|thanks|en\s+total|in\s+total|por\s+todo|cuanto\s+seria|seria\s+todo|cost|costs)\b$/i,
+          ''
+        )
+        .trim()
+      if (clean === prev) break
+    }
+    if (!clean) continue
+    const isFollowUpModifier =
+      out.length > 0 &&
+      /^(?:(?:un|una|el|la|los|las|\d{1,2}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|uno|otro|otra)\s+)*(?:mediana|mediano|medianas|medium|grande|grandes|large|galon|galones|gallon|chica|chico|pequena|pequeno|small|super|supreme|supremo|suprema|regular)(?:\s+(?:de\s+)?[a-z]+)?$/i.test(
+        clean
+      )
+    const hasUsefulToken =
+      MENU_CLAUSE_USEFUL_RE.test(clean) ||
+      isFollowUpModifier ||
+      ((hasTeaAccent || /\b(?:helado|frio|iced|bebida|drink|vaso|mediano|grande)\b/i.test(clean)) &&
+        /(?:^|\s)te(?:\s|$)/i.test(clean))
+    if (hasUsefulToken) out.push(clean)
+  }
+
   return out
+}
+
+function extractLeadingClauseQuantity(clause: string, stopBeforeWordRe?: RegExp): number {
+  let sub = clause.trim()
+  if (stopBeforeWordRe) {
+    const mStop = sub.match(stopBeforeWordRe)
+    if (mStop && mStop.index !== undefined) {
+      sub = sub.slice(0, mStop.index).trim()
+    } else {
+      return 1
+    }
+  }
+  if (/\bmedia\s+docena\b/i.test(sub)) return 6
+  if (/\b(?:una\s+docena|a\s+dozen|one\s+dozen)\b/i.test(sub)) return 12
+  if (/^(?:un\s+par\s+de|par\s+de|a\s+pair\s+of)\b/i.test(sub)) return 2
+
+  const trimmed = sub.replace(/^(?:el|la|los|las|unos|unas|the|some)\s+/i, '').trim()
+  if (!trimmed) return 1
+
+  const mDigit = trimmed.match(
+    /^(\d{1,2})(?!\s*(?:oz|onzas?|ounces?|personas?|people|guests?|invitados?))\b/i
+  )
+  if (mDigit) {
+    const n = Number(mDigit[1])
+    if (Number.isInteger(n) && n >= 2 && n <= 20) return n
+    return 1
+  }
+
+  const mWord = trimmed.match(
+    /^(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieciseis|diecisiete|dieciocho|diecinueve|veinte|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)(?!\s*(?:oz|onzas?|ounces?|personas?|people|guests?|invitados?))\b/i
+  )
+  if (mWord) {
+    return CLAUSE_QTY_WORDS[mWord[1].toLowerCase()] || 1
+  }
+  return 1
+}
+
+function detectClauseMeatOrFilling(clause: string): string | null {
+  if (/\bcuban[oa]\b/i.test(clause)) return 'cubana'
+  if (/\b(?:milanesa|breaded)\b/i.test(clause)) return 'milanesa'
+  if (/\b(?:vegetarian[oa]|veggie)\b/i.test(clause)) return 'vegetariano'
+  if (/\b(?:asada|beef|steak)\b/i.test(clause)) return 'asada'
+  if (/\b(?:pastor|adobada)\b/i.test(clause)) return 'pastor'
+  if (/\b(?:pollo|chicken)\b/i.test(clause)) return 'pollo'
+  if (/\b(?:cabeza|head)\b/i.test(clause)) return 'cabeza'
+  if (/\b(?:lengua|tongue)\b/i.test(clause)) return 'lengua'
+  if (/\bbuche\b/i.test(clause)) return 'buche'
+  if (/\b(?:chorizo|sausage)\b/i.test(clause)) return 'chorizo'
+  if (/\bcarnitas\b/i.test(clause)) return 'carnitas'
+  if (/\b(?:jamon|ham)\b/i.test(clause)) return 'jamon'
+  if (/\b(?:salchicha|wiener)\b/i.test(clause)) return 'salchicha'
+  if (/\brancheros?\b/i.test(clause)) return 'rancheros'
+  if (/\bmexicana\b/i.test(clause)) return 'mexicana'
+  if (/\b(?:frijol(?:es)?|beans?)\b/i.test(clause) && /\b(?:arroz|rice|queso|cheese)\b/i.test(clause)) {
+    return 'beans_rice_cheese'
+  }
+  if (/\b(?:frijol(?:es)?|beans?)\b/i.test(clause)) return 'frijol'
+  if (/\b(?:queso|cheese)\b/i.test(clause)) return 'queso'
+  return null
+}
+
+function itemMatchesMeatKey(itemNameNorm: string, meatKey: string): boolean {
+  if (meatKey === 'beans_rice_cheese') {
+    return /\bbeans?\b.*(?:\bcheese\b|\brice\b)/i.test(itemNameNorm)
+  }
+  if (meatKey === 'frijol') return /\bfrijol\b|\bbeans?\b/i.test(itemNameNorm)
+  if (meatKey === 'queso') return /\bqueso\b|\bcheese\b/i.test(itemNameNorm)
+  return new RegExp(`\\b${meatKey}\\b`, 'i').test(itemNameNorm)
+}
+
+function isStandardMeatVariantName(itemNameNorm: string): boolean {
+  return /\b(?:asada|pastor|pollo|cabeza|lengua|buche|chorizo|carnitas)\b/i.test(itemNameNorm)
+}
+
+function formatMenuItemSpokenName(rawName: string, lang: PhoneLang, quantity: number = 1): string {
+  const n = String(rawName || '').trim()
+  const norm = normalizeSearchText(n)
+  const plural = quantity >= 2
+
+  const meatLabelsEs: Record<string, string> = {
+    asada: 'de asada',
+    pastor: 'al pastor',
+    pollo: 'de pollo',
+    cabeza: 'de cabeza',
+    lengua: 'de lengua',
+    buche: 'de buche',
+    chorizo: 'de chorizo',
+    carnitas: 'de carnitas',
+    cubana: 'cubana',
+    milanesa: 'de milanesa',
+    vegetariano: 'vegetariano',
+    queso: 'de queso',
+    frijol: 'de frijol'
+  }
+  const meatLabelsEn: Record<string, string> = {
+    asada: 'asada',
+    pastor: 'al pastor',
+    pollo: 'chicken',
+    cabeza: 'cabeza',
+    lengua: 'lengua',
+    buche: 'buche',
+    chorizo: 'chorizo',
+    carnitas: 'carnitas',
+    cubana: 'Cubana',
+    milanesa: 'breaded steak',
+    vegetariano: 'vegetarian',
+    queso: 'cheese',
+    frijol: 'bean'
+  }
+
+  if (/^taco plate$/i.test(norm)) {
+    return lang === 'en'
+      ? plural
+        ? 'Taco Plates'
+        : 'Taco Plate with 3 plain tacos, rice, and beans'
+      : plural
+        ? 'Taco Plates'
+        : 'Taco Plate de 3 tacos sencillos con arroz y frijoles'
+  }
+  if (/^flan$/i.test(norm)) return lang === 'en' ? (plural ? 'Flans' : 'individual Flan') : plural ? 'flanes' : 'flan individual'
+  if (/^cheesecake$/i.test(norm)) return lang === 'en' ? (plural ? 'Cheesecakes' : 'individual Cheesecake') : plural ? 'cheesecakes' : 'cheesecake individual'
+  if (/^bottled water$/i.test(norm)) return lang === 'en' ? (plural ? 'bottled waters' : 'bottled water') : plural ? 'aguas embotelladas' : 'agua embotellada'
+  if (/^coffee$/i.test(norm)) return lang === 'en' ? (plural ? 'coffees (16 oz)' : '16 oz Coffee') : plural ? 'cafés de 16 onzas' : 'café de 16 onzas'
+  if (/^champurrado$/i.test(norm)) return lang === 'en' ? (plural ? '16 oz Champurrados' : '16 oz Champurrado') : plural ? 'vasos de champurrado de 16 onzas' : 'champurrado de 16 onzas'
+  if (/champurrado.*96\s*oz|champurrado to go box/i.test(norm)) {
+    return lang === 'en'
+      ? plural
+        ? '96 oz Champurrado To-Go Boxes'
+        : '96 oz Champurrado To-Go Box'
+      : plural
+        ? 'cajas de champurrado de 96 onzas'
+        : 'caja de champurrado de 96 onzas'
+  }
+  if (/^gallon agua fresca$/i.test(norm)) {
+    return lang === 'en'
+      ? plural
+        ? '128 oz agua fresca gallons'
+        : '128 oz gallon of agua fresca'
+      : plural
+        ? 'galones de agua fresca de 128 onzas'
+        : 'galón de agua fresca de 128 onzas'
+  }
+  if (/^(medium|large)\s+(.+)$/i.test(norm)) {
+    const mDrink = n.match(/^(Medium|Large)\s+(.+)$/i)
+    if (mDrink) {
+      const sz = mDrink[1].toLowerCase()
+      const flav = mDrink[2].trim()
+      if (lang === 'en') {
+        const szEn = sz === 'large' ? 'large (32 oz)' : 'medium (22 oz)'
+        return plural ? `${sz === 'large' ? 'large' : 'medium'} ${flav} drinks` : `${szEn} ${flav}`
+      }
+      const flavEs = /^coke$/i.test(flav)
+        ? 'Coca'
+        : /^diet coke$/i.test(flav)
+          ? 'Coca de dieta'
+          : /^iced tea$/i.test(flav)
+            ? 'té helado'
+            : /^lemonade$/i.test(flav)
+              ? 'limonada'
+              : /^orange fanta$/i.test(flav)
+                ? 'Fanta de naranja'
+                : /^strawberry fanta$/i.test(flav)
+                  ? 'Fanta de fresa'
+                  : /^jamaica$/i.test(flav)
+                    ? plural ? 'aguas de jamaica' : 'agua de jamaica'
+                    : /^pi[nñ]a$/i.test(flav)
+                      ? plural ? 'aguas de piña' : 'agua de piña'
+                      : /^tamarindo$/i.test(flav)
+                        ? plural ? 'aguas de tamarindo' : 'agua de tamarindo'
+                        : flav.toLowerCase()
+      const isFem = /^(horchata|coca|limonada|fanta|aguas?)/i.test(flavEs)
+      const szEs = sz === 'large' ? 'grande' : isFem ? 'mediana' : 'mediano'
+      const ozEs = sz === 'large' ? '32 onzas' : '22 onzas'
+      if (!plural) return `${flavEs} ${szEs} de ${ozEs}`
+      const flavPluralEs = /^coca de dieta$/i.test(flavEs)
+        ? 'Cocas de dieta'
+        : /^fanta de naranja$/i.test(flavEs)
+          ? 'Fantas de naranja'
+          : /^fanta de fresa$/i.test(flavEs)
+            ? 'Fantas de fresa'
+            : /^t[eé] helado$/i.test(flavEs)
+              ? 'tés helados'
+              : /^aguas? de /i.test(flavEs)
+                ? flavEs
+                : `${flavEs}s`
+      const szPluralEs = sz === 'large' ? 'grandes' : isFem ? 'medianas' : 'medianos'
+      return `${flavPluralEs} ${szPluralEs}`
+    }
+  }
+  if (/beans.*cheese.*rice|beans.*rice.*cheese/i.test(norm)) {
+    const isSup = /^super\b/i.test(norm)
+    return lang === 'en'
+      ? `${isSup ? 'Super ' : ''}beans, rice, and cheese ${plural ? 'burritos' : 'burrito'}`
+      : `${isSup ? 'Super ' : ''}${plural ? 'burritos' : 'burrito'} de frijol, arroz y queso`
+  }
+
+  const mDish = norm.match(
+    /^(meat only super burrito|meat only burrito|super burrito|super mulita|super quesadilla|super nachos|burrito|mulita|quesadilla|torta|sope|plato|taco)\s+([a-z]+)$/i
+  )
+  if (mDish) {
+    const prefix = mDish[1].toLowerCase()
+    const meat = mDish[2].toLowerCase()
+    if (lang === 'en') {
+      const nounMapEn: Record<string, [string, string]> = {
+        taco: ['taco', 'tacos'],
+        burrito: ['burrito', 'burritos'],
+        'super burrito': ['Super Burrito', 'Super Burritos'],
+        'meat only burrito': ['meat-only burrito', 'meat-only burritos'],
+        'meat only super burrito': ['meat-only Super Burrito', 'meat-only Super Burritos'],
+        mulita: ['mulita', 'mulitas'],
+        'super mulita': ['Super Mulita', 'Super Mulitas'],
+        quesadilla: ['quesadilla', 'quesadillas'],
+        'super quesadilla': ['Super Quesadilla', 'Super Quesadillas'],
+        torta: ['torta', 'tortas'],
+        sope: ['sope', 'sopes'],
+        plato: ['plate', 'plates'],
+        'super nachos': ['Super Nachos', 'orders of Super Nachos']
+      }
+      const [sg, pl] = nounMapEn[prefix] || [prefix, `${prefix}s`]
+      const mLbl = meatLabelsEn[meat] || meat
+      if (meat === 'cubana') return plural ? 'Tortas Cubanas' : 'Torta Cubana'
+      return `${mLbl} ${plural ? pl : sg}`
+    }
+    const nounMapEs: Record<string, [string, string]> = {
+      taco: ['taco', 'tacos'],
+      burrito: ['burrito', 'burritos'],
+      'super burrito': ['Super Burrito', 'Super Burritos'],
+      'meat only burrito': ['burrito de pura carne', 'burritos de pura carne'],
+      'meat only super burrito': ['Super Burrito de pura carne', 'Super Burritos de pura carne'],
+      mulita: ['mulita', 'mulitas'],
+      'super mulita': ['Super Mulita', 'Super Mulitas'],
+      quesadilla: ['quesadilla', 'quesadillas'],
+      'super quesadilla': ['Super Quesadilla', 'Super Quesadillas'],
+      torta: ['torta', 'tortas'],
+      sope: ['sope', 'sopes'],
+      plato: ['plato', 'platos'],
+      'super nachos': ['Super Nachos', 'órdenes de Super Nachos']
+    }
+    const [sg, pl] = nounMapEs[prefix] || [prefix, `${prefix}s`]
+    if (meat === 'cubana') return plural ? 'Tortas Cubanas' : 'Torta Cubana'
+    if (meat === 'vegetariano' && /^(torta|super mulita|mulita|super quesadilla|quesadilla)$/.test(prefix)) {
+      return `${plural ? pl : sg} vegetariana${plural ? 's' : ''}`
+    }
+    if (prefix.startsWith('meat only')) {
+      return `${plural ? pl : sg} ${meat}`
+    }
+    const mLbl = meatLabelsEs[meat] || `de ${meat}`
+    return `${plural ? pl : sg} ${mLbl}`
+  }
+
+  return n
+}
+
+const UNIFORM_CATEGORY_META: Record<
+  string,
+  {
+    sgEs: string
+    plEs: string
+    sgEn: string
+    plEn: string
+    pluralVerbEs?: boolean
+    unitNounEs: string
+  }
+> = {
+  Tacos: { sgEs: 'un Taco', plEs: 'Tacos', sgEn: 'a Taco', plEn: 'Tacos', unitNounEs: 'uno' },
+  'Super Nachos': {
+    sgEs: 'los Super Nachos',
+    plEs: 'órdenes de Super Nachos',
+    sgEn: 'Super Nachos',
+    plEn: 'orders of Super Nachos',
+    pluralVerbEs: true,
+    unitNounEs: 'orden'
+  },
+  Tortas: { sgEs: 'una Torta', plEs: 'Tortas', sgEn: 'a Torta', plEn: 'Tortas', unitNounEs: 'una' },
+  Platos: { sgEs: 'un Plato', plEs: 'Platos', sgEn: 'a Plate', plEn: 'Plates', unitNounEs: 'uno' },
+  Mulitas: { sgEs: 'una Mulita', plEs: 'Mulitas', sgEn: 'a Mulita', plEn: 'Mulitas', unitNounEs: 'una' },
+  'Super Mulitas': {
+    sgEs: 'una Super Mulita',
+    plEs: 'Super Mulitas',
+    sgEn: 'a Super Mulita',
+    plEn: 'Super Mulitas',
+    unitNounEs: 'una'
+  },
+  Burritos: { sgEs: 'un Burrito', plEs: 'Burritos', sgEn: 'a Burrito', plEn: 'Burritos', unitNounEs: 'uno' },
+  'Super Burritos': {
+    sgEs: 'un Super Burrito',
+    plEs: 'Super Burritos',
+    sgEn: 'a Super Burrito',
+    plEn: 'Super Burritos',
+    unitNounEs: 'uno'
+  },
+  Quesadillas: {
+    sgEs: 'una Quesadilla',
+    plEs: 'Quesadillas',
+    sgEn: 'a Quesadilla',
+    plEn: 'Quesadillas',
+    unitNounEs: 'una'
+  },
+  'Super Quesadillas': {
+    sgEs: 'una Super Quesadilla',
+    plEs: 'Super Quesadillas',
+    sgEn: 'a Super Quesadilla',
+    plEn: 'Super Quesadillas',
+    unitNounEs: 'una'
+  },
+  Sopes: { sgEs: 'un Sope', plEs: 'Sopes', sgEn: 'a Sope', plEn: 'Sopes', unitNounEs: 'uno' }
+}
+
+/**
+ * Resuelve cláusula por cláusula una consulta multi-platillo contra `app_menu_cache`:
+ * detecta productos no manejados, distingue `Taco Plate` vs `Plato <carne>`, extrae cantidades explícitas,
+ * aplica prioridad Regular vs Super, detecta categorías con precio uniforme sin carne (`isAnyMeatCategory`)
+ * y expande tamaños de bebidas (22 oz / 32 oz / 128 oz).
+ */
+export function resolveMenuPriceClauses(items: any[], query: string): ResolvedMenuClause[] {
+  if (!Array.isArray(items) || items.length === 0) return []
+  const clauses = splitMenuQueryIntoClauses(query)
+  if (clauses.length === 0) return []
+  const hasTeaAccentInRawQuery = /(?:^|[^\p{L}])t[éÉ](?![\p{L}])/u.test(normalizePhoneSttTranscript(query))
+
+  const validItems = items.filter((it) => Number.isFinite(Number(it?.price)) && Number(it?.price) > 0)
+  if (validItems.length === 0) return []
+
+  const normItems = validItems.map((it) => ({
+    raw: it,
+    nameNorm: normalizeSearchText(it.name),
+    catNorm: normalizeSearchText(it.category_name || ''),
+    price: Number(it.price)
+  }))
+
+  const findExact = (re: RegExp, catRe?: RegExp) =>
+    normItems.find((x) => re.test(x.nameNorm) && (!catRe || catRe.test(x.catNorm)))?.raw || null
+
+  const byCategory = (catExact: string) =>
+    normItems.filter((x) => x.catNorm === normalizeSearchText(catExact))
+
+  const results: ResolvedMenuClause[] = []
+  let prevDishFamily: string | null = null
+  let prevDishMeat: string | null = null
+  let prevDrinkFlavor: string | null = null
+
+  for (const rawClause of clauses) {
+    let clause = rawClause
+
+    // Continuación de carne o tamaño desde la cláusula anterior (ej. "2 tacos de asada y 2 de pastor", "horchata mediana y una grande")
+    const hasOwnDishOrItem =
+      /\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|platos?|plates?|combos?|sopes?|nachos?|flan(?:es)?|cheesecakes?|postres?|desserts?|huevos?|eggs?|rancheros?|mexicana|horchatas?|jamaicas?|pinas?|pineapples?|tamarindos?|tamarinds?|lemonades?|limonadas?|cocas?|cokes?|sprites?|fantas?|champurrados?|cafes?|coffees?|aguas?|waters?|sodas?|refrescos?|arroz|rice|frijol(?:es)?|beans?|chips|totopos|guacamole|crema|menudo|birria|quesabirrias?|pozole|suadero|tripas?|cervezas?|beers?|alcohol|churros?|pastel(?:es)?|cakes?|cuban[oa]s?|milanesas?)\b/i.test(
+        clause
+      )
+    const hasMeatOnlyWord = Boolean(detectClauseMeatOrFilling(clause))
+    const hasSizeOnlyWord = /\b(mediana|mediano|medianas|medium|grande|grandes|large|galon|galones|gallon|chica|chico|pequena|pequeno|small|22\s*oz|32\s*oz|128\s*oz)\b/i.test(clause)
+    const hasSuperOnlyWord = /\bsuper\b/i.test(clause)
+
+    if (!hasOwnDishOrItem) {
+      if (hasMeatOnlyWord && prevDishFamily) {
+        clause = `${clause} ${prevDishFamily.replace(/_/g, ' ')}`.trim()
+      } else if (hasSizeOnlyWord && prevDrinkFlavor) {
+        clause = `${clause} ${prevDrinkFlavor}`.trim()
+      } else if (hasSuperOnlyWord && prevDishFamily) {
+        clause = `${clause} ${prevDishFamily.replace(/^super_/, '').replace(/_/g, ' ')}${prevDishMeat ? ` ${prevDishMeat}` : ''}`.trim()
+      }
+    }
+
+    // 1. Productos no manejados (menudo, birria, pozole, suadero, tripa, cerveza, alcohol, churros, pastel de cumpleaños)
+    const unsupportedRules: Array<{
+      re: RegExp
+      es: string
+      en: string
+      isCake?: boolean
+    }> = [
+      { re: /\bmenudo\b/i, es: 'menudo', en: 'menudo' },
+      { re: /\b(?:birria|quesabirrias?)\b/i, es: 'birria', en: 'birria' },
+      { re: /\bpozole\b/i, es: 'pozole', en: 'pozole' },
+      { re: /\bsuadero\b/i, es: 'suadero', en: 'suadero' },
+      { re: /\btripas?\b/i, es: 'tripa', en: 'tripa' },
+      { re: /\b(?:cervezas?|beers?|micheladas?|alcohol(?:ic)?)\b/i, es: 'cerveza ni bebidas alcohólicas', en: 'beer or alcoholic beverages' },
+      { re: /\bchurros?\b/i, es: 'churros', en: 'churros' },
+      { re: /\b(?:pescados?|fish)\b/i, es: 'platillos de pescado', en: 'fish items' },
+      { re: /\b(?:camaron(?:es)?|shrimps?|mariscos?|seafood)\b/i, es: 'camarón ni mariscos', en: 'shrimp or seafood' },
+      { re: /\btamal(?:es)?\b/i, es: 'tamales', en: 'tamales' },
+      { re: /\benchiladas?\b/i, es: 'enchiladas', en: 'enchiladas' },
+      { re: /\b(?:papas?\s+fritas?|french\s+fries|fries)\b/i, es: 'papas fritas', en: 'french fries' },
+      {
+        re: /\b(?:pastel(?:es)?(?:\s+de\s+cumpleanos|\s+enteros?)?|birthday\s+cakes?|whole\s+cakes?|tres\s+leches|cakes?)\b/i,
+        es: 'pasteles de cumpleaños',
+        en: 'birthday cakes',
+        isCake: true
+      }
+    ]
+    const unsupHit = unsupportedRules.find((u) => u.re.test(clause))
+    if (unsupHit && !(unsupHit.isCake && /\bcheesecakes?\b/i.test(clause))) {
+      const flanItem = findExact(/^flan$/i)
+      const cheeseItem = findExact(/^cheesecake$/i)
+      results.push({
+        rawClause,
+        cleanClause: clause,
+        kind: 'unsupported',
+        quantity: 1,
+        primaryItem: null,
+        variantItems: unsupHit.isCake ? [flanItem, cheeseItem].filter(Boolean) : [],
+        altSuperItem: null,
+        noMeatAltItem: null,
+        altBoxItem: null,
+        categoryName: 'No manejado',
+        unitPrice: null,
+        isAnyMeatCategory: false,
+        hasSizeVariants: false,
+        spokenLabelEs: unsupHit.es,
+        spokenLabelEn: unsupHit.en,
+        unsupportedLabelEs: unsupHit.es,
+        unsupportedLabelEn: unsupHit.en,
+        isBirthdayCakeOrPastry: Boolean(unsupHit.isCake)
+      })
+      continue
+    }
+
+    // 2. Taco Plate ($9.69) vs Plato <carne> ($10.59)
+    const hasPlateOrComboWord = /\b(?:platos?|plates?|combos?|ordenes?|orden)\b/i.test(clause)
+    const hasThreeTacosWithSides =
+      /\b(?:3|tres|three)\s+tacos?\b/i.test(clause) &&
+      /\b(?:arroz|frijol(?:es)?|rice|beans?)\b/i.test(clause)
+    const isTacoPlateQuery =
+      (hasPlateOrComboWord && /\btacos?\b/i.test(clause)) || hasThreeTacosWithSides
+
+    if (isTacoPlateQuery) {
+      const tacoPlateItem =
+        findExact(/^taco plate$/i) || findExact(/taco\s*plate/i)
+      if (tacoPlateItem) {
+        const isSingularThreeTacoPlatePhrase =
+          /^(?:a\s+|an\s+|un\s+|una\s+|el\s+)?(?:3|tres|three)\s+tacos?\s+(?:plate|combo)\b/i.test(clause.trim())
+        const qty =
+          hasPlateOrComboWord && !isSingularThreeTacoPlatePhrase
+            ? extractLeadingClauseQuantity(clause, /\b(?:tacos?\s*plates?|platos?|plates?|combos?|ordenes?|orden)\b/i)
+            : 1
+        prevDishFamily = null
+        prevDrinkFlavor = null
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity: qty,
+          primaryItem: tacoPlateItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: tacoPlateItem.category_name || 'Taco Plate',
+          unitPrice: Number(tacoPlateItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(tacoPlateItem.name, 'es', qty),
+          spokenLabelEn: formatMenuItemSpokenName(tacoPlateItem.name, 'en', qty)
+        })
+        continue
+      }
+    }
+
+    const quantity = extractLeadingClauseQuantity(clause)
+
+    // 3. Postres individuales
+    if (/\b(?:flan(?:es)?|cheesecakes?|postres?|desserts?)\b/i.test(clause)) {
+      const flanItem = findExact(/^flan$/i)
+      const cheeseItem = findExact(/^cheesecake$/i)
+      if (/\bflan(?:es)?\b/i.test(clause) && flanItem) {
+        prevDishFamily = null
+        prevDrinkFlavor = null
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: flanItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: flanItem.category_name || 'Desserts',
+          unitPrice: Number(flanItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(flanItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(flanItem.name, 'en', quantity),
+          unitNounEs: 'uno'
+        })
+        continue
+      }
+      if (/\bcheesecakes?\b/i.test(clause) && cheeseItem) {
+        prevDishFamily = null
+        prevDrinkFlavor = null
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: cheeseItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: cheeseItem.category_name || 'Desserts',
+          unitPrice: Number(cheeseItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(cheeseItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(cheeseItem.name, 'en', quantity),
+          unitNounEs: 'uno'
+        })
+        continue
+      }
+      if (flanItem || cheeseItem) {
+        const list = [flanItem, cheeseItem].filter(Boolean)
+        const samePrice = new Set(list.map((d) => Number(d.price).toFixed(2))).size === 1
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: list[0],
+          variantItems: list,
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: 'Desserts',
+          unitPrice: samePrice ? Number(list[0].price) : null,
+          isAnyMeatCategory: samePrice,
+          hasSizeVariants: !samePrice,
+          spokenLabelEs: 'Flan o Cheesecake individual',
+          spokenLabelEn: 'individual Flan or Cheesecake',
+          unitNounEs: 'uno'
+        })
+        continue
+      }
+    }
+
+    // 4. Bebidas (Champurrado, Café, Agua embotellada, Aguas Frescas, Sodas)
+    if (/\bchampurrados?\b/i.test(clause)) {
+      const boxItem = findExact(/champurrado.*(?:96|box)/i)
+      const cupItem = findExact(/^champurrado$/i) || findExact(/champurrado/i)
+      const wantsBox = /\b(?:cajas?|boxes|box|96\s*oz|96oz)\b/i.test(clause)
+      const picked = wantsBox && boxItem ? boxItem : cupItem || boxItem
+      if (picked) {
+        prevDishFamily = null
+        prevDrinkFlavor = null
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: picked,
+          variantItems: !wantsBox && boxItem && picked !== boxItem ? [boxItem] : [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: !wantsBox && boxItem && picked !== boxItem ? boxItem : null,
+          categoryName: picked.category_name || 'Misc. Drinks',
+          unitPrice: Number(picked.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(picked.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(picked.name, 'en', quantity),
+          unitNounEs: wantsBox ? 'una' : 'uno'
+        })
+        continue
+      }
+    }
+
+    if (/\b(?:cafes?|coffees?)\b/i.test(clause)) {
+      const coffeeItem = findExact(/^coffee$/i) || findExact(/coffee|cafe/i)
+      if (coffeeItem) {
+        prevDishFamily = null
+        prevDrinkFlavor = null
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: coffeeItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: coffeeItem.category_name || 'Misc. Drinks',
+          unitPrice: Number(coffeeItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(coffeeItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(coffeeItem.name, 'en', quantity),
+          unitNounEs: 'uno'
+        })
+        continue
+      }
+    }
+
+    const isBottledWater =
+      (/\b(?:embotellada|botella|bottled)\b/i.test(clause) && /\b(?:agua|water)\b/i.test(clause)) ||
+      /\bbottled\s+water\b/i.test(clause)
+    if (isBottledWater) {
+      const bottleItem = findExact(/bottled water/i)
+      if (bottleItem) {
+        prevDishFamily = null
+        prevDrinkFlavor = null
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: bottleItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: bottleItem.category_name || 'Misc. Drinks',
+          unitPrice: Number(bottleItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(bottleItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(bottleItem.name, 'en', quantity),
+          unitNounEs: 'una'
+        })
+        continue
+      }
+    }
+
+    const isTeaClause =
+      /\b(?:iced\s*tea|te\s+helado|te\s+frio|te\s+negro|te\s+verde)\b/i.test(clause) ||
+      ((hasTeaAccentInRawQuery || /\b(?:iced|helado|frio|vaso|bebida|drink|mediano|grande)\b/i.test(clause)) &&
+        /(?:^|\s)te(?:\s|$)/i.test(clause))
+
+    const drinkSpecs: Array<{
+      re: RegExp
+      flavorKey: string
+      matchName: RegExp
+      isAguaFresca: boolean
+      labelEs: string
+      pluralEs: string
+      labelEn: string
+      pluralEn: string
+    }> = [
+      { re: /\bhorchatas?\b/i, flavorKey: 'horchata', matchName: /horchata/i, isAguaFresca: true, labelEs: 'horchata', pluralEs: 'horchatas', labelEn: 'Horchata', pluralEn: 'Horchatas' },
+      { re: /\b(?:jamaicas?|hibiscus)\b/i, flavorKey: 'jamaica', matchName: /jamaica/i, isAguaFresca: true, labelEs: 'agua de jamaica', pluralEs: 'aguas de jamaica', labelEn: 'Jamaica agua fresca', pluralEn: 'Jamaica aguas frescas' },
+      { re: /\b(?:pinas?|pineapples?)\b/i, flavorKey: 'pina', matchName: /pina/i, isAguaFresca: true, labelEs: 'agua de piña', pluralEs: 'aguas de piña', labelEn: 'pineapple agua fresca', pluralEn: 'pineapple aguas frescas' },
+      { re: /\b(?:tamarindos?|tamarinds?)\b/i, flavorKey: 'tamarindo', matchName: /tamarindo/i, isAguaFresca: true, labelEs: 'agua de tamarindo', pluralEs: 'aguas de tamarindo', labelEn: 'tamarind agua fresca', pluralEn: 'tamarind aguas frescas' },
+      { re: /\b(?:limonadas?|lemonades?)\b/i, flavorKey: 'lemonade', matchName: /lemonade/i, isAguaFresca: false, labelEs: 'limonada', pluralEs: 'limonadas', labelEn: 'lemonade', pluralEn: 'lemonades' },
+      { re: isTeaClause ? /.*/ : /$^/, flavorKey: 'iced tea', matchName: /iced tea/i, isAguaFresca: false, labelEs: 'té helado', pluralEs: 'tés helados', labelEn: 'iced tea', pluralEn: 'iced teas' },
+      { re: /\b(?:diet|dieta)\b.*\b(?:cocas?|cokes?)\b|\b(?:cocas?|cokes?)\b.*\b(?:diet|dieta)\b/i, flavorKey: 'diet coke', matchName: /diet coke/i, isAguaFresca: false, labelEs: 'Coca de dieta', pluralEs: 'Cocas de dieta', labelEn: 'Diet Coke', pluralEn: 'Diet Cokes' },
+      { re: /\b(?:cocas?|cokes?)\b/i, flavorKey: 'coke', matchName: /\bcoke\b/i, isAguaFresca: false, labelEs: 'Coca', pluralEs: 'Cocas', labelEn: 'Coke', pluralEn: 'Cokes' },
+      { re: /\bsprites?\b/i, flavorKey: 'sprite', matchName: /sprite/i, isAguaFresca: false, labelEs: 'Sprite', pluralEs: 'Sprites', labelEn: 'Sprite', pluralEn: 'Sprites' },
+      { re: /\b(?:fresas?|strawberr(?:y|ies))\b/i, flavorKey: 'strawberry fanta', matchName: /strawberry fanta/i, isAguaFresca: false, labelEs: 'Fanta de fresa', pluralEs: 'Fantas de fresa', labelEn: 'Strawberry Fanta', pluralEn: 'Strawberry Fantas' },
+      { re: /\b(?:fantas?|naranjas?|oranges?)\b/i, flavorKey: 'orange fanta', matchName: /orange fanta/i, isAguaFresca: false, labelEs: 'Fanta de naranja', pluralEs: 'Fantas de naranja', labelEn: 'Orange Fanta', pluralEn: 'Orange Fantas' },
+      { re: /\baguas?\s*frescas?\b|\baguas?\b/i, flavorKey: 'agua fresca', matchName: /horchata/i, isAguaFresca: true, labelEs: 'agua fresca (Horchata, Jamaica, Piña o Tamarindo)', pluralEs: 'aguas frescas', labelEn: 'agua fresca (Horchata, Jamaica, Pineapple, or Tamarind)', pluralEn: 'aguas frescas' },
+      { re: /\b(?:sodas?|refrescos?|bebidas?|drinks?)\b/i, flavorKey: 'soda', matchName: /\bcoke\b/i, isAguaFresca: false, labelEs: 'refresco de fuente', pluralEs: 'refrescos de fuente', labelEn: 'fountain drink', pluralEn: 'fountain drinks' }
+    ]
+
+    const drinkHit = drinkSpecs.find((d) => d.re.test(clause))
+    if (drinkHit) {
+      prevDishFamily = null
+      prevDrinkFlavor = drinkHit.flavorKey
+      const wantsMedium = /\b(?:mediana|mediano|medianas|medium|chica|chico|pequena|pequeno|small|22\s*oz|22oz)\b/i.test(clause)
+      const wantsLarge = /\b(?:grande|grandes|large|32\s*oz|32oz)\b/i.test(clause)
+      const wantsGallon = /\b(?:galon|galones|gallon|gallons|128\s*oz|128oz)\b/i.test(clause)
+
+      const medItem = normItems.find((x) => x.catNorm === 'medium drinks' && drinkHit.matchName.test(x.nameNorm) && !(/diet/.test(x.nameNorm) && drinkHit.flavorKey === 'coke'))?.raw || null
+      const lrgItem = normItems.find((x) => x.catNorm === 'large drinks' && drinkHit.matchName.test(x.nameNorm) && !(/diet/.test(x.nameNorm) && drinkHit.flavorKey === 'coke'))?.raw || null
+      const galItem = drinkHit.isAguaFresca ? findExact(/gallon agua fresca/i) : null
+      const bottleFallback = drinkHit.flavorKey === 'agua fresca' && /^agua$/i.test(clause.replace(/^(?:un|una|el|la)\s+/i, '').trim()) ? findExact(/bottled water/i) : null
+
+      if (wantsGallon && galItem) {
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: galItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: galItem.category_name || 'Misc. Drinks',
+          unitPrice: Number(galItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(galItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(galItem.name, 'en', quantity),
+          unitNounEs: 'uno'
+        })
+        continue
+      }
+      if (wantsLarge && lrgItem) {
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: lrgItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: lrgItem.category_name || 'Large Drinks',
+          unitPrice: Number(lrgItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(lrgItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(lrgItem.name, 'en', quantity),
+          unitNounEs: 'una'
+        })
+        continue
+      }
+      if (wantsMedium && medItem) {
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: medItem,
+          variantItems: [],
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: medItem.category_name || 'Medium Drinks',
+          unitPrice: Number(medItem.price),
+          isAnyMeatCategory: false,
+          hasSizeVariants: false,
+          spokenLabelEs: formatMenuItemSpokenName(medItem.name, 'es', quantity),
+          spokenLabelEn: formatMenuItemSpokenName(medItem.name, 'en', quantity),
+          unitNounEs: 'una'
+        })
+        continue
+      }
+      const variants = [medItem, lrgItem, galItem, bottleFallback].filter(Boolean)
+      if (variants.length > 0) {
+        results.push({
+          rawClause,
+          cleanClause: clause,
+          kind: 'item',
+          quantity,
+          primaryItem: variants[0],
+          variantItems: variants,
+          altSuperItem: null,
+          noMeatAltItem: null,
+          altBoxItem: null,
+          categoryName: variants[0].category_name || 'Drinks',
+          unitPrice: null,
+          isAnyMeatCategory: false,
+          hasSizeVariants: true,
+          spokenLabelEs: quantity >= 2 ? `${quantity} ${drinkHit.pluralEs}` : drinkHit.labelEs,
+          spokenLabelEn: quantity >= 2 ? `${quantity} ${drinkHit.pluralEn}` : drinkHit.labelEn,
+          pluralLabelEs: drinkHit.pluralEs,
+          pluralLabelEn: drinkHit.pluralEn,
+          unitNounEs: 'una'
+        })
+        continue
+      }
+    }
+
+    // 5. Desayunos & Platillos Principales
+    const wantsSuper = /\b(?:super|supreme|supremo|suprema)\b/i.test(clause)
+    const wantsMeatOnly = /\b(?:meat\s+only|solo\s+(?:de\s+)?carne|pura\s+carne|de\s+pura\s+carne|all\s+meat|double\s+meat|doble\s+carne|sin\s+arroz(?:\s+ni\s+frijol)?)\b/i.test(clause)
+    const wantsBreakfast = /\b(?:huevos?|eggs?|rancheros?|mexicana|desayuno|breakfast)\b/i.test(clause)
+    const meatKey = detectClauseMeatOrFilling(clause)
+
+    let targetCategory: string | null = null
+    let altSuperCategory: string | null = null
+    let dishFamilyForNext: string | null = null
+
+    if (/\bnachos?\b/i.test(clause)) {
+      targetCategory = 'Super Nachos'
+      dishFamilyForNext = 'super_nachos'
+    } else if (/\btacos?\b/i.test(clause)) {
+      targetCategory = 'Tacos'
+      dishFamilyForNext = 'taco'
+    } else if (/\btortas?\b|\bcuban[oa]\b/i.test(clause) || (/\bmilanesa\b/i.test(clause) && !/\b(?:platos?|plates?)\b/i.test(clause))) {
+      targetCategory = wantsBreakfast ? 'Breakfast' : 'Tortas'
+      dishFamilyForNext = 'torta'
+    } else if (/\bburritos?\b/i.test(clause)) {
+      if (wantsBreakfast) {
+        targetCategory = 'Breakfast'
+      } else if (wantsMeatOnly && wantsSuper) {
+        targetCategory = 'Meat Only Super Burritos'
+      } else if (wantsMeatOnly) {
+        targetCategory = 'Meat Only Burritos'
+        altSuperCategory = 'Meat Only Super Burritos'
+      } else if (wantsSuper) {
+        targetCategory = 'Super Burritos'
+      } else {
+        targetCategory = 'Burritos'
+        altSuperCategory = 'Super Burritos'
+      }
+      dishFamilyForNext = wantsSuper ? 'super_burrito' : 'burrito'
+    } else if (/\bmulitas?\b/i.test(clause)) {
+      if (wantsSuper) {
+        targetCategory = 'Super Mulitas'
+      } else {
+        targetCategory = 'Mulitas'
+        altSuperCategory = 'Super Mulitas'
+      }
+      dishFamilyForNext = wantsSuper ? 'super_mulita' : 'mulita'
+    } else if (/\bquesadillas?\b/i.test(clause)) {
+      if (wantsSuper) {
+        targetCategory = 'Super Quesadillas'
+      } else {
+        targetCategory = 'Quesadillas'
+        altSuperCategory = 'Super Quesadillas'
+      }
+      dishFamilyForNext = wantsSuper ? 'super_quesadilla' : 'quesadilla'
+    } else if (/\bsopes?\b/i.test(clause)) {
+      targetCategory = 'Sopes'
+      dishFamilyForNext = 'sope'
+    } else if (/\b(?:platos?|plates?)\b/i.test(clause)) {
+      targetCategory = wantsBreakfast ? 'Breakfast' : 'Platos'
+      dishFamilyForNext = 'plato'
+    } else if (wantsBreakfast) {
+      targetCategory = 'Breakfast'
+      dishFamilyForNext = null
+    }
+
+    if (targetCategory) {
+      prevDishFamily = dishFamilyForNext
+      prevDishMeat = meatKey
+      prevDrinkFlavor = null
+
+      let catEntries = byCategory(targetCategory)
+      if (targetCategory === 'Breakfast') {
+        if (/\bburritos?\b/i.test(clause)) {
+          catEntries = catEntries.filter((x) => /^burrito\b/i.test(x.nameNorm))
+        } else if (/\btortas?\b/i.test(clause)) {
+          catEntries = catEntries.filter((x) => /^torta\b/i.test(x.nameNorm))
+        } else {
+          catEntries = catEntries.filter((x) => /^huevos?\b/i.test(x.nameNorm))
+        }
+      }
+
+      if (catEntries.length > 0) {
+        if (meatKey) {
+          const hit = catEntries.find((x) => itemMatchesMeatKey(x.nameNorm, meatKey)) || null
+          if (hit) {
+            const altSuper = altSuperCategory
+              ? byCategory(altSuperCategory).find((x) => itemMatchesMeatKey(x.nameNorm, meatKey))?.raw || null
+              : null
+            results.push({
+              rawClause,
+              cleanClause: clause,
+              kind: 'item',
+              quantity,
+              primaryItem: hit.raw,
+              variantItems: altSuper ? [altSuper] : [],
+              altSuperItem: altSuper,
+              noMeatAltItem: null,
+              altBoxItem: null,
+              categoryName: hit.raw.category_name || targetCategory,
+              unitPrice: hit.price,
+              isAnyMeatCategory: false,
+              hasSizeVariants: false,
+              spokenLabelEs: formatMenuItemSpokenName(hit.raw.name, 'es', quantity),
+              spokenLabelEn: formatMenuItemSpokenName(hit.raw.name, 'en', quantity),
+              unitNounEs: /torta|mulita|quesadilla/i.test(targetCategory) ? 'una' : 'uno'
+            })
+            continue
+          }
+        }
+
+        // Sin carne especificada -> verificar si todas las carnes de esta categoría cuestan igual
+        const meatEntries =
+          targetCategory === 'Breakfast'
+            ? catEntries
+            : catEntries.filter((x) => isStandardMeatVariantName(x.nameNorm))
+        const evalPool = meatEntries.length > 0 ? meatEntries : catEntries
+        const priceSet = new Set(evalPool.map((x) => x.price.toFixed(2)))
+        const catMeta = UNIFORM_CATEGORY_META[targetCategory]
+
+        if (priceSet.size === 1) {
+          const repEntry = evalPool.find((x) => /\basada\b/i.test(x.nameNorm)) || evalPool[0]
+          const noMeatEntry =
+            catEntries.find((x) => /\b(?:queso|frijol|beans)\b/i.test(x.nameNorm) && x.price < repEntry.price) || null
+          const altSuperPool = altSuperCategory ? byCategory(altSuperCategory) : []
+          const altSuperMeat = altSuperPool.filter((x) => isStandardMeatVariantName(x.nameNorm))
+          const altSuperRep =
+            altSuperMeat.find((x) => /\basada\b/i.test(x.nameNorm)) || altSuperMeat[0] || altSuperPool[0] || null
+
+          let labelEs: string
+          let labelEn: string
+          let unitNounEs = catMeta?.unitNounEs || 'uno'
+          if (targetCategory === 'Breakfast') {
+            if (/\bburritos?\b/i.test(clause)) {
+              labelEs = quantity >= 2 ? `${quantity} Burritos de Huevo` : 'un Burrito de Huevo'
+              labelEn = quantity >= 2 ? `${quantity} Breakfast Egg Burritos` : 'a Breakfast Egg Burrito'
+            } else if (/\btortas?\b/i.test(clause)) {
+              labelEs = quantity >= 2 ? `${quantity} Tortas de Huevo` : 'una Torta de Huevo'
+              labelEn = quantity >= 2 ? `${quantity} Egg Tortas` : 'an Egg Torta'
+              unitNounEs = 'una'
+            } else {
+              labelEs = quantity >= 2 ? `${quantity} Platos de Huevos` : 'un Plato de Huevos al gusto'
+              labelEn = quantity >= 2 ? `${quantity} Breakfast Egg Plates` : 'a Breakfast Egg Plate'
+            }
+          } else {
+            labelEs = catMeta
+              ? quantity >= 2
+                ? `${quantity} ${catMeta.plEs} con la carne de tu preferencia`
+                : `${catMeta.sgEs} con la carne de tu preferencia`
+              : formatMenuItemSpokenName(repEntry.raw.name, 'es', quantity)
+            labelEn = catMeta
+              ? quantity >= 2
+                ? `${quantity} ${catMeta.plEn} with your choice of meat`
+                : `${catMeta.sgEn} with your choice of meat`
+              : formatMenuItemSpokenName(repEntry.raw.name, 'en', quantity)
+          }
+
+          results.push({
+            rawClause,
+            cleanClause: clause,
+            kind: 'item',
+            quantity,
+            primaryItem: repEntry.raw,
+            variantItems: [altSuperRep?.raw, noMeatEntry?.raw].filter(Boolean),
+            altSuperItem: altSuperRep?.raw || null,
+            noMeatAltItem: noMeatEntry?.raw || null,
+            altBoxItem: null,
+            categoryName: repEntry.raw.category_name || targetCategory,
+            unitPrice: repEntry.price,
+            isAnyMeatCategory: true,
+            hasSizeVariants: false,
+            spokenLabelEs: labelEs,
+            spokenLabelEn: labelEn,
+            spokenPluralVerbEs: Boolean(catMeta?.pluralVerbEs) || quantity >= 2,
+            pluralLabelEs: catMeta ? `${catMeta.plEs} con la carne de tu preferencia` : labelEs,
+            pluralLabelEn: catMeta ? `${catMeta.plEn} with your choice of meat` : labelEn,
+            unitNounEs
+          })
+          continue
+        }
+      }
+    }
+
+    // 6. Acompañamientos (Sides: Rice, Beans, Chips, Guacamole, Sour Cream)
+    if (/\b(?:chips|totopos|guacamole|guac|crema|sour\s*cream|arroz|rice|frijol(?:es)?|beans?)\b/i.test(clause)) {
+      const hasRice = /\b(?:arroz|rice)\b/i.test(clause)
+      const hasBeans = /\b(?:frijol(?:es)?|beans?)\b/i.test(clause)
+      if (hasRice && hasBeans) {
+        const riceItem = findExact(/^rice$/i, /sides/i)
+        const beansItem = findExact(/^beans$/i, /sides/i)
+        if (riceItem && beansItem) {
+          results.push({
+            rawClause,
+            cleanClause: clause,
+            kind: 'item',
+            quantity,
+            primaryItem: riceItem,
+            variantItems: [riceItem, beansItem],
+            altSuperItem: null,
+            noMeatAltItem: null,
+            altBoxItem: null,
+            categoryName: 'Sides',
+            unitPrice: Number(riceItem.price) + Number(beansItem.price),
+            isAnyMeatCategory: false,
+            hasSizeVariants: false,
+            isSidesPair: true,
+            spokenLabelEs: `orden de arroz ($${Number(riceItem.price).toFixed(2)}) y orden de frijoles ($${Number(beansItem.price).toFixed(2)})`,
+            spokenLabelEn: `side of rice ($${Number(riceItem.price).toFixed(2)}) and side of beans ($${Number(beansItem.price).toFixed(2)})`,
+            unitNounEs: 'una'
+          })
+          continue
+        }
+      }
+      const sideHits: Array<[RegExp, RegExp, string, string]> = [
+        [/\b(?:chips|totopos)\b/i, /^chips$/i, 'orden de totopos', 'side of chips'],
+        [/\b(?:guacamole|guac)\b/i, /^guacamole$/i, 'orden de guacamole', 'side of guacamole'],
+        [/\b(?:crema|sour\s*cream)\b/i, /^sour cream$/i, 'orden de crema', 'side of sour cream'],
+        [/\b(?:arroz|rice)\b/i, /^rice$/i, 'orden de arroz', 'side of rice'],
+        [/\b(?:frijol(?:es)?|beans?)\b/i, /^beans$/i, 'orden de frijoles', 'side of beans']
+      ]
+      const sideSpec = sideHits.find(([re]) => re.test(clause))
+      if (sideSpec) {
+        const sItem = findExact(sideSpec[1], /sides/i)
+        if (sItem) {
+          results.push({
+            rawClause,
+            cleanClause: clause,
+            kind: 'item',
+            quantity,
+            primaryItem: sItem,
+            variantItems: [],
+            altSuperItem: null,
+            noMeatAltItem: null,
+            altBoxItem: null,
+            categoryName: sItem.category_name || 'Sides',
+            unitPrice: Number(sItem.price),
+            isAnyMeatCategory: false,
+            hasSizeVariants: false,
+            spokenLabelEs: sideSpec[2],
+            spokenLabelEn: sideSpec[3],
+            unitNounEs: 'una'
+          })
+          continue
+        }
+      }
+    }
+  }
+
+  return results
+}
+
+function buildTokenUnitsForMenuQuery(normQuery: string, isTeaQuery: boolean) {
+  const rawTokens = normQuery
+    .split(/\s+/)
+    .filter((t) => (t.length >= 3 || t === 'oz' || (t === 'te' && isTeaQuery)) && !MENU_RANK_STOP_WORDS.has(t))
+
+  const isBottledQuery = rawTokens.includes('embotellada') || rawTokens.includes('botella') || rawTokens.includes('bottled')
+  const directUnitsMap = new Map<string, { key: string; forms: string[] }>()
+  const directFormSet = new Set<string>()
+  const synonymUnitsMap = new Map<string, { key: string; forms: string[] }>()
+
+  for (const tok of rawTokens) {
+    const unit = buildTokenFormsUnit(tok)
+    const existing = directUnitsMap.get(unit.key)
+    if (existing) {
+      for (const f of unit.forms) {
+        if (!existing.forms.includes(f)) existing.forms.push(f)
+        directFormSet.add(f)
+      }
+    } else {
+      directUnitsMap.set(unit.key, unit)
+      for (const f of unit.forms) directFormSet.add(f)
+    }
+  }
+
+  for (const tok of rawTokens) {
+    if (tok === 'agua' && isBottledQuery) {
+      for (const s of ['bottled', 'water']) {
+        if (!directFormSet.has(s) && !synonymUnitsMap.has(s)) {
+          synonymUnitsMap.set(s, { key: s, forms: [s] })
+        }
+      }
+      continue
+    }
+    const candidateSyns = new Set<string>()
+    for (const f of buildTokenFormsUnit(tok).forms) {
+      const syns = MENU_RANK_SYNONYM_MAP[f]
+      if (syns) for (const s of syns) candidateSyns.add(s)
+    }
+    for (const s of candidateSyns) {
+      if (directFormSet.has(s)) continue
+      const synUnit = buildTokenFormsUnit(s)
+      if (!synUnit.forms.some((f) => directFormSet.has(f)) && !synonymUnitsMap.has(synUnit.key)) {
+        synonymUnitsMap.set(synUnit.key, synUnit)
+      }
+    }
+  }
+
+  return {
+    directUnits: Array.from(directUnitsMap.values()),
+    synonymUnits: Array.from(synonymUnitsMap.values())
+  }
 }
 
 export function rankMenuItemsForPrompt(items: any[], query: string, limit: number = 12) {
   if (!Array.isArray(items) || items.length === 0) return []
-  const stopWords = new Set([
-    'de', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'con', 'por', 'para', 'del', 'al', 'que',
-    'cuesta', 'cuanto', 'precio', 'precios', 'tienen', 'hay', 'me', 'puedes', 'decir', 'hola', 'quiero',
-    'saber', 'how', 'much', 'is', 'the', 'and', 'for', 'do', 'you', 'have', 'can', 'tell', 'cost'
-  ])
-  const synonymMap: Record<string, string[]> = {
-    grande: ['large'], grandes: ['large'], large: ['grande'],
-    mediana: ['medium'], mediano: ['medium'], medianas: ['medium'], medium: ['mediana', 'mediano'],
-    galon: ['gallon'], galones: ['gallon'], gallon: ['galon'],
-    agua: ['horchata', 'jamaica', 'pina', 'tamarindo', 'lemonade', 'water', 'fresca'],
-    aguas: ['horchata', 'jamaica', 'pina', 'tamarindo', 'fresca'],
-    fresca: ['agua', 'horchata', 'jamaica', 'pina', 'tamarindo'],
-    embotellada: ['bottled', 'water'],
-    botella: ['bottled', 'water'],
-    bottled: ['water', 'embotellada'],
-    water: ['bottled', 'agua'],
-    fresa: ['strawberry'],
-    naranja: ['orange'],
-    dieta: ['diet'],
-    frijol: ['beans', 'frijol'], frijoles: ['beans', 'frijol'], beans: ['frijol', 'beans'],
-    arroz: ['rice'], rice: ['arroz', 'rice'],
-    queso: ['cheese', 'queso'], cheese: ['queso', 'cheese'], crema: ['sour', 'cream'],
-    cafe: ['coffee'], coffee: ['cafe', 'coffee'], coca: ['coke'], totopos: ['chips'],
-    limonada: ['lemonade'], helado: ['iced', 'tea'], te: ['tea', 'iced'],
-    pineapple: ['pina', 'agua'], hibiscus: ['jamaica', 'agua'], tamarind: ['tamarindo', 'agua'],
-    chicken: ['pollo'], beef: ['asada', 'carne'], steak: ['asada', 'carne'],
-    pork: ['carnitas', 'pastor'], tongue: ['lengua'], head: ['cabeza'],
-    sausage: ['chorizo', 'salchicha', 'wiener'],
-    refresco: ['coke', 'sprite', 'fanta'], soda: ['coke', 'sprite', 'fanta'],
-    postre: ['flan', 'cheesecake'], postres: ['flan', 'cheesecake'],
-    dessert: ['flan', 'cheesecake'], desserts: ['flan', 'cheesecake'],
-    pastel: ['flan', 'cheesecake'], pasteles: ['flan', 'cheesecake'],
-    cake: ['cheesecake', 'flan'], cakes: ['cheesecake', 'flan'],
-    desayuno: ['huevos', 'breakfast'], huevo: ['huevos', 'breakfast'],
-    egg: ['huevos', 'huevo', 'breakfast'], eggs: ['huevos', 'huevo', 'breakfast'],
-    milanesa: ['breaded', 'milanesa'], breaded: ['milanesa'],
-    jamon: ['ham', 'jamon'], ham: ['jamon'],
-    salchicha: ['wiener', 'salchicha'], wiener: ['salchicha'],
-  }
   const fixedQuery = normalizePhoneSttTranscript(query)
   const normQuery = normalizeSearchText(fixedQuery)
   const isTeaQuery =
     /(?:^|[^\p{L}])t[éÉ](?![\p{L}])/u.test(fixedQuery) ||
-    /\bte\s+(?:helado|frio|negro|verde|iced)\b|\b(?:helado|frio|iced|bebida|drink|vaso|mediano|grande)\b[^.!?]{0,18}\bte\b/i.test(normQuery)
-  const rawTokens = normQuery
-    .split(/\s+/)
-    .filter((t) => (t.length >= 3 || t === 'oz' || (t === 'te' && isTeaQuery)) && !stopWords.has(t))
+    /\bte\s+(?:helado|frio|negro|verde|iced)\b|\b(?:helado|frio|iced|bebida|drink|vaso|mediano|grande)\b[^.!?]{0,18}\bte\b/i.test(
+      normQuery
+    )
 
-  const isBottledQuery = rawTokens.includes('embotellada') || rawTokens.includes('botella') || rawTokens.includes('bottled')
   const wantsFiesta = /fiesta|platter|charola|paquete|persona|people|catering/i.test(normQuery)
+  const wantsSuperQuery = /\b(?:super|supreme|supremo|suprema)\b/i.test(normQuery)
+  const wantsMeatOnlyQuery = /\b(?:meat\s+only|solo\s+(?:de\s+)?carne|pura\s+carne|de\s+pura\s+carne|all\s+meat|double\s+meat|doble\s+carne)\b/i.test(
+    normQuery
+  )
 
-  const directTokens = new Set<string>()
-  const synonymTokens = new Set<string>()
-  for (const tok of rawTokens) {
-    directTokens.add(tok)
-    // Quitar 's' simple en sustantivos (sopes->sope, tortas->torta, mulitas->mulita) y '-es' solo en terminaciones castellanas reales (-nes/-res/-les/-mes/-ces)
-    if (tok.length > 4 && /(?:ciones|siones|nes|res|les|mes|ces)$/.test(tok)) {
-      directTokens.add(tok.slice(0, -2))
-    } else if (tok.length > 4 && tok.endsWith('s')) {
-      directTokens.add(tok.slice(0, -1))
-    }
-    if (tok === 'agua' && isBottledQuery) {
-      synonymTokens.add('bottled')
-      synonymTokens.add('water')
-      continue
-    }
-    const syns = synonymMap[tok]
-    if (syns) for (const s of syns) if (!directTokens.has(s)) synonymTokens.add(s)
-  }
-  const directList = Array.from(directTokens)
-  const synonymList = Array.from(synonymTokens).filter((s) => !directTokens.has(s))
-  const allSearchTokens = [...directList, ...synonymList]
-  const pickedMap = new Map<string, { item: any; score: number }>()
   const validItems = items.filter((it) => Number.isFinite(Number(it?.price)) && Number(it?.price) > 0)
   const itemKey = (it: any) => `${String(it?.category_name || '')}|${String(it?.name || '')}`
+  const pickedMap = new Map<string, { item: any; score: number }>()
 
-  for (const tok of allSearchTokens) {
-    const rawBase = directTokens.has(tok) ? 30 : 10
-    for (const m of validItems.filter((it) => normalizeSearchText(it.name).includes(tok)).slice(0, 4)) {
-      const penalized =
-        !wantsFiesta && /fiesta\s*platter/i.test(String(m.category_name || ''))
-          ? Math.max(0, rawBase - 25)
-          : rawBase
-      if (penalized <= 0) continue
-      const k = itemKey(m)
+  // 1. Priorizar SIEMPRE en orden el match principal de cada cláusula solicitada y luego sus variantes útiles
+  const resolvedClauses = resolveMenuPriceClauses(validItems, query)
+  resolvedClauses.forEach((cl, idx) => {
+    if (cl.primaryItem) {
+      const k = itemKey(cl.primaryItem)
+      const sc = 10000 - idx * 20
       const prev = pickedMap.get(k)
-      if (!prev || penalized > prev.score) pickedMap.set(k, { item: m, score: penalized })
+      if (!prev || sc > prev.score) pickedMap.set(k, { item: cl.primaryItem, score: sc })
     }
-  }
+  })
+  resolvedClauses.forEach((cl, idx) => {
+    const extras = [...cl.variantItems, cl.altSuperItem, cl.noMeatAltItem, cl.altBoxItem].filter(Boolean)
+    extras.forEach((ex, exIdx) => {
+      const k = itemKey(ex)
+      if (!pickedMap.has(k)) {
+        pickedMap.set(k, { item: ex, score: 8000 - idx * 20 - exIdx })
+      }
+    })
+  })
+
+  // 2. Relleno por ranking sin doble conteo de plurales (cada palabra + variante singular/plural cuenta 1 sola vez por ítem)
+  const { directUnits, synonymUnits } = buildTokenUnitsForMenuQuery(normQuery, isTeaQuery)
   for (const item of validItems) {
+    const k = itemKey(item)
+    if (pickedMap.has(k)) continue
     const metaHay = normalizeSearchText(`${item.category_name || ''} ${item.description || ''}`)
     const nameNorm = normalizeSearchText(item.name)
     let score = 0
@@ -2087,25 +3381,45 @@ export function rankMenuItemsForPrompt(items: any[], query: string, limit: numbe
     let synNameMatches = 0
     if (nameNorm === normQuery) score += 140
     if (normQuery.length >= 4 && nameNorm.includes(normQuery)) score += 70
-    for (const tok of directList) {
-      if (nameNorm.includes(tok)) { score += 45; directNameMatches++ }
-      else if (metaHay.includes(tok)) score += 15
+
+    for (const unit of directUnits) {
+      if (textMatchesAnyTokenForm(nameNorm, unit.forms)) {
+        score += 45
+        directNameMatches++
+      } else if (textMatchesAnyTokenForm(metaHay, unit.forms)) {
+        score += 15
+      }
     }
-    for (const syn of synonymList) {
-      if (nameNorm.includes(syn)) { score += 28; synNameMatches++ }
-      else if (metaHay.includes(syn)) score += 5
+    for (const synUnit of synonymUnits) {
+      if (textMatchesAnyTokenForm(nameNorm, synUnit.forms)) {
+        score += 28
+        synNameMatches++
+      } else if (textMatchesAnyTokenForm(metaHay, synUnit.forms)) {
+        score += 5
+      }
     }
+
     if (directNameMatches >= 2) score += directNameMatches * 30
     else if (directNameMatches + synNameMatches >= 2) score += 14
+
     if (!wantsFiesta && /fiesta\s*platter/i.test(String(item.category_name || ''))) {
       score = Math.max(0, score - 25)
     }
+    if (!wantsMeatOnlyQuery && /^meat\s+only\b/i.test(nameNorm)) {
+      score = Math.max(0, score - 60)
+    }
+    if (!wantsSuperQuery && /^super\b/i.test(nameNorm) && !/\bnachos?\b/i.test(nameNorm)) {
+      score = Math.max(0, score - 12)
+    } else if (wantsSuperQuery && /^super\b/i.test(nameNorm)) {
+      score += 20
+    }
+
     if (score > 0) {
-      const k = itemKey(item)
       const prev = pickedMap.get(k)
       if (!prev || score > prev.score) pickedMap.set(k, { item, score })
     }
   }
+
   return Array.from(pickedMap.values())
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
@@ -2116,6 +3430,339 @@ export function rankMenuItemsForPrompt(items: any[], query: string, limit: numbe
       priceFormatted: `$${Number(entry.item.price || 0).toFixed(2)}`,
       description: entry.item.description || ''
     }))
+}
+
+export interface ComposeMenuPriceReplyOptions {
+  preResolvedClauses?: ResolvedMenuClause[]
+  leadSentences?: string[]
+  includeClosingQuestion?: boolean
+  rawQuery?: string
+  now?: Date
+}
+
+/**
+ * Construye en < 1 ms una respuesta conversacional 100% cálida y natural de cajera humana en California
+ * para consultas de precios (de 1, 2, 3 o más platillos), cubriendo cada artículo en orden, Regular vs Super,
+ * tamaños de bebida, caja de Champurrado 96 oz, productos no manejados y subtotal exacto antes de impuestos.
+ */
+export function composeNaturalMenuPriceReply(
+  items: any[],
+  query: string,
+  lang: PhoneLang = 'es',
+  opts?: ComposeMenuPriceReplyOptions
+): string {
+  const clauses = opts?.preResolvedClauses ?? resolveMenuPriceClauses(items, query)
+  const leadPrefix = Array.isArray(opts?.leadSentences) && opts!.leadSentences.length > 0 ? `${opts!.leadSentences.join(' ')} ` : ''
+  const appendClosing = opts?.includeClosingQuestion !== false
+
+  if (clauses.length === 0) {
+    const ranked = rankMenuItemsForPrompt(items, query, 8)
+    if (ranked.length === 0) {
+      return lang === 'en'
+        ? 'Sorry, I had a brief technical issue checking those prices. Could you repeat which dish you would like me to check?'
+        : 'Disculpa, tuve un problema técnico momentáneo al revisar esos precios. ¿Me puedes repetir qué platillo te gustaría consultar?'
+    }
+    const dedupByCatPrice: typeof ranked = []
+    const seen = new Set<string>()
+    for (const m of ranked) {
+      const key = `${m.category}|${m.priceFormatted}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      dedupByCatPrice.push(m)
+      if (dedupByCatPrice.length >= 2) break
+    }
+    const parts = dedupByCatPrice.map((m) => `${formatMenuItemSpokenName(m.name, lang, 1)} (${m.priceFormatted})`)
+    const tail = appendClosing ? (lang === 'en' ? ' Can I help you with anything else?' : ' ¿Te puedo ayudar con algo más?') : ''
+    return `${leadPrefix}${parts.join(lang === 'en' ? ' and ' : ' y ')}.${tail}`.replace(/\s+/g, ' ').trim()
+  }
+
+  const compactMode = clauses.length >= 4
+  const unsupportedClauses = clauses.filter((c) => c.kind === 'unsupported')
+  const pricedClauses = clauses.filter((c) => c.kind === 'item')
+  const concreteClauses = pricedClauses.filter((c) => !c.hasSizeVariants && c.unitPrice !== null)
+  const ambiguousDrinkClauses = pricedClauses.filter((c) => c.hasSizeVariants)
+  const isMultiItemQuote = pricedClauses.length >= 2
+  const singleQtyMulti =
+    pricedClauses.length === 1 &&
+    unsupportedClauses.length === 0 &&
+    ambiguousDrinkClauses.length === 0 &&
+    concreteClauses.length === 1 &&
+    concreteClauses[0].quantity >= 2
+  const askedSupremeTerm = /\b(?:supreme|supremo|suprema)\b/i.test(opts?.rawQuery || query)
+
+  const itemParts: string[] = []
+  pricedClauses.forEach((c, idx) => {
+    const isFirst = idx === 0 && unsupportedClauses.length === 0
+    if (c.hasSizeVariants) {
+      const med = c.variantItems.find((v) => /\bmedium\b/i.test(String(v?.name || '')))
+      const lrg = c.variantItems.find((v) => /\blarge\b/i.test(String(v?.name || '')))
+      const gal = c.variantItems.find((v) => /\bgallon\b/i.test(String(v?.name || '')))
+      if (c.quantity >= 2 && med && lrg) {
+        const medTot = Number(med.price) * c.quantity
+        const lrgTot = Number(lrg.price) * c.quantity
+        if (lang === 'en') {
+          itemParts.push(
+            `${c.spokenLabelEn} come to $${medTot.toFixed(2)} for medium (22 oz) or $${lrgTot.toFixed(2)} for large (32 oz)`
+          )
+        } else {
+          itemParts.push(
+            `${c.spokenLabelEs} salen en $${medTot.toFixed(2)} dólares medianas de 22 onzas o $${lrgTot.toFixed(2)} dólares grandes de 32 onzas`
+          )
+        }
+        return
+      }
+      if (lang === 'en') {
+        const sizesEn = [
+          med ? `$${Number(med.price).toFixed(2)} ${compactMode ? 'medium' : 'for a 22 oz medium'}` : '',
+          lrg ? `$${Number(lrg.price).toFixed(2)} ${compactMode ? 'large' : 'for a 32 oz large'}` : '',
+          gal ? `$${Number(gal.price).toFixed(2)} ${compactMode ? 'gallon' : 'for a 128 oz gallon'}` : ''
+        ].filter(Boolean)
+        const joinedSizes =
+          sizesEn.length > 1 ? `${sizesEn.slice(0, -1).join(', ')}, or ${sizesEn[sizesEn.length - 1]}` : sizesEn[0] || ''
+        itemParts.push(`${c.spokenLabelEn} is ${joinedSizes}`)
+      } else {
+        const sizesEs = [
+          med ? `$${Number(med.price).toFixed(2)} ${compactMode ? 'mediana' : 'mediana de 22 onzas'}` : '',
+          lrg ? `$${Number(lrg.price).toFixed(2)} ${compactMode ? 'grande' : 'grande de 32 onzas'}` : '',
+          gal ? `$${Number(gal.price).toFixed(2)} ${compactMode ? 'el galón' : 'el galón de 128 onzas'}` : ''
+        ].filter(Boolean)
+        const joinedSizes =
+          sizesEs.length > 1 ? `${sizesEs.slice(0, -1).join(', ')} o ${sizesEs[sizesEs.length - 1]}` : sizesEs[0] || ''
+        const isFemDrink = /^(horchata|limonada|coca|fanta)/i.test(c.spokenLabelEs)
+        const artRaw = isFemDrink ? 'la' : 'el'
+        const artDrink = isFirst ? artRaw.charAt(0).toUpperCase() + artRaw.slice(1) : artRaw
+        itemParts.push(`${artDrink} ${c.spokenLabelEs} ${idx === 0 ? 'cuesta ' : ''}${joinedSizes}`)
+      }
+      return
+    }
+
+    if (c.isSidesPair) {
+      const lineTot = Number(c.unitPrice || 0) * c.quantity
+      itemParts.push(
+        lang === 'en'
+          ? `${c.spokenLabelEn} (total $${lineTot.toFixed(2)})`
+          : `${isFirst ? 'La' : 'la'} ${c.spokenLabelEs}`
+      )
+      return
+    }
+
+    const unit = Number(c.unitPrice || 0)
+    const lineTot = unit * c.quantity
+
+    if (c.isAnyMeatCategory) {
+      if (lang === 'en') {
+        if (c.quantity >= 2) {
+          const taxSuffixEn = singleQtyMulti ? ' plus tax' : ''
+          itemParts.push(`${c.spokenLabelEn} come to $${lineTot.toFixed(2)}${taxSuffixEn} ($${unit.toFixed(2)} each)`)
+        } else {
+          const verb = /^super nachos/i.test(c.spokenLabelEn) ? 'are' : 'is'
+          const supNote =
+            !compactMode && c.altSuperItem
+              ? ` for Regular or $${Number(c.altSuperItem.price).toFixed(2)} for Super`
+              : ''
+          const supClarifyEn =
+            askedSupremeTerm && !isMultiItemQuote && /^Super\b/i.test(c.categoryName) && !/nachos/i.test(c.categoryName)
+              ? ' (our equivalent to Supreme)'
+              : ''
+          itemParts.push(`${c.spokenLabelEn}${supClarifyEn} ${idx === 0 ? `${verb} ` : ''}$${unit.toFixed(2)}${supNote}`)
+        }
+      } else {
+        if (c.quantity >= 2) {
+          const cada = c.unitNounEs === 'una' || c.unitNounEs === 'orden' ? 'cada una' : 'cada uno'
+          const taxSuffixEs = singleQtyMulti ? ' más impuestos' : ''
+          itemParts.push(
+            `${c.spokenLabelEs} ${idx === 0 ? 'salen en ' : 'en '}$${lineTot.toFixed(2)}${idx === 0 ? ' dólares' : ''}${taxSuffixEs} ($${unit.toFixed(2)} ${cada})`
+          )
+        } else {
+          const verb = c.spokenPluralVerbEs ? 'cuestan' : 'cuesta'
+          const supNote =
+            !compactMode && c.altSuperItem
+              ? ` en Regular o $${Number(c.altSuperItem.price).toFixed(2)} en Super`
+              : ''
+          const lbl = isFirst ? c.spokenLabelEs.charAt(0).toUpperCase() + c.spokenLabelEs.slice(1) : c.spokenLabelEs
+          if (idx === 0) {
+            itemParts.push(`${lbl} ${verb} $${unit.toFixed(2)} dólares${supNote}`)
+          } else {
+            itemParts.push(`${lbl} $${unit.toFixed(2)}${supNote}`)
+          }
+        }
+      }
+      return
+    }
+
+    const spokenName = c.primaryItem
+      ? formatMenuItemSpokenName(c.primaryItem.name, lang, c.quantity)
+      : lang === 'en'
+        ? c.spokenLabelEn
+        : c.spokenLabelEs
+
+    if (lang === 'en') {
+      if (c.quantity >= 2) {
+        const taxSuffixEn = singleQtyMulti ? ' plus tax' : ''
+        itemParts.push(
+          `${c.quantity} ${spokenName} ${idx === 0 ? 'come to ' : ''}$${lineTot.toFixed(2)}${taxSuffixEn} ($${unit.toFixed(2)} each)`
+        )
+      } else {
+        const verb = /^huevos/i.test(spokenName) ? 'are' : 'is'
+        const supNote =
+          !compactMode && c.altSuperItem
+            ? ` for Regular or $${Number(c.altSuperItem.price).toFixed(2)} for Super`
+            : !isMultiItemQuote && c.altBoxItem
+              ? `, or $${Number(c.altBoxItem.price).toFixed(2)} for the 96 oz To-Go Box`
+              : ''
+        itemParts.push(`the ${spokenName} ${idx === 0 ? `${verb} ` : ''}$${unit.toFixed(2)}${supNote}`)
+      }
+    } else {
+      if (c.quantity >= 2) {
+        const cada = c.unitNounEs === 'una' ? 'cada una' : 'cada uno'
+        const taxSuffixEs = singleQtyMulti ? ' más impuestos' : ''
+        itemParts.push(
+          `${c.quantity} ${spokenName} ${idx === 0 ? 'salen en ' : 'en '}$${lineTot.toFixed(2)}${idx === 0 ? ' dólares' : ''}${taxSuffixEs} ($${unit.toFixed(2)} ${cada})`
+        )
+      } else {
+        const isPl = /^(Super )?Nachos|^Huevos/i.test(spokenName)
+        const isFem = /^(?:(?:super\s+)?(?:mulita|quesadilla)|torta|caja|orden|horchata|limonada|coca|fanta)/i.test(
+          spokenName
+        )
+        const art = isPl ? 'los ' : isFem ? 'la ' : 'el '
+        const verb = isPl ? 'cuestan' : 'cuesta'
+        const supNote =
+          !compactMode && c.altSuperItem
+            ? ` en Regular o $${Number(c.altSuperItem.price).toFixed(2)} en Super`
+            : !isMultiItemQuote && c.altBoxItem
+              ? `, o $${Number(c.altBoxItem.price).toFixed(2)} en caja de 96 onzas`
+              : ''
+        const lead = isFirst ? art.trim().charAt(0).toUpperCase() + art.trim().slice(1) + ' ' : art
+        if (idx === 0) {
+          itemParts.push(`${lead}${spokenName} ${verb} $${unit.toFixed(2)} dólares${supNote}`)
+        } else {
+          itemParts.push(`${lead}${spokenName} $${unit.toFixed(2)}${supNote}`)
+        }
+      }
+    }
+  })
+
+  const sentences: string[] = []
+  if (unsupportedClauses.length > 0) {
+    const names = unsupportedClauses.map((u) => (lang === 'en' ? u.unsupportedLabelEn : u.unsupportedLabelEs)).filter(Boolean)
+    const hasCake = unsupportedClauses.some((u) => u.isBirthdayCakeOrPastry)
+    const cakeAlts = unsupportedClauses.flatMap((u) => (u.isBirthdayCakeOrPastry ? u.variantItems : []))
+    const cakeAltPrice = cakeAlts[0]?.price ? Number(cakeAlts[0].price).toFixed(2) : null
+    const joinedUnsup =
+      names.length > 1
+        ? lang === 'en'
+          ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+          : `${names.slice(0, -1).join(', ')} ni ${names[names.length - 1]}`
+        : names[0] || ''
+    if (lang === 'en') {
+      const cakeHint =
+        hasCake && !pricedClauses.some((c) => /dessert/i.test(c.categoryName))
+          ? ` (for dessert we only offer individual Flan and Cheesecake${cakeAltPrice ? ` at $${cakeAltPrice} each` : ''})`
+          : ''
+      sentences.push(`We do not carry ${joinedUnsup}${cakeHint}.`)
+    } else {
+      const cakeHint =
+        hasCake && !pricedClauses.some((c) => /dessert/i.test(c.categoryName))
+          ? ` (de postre solo ofrecemos Flan y Cheesecake individuales${cakeAltPrice ? ` a $${cakeAltPrice} dólares cada uno` : ''})`
+          : ''
+      sentences.push(`Por el momento no manejamos ${joinedUnsup}${cakeHint}.`)
+    }
+  }
+
+  const concreteSubtotal = concreteClauses.reduce((acc, c) => acc + Number(c.unitPrice || 0) * c.quantity, 0)
+  const altSuperSubtotal = concreteClauses.reduce(
+    (acc, c) => acc + Number(c.altSuperItem ? c.altSuperItem.price : c.unitPrice || 0) * c.quantity,
+    0
+  )
+  const hasAnyAltSuperInMulti = concreteClauses.length >= 2 && concreteClauses.some((c) => Boolean(c.altSuperItem))
+
+  if (itemParts.length > 0) {
+    const joinedItems =
+      itemParts.length > 1
+        ? lang === 'en'
+          ? `${itemParts.slice(0, -1).join(', ')}, and ${itemParts[itemParts.length - 1]}`
+          : `${itemParts.slice(0, -1).join(', ')} y ${itemParts[itemParts.length - 1]}`
+        : itemParts[0]
+    const capitalizedItems = joinedItems.charAt(0).toUpperCase() + joinedItems.slice(1)
+
+    if (ambiguousDrinkClauses.length === 0 && concreteClauses.length >= 2) {
+      if (hasAnyAltSuperInMulti && Math.abs(altSuperSubtotal - concreteSubtotal) > 0.005) {
+        sentences.push(
+          lang === 'en'
+            ? `${capitalizedItems}; in total that would be $${concreteSubtotal.toFixed(2)} for Regular or $${altSuperSubtotal.toFixed(2)} with Super, plus tax.`
+            : `${capitalizedItems}; en total serían $${concreteSubtotal.toFixed(2)} dólares en Regular o $${altSuperSubtotal.toFixed(2)} con opción Super, más impuestos.`
+        )
+      } else {
+        sentences.push(
+          lang === 'en'
+            ? `${capitalizedItems}; in total that would be $${concreteSubtotal.toFixed(2)} plus tax.`
+            : `${capitalizedItems}; en total serían $${concreteSubtotal.toFixed(2)} dólares más impuestos.`
+        )
+      }
+    } else {
+      sentences.push(`${capitalizedItems}.`)
+    }
+  }
+
+  if (ambiguousDrinkClauses.length === 1 && (concreteClauses.length >= 1 || ambiguousDrinkClauses[0].quantity >= 2)) {
+    const amb = ambiguousDrinkClauses[0]
+    const med = amb.variantItems.find((v) => /\bmedium\b/i.test(String(v?.name || '')))
+    const lrg = amb.variantItems.find((v) => /\blarge\b/i.test(String(v?.name || '')))
+    if (med && lrg) {
+      const subMed = concreteSubtotal + Number(med.price) * amb.quantity
+      const subLrg = concreteSubtotal + Number(lrg.price) * amb.quantity
+      if (concreteClauses.length >= 1) {
+        sentences.push(
+          lang === 'en'
+            ? `Your food subtotal is $${concreteSubtotal.toFixed(2)}, or $${subMed.toFixed(2)} with a medium drink and $${subLrg.toFixed(2)} with a large, plus tax.`
+            : `El subtotal de la comida es $${concreteSubtotal.toFixed(2)} dólares, o $${subMed.toFixed(2)} con bebida mediana y $${subLrg.toFixed(2)} con grande, más impuestos.`
+        )
+      } else {
+        sentences.push(
+          lang === 'en'
+            ? `Your subtotal would be $${subMed.toFixed(2)} for medium or $${subLrg.toFixed(2)} for large, plus tax.`
+            : `El subtotal sería de $${subMed.toFixed(2)} dólares en tamaño mediano o $${subLrg.toFixed(2)} en grande, más impuestos.`
+        )
+      }
+    }
+  } else if (ambiguousDrinkClauses.length >= 2 && concreteClauses.length + ambiguousDrinkClauses.length >= 2) {
+    let minSum = concreteSubtotal
+    let maxSum = concreteSubtotal
+    for (const amb of ambiguousDrinkClauses) {
+      const med = amb.variantItems.find((v) => /\bmedium\b/i.test(String(v?.name || '')))
+      const lrg = amb.variantItems.find((v) => /\blarge\b/i.test(String(v?.name || '')))
+      if (med) minSum += Number(med.price) * amb.quantity
+      if (lrg) maxSum += Number(lrg.price) * amb.quantity
+    }
+    sentences.push(
+      lang === 'en'
+        ? `Your subtotal would be between $${minSum.toFixed(2)} and $${maxSum.toFixed(2)} depending on drink sizes, plus tax.`
+        : `El subtotal sería de entre $${minSum.toFixed(2)} y $${maxSum.toFixed(2)} dólares según el tamaño de las bebidas, más impuestos.`
+    )
+  }
+
+  const hasBreakfastClause = clauses.some((c) => c.kind === 'item' && isKoreBreakfastCategory(c.categoryName))
+  if (hasBreakfastClause && !isKoreBreakfastOpen(opts?.now).open) {
+    sentences.push(
+      lang === 'en'
+        ? `Please note that breakfast items are served until ${KORE_BREAKFAST_CUTOFF_LABEL} at all our locations.`
+        : `Toma en cuenta que los desayunos están disponibles hasta las ${KORE_BREAKFAST_CUTOFF_LABEL} en todas nuestras sucursales.`
+    )
+  }
+
+  if (appendClosing) {
+    sentences.push(lang === 'en' ? 'Can I help you with anything else?' : '¿Te puedo ayudar con algo más?')
+  }
+  return `${leadPrefix}${sentences.join(' ')}`.replace(/\s+/g, ' ').trim()
+}
+
+export function composeNaturalMenuPriceFallback(
+  items: any[],
+  query: string,
+  lang: PhoneLang = 'es',
+  opts?: ComposeMenuPriceReplyOptions
+): string {
+  return composeNaturalMenuPriceReply(items, query, lang, opts)
 }
 
 /**
@@ -2374,6 +4021,9 @@ export async function getStorePhoneContext(
   const now = Date.now()
   const cached = useRamCache ? storeContextRamCache.get(storeId) : undefined
   if (cached && now - cached.fetchedAt < 12 * 1000) {
+    if (Math.floor(now / 60000) === Math.floor(cached.fetchedAt / 60000)) {
+      return cached.data
+    }
     const freshEval = evaluateStoreSchedulePure({
       storeId: cached.data.store.id,
       storeName: cached.data.store.name,
@@ -3006,9 +4656,51 @@ export function sanitizePhoneReplyText(rawText: string, lang: PhoneLang = 'es'):
       /\b(?:per|by|due\s+to)\s+(?:Tacos\s+Gavil[aá]n(?:'s)?\s+)?(?:our\s+|company\s+|store\s+|strict\s+)?(?:policy|policies|rules?|regulations?),?\s*(we\s+(?:do\s+not|don't)\s+transfer\s+calls)/gi,
       (_m, phrase: string, offset: number) => (offset === 0 ? phrase.charAt(0).toUpperCase() + phrase.slice(1) : phrase.toLowerCase())
     )
+    .replace(
+      /\b(no\s+(?:transferimos|desviamos)\s+llamadas)\s+a\s+(?:los\s+)?(?:celulares|tel[eé]fonos)\s+personales(?:\s+de\s+(?:los\s+)?gerentes)?/gi,
+      '$1 directamente'
+    )
+    .replace(
+      /\b(we\s+(?:do\s+not|don't|cannot|can't)\s+transfer\s+calls)\s+to\s+(?:the\s+)?managers'?\s+personal\s+(?:cell\s*)?phones/gi,
+      '$1 directly'
+    )
+    // Cero palabra "tamaño" en burritos/quesadillas/mulitas (solo Regular vs Super)
+    .replace(/\ben\s+tama[ñn]os?\s+(regular(?:es)?|s[uú]per)\b/gi, 'en $1')
+    .replace(/\bin\s+(?:regular|super)\s+sizes?\b/gi, (m) => m.replace(/\s+sizes?\b/i, ''))
     .replace(/\s+/g, ' ')
     .trim()
-  const base = expandStreetAbbreviationsInText(preCleaned, lang, { stripZipAfterState: false })
+
+  // Prohibición determinista de llamar "chica"/"chico"/"pequeña"/"small" a la bebida de 22 oz ($3.59) salvo negación explícita ("no manejamos tamaño chico")
+  const hasDrinkOr22OzContext =
+    /\b(aguas?|horchatas?|jamaicas?|pi[ñn]as?|tamarindos?|sodas?|refrescos?|limonadas?|lemonades?|cocas?|cokes?|sprites?|fantas?|bebidas?|drinks?|22\s*(?:oz|onzas?)|3\.59)\b/i.test(
+      preCleaned
+    )
+  const sizeNormalized = hasDrinkOr22OzContext
+    ? lang === 'en'
+      ? preCleaned.replace(
+          /(?<!\b(?:no|not|without|don't\s+have(?:\s+a)?|do\s+not\s+have(?:\s+a)?|isn't\s+a|is\s+not\s+a)\s+)\bsmall\b(?!\s+(?:business|amount|fee|order|party))/gi,
+          'medium'
+        )
+      : preCleaned
+          .replace(
+            /(?<!\b(?:no|ni|sin)\s+(?:(?:manejamos|tenemos|hay|existe|venden|vendemos|contamos\s+con)\s+(?:tama[ñn]o\s+|vaso\s+)?)?)\b(?:chicas|peque[ñn]as)\b/gi,
+            'medianas'
+          )
+          .replace(
+            /(?<!\b(?:no|ni|sin)\s+(?:(?:manejamos|tenemos|hay|existe|venden|vendemos|contamos\s+con)\s+(?:tama[ñn]o\s+|vaso\s+)?)?)\b(?:chicos|peque[ñn]os)\b/gi,
+            'medianos'
+          )
+          .replace(
+            /(?<!\b(?:no|ni|sin)\s+(?:(?:manejamos|tenemos|hay|existe|venden|vendemos|contamos\s+con)\s+(?:tama[ñn]o\s+|vaso\s+)?)?)\b(?:chica|peque[ñn]a)\b/gi,
+            'mediana'
+          )
+          .replace(
+            /(?<!\b(?:no|ni|sin)\s+(?:(?:manejamos|tenemos|hay|existe|venden|vendemos|contamos\s+con)\s+(?:tama[ñn]o\s+|vaso\s+)?)?)\b(?:chico|peque[ñn]o)\b/gi,
+            'mediano'
+          )
+    : preCleaned
+
+  const base = expandStreetAbbreviationsInText(sizeNormalized, lang, { stripZipAfterState: false })
   let clean = base
 
   // REGLAS DE SEGURIDAD (auditoría 2026-11-09):
@@ -3209,11 +4901,15 @@ async function executeSingleGeminiAttempt(params: {
       .join('')
       .trim()
 
+    const isPrimaryModel = model === MODERN_CHAT_MODELS[0]
     if (res.ok && parts.length > 0) {
       if (
         hasFunctionCall ||
         (visibleText.length > 0 && (candidate?.finishReason !== 'MAX_TOKENS' || visibleText.length >= 40))
       ) {
+        modelConsecutiveFails.set(model, 0)
+        lastHealthyChatModel = model
+        modelUnavailableUntil.delete(model)
         return { ok: true, data, usedModel: model }
       }
       return { ok: false, status: 200, errorMessage: `Respuesta truncada (MAX_TOKENS) en ${model}` }
@@ -3227,16 +4923,46 @@ async function executeSingleGeminiAttempt(params: {
     } else if (res.status === 400) {
       return { ok: false, status: 400, errorMessage: msg, deterministicBadRequest: true }
     } else if (res.status === 429) {
-      keyModelCooldownUntil.set(pairKey, Date.now() + 5 * 60 * 1000)
+      const isDailyQuota = /\bper\s*day\b|free_tier_requests|limit:\s*20|retry in \d+h/i.test(msg)
+      keyModelCooldownUntil.set(pairKey, Date.now() + (isDailyQuota ? 15 * 60 * 1000 : 45 * 1000))
+      if (isDailyQuota) {
+        const fails = (modelConsecutiveFails.get(model) || 0) + 1
+        modelConsecutiveFails.set(model, fails)
+        if (fails >= 2) {
+          modelUnavailableUntil.set(model, Date.now() + 15 * 60 * 1000)
+        }
+      }
     } else {
       keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+      if (res.status === 503) {
+        const fails = (modelConsecutiveFails.get(model) || 0) + 1
+        modelConsecutiveFails.set(model, fails)
+        const failThreshold = isPrimaryModel ? 4 : 2
+        const cooldownMs = isPrimaryModel ? 60 * 1000 : 3 * 60 * 1000
+        if (fails >= failThreshold) {
+          modelUnavailableUntil.set(model, Date.now() + cooldownMs)
+        }
+      }
     }
     return { ok: false, status: res.status, errorMessage: msg }
   } catch (e: any) {
     if (abortController?.signal.aborted) {
       return { ok: false, status: 0, errorMessage: 'Aborted after faster peer succeeded' }
     }
-    keyModelCooldownUntil.set(pairKey, Date.now() + 30 * 1000)
+    if (model === 'gemini-3.1-flash-lite-preview') {
+      // En primario (gemini-3.1-flash-lite-preview): enfriar únicamente la llave lenta 3 min (ej. ...pby7HA) sin banear el modelo completo por timeouts.
+      keyModelCooldownUntil.set(pairKey, Date.now() + 3 * 60 * 1000)
+    } else if (model === 'gemini-3-flash-preview') {
+      // Timeout corto en gemini-3-flash-preview: enfriar solo la llave 15s (modelUnavailableUntil reservado para 503/404/cuota diaria).
+      keyModelCooldownUntil.set(pairKey, Date.now() + 15 * 1000)
+    } else {
+      keyModelCooldownUntil.set(pairKey, Date.now() + 45 * 1000)
+      const fails = (modelConsecutiveFails.get(model) || 0) + 1
+      modelConsecutiveFails.set(model, fails)
+      if (fails >= 3) {
+        modelUnavailableUntil.set(model, Date.now() + 20 * 1000)
+      }
+    }
     return { ok: false, status: 0, errorMessage: e?.message || 'Error de red' }
   }
 }
@@ -3263,25 +4989,55 @@ async function callGeminiPhoneWithFailover(
   const orderedKeys = modernKeys.length >= 3 ? modernKeys : [...modernKeys, ...classicKeys]
 
   const baseModels = Array.from(new Set([...MODERN_CHAT_MODELS, ...CLASSIC_CHAT_MODELS]))
-  const orderedModels = preferredModel && baseModels.includes(preferredModel)
-    ? [preferredModel, ...baseModels.filter((m) => m !== preferredModel)]
+  const primaryModel = MODERN_CHAT_MODELS[0]
+  const primaryHasUnCooledKey = orderedKeys.some(
+    (k) => k.startsWith('AQ.') && (keyModelCooldownUntil.get(`${k}:${primaryModel}`) || 0) <= now
+  )
+  const primaryHealthy = (modelUnavailableUntil.get(primaryModel) || 0) <= now && primaryHasUnCooledKey
+  const lastHealthyValid =
+    lastHealthyChatModel &&
+    baseModels.includes(lastHealthyChatModel) &&
+    (modelUnavailableUntil.get(lastHealthyChatModel) || 0) <= now &&
+    orderedKeys.some((k) => {
+      const mList = k.startsWith('AQ.') ? MODERN_CHAT_MODELS : CLASSIC_CHAT_MODELS
+      return mList.includes(lastHealthyChatModel as string) && (keyModelCooldownUntil.get(`${k}:${lastHealthyChatModel}`) || 0) <= now
+    })
+      ? lastHealthyChatModel
+      : null
+  const secondaryModel = MODERN_CHAT_MODELS[1]
+  const secondaryHealthy =
+    (modelUnavailableUntil.get(secondaryModel) || 0) <= now &&
+    orderedKeys.some((k) => k.startsWith('AQ.') && (keyModelCooldownUntil.get(`${k}:${secondaryModel}`) || 0) <= now)
+  const leadModel =
+    preferredModel && baseModels.includes(preferredModel)
+      ? preferredModel
+      : primaryHealthy
+        ? primaryModel
+        : lastHealthyValid
+          ? lastHealthyValid
+          : secondaryHealthy
+            ? secondaryModel
+            : null
+  const orderedModels = leadModel
+    ? [leadModel, ...baseModels.filter((m) => m !== leadModel)]
     : baseModels
   let lastError = 'Servicio de IA temporalmente no disponible'
   let attempts = 0
-  const MAX_ATTEMPTS = 14
+  const MAX_ATTEMPTS = 20
   const attemptedPairs = new Set<string>()
+  const rateLimitsInTurn = new Map<string, number>()
+  const serverErrorsInTurn = new Map<string, number>()
+  const hedgeFailedModels = new Set<string>()
+  const hedgeOverloadsPerModel = new Map<string, number>()
 
-  // Solicitud Especulativa Escalonada 3-Vías (0 ms / 600 ms / 1250 ms con timeout 3800 ms):
-  // Evita abortar prematuramente una respuesta válida de 2.5s mientras garantiza que si un shard de Google se congela,
-  // una segunda y tercera llave/modelo corran en paralelo y el primero en responder gane al instante.
+  // Hedge Cross-Model 3-Vías (0 ms / 380 ms / 820 ms) rotando 3 llaves distintas del pool activo:
+  // cand1 = orderedModels[0] (Llave A), cand2 = 2º modelo sano distinto (Llave B),
+  // cand3 = 2ª llave distinta de cand1.model (o 3er modelo sano si cand1.model ya dio 5xx o está bloqueado).
   const hedgeBudgetRemaining = deadlineMs - Date.now()
   if (hedgeBudgetRemaining >= 2000) {
     const usedKeysInRace = new Set<string>()
-    const pickCandidate = (preferDifferentModelFrom?: string): { model: string; key: string } | null => {
-      const modelOrder = preferDifferentModelFrom
-        ? [...orderedModels.filter((m) => m !== preferDifferentModelFrom), ...orderedModels.filter((m) => m === preferDifferentModelFrom)]
-        : orderedModels
-      for (const m of modelOrder) {
+    const pickCandidateForModels = (modelList: string[]): { model: string; key: string } | null => {
+      for (const m of modelList) {
         if ((modelUnavailableUntil.get(m) || 0) > now) continue
         for (const k of orderedKeys) {
           if (usedKeysInRace.has(k)) continue
@@ -3294,9 +5050,13 @@ async function callGeminiPhoneWithFailover(
       }
       return null
     }
-    const cand1 = pickCandidate()
-    const cand2 = cand1 ? pickCandidate(cand1.model) : null
-    const cand3 = cand1 ? pickCandidate() : null
+    const cand1 = pickCandidateForModels(orderedModels)
+    const cand2 = cand1
+      ? pickCandidateForModels([...orderedModels.filter((m) => m !== cand1.model), cand1.model])
+      : null
+    const cand3 = cand1
+      ? pickCandidateForModels([cand1.model, ...orderedModels.filter((m) => m !== cand1.model)])
+      : null
 
     if (cand1) {
       const slotCands: Array<{ model: string; key: string } | null> = [cand1, cand2, cand3]
@@ -3335,7 +5095,19 @@ async function callGeminiPhoneWithFailover(
         const launchSlot = (slotIdx: number) => {
           if (settled || launchedSlots.has(slotIdx) || skippedSlots.has(slotIdx)) return
           clearSlotTimer(slotIdx)
-          const cand = slotCands[slotIdx]
+          let cand = slotCands[slotIdx]
+          if (slotIdx === 2 && cand1 && cand && cand.model === cand1.model) {
+            const rlCount = rateLimitsInTurn.get(cand1.model) || 0
+            const seCount = serverErrorsInTurn.get(cand1.model) || 0
+            const candBlocked = (modelUnavailableUntil.get(cand1.model) || 0) > Date.now()
+            if (seCount >= 1 || candBlocked || (rlCount >= 2 && cand1.model !== 'gemini-3.1-flash-lite-preview')) {
+              const otherModels = orderedModels.filter((m) => m !== cand1.model && m !== (cand2?.model || ''))
+              const altCand = pickCandidateForModels(
+                otherModels.length > 0 ? otherModels : orderedModels.filter((m) => m !== cand1.model)
+              )
+              if (altCand) cand = altCand
+            }
+          }
           if (!cand) {
             skippedSlots.add(slotIdx)
             checkDone()
@@ -3353,16 +5125,18 @@ async function callGeminiPhoneWithFailover(
             checkDone()
             return
           }
+          const slotModel = cand.model
+          const hedgeCapMs = slotModel === 'gemini-3-flash-preview' ? 3500 : 3200
           launchedSlots.add(slotIdx)
           inFlightCount++
           attempts++
-          attemptedPairs.add(`${cand.key}:${cand.model}`)
+          attemptedPairs.add(`${cand.key}:${slotModel}`)
           void executeSingleGeminiAttempt({
-            model: cand.model,
+            model: slotModel,
             apiKey: cand.key,
             body,
             preferredModel,
-            timeoutMs: Math.min(3800, Math.max(950, rem - 200)),
+            timeoutMs: Math.min(hedgeCapMs, Math.max(1200, rem - 200)),
             abortController: ctrls[slotIdx]
           })
             .catch((err: any): SingleGeminiAttemptOutcome => ({
@@ -3379,6 +5153,16 @@ async function callGeminiPhoneWithFailover(
                 resolve(outcome)
                 return
               }
+              const outcomeStatus = outcome?.status ?? 0
+              if (outcomeStatus === 429) {
+                rateLimitsInTurn.set(slotModel, (rateLimitsInTurn.get(slotModel) || 0) + 1)
+              } else if (outcomeStatus >= 500 || outcomeStatus === 0) {
+                if (outcomeStatus >= 500) {
+                  serverErrorsInTurn.set(slotModel, (serverErrorsInTurn.get(slotModel) || 0) + 1)
+                }
+                hedgeFailedModels.add(slotModel)
+                hedgeOverloadsPerModel.set(slotModel, (hedgeOverloadsPerModel.get(slotModel) || 0) + 1)
+              }
               lastFailOutcome = outcome
               // Si el slot actual falló rápido (ej. 429 en 200 ms), adelantar el siguiente respaldo no lanzado y cancelar su timer
               const nextUnlaunched = [0, 1, 2].find(
@@ -3391,8 +5175,8 @@ async function callGeminiPhoneWithFailover(
             })
         }
 
-        if (cand2) slotTimers[1] = setTimeout(() => launchSlot(1), 600)
-        if (cand3) slotTimers[2] = setTimeout(() => launchSlot(2), 1250)
+        if (cand2) slotTimers[1] = setTimeout(() => launchSlot(1), 380)
+        if (cand3) slotTimers[2] = setTimeout(() => launchSlot(2), 820)
         launchSlot(0)
       })
 
@@ -3411,13 +5195,42 @@ async function callGeminiPhoneWithFailover(
   for (const pass of ['fresh', 'cooldown_fallback'] as const) {
     if (pass === 'cooldown_fallback' && deadlineMs - Date.now() < 1200) break
     const passKeys = pass === 'cooldown_fallback' && modernKeys.length >= 3 ? [...modernKeys, ...classicKeys] : orderedKeys
-    for (const model of orderedModels) {
+    const passModels =
+      pass === 'fresh'
+        ? [...orderedModels].sort((a, b) => {
+            const aDemote = a !== orderedModels[0] && hedgeFailedModels.has(a) ? 1 : 0
+            const bDemote = b !== orderedModels[0] && hedgeFailedModels.has(b) ? 1 : 0
+            return aDemote - bDemote
+          })
+        : [...orderedModels].sort((a, b) => {
+            const scoreCooldownModel = (m: string) =>
+              (modelUnavailableUntil.get(m) || 0) > Date.now()
+                ? 2
+                : (rateLimitsInTurn.get(m) || 0) >= 2 || hedgeFailedModels.has(m)
+                  ? 1
+                  : 0
+            return scoreCooldownModel(a) - scoreCooldownModel(b)
+          })
+    for (const model of passModels) {
       if (pass === 'fresh' && (modelUnavailableUntil.get(model) || 0) > Date.now()) continue
+      const rateLimitBreakCap = model === 'gemini-3.1-flash-lite-preview' ? 5 : 2
+      if (pass === 'fresh' && (rateLimitsInTurn.get(model) || 0) >= rateLimitBreakCap) continue
+      const priorHedgeOverloads = pass === 'fresh' ? hedgeOverloadsPerModel.get(model) || 0 : 0
+      const freshOverloadCap = model === primaryModel ? 3 : 2
+      if (pass === 'fresh' && priorHedgeOverloads >= freshOverloadCap) continue
       let attemptsOnModel = 0
-      let overloadsOnModel = 0
-      const maxAttemptsOnThisModel = 2
+      let overloadsOnModel = priorHedgeOverloads
+      const maxAttemptsOnThisModel =
+        pass === 'fresh' && model === 'gemini-3.5-flash-lite' ? 2 : model === primaryModel ? 5 : 3
+      const modelKeys =
+        pass === 'cooldown_fallback'
+          ? [
+              ...passKeys.filter((k) => !attemptedPairs.has(`${k}:${model}`)),
+              ...passKeys.filter((k) => attemptedPairs.has(`${k}:${model}`))
+            ]
+          : passKeys
 
-      for (const key of passKeys) {
+      for (const key of modelKeys) {
         if (attemptsOnModel >= maxAttemptsOnThisModel) break
         if (!bypassKeyQuarantine && (keyQuarantineUntil.get(key) || 0) > Date.now()) continue
         const pairKey = `${key}:${model}`
@@ -3433,7 +5246,7 @@ async function callGeminiPhoneWithFailover(
         attemptsOnModel++
         attemptedPairs.add(pairKey)
 
-        const attemptLimitMs = pass === 'fresh' ? 2300 : 3000
+        const attemptLimitMs = pass === 'fresh' ? (model === 'gemini-3-flash-preview' ? 3500 : 3200) : 3200
         const outcome = await executeSingleGeminiAttempt({
           model,
           apiKey: key,
@@ -3457,11 +5270,22 @@ async function callGeminiPhoneWithFailover(
           continue
         }
         if (outcome.status === 429) {
+          const rlTotal = (rateLimitsInTurn.get(model) || 0) + 1
+          rateLimitsInTurn.set(model, rlTotal)
+          if (pass === 'fresh' && rlTotal >= rateLimitBreakCap) {
+            break
+          }
           continue
         }
         overloadsOnModel++
-        if (overloadsOnModel >= (pass === 'fresh' ? 1 : 2)) {
-          modelUnavailableUntil.set(model, Date.now() + 30 * 1000)
+        const curUnavailableUntil = modelUnavailableUntil.get(model) || 0
+        if (
+          (pass === 'fresh' && curUnavailableUntil > Date.now()) ||
+          overloadsOnModel >= (pass === 'fresh' ? freshOverloadCap : 2)
+        ) {
+          if (outcome.status === 503) {
+            modelUnavailableUntil.set(model, Math.max(curUnavailableUntil, Date.now() + 30 * 1000))
+          }
           break
         }
       }
@@ -3943,7 +5767,7 @@ function inferCallMetadata(
       detectedLang
     }
   }
-  if (/\b(hacer una? (?:orden|pedido)|pedido por telefono|ordenar por telefono|quiero ordenar|quiero pedir|tomar (?:mi |una )?orden|place an order|order over the phone|take my order|i want to order|i\s*d like to order)\b/i.test(norm) && !/\b(charola|fiesta platter|party tray|trabajo|empleo)\b/i.test(norm)) {
+  if (/\b(hacer una? (?:orden|pedido)|pedido por telefono|ordenar por telefono|quiero ordenar|quiero pedir|tomar (?:mi |una )?orden|place an order|order over the phone|take my order|i want to order|i\s*d like to order)\b/i.test(norm) && !/\b(charola|fiesta platter|party tray|trabajo|empleo|cuanto|cuanta|cuesta|cuestan|precio|precios|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|a como|how much|price|prices|cost|costs|charge)\b/i.test(norm)) {
     return { callerCategory: 'customer', primaryIntent: 'order_by_phone', resolvedByAi: true, detectedLang }
   }
   if (
@@ -4878,6 +6702,7 @@ export function resolveCanonicalPreparedReply(params: {
   wantsFiestaContext: boolean
   detectedGuestCount: number | null
   platterInfo: ReturnType<typeof recommendFiestaPlatters> | null
+  now?: Date
 }): {
   replyText: string
   markAsSpam?: boolean
@@ -4902,12 +6727,102 @@ export function resolveCanonicalPreparedReply(params: {
     customerBranchCrossStreets,
     wantsFiestaContext,
     detectedGuestCount,
-    platterInfo
+    platterInfo,
+    now: canonicalNow
   } = params
 
-  if (!normUser) return null
-  // Si Kore acaba de pedir datos para un recado / nota / orden, jamás cortar con FAQ
+  // Si Kore acaba de pedir datos para un recado / nota / orden, jamás cortar con FAQ ni tratar números como ruido
   if (isPromptExpectingPhoneOrDetails(lastAssistantText)) return null
+
+  const normLastAssistant = normalizeSearchText(lastAssistantText)
+  const normUserTokens = normUser.split(/\s+/).filter(Boolean)
+
+  // 0A. Eco de altavoz (Speakerphone Echo en Twilio <Gather>): Twilio transcribió literalmente la propia voz de Kore
+  if (normLastAssistant && normUserTokens.length >= 5 && normLastAssistant.includes(normUser)) {
+    return {
+      replyText: lang === 'en' ? 'Can I help you with anything else?' : '¿Te puedo ayudar con alguna otra consulta?'
+    }
+  }
+
+  // 0B. Ruido corto / fragmentos huérfanos de STT en Twilio ("it", "3177", "uh", "vamos a") cuando no hay flujo post-orden abierto
+  if (!hadPriorPostOrderTurn && !hadPriorCallbackInCall) {
+    const rawTrimmed = String(userText || '').trim()
+    const compactDigitsOrPunc = rawTrimmed.replace(/[\s,.\-()¿?¡!]+/g, '')
+    const isValidSingleDtmf = /^[01239]$/.test(compactDigitsOrPunc)
+    const assistantAskedNumericOrBranch =
+      /\b(personas|invitados|people|guests|cuantos|how many|horario o direccion de alguna|hours or address for any|codigo postal|zip)\b/i.test(
+        normLastAssistant
+      )
+    const isOrphanDigitsOnly =
+      !isValidSingleDtmf &&
+      !assistantAskedNumericOrBranch &&
+      /^\d{1,9}$/.test(compactDigitsOrPunc)
+
+    const VALID_SHORT_MEANINGFUL = new Set([
+      '0', '1', '2', '3', '9',
+      'si', 'yes', 'yeah', 'yep', 'no', 'nop', 'nel', 'nope', 'nah', 'ok', 'okay', 'sale',
+      'hola', 'hi', 'hey', 'hello', 'alo', 'bueno', 'buenas', 'gracias', 'thanks', 'bye', 'adios', 'chao',
+      'todo', 'nada', 'bien', 'mal', 'hoy', 'ayer', 'listo', 'claro',
+      'menu', 'taco', 'tacos', 'sope', 'sopes', 'flan', 'torta', 'plato', 'coca', 'coke', 'cafe', 'tea', 'te',
+      'agua', 'soda', 'ebt', 'cash', 'card', 'open', 'hora', 'horas', 'hours',
+      'bell', 'azusa', 'rialto', 'uber', 'help', 'ayuda', 'job', 'jobs', 'empleo',
+      'ingles', 'english', 'spanish', 'espanol'
+    ])
+    const ORPHAN_NOISE_FRAGMENTS = new Set([
+      'it', 'its', 'at', 'in', 'on', 'to', 'of', 'is', 'am', 'be', 'by', 'or', 'so', 'as', 'if', 'an', 'the',
+      'that', 'this', 'for', 'with', 'from', 'but', 'and', 'you', 'he', 'she', 'we', 'they', 'me', 'my',
+      'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'en', 'con', 'por', 'para',
+      'que', 'se', 'le', 'lo', 'su', 'sus', 'mi', 'mis', 'tu', 'tus', 'es', 'son', 'fue', 'era', 'mas', 'pero',
+      'como', 'ya', 'este', 'pues', 'vamos a', 'voy a', 'es que', 'lo que', 'para el', 'para la', 'en el', 'en la',
+      'i was', 'we are', 'going to'
+    ])
+    const isHesitationFiller = /^(?:uh+|um+|ah+|eh+|mm+|hm+|mhm|er+|erm|oh+|aw+)(?:\s+(?:uh+|um+|ah+|eh+|mm+|hm+))*$/i.test(normUser)
+    const isMeaninglessShortWord =
+      !assistantAskedNumericOrBranch &&
+      ((!normUser && rawTrimmed.length > 0) ||
+        isHesitationFiller ||
+        ORPHAN_NOISE_FRAGMENTS.has(normUser) ||
+        (normUserTokens.length === 1 &&
+          normUser.length <= 3 &&
+          !isValidSingleDtmf &&
+          !/\d/.test(normUser) &&
+          !VALID_SHORT_MEANINGFUL.has(normUser)))
+
+    if (isOrphanDigitsOnly || isMeaninglessShortWord) {
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Sorry, the line cut out briefly. How can I help you today?'
+            : 'Disculpa, se escuchó un poco cortado. ¿En qué te puedo ayudar hoy?'
+      }
+    }
+
+    // 0C. Saludo puro o prueba de audio ("Hola buenas tardes", "¿Bueno?", "¿Me escuchas?") sin pregunta adicional
+    if (
+      /^(?:hola|buenos\s+dias|buenas(?:\s+(?:tardes|noches))?|bueno|alo|hello|hi|hey|good\s+(?:morning|afternoon|evening)|(?:si\s+)?me\s+escuchas?|can\s+you\s+hear\s+me)(?:\s+(?:hola|buenos\s+dias|buenas(?:\s+(?:tardes|noches))?|senorita|amiga|miss|there))?$/i.test(
+        normUser
+      )
+    ) {
+      return {
+        replyText:
+          lang === 'en'
+            ? 'I can hear you clearly, how can I help you today?'
+            : 'Con gusto te escucho, ¿en qué te puedo ayudar hoy?'
+      }
+    }
+
+    // 0D. Monólogo largo de TV, YouTube o radio de fondo (>= 18 palabras sin ningún término de restaurante/orden/llamada)
+    if (!isPromptExpectingPhoneOrDetails(lastAssistantText) && isLikelyBackgroundMediaSpeech(userText)) {
+      return {
+        replyText:
+          lang === 'en'
+            ? 'Sorry, I picked up background audio on the line. How can I help you?'
+            : 'Disculpa, se escuchó ruido o voces de fondo. ¿En qué te puedo ayudar?'
+      }
+    }
+  }
+
+  if (!normUser) return null
   // Si la llamada acaba de hablar de órdenes previas o reclamos y el usuario no pregunta otro FAQ claro, o si el turno mismo requiere atención interactiva:
   const needsInteractiveFlow =
     /\b(falto|falta|faltaron|incomplet|queja|mal|reembolso|refund|cobro|gerente|manager|supervisor|olvide|deje mi|perdi|empleado|empleada|trabajo ahi|llegar tarde|mi turno|proveedor|tecnico|condimento|condimentos|cilantro|limon|limones|jalapeno|jalapenos|servilleta|tenedor|tenedores|cubierto|cubiertos|agregar salsa|mas salsa|ponle salsa|poner salsa|equivocad|wrong store|wrong location|no ha llegado|no llega|no me llega|tardando|retras|delayed|ya hice|mi orden|mi pedido|llamando porque)\b/i.test(
@@ -4934,21 +6849,46 @@ export function resolveCanonicalPreparedReply(params: {
     )
   if (isSpamHit) topics.add('spam')
 
+  // Distinguir "en la mañana / por la mañana / de la mañana / esta mañana" (horario matutino) vs "mañana" (día siguiente)
+  const normWithoutMorningPhrase = normUser.replace(/\b(?:en|de|por|a|toda)\s+la\s+manana\b|\besta\s+manana\b/gi, ' ')
+  const normUserWithoutNegatedPriceEarly = normUser.replace(/\b(?:sin|no|without)\s+(?:precios?|prices?)\b/gi, ' ')
+  const asksSpecificPriceEarly =
+    /\b(cuanto|cuanta|cuesta|cuestan|cobras|cobra|cobran|cobrarian|precio|precios|vale|valen|sale|salen|saldria|saldrian|a como|how much|price|prices|cost|costs|charge)\b/i.test(
+      normUserWithoutNegatedPriceEarly
+    )
+
+  // Horario y disponibilidad en vivo de Desayunos (Regla Oficial del Dueño: disponibles desde apertura hasta las 2:00 PM en las 15 sucursales)
+  const mentionsBreakfastDishOrWord = /\b(desayunos?|breakfasts?|huevos?|eggs?|rancheros?|a la mexicana)\b/i.test(normUser)
+  const asksBreakfastScheduleOrAvailability =
+    /\b(desayunos?|breakfasts?)\b/i.test(normUser) ||
+    (mentionsBreakfastDishOrWord &&
+      /\b(hora|horas|horario|horarios|hasta que hora|a que hora|todavia|aun|ahorita|siguen|sirven|venden|dan|tienen|manejan|alcanzo|todo el dia|despues de las|still|until|what time|hours|all day|serving|available|right now|after)\b/i.test(
+        normUser
+      ))
+  const isBreakfastHoursHit =
+    !wantsFiestaContext &&
+    !needsInteractiveFlow &&
+    !asksSpecificPriceEarly &&
+    asksBreakfastScheduleOrAvailability &&
+    !/\b(por telefono|over the phone|orders? by phone|call in|que lleva|que llevan|que trae|que traen|ingredientes?|ingredients?|con que viene)\b/i.test(
+      normUser
+    )
+  if (isBreakfastHoursHit) topics.add('breakfast_hours')
+
   const isOrderByPhoneHit =
     !wantsFiestaContext &&
     !needsInteractiveFlow &&
-    !/\b(trabajo|empleo|vacante|solicitud|job|apply|cuanto|cuesta|precio|price|how much)\b/i.test(normUser) &&
-    /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|toman (?:ordenes|pedidos) por telefono|aceptan (?:ordenes|pedidos) por telefono|se puede (?:ordenar|pedir) por telefono|puedo (?:ordenar|pedir).{0,24}(?:por telefono|para llevar|para recoger)|tomar (?:mi |una )?(?:orden|pedido)|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?(?:orden|pedido)|me pueden tomar (?:mi |una )?(?:orden|pedido)|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar|hacer una? (?:orden|pedido))|llamando para (?:hacer )?una? (?:orden|pedido)|can i (?:order|place an? (?:\w+ )?order|call in an? order)|do you take (?:phone orders|orders over the phone|orders by phone)|place an? (?:\w+ )?order|order over the phone|put in an? order|take my order|i want to order|i\s*d like to (?:order|place an? (?:\w+ )?order)|like to place an? (?:\w+ )?order)\b/i.test(
+    !isBreakfastHoursHit &&
+    !/\b(trabajo|empleo|vacante|solicitud|job|apply|cuanto|cuanta|cuesta|cuestan|precio|precios|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|a como|price|prices|how much|cost|costs|charge|total)\b/i.test(normUser) &&
+    /\b(hacer una? (?:orden|pedido)|pedir por telefono|ordenar por telefono|toman (?:(?:ordenes|pedidos)\s+)?(?:ordenes|pedidos) por telefono|aceptan (?:(?:ordenes|pedidos)\s+)?(?:ordenes|pedidos) por telefono|se puede (?:ordenar|pedir) por telefono|puedo (?:ordenar|pedir).{0,24}(?:por telefono|para llevar|para recoger)|puedo (?:ordenar|pedir)\s+(?:unos?|unas?|un|una|dos|tres|mi|mis|comida|tacos?|burritos?|tortas?|quesadillas?|mulitas?|platos?|sopes?|nachos?)|tomar (?:mi |una )?(?:orden|pedido)|tomame la orden|toma mi orden|me tomas la orden|puedes tomar (?:mi |una )?(?:orden|pedido)|me pueden tomar (?:mi |una )?(?:orden|pedido)|quiero (?:ordenar|pedir)|quisiera (?:pedir|ordenar|hacer una? (?:orden|pedido))|(?:estaba )?llamando para (?:ordenar|pedir|(?:hacer )?una? (?:orden|pedido))|llamaba para (?:ordenar|pedir|hacer una? (?:orden|pedido))|can i (?:order|place an? (?:\w+ )?order|call in an? order)|do you take (?:phone orders|orders over the phone|orders by phone)|place an? (?:\w+ )?order|order over the phone|put in an? order|take my order|i want to order|i\s*d like to (?:order|place an? (?:\w+ )?order)|like to place an? (?:\w+ )?order)\b/i.test(
       normUser
     )
   if (isOrderByPhoneHit) topics.add('order_by_phone')
 
-  // Distinguir "en la mañana / por la mañana / de la mañana / esta mañana" (horario matutino) vs "mañana" (día siguiente)
-  const normWithoutMorningPhrase = normUser.replace(/\b(?:en|de|por|a|toda)\s+la\s+manana\b|\besta\s+manana\b/gi, ' ')
   const isTodayHoursHit =
-    /\b(a que hora (?:abren|cierran)|hora de (?:cierre|apertura)|estan abiertos|esta abierto|tienen abierto|siguen abiertos|siguen dando servicio|estan dando servicio|ya abrieron|ya cerraron|todavia alcanzo|hasta que hora|cual es (?:su|el) horario(?: de hoy)?|que horario (?:tienen|manejan)(?: hoy)?|what time do you (?:open|close)|when do you (?:open|close)|are you (?:guys )?(?:still )?(?:open|closed)|still open|what(?:\s*s| is| are) your (?:hours|schedule)(?: today)?|your hours(?: today)?)\b/i.test(
+    /\b(a que hora (?:(?:van a |vuelven a )?(?:abrir|cerrar)|abren|cierran)|hora de (?:cierre|apertura)|(?:en que horario )?estan abiertos|(?:ahi )?esta abierto|tienen abierto|siguen abiertos|siguen dando servicio|estan dando servicio|ya abrieron|ya cerraron|todavia alcanzo|hasta que hora|cual es (?:su|el) horario(?: de hoy)?|que horario (?:tienen|manejan)(?: hoy)?|what time (?:do |does )?(?:you (?:guys )?|y\s*all |it |this (?:store|location) )?(?:open|close)|when (?:do |does )?(?:you |it )?(?:open|close)|are you (?:guys )?(?:still )?(?:open|closed)|still open|what(?:\s*s| is| are) your (?:hours|schedule)(?: today)?|your hours(?: today)?|(?:hoy|today).{0,18}(?:abren|cierran|horario|open|close|hours))\b/i.test(
       normUser
-    ) && !/\b(manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabados?|domingos?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|fin de semana|weekend|festiv|holiday|thanksgiving|navidad|nochebuena|christmas|black friday|ano nuevo|new year|viernes santo|good friday|24 de diciembre|25 de diciembre|31 de diciembre|1 de enero|dec\w* 24|dec\w* 25|dec\w* 31|jan\w* 1)\b/i.test(normWithoutMorningPhrase)
+    ) && !/\b(desayunos?|breakfast|manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabados?|domingos?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|fin de semana|weekend|festiv|holiday|thanksgiving|navidad|nochebuena|christmas|black friday|ano nuevo|new year|viernes santo|good friday|24 de diciembre|25 de diciembre|31 de diciembre|1 de enero|primero de enero|first of january|dec\w* 24|dec\w* 25|dec\w* 31|jan\w* 1)\b/i.test(normWithoutMorningPhrase)
   if (isTodayHoursHit) topics.add('today_hours')
 
   const weekdayTokens = [
@@ -4965,7 +6905,7 @@ export function resolveCanonicalPreparedReply(params: {
   const mentionsTodayWord = /\b(hoy|today)\b/i.test(normUser)
   const asksHoursWord = /\b(hora|horario|abren|cierran|abierto|cerrado|open|close|hours)\b/i.test(normUser)
   const isOfficialHolidayWord =
-    /\b(festiv|holiday|holidays|thanksgiving|accion de gracias|black friday|navidad|nochebuena|christmas|fin de ano|ano nuevo|new year|viernes santo|good friday|24 de diciembre|25 de diciembre|31 de diciembre|1 de enero|dec(?:ember)?\s*(?:24|25|31)|jan(?:uary)?\s*1)\b/i.test(
+    /\b(festiv|holiday|holidays|thanksgiving|accion de gracias|black friday|navidad|nochebuena|christmas|fin de ano|ano nuevo|new year|viernes santo|good friday|24 de diciembre|25 de diciembre|31 de diciembre|1 de enero|primero de enero|first of january|dec(?:ember)?\s*(?:24|25|31)|jan(?:uary)?\s*1)\b/i.test(
       normUser
     )
   const isMinorHolidayScheduleAsk =
@@ -4981,6 +6921,7 @@ export function resolveCanonicalPreparedReply(params: {
       (mentionsWeekend && !mentionsTomorrow && weekdayTokens.length === 0) ||
       (isFriSatPair && !mentionsTomorrow && !mentionsWeekend) ||
       (weekdayTokens.length === 1 && !mentionsTomorrow && !mentionsWeekend)) &&
+    !isBreakfastHoursHit &&
     !isSpecificHolidayWord &&
     !mentionsTodayWord
   ) {
@@ -4993,7 +6934,7 @@ export function resolveCanonicalPreparedReply(params: {
   }
 
   const isAddressOrPhoneHit =
-    /\b(cual es (?:la|su) (?:direccion|domicilio)|en que (?:direccion|calles?) estan|donde estan ubicados|donde queda(?:n| la tienda| la sucursal)?|me das la direccion|en donde estan|cual es (?:el|su) (?:numero de )?telefono|que numero de telefono tienen|numero de telefono de la (?:tienda|sucursal)|what(?:\s*s| is) (?:the|your) (?:address|phone number)|can i get (?:the|your) (?:address|phone number)|where (?:are you|is the store|is this location)(?: located)?|what street are you on|store phone number)\b/i.test(
+    /\b(cual es (?:el|la|su) (?:direccion|domicilio)|(?:la |el )?(?:direccion|domicilio) de (?:la )?(?:sucursal|tienda)|en que (?:direccion|domicilio|calles?) estan|donde estan ubicados|donde queda(?:n| la tienda| la sucursal)?|me das (?:la|el) (?:direccion|domicilio)|en donde estan|cual es (?:el|su) (?:numero de )?telefono|que numero de telefono tienen|numero de telefono de la (?:tienda|sucursal)|what(?:\s*s| is) (?:the|your) (?:address|phone number)|address (?:of|for) (?:the |your )?|can i get (?:the|your) (?:address|phone number)|where (?:are you|is the store|is this location)(?: located)?|what street are you on|store phone number)\b/i.test(
       normUser
     )
   if (isAddressOrPhoneHit) topics.add('address_phone')
@@ -5010,7 +6951,7 @@ export function resolveCanonicalPreparedReply(params: {
   if (isDriveThruHit) topics.add('drive_thru')
 
   const isPaymentsHit =
-    /\b(ebt|calfresh|food stamps|estampillas|apple pay|google pay|formas de pago|metodos de pago|(?:aceptan|agarran)\s+tarjetas?|pagar con tarjeta|aceptan efectivo|solo efectivo|payment methods|do you (?:accept|take)\s+(?:credit|debit|cards?|cash|apple pay|google pay)|accept credit|accept debit|is it cash only|cash only)\b/i.test(
+    /\b(ebt|calfresh|food stamps|estampillas|apple pay|google pay|formas de pago|metodos de pago|(?:aceptan|agarran)\s+(?:la\s+|las\s+|a\s+|con\s+)?tarjetas?|pagar con tarjeta|aceptan efectivo|solo efectivo|payment methods|do you (?:accept|take)\s+(?:credit|debit|cards?|cash|apple pay|google pay|ebt)|accept credit|accept debit|is it cash only|cash only)\b/i.test(
       normUser
     )
   if (isPaymentsHit) topics.add('payments_ebt')
@@ -5030,7 +6971,8 @@ export function resolveCanonicalPreparedReply(params: {
     topics.add('delivery_driver')
   }
 
-  const asksSpecificPriceWord = /\b(cuanto cuesta|cuesta|precio|precios|vale|a como|how much|price|cost)\b/i.test(normUser)
+  const normUserWithoutNegatedPrice = normUser.replace(/\b(?:sin|no|without)\s+(?:precios?|prices?)\b/gi, ' ')
+  const asksSpecificPriceWord = /\b(cuanto|cuanta|cuesta|cuestan|cobras|cobra|cobran|cobrarian|precio|precios|vale|valen|sale|salen|saldria|saldrian|a como|how much|price|prices|cost|costs|charge)\b/i.test(normUserWithoutNegatedPrice)
 
   const isAguasHit =
     !asksSpecificPriceWord &&
@@ -5039,11 +6981,27 @@ export function resolveCanonicalPreparedReply(params: {
     )
   if (isAguasHit) topics.add('aguas_drinks')
 
+  const mentionsNonDessertFoodForCanonical =
+    /\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|platos?|plates?|sopes?|nachos?|horchata|jamaica|tamarindo|champurrado|agua|sodas?|refrescos?|coca|coke|sprite|lemonade|cafe|coffee|menudo|birria|pozole|suadero|tripas?|cerveza)\b/i.test(
+      normUser
+    )
+  const asksBringingOwnCake =
+    /\b(llevar|traer|meter|ingresar|propio|propia|nuestro|mi|bring|outside)\b.{0,28}\b(pastel(?:es)?|cakes?)\b/i.test(normUser)
   const isDessertsHit =
+    !mentionsNonDessertFoodForCanonical &&
+    !asksBringingOwnCake &&
     /\b(pastel(?:es)?(?: de cumpleanos)?|birthday cakes?|whole cakes?|que postres?|venden postres?|tienen postres?|tienen flan|tienen cheesecake|(?:tienen|venden|hay|manejan|do you (?:have|sell|serve))\s+(?:el\s+|la\s+|un\s+|una\s+)?churros?|what desserts?|do you have cakes?|do you sell desserts?|tres leches)\b/i.test(
       normUser
     )
   if (isDessertsHit) topics.add('desserts')
+
+  const isMenuOverviewHit =
+    !asksSpecificPriceWord &&
+    !mentionsNonDessertFoodForCanonical &&
+    /\b(todo el menu|me dices (?:todo )?el menu|cual es (?:el|su) menu|que (?:tienen|hay|manejan|venden) en el menu|que platillos (?:tienen|venden|manejan)|que comida (?:tienen|venden|manejan)|que es lo que venden|what(?:\s*s| is) on (?:the|your) menu|what food do you (?:have|sell|serve)|tell me (?:the|your) menu)\b/i.test(
+      normUser
+    )
+  if (isMenuOverviewHit) topics.add('menu_overview')
 
   const isMeatsHit =
     !asksSpecificPriceWord &&
@@ -5066,7 +7024,7 @@ export function resolveCanonicalPreparedReply(params: {
       /\b(que queso (?:lleva|llevan|tienen) las tortas|tortas?.{0,16}(?:crema|queso fundido|queso)|what cheese.{0,12}tortas)\b/i.test(normUser))
   if (isCubanaOrTortaCheeseHit) topics.add('torta_info')
 
-  const mentionsManagedDish = /\b(taco|burrito|mulita|quesadilla|torta|sope|nacho|horchata|jamaica|flan|cheesecake|asada|pastor|pollo|cabeza|lengua|buche|chorizo|carnitas)\b/i.test(normUser)
+  const mentionsManagedDish = /\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|platos?|plates?|sopes?|nachos?|horchata|jamaica|pina|tamarindo|champurrado|cafe|coffee|flan|cheesecake|aguas?|sodas?|coca|coke|sprite|lemonade|huevos?|chips|totopos|frijol(?:es)?|arroz|asada|pastor|pollo|cabeza|lengua|buche|chorizo|carnitas)\b/i.test(normUser)
   const isUnsupportedOnlyHit =
     !mentionsManagedDish &&
     /\b(tienen|venden|hay|manejan|hacen|sirven|do you (?:have|sell|serve))\s+(?:el\s+|la\s+|un\s+|una\s+)?(menudo|birria|quesabirrias?|pozole|suadero|tripa|tripas|cerveza|beer|alcohol|micheladas?)\b/i.test(
@@ -5197,6 +7155,21 @@ export function resolveCanonicalPreparedReply(params: {
     if (isWrongBranchMention && !namesSpecificOtherBranch && !isThirdPartyDeliveryContext) {
       topics.add('wrong_store_initial')
     }
+
+    const isGeneralManagerSpeakHit =
+      !isDriverSelf &&
+      !isThirdPartyDeliveryContext &&
+      !isWrongBranchMention &&
+      !isAddingFreeCondimentsOnly &&
+      !mentionsWrongOrIncompleteOrder &&
+      !isLostOrBillingOrSick &&
+      !namesSpecificOtherBranch &&
+      /\b((?:quiero|quisiera|me gustaria|necesito|ocupo|puedo|podria|me comunicas?|pasame)\s+(?:hablar\s+|comunicarme\s+)?(?:con|al)\s+(?:el\s+|la\s+|un\s+)?(?:gerente|manager|encargad[oa]|supervisor[a]?)|(?:esta|se encuentra)\s+(?:el\s+|la\s+)?(?:gerente|manager|encargad[oa])|(?:can|may|could)\s+i\s+(?:speak|talk)\s+(?:to|with)\s+(?:the\s+|a\s+)?(?:manager|supervisor)|i\s+(?:want|need|would like)\s+to\s+(?:speak|talk)\s+(?:to|with)\s+(?:the\s+|a\s+)?(?:manager|supervisor))\b/i.test(
+        normUser
+      )
+    if (isGeneralManagerSpeakHit) {
+      topics.add('manager_initial')
+    }
   }
 
   const allowedInteractiveTopics = new Set([
@@ -5205,7 +7178,8 @@ export function resolveCanonicalPreparedReply(params: {
     'delivery_app_delayed',
     'delivery_app_wrong',
     'condiments_initial',
-    'wrong_store_initial'
+    'wrong_store_initial',
+    'manager_initial'
   ])
 
   // Si toca flujo interactivo/callback o menciona precios/ítems no cubiertos o hay más de 1 tema -> usar Hedged Gemini
@@ -5219,10 +7193,45 @@ export function resolveCanonicalPreparedReply(params: {
   if (topics.size !== 1) return null
 
   const onlyTopic = Array.from(topics)[0]
+  const specificOtherStore = inferMentionedOtherStore(allActiveStores, store.id, normUser)
+  if (
+    specificOtherStore &&
+    (onlyTopic === 'address_phone' || onlyTopic === 'today_hours') &&
+    !/\b(todas|cuales|compar|mas tarde|mas temprano|all stores|which stores)\b/i.test(normUser)
+  ) {
+    const otherSpokenName = formatCustomerStoreName(specificOtherStore, lang, { style: 'spoken_compact' })
+    const otherAddr = formatStoreAddressForAgent(specificOtherStore.address, lang, { includeZip: false })
+    const otherCross = getCustomerStoreCrossStreets(specificOtherStore, lang)
+    if (onlyTopic === 'address_phone') {
+      const asksOtherPhone = /\b(telefono|numero|phone)\b/i.test(normUser)
+      return {
+        replyText:
+          lang === 'en'
+            ? `Our ${otherSpokenName} location is at ${otherAddr}${otherCross ? `, at the corner of ${otherCross}` : ''}${asksOtherPhone && specificOtherStore.phone ? `, and their phone is ${specificOtherStore.phone}` : ''}. Anything else?`
+            : `Nuestra sucursal de ${otherSpokenName} está en ${otherAddr}${otherCross ? `, en la esquina de ${otherCross}` : ''}${asksOtherPhone && specificOtherStore.phone ? `, y su teléfono es ${specificOtherStore.phone}` : ''}. ¿Te ayudo con algo más?`,
+        toolsUsedToAdd: ['find_other_stores']
+      }
+    }
+    const otherEv = evaluateStoreSchedulePure({
+      storeId: Number(specificOtherStore.id),
+      storeName: specificOtherStore.name,
+      weeklyHours: specificOtherStore.weekly_hours,
+      specialHours: allSpecialHours,
+      now: canonicalNow
+    })
+    return {
+      replyText:
+        lang === 'en'
+          ? `${otherEv.statusMessageEn} Anything else?`
+          : `${otherEv.statusMessageEs} ¿Te ayudo con algo más?`,
+      toolsUsedToAdd: ['find_other_stores']
+    }
+  }
   const mentionsOtherStore =
     !asksWhichDriveThruStores &&
     onlyTopic !== 'wrong_store_initial' &&
-    (inferMentionedOtherStore(allActiveStores, store.id, normUser) !== null ||
+    onlyTopic !== 'breakfast_hours' &&
+    (specificOtherStore !== null ||
       /\b(otra sucursal|otra tienda|otras sucursales|otras tiendas|other store|other location|other locations)\b/i.test(normUser))
   if (mentionsOtherStore) return null
 
@@ -5236,6 +7245,61 @@ export function resolveCanonicalPreparedReply(params: {
   }
 
   switch (onlyTopic) {
+    case 'breakfast_hours': {
+      const hasBreakfastStoreOverride = knowledgeBase.some(
+        (k: any) =>
+          k?.is_active !== false &&
+          Number(k?.store_id) === Number(store.id) &&
+          /\b(desayunos?|breakfast)\b/i.test(`${k?.title || ''} ${k?.answer_es || ''} ${k?.answer_en || ''}`)
+      )
+      if (hasBreakfastStoreOverride) return null
+
+      const bfWin = isKoreBreakfastOpen(canonicalNow)
+      const targetEv = specificOtherStore
+        ? evaluateStoreSchedulePure({
+            storeId: Number(specificOtherStore.id),
+            storeName: specificOtherStore.name,
+            weeklyHours: specificOtherStore.weekly_hours,
+            specialHours: allSpecialHours,
+            now: canonicalNow
+          })
+        : scheduleEval
+
+      if (bfWin.open && targetEv.isOpenNow) {
+        return {
+          replyText:
+            lang === 'en'
+              ? 'At all our locations we serve breakfast daily from opening until 2:00 PM, so right now we have egg burritos, egg plates, and egg tortas available. Can I help you with anything else?'
+              : 'En todas nuestras sucursales servimos los desayunos todos los días desde que abrimos hasta las 2:00 PM, así que ahorita tenemos burritos, platos y tortas de huevo. ¿Te ayudo con algo más?',
+          toolsUsedToAdd: ['get_store_hours_and_status']
+        }
+      }
+      if (!bfWin.open && targetEv.isOpenNow) {
+        return {
+          replyText:
+            lang === 'en'
+              ? 'At all 15 locations breakfast is served daily from opening until 2:00 PM, so it has ended for today; right now we have our full regular menu, coffee, and champurrado. Can I help with anything else?'
+              : 'En nuestras 15 sucursales servimos desayunos todos los días desde que abrimos hasta las 2:00 PM, así que por hoy ya terminaron; ahorita tenemos todo el menú regular, café y champurrado. ¿Algo más?',
+          toolsUsedToAdd: ['get_store_hours_and_status']
+        }
+      }
+      if (bfWin.open && !targetEv.isOpenNow && targetEv.todayOpen !== 'CLOSED' && targetEv.todayOpenFormattedEs) {
+        return {
+          replyText:
+            lang === 'en'
+              ? `At all our locations we serve breakfast daily from opening until 2:00 PM; today we open here at ${targetEv.todayOpenFormattedEn}. Can I help you with anything else?`
+              : `En todas nuestras sucursales servimos los desayunos todos los días desde que abrimos hasta las 2:00 PM; hoy aquí abrimos a las ${targetEv.todayOpenFormattedEs}. ¿Te ayudo con algo más?`,
+          toolsUsedToAdd: ['get_store_hours_and_status']
+        }
+      }
+      return {
+        replyText:
+          lang === 'en'
+            ? `At all our locations we serve breakfast from opening until 2:00 PM. ${targetEv.statusMessageEn} Can I help you with anything else?`
+            : `En todas nuestras sucursales servimos los desayunos desde que abrimos hasta las 2:00 PM. ${targetEv.statusMessageEs} ¿Te ayudo con algo más?`,
+        toolsUsedToAdd: ['get_store_hours_and_status']
+      }
+    }
     case 'closing':
       return {
         replyText:
@@ -5291,6 +7355,25 @@ export function resolveCanonicalPreparedReply(params: {
             ? 'I apologize for the inconvenience. To review how your order was prepared, may I have your ticket number, date, name, and phone number? Without the ticket, it is unlikely we can verify the mistake.'
             : 'Lamento el inconveniente. Para revisar la preparación de tu orden, ¿me das tu número de ticket, fecha, nombre y teléfono? Sin el ticket es poco probable determinar la equivocación.'
       }
+    case 'manager_initial':
+      return {
+        replyText:
+          lang === 'en'
+            ? "I would gladly send a priority alert to the store manager's screen so they can reach out to you. May I have your full name, 10-digit phone number, and reason for calling?"
+            : 'Con gusto envío una alerta prioritaria a la pantalla del gerente en sucursal para que se comunique contigo. ¿Me das tu nombre completo, teléfono de 10 dígitos y el motivo?'
+      }
+    case 'menu_overview': {
+      const hasMenuStoreOverride = knowledgeBase.some(
+        (k: any) => k?.is_active !== false && Number(k?.store_id) === Number(store.id) && String(k?.category || '').toLowerCase() === 'menu'
+      )
+      if (hasMenuStoreOverride) return null
+      return {
+        replyText:
+          lang === 'en'
+            ? 'We serve tacos, burritos, quesadillas, mulitas, sopes, tortas, Super Nachos, combo plates, egg breakfasts, aguas frescas, champurrado, flan, and cheesecake. Would you like any prices?'
+            : 'Manejamos tacos, burritos, quesadillas, mulitas, sopes, tortas, Super Nachos, platos con arroz y frijol, desayunos con huevo, aguas frescas, champurrado, flan y cheesecake. ¿Gustas algún precio?'
+      }
+    }
     case 'order_by_phone':
       if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'policies', /pedidos por tel/i)) return null
       return {
@@ -5480,10 +7563,44 @@ export function resolveCanonicalPreparedReply(params: {
         { re: /\b(nochebuena|christmas eve|24 de diciembre|dec\w* 24)\b/i, keyRe: /nochebuena|christmas eve/i },
         { re: /\b(navidad|christmas(?! eve)|25 de diciembre|dec\w* 25)\b/i, keyRe: /navidad|christmas day/i },
         { re: /\b(fin de ano|new year.?s eve|31 de diciembre|dec\w* 31)\b/i, keyRe: /fin de|new year.?s eve/i },
-        { re: /\b(ano nuevo|new year.?s day|1 de enero|jan\w* 1)\b/i, keyRe: /ano nuevo|new year.?s day/i },
+        { re: /\b(ano nuevo|new year.?s day|1 de enero|primero de enero|first of january|jan\w* 1)\b/i, keyRe: /ano nuevo|new year.?s day/i },
         { re: /\b(viernes santo|good friday)\b/i, keyRe: /viernes santo|good friday/i }
       ]
       const matchedHols = holMatchRe.filter((h) => h.re.test(normUser))
+      if (matchedHols.length >= 2 && matchedHols.length <= 3) {
+        const resolvedMulti = matchedHols
+          .map((mh) =>
+            upcomingHolidays.find((h: any) =>
+              mh.keyRe.test(normalizeSearchText(`${h.holiday_name_es} ${h.holiday_name_en}`))
+            )
+          )
+          .filter(Boolean)
+        if (resolvedMulti.length === matchedHols.length) {
+          const parts = resolvedMulti.map((fh: any, idx: number) => {
+            const hName = lang === 'en' ? fh.holiday_name_en : fh.holiday_name_es
+            if (fh.is_closed) {
+              return lang === 'en'
+                ? `${idx === 0 ? 'On' : 'on'} ${hName} we are closed all day`
+                : `${idx === 0 ? 'En' : 'en'} ${hName} cerramos todo el día`
+            }
+            return lang === 'en'
+              ? `${idx === 0 ? 'On' : 'on'} ${hName} we open from ${formatTime12h(fh.effective_open, 'en')} to ${formatTime12h(fh.effective_close, 'en')}`
+              : `${idx === 0 ? 'En' : 'en'} ${hName} abrimos de ${formatTime12h(fh.effective_open, 'es')} a ${formatTime12h(fh.effective_close, 'es')}`
+          })
+          const joined =
+            parts.length === 2
+              ? lang === 'en'
+                ? `${parts[0]}, and ${parts[1]}`
+                : `${parts[0]}, y ${parts[1]}`
+              : lang === 'en'
+                ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`
+                : `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}`
+          return {
+            replyText: `${joined}. ${lang === 'en' ? 'Anything else?' : '¿Te ayudo con algo más?'}`,
+            toolsUsedToAdd: ['get_store_hours_and_status']
+          }
+        }
+      }
       if (matchedHols.length > 1) return null
       const specificHol = matchedHols[0]
       if (specificHol) {
@@ -5581,18 +7698,41 @@ export function resolveCanonicalPreparedReply(params: {
               ? 'Contamos con servicio de Drive-Thru en esta sucursal. ¿Te puedo ayudar con algo más?'
               : 'En esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar. ¿Te puedo ayudar con algo más?'
       }
-    case 'payments_ebt':
-      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'payments', /formas de pago/i)) return null
+    case 'payments_ebt': {
+      const hasPaymentsStoreOverride = knowledgeBase.some(
+        (k: any) => k?.is_active !== false && Number(k?.store_id) === Number(store.id) && String(k?.category || '').toLowerCase() === 'payments'
+      )
+      if (hasPaymentsStoreOverride) return null
+      const asksSpecificallyEbtAtDriveThru =
+        /\b(ebt|calfresh|estampillas|food stamps)\b/i.test(normUser) &&
+        /\b(drive|ventanilla|carro|window)\b/i.test(normUser)
+      if (asksSpecificallyEbtAtDriveThru && config.accepts_ebt) {
+        return {
+          replyText:
+            lang === 'en'
+              ? store.has_drive_thru
+                ? 'We do not process EBT CalFresh at the Drive-Thru window; please park and come inside to the dining-room counter to pay with EBT. How else can I help you?'
+                : 'We do not have a Drive-Thru at this location, however we do accept EBT CalFresh inside at the dining-room counter. How else can I help you?'
+              : store.has_drive_thru
+                ? 'Por la ventanilla del Drive-Thru no procesamos EBT CalFresh; debes estacionarte y pasar adentro a la caja del mostrador para pagar con EBT. ¿Te puedo ayudar con algo más?'
+                : 'En esta sucursal no tenemos Drive-Thru, pero sí aceptamos tarjeta EBT CalFresh pasando directamente a la caja del mostrador. ¿Te puedo ayudar con algo más?'
+        }
+      }
       return {
         replyText:
           lang === 'en'
             ? config.accepts_ebt
-              ? 'We accept cash, credit and debit cards, Apple Pay, Google Pay, and EBT CalFresh at the register. How else can I help you?'
+              ? store.has_drive_thru
+                ? 'We accept cash, cards, Apple Pay, and Google Pay; we also accept EBT CalFresh inside at the dining-room counter only, as it is not available at the Drive-Thru. How else can I help you?'
+                : 'We accept cash, credit and debit cards, Apple Pay, Google Pay, and EBT CalFresh inside at the dining-room counter. How else can I help you?'
               : 'We accept cash, credit and debit cards, Apple Pay, and Google Pay; EBT CalFresh is not available at this location. How else can I help you?'
             : config.accepts_ebt
-              ? 'Aceptamos efectivo, tarjetas, Apple Pay, Google Pay y también tarjeta EBT CalFresh directamente en caja. ¿Te ayudo con algo más?'
+              ? store.has_drive_thru
+                ? 'Aceptamos efectivo, tarjetas, Apple Pay y Google Pay; también aceptamos EBT CalFresh pasando únicamente al mostrador del comedor, ya que no está disponible por Drive-Thru. ¿Te ayudo con algo más?'
+                : 'Aceptamos efectivo, tarjetas, Apple Pay, Google Pay y también tarjeta EBT CalFresh directamente en el mostrador del comedor. ¿Te ayudo con algo más?'
               : 'Aceptamos efectivo, tarjetas de débito o crédito, Apple Pay y Google Pay; en esta sucursal no contamos con EBT CalFresh. ¿Te ayudo con algo más?'
       }
+    }
     case 'job_inquiry':
       if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'employment', /empleo/i)) return null
       return {
@@ -5601,18 +7741,26 @@ export function resolveCanonicalPreparedReply(params: {
             ? 'You can apply in person with the store manager at any of our 15 locations, or submit your information at tacosgavilan.com/contact. Anything else?'
             : 'Puedes acudir en persona con el gerente a cualquiera de nuestras 15 sucursales para llenar solicitud, o enviar tus datos en tacosgavilan.com/contact. ¿Algo más?'
       }
-    case 'delivery_driver':
-      if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'delivery', /repartidores/i)) return null
+    case 'delivery_driver': {
+      const hasDriverStoreOverride = knowledgeBase.some(
+        (k: any) =>
+          k?.is_active !== false &&
+          Number(k?.store_id) === Number(store.id) &&
+          String(k?.category || '').toLowerCase() === 'delivery' &&
+          /repartidor|driver/i.test(`${k?.title || ''} ${k?.answer_es || ''}`)
+      )
+      if (hasDriverStoreOverride) return null
       return {
         replyText:
           lang === 'en'
             ? store.has_drive_thru
-              ? 'Uber Eats, DoorDash, and Grubhub drivers pick up at the counter by showing the customer name and code, or via the Drive-Thru window once the dining room closes. Anything else?'
+              ? 'Uber Eats, DoorDash, and Grubhub drivers provide the customer name and order code so we can check live status and direct you to Window 2, or pick up inside at the counter. Anything else?'
               : 'This location does not have a Drive-Thru, so Uber Eats, DoorDash, and Grubhub drivers pick up at the counter during open hours by showing the customer name and order code. Anything else?'
             : store.has_drive_thru
-              ? 'Los repartidores de Uber Eats, DoorDash y Grubhub recogen en el mostrador mostrando el nombre y código del cliente; si el comedor ya cerró pero seguimos abiertos, pasan por el Drive-Thru. ¿Algo más?'
+              ? 'Los repartidores de Uber Eats, DoorDash y Grubhub indican nombre y código de orden para verificar su estatus en vivo y pasar a la Ventana 2, o recogen en mostrador con comedor abierto. ¿Algo más?'
               : 'En esta sucursal no tenemos Drive-Thru, así que todos los repartidores de Uber Eats, DoorDash y Grubhub recogen en mostrador dentro de nuestro horario mostrando nombre y código. ¿Algo más?'
       }
+    }
     case 'delivery_app_modify':
       if (!isGlobalKbTopicCanonicalUntouched(knowledgeBase, store.id, 'delivery', /cambios o cancelaciones/i)) return null
       return {
@@ -5719,10 +7867,13 @@ export function getStaticCanonicalWarmPhrases(): Array<{ text: string; lang: Pho
     ['Agradecemos tu llamada, pero en esta sucursal no recibimos ofertas comerciales ni servicios externos. ¡Que tengas excelente día!', 'Thank you for calling, however we do not accept commercial solicitations at this location. Have a great day!'],
     ['Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o pedir directamente en caja o por el Drive-Thru. ¿Te ayudo con algo más?', 'I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or directly at the counter or Drive-Thru. How else can I help you?'],
     ['Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o pedir directamente en caja. ¿Te ayudo con algo más?', 'I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or directly at the counter. How else can I help you?'],
-    ['Aceptamos efectivo, tarjetas, Apple Pay, Google Pay y también tarjeta EBT CalFresh directamente en caja. ¿Te ayudo con algo más?', 'We accept cash, credit and debit cards, Apple Pay, Google Pay, and EBT CalFresh at the register. How else can I help you?'],
+    ['En todas nuestras sucursales servimos los desayunos todos los días desde que abrimos hasta las 2:00 PM, así que ahorita tenemos burritos, platos y tortas de huevo. ¿Te ayudo con algo más?', 'At all our locations we serve breakfast daily from opening until 2:00 PM, so right now we have egg burritos, egg plates, and egg tortas available. Can I help you with anything else?'],
+    ['En nuestras 15 sucursales servimos desayunos todos los días desde que abrimos hasta las 2:00 PM, así que por hoy ya terminaron; ahorita tenemos todo el menú regular, café y champurrado. ¿Algo más?', 'At all 15 locations breakfast is served daily from opening until 2:00 PM, so it has ended for today; right now we have our full regular menu, coffee, and champurrado. Can I help with anything else?'],
+    ['Aceptamos efectivo, tarjetas, Apple Pay y Google Pay; también aceptamos EBT CalFresh pasando únicamente al mostrador del comedor, ya que no está disponible por Drive-Thru. ¿Te ayudo con algo más?', 'We accept cash, cards, Apple Pay, and Google Pay; we also accept EBT CalFresh inside at the dining-room counter only, as it is not available at the Drive-Thru. How else can I help you?'],
+    ['Aceptamos efectivo, tarjetas, Apple Pay, Google Pay y también tarjeta EBT CalFresh directamente en el mostrador del comedor. ¿Te ayudo con algo más?', 'We accept cash, credit and debit cards, Apple Pay, Google Pay, and EBT CalFresh inside at the dining-room counter. How else can I help you?'],
     ['Aceptamos efectivo, tarjetas de débito o crédito, Apple Pay y Google Pay; en esta sucursal no contamos con EBT CalFresh. ¿Te ayudo con algo más?', 'We accept cash, credit and debit cards, Apple Pay, and Google Pay; EBT CalFresh is not available at this location. How else can I help you?'],
     ['Puedes acudir en persona con el gerente a cualquiera de nuestras 15 sucursales para llenar solicitud, o enviar tus datos en tacosgavilan.com/contact. ¿Algo más?', 'You can apply in person with the store manager at any of our 15 locations, or submit your information at tacosgavilan.com/contact. Anything else?'],
-    ['Los repartidores de Uber Eats, DoorDash y Grubhub recogen en el mostrador mostrando el nombre y código del cliente; si el comedor ya cerró pero seguimos abiertos, pasan por el Drive-Thru. ¿Algo más?', 'Uber Eats, DoorDash, and Grubhub drivers pick up at the counter by showing the customer name and code, or via the Drive-Thru window once the dining room closes. Anything else?'],
+    ['Los repartidores de Uber Eats, DoorDash y Grubhub indican nombre y código de orden para verificar su estatus en vivo y pasar a la Ventana 2, o recogen en mostrador con comedor abierto. ¿Algo más?', 'Uber Eats, DoorDash, and Grubhub drivers provide the customer name and order code so we can check live status and direct you to Window 2, or pick up inside at the counter. Anything else?'],
     ['En esta sucursal no tenemos Drive-Thru, así que todos los repartidores de Uber Eats, DoorDash y Grubhub recogen en mostrador dentro de nuestro horario mostrando nombre y código. ¿Algo más?', 'This location does not have a Drive-Thru, so Uber Eats, DoorDash, and Grubhub drivers pick up at the counter during open hours by showing the customer name and order code. Anything else?'],
     ['Como tu pedido se pagó directo en la aplicación, la sucursal no puede modificar platillos con costo ni cambiar la dirección. Debes ajustarlo o cancelarlo desde la sección Ayuda de tu app. ¿Algo más?', 'Because your order was paid through the delivery app, the restaurant cannot edit paid items or change the delivery address. Please modify or cancel it directly in the Help section of your app. Anything else?'],
     ['Lamento el inconveniente. Para revisar la preparación de tu orden, ¿me das tu número de ticket, fecha, nombre y teléfono? Sin el ticket es poco probable determinar la equivocación.', 'I apologize for the inconvenience. To review how your order was prepared, may I have your ticket number, date, name, and phone number? Without the ticket, it is unlikely we can verify the mistake.'],
@@ -5738,7 +7889,13 @@ export function getStaticCanonicalWarmPhrases(): Array<{ text: string; lang: Pho
     ['Disculpa, por el momento no manejamos menudo, birria, pozole, suadero, tripa ni bebidas alcohólicas. Con gusto te ofrecemos nuestras 8 carnes y aguas frescas. ¿Algo más?', 'I apologize, we do not serve menudo, birria, pozole, suadero, tripa, or alcoholic beverages. We gladly offer our 8 meats and fresh aguas frescas instead. Anything else?'],
     ['Contamos con servicio de Drive-Thru en esta sucursal. ¿Te puedo ayudar con algo más?', 'We have Drive-Thru service at this location. How else can I help you?'],
     ['En esta ubicación no contamos con Drive-Thru, pero te atendemos con gusto en comedor y para llevar. ¿Te puedo ayudar con algo más?', 'We do not have a Drive-Thru at this location, but we gladly serve you for dine-in and takeout. How else can I help you?'],
-    ['Las seis sucursales con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate. ¿Te doy el horario o dirección de alguna?', 'Our six locations with Drive-Thru are West Covina, Los Angeles (Central and Washington), La Puente, Norwalk, Lynwood, and South Gate. Would you like hours or address for any of them?']
+    ['Las seis sucursales con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate. ¿Te doy el horario o dirección de alguna?', 'Our six locations with Drive-Thru are West Covina, Los Angeles (Central and Washington), La Puente, Norwalk, Lynwood, and South Gate. Would you like hours or address for any of them?'],
+    ['Disculpa, se escuchó un poco cortado. ¿En qué te puedo ayudar hoy?', 'Sorry, the line cut out briefly. How can I help you today?'],
+    ['Disculpa, se escuchó ruido o voces de fondo. ¿En qué te puedo ayudar?', 'Sorry, I picked up background audio on the line. How can I help you?'],
+    ['Con gusto te escucho, ¿en qué te puedo ayudar hoy?', 'I can hear you clearly, how can I help you today?'],
+    ['¿Te puedo ayudar con alguna otra consulta?', 'Can I help you with anything else?'],
+    ['Con gusto envío una alerta prioritaria a la pantalla del gerente en sucursal para que se comunique contigo. ¿Me das tu nombre completo, teléfono de 10 dígitos y el motivo?', "I would gladly send a priority alert to the store manager's screen so they can reach out to you. May I have your full name, 10-digit phone number, and reason for calling?"],
+    ['Manejamos tacos, burritos, quesadillas, mulitas, sopes, tortas, Super Nachos, platos con arroz y frijol, desayunos con huevo, aguas frescas, champurrado, flan y cheesecake. ¿Gustas algún precio?', 'We serve tacos, burritos, quesadillas, mulitas, sopes, tortas, Super Nachos, combo plates, egg breakfasts, aguas frescas, champurrado, flan, and cheesecake. Would you like any prices?']
   ]
   const out: Array<{ text: string; lang: PhoneLang }> = []
   for (const [esText, enText] of staticPairs) {
@@ -5758,6 +7915,8 @@ export async function processPhoneAgentTurn(params: {
   forwardedFrom?: string | null
   preferredLang?: PhoneLang
   deferDbFlush?: boolean
+  prefetchedCallRecord?: any | null
+  simulatedNow?: Date
 }): Promise<{
   callId: string
   replyText: string
@@ -5769,6 +7928,8 @@ export async function processPhoneAgentTurn(params: {
   shouldTransferToPhone: string | null
   shouldHangup: boolean
   isCanonicalReply?: boolean
+  isDeterministicFastReply?: boolean
+  geminiFailed?: boolean
   transcript: TranscriptEntry[]
   storeContext: Awaited<ReturnType<typeof getStorePhoneContext>>
   flushDbPromise?: Promise<void>
@@ -5782,29 +7943,65 @@ export async function processPhoneAgentTurn(params: {
     toNumber = null,
     forwardedFrom = null,
     preferredLang,
-    deferDbFlush = false
+    deferDbFlush = false,
+    prefetchedCallRecord = null,
+    simulatedNow
   } = params
 
+  const hasSimulatedNow = simulatedNow instanceof Date && Number.isFinite(simulatedNow.getTime())
+  const effectiveNow = hasSimulatedNow ? (simulatedNow as Date) : new Date()
   const turnStartedAt = Date.now()
   const turnBudgetMs = source === 'twilio' ? 11200 : 12800
   const turnDeadline = turnStartedAt + turnBudgetMs
 
-  // Ejecutar TODAS las lecturas iniciales en paralelo (incluyendo pool de llaves Gemini y menú pre-compilado en caché SWR)
-  const [ctx, existingCallRes, menuEntry, allActiveStores] = await Promise.all([
+  const preCheckBgMedia = isLikelyBackgroundMediaSpeech(userText)
+  const prefetchedIsCleanForBgFastPath =
+    preCheckBgMedia &&
+    Boolean(prefetchedCallRecord) &&
+    prefetchedCallRecord.status !== 'callback_requested' &&
+    prefetchedCallRecord.status !== 'transferred' &&
+    !(
+      Array.isArray(prefetchedCallRecord.transcript) &&
+      prefetchedCallRecord.transcript.some(
+        (t: any) =>
+          (t?.role === 'tool' && t?.toolName === 'create_manager_callback') ||
+          (t?.role === 'assistant' && isPromptExpectingPhoneOrDetails(String(t?.text || ''))) ||
+          (t?.role === 'user' &&
+            /\b(falto|faltaron|incomplet|equivocad|wrong|missing|retras|ticket|queja|reembolso|olvide|perdi|gerente|manager|empleado|uber|doordash|grubhub)\b/i.test(
+              String(t?.text || '')
+            ))
+      )
+    )
+  // Ejecutar TODAS las lecturas iniciales en paralelo (incluyendo reglas aprendidas SWR 15s, pool de llaves Gemini y menú pre-compilado)
+  const [ctx, existingCallRes, menuEntry, allActiveStores, activeLearnedRules] = await Promise.all([
     getStorePhoneContext(storeId),
-    supabaseAdmin.from('phone_calls').select('*').eq('call_sid', callSid).maybeSingle(),
-    loadStoreMenuEntry(storeId),
-    loadAllActiveStoresDirectory(),
-    getGeminiKeyPoolWithRemote()
+    prefetchedCallRecord
+      ? Promise.resolve({ data: prefetchedCallRecord, error: null })
+      : supabaseAdmin.from('phone_calls').select('*').eq('call_sid', callSid).maybeSingle(),
+    prefetchedIsCleanForBgFastPath
+      ? Promise.resolve({ items: [] as any[], compactCatalogEs: '', compactCatalogEn: '', fetchedAt: turnStartedAt })
+      : loadStoreMenuEntry(storeId),
+    prefetchedIsCleanForBgFastPath ? Promise.resolve([] as any[]) : loadAllActiveStoresDirectory(),
+    prefetchedIsCleanForBgFastPath
+      ? Promise.resolve([] as ActivePhoneLearnedRule[])
+      : loadActivePhoneLearnedRules(storeId).catch(() => [] as ActivePhoneLearnedRule[]),
+    preCheckBgMedia ? Promise.resolve([] as string[]) : getGeminiKeyPoolWithRemote()
   ])
   const liveMenuItems = menuEntry.items
 
-  const { store, config, scheduleEval, knowledgeBase, onlineOrderUrl } = ctx
+  const { store, config, knowledgeBase, onlineOrderUrl } = ctx
+  const scheduleEval = hasSimulatedNow
+    ? evaluateStoreSchedulePure({
+        storeId: store.id,
+        storeName: store.name,
+        weeklyHours: store.weekly_hours,
+        specialHours: (ctx as any).allSpecialHours || ctx.specialHours || [],
+        now: effectiveNow
+      })
+    : ctx.scheduleEval
   const voiceId: VoiceId = resolvePhoneFemaleVoice(config.voice_id)
 
   // 1. Obtener o iniciar en paralelo la creación del registro en `phone_calls` (sin bloquear el arranque de Gemini)
-  const businessDate = getCaliforniaBusinessDate()
-  const shift = getCaliforniaShift()
   const defaultCallLang: PhoneLang = (preferredLang || config.default_language || 'es') as PhoneLang
 
   if (existingCallRes.error) {
@@ -5814,7 +8011,13 @@ export async function processPhoneAgentTurn(params: {
   let callRecord: any = existingCallRes.data
   let ensureCallRecordPromise: Promise<any> | null = null
 
-  if (callRecord) {
+  // No bloquear el inicio del turno con RPC de tombstone cuando la llamada ya existe y sigue activa en curso;
+  // la reconciliación atómica de cierre se protege en flushDbPromise y en /api/phone/status.
+  if (
+    callRecord &&
+    !callSid.startsWith('SIM_') &&
+    (Boolean(callRecord.ended_at) || String(callRecord.status || '').toLowerCase() !== 'in_progress')
+  ) {
     const reconciledExisting = await reconcileCallWithTerminalTombstone(callSid)
     if (reconciledExisting) {
       callRecord = reconciledExisting
@@ -5822,6 +8025,8 @@ export async function processPhoneAgentTurn(params: {
   }
 
   if (!callRecord) {
+    const businessDate = getCaliforniaBusinessDate()
+    const shift = getCaliforniaShift()
     const initialGreeting = buildInitialGreeting(
       store.name,
       defaultCallLang,
@@ -5837,7 +8042,7 @@ export async function processPhoneAgentTurn(params: {
       }
     ]
     ensureCallRecordPromise = (async () => {
-      const { error: createErr } = await supabaseAdmin
+      const { data: upsertedRow, error: createErr } = await supabaseAdmin
         .from('phone_calls')
         .upsert(
           {
@@ -5856,15 +8061,20 @@ export async function processPhoneAgentTurn(params: {
           },
           { onConflict: 'call_sid', ignoreDuplicates: true }
         )
+        .select('*')
+        .maybeSingle()
       if (createErr) throw createErr
+      if (upsertedRow) {
+        callRecord = upsertedRow
+        return callRecord
+      }
       const { data: ensuredRow, error: fetchEnsuredErr } = await supabaseAdmin
         .from('phone_calls')
         .select('*')
         .eq('call_sid', callSid)
         .single()
       if (fetchEnsuredErr || !ensuredRow) throw fetchEnsuredErr || new Error('No se encontró la llamada tras upsert')
-      const reconciled = await reconcileCallWithTerminalTombstone(callSid)
-      callRecord = reconciled || ensuredRow
+      callRecord = ensuredRow
       return callRecord
     })()
     void ensureCallRecordPromise.catch(() => null)
@@ -5913,7 +8123,15 @@ export async function processPhoneAgentTurn(params: {
     normalizedUserForMatch.split(/\s+/).length <= 7 && prevUserTexts.length > 0
       ? `${prevUserTexts[prevUserTexts.length - 1]} ${normalizedUserForMatch}`
       : normalizedUserForMatch
-  const preFetchedMenu = rankMenuItemsForPrompt(liveMenuItems, combinedMenuQuery, 12)
+  const isBgMediaInput = isLikelyBackgroundMediaSpeech(userText)
+  const currentTurnMenuClauses = isBgMediaInput ? [] : resolveMenuPriceClauses(liveMenuItems, normalizedUserForMatch)
+  const fallbackMenuQuery = currentTurnMenuClauses.length > 0 ? normalizedUserForMatch : combinedMenuQuery
+  const resolvedMenuClauses = isBgMediaInput
+    ? []
+    : currentTurnMenuClauses.length > 0
+      ? currentTurnMenuClauses
+      : resolveMenuPriceClauses(liveMenuItems, combinedMenuQuery)
+  const preFetchedMenu = isBgMediaInput ? [] : rankMenuItemsForPrompt(liveMenuItems, fallbackMenuQuery, 12)
 
   const allUserTurnsText = transcript
     .filter((t) => t.role === 'user')
@@ -5940,7 +8158,8 @@ export async function processPhoneAgentTurn(params: {
     )
   const wantsMenuCatalogContext =
     preFetchedMenu.length > 0 ||
-    /\b(precio|precios|cuesta|cuanto|vale|a como|menu|comer|platillo|combo|combos|taco|burrito|mulita|quesadilla|torta|plato|sope|nacho|chips|totopos|bebida|agua|soda|refresco|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|postres|dessert|desserts|pastel|pasteles|cake|cakes|churro|churros|desayuno|breakfast|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|menudo|birria|pozole|suadero|tripa|cerveza|alcohol|beer|queso|crema|guacamole|tortillas?|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
+    resolvedMenuClauses.length > 0 ||
+    /\b(precio|precios|cuesta|cuestan|cuanto|cuanta|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|total|charge|cost|costs|price|prices|how much|a como|menu|comer|platillo|combo|combos|taco|burrito|mulita|quesadilla|torta|plato|plate|sope|nacho|chips|totopos|bebida|agua|soda|refresco|coca|sprite|fanta|champurrado|cafe|coffee|flan|cheesecake|postre|postres|dessert|desserts|pastel|pasteles|cake|cakes|churro|churros|desayuno|breakfast|huevo|carne|asada|pastor|pollo|lengua|cabeza|buche|chorizo|carnitas|menudo|birria|pozole|suadero|tripa|cerveza|alcohol|beer|queso|crema|guacamole|tortillas?|ingredient|lleva|diferencia|regular|super|vegetar|alerg|frijol|arroz|oz|onza|galon)\b/i.test(
       normCombinedForScope
     )
 
@@ -5956,20 +8175,48 @@ export async function processPhoneAgentTurn(params: {
       normAllUserForScope
     )
 
-  // 2. Podado contextual seguro de KB: reduce ~35-45% tokens de entrada en turnos de IA sin omitir overrides locales ni reglas editadas
+  const asksBroadMenuList =
+    /\b(menu|todo|demas|otros|otra|what else|opciones|variedad|bebidas|platillos|desayunos|combos|tamanos|sabores|carnes|ingredientes|lleva|trae|diferencia|difference)\b/i.test(
+      normUserForKbScope
+    ) ||
+    (preFetchedMenu.length === 0 && resolvedMenuClauses.length === 0)
+  const asksPriceExplicitly =
+    /\b(precio|precios|cuesta|cuestan|cuanto|cuanta|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|a como|total|how much|price|prices|cost|costs|charge|menu)\b/i.test(
+      normCombinedForScope
+    )
+  const parsedClausesForScope = splitMenuQueryIntoClauses(fallbackMenuQuery)
+  const allMenuClausesResolved =
+    resolvedMenuClauses.length > 0 && parsedClausesForScope.length <= resolvedMenuClauses.length
+  const asksIngredientOrDetailInKb =
+    /\b(queso|crema|lleva|trae|ingrediente|ingredient|sabor|tamano|oz|diferencia|difference|pastel|churro|cubana)\b/i.test(
+      normUserForKbScope
+    )
+  const asksPaymentInKb = /\b(ebt|calfresh|tarjeta|efectivo|cash|card|apple\s*pay|google\s*pay|pago|pay)\b/i.test(
+    normAllUserForScope
+  )
+  const asksCateringInKb = /\b(charola|charolas|fiesta|platter|party\s*tray|catering|personas|people|invitados)\b/i.test(
+    normAllUserForScope
+  )
+
+  // 2. Podado contextual seguro de KB: reduce tokens de entrada en turnos de IA sin omitir overrides locales ni reglas editadas
   const kbFiltered = knowledgeBase.filter((rule: any) => {
     if (rule.store_id) return true
     const updMs = rule.updated_at ? Date.parse(String(rule.updated_at)) : 0
     if (Number.isFinite(updMs) && updMs > CANONICAL_KB_EPOCH_MS) return true
     const cat = String(rule.category || '').toLowerCase()
-    if (cat === 'catering' && /fiesta platter/i.test(String(rule.title || ''))) return false
+    if (cat === 'catering' && (!asksCateringInKb || /fiesta platter/i.test(String(rule.title || '')))) return false
+    if (cat === 'payments' && !asksPaymentInKb) return false
     if (wantsMenuCatalogContext && !isCallbackOrPostOrderTopic) {
-      return cat === 'menu' || cat === 'payments' || cat === 'catering' || (cat === 'policies' && /pedidos por tel/i.test(String(rule.title || '')))
+      if (cat === 'policies') return /pedidos por tel/i.test(String(rule.title || ''))
+      if (cat === 'menu') {
+        return !allMenuClausesResolved || asksBroadMenuList || asksIngredientOrDetailInKb || !asksPriceExplicitly
+      }
+      return cat === 'payments' || cat === 'catering'
     }
     if (isCallbackOrPostOrderTopic && !wantsMenuCatalogContext) {
       return cat === 'policies' || cat === 'delivery' || cat === 'staff' || cat === 'employment'
     }
-    if (!wantsMenuCatalogContext && !isCallbackOrPostOrderTopic && !wantsHolidayContext && /\b(torta|super|queso|postre|aguas)\b/i.test(normUserForKbScope) === false) {
+    if (!wantsMenuCatalogContext && !isCallbackOrPostOrderTopic && !wantsHolidayContext && !asksIngredientOrDetailInKb) {
       return cat !== 'menu'
     }
     return true
@@ -6005,7 +8252,8 @@ export async function processPhoneAgentTurn(params: {
     )
 
   // Fecha calendario exacta en California (para no confundir hoy/mañana con festivos de fechas futuras)
-  const ptNow = getPacificDateParts()
+  const ptNow = getPacificDateParts(effectiveNow)
+  const liveBreakfastWin = isKoreBreakfastOpen(effectiveNow)
   const [calY, calM, calD] = ptNow.dateStr.split('-').map(Number)
   const tomorrowUtc = new Date(Date.UTC(calY, calM - 1, calD + 1))
   const tomorrowDateStr = tomorrowUtc.toISOString().slice(0, 10)
@@ -6013,14 +8261,22 @@ export async function processPhoneAgentTurn(params: {
   const todayDayLabelEs = DAY_NAMES_ES[ptNow.dayOfWeek]
   const tomorrowDayLabelEs = DAY_NAMES_ES[tomorrowDow]
 
+  const isEarlyBgMediaFastPath =
+    isBgMediaInput &&
+    !hadPriorPostOrderTurn &&
+    !hadPriorCallbackInCall &&
+    !isPromptExpectingPhoneOrDetails(prevAssistantForTurn)
+
   // Días festivos próximos (anclado al día calendario en California ptNow.dateStr, límite exacto 365 días para incluir las 7 fechas oficiales)
-  const upcomingHolidays = buildEffectiveUpcomingHolidaysForStore({
-    storeId: store.id,
-    weeklyHours: store.weekly_hours,
-    specialHours: ctx.specialHours || [],
-    fromDateStr: ptNow.dateStr,
-    daysAhead: 365
-  })
+  const upcomingHolidays = isEarlyBgMediaFastPath
+    ? []
+    : buildEffectiveUpcomingHolidaysForStore({
+        storeId: store.id,
+        weeklyHours: store.weekly_hours,
+        specialHours: ctx.specialHours || [],
+        fromDateStr: ptNow.dateStr,
+        daysAhead: 365
+      })
   const todayHoliday = upcomingHolidays.find((h) => h.event_date === ptNow.dateStr) || null
   const tomorrowHoliday = upcomingHolidays.find((h) => h.event_date === tomorrowDateStr) || null
   const todayHolName = todayHoliday ? (turnLangGuess === 'en' ? todayHoliday.holiday_name_en : todayHoliday.holiday_name_es) : ''
@@ -6055,28 +8311,84 @@ export async function processPhoneAgentTurn(params: {
       : `- Horarios Especiales: aplica el horario semanal regular.`
     : ''
 
-  const asksBroadMenuList =
-    preFetchedMenu.length < 3 ||
-    /\b(menu|todo|demas|otros|otra|what else|opciones|variedad|bebidas|platillos|desayunos|combos|tamanos)\b/i.test(normUserForKbScope)
-  // Catálogo en vivo compilado 1 sola vez en caché SWR; se omite si preFetchedMenu ya cubrió el platillo exacto para acelerar TTFT
-  const asksPriceExplicitly = /\b(precio|precios|cuesta|cuanto|vale|a como|how much|price|cost|menu)\b/i.test(normCombinedForScope)
+  // Omitir el catálogo completo de 6.7 KB cuando COTIZACIÓN VERIFICADA ya cubrió todas las cláusulas solicitadas
   const menuCatalogSummary =
-    wantsMenuCatalogContext && asksBroadMenuList && (!isCallbackOrPostOrderTopic || asksPriceExplicitly)
+    wantsMenuCatalogContext &&
+    (!isCallbackOrPostOrderTopic || asksPriceExplicitly) &&
+    (asksBroadMenuList || !allMenuClausesResolved)
       ? turnLangGuess === 'en'
         ? menuEntry.compactCatalogEn
         : menuEntry.compactCatalogEs
       : ''
 
-  const menuPreContext =
-    preFetchedMenu.length > 0
+  const buildVerifiedQuoteSection = (): string => {
+    if (resolvedMenuClauses.length === 0) return ''
+    const quoteLines = resolvedMenuClauses.map((cl) => {
+      if (cl.kind === 'unsupported') {
+        return `- NO MANEJADO ("${cl.rawClause}"): Tacos Gavilan NO vende ${cl.unsupportedLabelEs}${cl.isBirthdayCakeOrPastry ? ' (de postre solo ofrecemos Flan y Cheesecake individuales)' : ''}.`
+      }
+      if (cl.hasSizeVariants) {
+        const optsText = cl.variantItems.map((v) => `${v.name}: $${Number(v.price).toFixed(2)}`).join(' | ')
+        return `- ${cl.quantity}× ${cl.spokenLabelEs} [tamaño no especificado — MENCIONAR TODOS LOS TAMAÑOS EN VIVO (${cl.variantItems.length}): ${optsText}]`
+      }
+      const unit = Number(cl.unitPrice || 0)
+      const tot = unit * cl.quantity
+      const qtySummary = cl.quantity >= 2 ? `$${unit.toFixed(2)} cada uno ($${tot.toFixed(2)} por los ${cl.quantity})` : `$${unit.toFixed(2)}`
+      const notes: string[] = []
+      if (cl.isAnyMeatCategory) notes.push('todas las carnes al mismo precio — indicar "con la carne de tu preferencia" sin enumerar variantes iguales')
+      if (cl.altSuperItem) notes.push(`MENCIONAR SIEMPRE AMBAS OPCIONES (Regular y Super): Regular $${unit.toFixed(2)} y Super (${cl.altSuperItem.name}) $${Number(cl.altSuperItem.price).toFixed(2)}`)
+      if (cl.noMeatAltItem) notes.push(`opción sin carne: ${cl.noMeatAltItem.name} $${Number(cl.noMeatAltItem.price).toFixed(2)}`)
+      if (cl.altBoxItem) notes.push(`en Caja 96 oz: ${cl.altBoxItem.name} $${Number(cl.altBoxItem.price).toFixed(2)}`)
+      const desc = String(cl.primaryItem?.description || '').replace(/\s+/g, ' ').trim()
+      if (desc && !cl.isAnyMeatCategory) notes.push(`Prep Toast: ${desc}`)
+      const label = cl.isAnyMeatCategory ? cl.spokenLabelEs : cl.primaryItem?.name || cl.spokenLabelEs
+      return `- ${cl.quantity}× ${label} (${cl.categoryName}): ${qtySummary}${notes.length ? ` [${notes.join(' | ')}]` : ''}`
+    })
+
+    const concreteLines = resolvedMenuClauses.filter((c) => c.kind === 'item' && !c.hasSizeVariants && c.unitPrice !== null)
+    const ambLines = resolvedMenuClauses.filter((c) => c.kind === 'item' && c.hasSizeVariants)
+    const concreteSum = concreteLines.reduce((acc, c) => acc + Number(c.unitPrice || 0) * c.quantity, 0)
+    const concreteQtySum = concreteLines.reduce((acc, c) => acc + c.quantity, 0)
+
+    if (ambLines.length === 0 && (concreteLines.length >= 2 || concreteQtySum >= 2)) {
+      quoteLines.push(`-> SUBTOTAL EXACTO PRE-CALCULADO (antes de impuestos): $${concreteSum.toFixed(2)} dólares`)
+    } else if (ambLines.length === 1 && (concreteLines.length >= 1 || ambLines[0].quantity >= 2)) {
+      const amb = ambLines[0]
+      const med = amb.variantItems.find((v) => /\bmedium\b/i.test(String(v?.name || '')))
+      const lrg = amb.variantItems.find((v) => /\blarge\b/i.test(String(v?.name || '')))
+      if (med && lrg) {
+        const subMed = concreteSum + Number(med.price) * amb.quantity
+        const subLrg = concreteSum + Number(lrg.price) * amb.quantity
+        if (concreteLines.length >= 1) {
+          quoteLines.push(
+            `-> SUBTOTAL BASE PRE-CALCULADO (sin bebida): $${concreteSum.toFixed(2)} dólares | Con ${amb.quantity}× Mediana 22oz ($${Number(med.price).toFixed(2)}): $${subMed.toFixed(2)} dólares | Con ${amb.quantity}× Grande 32oz ($${Number(lrg.price).toFixed(2)}): $${subLrg.toFixed(2)} dólares (antes de impuestos)`
+          )
+        } else {
+          quoteLines.push(
+            `-> SUBTOTAL PRE-CALCULADO (${amb.quantity}×): Mediana 22oz = $${subMed.toFixed(2)} dólares | Grande 32oz = $${subLrg.toFixed(2)} dólares (antes de impuestos)`
+          )
+        }
+      }
+    }
+    return `\nCOTIZACIÓN VERIFICADA PARA ESTA PREGUNTA (RESPONDE TODOS LOS PUNTOS EN ORDEN, COPIA LOS PRECIOS EXACTOS SIN ALTERAR CENTAVOS Y USA EL SUBTOTAL EXACTO):\n${quoteLines.join('\n')}`
+  }
+
+  const verifiedQuoteSection = buildVerifiedQuoteSection()
+  const matchedMenuForPrompt =
+    allMenuClausesResolved && !asksBroadMenuList
+      ? preFetchedMenu.slice(0, Math.min(6, Math.max(2, resolvedMenuClauses.length * 2)))
+      : preFetchedMenu
+  const matchedMenuSection =
+    matchedMenuForPrompt.length > 0
       ? `\nCOINCIDENCIAS DEL MENÚ PARA ESTA PREGUNTA:\n` +
-        preFetchedMenu
+        matchedMenuForPrompt
           .map((m) => {
             const desc = String(m.description || '').replace(/\s+/g, ' ').trim()
             return `- ${m.name} (${m.category}): ${m.priceFormatted}${desc ? ` — ${desc}` : ''}`
           })
           .join('\n')
       : ''
+  const menuPreContext = `${verifiedQuoteSection}${matchedMenuSection}`
 
   const explicitGuestMatch = combinedMenuQuery.match(/\b([1-9]\d{0,2})\s*(?:personas?|invitados?|gente|people|guests?|adultos?|adults?)\b/i)
   const wantsFiestaContext =
@@ -6090,7 +8402,10 @@ export async function processPhoneAgentTurn(params: {
       : null
   const guestMatch = explicitGuestMatch || followUpGuestMatch
   const detectedGuestCount = guestMatch ? Math.min(500, Math.max(1, Number(guestMatch[1]))) : null
-  const platterInfo = recommendFiestaPlatters(detectedGuestCount, liveMenuItems)
+  const platterInfo = recommendFiestaPlatters(
+    isEarlyBgMediaFastPath ? null : detectedGuestCount,
+    isEarlyBgMediaFastPath ? [] : liveMenuItems
+  )
   const platterPreContext = wantsFiestaContext
     ? `\nCHAROLAS FIESTA PLATTER OFICIALES — PARTY TRAY GUIDELINES (orden exclusivo en línea en tacosgavilan.com con mínimo 1 hora de anticipación; carnes a elegir: Carne Asada, Pollo o Al Pastor [en orden en línea Toast también permite elegir entre las 8 carnes]; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas recién hechas de maíz o harina a elegir, salsas roja y verde, condimentos y utensilios completos):\n` +
       platterInfo.packages
@@ -6161,63 +8476,9 @@ export async function processPhoneAgentTurn(params: {
           })
           .join(' | ')
       : ''
-  const storesDirectoryBlock =
-    wantsMultiStoreContext && allActiveStores.length > 0
-      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES (USA ESTOS NOMBRES DE CLIENTE Y ENTRECALLES REALES; NUNCA INVENTES CALLES):\n` +
-        allActiveStores
-          .map((s) => {
-            const custLabel = formatCustomerStoreName(s, turnLangGuess, { style: 'display' })
-            const cross = getCustomerStoreCrossStreets(s, turnLangGuess)
-            return `- #${s.id} ${custLabel}${cross ? ` (Esquina: ${cross})` : ''}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | Horario: ${turnLangGuess === 'en' ? s.compactHoursEn : s.compactHoursEs}`
-          })
-          .join('\n') +
-        (crossStoreComparison ? `\n\n${crossStoreComparison}` : '') +
-        regionalPreContext
-      : ''
-
-  const systemInstruction = `Eres la recepcionista telefónica virtual oficial de **Tacos Gavilan** en **${customerBranchSpoken}** (Sucursal #${store.id}${customerBranchCrossStreets ? `, entrecalles oficiales: ${customerBranchCrossStreets}` : ''}).
-El nombre oficial de la marca es estrictamente **Tacos Gavilan** (NUNCA digas "Tacos El Gavilan").
-**REGLA OBLIGATORIA SUCURSALES DE LOS ÁNGELES (#5, #6 y #7)**: Frente al cliente **PROHIBIDO** llamar a estas tres tiendas únicamente "Broadway", "Central", "Slauson", "LA Broadway" o "LA Central". **SIEMPRE** nómbralas como **Los Ángeles** indicando sus entrecalles (esquinas): #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway).
-Operamos exclusivamente en California, EE. UU.: **TODOS los precios son en dólares y centavos estadounidenses (USD)**. **QUEDA TERMINANTEMENTE PROHIBIDO** decir o escribir "pesos", "peso" o "MXN" (ejemplo correcto: "Cada taco cuesta $2.29 dólares").
-
-DATOS EN VIVO DE ESTA SUCURSAL (${customerBranchDisplay}):
-${calendarDateLine}
-- Estado actual en vivo (Zona Horaria Pacífico): ${turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs}
-- Horario de la semana: ${turnLangGuess === 'en' ? scheduleEval.weeklySummaryEn : scheduleEval.weeklySummaryEs}
-${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${customerBranchCrossStreets ? ` (Entrecalles / esquina: ${customerBranchCrossStreets})` : ''}${storeZipCode ? ` (Código postal solo si lo piden: ${storeZipCode})` : ''}
-- Teléfono: ${store.phone}
-- Drive-Thru: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene Drive-Thru.' : 'Esta sucursal NO tiene Drive-Thru (solo Comedor y Para Llevar).'} Las únicas 6 sucursales con Drive-Thru son Los Ángeles (esquina de Central y Washington), West Covina, La Puente, Norwalk, Lynwood y South Gate.
-- Pagos / EBT: ${config.accepts_ebt ? 'Aceptamos EBT CalFresh RMP en caja, efectivo, tarjetas y Apple Pay/Google Pay.' : 'NO aceptamos EBT CalFresh aquí; sí efectivo, tarjetas y Apple Pay/Google Pay.'}
-- Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)
-- Privacidad de la llamada: El sistema NO graba audio de las llamadas; únicamente guarda la transcripción escrita de la conversación para atenderte mejor.${source === 'twilio' && callerNumber ? `\n- Caller ID Twilio entrante: ${callerNumber} (solo úsalo si piden marcar a este mismo número)` : ''}
-${parkingNotesBlock}${priorCallbackNote}
-${storesDirectoryBlock}
-
-${menuCatalogSummary}
-${menuPreContext}
-${platterPreContext}
-
-BASE DE CONOCIMIENTO OFICIAL EDITABLE (REGLAS VIGENTES, TIENEN PRIORIDAD SOBRE CUALQUIER EJEMPLO):
-${kbFormatted}
-
-MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
-0. **CERO DATOS INVENTADOS, MONEDA DÓLARES/CENTAVOS Y PRONUNCIACIÓN VIAL NATURAL (REGLA CRÍTICA)**:
-   - Usa ÚNICAMENTE la información de este contexto. NUNCA inventes platillos, carnes, ingredientes, pasteles, precios, promociones, horarios de entrevistas ni procesos que no aparezcan arriba. Ante una política administrativa o operativa legítima no registrada en este contexto (ej. convenios escolares o permisos especiales), indica con honestidad que no cuentas con esa política oficial confirmada, ofrece dejar un recado al gerente de la sucursal y llama a \`flag_unanswered_question\` (**PROHIBIDO** inventar que esos detalles o productos que no manejamos aparecen en \`tacosgavilan.com\`).
-   - Todos los importes se expresan únicamente en **dólares y centavos** (\`$2.29 dólares\`, jamás \`pesos\`).
-   - Al decir cualquier domicilio o calle, dilo SIEMPRE completo y sin abreviaturas (ej. \`101 South Azusa Avenue, en West Covina, California\`, \`115 East Baseline Road\`, \`1258 East Seventeenth Street\`, \`3220 East Imperial Highway\`, \`Boulevard\`). NUNCA escribas \`S.\`, \`E.\`, \`N.\`, \`W.\`, \`Ave.\`, \`Rd.\`, \`Blvd.\`, \`St.\`, \`Hwy.\` ni \`CA\`, y no menciones el código postal a menos que el cliente lo pida.
-1. **CERO MULETILLAS Y CERO REPETICIÓN DE "¡SÍ!"**:
-   - **PROHIBIDO** empezar tus respuestas con "¡Sí!", "¡Claro que sí!", "¡Claro!", "¡Por supuesto!", "¡Hola!" o "Yes!".
-   - Cuando el cliente hace varias preguntas a la vez (ej. "¿Están abiertos, a qué hora cierran y tienen Drive-Thru?"), **NUNCA** digas "Sí" dos veces. Integra todo en una sola oración fluida. Ejemplo para este momento: ${hoursExampleEs}
-2. **Menú, STT Fonético, Bebidas, Quesos, Postres, Regular vs Super y No Manejados**:
-   - Si el precio/ingrediente YA está en tu contexto, **RESPONDE DIRECTO SIN LLAMAR HERRAMIENTAS**. Ante posibles errores de micrófono sobre un tema reciente (ej. "torta Corona" tras hablar de "torta cubana", "salad burrito" = asada, "muleta" = mulita, "driver" = Drive-Thru), interpreta con naturalidad el platillo correcto.
-   - Medidas reales de bebidas, quesos y postres aparecen en el CATÁLOGO y Base de Conocimiento (ej. Champurrado y Café individual = **vaso térmico de 16 onzas**, Caja Champurrado = **96 onzas** [6×16 oz / 8 vasitos de 12 oz]; Aguas Frescas: **Horchata, Jamaica, Piña y Tamarindo** en 22 oz / 32 oz / 128 oz; Tortas = **Queso Fresco**, NUNCA crema ni queso fundido; Postres = **SOLO Flan y Cheesecake individuales**). Diferencia Regular vs Super: Quesadilla/Mulita Super añade guacamole y crema; Burrito Super añade queso Monterey Jack, guacamole y crema; Torta Cubana = milanesa de res, jamón y salchicha.
-   - **NO vendemos ni manejamos pasteles de cumpleaños**, pasteles enteros, churros, menudo, birria, pozole, suadero, tripa (descontinuada) ni alcohol/cerveza; si preguntan si tenemos alguno de estos productos o temas ajenos (música, deportes, chistes), acláralo con amabilidad (indicando que de postre solo ofrecemos Flan y Cheesecake individuales si preguntaron por pastel/postre), **NUNCA** digas que los busquen en \`tacosgavilan.com\` y **NUNCA** llames \`flag_unanswered_question\` por productos que no vendemos.
-3. **Charolas Fiesta Platters**:
-   - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
-4. **Pedidos por Teléfono**:
-   - Explica de manera educada y seria que no tomamos órdenes por teléfono, e invítalo a hacer su pedido fácilmente en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}. Si insisten en preguntar por qué, mantente amable y seria indicando únicamente que los pedidos para recoger se toman en tacosgavilan.com o directamente en la sucursal. **PROHIBIDO** mencionar "políticas", "política", "pólizas", "reglamentos", "policy" o "policies" al responder sobre órdenes por teléfono.
-   - EXCEPCIÓN: Si el cliente ya hizo una orden y llama para agregar **condimentos gratis**, reportar **sucursal equivocada** o un **problema/retraso de entrega**, NO apliques esta regla de pedido nuevo: atiende según las reglas 5 y 6.
-5. **Repartidores vs. Clientes de Plataformas Delivery (Uber Eats, DoorDash y Grubhub)**:
+  const includePostOrderRulesInPrompt = isCallbackOrPostOrderTopic || hadPriorPostOrderTurn
+  const postOrderRulesBlock = includePostOrderRulesInPrompt
+    ? `5. **Repartidores vs. Clientes de Plataformas Delivery (Uber Eats, DoorDash y Grubhub)**:
    - **Si llama un REPARTIDOR**: ${store.has_drive_thru ? `En esta sucursal (${customerBranchDisplay}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${customerBranchDisplay}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
    - **Si llama un CLIENTE sobre su orden de Uber Eats / DoorDash / Grubhub**:
      * **Modificar platillos pagados, agregar comida con costo, cambiar dirección o pedir reembolso**: Explica con claridad y empatía que, como el pago se procesó por esa aplicación externa, la sucursal **no puede modificar platillos con costo, cambiar la dirección ni emitir reembolsos**; debe gestionarlo o cancelarlo directo en su aplicación en la sección **Ayuda (Help)**.
@@ -6243,10 +8504,91 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
      * Después de ejecutar \`create_manager_callback\`, aclara de forma amable y natural que no transferimos llamadas a celulares personales de los gerentes (sin mencionar "políticas" ni "reglamentos") y ${callbackOutcomeInstruction}
      * Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
      * **Dictado pausado de teléfono**: si el cliente pausó a la mitad y solo escuchaste entre 3 y 9 dígitos, **conserva esos dígitos** y pídele amablemente solo los dígitos restantes (ej. \`"Anoté 323-982, ¿me regalas los últimos 4 dígitos?"\`); en cuanto te dé el resto en el siguiente turno, únelos en un solo número de 10 dígitos y ejecuta \`create_manager_callback\` de inmediato.
-     * Si ya enviaste la alerta o nota en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el equipo o el gerente ya la tienen en su pantalla.
+     * Si ya enviaste la alerta o nota en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el equipo o el gerente ya la tienen en su pantalla.`
+    : `5-6. **Incidencias / Recados / Delivery**: Si el cliente menciona una orden ya pagada, objetos olvidados o pide hablar con el gerente, aclara que no transferimos llamadas a celulares personales y pídele nombre y teléfono de 10 dígitos (y ticket y fecha si reporta una orden directa equivocada) antes de usar \`create_manager_callback\`.`
+
+  const storesDirectoryBlock =
+    wantsMultiStoreContext && allActiveStores.length > 0
+      ? `\nDIRECTORIO OFICIAL VERIFICADO DE LAS 15 SUCURSALES (USA ESTOS NOMBRES DE CLIENTE Y ENTRECALLES REALES; NUNCA INVENTES CALLES):\n` +
+        allActiveStores
+          .map((s) => {
+            const custLabel = formatCustomerStoreName(s, turnLangGuess, { style: 'display' })
+            const cross = getCustomerStoreCrossStreets(s, turnLangGuess)
+            return `- #${s.id} ${custLabel}${cross ? ` (Esquina: ${cross})` : ''}: ${formatStoreAddressForAgent(s.address, turnLangGuess, { includeZip: false })} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | Horario: ${turnLangGuess === 'en' ? s.compactHoursEn : s.compactHoursEs}`
+          })
+          .join('\n') +
+        (crossStoreComparison ? `\n\n${crossStoreComparison}` : '') +
+        regionalPreContext
+      : ''
+
+  const isLosAngelesCrossStore = Boolean(resolveCustomerStoreMeta(store)?.isLosAngelesCrossStreetStore)
+  const laAddressReminder = isLosAngelesCrossStore
+    ? turnLangGuess === 'en'
+      ? ` — MANDATORY when stating address/location: ALWAYS explicitly say "Los Angeles" together with the street and cross streets (e.g. "${spokenStoreAddress.replace(/,\s*Los\s+[ÁA]ngeles(?:,\s*California)?$/i, '')}, in Los Angeles, at the corner of ${customerBranchCrossStreets}")`
+      : ` — OBLIGATORIO al responder ubicación o dirección: di SIEMPRE explícitamente "Los Ángeles" junto con la calle y las entrecalles (ej. "${spokenStoreAddress.replace(/,\s*Los\s+[ÁA]ngeles(?:,\s*California)?$/i, '')}, en Los Ángeles, en la esquina de ${customerBranchCrossStreets}")`
+    : ''
+
+  const systemInstruction = isEarlyBgMediaFastPath
+    ? ''
+    : `Eres la recepcionista telefónica virtual oficial de **Tacos Gavilan** en **${customerBranchSpoken}** (Sucursal #${store.id}${customerBranchCrossStreets ? `, entrecalles oficiales: ${customerBranchCrossStreets}` : ''}).
+El nombre oficial de la marca es estrictamente **Tacos Gavilan** (NUNCA digas "Tacos El Gavilan").
+**REGLA OBLIGATORIA SUCURSALES DE LOS ÁNGELES (#5, #6 y #7)**: Frente al cliente **PROHIBIDO** llamar a estas tres tiendas únicamente "Broadway", "Central", "Slauson", "LA Broadway" o "LA Central". **SIEMPRE** nómbralas como **Los Ángeles** indicando sus entrecalles (esquinas), y al dar su ubicación o dirección incluye **SIEMPRE explícitamente "Los Ángeles"** junto con la calle y entrecalles: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway, en Los Ángeles); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, en Los Ángeles, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway, en Los Ángeles).
+Operamos exclusivamente en California, EE. UU.: **TODOS los precios son en dólares y centavos estadounidenses (USD)**. **QUEDA TERMINANTEMENTE PROHIBIDO** decir o escribir "pesos", "peso" o "MXN" (ejemplo correcto: "Cada taco cuesta $2.29 dólares").
+
+DATOS EN VIVO DE ESTA SUCURSAL (${customerBranchDisplay}):
+${calendarDateLine}
+- Estado actual en vivo (Zona Horaria Pacífico): ${turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs}
+- Horario Oficial de Desayunos (las 15 sucursales): Disponibles todos los días desde la apertura hasta las ${KORE_BREAKFAST_CUTOFF_LABEL} (${liveBreakfastWin.localTimeLabel} ahora -> ${liveBreakfastWin.open && scheduleEval.isOpenNow ? 'DESAYUNOS DISPONIBLES AHORA' : liveBreakfastWin.open ? 'DESAYUNOS AL ABRIR HASTA LAS 2:00 PM' : 'DESAYUNOS YA TERMINARON POR HOY — ofrecer menú regular; Café y Champurrado sí siguen disponibles'}).
+- Horario de la semana: ${turnLangGuess === 'en' ? scheduleEval.weeklySummaryEn : scheduleEval.weeklySummaryEs}
+${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${customerBranchCrossStreets ? ` (Entrecalles / esquina: ${customerBranchCrossStreets})` : ''}${storeZipCode ? ` (Código postal solo si lo piden: ${storeZipCode})` : ''}${laAddressReminder}
+- Teléfono: ${store.phone}
+- Drive-Thru: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene Drive-Thru.' : 'Esta sucursal NO tiene Drive-Thru (solo Comedor y Para Llevar).'} Las únicas 6 sucursales con Drive-Thru son Los Ángeles (esquina de Central y Washington), West Covina, La Puente, Norwalk, Lynwood y South Gate.
+- Pagos / EBT: ${config.accepts_ebt ? (store.has_drive_thru ? 'Aceptamos efectivo, tarjetas y Apple Pay/Google Pay; EBT CalFresh se acepta ÚNICAMENTE adentro en el mostrador del comedor (NO disponible en la ventanilla de Drive-Thru).' : 'Aceptamos EBT CalFresh en el mostrador del comedor, efectivo, tarjetas y Apple Pay/Google Pay.') : 'NO aceptamos EBT CalFresh en esta sucursal; sí efectivo, tarjetas y Apple Pay/Google Pay.'}
+- Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)
+- Privacidad de la llamada: El sistema NO graba audio de las llamadas; únicamente guarda la transcripción escrita de la conversación para atenderte mejor.${source === 'twilio' && callerNumber ? `\n- Caller ID Twilio entrante: ${callerNumber} (solo úsalo si piden marcar a este mismo número)` : ''}
+${parkingNotesBlock}${priorCallbackNote}
+${storesDirectoryBlock}
+
+${menuCatalogSummary}
+${menuPreContext}
+${platterPreContext}
+
+BASE DE CONOCIMIENTO OFICIAL EDITABLE (REGLAS VIGENTES, TIENEN PRIORIDAD SOBRE CUALQUIER EJEMPLO):
+${kbFormatted}${
+    activeLearnedRules.length > 0
+      ? `\n\nREGLAS APRENDIDAS DE LLAMADAS REALES (APROBADAS / AUTO-APLICADAS — PRIORIDAD MÁXIMA EN ESTA CONVERSACIÓN):\n` +
+        activeLearnedRules
+          .slice(0, 25)
+          .map((r, idx) => {
+            const ruleTxt = turnLangGuess === 'en' ? r.ruleEn || r.ruleEs : r.ruleEs || r.ruleEn
+            const scopeLbl = r.storeId ? `SOLO ${customerBranchDisplay}` : 'GLOBAL'
+            return `${idx + 1}. [${r.category.toUpperCase()} - ${scopeLbl}] (${r.trigger}): ${ruleTxt}`
+          })
+          .join('\n')
+      : ''
+  }
+
+MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
+0. **CERO DATOS INVENTADOS, MONEDA DÓLARES/CENTAVOS Y PRONUNCIACIÓN VIAL NATURAL (REGLA CRÍTICA)**:
+   - Usa ÚNICAMENTE la información de este contexto. NUNCA inventes platillos, carnes, ingredientes, pasteles, precios, promociones, horarios de entrevistas ni procesos que no aparezcan arriba. Ante una política administrativa o operativa legítima no registrada en este contexto (ej. convenios escolares o permisos especiales), indica con honestidad que no cuentas con esa política oficial confirmada, ofrece dejar un recado al gerente de la sucursal y llama a \`flag_unanswered_question\` (**PROHIBIDO** inventar que esos detalles o productos que no manejamos aparecen en \`tacosgavilan.com\`).
+   - Todos los importes se expresan únicamente en **dólares y centavos** (\`$2.29 dólares\`, jamás \`pesos\`).
+   - Al decir cualquier domicilio o calle, dilo SIEMPRE completo y sin abreviaturas (ej. \`101 South Azusa Avenue, en West Covina, California\`, \`115 East Baseline Road\`, \`1258 East Seventeenth Street\`, \`3220 East Imperial Highway\`, \`Boulevard\`). NUNCA escribas \`S.\`, \`E.\`, \`N.\`, \`W.\`, \`Ave.\`, \`Rd.\`, \`Blvd.\`, \`St.\`, \`Hwy.\` ni \`CA\`, y no menciones el código postal a menos que el cliente lo pida.
+1. **CERO MULETILLAS Y CERO REPETICIÓN DE "¡SÍ!"**:
+   - **PROHIBIDO** empezar tus respuestas con "¡Sí!", "¡Claro que sí!", "¡Claro!", "¡Por supuesto!", "¡Hola!" o "Yes!".
+   - Cuando el cliente hace varias preguntas a la vez (ej. "¿Están abiertos, a qué hora cierran y tienen Drive-Thru?"), **NUNCA** digas "Sí" dos veces. Integra todo en una sola oración fluida. Ejemplo para este momento: ${hoursExampleEs}
+2. **Menú, Multi-Platillo, STT Fonético, Bebidas, Quesos, Postres, Regular vs Super y No Manejados**:
+   - Si el precio/ingrediente YA está en \`COTIZACIÓN VERIFICADA\` o \`CATÁLOGO EN VIVO\`, **RESPONDE DIRECTO SIN LLAMAR HERRAMIENTAS**. Ante múltiples platillos en una misma pregunta, **RESPONDE ABSOLUTAMENTE TODOS los artículos pedidos en el mismo orden** indicando el **precio de CADA artículo (unitario y/o parcial)** antes del subtotal, sin omitir ninguno ni inventar cifras. Distingue con precisión **\`Taco Plate\`** (3 tacos de tu elección sencillos con arroz y frijoles) de **\`Plato <carne>\`** (plato individual con carne, arroz, frijoles, ensalada, guacamole y tortillas). Si preguntan el precio de un **burrito, mulita o quesadilla** regulares sin decir *"Super"*, **menciona SIEMPRE tanto el precio Regular como el precio de la opción Super** (**PROHIBIDO** usar la palabra \`"tamaño"\` o \`"size"\` en burritos, quesadillas, mulitas, tortas, tacos, sopes, nachos o platos: la comida NO tiene tamaños, solo preparación **Regular vs Super** o pura carne). Habla con calidez y naturalidad humana (JAMÁS leas listas CSV ni repitas 3 carnes idénticas al mismo precio: di por ejemplo *"los Super Nachos con la carne de tu preferencia cuestan $9.69 dólares"*), y si no especificó tamaño de bebida **menciona SIEMPRE TODOS los tamaños listados en opciones en vivo** (bebidas son ÚNICAMENTE **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** cuando aplique, además de Café/Champurrado de 16 oz y Caja de 96 oz; **ESTRICTAMENTE PROHIBIDO llamar \`"chica"\`, \`"chico"\`, \`"pequeña"\` o \`"small"\` a la bebida de 22 onzas**), además de incluir el **subtotal pre-calculado** ("más impuestos" / "plus tax") cuando aplique. Ante posibles errores de micrófono sobre un tema reciente (ej. "torta Corona" = "torta cubana", "salad burrito" = asada, "sasada" = asada, "adobada" = pastor, "Taco Play" = Taco Plate, "muleta" = mulita, "driver" = Drive-Thru), interpreta con naturalidad el platillo correcto.
+   - Medidas reales de bebidas, quesos y postres aparecen en el CATÁLOGO y Base de Conocimiento (ej. Champurrado y Café individual = **vaso térmico de 16 onzas**, Caja Champurrado = **96 onzas** [6×16 oz / 8 vasitos de 12 oz]; Aguas Frescas: **Horchata, Jamaica, Piña y Tamarindo** únicamente en **Mediana de 22 oz**, **Grande de 32 oz** y **Galón de 128 oz** — jamás "chica"; Tortas = **Queso Fresco**, NUNCA crema ni queso fundido; Postres = **SOLO Flan y Cheesecake individuales**). Diferencia Regular vs Super (sin decir "tamaño"): Quesadilla/Mulita Super añade guacamole y crema; Burrito Super añade queso Monterey Jack, guacamole y crema; Supreme/Supremo equivale a Super; Torta Cubana = milanesa de res, jamón y salchicha.
+   - **NO vendemos ni manejamos pasteles de cumpleaños**, pasteles enteros, churros, menudo, birria, pozole, suadero, tripa (descontinuada) ni alcohol/cerveza; si preguntan si tenemos alguno de estos productos o temas ajenos (música, deportes, chistes), acláralo con amabilidad (indicando que de postre solo ofrecemos Flan y Cheesecake individuales si preguntaron por pastel/postre), **NUNCA** digas que los busquen en \`tacosgavilan.com\` y **NUNCA** llames \`flag_unanswered_question\` por productos que no vendemos.
+3. **Charolas Fiesta Platters**:
+   - Usa la sección CHAROLAS de tu contexto (si ya calculó \`CÁLCULO EXACTO\` para >40 personas, responde directo sin tool call).
+4. **Pedidos por Teléfono**:
+   - Explica de manera educada y seria que no tomamos órdenes por teléfono, e invítalo a hacer su pedido fácilmente en tacosgavilan.com para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}. Si insisten en preguntar por qué, mantente amable y seria indicando únicamente que los pedidos para recoger se toman en tacosgavilan.com o directamente en la sucursal. **PROHIBIDO** mencionar "políticas", "política", "pólizas", "reglamentos", "policy" o "policies" al responder sobre órdenes por teléfono.
+   - EXCEPCIÓN: Si el cliente ya hizo una orden y llama para agregar **condimentos gratis**, reportar **sucursal equivocada** o un **problema/retraso de entrega**, NO apliques esta regla de pedido nuevo: atiende según las reglas 5 y 6.
+${postOrderRulesBlock}
 7. **Idioma y Agilidad Telefónica (REGLA CRÍTICA DE VELOCIDAD)**:
    - Idioma detectado del cliente: ${turnLangGuess === 'en' ? 'Inglés' : 'Español'}. Responde SIEMPRE en el mismo idioma de su último mensaje (español cálido y natural del Sur de California con precios SIEMPRE en dólares y centavos, o inglés natural).
-   - **RESPUESTAS ULTRA ÁGILES (8 a 20 palabras, 1–2 oraciones cortas)**: Ya dijiste la sucursal al saludar; NO repitas el nombre largo ni las esquinas en cada respuesta a menos que pregunten ubicación, dirección o sucursal. Responde directo el dato pedido más una pregunta breve de cierre (ej. \`"Hoy cerramos a las 2:00 AM. ¿Te puedo ayudar con algo más?"\`, \`"Cada taco de asada cuesta $2.29 dólares. ¿Algo más?"\`). Excepciones autorizadas hasta **65–75 palabras**: (a) calendario completo de los **7 festivos** (cerrados Viernes Santo y Navidad 25 dic; cierre 4 PM Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura 11 AM Año Nuevo 1 ene y Black Friday); o (b) varias sucursales a la vez. Sin comerciales de relleno, viñetas, emojis ni markdown.
+   - **RESPUESTAS ULTRA ÁGILES (8 a 20 palabras, 1–2 oraciones cortas)**: Ya dijiste la sucursal al saludar; NO repitas el nombre largo ni las esquinas en cada respuesta a menos que pregunten ubicación, dirección o sucursal${isLosAngelesCrossStore ? (turnLangGuess === 'en' ? ` (in that case ALWAYS explicitly include "Los Angeles" along with the street and cross streets "${customerBranchCrossStreets}")` : ` (y si la preguntan incluye SIEMPRE explícitamente "Los Ángeles" junto con la calle y entrecalles "${customerBranchCrossStreets}")`) : ''}. Responde directo el dato pedido más una pregunta breve de cierre (ej. \`"Hoy cerramos a las 2:00 AM. ¿Te puedo ayudar con algo más?"\`, \`"Cada taco de asada cuesta $2.29 dólares. ¿Algo más?"\`). Excepciones autorizadas hasta **65–75 palabras**: (a) calendario completo de los **7 festivos** (cerrados Viernes Santo y Navidad 25 dic; cierre 4 PM Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic; apertura 11 AM Año Nuevo 1 ene y Black Friday); (b) varias sucursales a la vez; o (c) cotización de 2 o más platillos del menú (o una bebida con todos sus tamaños disponibles) con precios y subtotal (hasta ~65 palabras). Sin comerciales de relleno, viñetas, emojis ni markdown.
 8. **Filtro Anti-Spam / Ventas Comerciales**:
    - Si llaman para vender servicios comerciales (SEO/Google, préstamos, paneles solares, garantías), declina con cortesía en una oración breve indicando que en sucursal no recibimos ofertas comerciales y NO ejecutes \`create_manager_callback\`.
 9. **Cierre Limpio de Llamada Cuando Ya No Hay Nada Más Que Hacer**:
@@ -6278,8 +8620,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   // Telemetría de herramientas consultadas implícitamente (los datos ya van inyectados en el contexto)
   if (
     !isCallbackOrOrderScenario &&
-    preFetchedMenu.length > 0 &&
-    /\b(precio|cuesta|cuanto|how much|price|cost|taco|burrito|mulita|quesadilla|torta|plato|sope|nachos|horchata|jamaica|champurrado|agua)\b/i.test(
+    (preFetchedMenu.length > 0 || resolvedMenuClauses.length > 0) &&
+    /\b(precio|precios|cuesta|cuestan|cuanto|cuanta|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|total|charge|how much|price|prices|cost|costs|taco|burrito|mulita|quesadilla|torta|plato|plate|sope|nachos|horchata|jamaica|champurrado|agua)\b/i.test(
       normUser
     )
   ) {
@@ -6557,14 +8899,16 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       }
 
       const rawReasonCategory = String(toolArgs?.reason_category || '').trim().toLowerCase()
-      const hasFoodOrderIssueEvidence =
-        /\b(falto|faltaron|incomplet[oa]s?|equivocad[oa]s?|equivocaron|me dieron mal|salio mal|venia mal|orden mal|pedido mal|wrong order|missing|incomplete|ticket|recibo|receipt|tacos?|burritos?|mulitas?|quesadillas?|tortas?|platos?|comida|food|orden|order)\b/i.test(
-          normalizeSearchText(`${reasonSummary} ${allUserTurnsText}`)
+      // Verificar evidencia REAL en lo dicho por quien llama (jamás en reasonSummary inventado por el LLM ni por mencionar "tacos/orden"):
+      // evita bloquear recados generales al gerente (ej. Raquel Velázquez pidiendo hablar con el manager por una charola) con la compuerta de 4 datos de ticket.
+      const userExplicitWrongOrderEvidence =
+        /\b(falto|faltaron|incomplet[oa]s?|equivocad[oa]s?|equivocaron|me dieron mal|salio mal|venia mal|vino mal|hicieron mal|prepararon mal|me cambiaron|no era lo que pedi|no me pusieron|no me dieron|no venia|no traia|orden mal|pedido mal|queja|reclamo|wrong order|got my order wrong|messed up|missing|incomplete|left out|forgot my|mistake)\b/i.test(
+          normAllUserForScope
         )
       let normalizedCategory = VALID_REASON.has(rawReasonCategory) ? rawReasonCategory : ''
       if (!normalizedCategory || (normalizedCategory === 'other' && rawReasonCategory !== 'other')) {
         if (/^(complaint_missing_item|wrong_order|missing_item|incomplete_order)$/.test(rawReasonCategory)) {
-          normalizedCategory = 'missing_or_wrong_item'
+          normalizedCategory = userExplicitWrongOrderEvidence ? 'missing_or_wrong_item' : 'other'
         } else {
           const fallbackMeta = inferCallMetadata(`${reasonSummary} ${allUserTurnsText}`, toolsUsed, true)
           normalizedCategory =
@@ -6577,7 +8921,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
                   : fallbackMeta.primaryIntent === 'complaint_missing_item'
                     ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normalizeSearchText(reasonSummary))
                       ? 'billing_refund'
-                      : hasFoodOrderIssueEvidence
+                      : userExplicitWrongOrderEvidence
                         ? 'missing_or_wrong_item'
                         : 'other'
                     : fallbackMeta.primaryIntent === 'lost_and_found'
@@ -6588,6 +8932,9 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
                           ? 'vendor_arrival'
                           : 'other'
         }
+      }
+      if (normalizedCategory === 'missing_or_wrong_item' && !userExplicitWrongOrderEvidence) {
+        normalizedCategory = 'other'
       }
       const rawUrgency = String(toolArgs?.urgency || 'high').toLowerCase()
       // Notas de condimentos jamás deben disparar alarma roja crítica cada 45s en pantalla del gerente
@@ -6779,7 +9126,12 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   // para evitar viajes dobles de functionCall (+900 ms por pregunta) sin perder ninguna herramienta cuando haga falta.
   const currentTurnMenuMatches = rankMenuItemsForPrompt(liveMenuItems, normalizedUserForMatch, 3)
   const excludedToolNames = new Set<string>(['get_store_hours_and_status'])
-  if (currentTurnMenuMatches.length > 0) excludedToolNames.add('search_menu_item_price')
+  if (
+    Boolean(menuCatalogSummary) ||
+    allMenuClausesResolved
+  ) {
+    excludedToolNames.add('search_menu_item_price')
+  }
   if (wantsFiestaContext) excludedToolNames.add('get_fiesta_platter_packages')
   if (wantsMultiStoreContext) excludedToolNames.add('find_other_stores')
   const turnTools = [
@@ -6790,11 +9142,50 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     }
   ]
 
-  // Fast-Path Canónico Determinista (< 2 ms CPU, 0 llamadas LLM, audio cacheable en Supabase Storage `phone_v6/Kore`):
-  // Resuelve al instante las 19 preguntas frecuentes y operativas con redacción exacta y consistente; cualquier pregunta
-  // compuesta (>1 tema), de flujo interactivo/callback o con regla personalizada por sucursal pasa a Gemini Hedged LLM.
+  // Fast-Paths Deterministas Instantáneos (< 2 ms CPU, 0 llamadas LLM, audio cacheable en Supabase Storage `phone_v6/Kore`):
+  // 1) Reglas aprendidas aprobadas por Dirección (fast_reply_es/en + trigger_keywords)
+  // 2) Banco canónico de preguntas frecuentes, ruido STT y eco de altavoz
+  // 3) Cotizador instantáneo determinista de 1, 2, 3+ platillos del menú en vivo
   let forcedSpamFastPath = false
   let isCanonicalReply = false
+  let isDeterministicFastReply = false
+
+  // 0) Filtro instantáneo (< 2 ms CPU) de monólogo largo de TV/YouTube/radio de fondo cuando no hay flujo de recado abierto
+  if (
+    !replyText &&
+    !isPromptExpectingPhoneOrDetails(prevAssistantForTurn) &&
+    !hadPriorPostOrderTurn &&
+    !hadPriorCallbackInCall &&
+    isLikelyBackgroundMediaSpeech(userText)
+  ) {
+    replyText =
+      turnLangGuess === 'en'
+        ? 'Sorry, I picked up background audio on the line. How can I help you?'
+        : 'Disculpa, se escuchó ruido o voces de fondo. ¿En qué te puedo ayudar?'
+    isCanonicalReply = true
+    isDeterministicFastReply = true
+  }
+
+  // 1A) Overrides aprendidos ESPECÍFICOS de esta sucursal (`r.storeId === store.id`) tienen prioridad local inmediata
+  const storeScopedLearnedRules = activeLearnedRules.filter((r) => Number(r.storeId) === Number(store.id))
+  if (
+    !replyText &&
+    storeScopedLearnedRules.length > 0 &&
+    !isPromptExpectingPhoneOrDetails(prevAssistantForTurn) &&
+    !hadPriorPostOrderTurn &&
+    !hadPriorCallbackInCall &&
+    !isCallbackOrPostOrderTopic &&
+    !isCallbackOrOrderScenario
+  ) {
+    const storeScopedHit = matchLearnedPhoneFastReply(storeScopedLearnedRules, normalizedUserForMatch, turnLangGuess)
+    if (storeScopedHit) {
+      replyText = storeScopedHit.replyText
+      isCanonicalReply = true
+      isDeterministicFastReply = true
+    }
+  }
+
+  // 1B) Banco canónico contextual en vivo (< 1 ms CPU: evalúa reloj California 2:00 PM desayunos, horario real, festivos, Drive-Thru y EBT por tienda)
   if (!replyText) {
     const canonicalHit = resolveCanonicalPreparedReply({
       userText,
@@ -6815,15 +9206,196 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
       customerBranchCrossStreets,
       wantsFiestaContext,
       detectedGuestCount,
-      platterInfo
+      platterInfo,
+      now: effectiveNow
     })
     if (canonicalHit) {
       replyText = canonicalHit.replyText
       isCanonicalReply = true
+      isDeterministicFastReply = true
       if (canonicalHit.markAsSpam) forcedSpamFastPath = true
       for (const tu of canonicalHit.toolsUsedToAdd || []) {
         if (!toolsUsed.includes(tu)) toolsUsed.push(tu)
       }
+    }
+  }
+
+  // 3) Fast-Path Instantáneo Determinista de Precios del Menú (< 2 ms CPU, 0 llamadas LLM)
+  if (
+    !replyText &&
+    resolvedMenuClauses.length >= 1 &&
+    allMenuClausesResolved &&
+    !isPromptExpectingPhoneOrDetails(prevAssistantForTurn) &&
+    !hadPriorPostOrderTurn &&
+    !hadPriorCallbackInCall &&
+    !isCallbackOrPostOrderTopic &&
+    !isCallbackOrOrderScenario &&
+    !wantsFiestaContext &&
+    !asksCateringInKb &&
+    !wantsMultiStoreContext &&
+    !wantsHolidayContext &&
+    !asksPaymentInKb
+  ) {
+    // Solo saltar el cotizador en vivo de app_menu_cache si existe un override específico de sucursal o una regla global
+    // cuyo título fije un precio explícito ($X.XX) o marque agotado/suspendido un platillo mencionado por el cliente.
+    // (Las reglas aprendidas generales de menú ya se evaluaron arriba en matchLearnedPhoneFastReply.)
+    const hasMenuKbOverride = knowledgeBase.some((k: any) => {
+      if (k?.is_active === false) return false
+      const isMenuCat = String(k?.category || '').toLowerCase() === 'menu'
+      if (!isMenuCat) return false
+      const titleStr = String(k?.title || '')
+      const fullKbBlob = `${titleStr} ${k?.answer_es || ''} ${k?.answer_en || ''} ${k?.content || ''}`
+      const mentionsQueriedToken = normalizeSearchText(fullKbBlob)
+        .split(' ')
+        .some((w) => w.length >= 5 && normUser.includes(w))
+      if (Number(k?.store_id) === Number(store.id)) {
+        return mentionsQueriedToken
+      }
+      const updMs = k?.updated_at ? Date.parse(String(k.updated_at)) : 0
+      if (!Number.isFinite(updMs) || updMs <= CANONICAL_KB_EPOCH_MS) return false
+      const hasExplicitPriceOrOutageOverride =
+        /\$\s*\d+(?:\.\d{1,2})?/.test(`${titleStr} ${k?.content || ''}`) ||
+        /\b(agotad[oa]s?|no\s+disponibles?|sold\s+out|fuera\s+de\s+temporada|temporalmente\s+sin)\b/i.test(fullKbBlob)
+      return hasExplicitPriceOrOutageOverride && mentionsQueriedToken
+    })
+
+    const asksPriceInCurrentTurn =
+      /\b(precio|precios|cuesta|cuestan|cuanto|cuanta|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|seria|serian|a como|total|how much|price|prices|cost|costs|charge)\b/i.test(
+        normUser
+      )
+    const isShortPriceFollowUp =
+      !asksPriceInCurrentTurn &&
+      normUser.split(/\s+/).filter(Boolean).length <= 6 &&
+      /\$\d+\.\d{2}/.test(prevAssistantForTurn) &&
+      !isCallerEndingConversation({ userText, normUser, prevAssistantText: prevAssistantForTurn })
+
+    const asksBroadOrIngredients =
+      /\b(todo el menu|que tienen en el menu|que venden|cual es el menu|what(?:\s*s| is) on (?:the|your) menu|full menu|otras opciones|que mas tienen|what else do you have|que carnes|que aguas|que bebidas|que desayunos|que lleva|que llevan|que tiene|que trae|que traen|que incluye|ingredientes?|ingredients?|de que (?:es|son|esta)|con que viene|lleva queso|lleva crema|diferencia|difference|what comes|what(?:\s*s| is) in|alergi|allerg|gluten|calorias|horario.{0,15}desayun|desayun.{0,15}horario|breakfast.{0,15}hours|por telefono|over the phone|phone order)\b/i.test(
+        normUser
+      )
+
+    const normNoMorning = normUser.replace(/\b(?:en|de|por|a|toda)\s+la\s+manana\b|\besta\s+manana\b/gi, ' ')
+    const asksOtherDayHours =
+      /\b(manana|tomorrow|lunes|martes|miercoles|jueves|viernes|sabados?|domingos?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|fin de semana|weekend)\b/i.test(
+        normNoMorning
+      )
+
+    // Verificar que ningún relleno desconocido ("taco de <desconocido>") ni segmento extra de comida se haya quedado fuera
+    const unknownDeMatch = normUser.match(
+      /\b(?:tacos?|burritos?|tortas?|quesadillas?|mulitas?|sopes?|platos?)\s+de\s+([a-z]{4,})\b/i
+    )
+    const KNOWN_DE_MODS = new Set([
+      'asada', 'carne', 'pastor', 'adobada', 'pollo', 'cabeza', 'lengua', 'buche', 'chorizo', 'carnitas',
+      'milanesa', 'frijol', 'frijoles', 'queso', 'arroz', 'huevo', 'huevos', 'jamon', 'salchicha', 'pura',
+      'maiz', 'harina', 'res', 'puerco', 'cerdo', 'pescado', 'camaron', 'camarones', 'mariscos', 'birria',
+      'suadero', 'tripa', 'tripas', 'menudo', 'pozole', 'tres'
+    ])
+    const hasUnknownFilling = Boolean(unknownDeMatch && !KNOWN_DE_MODS.has(unknownDeMatch[1].toLowerCase()))
+
+    const rawSegsCheck = normalizedUserForMatch
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\b(?:arroz\s+y\s+frijol(?:es)?|frijol(?:es)?\s+y\s+arroz|frijol(?:es)?\s*,?\s*arroz\s*,?\s+y\s+queso|beans?\s*,?\s*rice\s*,?\s+and\s+cheese|rice\s+and\s+beans?|beans?\s+and\s+rice|vernon\s+y\s+broadway|central\s+y\s+washington|slauson\s+y\s+broadway)\b/g, ' __prot__ ')
+      .split(/(?:\s*[,;!?]+\s*|\s+\b(?:y|e|and|plus|tambien)\b\s+)/i)
+      .map((s) => s.trim())
+      .filter((s) => {
+        if (!s) return false
+        if (/^(?:hola|buenos\s+dias|buenas\s+(?:tardes|noches)|disculpa|disculpe|oye|oiga|por\s+favor|porfa|gracias|muchas\s+gracias|please|thanks?|thank\s+you|hi|hello|hey|en\s+total|cuanto\s+seria|cuanto\s+es)$/i.test(s)) return false
+        if (/\b(?:estan\s+abiertos|esta\s+abierto|a\s+que\s+hora\s+(?:abren|cierran)|horario|open|close|hours|donde\s+estan|direccion|ubicados|address|located|tienen\s+drive|have\s+a?\s*drive)\b/i.test(s) && !MENU_CLAUSE_USEFUL_RE.test(s)) return false
+        return s.split(/\s+/).some((w) => w.length >= 3)
+      })
+    const noDroppedFoodSegment = rawSegsCheck.length <= resolvedMenuClauses.length
+
+    if (
+      !hasMenuKbOverride &&
+      (asksPriceInCurrentTurn || isShortPriceFollowUp) &&
+      !asksBroadOrIngredients &&
+      !asksOtherDayHours &&
+      !hasUnknownFilling &&
+      noDroppedFoodSegment
+    ) {
+      const asksHoursSameStore = /\b(hora|horario|abierto|abiertos|cerrado|abren|cierran|open|close|hours)\b/i.test(normUser)
+      const asksLocSameStore = /\b(donde|ubicad|direccion|domicilio|calles|esquina|address|where\s+are\s+you|located)\b/i.test(normUser)
+      const asksDriveSameStore = /\b(tienen|hay|cuentan\s+con|do\s+you\s+have).{0,18}\b(drive|ventanilla)\b/i.test(normUser)
+
+      const leadSentences: string[] = []
+      if (asksHoursSameStore) {
+        leadSentences.push(turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs)
+        if (!toolsUsed.includes('get_store_hours_and_status')) toolsUsed.push('get_store_hours_and_status')
+      }
+      if (asksLocSameStore) {
+        const isLaCross = Boolean(resolveCustomerStoreMeta(store)?.isLosAngelesCrossStreetStore)
+        const addrHasLa = /\blos\s+[aá]ngeles\b/i.test(spokenStoreAddress)
+        const crossSuffixEs = customerBranchCrossStreets
+          ? isLaCross && !addrHasLa
+            ? `, en Los Ángeles en la esquina de ${customerBranchCrossStreets}`
+            : `, en la esquina de ${customerBranchCrossStreets}`
+          : ''
+        const crossSuffixEn = customerBranchCrossStreets
+          ? isLaCross && !addrHasLa
+            ? `, in Los Angeles at the corner of ${customerBranchCrossStreets}`
+            : `, at the corner of ${customerBranchCrossStreets}`
+          : ''
+        leadSentences.push(
+          turnLangGuess === 'en'
+            ? `We are located at ${spokenStoreAddress}${crossSuffixEn}.`
+            : `Estamos ubicados en ${spokenStoreAddress}${crossSuffixEs}.`
+        )
+      }
+      if (asksDriveSameStore) {
+        leadSentences.push(
+          turnLangGuess === 'en'
+            ? store.has_drive_thru
+              ? 'We have Drive-Thru service here.'
+              : 'We do not have a Drive-Thru at this location.'
+            : store.has_drive_thru
+              ? 'Contamos con servicio de Drive-Thru.'
+              : 'Aquí no contamos con Drive-Thru, solo comedor y para llevar.'
+        )
+      }
+
+      replyText = composeNaturalMenuPriceReply(liveMenuItems, fallbackMenuQuery, turnLangGuess, {
+        preResolvedClauses: resolvedMenuClauses,
+        leadSentences,
+        rawQuery: userText,
+        now: effectiveNow
+      })
+      isDeterministicFastReply = true
+      if (resolvedMenuClauses.length === 1 && leadSentences.length === 0 && replyText.length <= 200) {
+        isCanonicalReply = true
+      }
+      if (!toolsUsed.includes('search_menu_item_price')) {
+        toolsUsed.push('search_menu_item_price')
+      }
+    }
+  }
+
+  // 4) Reglas aprendidas globales aprobadas por Dirección (para temas fuera del banco canónico contextual y cotizador en vivo)
+  const globalSafeLearnedRules = activeLearnedRules.filter((r) => {
+    if (r.storeId !== null && r.storeId !== undefined) return false
+    const blob = `${r.fastReplyEs || ''} ${r.fastReplyEn || ''}`
+    // Proteger llamadas telefónicas de locuciones exclusivas del intercomunicador físico de Drive-Thru
+    if (!store.has_drive_thru && /\b(ventana\s*2|window\s*2)\b/i.test(blob)) return false
+    if (/\b(para ese pedido|for that order)\b/i.test(blob)) return false
+    return true
+  })
+  if (
+    !replyText &&
+    globalSafeLearnedRules.length > 0 &&
+    !isPromptExpectingPhoneOrDetails(prevAssistantForTurn) &&
+    !hadPriorPostOrderTurn &&
+    !hadPriorCallbackInCall &&
+    !isCallbackOrPostOrderTopic &&
+    !isCallbackOrOrderScenario &&
+    !wantsMultiStoreContext &&
+    !wantsHolidayContext
+  ) {
+    const learnedFastHit = matchLearnedPhoneFastReply(globalSafeLearnedRules, normalizedUserForMatch, turnLangGuess)
+    if (learnedFastHit) {
+      replyText = learnedFastHit.replyText
+      isCanonicalReply = true
+      isDeterministicFastReply = true
     }
   }
 
@@ -6913,7 +9485,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
   // Fast-Path Determinista de Captura de Datos (< 280 ms extremo a extremo, 0 llamadas LLM):
   // Cuando el cliente está en un escenario claro de recado/ticket/condimentos/sucursal equivocada y YA proporcionó en la llamada
   // un teléfono válido de 10 dígitos + su nombre real, ejecutamos `create_manager_callback` al instante sin esperar red de Gemini.
-  const asksUnrelatedMenuOrHours = /\b(cuanto cuesta|precio|a que hora|horario|aceptan|tienen drive|how much|what time)\b/i.test(normUser)
+  const asksUnrelatedMenuOrHours = /\b(cuanto|cuesta|cuestan|cobras|cobra|cobran|sale|salen|vale|valen|a como|precio|precios|a que hora|horario|aceptan|tienen drive|how much|price|cost|charge|what time)\b/i.test(normUser)
   if (!replyText && !hadPriorCallbackInCall && isCallbackOrPostOrderTopic && !asksUnrelatedMenuOrHours) {
     const store10Fast = extractPhoneDigits(store.phone).slice(-10)
     const twilio10Fast = extractPhoneDigits(config.twilio_phone_number).slice(-10)
@@ -6939,7 +9511,11 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
               : metaForFastCb.primaryIntent === 'complaint_missing_item'
                 ? /\b(cobro|cobraron|reembolso|refund|overcharged|billing)\b/i.test(normAllUserForScope)
                   ? 'billing_refund'
-                  : 'missing_or_wrong_item'
+                  : /\b(falto|faltaron|incomplet[oa]s?|equivocad[oa]s?|equivocaron|me dieron mal|salio mal|venia mal|vino mal|hicieron mal|prepararon mal|me cambiaron|no era lo que pedi|no me pusieron|no me dieron|no venia|no traia|orden mal|pedido mal|queja|reclamo|wrong order|got my order wrong|messed up|missing|incomplete|left out|forgot my|mistake)\b/i.test(
+                        normAllUserForScope
+                      )
+                    ? 'missing_or_wrong_item'
+                    : 'other'
                 : metaForFastCb.primaryIntent === 'lost_and_found'
                   ? 'lost_item'
                   : metaForFastCb.primaryIntent === 'employee_callout'
@@ -7255,7 +9831,7 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
           turnLangGuess === 'en'
             ? "We don't transfer calls to managers' personal phones, but I can send a priority alert to the manager screen. Could you please share your name and 10-digit phone number?"
             : 'No transferimos llamadas a celulares personales, pero puedo enviar una alerta prioritaria a la pantalla del gerente en sucursal. ¿Me compartes tu nombre y número de teléfono de 10 dígitos?'
-      } else if (/\b(drive|ventanilla)\b/i.test(normUser) && allActiveStores.length > 0) {
+      } else if (/\b(drive|ventanilla)\b/i.test(normUser) && resolvedMenuClauses.length === 0 && allActiveStores.length > 0) {
         const dtNames = allActiveStores
           .filter((s) => s.has_drive_thru)
           .map((s) => formatCustomerStoreName(s, turnLangGuess, { style: 'spoken_compact' }))
@@ -7267,13 +9843,67 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
             : `Las seis sucursales con Drive-Thru son ${dtListEs}. ¿Te doy el horario o dirección de alguna?`
       } else if (wantsFiestaContext && detectedGuestCount) {
         replyText = turnLangGuess === 'en' ? platterInfo.recommendationEn : platterInfo.recommendationEs
-      } else if (preFetchedMenu.length > 0 && /\b(precio|cuesta|cuanto|price|cost|how much)\b/i.test(normUser)) {
-        const top = preFetchedMenu.slice(0, 3).map((m) => `${m.name} (${m.priceFormatted})`)
-        const custSpokenCompact = formatCustomerStoreName(store, turnLangGuess, { style: 'spoken_compact' })
+      } else if (
+        (preFetchedMenu.length > 0 || resolvedMenuClauses.length > 0) &&
+        (/\b(precio|precios|cuesta|cuestan|cuanto|cuanta|cobras|cobra|cobran|cobrarian|vale|valen|sale|salen|saldria|saldrian|total|charge|price|prices|cost|costs|how much|a como)\b/i.test(
+          normUser
+        ) ||
+          (resolvedMenuClauses.length > 0 && preGuardMeta.primaryIntent === 'menu_prices'))
+      ) {
+        const asksLocFallback = /\b(donde|ubicad|direccion|domicilio|calles|esquina|address|where\s+are\s+you|located)\b/i.test(
+          normUser
+        )
+        const asksHoursFallback = /\b(hora|horario|abierto|abiertos|cerrado|abren|cierran|open|close|hours)\b/i.test(
+          normUser
+        )
+        const asksDriveLocalFallback = /\b(tienen|hay|cuentan\s+con|do\s+you\s+have).{0,18}\b(drive|ventanilla)\b/i.test(
+          normUser
+        )
+        const leadParts: string[] = []
+        if (asksHoursFallback) {
+          leadParts.push(turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs)
+        }
+        if (asksLocFallback) {
+          const isLaCross = Boolean(resolveCustomerStoreMeta(store)?.isLosAngelesCrossStreetStore)
+          const addrHasLa = /\blos\s+[aá]ngeles\b/i.test(spokenStoreAddress)
+          const crossSuffixEs = customerBranchCrossStreets
+            ? isLaCross && !addrHasLa
+              ? `, en Los Ángeles en la esquina de ${customerBranchCrossStreets}`
+              : `, en la esquina de ${customerBranchCrossStreets}`
+            : ''
+          const crossSuffixEn = customerBranchCrossStreets
+            ? isLaCross && !addrHasLa
+              ? `, in Los Angeles at the corner of ${customerBranchCrossStreets}`
+              : `, at the corner of ${customerBranchCrossStreets}`
+            : ''
+          leadParts.push(
+            turnLangGuess === 'en'
+              ? `We are located at ${spokenStoreAddress}${crossSuffixEn}.`
+              : `Estamos ubicados en ${spokenStoreAddress}${crossSuffixEs}.`
+          )
+        }
+        if (asksDriveLocalFallback) {
+          leadParts.push(
+            turnLangGuess === 'en'
+              ? store.has_drive_thru
+                ? 'We have Drive-Thru service here.'
+                : 'We do not have a Drive-Thru at this location.'
+              : store.has_drive_thru
+                ? 'Contamos con servicio de Drive-Thru.'
+                : 'Aquí no contamos con Drive-Thru, solo comedor y para llevar.'
+          )
+        }
+        const menuReply = composeNaturalMenuPriceReply(liveMenuItems, fallbackMenuQuery, turnLangGuess, {
+          preResolvedClauses: resolvedMenuClauses.length > 0 ? resolvedMenuClauses : undefined,
+          leadSentences: leadParts,
+          now: effectiveNow
+        })
+        replyText = menuReply
+      } else if (/\b(menu|platillos|que venden|que tienen|what do you sell|on your menu)\b/i.test(normUser)) {
         replyText =
           turnLangGuess === 'en'
-            ? `In ${custSpokenCompact}, ${top.join(', ')}. Can I check anything else?`
-            : `En ${custSpokenCompact}, ${top.join(', ')}. ¿Te ayudo con algo más?`
+            ? 'We serve tacos, burritos, quesadillas, mulitas, sopes, tortas, Super Nachos, combo plates, egg breakfasts, aguas frescas, champurrado, flan, and cheesecake. Would you like any prices?'
+            : 'Manejamos tacos, burritos, quesadillas, mulitas, sopes, tortas, Super Nachos, platos con arroz y frijol, desayunos con huevo, aguas frescas, champurrado, flan y cheesecake. ¿Gustas algún precio?'
       } else if (/\b(hora|horario|abierto|abiertos|cerrado|abren|cierran|open|close|hours|direccion|ubicacion|address)\b/i.test(normUser)) {
         replyText =
           turnLangGuess === 'en'
@@ -7451,8 +10081,21 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     }
     const targetTurns = Number(updatePayload.turns_count || 1)
 
+    // Reconciliar cualquier tombstone terminal pendiente de /api/phone/status fuera de la ruta crítica del audio
+    let terminatedAtFlush = callAlreadyTerminated
+    if (!terminatedAtFlush && !callSid.startsWith('SIM_')) {
+      const reconciledAtFlush = await reconcileCallWithTerminalTombstone(callSid).catch(() => null)
+      if (
+        reconciledAtFlush &&
+        (Boolean(reconciledAtFlush.ended_at) ||
+          TERMINAL_ENDED_STATUSES.has(String(reconciledAtFlush.status || '').toLowerCase()))
+      ) {
+        terminatedAtFlush = true
+      }
+    }
+
     // Si la llamada ya había terminado al iniciar/cerrar este turno, jamás alterar status, ended_at ni duration_seconds de un cierre previo
-    if (callAlreadyTerminated) {
+    if (terminatedAtFlush) {
       const { error: updateErr } = await supabaseAdmin
         .from('phone_calls')
         .update(buildNonTerminalSafePayload())
@@ -7541,6 +10184,8 @@ MAPA DE EJECUCIÓN DE ESCENARIOS Y REGLAS ESTRICTAS DE DIÁLOGO:
     shouldTransferToPhone,
     shouldHangup,
     isCanonicalReply,
+    isDeterministicFastReply,
+    geminiFailed,
     transcript,
     storeContext: ctx,
     flushDbPromise

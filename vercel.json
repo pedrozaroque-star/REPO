@@ -48,6 +48,14 @@
             "schedule": "59 19 * * *"
         },
         {
+            "path": "/api/cron/sync-ronos-violations",
+            "schedule": "59 18 * * *"
+        },
+        {
+            "path": "/api/cron/sync-ronos-violations",
+            "schedule": "59 19 * * *"
+        },
+        {
             "path": "/api/cron/sync-daily-payroll",
             "schedule": "59 18 * * *"
         },
@@ -146,6 +154,14 @@
         {
             "path": "/api/cron/sync-external-accounting",
             "schedule": "*/30 * * * *"
+        },
+        {
+            "path": "/api/cron/learn-kore-drive-thru",
+            "schedule": "25 13 * * *"
+        },
+        {
+            "path": "/api/cron/learn-phone-agent",
+            "schedule": "35 13 * * *"
         }
     ]
 }
