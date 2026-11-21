@@ -28,7 +28,15 @@ import { useLanguage } from '@/lib/i18n'
 import { Send, MessageSquare, Loader2, Paperclip, AlertCircle, X } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { normalizePersonName, stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
-import { rewriteBasecampHtmlUrls, proxyBasecampUrl, safeDecodeFilename } from '@/lib/basecamp-html'
+import {
+    rewriteBasecampHtmlUrls,
+    proxyBasecampUrl,
+    safeDecodeFilename,
+    injectImageDownloadOverlays,
+    triggerBasecampDownload,
+    buildBasecampDirectDownloadHref,
+    BASECAMP_IMAGE_HOVER_CSS,
+} from '@/lib/basecamp-html'
 
 interface ToolCampfireProps {
     project: any
@@ -184,6 +192,28 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
     const [loading, setLoading] = useState(true)
     const [sending, setSending] = useState(false)
     const [errorBanner, setErrorBanner] = useState<string | null>(null)
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+    const handleCampfireHtmlClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement
+        const dlAnchor = target.closest('a[data-bc-download="true"]') as HTMLAnchorElement | null
+        if (dlAnchor) {
+            e.preventDefault()
+            e.stopPropagation()
+            const rawSrc = dlAnchor.getAttribute('data-bc-src') || dlAnchor.href
+            const rawFilename = dlAnchor.getAttribute('data-bc-filename') || undefined
+            triggerBasecampDownload(rawSrc, rawFilename)
+            return
+        }
+        if (target.tagName === 'IMG') {
+            const imgSrc = (target as HTMLImageElement).src
+            if (imgSrc) {
+                e.preventDefault()
+                e.stopPropagation()
+                setLightboxUrl(imgSrc)
+            }
+        }
+    }, [])
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const creatingCampfireRef = useRef<Record<string, boolean>>({})
@@ -470,6 +500,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
 
     return (
         <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col bg-[#fffdfb] dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl shadow-sm">
+            <style dangerouslySetInnerHTML={{ __html: BASECAMP_IMAGE_HOVER_CSS }} />
             {/* Header del Campfire */}
             <div className="flex items-center gap-3 p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900 rounded-t-2xl">
                 <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center border border-orange-200/30">
@@ -553,8 +584,9 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                                             <>
                                                 {rendered.html && (
                                                     <div
+                                                        onClick={handleCampfireHtmlClick}
                                                         className="[&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-1 [&_p]:my-0.5"
-                                                        dangerouslySetInnerHTML={{ __html: rendered.html }}
+                                                        dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(rendered.html, t('basecamp.download_btn')) }}
                                                     />
                                                 )}
                                                 {rendered.fileAttachments.length > 0 && (
@@ -562,9 +594,11 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                                                         {rendered.fileAttachments.map((att, idx) => (
                                                             <a
                                                                 key={idx}
-                                                                href={att.url}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
+                                                                href={buildBasecampDirectDownloadHref(att.url, att.filename)}
+                                                                onClick={(ev) => {
+                                                                    ev.preventDefault()
+                                                                    triggerBasecampDownload(att.url, att.filename)
+                                                                }}
                                                                 className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border ${
                                                                     isMe
                                                                         ? 'bg-orange-600/60 border-orange-400/50 text-white'
@@ -625,6 +659,61 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                     )}
                 </button>
             </form>
+
+            {lightboxUrl && (
+                <div
+                    onClick={() => setLightboxUrl(null)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 100,
+                        background: 'rgba(0,0,0,0.85)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        cursor: 'zoom-out',
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
+                        style={{
+                            position: 'absolute', top: 20, right: 20,
+                            width: 40, height: 40, borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 20, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                    >
+                        ✕
+                    </button>
+                    <img
+                        src={lightboxUrl}
+                        alt={t('basecamp.fullscreen_view')}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '90vw', maxHeight: '90vh',
+                            objectFit: 'contain', borderRadius: 8,
+                            boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                            cursor: 'default',
+                        }}
+                    />
+                    <a
+                        href={buildBasecampDirectDownloadHref(lightboxUrl)}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerBasecampDownload(lightboxUrl)
+                        }}
+                        style={{
+                            position: 'absolute', bottom: 20,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 18px', borderRadius: 20,
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 13, fontWeight: 600,
+                            textDecoration: 'none', cursor: 'pointer',
+                        }}
+                    >
+                        {t('basecamp.download_btn')}
+                    </a>
+                </div>
+            )}
         </div>
     )
 }

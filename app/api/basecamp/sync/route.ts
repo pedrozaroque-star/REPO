@@ -638,7 +638,10 @@ export async function POST(request: Request) {
               avatar_url: p.avatar_url || '',
               role: p.employee ? 'employee' : p.client ? 'client' : 'user',
               title: p.title || '',
-              is_active: p.status !== 'archived',
+              is_active:
+                prev?.is_active === false || /^\s*test\b/i.test(p.name || '')
+                  ? false
+                  : p.status !== 'archived',
               updated_at: nowIso,
             }
           })
@@ -681,16 +684,20 @@ export async function POST(request: Request) {
       counters.errors.push(`People: ${err.message}`)
     }
 
-    // Build shared in-memory people directory + synthetic person ID set for Pass 2+3 fuzzy matching & assignee preservation
+    // Build shared in-memory people directory + synthetic/inactive person ID sets for Pass 2+3 fuzzy matching & membership filtering
     const allKnownPeopleList: SyncPersonMeta[] = []
     const syntheticPersonIds = new Set<string>()
+    const inactivePersonIds = new Set<string>()
     {
       const { data: allDbPeople } = await supabase
         .from('bc_people')
-        .select('id, bc_id, name, email')
+        .select('id, bc_id, name, email, is_active')
         .limit(5000)
       for (const p of allDbPeople || []) {
         allKnownPeopleList.push(p)
+        if (p.is_active === false || /^\s*test\b/i.test(p.name || '')) {
+          inactivePersonIds.add(p.id)
+        }
         if (p.bc_id != null) {
           const numBcId = Number(p.bc_id)
           peopleMap[numBcId] = p.id
@@ -1144,7 +1151,7 @@ export async function POST(request: Request) {
           const membershipRows = members
             .map((m) => {
               const personUuid = peopleMap[m.id]
-              if (!personUuid) return null
+              if (!personUuid || inactivePersonIds.has(personUuid)) return null
               return {
                 project_id: projectUuid,
                 person_id: personUuid,
@@ -1162,10 +1169,13 @@ export async function POST(request: Request) {
               console.error(`   ❌ memberships upsert error for project ${project.id}:`, memErr.message)
             } else {
               counters.memberships += membershipRows.length
-              // Update member count in project
+              const { count: exactMemberCount } = await supabase
+                .from('bc_memberships')
+                .select('id', { count: 'exact', head: true })
+                .eq('project_id', projectUuid)
               await supabase
                 .from('bc_projects')
-                .update({ member_count: membershipRows.length })
+                .update({ member_count: exactMemberCount ?? membershipRows.length })
                 .eq('id', projectUuid)
             }
           }

@@ -56,6 +56,7 @@ import {
   buildBasecampCommentWithAuthor,
   isRealBasecampId,
 } from '@/lib/basecamp-person-resolver'
+import { sendBasecampTodoNotificationEmail } from '@/lib/basecamp-todo-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -377,10 +378,23 @@ export async function POST(request: Request) {
 
         await syncTodolistCounts(supabase, todoRow.todolist_id)
 
-        // 2. Mirror to Basecamp API (best-effort)
-        if (isRealBasecampId(todoRow.bc_id)) {
-          await basecampBestEffort('complete_todo', () => bcCompleteTodo(bcProjectId, Number(todoRow.bc_id)))
-        }
+        // 2. Mirror to Basecamp API + Notify all involved people by email (best-effort)
+        const reqOrigin = new URL(request.url).origin
+        await Promise.all([
+          isRealBasecampId(todoRow.bc_id)
+            ? basecampBestEffort('complete_todo', () => bcCompleteTodo(bcProjectId, Number(todoRow.bc_id)))
+            : Promise.resolve(null),
+          args.skipEmailNotification
+            ? Promise.resolve(null)
+            : sendBasecampTodoNotificationEmail({
+                event: 'completed',
+                todoDbId,
+                actorPersonId: authorPersonId,
+                actorName: authorDisplayName,
+                actorEmail: user.email,
+                appOrigin: reqOrigin,
+              }),
+        ])
 
         return NextResponse.json({ success: true })
       }
@@ -408,10 +422,23 @@ export async function POST(request: Request) {
 
         await syncTodolistCounts(supabase, todoRow.todolist_id)
 
-        // 2. Mirror to Basecamp API (best-effort)
-        if (isRealBasecampId(todoRow.bc_id)) {
-          await basecampBestEffort('uncomplete_todo', () => bcUncompleteTodo(bcProjectId, Number(todoRow.bc_id)))
-        }
+        // 2. Mirror to Basecamp API + Notify all involved people by email (best-effort)
+        const reqOrigin = new URL(request.url).origin
+        await Promise.all([
+          isRealBasecampId(todoRow.bc_id)
+            ? basecampBestEffort('uncomplete_todo', () => bcUncompleteTodo(bcProjectId, Number(todoRow.bc_id)))
+            : Promise.resolve(null),
+          args.skipEmailNotification
+            ? Promise.resolve(null)
+            : sendBasecampTodoNotificationEmail({
+                event: 'reopened',
+                todoDbId,
+                actorPersonId: authorPersonId,
+                actorName: authorDisplayName,
+                actorEmail: user.email,
+                appOrigin: reqOrigin,
+              }),
+        ])
 
         return NextResponse.json({ success: true })
       }
@@ -472,7 +499,7 @@ export async function POST(request: Request) {
 
       case 'create_todo': {
         requireArgs(['todolistDbId', 'title'])
-        const { todolistDbId, title, description, due_date, assigneeUuids, notifyeeUuids, subtasks } = args
+        const { todolistDbId, title, description, due_date, assigneeUuids, subtasks } = args
         const bcTodoId = generateUniqueBcId()
         let cleanTodoDesc = await uploadEmbeddedDataUrisToStorage(description, 'todos', supabase)
 
@@ -486,29 +513,6 @@ export async function POST(request: Request) {
           const itemsHtml = validSubtasks.map((st: string) => `<li>☐ ${escHtml(st)}</li>`).join('')
           const subtasksBlock = `<div data-teg-subtasks="true" style="margin-top: 10px;"><strong>Subtasks:</strong><ul>${itemsHtml}</ul></div>`
           cleanTodoDesc = cleanTodoDesc ? `${cleanTodoDesc}${subtasksBlock}` : subtasksBlock
-        }
-
-        // Resolve "When done" notifyees (names for TEG metadata + bc_id for Basecamp completion_subscriber_ids)
-        let notifyeeBcIds: number[] = []
-        if (Array.isArray(notifyeeUuids) && notifyeeUuids.length > 0) {
-          const { data: notifyPeople } = await supabase
-            .from('bc_people')
-            .select('name, bc_id')
-            .in('id', notifyeeUuids)
-          if (notifyPeople && notifyPeople.length > 0) {
-            notifyeeBcIds = notifyPeople
-              .map((p: any) => Number(p.bc_id))
-              .filter((id: number) => isRealBasecampId(id))
-            const namesAttr = notifyPeople
-              .map((p: any) => String(p.name || '').trim())
-              .filter(Boolean)
-              .join(', ')
-              .replace(/&/g, '&amp;')
-              .replace(/"/g, '&quot;')
-            if (namesAttr) {
-              cleanTodoDesc = `<span data-teg-when-done="${namesAttr}" style="display:none;"></span>${cleanTodoDesc}`
-            }
-          }
         }
 
         // 1. Save to Supabase
@@ -541,14 +545,17 @@ export async function POST(request: Request) {
 
         await syncTodolistCounts(supabase, todolistDbId)
 
-        // 2. Mirror to Basecamp API (best-effort)
+        // 2. Mirror to Basecamp API (notify: false so TEG sends the accurate branded email) + Email involved people
         let finalTodoBcId = bcTodoId
+        const reqOrigin = new URL(request.url).origin
         const { data: todolistRow } = await supabase
           .from('bc_todolists')
           .select('bc_id')
           .eq('id', todolistDbId)
           .maybeSingle()
-        if (isRealBasecampId(todolistRow?.bc_id)) {
+
+        const mirrorPromise = (async () => {
+          if (!isRealBasecampId(todolistRow?.bc_id)) return
           let assigneeBcIds: number[] = []
           if (assigneeUuids && assigneeUuids.length > 0) {
             const { data: assigneePeople } = await supabase
@@ -572,7 +579,7 @@ export async function POST(request: Request) {
               content: title,
               description: bcDescriptionWithAuthor || undefined,
               assignee_ids: assigneeBcIds.length > 0 ? assigneeBcIds : undefined,
-              completion_subscriber_ids: notifyeeBcIds.length > 0 ? notifyeeBcIds : undefined,
+              notify: false,
               due_on: due_date || undefined,
             })
           )
@@ -585,7 +592,21 @@ export async function POST(request: Request) {
               .update({ bc_id: bcResult.id, created_by_person_id: authorPersonId })
               .eq('id', dbTodo.id)
           }
-        }
+        })()
+
+        const emailPromise =
+          args.skipEmailNotification || !dbTodo?.id
+            ? Promise.resolve(null)
+            : sendBasecampTodoNotificationEmail({
+                event: 'assigned',
+                todoDbId: dbTodo.id,
+                actorPersonId: authorPersonId,
+                actorName: authorDisplayName,
+                actorEmail: user.email,
+                appOrigin: reqOrigin,
+              })
+
+        await Promise.all([mirrorPromise, emailPromise])
 
         return NextResponse.json({ success: true, id: dbTodo?.id, bc_id: finalTodoBcId })
       }
@@ -724,15 +745,17 @@ export async function POST(request: Request) {
         // Update comment counter in the parent table using exact DB count
         await syncParentCommentsCount(supabase, parentType, parentDbId)
 
-        // 2. Mirror to Basecamp API (best-effort)
+        // 2. Mirror to Basecamp API + Email involved people on To-Do comments (best-effort)
         let finalCommentBcId = bcCommentId
+        const reqOrigin = new URL(request.url).origin
         const parentTableMap: Record<string, string> = {
           message: 'bc_messages',
           todo: 'bc_todos',
           document: 'bc_documents',
         }
         const parentTable = parentTableMap[parentType]
-        if (parentTable) {
+        const mirrorCommentPromise = (async () => {
+          if (!parentTable) return
           const { data: parentRow } = await supabase
             .from(parentTable)
             .select('bc_id')
@@ -758,7 +781,22 @@ export async function POST(request: Request) {
                 .eq('id', dbComment.id)
             }
           }
-        }
+        })()
+
+        const emailCommentPromise =
+          parentType === 'todo' && !args.skipEmailNotification
+            ? sendBasecampTodoNotificationEmail({
+                event: 'commented',
+                todoDbId: parentDbId,
+                actorPersonId: authorPersonId,
+                actorName: authorDisplayName,
+                actorEmail: user.email,
+                commentHtml: cleanCommentContent,
+                appOrigin: reqOrigin,
+              })
+            : Promise.resolve(null)
+
+        await Promise.all([mirrorCommentPromise, emailCommentPromise])
 
         return NextResponse.json({ success: true, id: dbComment?.id, bc_id: finalCommentBcId })
       }

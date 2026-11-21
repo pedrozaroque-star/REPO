@@ -47,6 +47,10 @@ import {
     rewriteBasecampHtmlUrls,
     proxyBasecampUrl,
     safeDecodeFilename,
+    injectImageDownloadOverlays,
+    triggerBasecampDownload,
+    buildBasecampDirectDownloadHref,
+    BASECAMP_IMAGE_HOVER_CSS,
 } from '@/lib/basecamp-html'
 
 interface ToolScheduleProps {
@@ -251,6 +255,28 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
     })
 
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+    const handleScheduleHtmlClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement
+        const dlAnchor = target.closest('a[data-bc-download="true"]') as HTMLAnchorElement | null
+        if (dlAnchor) {
+            e.preventDefault()
+            e.stopPropagation()
+            const rawSrc = dlAnchor.getAttribute('data-bc-src') || dlAnchor.href
+            const rawFilename = dlAnchor.getAttribute('data-bc-filename') || undefined
+            triggerBasecampDownload(rawSrc, rawFilename)
+            return
+        }
+        if (target.tagName === 'IMG') {
+            const imgSrc = (target as HTMLImageElement).src
+            if (imgSrc) {
+                e.preventDefault()
+                e.stopPropagation()
+                setLightboxUrl(imgSrc)
+            }
+        }
+    }, [])
 
     // Form state
     const [showAddForm, setShowAddForm] = useState(false)
@@ -746,6 +772,7 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
 
     return (
         <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col gap-6">
+            <style dangerouslySetInnerHTML={{ __html: BASECAMP_IMAGE_HOVER_CSS }} />
             {/* Cabecera */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center gap-3">
@@ -882,8 +909,9 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
 
                                 {parsed.notesHtml && (
                                     <div
+                                        onClick={handleScheduleHtmlClick}
                                         className="text-xs text-slate-700 dark:text-slate-300 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 leading-relaxed break-words [&_a]:text-purple-600 dark:[&_a]:text-purple-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-2"
-                                        dangerouslySetInnerHTML={{ __html: parsed.notesHtml }}
+                                        dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(parsed.notesHtml, t('basecamp.download_btn')) }}
                                     />
                                 )}
 
@@ -892,9 +920,11 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                                         {parsed.fileAttachments.map((att, idx) => (
                                             <a
                                                 key={idx}
-                                                href={att.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                                                href={buildBasecampDirectDownloadHref(att.url, att.filename)}
+                                                onClick={(ev) => {
+                                                    ev.preventDefault()
+                                                    triggerBasecampDownload(att.url, att.filename)
+                                                }}
                                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200"
                                             >
                                                 <Paperclip size={12} />
@@ -1118,9 +1148,10 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                                                 </div>
                                                 {parsed.notesHtml && (
                                                     <div
+                                                        onClick={handleScheduleHtmlClick}
                                                         className="text-[11px] text-slate-600 dark:text-slate-300 mt-2 leading-relaxed break-words [&_a]:text-purple-600 dark:[&_a]:text-purple-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-1.5"
                                                         dangerouslySetInnerHTML={{
-                                                            __html: parsed.notesHtml,
+                                                            __html: injectImageDownloadOverlays(parsed.notesHtml, t('basecamp.download_btn')),
                                                         }}
                                                     />
                                                 )}
@@ -1129,9 +1160,11 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                                                         {parsed.fileAttachments.map((att, idx) => (
                                                             <a
                                                                 key={idx}
-                                                                href={att.url}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
+                                                                href={buildBasecampDirectDownloadHref(att.url, att.filename)}
+                                                                onClick={(ev) => {
+                                                                    ev.preventDefault()
+                                                                    triggerBasecampDownload(att.url, att.filename)
+                                                                }}
                                                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold text-slate-700 dark:text-slate-200"
                                                             >
                                                                 <Paperclip size={10} />
@@ -1164,6 +1197,61 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                             )}
                         </div>
                     )}
+                </div>
+            )}
+
+            {lightboxUrl && (
+                <div
+                    onClick={() => setLightboxUrl(null)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 100,
+                        background: 'rgba(0,0,0,0.85)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        cursor: 'zoom-out',
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
+                        style={{
+                            position: 'absolute', top: 20, right: 20,
+                            width: 40, height: 40, borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 20, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                    >
+                        ✕
+                    </button>
+                    <img
+                        src={lightboxUrl}
+                        alt={t('basecamp.fullscreen_view')}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '90vw', maxHeight: '90vh',
+                            objectFit: 'contain', borderRadius: 8,
+                            boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                            cursor: 'default',
+                        }}
+                    />
+                    <a
+                        href={buildBasecampDirectDownloadHref(lightboxUrl)}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerBasecampDownload(lightboxUrl)
+                        }}
+                        style={{
+                            position: 'absolute', bottom: 20,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 18px', borderRadius: 20,
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 13, fontWeight: 600,
+                            textDecoration: 'none', cursor: 'pointer',
+                        }}
+                    >
+                        {t('basecamp.download_btn')}
+                    </a>
                 </div>
             )}
         </div>

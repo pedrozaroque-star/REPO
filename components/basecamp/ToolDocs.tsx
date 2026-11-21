@@ -48,6 +48,10 @@ import {
     rewriteBasecampHtmlUrls,
     proxyBasecampUrl,
     safeDecodeFilename,
+    injectImageDownloadOverlays,
+    triggerBasecampDownload,
+    buildBasecampDirectDownloadHref,
+    BASECAMP_IMAGE_HOVER_CSS,
 } from '@/lib/basecamp-html'
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024 // 25 MB
@@ -186,6 +190,40 @@ export default function ToolDocs({
 
     const [isUploading, setIsUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState(0)
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+    const handleDocHtmlClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement
+        const dlAnchor = target.closest('a[data-bc-download="true"]') as HTMLAnchorElement | null
+        if (dlAnchor) {
+            e.preventDefault()
+            e.stopPropagation()
+            const rawSrc = dlAnchor.getAttribute('data-bc-src') || dlAnchor.href
+            const rawFilename = dlAnchor.getAttribute('data-bc-filename') || undefined
+            triggerBasecampDownload(rawSrc, rawFilename)
+            return
+        }
+        if (target.tagName === 'IMG') {
+            const imgSrc = (target as HTMLImageElement).src
+            if (imgSrc) {
+                e.preventDefault()
+                e.stopPropagation()
+                setLightboxUrl(imgSrc)
+            }
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!lightboxUrl) return
+        const onKey = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape') {
+                ev.preventDefault()
+                setLightboxUrl(null)
+            }
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [lightboxUrl])
 
     const isMountedRef = useRef(true)
     const creatingVaultRef = useRef<Record<string, boolean>>({})
@@ -877,6 +915,7 @@ export default function ToolDocs({
 
     return (
         <div className="flex flex-col flex-1 max-w-5xl mx-auto w-full gap-5">
+            <style dangerouslySetInnerHTML={{ __html: BASECAMP_IMAGE_HOVER_CSS }} />
             {/* 1. CABECERA CON BREADCRUMBS Y ACCIONES */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
                 <div className="flex flex-col gap-1">
@@ -1060,8 +1099,9 @@ export default function ToolDocs({
                                     <div className="space-y-4">
                                         {rendered.html ? (
                                             <div
+                                                onClick={handleDocHtmlClick}
                                                 className="text-[13px] text-slate-800 dark:text-slate-200 leading-relaxed break-words [&_a]:text-[#1D7DB5] dark:[&_a]:text-sky-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-3 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5"
-                                                dangerouslySetInnerHTML={{ __html: rendered.html }}
+                                                dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(rendered.html, t('basecamp.download_btn')) }}
                                             />
                                         ) : (
                                             <p className="text-xs italic text-slate-400 dark:text-slate-500">
@@ -1073,10 +1113,12 @@ export default function ToolDocs({
                                                 {rendered.fileAttachments.map((att, idx) => (
                                                     <a
                                                         key={idx}
-                                                        href={att.url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#1D7DB5]"
+                                                        href={buildBasecampDirectDownloadHref(att.url, att.filename)}
+                                                        onClick={(ev) => {
+                                                            ev.preventDefault()
+                                                            triggerBasecampDownload(att.url, att.filename)
+                                                        }}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-[#1D7DB5] cursor-pointer"
                                                     >
                                                         <Paperclip size={12} />
                                                         <span>{att.filename}</span>
@@ -1091,11 +1133,26 @@ export default function ToolDocs({
                             <div className="flex flex-col items-center justify-center py-6 text-center">
                                 {selectedDoc.content_type?.startsWith('image/') &&
                                 selectedDoc.download_url ? (
-                                    <img
-                                        src={selectedDoc.download_url}
-                                        alt={selectedDoc.name}
-                                        className="max-h-96 max-w-full rounded-xl border border-slate-200 dark:border-slate-700 mb-5 object-contain shadow-sm"
-                                    />
+                                    <div className="bc-img-frame mb-5">
+                                        <img
+                                            src={selectedDoc.download_url}
+                                            alt={selectedDoc.name}
+                                            onClick={() => setLightboxUrl(selectedDoc.download_url)}
+                                            className="max-h-96 max-w-full rounded-xl border border-slate-200 dark:border-slate-700 object-contain shadow-sm"
+                                        />
+                                        <a
+                                            href={buildBasecampDirectDownloadHref(selectedDoc.download_url, selectedDoc.name)}
+                                            data-bc-download="true"
+                                            onClick={(ev) => {
+                                                ev.preventDefault()
+                                                ev.stopPropagation()
+                                                triggerBasecampDownload(selectedDoc.download_url, selectedDoc.name)
+                                            }}
+                                            className="bc-img-dl-btn"
+                                        >
+                                            {t('basecamp.download_btn')}
+                                        </a>
+                                    </div>
                                 ) : (
                                     <FileDown size={44} className="text-emerald-500 mb-2" />
                                 )}
@@ -1107,10 +1164,12 @@ export default function ToolDocs({
                                 </p>
                                 {selectedDoc.download_url && (
                                     <a
-                                        href={selectedDoc.download_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1D7DB5] hover:bg-[#155D8A] text-white rounded-xl font-bold text-xs shadow-sm transition-colors"
+                                        href={buildBasecampDirectDownloadHref(selectedDoc.download_url, selectedDoc.name)}
+                                        onClick={(ev) => {
+                                            ev.preventDefault()
+                                            triggerBasecampDownload(selectedDoc.download_url, selectedDoc.name)
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1D7DB5] hover:bg-[#155D8A] text-white rounded-xl font-bold text-xs shadow-sm transition-colors cursor-pointer"
                                     >
                                         <FileDown size={14} />
                                         <span>{t('basecamp.download_file_btn')}</span>
@@ -1307,6 +1366,61 @@ export default function ToolDocs({
                             </p>
                         </div>
                     )}
+                </div>
+            )}
+
+            {lightboxUrl && (
+                <div
+                    onClick={() => setLightboxUrl(null)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 100,
+                        background: 'rgba(0,0,0,0.85)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        cursor: 'zoom-out',
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
+                        style={{
+                            position: 'absolute', top: 20, right: 20,
+                            width: 40, height: 40, borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 20, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                    >
+                        ✕
+                    </button>
+                    <img
+                        src={lightboxUrl}
+                        alt={t('basecamp.fullscreen_view')}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '90vw', maxHeight: '90vh',
+                            objectFit: 'contain', borderRadius: 8,
+                            boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                            cursor: 'default',
+                        }}
+                    />
+                    <a
+                        href={buildBasecampDirectDownloadHref(lightboxUrl)}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerBasecampDownload(lightboxUrl)
+                        }}
+                        style={{
+                            position: 'absolute', bottom: 20,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 18px', borderRadius: 20,
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 13, fontWeight: 600,
+                            textDecoration: 'none', cursor: 'pointer',
+                        }}
+                    >
+                        {t('basecamp.download_btn')}
+                    </a>
                 </div>
             )}
         </div>

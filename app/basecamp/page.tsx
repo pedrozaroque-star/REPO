@@ -150,7 +150,7 @@ function BasecampWorkspace() {
                         *,
                         bc_memberships(
                             role,
-                            person:bc_people(id, name, email, avatar_url, role)
+                            person:bc_people(id, name, email, avatar_url, role, is_active)
                         )
                     `)
                     .eq('is_archived', false)
@@ -164,8 +164,8 @@ function BasecampWorkspace() {
                         const members: any[] = []
                         ;(p.bc_memberships || []).forEach((m: any) => {
                             const personObj = Array.isArray(m.person) ? m.person[0] : m.person
-                            if (!personObj) return
-                            const mKey = personObj.id || normalizePersonName(personObj.name)
+                            if (!personObj || personObj.is_active === false) return
+                            const mKey = normalizePersonName(personObj.name) || personObj.id
                             if (mKey && seenMemberKeys.has(mKey)) return
                             if (mKey) seenMemberKeys.add(mKey)
                             members.push({

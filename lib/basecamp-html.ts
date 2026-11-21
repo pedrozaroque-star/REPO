@@ -193,3 +193,187 @@ export function safeDecodeFilename(raw?: string | null, fallback: string = ''): 
     return raw
   }
 }
+
+/**
+ * Builds a same-origin `/api/basecamp/attachment?...&download=1&filename=...` URL that forces
+ * `Content-Disposition: attachment` for both Basecamp 3 blobs and Supabase Storage `checklist-photos` files.
+ */
+export function buildBasecampDirectDownloadHref(rawUrl?: string | null, rawFilename?: string | null): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '#'
+  const trimmed = rawUrl.trim().replace(/&amp;/gi, '&')
+  if (!trimmed || isDangerousScheme(trimmed)) return '#'
+
+  const deriveFilename = (): string => {
+    const fn = safeDecodeFilename(rawFilename || '').trim()
+    if (fn && fn !== 'Image' && fn !== 'full' && fn !== 'preview') return fn
+    try {
+      const target = trimmed.startsWith('/api/basecamp/attachment?')
+        ? new URLSearchParams(trimmed.split('?')[1] || '').get('url') || trimmed
+        : trimmed
+      const last = target.split('/').pop()?.split('?')[0] || ''
+      const dec = safeDecodeFilename(last)
+      if (dec && dec !== 'full' && dec !== 'preview') return dec
+    } catch {
+      // ignore
+    }
+    return 'imagen'
+  }
+
+  const filename = deriveFilename()
+
+  if (trimmed.startsWith('/api/basecamp/attachment?')) {
+    const qs = new URLSearchParams(trimmed.split('?')[1] || '')
+    qs.set('download', '1')
+    if (filename) qs.set('filename', filename)
+    return `/api/basecamp/attachment?${qs.toString()}`
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    const host = parsed.hostname.toLowerCase()
+    if (
+      parsed.protocol === 'https:' &&
+      (BASECAMP_PROXYABLE_HOSTS.has(host) ||
+        (host.endsWith('.supabase.co') && parsed.pathname.startsWith('/storage/v1/object/public/checklist-photos/')))
+    ) {
+      const qs = new URLSearchParams({
+        url: parsed.toString(),
+        download: '1',
+      })
+      if (filename) qs.set('filename', filename)
+      return `/api/basecamp/attachment?${qs.toString()}`
+    }
+  } catch {
+    // Non-URL or external URL
+  }
+
+  return trimmed
+}
+
+/**
+ * Programmatically downloads an image or attachment in 1 click without opening a new tab.
+ */
+export async function triggerBasecampDownload(rawUrl: string, rawFilename?: string | null): Promise<void> {
+  if (typeof window === 'undefined' || !rawUrl) return
+  const downloadHref = buildBasecampDirectDownloadHref(rawUrl, rawFilename)
+  if (!downloadHref || downloadHref === '#') return
+
+  try {
+    const token = window.localStorage?.getItem('teg_token')
+    const headers: Record<string, string> = {}
+    if (token && downloadHref.startsWith('/api/')) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    const res = await fetch(downloadHref, { headers, credentials: 'same-origin' })
+    if (res.ok) {
+      const blob = await res.blob()
+      let finalName = safeDecodeFilename(rawFilename || '').trim()
+      const cd = res.headers.get('Content-Disposition') || ''
+      const utf8Match = cd.match(/filename\*=UTF-8''([^;\r\n]+)/i)
+      const asciiMatch = cd.match(/filename="([^"]+)"/i)
+      if (utf8Match?.[1]) {
+        finalName = safeDecodeFilename(utf8Match[1])
+      } else if (asciiMatch?.[1]) {
+        finalName = asciiMatch[1]
+      }
+      if (!finalName) finalName = 'imagen.jpg'
+
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = finalName
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(objUrl), 5000)
+      return
+    }
+  } catch {
+    // Fallback to direct anchor download below
+  }
+
+  const fallbackAnchor = document.createElement('a')
+  fallbackAnchor.href = downloadHref
+  fallbackAnchor.download = safeDecodeFilename(rawFilename || '') || 'imagen'
+  fallbackAnchor.style.display = 'none'
+  document.body.appendChild(fallbackAnchor)
+  fallbackAnchor.click()
+  document.body.removeChild(fallbackAnchor)
+}
+
+/**
+ * Wraps every `<img>` in sanitized Basecamp HTML inside a `.bc-img-frame` container with a hoverable
+ * 1-click download button (`a[data-bc-download="true"]`), while preserving click-to-zoom on the image itself.
+ */
+export function injectImageDownloadOverlays(sanitizedHtml: string, downloadLabel: string = '⬇ Descargar'): string {
+  if (!sanitizedHtml || !/<img\b/i.test(sanitizedHtml)) return sanitizedHtml
+  const safeLabel = downloadLabel
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
+  return sanitizedHtml.replace(/<img\b([^>]*)>/gi, (fullImg, attrs) => {
+    const srcMatch = String(attrs).match(/\bsrc\s*=\s*(["'])([^"']+)\1/i)
+    const rawSrc = srcMatch?.[2] || ''
+    if (!rawSrc) return fullImg
+    const altMatch = String(attrs).match(/\balt\s*=\s*(["'])([^"']*)\1/i)
+    const rawAlt = altMatch?.[2] || ''
+    const dlHref = buildBasecampDirectDownloadHref(rawSrc, rawAlt).replace(/"/g, '&quot;')
+    const escSrc = rawSrc.replace(/"/g, '&quot;')
+    const escAlt = rawAlt.replace(/"/g, '&quot;')
+    return `<span class="bc-img-frame">${fullImg}<a href="${dlHref}" data-bc-download="true" data-bc-src="${escSrc}" data-bc-filename="${escAlt}" class="bc-img-dl-btn" title="${safeLabel}">${safeLabel}</a></span>`
+  })
+}
+
+export const BASECAMP_IMAGE_HOVER_CSS = `
+  .bc-img-frame {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    margin: 10px 0;
+    line-height: 0;
+  }
+  .bc-img-frame img {
+    margin: 0 !important;
+    display: block;
+    cursor: zoom-in !important;
+  }
+  .bc-img-frame a.bc-img-dl-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.15s ease;
+    background-color: rgba(15, 23, 42, 0.85);
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    z-index: 6;
+    backdrop-filter: blur(6px);
+  }
+  .bc-img-frame:hover a.bc-img-dl-btn,
+  .bc-img-frame a.bc-img-dl-btn:focus-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .bc-img-frame a.bc-img-dl-btn:hover {
+    background-color: #1D7DB5;
+    text-decoration: none !important;
+  }
+  @media (hover: none) {
+    .bc-img-frame a.bc-img-dl-btn {
+      opacity: 0.92;
+      transform: none;
+    }
+  }
+`

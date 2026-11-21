@@ -37,7 +37,15 @@ import { useLanguage } from '@/lib/i18n'
 import { ClipboardList, Plus, Trash2, Calendar, Clock, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2, Check } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { stripTegAuthorBanner, normalizePersonName } from '@/lib/basecamp-person-resolver'
-import { rewriteBasecampHtmlUrls, safeDecodeFilename, sanitizeBasecampHtml } from '@/lib/basecamp-html'
+import {
+    rewriteBasecampHtmlUrls,
+    safeDecodeFilename,
+    sanitizeBasecampHtml,
+    injectImageDownloadOverlays,
+    triggerBasecampDownload,
+    buildBasecampDirectDownloadHref,
+    BASECAMP_IMAGE_HOVER_CSS,
+} from '@/lib/basecamp-html'
 import { compressImage } from '@/lib/image-compression'
 
 export { sanitizeBasecampHtml }
@@ -245,10 +253,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [assigneeSearchQuery, setAssigneeSearchQuery] = useState('')
     const [showAssigneeSuggestions, setShowAssigneeSuggestions] = useState(false)
     const [highlightedAssigneeIdx, setHighlightedAssigneeIdx] = useState(0)
-    const [newTaskNotifyees, setNewTaskNotifyees] = useState<any[]>([])
-    const [notifySearchQuery, setNotifySearchQuery] = useState('')
-    const [showNotifySuggestions, setShowNotifySuggestions] = useState(false)
-    const [highlightedNotifyIdx, setHighlightedNotifyIdx] = useState(0)
+
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
     const [newTaskNotes, setNewTaskNotes] = useState('')
     const [notesIsEmpty, setNotesIsEmpty] = useState(true)
@@ -286,7 +291,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
     // Refs for race-condition guards and click-outside menus
     const assigneeBoxRef = useRef<HTMLDivElement>(null)
-    const notifyBoxRef = useRef<HTMLDivElement>(null)
     const textSizeMenuRef = useRef<HTMLDivElement>(null)
     const colorMenuRef = useRef<HTMLDivElement>(null)
     const commentImageInputRef = useRef<HTMLInputElement>(null)
@@ -562,10 +566,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         setAssigneeSearchQuery('')
         setShowAssigneeSuggestions(false)
         setHighlightedAssigneeIdx(0)
-        setNewTaskNotifyees([])
-        setNotifySearchQuery('')
-        setShowNotifySuggestions(false)
-        setHighlightedNotifyIdx(0)
+
         setNewTaskDueDate('')
         setNewTaskNotes('')
         setNotesIsEmpty(true)
@@ -823,14 +824,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
     // Close dropdown popovers (Assignees, When Done, Text Size, Highlight Color) when clicking outside
     useEffect(() => {
-        if (!showAssigneeSuggestions && !showNotifySuggestions && !showTextSizeMenu && !showColorMenu) return
+        if (!showAssigneeSuggestions && !showTextSizeMenu && !showColorMenu) return
         const handleOutsideMenus = (e: MouseEvent) => {
             const target = e.target as Node
             if (showAssigneeSuggestions && assigneeBoxRef.current && !assigneeBoxRef.current.contains(target)) {
                 setShowAssigneeSuggestions(false)
-            }
-            if (showNotifySuggestions && notifyBoxRef.current && !notifyBoxRef.current.contains(target)) {
-                setShowNotifySuggestions(false)
             }
             if (showTextSizeMenu && textSizeMenuRef.current && !textSizeMenuRef.current.contains(target)) {
                 setShowTextSizeMenu(false)
@@ -841,11 +839,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         }
         document.addEventListener('mousedown', handleOutsideMenus)
         return () => document.removeEventListener('mousedown', handleOutsideMenus)
-    }, [showAssigneeSuggestions, showNotifySuggestions, showTextSizeMenu, showColorMenu])
+    }, [showAssigneeSuggestions, showTextSizeMenu, showColorMenu])
 
     // Layered Escape key handling: Lightbox -> Task Detail Modal -> New List Modal -> Popovers
     useEffect(() => {
-        if (!lightboxUrl && !selectedTask && !showAddList && !showAssigneeSuggestions && !showNotifySuggestions && !showLinkBar) return
+        if (!lightboxUrl && !selectedTask && !showAddList && !showAssigneeSuggestions && !showLinkBar) return
         const handleEsc = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return
             if (lightboxUrl) {
@@ -864,12 +862,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 return
             }
             if (showAssigneeSuggestions) setShowAssigneeSuggestions(false)
-            if (showNotifySuggestions) setShowNotifySuggestions(false)
             if (showLinkBar) setShowLinkBar(false)
         }
         window.addEventListener('keydown', handleEsc)
         return () => window.removeEventListener('keydown', handleEsc)
-    }, [lightboxUrl, selectedTask, showAddList, showAssigneeSuggestions, showNotifySuggestions, showLinkBar, closeTaskDetail])
+    }, [lightboxUrl, selectedTask, showAddList, showAssigneeSuggestions, showLinkBar, closeTaskDetail])
 
     // Format due dates cleanly without UTC timezone shift or ISO string NaN bugs
     const formatDueDate = useCallback((dateStr?: string | null) => {
@@ -916,11 +913,22 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         return `${datePart} · ${timePart}`
     }
 
-    // Intercept clicks on HTML links and images to handle routing & lightbox
+    // Intercept clicks on HTML links, hover download buttons, and images to handle download, routing & lightbox
     const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement
 
-        // Intercept image clicks to open fullscreen lightbox
+        // 1. Intercept 1-click hover download button over images
+        const dlAnchor = target.closest('a[data-bc-download="true"]') as HTMLAnchorElement | null
+        if (dlAnchor) {
+            e.preventDefault()
+            e.stopPropagation()
+            const rawSrc = dlAnchor.getAttribute('data-bc-src') || dlAnchor.href
+            const rawFn = dlAnchor.getAttribute('data-bc-filename') || ''
+            triggerBasecampDownload(rawSrc, rawFn)
+            return
+        }
+
+        // 2. Intercept image clicks to open fullscreen lightbox
         if (target.tagName === 'IMG') {
             const imgSrc = (target as HTMLImageElement).src
             if (imgSrc) {
@@ -1457,7 +1465,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     description: cleanDescription,
                     due_date: newTaskDueDate || null,
                     assigneeUuids: newTaskAssignees.map((a: any) => a.id),
-                    notifyeeUuids: newTaskNotifyees.map((n: any) => n.id),
                     subtasks: cleanSubtasks
                 })
             })
@@ -1586,21 +1593,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         return [...startsWithQ, ...containsQ]
     })()
 
-    // Filter suggestions for "When done" notify people — accent & spelling resilient
-    const filteredNotifySuggestions = (() => {
-        const q = normalizeSearch(notifySearchQuery)
-        const personQ = normalizePersonName(notifySearchQuery)
-        const available = (project.people || []).filter((p: any) => {
-            const isAlreadySelected = newTaskNotifyees.some((a) => a.id === p.id)
-            if (isAlreadySelected) return false
-            if (!q) return true
-            return normalizeSearch(p.name).includes(q) || (personQ ? normalizePersonName(p.name).includes(personQ) : false)
-        })
-        if (!q) return available
-        const startsWithQ = available.filter((p: any) => normalizeSearch(p.name).startsWith(q))
-        const containsQ = available.filter((p: any) => !normalizeSearch(p.name).startsWith(q))
-        return [...startsWithQ, ...containsQ]
-    })()
+
 
     // Sort helper by creation date (newest first or oldest first) for active tasks
     const sortTasksByCreatedDate = useCallback((tasks: any[]) => {
@@ -2142,163 +2135,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 {getInitials(person.name || 'U')}
                                                             </span>
                                                             <span style={{ fontWeight: idx === highlightedAssigneeIdx ? 600 : 400 }}>{person.name}</span>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#94A3B8', fontStyle: 'italic' }}>
-                                                        {t('basecamp.no_people_found')}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* When done (Notify people) */}
-                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                                    <label className="w-auto sm:w-[108px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-1.5">
-                                        {t('basecamp.when_done')}
-                                    </label>
-                                    <div ref={notifyBoxRef} style={{ position: 'relative', flex: 1, maxWidth: 540 }}>
-                                        <div style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            flexWrap: 'wrap',
-                                            gap: 6,
-                                            padding: '5px 8px',
-                                            borderRadius: 6,
-                                            border: '1px solid #CBD5E1',
-                                            background: '#fff',
-                                            minHeight: 34
-                                        }}>
-                                            {newTaskNotifyees.map((person) => (
-                                                <span key={person.id} style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 5,
-                                                    padding: '2px 8px 2px 4px',
-                                                    borderRadius: 14,
-                                                    background: '#F8FAFC',
-                                                    border: '1px solid #CBD5E1',
-                                                    fontSize: 12,
-                                                    fontWeight: 600,
-                                                    color: '#1E293B'
-                                                }}>
-                                                    <span style={{
-                                                        width: 18,
-                                                        height: 18,
-                                                        borderRadius: '50%',
-                                                        background: getAvatarColor(person.name || 'U'),
-                                                        color: '#fff',
-                                                        fontSize: 9,
-                                                        fontWeight: 700,
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        flexShrink: 0
-                                                    }}>
-                                                        {getInitials(person.name || 'U')}
-                                                    </span>
-                                                    <span>{person.name}</span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setNewTaskNotifyees(prev => prev.filter(p => p.id !== person.id))}
-                                                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#EF4444', padding: '0 2px', fontWeight: 700 }}
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                </span>
-                                            ))}
-                                            <input
-                                                type="text"
-                                                placeholder={newTaskNotifyees.length === 0 ? t('basecamp.notify_people_placeholder') : ''}
-                                                value={notifySearchQuery}
-                                                onChange={(e) => {
-                                                    setNotifySearchQuery(e.target.value)
-                                                    setShowNotifySuggestions(true)
-                                                    setHighlightedNotifyIdx(0)
-                                                }}
-                                                onFocus={() => setShowNotifySuggestions(true)}
-                                                onKeyDown={(e) => {
-                                                    if (!showNotifySuggestions || filteredNotifySuggestions.length === 0) return
-                                                    if (e.key === 'ArrowDown') {
-                                                        e.preventDefault()
-                                                        setHighlightedNotifyIdx(prev => Math.min(prev + 1, filteredNotifySuggestions.length - 1))
-                                                    } else if (e.key === 'ArrowUp') {
-                                                        e.preventDefault()
-                                                        setHighlightedNotifyIdx(prev => Math.max(prev - 1, 0))
-                                                    } else if (e.key === 'Enter') {
-                                                        e.preventDefault()
-                                                        e.stopPropagation()
-                                                        const person = filteredNotifySuggestions[highlightedNotifyIdx]
-                                                        if (person) {
-                                                            setNewTaskNotifyees(prev => [...prev, person])
-                                                            setNotifySearchQuery('')
-                                                            setShowNotifySuggestions(false)
-                                                            setHighlightedNotifyIdx(0)
-                                                        }
-                                                    } else if (e.key === 'Escape') {
-                                                        setShowNotifySuggestions(false)
-                                                    }
-                                                }}
-                                                style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', fontSize: 13, color: '#1E293B', background: 'transparent' }}
-                                            />
-                                        </div>
-
-                                        {showNotifySuggestions && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                top: '100%',
-                                                left: 0,
-                                                right: 0,
-                                                marginTop: 4,
-                                                background: '#fff',
-                                                border: '1px solid #CBD5E1',
-                                                borderRadius: 6,
-                                                boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
-                                                zIndex: 60,
-                                                maxHeight: 190,
-                                                overflowY: 'auto'
-                                            }}>
-                                                {filteredNotifySuggestions.length > 0 ? (
-                                                    filteredNotifySuggestions.map((person: any, idx: number) => (
-                                                        <div
-                                                            key={person.id}
-                                                            onMouseDown={(e) => e.preventDefault()}
-                                                            onClick={() => {
-                                                                setNewTaskNotifyees(prev => [...prev, person])
-                                                                setNotifySearchQuery('')
-                                                                setShowNotifySuggestions(false)
-                                                                setHighlightedNotifyIdx(0)
-                                                            }}
-                                                            onMouseEnter={() => setHighlightedNotifyIdx(idx)}
-                                                            style={{
-                                                                padding: '8px 12px',
-                                                                cursor: 'pointer',
-                                                                fontSize: 13,
-                                                                color: idx === highlightedNotifyIdx ? '#fff' : '#1E293B',
-                                                                background: idx === highlightedNotifyIdx ? '#1D7DB5' : '#fff',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 8
-                                                            }}
-                                                        >
-                                                            <span style={{
-                                                                width: 20,
-                                                                height: 20,
-                                                                borderRadius: '50%',
-                                                                background: getAvatarColor(person.name || 'U'),
-                                                                color: '#fff',
-                                                                fontSize: 9,
-                                                                fontWeight: 700,
-                                                                display: 'inline-flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                flexShrink: 0
-                                                            }}>
-                                                                {getInitials(person.name || 'U')}
-                                                            </span>
-                                                            <span style={{ fontWeight: idx === highlightedNotifyIdx ? 600 : 400 }}>{person.name}</span>
                                                         </div>
                                                     ))
                                                 ) : (
@@ -3068,6 +2904,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 .bc-rich-text blockquote { border-left: 3px solid #CBD5E1; padding-left: 12px; margin: 8px 0; color: #64748B; font-style: italic; }
                 .bc-rich-text table { border-collapse: collapse; width: 100%; margin: 8px 0; }
                 .bc-rich-text td, .bc-rich-text th { border: 1px solid #CBD5E1; padding: 6px 8px; }
+                ${BASECAMP_IMAGE_HOVER_CSS}
             ` }} />
             {mutationError && (
                 <div style={{
@@ -3920,7 +3757,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 </div>
 
                                 {/* ── 3. Structured Metadata Grid ── */}
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
                                     {/* Assigned To */}
                                     <div className="space-y-1.5">
                                         <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -3970,27 +3807,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         </div>
                                     </div>
 
-                                    {/* When Done */}
-                                    <div className="space-y-1.5">
-                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                            {t('basecamp.when_done')}
-                                        </span>
-                                        {(() => {
-                                            const parsedMeta = prepareRichContent(selectedTask.description as string)
-                                            if (parsedMeta.whenDoneNames) {
-                                                return (
-                                                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                                        {parsedMeta.whenDoneNames}
-                                                    </p>
-                                                )
-                                            }
-                                            return (
-                                                <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                                                    {t('basecamp.notify_people')}
-                                                </p>
-                                            )
-                                        })()}
-                                    </div>
                                 </div>
 
                                 {/* ── 4. Description / Notes Section ── */}
@@ -4009,7 +3825,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 <div
                                                     className="bc-rich-text text-sm text-slate-800 dark:text-slate-200 leading-relaxed"
                                                     onClick={handleHtmlClick}
-                                                    dangerouslySetInnerHTML={{ __html: richHtml }}
+                                                    dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(richHtml, t('basecamp.download_btn')) }}
                                                 />
                                             )}
 
@@ -4019,9 +3835,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     {nonImageAttachments.map((att: any, attIdx: number) => (
                                                         <a
                                                             key={attIdx}
-                                                            href={sanitizeAttachmentHref(att.url || att.href)}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
+                                                            href={buildBasecampDirectDownloadHref(sanitizeAttachmentHref(att.url || att.href), att.filename)}
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                triggerBasecampDownload(sanitizeAttachmentHref(att.url || att.href), att.filename)
+                                                            }}
                                                             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#1D7DB5] text-xs font-semibold text-slate-700 dark:text-slate-200 transition-all shadow-2xs hover:shadow-xs"
                                                         >
                                                             <Paperclip size={13} className="text-[#1D7DB5]" />
@@ -4080,7 +3898,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 <div
                                                                     className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
                                                                     onClick={handleHtmlClick}
-                                                                    dangerouslySetInnerHTML={{ __html: commentHtml }}
+                                                                    dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(commentHtml, t('basecamp.download_btn')) }}
                                                                 />
                                                             )}
 
@@ -4089,9 +3907,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                     {commentFiles.map((att: any, attIdx: number) => (
                                                                         <a
                                                                             key={attIdx}
-                                                                            href={sanitizeAttachmentHref(att.url || att.href)}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
+                                                                            href={buildBasecampDirectDownloadHref(sanitizeAttachmentHref(att.url || att.href), att.filename)}
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault()
+                                                                                triggerBasecampDownload(sanitizeAttachmentHref(att.url || att.href), att.filename)
+                                                                            }}
                                                                             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#1D7DB5] text-xs font-semibold text-slate-700 dark:text-slate-200 transition-all"
                                                                         >
                                                                             <Paperclip size={13} className="text-[#1D7DB5]" />
@@ -4279,27 +4099,28 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                             cursor: 'default'
                         }}
                     />
-                    {/* Download button */}
-                    <a
-                        href={lightboxUrl}
-                        download
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            position: 'absolute', bottom: 20,
-                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                            padding: '8px 18px', borderRadius: 20,
-                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
-                            color: '#fff', fontSize: 13, fontWeight: 600,
-                            textDecoration: 'none', cursor: 'pointer',
-                            transition: 'background 0.15s'
+                    {/* 1-Click Direct Download Button */}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            triggerBasecampDownload(lightboxUrl)
                         }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.3)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                        style={{
+                            position: 'absolute', bottom: 22,
+                            display: 'inline-flex', alignItems: 'center', gap: 8,
+                            padding: '10px 22px', borderRadius: 24,
+                            background: '#1D7DB5', border: '1px solid rgba(255,255,255,0.35)',
+                            color: '#fff', fontSize: 13.5, fontWeight: 700,
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                            cursor: 'pointer',
+                            transition: 'background 0.15s, transform 0.15s'
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#155D8A')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
                     >
                         {t('basecamp.download_btn')}
-                    </a>
+                    </button>
                 </div>
             )}
         </div>

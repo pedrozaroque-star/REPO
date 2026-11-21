@@ -40,6 +40,7 @@ import {
   isMaskedOrEmptyEmail,
   SYNTHETIC_BC_ID_THRESHOLD,
 } from '@/lib/basecamp-person-resolver'
+import { sendBasecampTodoNotificationEmail } from '@/lib/basecamp-todo-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -301,15 +302,16 @@ export async function POST(request: Request) {
 
         const { data: existingTodo } = await supabase
           .from('bc_todos')
-          .select('id, todolist_id, created_by_person_id')
+          .select('id, todolist_id, created_by_person_id, is_completed')
           .eq('bc_id', recordingBcId)
           .maybeSingle()
 
         // Author Priority Inversion: Priority #1 = extractedAuthorName, #2 = existing local, #3 = Basecamp creator
+        const webhookActorUuid = await resolvePersonUuid(payload.creator || fullTodo.creator, supabase)
         const authorUuid =
           (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
           existingTodo?.created_by_person_id ||
-          (await resolvePersonUuid(fullTodo.creator || payload.creator, supabase))
+          webhookActorUuid
 
         const { data: dbTodo } = await supabase
           .from('bc_todos')
@@ -370,6 +372,37 @@ export async function POST(request: Request) {
         await syncTodolistCounts(supabase, todolistUuid)
         if (existingTodo?.todolist_id && existingTodo.todolist_id !== todolistUuid) {
           await syncTodolistCounts(supabase, existingTodo.todolist_id)
+        }
+
+        // Notify involved TEG staff ONLY for genuine external Basecamp 3 events (never echo TEG actions)
+        if (dbTodo?.id && !extractedAuthorName) {
+          const webhookActorName = payload.creator?.name || fullTodo.creator?.name || 'Basecamp'
+          const reqOrigin = new URL(request.url).origin
+          if (!existingTodo && kind === 'todo_created') {
+            await sendBasecampTodoNotificationEmail({
+              event: 'assigned',
+              todoDbId: dbTodo.id,
+              actorPersonId: webhookActorUuid,
+              actorName: webhookActorName,
+              appOrigin: reqOrigin,
+            })
+          } else if (existingTodo && Boolean(existingTodo.is_completed) !== isCompleted) {
+            await sendBasecampTodoNotificationEmail({
+              event: isCompleted ? 'completed' : 'reopened',
+              todoDbId: dbTodo.id,
+              actorPersonId: webhookActorUuid,
+              actorName: webhookActorName,
+              appOrigin: reqOrigin,
+            })
+          } else if (existingTodo && kind === 'todo_assignment_changed') {
+            await sendBasecampTodoNotificationEmail({
+              event: 'assigned',
+              todoDbId: dbTodo.id,
+              actorPersonId: webhookActorUuid,
+              actorName: webhookActorName,
+              appOrigin: reqOrigin,
+            })
+          }
         }
       }
 
@@ -438,6 +471,18 @@ export async function POST(request: Request) {
         )
 
         await syncWebhookParentCommentsCount(supabase, parentType, parentUuid)
+
+        if (parentType === 'todo' && !existingComment && !extractedAuthorName) {
+          const commentActorName = fullComment.creator?.name || payload.creator?.name || 'Basecamp'
+          await sendBasecampTodoNotificationEmail({
+            event: 'commented',
+            todoDbId: parentUuid,
+            actorPersonId: authorUuid,
+            actorName: commentActorName,
+            commentHtml: resolvedCommentContent,
+            appOrigin: new URL(request.url).origin,
+          })
+        }
       }
 
       return NextResponse.json({ received: true, synced: 'comment', bc_id: recordingBcId })

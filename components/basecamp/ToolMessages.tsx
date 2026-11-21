@@ -28,7 +28,15 @@ import { useLanguage } from '@/lib/i18n'
 import { Mail, Plus, MessageSquare, Trash2, Loader2, FileText, Paperclip } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
-import { rewriteBasecampHtmlUrls, safeDecodeFilename, sanitizeBasecampHtml } from '@/lib/basecamp-html'
+import {
+    rewriteBasecampHtmlUrls,
+    safeDecodeFilename,
+    sanitizeBasecampHtml,
+    injectImageDownloadOverlays,
+    triggerBasecampDownload,
+    buildBasecampDirectDownloadHref,
+    BASECAMP_IMAGE_HOVER_CSS,
+} from '@/lib/basecamp-html'
 
 export { sanitizeBasecampHtml }
 
@@ -572,6 +580,15 @@ export default function ToolMessages({
 
     const handleRichImgClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement
+        const dlAnchor = target.closest('a[data-bc-download="true"]') as HTMLAnchorElement | null
+        if (dlAnchor) {
+            e.preventDefault()
+            e.stopPropagation()
+            const rawSrc = dlAnchor.getAttribute('data-bc-src') || dlAnchor.href
+            const rawFilename = dlAnchor.getAttribute('data-bc-filename') || undefined
+            triggerBasecampDownload(rawSrc, rawFilename)
+            return
+        }
         if (target.tagName === 'IMG') {
             const imgSrc = (target as HTMLImageElement).src
             if (imgSrc) {
@@ -791,6 +808,7 @@ export default function ToolMessages({
                     text-align: center;
                     margin-top: 4px;
                 }
+                ${BASECAMP_IMAGE_HOVER_CSS}
             ` }} />
 
             {mutationError && (
@@ -1063,7 +1081,7 @@ export default function ToolMessages({
                                             <div
                                                 className="bc-rich-text text-[16px] sm:text-[17px] text-slate-800 dark:text-slate-200 leading-relaxed font-sans"
                                                 onClick={handleRichImgClick}
-                                                dangerouslySetInnerHTML={{ __html: richHtml }}
+                                                dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(richHtml, t('basecamp.download_btn')) }}
                                             />
                                         )}
 
@@ -1074,20 +1092,26 @@ export default function ToolMessages({
                                                     📎 {nonImageAttachments.length} {nonImageAttachments.length === 1 ? t('basecamp.file_count') : t('basecamp.files_count')}
                                                 </div>
                                                 <div className="flex flex-wrap gap-2">
-                                                    {nonImageAttachments.map((file, i) => (
+                                                    {nonImageAttachments.map((file, i) => {
+                                                        const rawFileUrl = sanitizeAttachmentHref(file.url || file.href)
+                                                        const cleanName = safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')
+                                                        return (
                                                         <a
                                                             key={i}
-                                                            href={sanitizeAttachmentHref(file.url || file.href)}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 rounded-xl text-xs font-bold text-[#1D7DB5] hover:text-[#155D8A] transition-all"
+                                                            href={buildBasecampDirectDownloadHref(rawFileUrl, cleanName)}
+                                                            onClick={(ev) => {
+                                                                ev.preventDefault()
+                                                                triggerBasecampDownload(rawFileUrl, cleanName)
+                                                            }}
+                                                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 rounded-xl text-xs font-bold text-[#1D7DB5] hover:text-[#155D8A] transition-all cursor-pointer"
                                                         >
                                                             <FileText size={14} className="text-slate-400 flex-shrink-0" />
                                                             <span className="max-w-[200px] truncate">
-                                                                {safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')}
+                                                                {cleanName}
                                                             </span>
                                                         </a>
-                                                    ))}
+                                                        )
+                                                    })}
                                                 </div>
                                             </div>
                                         )}
@@ -1164,26 +1188,32 @@ export default function ToolMessages({
                                                         <div
                                                             className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-sans"
                                                             onClick={handleRichImgClick}
-                                                            dangerouslySetInnerHTML={{ __html: commentHtml }}
+                                                            dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(commentHtml, t('basecamp.download_btn')) }}
                                                         />
                                                     )}
 
                                                     {commentFiles.length > 0 && (
                                                         <div className="mt-2 flex flex-wrap gap-2">
-                                                            {commentFiles.map((file: any, fIdx: number) => (
+                                                            {commentFiles.map((file: any, fIdx: number) => {
+                                                                const rawFileUrl = sanitizeAttachmentHref(file.url || file.href)
+                                                                const cleanName = safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')
+                                                                return (
                                                                 <a
                                                                     key={fIdx}
-                                                                    href={sanitizeAttachmentHref(file.url || file.href)}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 rounded-xl text-xs font-bold text-[#1D7DB5] hover:text-[#155D8A] transition-all"
+                                                                    href={buildBasecampDirectDownloadHref(rawFileUrl, cleanName)}
+                                                                    onClick={(ev) => {
+                                                                        ev.preventDefault()
+                                                                        triggerBasecampDownload(rawFileUrl, cleanName)
+                                                                    }}
+                                                                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 rounded-xl text-xs font-bold text-[#1D7DB5] hover:text-[#155D8A] transition-all cursor-pointer"
                                                                 >
                                                                     <Paperclip size={13} className="text-[#1D7DB5] flex-shrink-0" />
                                                                     <span className="max-w-[200px] truncate">
-                                                                        {safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')}
+                                                                        {cleanName}
                                                                     </span>
                                                                 </a>
-                                                            ))}
+                                                                )
+                                                            })}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1333,11 +1363,12 @@ export default function ToolMessages({
                         }}
                     />
                     <a
-                        href={lightboxUrl}
-                        download
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                        href={buildBasecampDirectDownloadHref(lightboxUrl)}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerBasecampDownload(lightboxUrl)
+                        }}
                         style={{
                             position: 'absolute', bottom: 20,
                             display: 'inline-flex', alignItems: 'center', gap: 6,
