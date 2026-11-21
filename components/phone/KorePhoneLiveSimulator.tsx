@@ -8,7 +8,7 @@
  * conectada al cerebro y herramientas oficiales de Recepcionista Telefónica de las 15 sucursales.
  *
  * @businessRules
- * - Soporta tanto conversación por micrófono manos libres (`VAD 320 ms` o `Push-to-Talk`) como envío por chat escrito y
+ * - Soporta tanto conversación por micrófono manos libres (`VAD 650 ms` o `Push-to-Talk`) como envío por chat escrito y
  *   los 35 escenarios rápidos de 1 clic (`sendScenarioOrText`), respondiendo siempre con la voz viva de `Kore 3.8 Live`.
  * - Cualquier recado creado durante la simulación se guarda con `source = 'simulator'` (aislado de las pantallas de tienda).
  * - 100% bilingüe (`es` / `en`) vía `useLanguage()` (`lib/i18n.tsx`).
@@ -44,6 +44,11 @@ import {
   Zap
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import type { KoreThirdLanguageMatch } from '@/lib/kore-shared-speech'
+import {
+  resolveKoreLiveLanguageState,
+  type KoreLiveLanguageResolution
+} from '@/components/drive-thru/KoreDriveThruSimulator'
 import {
   KORE_CAPTURE_PROCESSOR,
   KORE_DEFAULT_NOISE_GATE_RMS,
@@ -138,6 +143,10 @@ export const KorePhoneLiveSimulator = forwardRef<
   const callSidRef = useRef<string | null>(null)
   const activeStoreIdRef = useRef<number>(storeId)
   const activeLangRef = useRef<'es' | 'en'>(lang)
+  const activeThirdLangRef = useRef<KoreThirdLanguageMatch | null>(null)
+  const currentUserTurnTextRef = useRef<string>('')
+  const langCueTimerRef = useRef<number | null>(null)
+  const internalLangSyncRef = useRef(false)
   const startedAtRef = useRef<number>(0)
   const statusRef = useRef<'idle' | 'connecting' | 'live'>('idle')
   const micModeRef = useRef<'vad' | 'ptt'>('vad')
@@ -166,7 +175,13 @@ export const KorePhoneLiveSimulator = forwardRef<
   tRef.current = t
 
   useEffect(() => {
+    const changedExternally = activeLangRef.current !== lang && !internalLangSyncRef.current
+    internalLangSyncRef.current = false
     activeLangRef.current = lang
+    if (changedExternally) {
+      activeThirdLangRef.current = null
+      currentUserTurnTextRef.current = ''
+    }
   }, [lang])
 
   useEffect(() => {
@@ -250,6 +265,12 @@ export const KorePhoneLiveSimulator = forwardRef<
       window.clearTimeout(autoHangupTimerRef.current)
       autoHangupTimerRef.current = null
     }
+    if (langCueTimerRef.current !== null) {
+      window.clearTimeout(langCueTimerRef.current)
+      langCueTimerRef.current = null
+    }
+    activeThirdLangRef.current = null
+    currentUserTurnTextRef.current = ''
 
     const ws = wsRef.current
     wsRef.current = null
@@ -428,6 +449,44 @@ export const KorePhoneLiveSimulator = forwardRef<
     }
   }, [status, micMode])
 
+  const schedulePhoneSilentLangCue = useCallback((cueText: string, expectedKey: string, gen: number) => {
+    if (langCueTimerRef.current !== null) {
+      window.clearTimeout(langCueTimerRef.current)
+      langCueTimerRef.current = null
+    }
+    const waitIdle = () => {
+      langCueTimerRef.current = null
+      if (gen !== sessionGenRef.current || statusRef.current !== 'live' || closingSessionRef.current) return
+      const currentKey = activeThirdLangRef.current?.code ?? activeLangRef.current
+      if (currentKey !== expectedKey) return
+      const pb = playbackRef.current
+      if (pb?.isActive || (pb?.remainingMs ?? 0) > 0) {
+        langCueTimerRef.current = window.setTimeout(waitIdle, 90)
+        return
+      }
+      const sock = wsRef.current
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        sock.send(JSON.stringify({ realtimeInput: { text: cueText } }))
+      }
+    }
+    waitIdle()
+  }, [])
+
+  const applyPhoneLanguageResolution = useCallback(
+    (resolved: KoreLiveLanguageResolution, gen: number) => {
+      activeThirdLangRef.current = resolved.thirdLang
+      if (resolved.baseLang !== activeLangRef.current) {
+        activeLangRef.current = resolved.baseLang
+        internalLangSyncRef.current = true
+        onLangChangeRef.current?.(resolved.baseLang)
+      }
+      if (resolved.switchCue && statusRef.current === 'live') {
+        schedulePhoneSilentLangCue(resolved.switchCue, resolved.thirdLang?.code ?? resolved.baseLang, gen)
+      }
+    },
+    [schedulePhoneSilentLangCue]
+  )
+
   const sendTextTurnOverWs = useCallback(
     (rawText: string) => {
       const text = rawText.trim()
@@ -439,6 +498,9 @@ export const KorePhoneLiveSimulator = forwardRef<
       playbackRef.current?.clear()
       closeOpenBubbles()
       setInterimText('')
+      currentUserTurnTextRef.current = ''
+      const resolvedLang = resolveKoreLiveLanguageState(text, activeLangRef.current, activeThirdLangRef.current)
+      applyPhoneLanguageResolution(resolvedLang, sessionGenRef.current)
 
       syncBubbles((prev) => [
         ...prev,
@@ -462,7 +524,7 @@ export const KorePhoneLiveSimulator = forwardRef<
         })
       )
     },
-    [closeOpenBubbles, syncBubbles]
+    [applyPhoneLanguageResolution, closeOpenBubbles, syncBubbles]
   )
 
   const startCall = useCallback(
@@ -479,6 +541,8 @@ export const KorePhoneLiveSimulator = forwardRef<
       bubblesRef.current = []
       setBubbles([])
       pendingAutoHangupRef.current = false
+      activeThirdLangRef.current = null
+      currentUserTurnTextRef.current = ''
       queuedInitialTextRef.current = initialTextToQueue?.trim() || null
 
       statusRef.current = 'connecting'
@@ -513,7 +577,7 @@ export const KorePhoneLiveSimulator = forwardRef<
                   audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true,
+                    autoGainControl: false,
                     channelCount: 1
                   }
                 })
@@ -708,12 +772,30 @@ export const KorePhoneLiveSimulator = forwardRef<
             }
 
             if (sc.interimInputTranscription?.text) {
-              setInterimText(String(sc.interimInputTranscription.text))
+              const interimStr = String(sc.interimInputTranscription.text)
+              setInterimText(interimStr)
+              const combinedPreview = `${currentUserTurnTextRef.current} ${interimStr}`.trim()
+              if (combinedPreview) {
+                const resolvedPreview = resolveKoreLiveLanguageState(
+                  combinedPreview,
+                  activeLangRef.current,
+                  activeThirdLangRef.current
+                )
+                applyPhoneLanguageResolution(resolvedPreview, myGen)
+              }
             }
 
             if (sc.inputTranscription?.text) {
+              const inDelta = String(sc.inputTranscription.text)
+              currentUserTurnTextRef.current += inDelta
               setInterimText('')
-              appendOrExtendBubble('user', String(sc.inputTranscription.text))
+              appendOrExtendBubble('user', inDelta)
+              const resolvedTurn = resolveKoreLiveLanguageState(
+                currentUserTurnTextRef.current,
+                activeLangRef.current,
+                activeThirdLangRef.current
+              )
+              applyPhoneLanguageResolution(resolvedTurn, myGen)
               if (!awaitingFirstModelAudioRef.current) {
                 lastSpeechEndAtRef.current = performance.now()
                 awaitingFirstModelAudioRef.current = true
@@ -741,11 +823,13 @@ export const KorePhoneLiveSimulator = forwardRef<
             }
 
             if (sc.outputTranscription?.text) {
+              currentUserTurnTextRef.current = ''
               closeOpenBubbles('user')
               appendOrExtendBubble('assistant', String(sc.outputTranscription.text), turnLatencyMs)
             }
 
             if (sc.turnComplete === true) {
+              currentUserTurnTextRef.current = ''
               setInterimText('')
               const lastBubble = bubblesRef.current[bubblesRef.current.length - 1]
               const lastAssistantText = lastBubble?.role === 'assistant' ? lastBubble.text.trim() : ''
@@ -796,6 +880,7 @@ export const KorePhoneLiveSimulator = forwardRef<
                       callSid: callSidRef.current,
                       storeId: activeStoreIdRef.current,
                       lang: activeLangRef.current,
+                      thirdLanguage: activeThirdLangRef.current,
                       toolName,
                       toolArgs,
                       recentUserTranscript: recentUser
@@ -879,6 +964,7 @@ export const KorePhoneLiveSimulator = forwardRef<
     },
     [
       appendOrExtendBubble,
+      applyPhoneLanguageResolution,
       closeOpenBubbles,
       disabled,
       lang,
@@ -892,7 +978,10 @@ export const KorePhoneLiveSimulator = forwardRef<
 
   const handlePressKey9 = useCallback(() => {
     const nextLang: 'es' | 'en' = activeLangRef.current === 'en' ? 'es' : 'en'
+    activeThirdLangRef.current = null
+    currentUserTurnTextRef.current = ''
     activeLangRef.current = nextLang
+    internalLangSyncRef.current = true
     onLangChangeRef.current?.(nextLang)
     const ws = wsRef.current
     if (statusRef.current === 'live' && ws && ws.readyState === WebSocket.OPEN) {
@@ -960,7 +1049,10 @@ export const KorePhoneLiveSimulator = forwardRef<
   const latencyStats = computeKoreLatencyStats(latencySamples)
 
   return (
-    <div className="flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-h-[580px]">
+    <div
+      data-teg-live-sim={status !== 'idle' ? 'true' : 'false'}
+      className="flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-h-[580px]"
+    >
       {/* Barra superior estilo llamada en vivo Kore 3.8 Live */}
       <div className="px-5 py-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">

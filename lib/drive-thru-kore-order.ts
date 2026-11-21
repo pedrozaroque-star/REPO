@@ -63,17 +63,24 @@ import {
   KORE_BREAKFAST_CUTOFF_LABEL,
   KORE_BREAKFAST_CUTOFF_MINUTES,
   KORE_BREAKFAST_START_MINUTES,
+  KORE_THIRD_LANGUAGES,
   detectAmbiguousMeatNadaCollision,
+  detectKoreThirdLanguage,
   extractDirectCustomerIntentFromNoisyTurn,
   hasDirectCustomerAudioCheck,
   hasExplicitBackgroundMediaMarkers,
+  hasMeaningfulNonLatinCustomerSpeech,
+  isExplicitBaseLanguageSwitchRequest,
   isExplicitWholeOrderCancelIntent,
   isKoreBreakfastCategory,
   isKoreBreakfastOpen,
   isLikelyBackgroundMediaSpeech,
+  matchesThirdLanguageScript,
   normalizeKoreCustomerSpeech,
   shouldBlockUnconfirmedCancelOrder,
   type KoreBreakfastWindow,
+  type KoreThirdLanguageCode,
+  type KoreThirdLanguageMatch,
   type NoisyTurnCustomerIntent
 } from '@/lib/kore-shared-speech'
 
@@ -83,17 +90,24 @@ export {
   KORE_BREAKFAST_CUTOFF_LABEL,
   KORE_BREAKFAST_CUTOFF_MINUTES,
   KORE_BREAKFAST_START_MINUTES,
+  KORE_THIRD_LANGUAGES,
   detectAmbiguousMeatNadaCollision,
+  detectKoreThirdLanguage,
   extractDirectCustomerIntentFromNoisyTurn,
   hasDirectCustomerAudioCheck,
   hasExplicitBackgroundMediaMarkers,
+  hasMeaningfulNonLatinCustomerSpeech,
+  isExplicitBaseLanguageSwitchRequest,
   isExplicitWholeOrderCancelIntent,
   isKoreBreakfastCategory,
   isKoreBreakfastOpen,
   isLikelyBackgroundMediaSpeech,
+  matchesThirdLanguageScript,
   normalizeKoreCustomerSpeech,
   shouldBlockUnconfirmedCancelOrder,
   type KoreBreakfastWindow,
+  type KoreThirdLanguageCode,
+  type KoreThirdLanguageMatch,
   type NoisyTurnCustomerIntent
 }
 
@@ -311,6 +325,8 @@ export interface KoreToolOptions {
   menu?: KoreMenuItem[]
   /** Si `true`, `orderSummary` adjunta `cheaper_regular_alternative` a nivel de ticket completo (`get_order` / `confirm_order`). */
   includeTicketCheaperAlternatives?: boolean
+  /** 3.er idioma activo detectado del cliente (ej. Coreano, Chino, Japonés, Portugués, Francés) sin alterar `lang: 'es' | 'en'`. */
+  thirdLanguage?: KoreThirdLanguageMatch | null
 }
 
 /** Platillos exclusivos de desayuno: categoría Toast `Breakfast` (bebidas como Coffee/Champurrado viven en `Misc. Drinks`). */
@@ -1352,6 +1368,51 @@ function validateGroups(item: KoreMenuItem, modifiers: KoreOrderModifier[]): str
   return errors
 }
 
+function buildProactiveTacoPlateGroupError(
+  item: KoreMenuItem,
+  modifiers: KoreOrderModifier[],
+  opts?: KoreToolOptions
+): { message: string; selectedCount: number } | null {
+  if (normalizeKoreText(item.name) !== 'taco plate' && !/^taco\s+plates?$/i.test(item.category || '')) {
+    return null
+  }
+  const tacoGroup = item.modifierGroups.find(
+    (g) => /\btaco\b/i.test(g.name) && g.minSelections === 3 && g.maxSelections === 3
+  )
+  if (!tacoGroup) return null
+  const selected = modifiers.filter((m) => m.groupGuid === tacoGroup.guid)
+  const selectedCount = selected.reduce((a, m) => a + m.quantity, 0)
+  if (selectedCount >= 3) return null
+
+  const targetLang = opts?.thirdLanguage
+    ? opts.thirdLanguage.nameEn
+    : opts?.lang === 'en'
+      ? 'English'
+      : 'SPANISH (100% ESPAÑOL)'
+  const priceLabel = formatKoreUsd(toKoreCents(item.price))
+
+  if (selectedCount === 1 && selected.length === 1) {
+    const chosenMeatLabel = selected[0].name.replace(/^taco\s+/i, '').trim() || selected[0].name
+    return {
+      selectedCount,
+      message: `Taco Plate (${priceLabel}) includes 3 tacos served with Mexican rice and refried beans (arroz y frijoles). Customer selected 1 meat (${chosenMeatLabel}). Ask immediately in ${targetLang}: (1) if they also asked what comes with it, state clearly it includes Mexican rice and refried beans (arroz y frijoles), AND (2) ask whether they want ALL 3 tacos of ${chosenMeatLabel} (los 3 tacos de ${chosenMeatLabel}, pass "3x Taco ${chosenMeatLabel}") or want to combine the other 2 tacos with other meats (Asada/beef, Pastor/marinated pork, Pollo/chicken, Carnitas, Chorizo, Cabeza, Lengua, Buche, Veggie)!`
+    }
+  }
+
+  if (selectedCount === 2) {
+    const chosenSummary = selected.map((m) => (m.quantity > 1 ? `${m.quantity}x ${m.name}` : m.name)).join(', ')
+    return {
+      selectedCount,
+      message: `Taco Plate (${priceLabel}) includes 3 tacos served with Mexican rice and refried beans (arroz y frijoles). Customer selected 2 of 3 tacos (${chosenSummary}); 1 more taco is needed. Ask immediately in ${targetLang}: state clearly it includes rice and refried beans (arroz y frijoles) if asked, and ask which meat they would like for their 3rd taco (Asada/beef, Pastor/marinated pork, Pollo/chicken, Carnitas, Chorizo, Cabeza, Lengua, Buche, Veggie)!`
+    }
+  }
+
+  return {
+    selectedCount,
+    message: `Taco Plate (${priceLabel}) includes 3 tacos served with Mexican rice and refried beans (arroz y frijoles). Ask immediately in ${targetLang}: state clearly that the Taco Plate comes with 3 tacos plus Mexican rice and refried beans (arroz y frijoles), and ask which meat(s) they want for their 3 tacos — all 3 of the same meat or combined (Asada/beef, Pastor/marinated pork, Pollo/chicken, Carnitas, Chorizo, Cabeza, Lengua, Buche, Veggie)!`
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ticket y resultados para el modelo
 // ---------------------------------------------------------------------------
@@ -1807,11 +1868,12 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     }
     const ambiguousOptions = bwAmb.open ? res.ambiguous : res.ambiguous.filter((a) => !isKoreBreakfastItem(a))
     if (ambiguousOptions.length > 0) {
+      const thirdLang = opts?.thirdLanguage || null
       const isEn = opts?.lang === 'en'
       const hasFoodFamily = ambiguousOptions.some((a) =>
         /\b(burritos?|quesadillas?|mulitas?|tortas?|sopes?|tacos?|nachos?|platos?)\b/i.test(a.category)
       )
-      if (!isEn) {
+      if (!isEn && !thirdLang) {
         const sizeHintEs = res.askedSmallSize
           ? ' No existe tamaño chico: el menor tamaño es Mediana (22 oz); jamás digas "chica" ni "pequeña".'
           : ''
@@ -1828,7 +1890,8 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       const regSuperHint = hasFoodFamily
         ? ' Never say "tamaño" or "size" for food items — ask which meat (and Regular or Super for burritos/quesadillas/mulitas).'
         : ''
-      return fail(state, 'ambiguous_item', `"${rawName}" matches several menu items. Ask the customer which one.${sizeHint}${regSuperHint}`, opts, {
+      const langTail = thirdLang ? ` Ask concisely 100% in ${thirdLang.nameEn}.` : ''
+      return fail(state, 'ambiguous_item', `"${rawName}" matches several menu items. Ask the customer which one.${sizeHint}${regSuperHint}${langTail}`, opts, {
         options: suggestionList(ambiguousOptions)
       })
     }
@@ -1895,11 +1958,24 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   }
   const groupErrors = validateGroups(item, modRes.modifiers)
   if (groupErrors.length > 0) {
-    const errMsg =
-      opts?.lang === 'en'
-        ? groupErrors.join(' ')
-        : `Falta elegir opción obligatoria (pregunta brevemente 100% en ESPAÑOL): ${groupErrors.join(' ')}`
-    return fail(state, 'modifier_rules', errMsg, opts, { item: item.name })
+    const tacoPlateProactive = buildProactiveTacoPlateGroupError(item, modRes.modifiers, opts)
+    const errMsg = tacoPlateProactive
+      ? tacoPlateProactive.message
+      : opts?.thirdLanguage
+        ? `Required choice missing (ask briefly 100% in ${opts.thirdLanguage.nameEn}): ${groupErrors.join(' ')}`
+        : opts?.lang === 'en'
+          ? groupErrors.join(' ')
+          : `Falta elegir opción obligatoria (pregunta brevemente 100% en ESPAÑOL): ${groupErrors.join(' ')}`
+    return fail(state, 'modifier_rules', errMsg, opts, {
+      item: item.name,
+      ...(tacoPlateProactive
+        ? {
+            includes_sides: 'Mexican rice and refried beans (arroz y frijoles)',
+            required_tacos: 3,
+            selected_tacos: tacoPlateProactive.selectedCount
+          }
+        : {})
+    })
   }
   if (totalPieces(state.lines) + quantity > KORE_MAX_ORDER_ITEMS) {
     return fail(state, 'order_too_large', `A drive-thru order is limited to ${KORE_MAX_ORDER_ITEMS} items.`, opts)
@@ -1995,8 +2071,9 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
     }
   }
   if (failedItems.length === 0) {
-    const batchMsg =
-      opts?.lang === 'en'
+    const batchMsg = opts?.thirdLanguage
+      ? `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}. Confirm briefly 100% in ${opts.thirdLanguage.nameEn}.`
+      : opts?.lang === 'en'
         ? `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}`
         : `Agregados (${addedLines.length}): ${addedLines.join(' | ')}. Confirma brevemente 100% en ESPAÑOL.`
     const addedSet = new Set(lineIds)
@@ -2016,8 +2093,11 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
         : {})
     })
   }
-  const msg =
-    opts?.lang === 'en'
+  const msg = opts?.thirdLanguage
+    ? addedLines.length
+      ? `Added ${addedLines.join(' | ')}; clarify remaining item(s) 100% in ${opts.thirdLanguage.nameEn}: ${failedItems.map((f) => String(f.message)).join(' ')}`
+      : `${failedItems.map((f) => String(f.message)).join(' ')} (Reply 100% in ${opts.thirdLanguage.nameEn}.)`
+    : opts?.lang === 'en'
       ? addedLines.length
         ? `Added ${addedLines.join(' | ')}; clarify remaining item(s): ${failedItems.map((f) => String(f.message)).join(' ')}`
         : failedItems.map((f) => String(f.message)).join(' ')
@@ -2139,7 +2219,20 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
     return fail(state, 'invalid_modifiers', errors.join(' '), opts, { available_modifier_groups: activeItem.modifierGroups.map((g) => describeGroup(g)) })
   }
   const groupErrors = validateGroups(activeItem, modifiers)
-  if (groupErrors.length) return fail(state, 'modifier_rules', groupErrors.join(' '), opts, { item: activeItem.name })
+  if (groupErrors.length) {
+    const tacoPlateProactive = buildProactiveTacoPlateGroupError(activeItem, modifiers, opts)
+    const errMsg = tacoPlateProactive ? tacoPlateProactive.message : groupErrors.join(' ')
+    return fail(state, 'modifier_rules', errMsg, opts, {
+      item: activeItem.name,
+      ...(tacoPlateProactive
+        ? {
+            includes_sides: 'Mexican rice and refried beans (arroz y frijoles)',
+            required_tacos: 3,
+            selected_tacos: tacoPlateProactive.selectedCount
+          }
+        : {})
+    })
+  }
   const newQty = qtyParse.qty
   if (totalPieces(state.lines) - line.quantity + newQty > KORE_MAX_ORDER_ITEMS) {
     return fail(state, 'order_too_large', `A drive-thru order is limited to ${KORE_MAX_ORDER_ITEMS} items.`, opts)
@@ -2402,6 +2495,7 @@ function toolRegisterDriverPickup(state: KoreOrderState, args: Record<string, an
 }
 
 function toolConfirm(state: KoreOrderState, opts?: KoreToolOptions): KoreToolOutcome {
+  const thirdLang = opts?.thirdLanguage || null
   const isEn = opts?.lang === 'en'
   if (state.sessionKind === 'driver_pickup' && state.driverPickup && state.driverPickup.orders.length > 0) {
     const next = bump(state, [], { status: 'confirmed', sessionKind: 'driver_pickup', driverPickup: state.driverPickup })
@@ -2409,28 +2503,45 @@ function toolConfirm(state: KoreOrderState, opts?: KoreToolOptions): KoreToolOut
     return ok(
       next,
       'confirmed',
-      isEn
-        ? `Driver pickup confirmed (${state.driverPickup.platform}, ${count} order${count === 1 ? '' : 's'}, total $0.00). Confirm the ${count} order(s) briefly in English ONLY and ask the driver to pull forward to Drive-Thru Window 2.`
-        : `Recolección de repartidor confirmada (${state.driverPickup.platform}, ${count} orden${count === 1 ? '' : 'es'}, total $0.00). Confirma brevemente en ESPAÑOL y pide avanzar a la Ventana 2 (PROHIBIDO hablar en inglés).`,
+      thirdLang
+        ? `Driver pickup confirmed (${state.driverPickup.platform}, ${count} order${count === 1 ? '' : 's'}, total $0.00). Confirm the ${count} order(s) briefly 100% in ${thirdLang.nameEn} and ask the driver to pull forward to Drive-Thru Window 2.`
+        : isEn
+          ? `Driver pickup confirmed (${state.driverPickup.platform}, ${count} order${count === 1 ? '' : 's'}, total $0.00). Confirm the ${count} order(s) briefly in English ONLY and ask the driver to pull forward to Drive-Thru Window 2.`
+          : `Recolección de repartidor confirmada (${state.driverPickup.platform}, ${count} orden${count === 1 ? '' : 'es'}, total $0.00). Confirma brevemente en ESPAÑOL y pide avanzar a la Ventana 2 (PROHIBIDO hablar en inglés).`,
       opts,
       { window_number: 2 }
     )
   }
-  if (state.lines.length === 0) return fail(state, 'empty_order', isEn ? 'The order is empty; nothing to confirm.' : 'La orden está vacía; aún no hay nada que confirmar.', opts)
+  if (state.lines.length === 0) {
+    return fail(
+      state,
+      'empty_order',
+      thirdLang
+        ? `The order is empty; nothing to confirm. Reply briefly in ${thirdLang.nameEn}.`
+        : isEn
+          ? 'The order is empty; nothing to confirm.'
+          : 'La orden está vacía; aún no hay nada que confirmar.',
+      opts
+    )
+  }
   const warnings = state.status === 'cancelled' ? ['The order had been cancelled; it is now restored and confirmed.'] : []
   const nextConfirmedVersion = (state.version || 0) + 1
   const next = bump(state, state.lines, { status: 'confirmed', confirmedAtVersion: nextConfirmedVersion })
   return ok(
     next,
     'confirmed',
-    isEn
-      ? 'Order confirmed (SIMULATION, not sent to the kitchen). In 100% English ONLY, read back the items + exact total and briefly ask "Does everything look right?"; once the customer confirms and there is nothing else, call end_session to send them to the window and close the car session.'
-      : 'Orden confirmada (SIMULACIÓN). Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés; cuando confirme que no falta nada, llama end_session).',
+    thirdLang
+      ? `Order confirmed (SIMULATION, not sent to the kitchen). In 100% natural ${thirdLang.nameEn}, read back the items + exact USD ($) total and briefly ask if everything looks right; once the customer confirms and there is nothing else, call end_session.`
+      : isEn
+        ? 'Order confirmed (SIMULATION, not sent to the kitchen). In 100% English ONLY, read back the items + exact total and briefly ask "Does everything look right?"; once the customer confirms and there is nothing else, call end_session to send them to the window and close the car session.'
+        : 'Orden confirmada (SIMULACIÓN). Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés; cuando confirme que no falta nada, llama end_session).',
     opts,
     {
-      instruction: isEn
-        ? 'Read back the items + exact total in 100% English ONLY and ask "Does everything look right?".'
-        : 'Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés).',
+      instruction: thirdLang
+        ? `Read back the items + exact USD ($) total 100% in natural ${thirdLang.nameEn} and briefly ask if everything looks right.`
+        : isEn
+          ? 'Read back the items + exact total in 100% English ONLY and ask "Does everything look right?".'
+          : 'Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés).',
       ...(warnings.length ? { warnings } : {})
     }
   )
@@ -2440,6 +2551,7 @@ const EBT_REASON_RE = /\b(?:ebt|calfresh|cal\s*fresh|food\s*stamps?|estampillas?
 const EBT_NOT_VALID_REASON_RE = /\b(?:no\s+v[aá]lid[oa]|no\s+acept|not\s+accepted|not\s+valid|rialto|santa\s+ana)\b/i
 
 function toolCancel(state: KoreOrderState, args: Record<string, any>, opts?: KoreToolOptions): KoreToolOutcome {
+  const thirdLang = opts?.thirdLanguage || null
   const isEn = opts?.lang === 'en'
   const reason = sanitizeNotes(args.reason)
   const isEbt = Boolean(reason && EBT_REASON_RE.test(reason))
@@ -2450,17 +2562,21 @@ function toolCancel(state: KoreOrderState, args: Record<string, any>, opts?: Kor
       ? {
           ebt_dining_room_only: true,
           ebt_accepted_in_city: true,
-          instruction: isEn
-            ? 'EBT is NOT accepted at the Drive-Thru window, but IS valid in this city inside at the dining-room counter. Reply in English ONLY: "We gladly accept EBT inside at the dining-room counter, just not at the Drive-Thru window."'
-            : 'El pago con EBT NO se recibe en ventanilla de Drive-Thru, pero SÍ es válido en esta ciudad adentro en el mostrador del comedor. Responde 100% en ESPAÑOL: "Con gusto, el pago con EBT se hace adentro en el mostrador del comedor." (PROHIBIDO hablar en inglés).'
+          instruction: thirdLang
+            ? `EBT is NOT accepted at the Drive-Thru window, but IS valid in this city inside at the dining-room counter. Reply warmly 100% in ${thirdLang.nameEn} that EBT payment is gladly accepted inside at the dining-room counter, not at the Drive-Thru window.`
+            : isEn
+              ? 'EBT is NOT accepted at the Drive-Thru window, but IS valid in this city inside at the dining-room counter. Reply in English ONLY: "We gladly accept EBT inside at the dining-room counter, just not at the Drive-Thru window."'
+              : 'El pago con EBT NO se recibe en ventanilla de Drive-Thru, pero SÍ es válido en esta ciudad adentro en el mostrador del comedor. Responde 100% en ESPAÑOL: "Con gusto, el pago con EBT se hace adentro en el mostrador del comedor." (PROHIBIDO hablar en inglés).'
         }
       : {
           ebt_dining_room_only: false,
           ebt_accepted_in_city: false,
           ebt_not_accepted_in_city: true,
-          instruction: isEn
-            ? 'EBT is NOT valid or accepted in this city (neither at the Drive-Thru nor inside the dining room; only cash, debit/credit cards, Apple Pay and Google Pay). Kindly explain in English that EBT is not available at this location.'
-            : 'En esta ciudad NO se acepta EBT ni en comedor ni en Drive-Thru (solo efectivo, tarjetas, Apple Pay y Google Pay). Explícalo amablemente 100% en ESPAÑOL.'
+          instruction: thirdLang
+            ? `EBT is NOT valid or accepted in this city (neither at the Drive-Thru nor inside the dining room; only cash, debit/credit cards, Apple Pay and Google Pay). Kindly explain 100% in ${thirdLang.nameEn} that EBT is not available at this location.`
+            : isEn
+              ? 'EBT is NOT valid or accepted in this city (neither at the Drive-Thru nor inside the dining room; only cash, debit/credit cards, Apple Pay and Google Pay). Kindly explain in English that EBT is not available at this location.'
+              : 'En esta ciudad NO se acepta EBT ni en comedor ni en Drive-Thru (solo efectivo, tarjetas, Apple Pay y Google Pay). Explícalo amablemente 100% en ESPAÑOL.'
         }
     : {}
   if (state.status === 'cancelled') {
@@ -2472,18 +2588,19 @@ function toolCancel(state: KoreOrderState, args: Record<string, any>, opts?: Kor
   }
   const next = bump(state, state.lines, { status: 'cancelled', ...(reason ? { cancelReason: reason } : {}) })
   const msg = !isEbt
-    ? isEn ? 'Order cancelled.' : 'Orden cancelada.'
+    ? isEn || thirdLang ? 'Order cancelled.' : 'Orden cancelada.'
     : ebtValidInCity
-      ? isEn
+      ? isEn || thirdLang
         ? 'Order cancelled so the customer can pay with EBT inside at the dining-room counter.'
         : 'Orden cancelada para que el cliente pase a pagar con EBT al mostrador del comedor.'
-      : isEn
+      : isEn || thirdLang
         ? 'Order cancelled because EBT is not valid/accepted in this city.'
         : 'Orden cancelada porque en esta ciudad no se acepta EBT.'
   return ok(next, 'cancelled', msg, opts, { ...(reason ? { reason } : {}), ...ebtExtra })
 }
 
 function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?: KoreToolOptions): KoreToolOutcome {
+  const thirdLang = opts?.thirdLanguage || null
   const isEn = opts?.lang === 'en'
   const hasDriverOrders = (state.driverPickup?.orders?.length ?? 0) > 0
   if (state.status === 'cancelled') {
@@ -2498,9 +2615,11 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
         ...computeKoreTotals(state, opts?.taxRatePct ?? null),
         status: 'cancelled',
         reason,
-        instruction: isEn
-          ? 'Give ONE brief warm goodbye in English ONLY (with NO question); the session will close automatically right after your audio finishes.'
-          : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (SIN hacer ninguna pregunta); la sesión se cerrará automáticamente al terminar tu voz.'
+        instruction: thirdLang
+          ? `Give ONE brief warm goodbye 100% in natural ${thirdLang.nameEn} (with NO question); the session will close automatically right after your audio finishes.`
+          : isEn
+            ? 'Give ONE brief warm goodbye in English ONLY (with NO question); the session will close automatically right after your audio finishes.'
+            : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (SIN hacer ninguna pregunta); la sesión se cerrará automáticamente al terminar tu voz.'
       }
     }
   }
@@ -2517,9 +2636,11 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
         ...computeKoreTotals(next, opts?.taxRatePct ?? null),
         status: next.status,
         reason,
-        instruction: isEn
-          ? 'Give ONE brief warm send-off in English ONLY directing the driver to Window 2 with NO question; the session will close automatically right after your audio finishes.'
-          : 'Da UNA despedida breve y cálida 100% en ESPAÑOL enviando al repartidor a la Ventana 2 SIN ninguna pregunta; la sesión se cerrará automáticamente al terminar tu voz.'
+        instruction: thirdLang
+          ? `Give ONE brief warm send-off 100% in natural ${thirdLang.nameEn} directing the driver to Window 2 with NO question; the session will close automatically right after your audio finishes.`
+          : isEn
+            ? 'Give ONE brief warm send-off in English ONLY directing the driver to Window 2 with NO question; the session will close automatically right after your audio finishes.'
+            : 'Da UNA despedida breve y cálida 100% en ESPAÑOL enviando al repartidor a la Ventana 2 SIN ninguna pregunta; la sesión se cerrará automáticamente al terminar tu voz.'
       }
     }
   }
@@ -2532,9 +2653,11 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
       return fail(
         state,
         'must_confirm_and_read_total_first',
-        isEn
-          ? 'Call confirm_order first, read back the items and exact USD total to the customer, and wait for their confirmation before calling end_session.'
-          : 'Primero llama confirm_order, lee al cliente el resumen y el total exacto en dólares USD y espera su confirmación antes de llamar end_session.',
+        thirdLang
+          ? `Call confirm_order first, read back the items and exact USD ($) total to the customer in ${thirdLang.nameEn}, and wait for their confirmation before calling end_session.`
+          : isEn
+            ? 'Call confirm_order first, read back the items and exact USD total to the customer, and wait for their confirmation before calling end_session.'
+            : 'Primero llama confirm_order, lee al cliente el resumen y el total exacto en dólares USD y espera su confirmación antes de llamar end_session.',
         opts,
         { should_end_session: false, ...computeKoreTotals(state, opts?.taxRatePct ?? null) }
       )
@@ -2543,9 +2666,11 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
       return fail(
         state,
         'must_wait_customer_total_ack',
-        isEn
-          ? 'You just confirmed the order in this turn; read back the items and exact USD total in English first and wait for the customer to reply ("Yes, that\'s right") before calling end_session.'
-          : 'Acabas de confirmar la orden en este turno; lee primero el resumen y el total exacto en dólares USD al cliente y espera a que confirme ("Sí, está bien") antes de llamar end_session.',
+        thirdLang
+          ? `You just confirmed the order in this turn; read back the items and exact USD ($) total in ${thirdLang.nameEn} first and wait for the customer to confirm before calling end_session.`
+          : isEn
+            ? 'You just confirmed the order in this turn; read back the items and exact USD total in English first and wait for the customer to reply ("Yes, that\'s right") before calling end_session.'
+            : 'Acabas de confirmar la orden en este turno; lee primero el resumen y el total exacto en dólares USD al cliente y espera a que confirme ("Sí, está bien") antes de llamar end_session.',
         opts,
         { should_end_session: false, ...computeKoreTotals(state, opts?.taxRatePct ?? null) }
       )
@@ -2561,9 +2686,11 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
         ...computeKoreTotals(state, opts?.taxRatePct ?? null),
         status: state.status,
         reason,
-        instruction: isEn
-          ? 'Give ONE brief warm send-off in English ONLY (e.g. "Awesome, thank you! Please pull forward to the window.") with NO question; the lane session will close automatically right after your audio finishes.'
-          : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (ej. "¡Perfecto, muchas gracias! Pase a la ventanilla por favor.") SIN ninguna pregunta; la sesión se cerrará automáticamente al terminar tu voz.'
+        instruction: thirdLang
+          ? `Give ONE brief warm send-off 100% in natural ${thirdLang.nameEn} asking the customer to pull forward to the window, with NO question; the lane session will close automatically right after your audio finishes.`
+          : isEn
+            ? 'Give ONE brief warm send-off in English ONLY (e.g. "Awesome, thank you! Please pull forward to the window.") with NO question; the lane session will close automatically right after your audio finishes.'
+            : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (ej. "¡Perfecto, muchas gracias! Pase a la ventanilla por favor.") SIN ninguna pregunta; la sesión se cerrará automáticamente al terminar tu voz.'
       }
     }
   }
@@ -2743,6 +2870,17 @@ export function detectKoreSpokenLanguage(text: string, fallback: 'es' | 'en' = '
 }
 
 function attachToolLanguageDirective(outcome: KoreToolOutcome, opts?: KoreToolOptions): KoreToolOutcome {
+  if (opts?.thirdLanguage) {
+    const tl = opts.thirdLanguage
+    return {
+      state: outcome.state,
+      result: {
+        ...outcome.result,
+        reply_language: tl.code,
+        language_directive: `CRITICAL: The customer is speaking ${tl.nameEn} (${tl.code}). Reply 100% in natural, concise ${tl.nameEn} while keeping Tacos Gavilan dish names recognizable, all prices strictly in USD dollars ($), and executing standard POS SKUs on the ticket!`
+      }
+    }
+  }
   const effectiveLang: 'es' | 'en' = opts?.lang === 'en' ? 'en' : 'es'
   const languageDirective =
     effectiveLang === 'en'

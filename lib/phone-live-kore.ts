@@ -52,8 +52,11 @@ import {
 } from '@/lib/customer-store-names'
 import {
   KORE_BREAKFAST_CUTOFF_LABEL,
+  KORE_THIRD_LANGUAGES,
   isKoreBreakfastOpen,
-  normalizeKoreCustomerSpeech
+  normalizeKoreCustomerSpeech,
+  type KoreThirdLanguageCode,
+  type KoreThirdLanguageMatch
 } from '@/lib/kore-shared-speech'
 import { extractZipCodeFromAddress, formatStoreAddressForAgent } from '@/lib/phone-speech-format'
 import { loadActivePhoneLearnedRules } from '@/lib/phone-agent-learning'
@@ -403,8 +406,8 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
 
   const baseLangAnchor =
     lang === 'en'
-      ? `ACTIVE BASE LANGUAGE: ENGLISH. Greeted in English. Mirror the caller's spoken language immediately on every turn: if the caller speaks Spanish, answer 100% in natural Southern California Mexican Spanish; if English, answer 100% in warm American English.`
-      : `IDIOMA BASE ACTIVO: ESPAÑOL. Ya saludaste en español. Espeja de inmediato el idioma real que hable la persona en cada turno: si habla en inglés, respóndele 100% en inglés natural; si habla en español, respóndele 100% en español cálido y natural del Sur de California.`
+      ? `ACTIVE BASE LANGUAGE: ENGLISH (primary: Spanish & English; universal multilingual mirror & strict session_language lock enabled). Greeted in English. Mirror the caller's spoken language immediately: if Spanish, answer 100% in Southern California Mexican Spanish; if English, answer 100% in warm American English; if the caller initiates in a 3rd language (Korean, Chinese Mandarin/Cantonese, Japanese, Portuguese, French, Tagalog, Vietnamese, Arabic, Russian, Armenian, Hindi, German, Italian), keep session_language STRICTLY LOCKED to that language throughout the call (ignoring background bystander remarks like "Las dos se quedaron calladas" unless the caller explicitly requests "in Spanish" / "in English"), keeping Tacos Gavilan dish names clear, prices strictly in USD dollars ($), and obeying all business rules.`
+      : `IDIOMA BASE ACTIVO: ESPAÑOL (principales: Español e Inglés; espejo multilingüe universal y bloqueo estricto session_language activos). Ya saludaste en español. Espeja el idioma real del llamante: si habla en inglés, respóndele 100% en inglés; si habla en español, respóndele 100% en español cálido del Sur de California; y si inicia en un 3.er idioma (Coreano, Chino Mandarín/Cantonés, Japonés, Portugués, Francés, Tagalo, Vietnamita, Árabe, Ruso, Armenio, Hindi, Alemán, Italiano), mantén session_language ESTRICTAMENTE FIJO en ese idioma durante toda la llamada (ignorando comentarios externos de fondo como "Las dos se quedaron calladas" salvo que el propio llamante pida explícitamente "en español" / "in English"), manteniendo claros los platillos de Tacos Gavilan, precios en dólares USD ($) y el 100% de reglas del negocio.`
 
   const callbackOutcomeInstruction = scheduleEval.isOpenNow
     ? 'confirma con calidez que el gerente en turno ya recibió la alerta prioritaria en su pantalla y se comunicará en cuanto sea posible / as soon as possible (PROHIBIDO prometer "enseguida", "de inmediato", "ahorita", "right away" o "immediately").'
@@ -428,7 +431,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - Drive-Thru aquí: ${store.has_drive_thru ? 'SÍ contamos con Drive-Thru.' : 'NO tenemos Drive-Thru aquí (solo comedor y para llevar).'} Las únicas 6 sucursales con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate.`,
     `   - EBT CalFresh aquí: ${config.accepts_ebt ? 'SÍ aceptamos EBT CalFresh ÚNICAMENTE pasando adentro a la caja del mostrador del comedor; JAMÁS se procesa EBT por la ventanilla del Drive-Thru.' : 'NO aceptamos EBT CalFresh en esta sucursal (Rialto y Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple Pay/Google Pay.'}`,
     `7. MENÚ, REGULAR VS SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
-    `   - Si piden varios platillos, cotiza TODOS con su precio unitario exacto del catálogo y la suma subtotal ("más impuestos" / "plus tax"), o usa \`search_menu_item_price\` si quieres verificar el cálculo.`,
+    `   - Si piden varios platillos o hacen una pregunta compuesta (ej. precio + qué incluye o acompañamientos), responde SIEMPRE ambas cosas con exactitud: **Taco Plate** incluye **3 tacos a elegir (los 3 de una carne o combinados: Asada/res, Pastor/cerdo, Pollo/chicken, Carnitas, Chorizo, Cabeza, Lengua, Buche, Vegetariano) + arroz mexicano y frijoles refritos**; **Platos** (Plato Asada, etc.) incluyen carne + arroz, frijoles, guacamole, ensalada y tortillas; **Sopes** llevan tortilla gruesa de maíz con frijoles, crema, queso Cotija y carne (JAMÁS lechuga ni tomate). Cotiza TODOS con su precio unitario exacto en USD y la suma subtotal ("más impuestos" / "plus tax"), o usa \`search_menu_item_price\`.`,
     `   - PROHIBIDO decir "tamaño" o "size" en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; "Supreme/Supremo" = Super). Diferencia exacta: Burrito Regular = carne, arroz y frijol (Super suma queso Monterey Jack, guacamole y crema); **Mulita y Quesadilla Regular YA incluyen queso Monterey Jack derretido** (Super solo suma guacamole y crema). Si preguntan qué sale más barato al quitar un ingrediente de un Super (ej. Mulita sin crema), calcula con exactitud los precios del catálogo en vivo antes de responder (nunca afirmes sin sumar que Super siempre es más barato).`,
     `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas). PROHIBIDO decir "chica", "pequeña" o "small".`,
     `   - Postres: **SOLO Flan y Cheesecake individuales**. NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni cerveza/alcohol.`,
@@ -601,6 +604,32 @@ export async function createPhoneKoreLiveSimulatorSession(params: {
   }
 }
 
+export function sanitizeKoreThirdLanguageInput(raw: unknown): KoreThirdLanguageMatch | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const code = String((raw as Record<string, unknown>).code || '').trim().toLowerCase() as KoreThirdLanguageCode
+  return KORE_THIRD_LANGUAGES[code] || null
+}
+
+function attachPhoneToolLanguageDirective<T extends { response: Record<string, unknown> }>(
+  outcome: T,
+  lang: PhoneLang,
+  thirdLanguage?: KoreThirdLanguageMatch | null
+): T {
+  const validThird = thirdLanguage ? KORE_THIRD_LANGUAGES[thirdLanguage.code] || null : null
+  if (!validThird) return outcome
+  const isEndCall = Boolean(outcome.response.endingCall)
+  return {
+    ...outcome,
+    response: {
+      ...outcome.response,
+      reply_language: validThird.code,
+      language_directive: isEndCall
+        ? `CRITICAL: The caller is speaking ${validThird.nameEn} (${validThird.code}). Give ONE warm, natural phone goodbye 100% in ${validThird.nameEn} ("Thank you for calling Tacos Gavilan!") with NO Drive-Thru window mention.`
+        : `CRITICAL: The caller is speaking ${validThird.nameEn} (${validThird.code}). Reply 100% in natural, concise ${validThird.nameEn} while keeping Tacos Gavilan dish names clear, all prices strictly in USD dollars ($), and obeying phone channel rules (no phone order-taking; invite to tacosgavilan.com, counter, or Drive-Thru).`
+    }
+  }
+}
+
 /** Ejecuta una herramienta en vivo invocada por `gemini-3.8-live` tanto en Simulador como en llamadas reales. */
 export async function executePhoneKoreLiveTool(params: {
   callSid: string
@@ -611,6 +640,22 @@ export async function executePhoneKoreLiveTool(params: {
   toolName: string
   toolArgs: Record<string, unknown>
   recentUserTranscript?: string
+  thirdLanguage?: KoreThirdLanguageMatch | null
+}) {
+  const out = await executePhoneKoreLiveToolCore(params)
+  return attachPhoneToolLanguageDirective(out, params.lang, params.thirdLanguage)
+}
+
+async function executePhoneKoreLiveToolCore(params: {
+  callSid: string
+  storeId: number
+  lang: PhoneLang
+  source: 'simulator' | 'twilio'
+  callerNumber?: string | null
+  toolName: string
+  toolArgs: Record<string, unknown>
+  recentUserTranscript?: string
+  thirdLanguage?: KoreThirdLanguageMatch | null
 }) {
   const { callSid, storeId, lang, source, callerNumber, toolName, toolArgs, recentUserTranscript = '' } = params
   const ctx = await getStorePhoneContext(storeId)

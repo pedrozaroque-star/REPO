@@ -43,8 +43,9 @@
  *   herramientas de Kore al instante (`KORE_HUMAN_TAKEOVER_OBSERVER_CUE`), mantiene viva al 100% la
  *   transcripción (`role: 'cashier'` vs `'customer'`) con Smart Latch para el resto del auto (o hasta
  *   presionar `Devolver turno a Kore`) y guarda todo para el autoaprendizaje continuo.
- * - Anti-ruido y modos de voz: incluye `KoreNoiseGate` opcional por umbral RMS (ignora TV/radio de
- *   fondo) y modo opcional Push-to-Talk (botón o barra espaciadora con envío inmediato de `audioStreamEnd`).
+ * - Anti-ruido y modos de voz: incluye `KoreNoiseGate` opcional por umbral RMS (`0.009`, pre-roll `160 ms`,
+ *   hangover `448 ms`) para ignorar TV/radio sin recortar inicios de frase ni pausas breves, piso anti-eco
+ *   de clips locales calibrado (`0.032`), y modo Push-to-Talk (`audioStreamEnd` inmediato).
  * - Telemetría de latencia: mide en vivo `ms` desde el fin de voz del cliente hasta el primer chunk
  *   PCM de Kore (`avgLatencyMs`, `p95LatencyMs`, `bargeInCount`, `sessionKind`) y lo envía al guardar.
  * - Totales en centavos enteros con `computeKoreTotals` y moneda USD (`$0.00` en `driver_pickup`).
@@ -106,6 +107,21 @@ import {
     type KoreSessionKind,
 } from '@/lib/drive-thru-kore-order'
 import {
+    detectKoreCustomerHoldRequest,
+    detectKoreThirdLanguage,
+    endsWithDanglingClauseConnector,
+    hasUnresolvedCompoundOrderItems,
+    isCustomerResumingFromHold,
+    isDanglingIncompleteOrderFragment,
+    isExplicitBaseLanguageSwitchRequest,
+    isLikelyBackgroundMediaSpeech,
+    isNonLatinNoiseTranscript,
+    matchesThirdLanguageScript,
+    shouldBlockUnconfirmedCancelOrder,
+    type KoreThirdLanguageCode,
+    type KoreThirdLanguageMatch,
+} from '@/lib/kore-shared-speech'
+import {
     KORE_FAST_CLIP_SPECS,
     matchKoreFastClipForToolOutcome,
     type KoreFastClipCategory,
@@ -114,7 +130,9 @@ import {
 import {
     KORE_CAPTURE_PROCESSOR,
     KORE_CHUNK_SAMPLES,
+    KORE_DEFAULT_NOISE_GATE_RMS,
     KORE_INPUT_SAMPLE_RATE,
+    KORE_NOISE_GATE_FLOOR_MULTIPLIER,
     KoreCashierChannelMonitor,
     KoreHeadsetSignalMonitor,
     KoreNoiseGate,
@@ -172,10 +190,475 @@ export function evaluateKoreTurnCompleteAutoEnd(params: {
     }
     return null
 }
-/** Umbral RMS mínimo en modo VAD mientras suena un clip local pregrabado (evita retroalimentación de bocinas sin audífonos). */
-export const KORE_LOCAL_CLIP_ECHO_RMS_FLOOR = 0.06
+/** Piso RMS mínimo de barge-in en modo VAD mientras Kore habla sin AGC (bloquea eco/chispazos sin tragarse "Un flan" a 0.032+). */
+export const KORE_LOCAL_CLIP_ECHO_RMS_FLOOR = 0.028
 /** Segundo refresco automático del panel de aprendizaje tras terminar `after()` en backend. */
 export const KORE_POST_SAVE_LEARNING_REFRESH_MS = 3500
+
+export const KORE_BARGE_IN_MIN_CONSECUTIVE_CHUNKS = 4
+export const KORE_BARGE_IN_THRESHOLD_MULTIPLIER = 1.30
+export const KORE_BARGE_IN_MAX_THRESHOLD_RMS = 0.042
+export const KORE_BARGE_IN_PRE_ONSET_CHUNKS = 6
+/** Ventana máxima (ms) tras un barge-in local sobre voz viva de Gemini para descartar paquetes modelTurn en vuelo previos a sc.interrupted. */
+export const KORE_LIVE_BARGE_IN_RTT_SHIELD_MS = 480
+/** Cooldown (ms) entre cortes asistidos por transcripción ante monólogos de TV/YouTube en vivo. */
+export const KORE_TRANSCRIPT_TV_CUT_COOLDOWN_MS = 1500
+/** Bloques consecutivos sobre `bargeInThreshold` exigidos para cancelar un `autoEnd` con socket aún abierto. */
+export const KORE_AUTO_END_CANCEL_CONSECUTIVE_CHUNKS = 3
+/** Ventana (ms) tras un arranque truncado o conector colgante ("Hola. Quiero", "...hablar con el", "...es") para continuación suave. */
+export const KORE_CONTINUATION_GRACE_WINDOW_MS = 3000
+/** Bloques consecutivos requeridos en modo continuación suave (2 × 32 ms = 64 ms). */
+export const KORE_CONTINUATION_GRACE_MIN_CHUNKS = 2
+/** Umbral RMS reducido en continuación suave (`Math.min(bargeInThreshold, 0.024)`) para retomar palabra en 64 ms bloqueando eco 0.018. */
+export const KORE_CONTINUATION_GRACE_RMS_THRESHOLD = 0.024
+/** Duración (ms) del modo espera silencioso cuando el cliente pide tiempo ("espérame, estoy pensando", "no me apresures"). */
+export const KORE_CUSTOMER_HOLD_STANDBY_MS = 45_000
+
+/** Herramientas de artículos que jamás deben adivinar productos/tamaños ante un arranque truncado ("Quiero una"). */
+export const KORE_ITEM_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'add_item',
+    'add_items',
+    'update_item',
+    'remove_item',
+])
+
+/** Bloquea llamadas adivinadas a add_item/add_items/update_item/remove_item cuando el turno del cliente quedó truncado ("Quiero una"). */
+export function shouldBlockDanglingFragmentToolCall(toolName: string, customerTurnText: string): boolean {
+    if (!KORE_ITEM_MUTATION_TOOL_NAMES.has(toolName)) return false
+    const clean = String(customerTurnText ?? '').trim()
+    if (!clean) return false
+    return isDanglingIncompleteOrderFragment(clean)
+}
+
+/**
+ * Impide que frases ambiguas de descarte ("Olvídalo entonces.", "Mejor no", "Never mind", "cancelar hablar con el manager")
+ * borren una orden activa con artículos ya capturados; permite `cancel_order` cuando hay intención explícita o motivo EBT.
+ */
+export function shouldBlockAmbiguousCancelOrderToolCall(
+    toolName: string,
+    args: Record<string, unknown>,
+    customerTurnText: string,
+    hasActiveOrderLines: boolean
+): boolean {
+    if (toolName !== 'cancel_order') return false
+    if (!hasActiveOrderLines) return false
+    const rawReason = typeof args?.reason === 'string' ? args.reason : null
+    return shouldBlockUnconfirmedCancelOrder(String(customerTurnText ?? ''), rawReason)
+}
+
+/** Evalúa si debe activarse la ventana de continuación suave (64 ms @ 0.015) tras un corte en arranque truncado o conector colgante. */
+export function isKoreContinuationGraceActive(
+    turnText: string,
+    nowMs: number,
+    lastSpeechMs: number,
+    windowMs = KORE_CONTINUATION_GRACE_WINDOW_MS
+): boolean {
+    if (!(lastSpeechMs > 0)) return false
+    const elapsed = nowMs - lastSpeechMs
+    if (elapsed < 0 || elapsed >= windowMs) return false
+    const clean = String(turnText ?? '').trim()
+    if (!clean) return false
+    return isDanglingIncompleteOrderFragment(clean) || endsWithDanglingClauseConnector(clean)
+}
+
+export interface KoreCustomerHoldEvaluation {
+    holdActive: boolean
+    holdUntilMs: number
+    activatedOrRenewedHold: boolean
+    resumedFromHold: boolean
+    suppressGeminiTurn: boolean
+    shouldLockNoiseFloor: boolean
+    nonLatinNoise: boolean
+}
+
+/**
+ * Controlador determinista de espera del cliente ("espérame, estoy pensando", "no me apresures"):
+ * - Al detectar `detectKoreCustomerHoldRequest(turnText) === true`, permite que Kore confirme brevemente ese turno
+ *   y activa una ventana de espera de `45 s` (`KORE_CUSTOMER_HOLD_STANDBY_MS`).
+ * - Mientras la espera está vigente, suprime al 100% cualquier respuesta de Kore ante ruido/videos del auto
+ *   (`isCustomerResumingFromHold === false`, ej. "de repente me di", "es esta cámara", "जी के", reseñas nocturnas),
+ *   y despierta al instante cuando el cliente retoma con una orden, pregunta o cierre real ("Quiero un postre", "un flan").
+ * - Además filtra universalmente basura STT sin letras latinas ni dígitos (`isNonLatinNoiseTranscript`) aún fuera de espera.
+ */
+export class KoreCustomerHoldController {
+    private holdUntilMs = 0
+
+    get holdUntilTimestampMs(): number {
+        return this.holdUntilMs
+    }
+
+    isHoldActive(nowMs: number): boolean {
+        return this.holdUntilMs > 0 && Number.isFinite(nowMs) && nowMs < this.holdUntilMs
+    }
+
+    reset(): void {
+        this.holdUntilMs = 0
+    }
+
+    evaluateTurnText(
+        turnText: string,
+        nowMs: number,
+        standbyMs = KORE_CUSTOMER_HOLD_STANDBY_MS,
+        activeThirdLangCode: KoreThirdLanguageCode | null = null
+    ): KoreCustomerHoldEvaluation {
+        const safeNow = Number.isFinite(nowMs) && nowMs >= 0 ? nowMs : 0
+        if (this.holdUntilMs > 0 && safeNow >= this.holdUntilMs) {
+            this.holdUntilMs = 0
+        }
+        const wasHoldActive = this.holdUntilMs > 0 && safeNow < this.holdUntilMs
+        const clean = String(turnText ?? '').trim()
+        if (!clean) {
+            return {
+                holdActive: wasHoldActive,
+                holdUntilMs: this.holdUntilMs,
+                activatedOrRenewedHold: false,
+                resumedFromHold: false,
+                suppressGeminiTurn: false,
+                shouldLockNoiseFloor: false,
+                nonLatinNoise: false,
+            }
+        }
+
+        if (isNonLatinNoiseTranscript(clean, activeThirdLangCode)) {
+            return {
+                holdActive: wasHoldActive,
+                holdUntilMs: this.holdUntilMs,
+                activatedOrRenewedHold: false,
+                resumedFromHold: false,
+                suppressGeminiTurn: true,
+                shouldLockNoiseFloor: true,
+                nonLatinNoise: true,
+            }
+        }
+
+        if (detectKoreCustomerHoldRequest(clean, activeThirdLangCode)) {
+            this.holdUntilMs = safeNow + Math.max(1000, standbyMs)
+            return {
+                holdActive: true,
+                holdUntilMs: this.holdUntilMs,
+                activatedOrRenewedHold: true,
+                resumedFromHold: false,
+                suppressGeminiTurn: false,
+                shouldLockNoiseFloor: false,
+                nonLatinNoise: false,
+            }
+        }
+
+        if (wasHoldActive) {
+            if (isCustomerResumingFromHold(clean, activeThirdLangCode)) {
+                this.holdUntilMs = 0
+                return {
+                    holdActive: false,
+                    holdUntilMs: 0,
+                    activatedOrRenewedHold: false,
+                    resumedFromHold: true,
+                    suppressGeminiTurn: false,
+                    shouldLockNoiseFloor: false,
+                    nonLatinNoise: false,
+                }
+            }
+            return {
+                holdActive: true,
+                holdUntilMs: this.holdUntilMs,
+                activatedOrRenewedHold: false,
+                resumedFromHold: false,
+                suppressGeminiTurn: true,
+                shouldLockNoiseFloor: true,
+                nonLatinNoise: false,
+            }
+        }
+
+        return {
+            holdActive: false,
+            holdUntilMs: 0,
+            activatedOrRenewedHold: false,
+            resumedFromHold: false,
+            suppressGeminiTurn: false,
+            shouldLockNoiseFloor: false,
+            nonLatinNoise: false,
+        }
+    }
+
+    inspectCustomerTurn(
+        turnText: string,
+        nowMs: number,
+        standbyMs = KORE_CUSTOMER_HOLD_STANDBY_MS,
+        activeThirdLangCode: KoreThirdLanguageCode | null = null
+    ): KoreCustomerHoldEvaluation {
+        return this.evaluateTurnText(turnText, nowMs, standbyMs, activeThirdLangCode)
+    }
+}
+
+/** Cuenta cuántos artículos distintos se agregaron exitosamente en el lote actual de herramientas. */
+export function countAddedOrderItemsInToolBatch(
+    executedCalls: readonly { name: string; args: Record<string, unknown>; response: Record<string, unknown> }[]
+): number {
+    let count = 0
+    for (const c of executedCalls) {
+        if (c.response.ok !== true) continue
+        if (c.name === 'add_item') {
+            count += 1
+        } else if (c.name === 'add_items') {
+            if (typeof c.response.added_count === 'number' && Number.isFinite(c.response.added_count) && c.response.added_count > 0) {
+                count += c.response.added_count
+            } else if (Array.isArray(c.response.added) && c.response.added.length > 0) {
+                count += c.response.added.length
+            } else if (Array.isArray(c.args.items) && c.args.items.length > 0) {
+                count += c.args.items.length
+            } else {
+                count += 1
+            }
+        }
+    }
+    return count
+}
+
+/** Impide que un fast-clip parcial (ej. ack_1_taco_asada) calle la pregunta viva de Kore cuando faltan platillos compuestos por aclarar. */
+export function shouldSuppressFastClipForCompoundTurn(params: {
+    isTerminalSendoff: boolean
+    customerTurnText: string
+    addedItemsCount: number
+}): boolean {
+    if (params.isTerminalSendoff || params.addedItemsCount <= 0) return false
+    return hasUnresolvedCompoundOrderItems(params.customerTurnText, params.addedItemsCount)
+}
+
+/** Verifica si todo el lote de herramientas es de solo lectura (search_menu / get_order). */
+export function isReadOnlyLookupToolBatch(calls: readonly unknown[]): boolean {
+    if (calls.length === 0) return false
+    let validCount = 0
+    for (const raw of calls) {
+        if (!isPlainObject(raw)) continue
+        const name = typeof raw.name === 'string' ? raw.name : ''
+        if (name !== 'search_menu' && name !== 'get_order') return false
+        validCount += 1
+    }
+    return validCount > 0
+}
+
+/** Detecta si Kore ya pronunció una pregunta en el turno actual antes de emitir un lookup de solo lectura. */
+export function hasKoreAlreadyAskedQuestionInTurn(
+    currentKoreTurnText: string,
+    transcript: readonly { role: string; text: string }[]
+): boolean {
+    if (/[?¿]/.test(currentKoreTurnText)) return true
+    for (let i = transcript.length - 1; i >= 0; i -= 1) {
+        const entry = transcript[i]
+        if (!entry || entry.role === 'system') continue
+        if (entry.role === 'kore') {
+            return /[?¿]/.test(entry.text)
+        }
+        break
+    }
+    return false
+}
+
+/** Herramientas mutantes que jamás deben ejecutarse si el turno del micrófono fue 100% TV/YouTube sin orden del cliente. */
+export const KORE_MUTATING_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'add_item',
+    'add_items',
+    'update_item',
+    'remove_item',
+    'confirm_order',
+    'cancel_order',
+    'end_session',
+])
+
+/** Determina si una llamada a herramienta mutante debe bloquearse por espera activa sin retomar, basura no latina o TV/YouTube. */
+export function shouldBlockGhostMediaToolCall(
+    toolName: string,
+    customerTurnText: string,
+    holdSuppressed = false,
+    activeThirdLangCode: KoreThirdLanguageCode | null = null
+): boolean {
+    if (!KORE_MUTATING_TOOL_NAMES.has(toolName)) return false
+    if (holdSuppressed) return true
+    const clean = String(customerTurnText ?? '').trim()
+    if (!clean) return false
+    return (
+        isNonLatinNoiseTranscript(clean, activeThirdLangCode) ||
+        isLikelyBackgroundMediaSpeech(clean, activeThirdLangCode)
+    )
+}
+
+/** Determina si la transcripción parcial/final acumulada amerita anclar el piso anti-TV y cortar el stream de inmediato. */
+export function shouldTriggerTranscriptTvCut(
+    turnText: string,
+    nowMs: number,
+    lastCutAtMs: number,
+    cooldownMs = KORE_TRANSCRIPT_TV_CUT_COOLDOWN_MS,
+    activeThirdLangCode: KoreThirdLanguageCode | null = null
+): boolean {
+    if (nowMs - lastCutAtMs < cooldownMs) return false
+    const clean = String(turnText ?? '').trim()
+    if (!clean) return false
+    const words = clean.split(/\s+/).filter(Boolean)
+    if (words.length < 10) return false
+    return isLikelyBackgroundMediaSpeech(clean, activeThirdLangCode)
+}
+
+/** Verifica si el WebSocket sigue abierto (`readyState === 1`); tras `fast_sendoff` (`null`) el cierre automático es irrevocable. */
+export function isKoreSocketOpenForAutoEndCancel(ws: { readyState: number } | null | undefined): boolean {
+    return Boolean(ws && ws.readyState === 1)
+}
+
+/** Calcula el umbral RMS de barge-in cercano mientras Kore está hablando en modo VAD sin AGC. */
+export function computeKoreBargeInThresholdRms(effectiveGateThresholdRms: number): number {
+    const safeEff =
+        Number.isFinite(effectiveGateThresholdRms) && effectiveGateThresholdRms > 0
+            ? effectiveGateThresholdRms
+            : KORE_DEFAULT_NOISE_GATE_RMS
+    const estimatedAmbientRms = safeEff / KORE_NOISE_GATE_FLOOR_MULTIPLIER
+    return Math.min(
+        KORE_BARGE_IN_MAX_THRESHOLD_RMS,
+        Math.max(KORE_LOCAL_CLIP_ECHO_RMS_FLOOR, estimatedAmbientRms * KORE_BARGE_IN_THRESHOLD_MULTIPLIER)
+    )
+}
+
+export interface KoreBargeInGuardStep {
+    suppressed: boolean
+    justTriggeredBargeIn: boolean
+    bargeInLatched: boolean
+    bargeInThresholdRms: number
+    chunksToForward: ArrayBuffer[]
+}
+
+/**
+ * Escudo anti-barge-in mientras Kore habla (`playbackActive === true && micMode === 'vad'`):
+ * - Impide que TV/YouTube de fondo (`RMS ~0.012–0.030`) o picos aislados disparen
+ *   `serverContent.interrupted = true` cortando la voz de Kore a media frase ("Para el burrito,").
+ * - Exige `>= 4` bloques consecutivos (128 ms) sobre `bargeInThreshold` (`0.028–0.042`) en modo normal para bloquear
+ *   al 100% chispazos de 1 sílaba ("e", "Dra.", "luego", `1–3` bloques = `32–96 ms`), volcando íntegros los `6` bloques
+ *   de pre-ataque (`192 ms`) al abrir en el 4.º bloque de "Un flan" (`RMS 0.032`).
+ * - Cuando `continuationGraceActive = true` (conector colgante en los últimos `3000 ms`), abre en `2` bloques (`64 ms`)
+ *   con umbral `Math.min(bargeInThreshold, 0.024)` para retomar la palabra de inmediato sin dejar pasar eco `0.018`.
+ */
+export class KorePlaybackBargeInGuard {
+    private latched = false
+    private consecutiveAbove = 0
+    private preOnsetQueue: ArrayBuffer[] = []
+    private onsetChunks: ArrayBuffer[] = []
+    private silenceCache = new Map<number, ArrayBuffer>()
+
+    get isLatched(): boolean {
+        return this.latched
+    }
+
+    get hasPendingState(): boolean {
+        return this.latched || this.consecutiveAbove > 0 || this.preOnsetQueue.length > 0
+    }
+
+    reset(): void {
+        this.latched = false
+        this.consecutiveAbove = 0
+        this.preOnsetQueue = []
+        this.onsetChunks = []
+    }
+
+    private getSilence(byteLength: number): ArrayBuffer {
+        let buf = this.silenceCache.get(byteLength)
+        if (!buf) {
+            buf = new ArrayBuffer(byteLength)
+            this.silenceCache.set(byteLength, buf)
+        }
+        return buf
+    }
+
+    processDuringPlayback(
+        pcm: ArrayBuffer,
+        rms: number,
+        effectiveGateThresholdRms: number,
+        opts?: {
+            continuationGraceActive?: boolean
+            minConsecutiveChunks?: number
+            thresholdOverrideRms?: number
+        }
+    ): KoreBargeInGuardStep {
+        const grace = opts?.continuationGraceActive === true
+        const baseThreshold = computeKoreBargeInThresholdRms(effectiveGateThresholdRms)
+        const threshold =
+            typeof opts?.thresholdOverrideRms === 'number' &&
+            Number.isFinite(opts.thresholdOverrideRms) &&
+            opts.thresholdOverrideRms > 0
+                ? opts.thresholdOverrideRms
+                : grace
+                    ? Math.min(baseThreshold, KORE_CONTINUATION_GRACE_RMS_THRESHOLD)
+                    : baseThreshold
+        const requiredChunks =
+            typeof opts?.minConsecutiveChunks === 'number' &&
+            Number.isInteger(opts.minConsecutiveChunks) &&
+            opts.minConsecutiveChunks >= 1
+                ? opts.minConsecutiveChunks
+                : grace
+                    ? KORE_CONTINUATION_GRACE_MIN_CHUNKS
+                    : KORE_BARGE_IN_MIN_CONSECUTIVE_CHUNKS
+        if (this.latched) {
+            return {
+                suppressed: false,
+                justTriggeredBargeIn: false,
+                bargeInLatched: true,
+                bargeInThresholdRms: threshold,
+                chunksToForward: [pcm],
+            }
+        }
+
+        const safeRms = Number.isFinite(rms) && rms >= 0 ? rms : 0
+        if (safeRms >= threshold) {
+            this.consecutiveAbove += 1
+            this.onsetChunks.push(pcm.slice(0))
+            if (this.consecutiveAbove >= requiredChunks) {
+                this.latched = true
+                const flushed = [...this.preOnsetQueue, ...this.onsetChunks]
+                this.preOnsetQueue = []
+                this.onsetChunks = []
+                return {
+                    suppressed: false,
+                    justTriggeredBargeIn: true,
+                    bargeInLatched: true,
+                    bargeInThresholdRms: threshold,
+                    chunksToForward: flushed,
+                }
+            }
+            return {
+                suppressed: true,
+                justTriggeredBargeIn: false,
+                bargeInLatched: false,
+                bargeInThresholdRms: threshold,
+                chunksToForward: [this.getSilence(pcm.byteLength)],
+            }
+        }
+
+        if (this.onsetChunks.length > 0) {
+            this.preOnsetQueue.push(...this.onsetChunks)
+            this.onsetChunks = []
+        }
+        this.consecutiveAbove = 0
+        this.preOnsetQueue.push(pcm.slice(0))
+        while (this.preOnsetQueue.length > KORE_BARGE_IN_PRE_ONSET_CHUNKS) {
+            this.preOnsetQueue.shift()
+        }
+        return {
+            suppressed: true,
+            justTriggeredBargeIn: false,
+            bargeInLatched: false,
+            bargeInThresholdRms: threshold,
+            chunksToForward: [this.getSilence(pcm.byteLength)],
+        }
+    }
+
+    process(
+        pcm: ArrayBuffer,
+        rms: number,
+        effectiveGateThresholdRms: number,
+        opts?: {
+            continuationGraceActive?: boolean
+            minConsecutiveChunks?: number
+            thresholdOverrideRms?: number
+        }
+    ): KoreBargeInGuardStep {
+        return this.processDuringPlayback(pcm, rms, effectiveGateThresholdRms, opts)
+    }
+}
 
 export function shouldSuppressLocalFastClipSpeakerEcho(params: {
     playbackActive: boolean
@@ -210,9 +693,121 @@ export const KORE_SYSTEM_LANG_SWITCH_CUE: Record<'es' | 'en', string> = {
     es: '[SYSTEM LANGUAGE LOCK -> SPANISH] El cliente está hablando en ESPAÑOL. PROHIBIDO responder en inglés. Responde estrictamente 100% en español.',
 }
 
-/** Evalúa el siguiente idioma activo de la sesión a partir de lo hablado por el cliente. */
-export function resolveNextKoreSessionLang(text: string, currentLang: 'es' | 'en'): 'es' | 'en' {
-    return detectKoreSpokenLanguage(text, currentLang)
+/** Evalúa el siguiente idioma activo de la sesión a partir de lo hablado por el cliente (ignorando basura STT no latina). */
+export function resolveNextKoreSessionLang(
+    text: string,
+    currentLang: 'es' | 'en',
+    activeThirdLangCode: KoreThirdLanguageCode | null = null
+): 'es' | 'en' {
+    const clean = String(text ?? '').trim()
+    if (!clean || isNonLatinNoiseTranscript(clean, activeThirdLangCode)) return currentLang
+    return detectKoreSpokenLanguage(clean, currentLang)
+}
+
+const NON_LATIN_THIRD_LANG_CODES: ReadonlySet<KoreThirdLanguageCode> = new Set([
+    'ja',
+    'ko',
+    'zh',
+    'ar',
+    'ru',
+    'hi',
+    'hy',
+])
+
+const NEUTRAL_MENU_LOANWORD_ONLY_RE =
+    /^\s*(?:tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|platos?|plates?|taco\s+plates?|super\s+nachos?|nachos?|asada|pastor|adobada|pollo|chicken|steak|beef|pork|cabeza|lengua|buche|chorizo|carnitas|veggie|vegetariano|vegetariana|super|supreme|regular|horchata|jamaica|tamarindo|pina|piña|champurrado|coca|coke|sprite|fanta|jarritos|agua|flan|cheesecake|medium|mediana|large|grande|gallon|galon|corn|maiz|maíz|flour|harina|ok|okay|yes|no|\d+)[\s.,!?]*$/i
+
+export function buildKoreThirdLangSwitchCue(match: KoreThirdLanguageMatch): string {
+    return '[SYSTEM LANGUAGE SWITCH -> ' + match.nameEn.toUpperCase() + ' (' + match.code + ')] Customer is speaking ' + match.nameEn + '. Respond warmly and concisely 100% in natural ' + match.nameEn + ' while keeping Tacos Gavilan menu item names clear, prices strictly in USD dollars ($), and standard POS tool calls.'
+}
+
+export function buildKoreThirdLangLockCue(match: KoreThirdLanguageMatch): string {
+    return '[SYSTEM LANGUAGE LOCK -> ' + match.nameEn.toUpperCase() + ' (' + match.code + ')] Keep responding 100% in ' + match.nameEn + ' to the customer; ignore background Spanish/English bystander chatter.'
+}
+
+export interface KoreLiveLanguageResolution {
+    baseLang: 'es' | 'en'
+    thirdLang: KoreThirdLanguageMatch | null
+    switchCue: string | null
+}
+
+/**
+ * Resuelve y mantiene bloqueado el session_language del vehículo o llamada actual:
+ * - Ignora vacíos y basura STT no latina (isNonLatinNoiseTranscript(clean, activeThirdCode)).
+ * - Si ya hay un currentThirdLang fijado (ej. ja, ko, zh, pt, fr), mantiene bloqueado currentThirdLang
+ *   durante toda la atención de ese auto/llamada; voces externas sin comando explícito de cambio de idioma
+ *   (ej. "Las dos se quedaron calladas.", "Asada, por favor") JAMÁS rompen currentThirdLang.
+ * - Solo cambia desde currentThirdLang si isExplicitBaseLanguageSwitchRequest(clean) pide explícitamente 'es' / 'en'
+ *   (ej. "En español por favor", "In English please") o si detectKoreThirdLanguage(clean) detecta otro 3.er idioma.
+ * - Si currentThirdLang es de escritura no latina y entra conversación ajena en alfabeto latino sin script del cliente,
+ *   reinyecta silenciosamente buildKoreThirdLangLockCue para blindar a Gemini contra cambio accidental de idioma.
+ */
+export function resolveKoreLiveLanguageState(
+    text: string,
+    currentBaseLang: 'es' | 'en',
+    currentThirdLang: KoreThirdLanguageMatch | null
+): KoreLiveLanguageResolution {
+    const activeCode = currentThirdLang?.code ?? null
+    const clean = String(text ?? '').trim()
+    if (!clean || isNonLatinNoiseTranscript(clean, activeCode)) {
+        return { baseLang: currentBaseLang, thirdLang: currentThirdLang, switchCue: null }
+    }
+
+    if (currentThirdLang !== null) {
+        const explicitSwitch = isExplicitBaseLanguageSwitchRequest(clean)
+        if (explicitSwitch !== null) {
+            return {
+                baseLang: explicitSwitch,
+                thirdLang: null,
+                switchCue: KORE_SYSTEM_LANG_SWITCH_CUE[explicitSwitch],
+            }
+        }
+    }
+
+    const detectedThird = detectKoreThirdLanguage(clean)
+    if (detectedThird) {
+        const changed = currentThirdLang?.code !== detectedThird.code
+        return {
+            baseLang: currentBaseLang,
+            thirdLang: detectedThird,
+            switchCue: changed ? buildKoreThirdLangSwitchCue(detectedThird) : null,
+        }
+    }
+
+    if (currentThirdLang !== null) {
+        const isNonLatinSession = NON_LATIN_THIRD_LANG_CODES.has(currentThirdLang.code)
+        const hasLatinChars = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(clean)
+        const hasClientScript = matchesThirdLanguageScript(clean, currentThirdLang.code)
+        const shouldReinforceLock =
+            isNonLatinSession &&
+            hasLatinChars &&
+            !hasClientScript &&
+            !NEUTRAL_MENU_LOANWORD_ONLY_RE.test(clean)
+        return {
+            baseLang: currentBaseLang,
+            thirdLang: currentThirdLang,
+            switchCue: shouldReinforceLock ? buildKoreThirdLangLockCue(currentThirdLang) : null,
+        }
+    }
+
+    const explicitFromBase = isExplicitBaseLanguageSwitchRequest(clean)
+    if (explicitFromBase !== null && explicitFromBase !== currentBaseLang) {
+        return {
+            baseLang: explicitFromBase,
+            thirdLang: null,
+            switchCue: KORE_SYSTEM_LANG_SWITCH_CUE[explicitFromBase],
+        }
+    }
+
+    const nextBase = detectKoreSpokenLanguage(clean, currentBaseLang)
+    if (nextBase !== currentBaseLang) {
+        return {
+            baseLang: nextBase,
+            thirdLang: null,
+            switchCue: KORE_SYSTEM_LANG_SWITCH_CUE[nextBase],
+        }
+    }
+    return { baseLang: currentBaseLang, thirdLang: null, switchCue: null }
 }
 
 /** Valor centinela en el selector de canal secundario para leer el Canal 2 (Right) de una interfaz USB estéreo. */
@@ -988,6 +1583,7 @@ export interface KoreDriverLookupFetchDeps {
     storeId: number
     headers: Record<string, string>
     lang?: 'es' | 'en'
+    thirdLanguage?: KoreThirdLanguageMatch | null
     acceptsEbt?: boolean
     fetchImpl?: typeof fetch
     timeoutMs?: number
@@ -1009,6 +1605,7 @@ export async function resolveKoreDriverPickupTool(
     const fallbackOut = applyKoreTool(before, menu, 'register_driver_pickup', args, {
         taxRatePct,
         ...(deps.lang ? { lang: deps.lang } : {}),
+        ...(deps.thirdLanguage ? { thirdLanguage: deps.thirdLanguage } : {}),
         ...(typeof deps.acceptsEbt === 'boolean' ? { acceptsEbt: deps.acceptsEbt } : {}),
     })
     if (deps.externalSignal?.aborted) {
@@ -1374,7 +1971,15 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const autoEndTimerRef = useRef<number | null>(null)
     const currentKoreTurnTextRef = useRef('')
     const currentCustomerTurnTextRef = useRef('')
+    const lastCompletedCustomerTurnTextRef = useRef('')
+    const customerTurnFreshRef = useRef(true)
+    const confirmedOrderInCurrentTurnRef = useRef(false)
+    const lastTranscriptTvCutMsRef = useRef(0)
+    const lastCustomerSpeechTimestampMsRef = useRef(0)
+    const recentRawMicRmsRef = useRef(0)
+    const autoEndCancelConsecRef = useRef(0)
     const langCueTimerRef = useRef<number | null>(null)
+    const activeThirdLangRef = useRef<KoreThirdLanguageMatch | null>(null)
     const fastClipsMapRef = useRef<Map<string, KoreDecodedFastClipPair>>(new Map())
     const fastClipsStoreIdRef = useRef<number>(0)
     const fastClipsInflightStoreIdRef = useRef<number>(0)
@@ -1383,11 +1988,16 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const suppressGeminiTurnAudioRef = useRef(false)
     const localFastClipStartedAtRef = useRef(0)
     const customerSpokeSinceFastClipRef = useRef(false)
+    const bargeInGuardRef = useRef<KorePlaybackBargeInGuard>(new KorePlaybackBargeInGuard())
+    const customerBargeInActiveRef = useRef(false)
+    const pendingLiveBargeInUntilMsRef = useRef(0)
     const fastClipSeedRef = useRef(0)
     const previewCtxRef = useRef<AudioContext | null>(null)
     const previewSourceRef = useRef<AudioBufferSourceNode | null>(null)
     const postSaveLearnTimerRef = useRef<number | null>(null)
     const cashierControllerRef = useRef<KoreCashierSessionController>(new KoreCashierSessionController())
+    const customerHoldRef = useRef<KoreCustomerHoldController>(new KoreCustomerHoldController())
+    const holdSuppressedCurrentTurnRef = useRef(false)
     const cashierTakeoverActiveRef = useRef(false)
     const cashierSpeakingRef = useRef(false)
     const cashierChannelIdRef = useRef<string>('')
@@ -1735,7 +2345,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
     }
 
-    const clearAutoEnd = (resetMode = true) => {
+    const clearAutoEnd = (resetMode = true, opts?: { force?: boolean }) => {
+        // Candado anti-zombie: si el WebSocket ya fue cerrado por fast_sendoff, el drenado y cierre es irrevocable
+        if (
+            resetMode &&
+            !opts?.force &&
+            liveRef.current &&
+            !endingRef.current &&
+            !isKoreSocketOpenForAutoEndCancel(wsRef.current)
+        ) {
+            return
+        }
+        autoEndCancelConsecRef.current = 0
         if (autoEndTimerRef.current !== null) {
             window.clearTimeout(autoEndTimerRef.current)
             autoEndTimerRef.current = null
@@ -1763,6 +2384,9 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         playbackRef.current?.stop()
         localFastClipStartedAtRef.current = 0
         customerSpokeSinceFastClipRef.current = false
+        bargeInGuardRef.current.reset()
+        customerBargeInActiveRef.current = false
+        pendingLiveBargeInUntilMsRef.current = 0
         clearAutoEnd(true)
         clearLangCueTimer()
         suppressGeminiTurnAudioRef.current = true
@@ -1885,6 +2509,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         ) {
             cashierMonitorRef.current?.feedRightChannelRms(data.rightRms)
         }
+        if (Number.isFinite(data.rms) && data.rms >= 0) {
+            recentRawMicRmsRef.current =
+                recentRawMicRmsRef.current === 0 ? data.rms : recentRawMicRmsRef.current * 0.85 + data.rms * 0.15
+        }
         const canTransmit = micModeRef.current === 'ptt' ? pttTalkingRef.current : micEnabledRef.current
         if (!canTransmit) {
             const decayed = meterLevelRef.current * 0.78
@@ -1897,36 +2525,118 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             return
         }
 
-        const echoSuppressed = shouldSuppressLocalFastClipSpeakerEcho({
-            playbackActive: Boolean(playbackRef.current?.isActive),
-            localFastClipStartedAt: localFastClipStartedAtRef.current,
-            micMode: micModeRef.current,
-            rms: data.rms,
-        })
-        if (echoSuppressed) {
-            noiseGateRef.current.reset()
-            const decayedEcho = meterLevelRef.current * 0.8
-            meterLevelRef.current = decayedEcho < 0.01 ? 0 : decayedEcho
-            if (meterRef.current) meterRef.current.style.width = `${Math.round(meterLevelRef.current * 100)}%`
-            if (!noiseGatedRef.current && Number.isFinite(data.rms) && data.rms >= 0.004) {
-                noiseGatedRef.current = true
-                setNoiseGatedNow(true)
-            }
-            if (!liveRef.current) return
-            const wsSilent = wsRef.current
-            if (!wsSilent || wsSilent.readyState !== WebSocket.OPEN || wsSilent.bufferedAmount > WS_BACKPRESSURE_BYTES) return
-            sendJson({
-                realtimeInput: {
-                    audio: {
-                        data: bytesToBase64(new Uint8Array(data.pcm.byteLength)),
-                        mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
-                    },
-                },
-            })
+        // Si el WebSocket ya fue cerrado (ej. fast_sendoff drenando despedida), jamás permitir barge-in ni cancelar autoEnd
+        if (liveRef.current && !isKoreSocketOpenForAutoEndCancel(wsRef.current)) {
             return
         }
 
+        const pbActive = Boolean(playbackRef.current?.isActive)
+        const useVadBargeInShield = pbActive && micModeRef.current === 'vad' && !cashierTakeoverActiveRef.current
+
+        if (!useVadBargeInShield && !customerBargeInActiveRef.current && bargeInGuardRef.current.hasPendingState) {
+            bargeInGuardRef.current.reset()
+        }
+
+        if (useVadBargeInShield) {
+            const lastTurnTxt =
+                currentCustomerTurnTextRef.current.trim() || lastCompletedCustomerTurnTextRef.current.trim()
+            const continuationGraceActive = isKoreContinuationGraceActive(
+                lastTurnTxt,
+                performance.now(),
+                lastCustomerSpeechTimestampMsRef.current
+            )
+            const bgStep = bargeInGuardRef.current.processDuringPlayback(
+                data.pcm,
+                data.rms,
+                noiseGateRef.current.effectiveThresholdRms,
+                { continuationGraceActive }
+            )
+            customerBargeInActiveRef.current = bgStep.bargeInLatched
+
+            if (bgStep.suppressed) {
+                // Cierra solo la ventana transitoria SIN borrar ambientFloorRms aprendido de la TV
+                noiseGateRef.current.closeTransientGate()
+                const decayedEcho = meterLevelRef.current * 0.8
+                meterLevelRef.current = decayedEcho < 0.01 ? 0 : decayedEcho
+                if (meterRef.current) meterRef.current.style.width = `${Math.round(meterLevelRef.current * 100)}%`
+                const filteringNow = Number.isFinite(data.rms) && data.rms >= 0.004
+                if (filteringNow !== noiseGatedRef.current) {
+                    noiseGatedRef.current = filteringNow
+                    setNoiseGatedNow(filteringNow)
+                }
+                if (!liveRef.current) return
+                const wsSilent = wsRef.current
+                if (!wsSilent || wsSilent.readyState !== WebSocket.OPEN || wsSilent.bufferedAmount > WS_BACKPRESSURE_BYTES) return
+                for (const silentBuf of bgStep.chunksToForward) {
+                    const cashierExtra = cashierMonitorRef.current?.popPendingPcm() ?? null
+                    const outboundBuf = cashierExtra ? mixPcm16Buffers(silentBuf, cashierExtra) : silentBuf
+                    sendJson({
+                        realtimeInput: {
+                            audio: {
+                                data: bytesToBase64(new Uint8Array(outboundBuf)),
+                                mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
+                            },
+                        },
+                    })
+                }
+                return
+            }
+
+            if (bgStep.justTriggeredBargeIn) {
+                noiseGateRef.current.primeOpenFromBargeIn()
+                const rawBurst = Math.min(1, Math.max(0, data.rms) * 5)
+                meterLevelRef.current = Math.max(rawBurst, meterLevelRef.current * 0.82)
+                if (meterRef.current) meterRef.current.style.width = `${Math.round(meterLevelRef.current * 100)}%`
+                if (noiseGatedRef.current) {
+                    noiseGatedRef.current = false
+                    setNoiseGatedNow(false)
+                }
+                if (!liveRef.current) return
+                const nowBargeMs = performance.now()
+                const wasLocalFastClip = localFastClipStartedAtRef.current > 0
+                customerBargeInActiveRef.current = true
+                if (!wasLocalFastClip) {
+                    pendingLiveBargeInUntilMsRef.current = nowBargeMs + KORE_LIVE_BARGE_IN_RTT_SHIELD_MS
+                }
+                initialGreetingPendingRef.current = false
+                lastCustomerVoiceMsRef.current = nowBargeMs
+                lastCustomerSpeechTimestampMsRef.current = nowBargeMs
+                customerSpokeSinceFastClipRef.current = true
+                clearAutoEnd(true)
+                localFastClipStartedAtRef.current = 0
+                playbackRef.current?.clear()
+                finalizeSpeech('kore')
+                if (!koreTurnInterruptedRef.current) {
+                    koreTurnInterruptedRef.current = true
+                    bargeInCountRef.current += 1
+                    setBargeInCount(bargeInCountRef.current)
+                }
+                koreTurnFirstAudioRecordedRef.current = false
+                const wsBurst = wsRef.current
+                if (!wsBurst || wsBurst.readyState !== WebSocket.OPEN || wsBurst.bufferedAmount > WS_BACKPRESSURE_BYTES) return
+                for (const onsetBuf of bgStep.chunksToForward) {
+                    const cashierExtra = cashierMonitorRef.current?.popPendingPcm() ?? null
+                    const outboundBuf = cashierExtra ? mixPcm16Buffers(onsetBuf, cashierExtra) : onsetBuf
+                    sendJson({
+                        realtimeInput: {
+                            audio: {
+                                data: bytesToBase64(new Uint8Array(outboundBuf)),
+                                mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
+                            },
+                        },
+                    })
+                }
+                return
+            }
+        }
+
         const gate = noiseGateRef.current.process(data.pcm, data.rms)
+        if (!gate.speechActive && (customerBargeInActiveRef.current || bargeInGuardRef.current.hasPendingState)) {
+            bargeInGuardRef.current.reset()
+            customerBargeInActiveRef.current = false
+            customerSpokeSinceFastClipRef.current = false
+        }
+
         const raw = Math.min(1, gate.effectiveRms * 5)
         const level = Math.max(raw, meterLevelRef.current * 0.82)
         meterLevelRef.current = level
@@ -1939,27 +2649,42 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
 
         if (!liveRef.current) return
-        const minSpeechRms =
-            playbackRef.current?.isActive && localFastClipStartedAtRef.current > 0 && micModeRef.current === 'vad'
-                ? KORE_LOCAL_CLIP_ECHO_RMS_FLOOR
-                : 0.025
-        if (gate.speechActive && (!playbackRef.current?.isActive || micModeRef.current === 'ptt' || data.rms >= minSpeechRms)) {
+        const bargeInOrPtt = !pbActive || micModeRef.current === 'ptt' || customerBargeInActiveRef.current
+        if (gate.speechActive && bargeInOrPtt) {
+            const nowSpeechMs = performance.now()
             initialGreetingPendingRef.current = false
-            lastCustomerVoiceMsRef.current = performance.now()
+            lastCustomerVoiceMsRef.current = nowSpeechMs
+            lastCustomerSpeechTimestampMsRef.current = nowSpeechMs
             koreTurnFirstAudioRecordedRef.current = false
             if (
                 localFastClipStartedAtRef.current > 0 &&
                 performance.now() - localFastClipStartedAtRef.current > 350 &&
-                ((micModeRef.current === 'ptt' && pttTalkingRef.current) || data.rms >= KORE_LOCAL_CLIP_ECHO_RMS_FLOOR)
+                ((micModeRef.current === 'ptt' && pttTalkingRef.current) || customerBargeInActiveRef.current)
             ) {
                 customerSpokeSinceFastClipRef.current = true
             }
-            // Si ya terminó de sonar Kore y el cliente habla durante el colchón de cierre, cancela el cierre al instante
-            if (autoEndTimerRef.current !== null && (!playbackRef.current?.isActive || micModeRef.current === 'ptt')) {
-                if (micModeRef.current === 'ptt' || data.rms >= 0.035) {
+            // Si el socket sigue vivo y el cliente habla fuerte durante el colchón (>= 3 bloques sobre bargeInThreshold), cancela el cierre
+            if (
+                autoEndTimerRef.current !== null &&
+                isKoreSocketOpenForAutoEndCancel(wsRef.current) &&
+                (!pbActive || micModeRef.current === 'ptt')
+            ) {
+                if (micModeRef.current === 'ptt' && pttTalkingRef.current) {
                     clearAutoEnd(true)
+                } else {
+                    const cancelThr = computeKoreBargeInThresholdRms(noiseGateRef.current.effectiveThresholdRms)
+                    if (data.rms >= cancelThr) {
+                        autoEndCancelConsecRef.current += 1
+                        if (autoEndCancelConsecRef.current >= KORE_AUTO_END_CANCEL_CONSECUTIVE_CHUNKS) {
+                            clearAutoEnd(true)
+                        }
+                    } else {
+                        autoEndCancelConsecRef.current = 0
+                    }
                 }
             }
+        } else if (autoEndTimerRef.current !== null) {
+            autoEndCancelConsecRef.current = 0
         }
 
         const ws = wsRef.current
@@ -1973,6 +2698,9 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     audio: { data: bytesToBase64(new Uint8Array(outboundBuf)), mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}` },
                 },
             })
+        }
+        if (gate.forcedTvCut && !cashierTakeoverActiveRef.current) {
+            sendJson({ realtimeInput: { audioStreamEnd: true } })
         }
     }
 
@@ -2003,10 +2731,17 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
     const teardownMedia = () => {
         liveRef.current = false
+        activeThirdLangRef.current = null
         suppressGeminiTurnAudioRef.current = false
         localFastClipStartedAtRef.current = 0
         customerSpokeSinceFastClipRef.current = false
-        clearAutoEnd(true)
+        bargeInGuardRef.current.reset()
+        customerBargeInActiveRef.current = false
+        pendingLiveBargeInUntilMsRef.current = 0
+        confirmedOrderInCurrentTurnRef.current = false
+        lastCustomerSpeechTimestampMsRef.current = 0
+        autoEndCancelConsecRef.current = 0
+        clearAutoEnd(true, { force: true })
         clearLangCueTimer()
         abortInFlightTools()
         clearTimers()
@@ -2148,7 +2883,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const finishSession = async (errorMessage?: string) => {
         if (endingRef.current) return
         endingRef.current = true
-        clearAutoEnd(true)
+        clearAutoEnd(true, { force: true })
         genRef.current += 1 // invalida flujos asíncronos de start()
         const wasLive = startedAtRef.current !== null
         setPhase('ending')
@@ -2174,7 +2909,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
      * de cerrar la sesión del auto, sin cortar jamás su voz a media frase.
      */
     const scheduleAutoEndAfterAudioDrain = (cushionMs: number, gen: number) => {
-        clearAutoEnd(false)
+        clearAutoEnd(false, { force: true })
         const waitDrain = () => {
             autoEndTimerRef.current = null
             if (gen !== genRef.current || !liveRef.current || endingRef.current || autoEndModeRef.current === 'none') return
@@ -2262,24 +2997,29 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     }
 
     /**
-     * Envía en silencio la directiva `[SYSTEM LANGUAGE SWITCH -> ...]` únicamente cuando Kore NO está
+     * Envía en silencio una directiva `[SYSTEM LANGUAGE SWITCH -> ...]` únicamente cuando Kore NO está
      * reproduciendo audio (`!playbackRef.current?.isActive && remainingMs === 0`), jamás a mitad de voz.
      */
-    const scheduleSilentLangCueWhenIdle = (targetLang: KoreLang, gen: number) => {
+    const scheduleSilentCueTextWhenIdle = (cueText: string, expectedLangKey: string, gen: number) => {
         clearLangCueTimer()
         const waitIdle = () => {
             langCueTimerRef.current = null
             if (gen !== genRef.current || !liveRef.current || endingRef.current || autoEndModeRef.current !== 'none') return
             if (cashierTakeoverActiveRef.current) return
-            if (sessionMetaRef.current.lang !== targetLang) return
+            const activeKey = activeThirdLangRef.current?.code ?? sessionMetaRef.current.lang
+            if (activeKey !== expectedLangKey) return
             const pb = playbackRef.current
             if (pb?.isActive || (pb?.remainingMs ?? 0) > 0) {
                 langCueTimerRef.current = window.setTimeout(waitIdle, 90)
                 return
             }
-            sendJson({ realtimeInput: { text: KORE_SYSTEM_LANG_SWITCH_CUE[targetLang] } })
+            sendJson({ realtimeInput: { text: cueText } })
         }
         waitIdle()
+    }
+
+    const scheduleSilentLangCueWhenIdle = (targetLang: KoreLang, gen: number) => {
+        scheduleSilentCueTextWhenIdle(KORE_SYSTEM_LANG_SWITCH_CUE[targetLang], targetLang, gen)
     }
 
     const applyLiveLanguageSwitch = (nextLang: KoreLang, opts?: { sendCueWhenIdle?: boolean; gen?: number }) => {
@@ -2302,8 +3042,24 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
     }
 
+    const applyLiveLanguageResolution = (resolved: KoreLiveLanguageResolution, gen: number) => {
+        const prevThirdCode = activeThirdLangRef.current?.code ?? null
+        const nextThirdCode = resolved.thirdLang?.code ?? null
+        activeThirdLangRef.current = resolved.thirdLang
+        if (resolved.baseLang !== sessionMetaRef.current.lang) {
+            applyLiveLanguageSwitch(resolved.baseLang, { gen })
+        }
+        if (nextThirdCode !== prevThirdCode && resolved.thirdLang && liveRef.current) {
+            pushSystem(`Idioma espejo activo: ${resolved.thirdLang.nameEs} (${resolved.thirdLang.code})`)
+        }
+        if (resolved.switchCue && liveRef.current) {
+            scheduleSilentCueTextWhenIdle(resolved.switchCue, nextThirdCode ?? resolved.baseLang, gen)
+        }
+    }
+
     const handleManualLanguageSelect = (code: KoreLang) => {
         langTouchedRef.current = true
+        activeThirdLangRef.current = null
         if (liveRef.current) {
             currentCustomerTurnTextRef.current = ''
             applyLiveLanguageSwitch(code, { sendCueWhenIdle: true, gen: genRef.current })
@@ -2314,9 +3070,15 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
     const handleServerContent = (sc: Record<string, unknown>, gen: number) => {
         if (sc.interrupted === true) {
+            pendingLiveBargeInUntilMsRef.current = 0
             suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
             const localClipActive = localFastClipStartedAtRef.current > 0 && Boolean(playbackRef.current?.isActive)
-            const shouldClearPlayback = !localClipActive || customerSpokeSinceFastClipRef.current
+            const vadProtectedPlayback =
+                micModeRef.current === 'vad' &&
+                Boolean(playbackRef.current?.isActive) &&
+                !cashierTakeoverActiveRef.current &&
+                !customerBargeInActiveRef.current
+            const shouldClearPlayback = (!localClipActive || customerSpokeSinceFastClipRef.current) && !vadProtectedPlayback
             clearLangCueTimer()
             currentKoreTurnTextRef.current = ''
             koreTurnFirstAudioRecordedRef.current = false
@@ -2333,8 +3095,19 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }
             }
         }
+        const liveBargeInRttShieldActive =
+            pendingLiveBargeInUntilMsRef.current > 0 && performance.now() < pendingLiveBargeInUntilMsRef.current
+        if (!liveBargeInRttShieldActive && pendingLiveBargeInUntilMsRef.current > 0) {
+            pendingLiveBargeInUntilMsRef.current = 0
+        }
         const modelTurn = isPlainObject(sc.modelTurn) ? sc.modelTurn : null
-        if (!cashierTakeoverActiveRef.current && !suppressGeminiTurnAudioRef.current && modelTurn && Array.isArray(modelTurn.parts)) {
+        if (
+            !cashierTakeoverActiveRef.current &&
+            !suppressGeminiTurnAudioRef.current &&
+            !liveBargeInRttShieldActive &&
+            modelTurn &&
+            Array.isArray(modelTurn.parts)
+        ) {
             // Procesar TODAS las parts de cada mensaje
             for (const part of modelTurn.parts) {
                 if (!isPlainObject(part) || !isPlainObject(part.inlineData)) continue
@@ -2358,10 +3131,64 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             }
         }
         if (isPlainObject(sc.inputTranscription) && typeof sc.inputTranscription.text === 'string') {
+            if (customerTurnFreshRef.current && sc.inputTranscription.text.trim()) {
+                lastCompletedCustomerTurnTextRef.current = ''
+                customerTurnFreshRef.current = false
+            }
+            currentCustomerTurnTextRef.current += sc.inputTranscription.text
+            const trimmedTurn = currentCustomerTurnTextRef.current.trim()
+            if (trimmedTurn) {
+                lastCompletedCustomerTurnTextRef.current = trimmedTurn
+            }
+            const nowInMs = performance.now()
+            const activeThirdCode = activeThirdLangRef.current?.code ?? null
+            const holdEval = !cashierTakeoverActiveRef.current
+                ? customerHoldRef.current.evaluateTurnText(
+                      trimmedTurn,
+                      nowInMs,
+                      KORE_CUSTOMER_HOLD_STANDBY_MS,
+                      activeThirdCode
+                  )
+                : null
+            if (holdEval) {
+                if (holdEval.suppressGeminiTurn) {
+                    suppressGeminiTurnAudioRef.current = true
+                    holdSuppressedCurrentTurnRef.current = true
+                    if (playbackRef.current?.isActive && localFastClipStartedAtRef.current === 0) {
+                        playbackRef.current.clear()
+                    }
+                    currentKoreTurnTextRef.current = ''
+                } else if (holdSuppressedCurrentTurnRef.current) {
+                    holdSuppressedCurrentTurnRef.current = false
+                    suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
+                }
+                if (holdEval.shouldLockNoiseFloor) {
+                    noiseGateRef.current.lockBackgroundMediaFloor(recentRawMicRmsRef.current)
+                }
+            }
+            const isPureTvTurn =
+                trimmedTurn.length > 0 &&
+                (Boolean(holdEval?.nonLatinNoise) ||
+                    Boolean(holdEval?.suppressGeminiTurn) ||
+                    isNonLatinNoiseTranscript(trimmedTurn, activeThirdCode) ||
+                    isLikelyBackgroundMediaSpeech(trimmedTurn, activeThirdCode))
             if (sc.inputTranscription.text.trim()) {
                 initialGreetingPendingRef.current = false
-                if (autoEndModeRef.current !== 'none') clearAutoEnd(true)
-                if (localFastClipStartedAtRef.current > 0 && performance.now() - localFastClipStartedAtRef.current > 280) {
+                if (!isPureTvTurn) {
+                    lastCustomerSpeechTimestampMsRef.current = nowInMs
+                }
+                if (!isPureTvTurn) {
+                    confirmedOrderInCurrentTurnRef.current = false
+                    if (autoEndModeRef.current !== 'none' && isKoreSocketOpenForAutoEndCancel(wsRef.current)) {
+                        clearAutoEnd(true)
+                    }
+                }
+                if (
+                    !isPureTvTurn &&
+                    localFastClipStartedAtRef.current > 0 &&
+                    nowInMs - localFastClipStartedAtRef.current > 280 &&
+                    (micModeRef.current === 'ptt' || customerBargeInActiveRef.current)
+                ) {
                     customerSpokeSinceFastClipRef.current = true
                     if (playbackRef.current?.isActive) {
                         playbackRef.current.clear()
@@ -2369,10 +3196,23 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     }
                 }
             }
-            currentCustomerTurnTextRef.current += sc.inputTranscription.text
+            if (
+                !cashierTakeoverActiveRef.current &&
+                shouldTriggerTranscriptTvCut(
+                    trimmedTurn,
+                    nowInMs,
+                    lastTranscriptTvCutMsRef.current,
+                    KORE_TRANSCRIPT_TV_CUT_COOLDOWN_MS,
+                    activeThirdCode
+                )
+            ) {
+                lastTranscriptTvCutMsRef.current = nowInMs
+                noiseGateRef.current.lockBackgroundMediaFloor(recentRawMicRmsRef.current)
+                sendJson({ realtimeInput: { audioStreamEnd: true } })
+            }
             const inspected = cashierControllerRef.current.inspectInputText(
                 currentCustomerTurnTextRef.current,
-                performance.now(),
+                nowInMs,
                 transcriptRef.current.length,
                 openEntryRef.current.customer !== null
             )
@@ -2382,11 +3222,13 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             if (inspected.promoteOpenCustomerBubble) {
                 promoteOpenCustomerBubbleToCashier()
             }
-            if (!cashierTakeoverActiveRef.current) {
-                const detected = resolveNextKoreSessionLang(currentCustomerTurnTextRef.current, sessionMetaRef.current.lang)
-                if (detected !== sessionMetaRef.current.lang) {
-                    applyLiveLanguageSwitch(detected, { gen })
-                }
+            if (!cashierTakeoverActiveRef.current && !isPureTvTurn) {
+                const resolvedLang = resolveKoreLiveLanguageState(
+                    currentCustomerTurnTextRef.current,
+                    sessionMetaRef.current.lang,
+                    activeThirdLangRef.current
+                )
+                applyLiveLanguageResolution(resolvedLang, gen)
             }
             if (inspected.role === 'cashier') {
                 finalizeSpeech('customer')
@@ -2398,10 +3240,55 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             setInterimText('')
         }
         if (isPlainObject(sc.interimInputTranscription) && typeof sc.interimInputTranscription.text === 'string') {
+            const nowInterimMs = performance.now()
+            const previewThirdCode = activeThirdLangRef.current?.code ?? null
+            const combinedPreview = `${currentCustomerTurnTextRef.current} ${sc.interimInputTranscription.text}`.trim()
+            const previewNonLatin =
+                combinedPreview.length > 0 && isNonLatinNoiseTranscript(combinedPreview, previewThirdCode)
+            const previewBlockedDuringHold =
+                !cashierTakeoverActiveRef.current &&
+                combinedPreview.length > 0 &&
+                customerHoldRef.current.isHoldActive(nowInterimMs) &&
+                !detectKoreCustomerHoldRequest(combinedPreview, previewThirdCode) &&
+                !isCustomerResumingFromHold(combinedPreview, previewThirdCode)
+            if (previewNonLatin || previewBlockedDuringHold) {
+                suppressGeminiTurnAudioRef.current = true
+                holdSuppressedCurrentTurnRef.current = true
+                noiseGateRef.current.lockBackgroundMediaFloor(recentRawMicRmsRef.current)
+            } else if (
+                holdSuppressedCurrentTurnRef.current &&
+                combinedPreview.length > 0 &&
+                (!customerHoldRef.current.isHoldActive(nowInterimMs) ||
+                    isCustomerResumingFromHold(combinedPreview, previewThirdCode))
+            ) {
+                customerHoldRef.current.evaluateTurnText(
+                    combinedPreview,
+                    nowInterimMs,
+                    KORE_CUSTOMER_HOLD_STANDBY_MS,
+                    previewThirdCode
+                )
+                holdSuppressedCurrentTurnRef.current = false
+                suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
+            }
+            const isPureTvPreview =
+                combinedPreview.length > 0 &&
+                (previewNonLatin ||
+                    previewBlockedDuringHold ||
+                    isLikelyBackgroundMediaSpeech(combinedPreview, previewThirdCode))
+            if (combinedPreview) {
+                lastCompletedCustomerTurnTextRef.current = combinedPreview
+            }
             if (sc.interimInputTranscription.text.trim()) {
                 initialGreetingPendingRef.current = false
-                if (autoEndModeRef.current !== 'none') clearAutoEnd(true)
-                if (localFastClipStartedAtRef.current > 0 && performance.now() - localFastClipStartedAtRef.current > 280) {
+                if (!isPureTvPreview && autoEndModeRef.current !== 'none' && isKoreSocketOpenForAutoEndCancel(wsRef.current)) {
+                    clearAutoEnd(true)
+                }
+                if (
+                    !isPureTvPreview &&
+                    localFastClipStartedAtRef.current > 0 &&
+                    nowInterimMs - localFastClipStartedAtRef.current > 280 &&
+                    (micModeRef.current === 'ptt' || customerBargeInActiveRef.current)
+                ) {
                     customerSpokeSinceFastClipRef.current = true
                     if (playbackRef.current?.isActive) {
                         playbackRef.current.clear()
@@ -2409,11 +3296,24 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     }
                 }
             }
-            const combinedPreview = `${currentCustomerTurnTextRef.current} ${sc.interimInputTranscription.text}`.trim()
             if (combinedPreview) {
+                if (
+                    !cashierTakeoverActiveRef.current &&
+                    shouldTriggerTranscriptTvCut(
+                        combinedPreview,
+                        nowInterimMs,
+                        lastTranscriptTvCutMsRef.current,
+                        KORE_TRANSCRIPT_TV_CUT_COOLDOWN_MS,
+                        previewThirdCode
+                    )
+                ) {
+                    lastTranscriptTvCutMsRef.current = nowInterimMs
+                    noiseGateRef.current.lockBackgroundMediaFloor(recentRawMicRmsRef.current)
+                    sendJson({ realtimeInput: { audioStreamEnd: true } })
+                }
                 const previewInspected = cashierControllerRef.current.inspectInputText(
                     combinedPreview,
-                    performance.now(),
+                    nowInterimMs,
                     transcriptRef.current.length,
                     openEntryRef.current.customer !== null
                 )
@@ -2423,36 +3323,52 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 if (previewInspected.promoteOpenCustomerBubble) {
                     promoteOpenCustomerBubbleToCashier()
                 }
-                if (!cashierTakeoverActiveRef.current) {
-                    const detected = resolveNextKoreSessionLang(combinedPreview, sessionMetaRef.current.lang)
-                    if (detected !== sessionMetaRef.current.lang) {
-                        applyLiveLanguageSwitch(detected, { gen })
-                    }
+                if (!cashierTakeoverActiveRef.current && !isPureTvPreview) {
+                    const resolvedLang = resolveKoreLiveLanguageState(
+                        combinedPreview,
+                        sessionMetaRef.current.lang,
+                        activeThirdLangRef.current
+                    )
+                    applyLiveLanguageResolution(resolvedLang, gen)
                 }
             }
             setInterimText(sc.interimInputTranscription.text)
         }
-        if (isPlainObject(sc.outputTranscription) && typeof sc.outputTranscription.text === 'string') {
+        if (isPlainObject(sc.outputTranscription) && typeof sc.outputTranscription.text === 'string' && !liveBargeInRttShieldActive) {
             if (!cashierTakeoverActiveRef.current && !suppressGeminiTurnAudioRef.current) {
-                if (autoEndTimerRef.current !== null) clearAutoEnd(false)
+                if (autoEndTimerRef.current !== null) clearAutoEnd(false, { force: true })
+                if (currentCustomerTurnTextRef.current.trim()) {
+                    lastCompletedCustomerTurnTextRef.current = currentCustomerTurnTextRef.current.trim()
+                }
                 currentCustomerTurnTextRef.current = ''
+                customerTurnFreshRef.current = true
                 currentKoreTurnTextRef.current += sc.outputTranscription.text
                 finalizeSpeech('customer')
                 finalizeSpeech('cashier')
                 appendSpeech('kore', sc.outputTranscription.text)
             } else if (!cashierTakeoverActiveRef.current) {
+                if (currentCustomerTurnTextRef.current.trim()) {
+                    lastCompletedCustomerTurnTextRef.current = currentCustomerTurnTextRef.current.trim()
+                }
                 currentCustomerTurnTextRef.current = ''
+                customerTurnFreshRef.current = true
                 finalizeSpeech('customer')
                 finalizeSpeech('cashier')
             }
         }
         if (sc.turnComplete === true) {
+            pendingLiveBargeInUntilMsRef.current = 0
             const wasSuppressedTurn = suppressGeminiTurnAudioRef.current
+            holdSuppressedCurrentTurnRef.current = false
             suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
             initialGreetingPendingRef.current = false
             koreTurnFirstAudioRecordedRef.current = false
             koreTurnInterruptedRef.current = false
+            if (currentCustomerTurnTextRef.current.trim()) {
+                lastCompletedCustomerTurnTextRef.current = currentCustomerTurnTextRef.current.trim()
+            }
             currentCustomerTurnTextRef.current = ''
+            customerTurnFreshRef.current = true
             cashierControllerRef.current.onTurnComplete()
             finalizeSpeech('customer')
             finalizeSpeech('cashier')
@@ -2475,9 +3391,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 if (autoEndModeRef.current === 'confirmed_sendoff' && spokenKoreTurn.length > 0) {
                     clearAutoEnd(true)
                 }
-                // Red de seguridad bidireccional sin cortar audio: re-bloquea ES o EN si Gemini se desvió de idioma
+                // Red de seguridad bidireccional sin cortar audio: re-bloquea idioma si Gemini se desvió
                 if (autoEndModeRef.current === 'none' && spokenKoreTurn.length > 0) {
-                    if (
+                    const lockedThird = activeThirdLangRef.current
+                    if (lockedThird !== null) {
+                        if (
+                            NON_LATIN_THIRD_LANG_CODES.has(lockedThird.code) &&
+                            /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(spokenKoreTurn) &&
+                            !matchesThirdLanguageScript(spokenKoreTurn, lockedThird.code)
+                        ) {
+                            scheduleSilentCueTextWhenIdle(buildKoreThirdLangLockCue(lockedThird), lockedThird.code, gen)
+                        }
+                    } else if (
                         sessionMetaRef.current.lang === 'es' &&
                         detectKoreSpokenLanguage(spokenKoreTurn, 'es') === 'en'
                     ) {
@@ -2561,11 +3486,29 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             if (blockedResponses.length > 0) sendJson({ toolResponse: { functionResponses: blockedResponses } })
             return
         }
-        suppressGeminiTurnAudioRef.current = false
+        pendingLiveBargeInUntilMsRef.current = 0
+        const wasHoldSuppressed = holdSuppressedCurrentTurnRef.current
+        if (!wasHoldSuppressed) {
+            suppressGeminiTurnAudioRef.current = false
+        } else {
+            suppressGeminiTurnAudioRef.current = true
+        }
+        if (currentCustomerTurnTextRef.current.trim()) {
+            lastCompletedCustomerTurnTextRef.current = currentCustomerTurnTextRef.current.trim()
+            currentCustomerTurnTextRef.current = ''
+            customerTurnFreshRef.current = true
+        }
+        const activeTurnCustomerText = lastCompletedCustomerTurnTextRef.current
+        const readOnlyBatch = isReadOnlyLookupToolBatch(calls)
+        const koreAlreadyAskedQuestion =
+            readOnlyBatch && hasKoreAlreadyAskedQuestionInTurn(currentKoreTurnTextRef.current, transcriptRef.current)
         finalizeSpeech('customer')
         finalizeSpeech('cashier')
-        finalizeSpeech('kore')
+        if (!koreAlreadyAskedQuestion) {
+            finalizeSpeech('kore')
+        }
         const functionResponses: { id?: string; name: string; response: Record<string, unknown> }[] = []
+        const executedCallsForCount: { name: string; args: Record<string, unknown>; response: Record<string, unknown> }[] = []
         const candidateMatches: { idx: number; match: KoreFastClipMatch }[] = []
         let failedCallsCount = 0
         for (const rawCall of calls) {
@@ -2583,6 +3526,65 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     if (isPlainObject(parsed)) args = parsed
                 } catch { /* el motor reporta args inválidos */ }
             }
+
+            // Candado contra herramientas fantasma alucinadas por espera activa, basura no latina o TV/YouTube (ej. GTA 6 -> Mulita Asada)
+            if (
+                shouldBlockGhostMediaToolCall(
+                    name,
+                    activeTurnCustomerText,
+                    wasHoldSuppressed,
+                    activeThirdLangRef.current?.code ?? null
+                )
+            ) {
+                failedCallsCount += 1
+                let blockedResp: Record<string, unknown> = {
+                    ok: false,
+                    error_code: 'background_media_ignored',
+                    message: 'Audio was background TV/YouTube media with no customer order; ticket unchanged.',
+                }
+                pushSystem(`${describeTool(name, args)} — background_media_ignored`, 'tool_error', name)
+                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
+                    blockedResp = { ...blockedResp, scheduling: 'WHEN_IDLE' }
+                }
+                functionResponses.push({ ...(id ? { id } : {}), name, response: blockedResp })
+                continue
+            }
+
+            // Candado contra adivinanzas cuando el cliente fue cortado a mitad de frase ("Quiero", "Quiero una")
+            if (shouldBlockDanglingFragmentToolCall(name, activeTurnCustomerText)) {
+                failedCallsCount += 1
+                let incompleteResp: Record<string, unknown> = {
+                    ok: false,
+                    error_code: 'incomplete_customer_utterance',
+                    message: `Customer utterance was cut mid-phrase ("${activeTurnCustomerText}"). Ask briefly what they wanted to say instead of guessing items or sizes.`,
+                }
+                pushSystem(`${describeTool(name, args)} — incomplete_customer_utterance`, 'tool_error', name)
+                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
+                    incompleteResp = { ...incompleteResp, scheduling: 'WHEN_IDLE' }
+                }
+                functionResponses.push({ ...(id ? { id } : {}), name, response: incompleteResp })
+                continue
+            }
+
+            // Candado contra cancel_order accidental ante frases ambiguas ("Olvídalo entonces.", "Mejor no", "Never mind")
+            const hasActiveOrderLines =
+                orderRef.current.lines.length > 0 && orderRef.current.status !== 'cancelled'
+            if (shouldBlockAmbiguousCancelOrderToolCall(name, args, activeTurnCustomerText, hasActiveOrderLines)) {
+                failedCallsCount += 1
+                let cancelBlockedResp: Record<string, unknown> = {
+                    ok: false,
+                    error_code: 'confirm_whole_order_cancel_first',
+                    message:
+                        'Ambiguous dismissal ("olvídalo" / "never mind" / non-order topic) does NOT cancel an active food order. Ticket kept intact; clarify briefly or confirm their existing order in the active language.',
+                }
+                pushSystem('Cancelación bloqueada (frase ambigua) — confirm_whole_order_cancel_first', 'tool_error', name)
+                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
+                    cancelBlockedResp = { ...cancelBlockedResp, scheduling: 'WHEN_IDLE' }
+                }
+                functionResponses.push({ ...(id ? { id } : {}), name, response: cancelBlockedResp })
+                continue
+            }
+
             const before = orderRef.current
             const activeLang = sessionMetaRef.current.lang
             const storeAcceptsEbt = sessionRef.current?.store.acceptsEbt
@@ -2601,6 +3603,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                                 storeId: sessionMetaRef.current.storeId,
                                 headers: getAuthHeaders(),
                                 lang: activeLang,
+                                thirdLanguage: activeThirdLangRef.current,
                                 acceptsEbt: storeAcceptsEbt,
                                 externalSignal: callAbort.signal,
                             }
@@ -2614,11 +3617,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                         if (id) inFlightToolAbortsRef.current.delete(id)
                     }
                 } else {
-                    const out = applyKoreTool(before, menuRef.current, name, args, {
+                    const toolOpts: Parameters<typeof applyKoreTool>[4] & { confirmedInCurrentTurn?: boolean } = {
                         taxRatePct: sessionRef.current?.store.taxRatePct ?? null,
                         lang: activeLang,
+                        thirdLanguage: activeThirdLangRef.current,
+                        confirmedInCurrentTurn: confirmedOrderInCurrentTurnRef.current,
                         ...(typeof storeAcceptsEbt === 'boolean' ? { acceptsEbt: storeAcceptsEbt } : {}),
-                    })
+                    }
+                    const out = applyKoreTool(before, menuRef.current, name, args, toolOpts)
                     orderRef.current = out.state
                     response = isPlainObject(out.result) ? { ...out.result } : { result: out.result }
                 }
@@ -2626,13 +3632,17 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     toolHistoryRef.current.push({ id, name, before })
                     if (toolHistoryRef.current.length > 80) toolHistoryRef.current.shift()
                 }
+                if (name === 'confirm_order' && response.ok === true) {
+                    confirmedOrderInCurrentTurnRef.current = true
+                }
                 if (name === 'end_session' && response.ok === true && response.should_end_session === true) {
-                    clearAutoEnd(false)
+                    clearAutoEnd(false, { force: true })
                     autoEndModeRef.current = 'explicit_tool'
                 } else if (
                     (name === 'add_item' || name === 'add_items' || name === 'update_item' || name === 'remove_item') &&
                     response.ok === true
                 ) {
+                    confirmedOrderInCurrentTurnRef.current = false
                     clearAutoEnd(true)
                 }
                 // Contrato del motor: éxito {ok:true,…}; falla {ok:false, error_code, message,…}
@@ -2654,6 +3664,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     result: response,
                     lang: sessionMetaRef.current.lang,
                     variantSeed: fastClipSeedRef.current,
+                    customerTurnText: activeTurnCustomerText,
                 })
                 if (fastMatch) {
                     candidateMatches.push({ idx: functionResponses.length, match: fastMatch })
@@ -2664,6 +3675,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 response = { ok: false, error: message }
                 pushSystem(tRef.current('drive_thru.kore_tool_error', { message }), 'tool_error', name)
             }
+            if (koreAlreadyAskedQuestion && (name === 'search_menu' || name === 'get_order')) {
+                response = {
+                    ...response,
+                    _anti_repeat_hint:
+                        'You already spoke to the customer before this lookup; do NOT repeat the exact same question you just asked.',
+                }
+            }
+            executedCallsForCount.push({ name, args, response })
             if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') response = { ...response, scheduling: 'WHEN_IDLE' }
             functionResponses.push({ ...(id ? { id } : {}), name, response })
         }
@@ -2672,13 +3691,25 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
 
         // Selección de clip instantáneo sin doble voz (terminal tiene prioridad; en lote solo si 1 llamada o 1 aclaración)
         const terminalCandidate = candidateMatches.find(c => c.match.isTerminalSendoff === true)
-        const singleCandidate =
+        const rawSingleCandidate =
             terminalCandidate ||
             (functionResponses.length === 1 && candidateMatches.length === 1
                 ? candidateMatches[0]
                 : failedCallsCount === 1 && candidateMatches.length === 1 && functionResponses[candidateMatches[0].idx]?.response.ok === false
                     ? candidateMatches[0]
                     : undefined)
+        const addedItemsCount = countAddedOrderItemsInToolBatch(executedCallsForCount)
+        const suppressForCompoundTurn =
+            rawSingleCandidate !== undefined &&
+            shouldSuppressFastClipForCompoundTurn({
+                isTerminalSendoff: rawSingleCandidate.match.isTerminalSendoff === true,
+                customerTurnText: activeTurnCustomerText,
+                addedItemsCount,
+            })
+        const singleCandidate =
+            wasHoldSuppressed || suppressForCompoundTurn || activeThirdLangRef.current !== null
+                ? undefined
+                : rawSingleCandidate
         const finalLang = sessionMetaRef.current.lang
         const chosenClip = singleCandidate
             ? fastClipsMapRef.current.get(singleCandidate.match.clipId)?.[finalLang] ?? null
@@ -2841,6 +3872,9 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         transcriptRef.current = []
         openEntryRef.current = { customer: null, kore: null, cashier: null }
         cashierControllerRef.current.reset()
+        customerHoldRef.current.reset()
+        holdSuppressedCurrentTurnRef.current = false
+        activeThirdLangRef.current = null
         cashierTakeoverActiveRef.current = false
         cashierSpeakingRef.current = false
         setCashierTakeoverActive(false)
@@ -2849,14 +3883,24 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         toolHistoryRef.current = []
         toolQueueRef.current = Promise.resolve()
         cancelledToolIdsRef.current.clear()
-        clearAutoEnd(true)
+        clearAutoEnd(true, { force: true })
         clearLangCueTimer()
         suppressGeminiTurnAudioRef.current = false
         localFastClipStartedAtRef.current = 0
         customerSpokeSinceFastClipRef.current = false
+        bargeInGuardRef.current.reset()
+        customerBargeInActiveRef.current = false
+        pendingLiveBargeInUntilMsRef.current = 0
+        confirmedOrderInCurrentTurnRef.current = false
+        lastTranscriptTvCutMsRef.current = 0
+        lastCustomerSpeechTimestampMsRef.current = 0
+        recentRawMicRmsRef.current = 0
+        autoEndCancelConsecRef.current = 0
         fastClipSeedRef.current = 0
         currentKoreTurnTextRef.current = ''
         currentCustomerTurnTextRef.current = ''
+        lastCompletedCustomerTurnTextRef.current = ''
+        customerTurnFreshRef.current = true
         abortInFlightTools()
         if (
             fastClipsInflightStoreIdRef.current !== meta.storeId &&
@@ -2910,7 +3954,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: wantStereoRight
                     ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } }
-                    : { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+                    : { echoCancellation: true, noiseSuppression: true, autoGainControl: false, channelCount: 1 },
             })
             if (gen !== genRef.current) {
                 stream.getTracks().forEach(track => track.stop())
@@ -2962,9 +4006,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             out.connect(ctx.destination)
             outNodeRef.current = out
             playbackRef.current = new KorePlaybackQueue(ctx, out, active => {
+                if (!customerBargeInActiveRef.current) {
+                    bargeInGuardRef.current.reset()
+                }
                 if (!active) {
                     localFastClipStartedAtRef.current = 0
-                    customerSpokeSinceFastClipRef.current = false
+                    if (!customerBargeInActiveRef.current) {
+                        customerSpokeSinceFastClipRef.current = false
+                    }
                 }
                 setKoreSpeaking(active)
             })
@@ -3334,7 +4383,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     // Render
     // ─────────────────────────────────────────────
     return (
-        <div className="space-y-4">
+        <div className="space-y-4" data-teg-live-sim={isBusy ? 'true' : 'false'}>
             {/* Badge de simulación (siempre visible) */}
             <div className="flex items-start gap-3 rounded-2xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-4 py-3">
                 <ShieldAlert className="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" size={22} />

@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
-import { executePhoneKoreLiveTool } from '@/lib/phone-live-kore'
+import { executePhoneKoreLiveTool, sanitizeKoreThirdLanguageInput } from '@/lib/phone-live-kore'
 import type { PhoneLang } from '@/lib/phone-agent'
 
 export const dynamic = 'force-dynamic'
@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
         ? (rawToolArgs as Record<string, unknown>)
         : {}
     const recentUserTranscript = String(body.recentUserTranscript || '')
+    const thirdLanguage = sanitizeKoreThirdLanguageInput(body.thirdLanguage)
 
     const result = await executePhoneKoreLiveTool({
       callSid,
@@ -73,7 +74,8 @@ export async function POST(request: NextRequest) {
       source: 'simulator',
       toolName,
       toolArgs,
-      recentUserTranscript
+      recentUserTranscript,
+      thirdLanguage
     })
 
     return NextResponse.json({ ok: true, ...result }, { status: 200, headers: NO_STORE_HEADERS })

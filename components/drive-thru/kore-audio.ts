@@ -8,8 +8,11 @@
  * @businessRules
  * - Entrada hacia Gemini Live: PCM 16-bit signed, mono, 16 000 Hz, little-endian
  *   (`audio/pcm;rate=16000`), en bloques de 512 muestras (= 32 ms) para baja latencia, con
- *   Noise Gate opcional por umbral RMS (con pre-roll de 1 bloque y hangover de ~224 ms) para
- *   silenciar TV/radio o voces lejanas sin recortar consonantes.
+ *   Noise Gate adaptativo de campo cercano con histéresis Schmitt-Trigger (piso base 0.008 en silencio,
+ *   pre-roll circular de 5 bloques = 160 ms, hangover de 896 ms = 28 bloques, umbral de sostenimiento
+ *   `sustainThresholdRms` con tope `0.0115`, decaimiento desatascado en cerrado tras 16 bloques, rastreador
+ *   de piso de TV/radio `ambientFloorRms * 1.85` con techo `0.040` sin AGC y auto-corte a ~3.68 s `maxContinuousOpenChunks = 115`)
+ *   para silenciar monólogos continuos de TV/YouTube sin recortar órdenes cortas ("Un flan") ni pausas naturales del cliente.
  * - Salida de Gemini Live: PCM 16-bit signed, mono, little-endian a 24 000 Hz (se respeta el
  *   `rate=` del mimeType si el servidor manda otro valor), con colchón inicial reducido de 25 ms
  *   (`KORE_INITIAL_JITTER_SEC`) para arranque ultrarrápido sin cortes.
@@ -61,11 +64,44 @@ export const KORE_CHUNK_SAMPLES = 512
 /** Colchón inicial (jitter buffer) de reproducción en segundos: 25 ms para respuesta rápida. */
 export const KORE_INITIAL_JITTER_SEC = 0.025
 
-/** Umbral RMS por defecto del Noise Gate para bloquear TV/radio de fondo (~ -36 dBFS). */
-export const KORE_DEFAULT_NOISE_GATE_RMS = 0.016
+/** Umbral RMS por defecto del Noise Gate en cuarto silencioso (con `autoGainControl: false` preserva sensibilidad suave 0.008+). */
+export const KORE_DEFAULT_NOISE_GATE_RMS = 0.008
 
-/** Bloques de retención (hangover) al bajar del umbral (7 × 32 ms = 224 ms) para no cortar finales de palabra. */
-export const KORE_NOISE_GATE_HOLD_CHUNKS = 7
+/** Bloques de pre-roll circular guardados al cerrar el Noise Gate (5 × 32 ms = 160 ms) para preservar sílabas iniciales suaves (p. ej. "su-" de "super"). */
+export const KORE_NOISE_GATE_PREROLL_CHUNKS = 5
+
+/** Bloques de retención (hangover) al bajar del umbral (28 × 32 ms = 896 ms) para acompañar `silenceDurationMs: 1150` sin cortar conectores a media idea. */
+export const KORE_NOISE_GATE_HOLD_CHUNKS = 28
+
+/** Factor de histéresis Schmitt-Trigger para mantener abierto el Noise Gate una vez iniciada la frase del cliente. */
+export const KORE_NOISE_GATE_SUSTAIN_RATIO = 0.40
+
+/** Tope máximo del umbral de sostenimiento (permite continuar frases suaves a RMS 0.012+ aunque haya subido el piso). */
+export const KORE_NOISE_GATE_MAX_SUSTAIN_RMS = 0.0115
+
+/** Bloques cerrados consecutivos (~512 ms = 16 × 32 ms) tras los cuales `ambientFloorRms` decae suavemente aunque exista murmullo/AC leve. */
+export const KORE_NOISE_GATE_CLOSED_DECAY_ONSET_CHUNKS = 16
+
+/** Bloques acumulados de energía plana (~2.18 s = 68 × 32 ms) antes de elevar gradualmente el piso contra TV/YouTube. */
+export const KORE_NOISE_GATE_ADAPT_ONSET_CHUNKS = 68
+
+/** Multiplicador sobre `ambientFloorRms` para colocar el umbral efectivo por encima de la TV/radio de fondo. */
+export const KORE_NOISE_GATE_FLOOR_MULTIPLIER = 1.85
+
+/** Techo máximo del umbral dinámico del Noise Gate con `autoGainControl: false` (bloquea video/TV de fondo ~0.006–0.022 sin tragarse "Un flan" a 0.042+). */
+export const KORE_NOISE_GATE_MAX_EFFECTIVE_RMS = 0.040
+
+/** Watchdog de apertura continua sin picos con cresta (~3.68 s = 115 × 32 ms) para cortar monólogos planos de TV/YouTube. */
+export const KORE_NOISE_GATE_MAX_CONTINUOUS_OPEN_CHUNKS = 115
+
+/** Razón mínima de cresta dinámica (`safeRms >= max(0.045, rollingOpenRms * 2.15)`) que distingue voz cercana sobre envolvente plana de TV. */
+export const KORE_NOISE_GATE_CREST_MULTIPLIER = 2.15
+
+/** Piso mínimo absoluto para considerar un pico con cresta de campo cercano. */
+export const KORE_NOISE_GATE_MIN_CREST_PEAK_RMS = 0.045
+
+/** Bloques consecutivos de silencio real (< umbral base) requeridos antes de decaer `ambientFloorRms` (~320 ms). */
+export const KORE_NOISE_GATE_QUIET_DECAY_ONSET_CHUNKS = 10
 
 /** Umbral RMS para detección automática de voz en el canal/micrófono secundario de cajera. */
 export const KORE_CASHIER_VAD_RMS_THRESHOLD = 0.022
@@ -343,26 +379,52 @@ export class KorePlaybackQueue {
 export interface KoreNoiseGateResult {
     chunksToSend: ArrayBuffer[]
     effectiveRms: number
+    effectiveThresholdRms: number
+    ambientFloorRms: number
     gated: boolean
     speechActive: boolean
     speechJustEnded: boolean
+    /** `true` cuando `maxContinuousOpenChunks` (~3.68 s = 115 bloques) corta un monólogo plano de TV/YouTube sin cresta cercana. */
+    forcedTvCut?: boolean
 }
 
 /**
- * Filtro anti-ruido (Noise Gate) por umbral RMS con 1 bloque de pre-roll (32 ms) y retención
- * (hangover) para ignorar TV/radio/conversaciones lejanas enviando silencio digital puro (0 PCM16)
- * cuando el entorno está por debajo del umbral de voz cercana.
+ * Filtro anti-ruido adaptativo de campo cercano con histéresis Schmitt-Trigger (Adaptive Near-Field Noise Gate):
+ * - En cuartos silenciosos mantiene `threshold = 0.008`, `preRollQueue = 5` (160 ms) y
+ *   `holdChunks = 28` (896 ms) para preservar sílabas iniciales suaves ("su-perburito") y pausas a media idea ("carne es la más...").
+ * - Con `autoGainControl: false`, topa `effectiveThresholdRms` en `0.040` para silenciar video/TV de fondo (`0.006–0.022`)
+ *   sin tragarse órdenes cortas del cliente ("Un flan" a `0.042+`).
+ * - Histéresis Schmitt-Trigger (`sustainThresholdRms`): exige `effectiveThresholdRms` para ABRIR desde cerrado, pero una vez
+ *   ABIERTO sostiene el gate con `sustainThresholdRms <= 0.0115` para no mutilar palabras finales más suaves (`0.012–0.020`).
+ * - Decaimiento desatascado en cerrado (`closedStreakChunks >= 16`, ~512 ms): relaja `ambientFloorRms` hacia `safeRms * 0.85`
+ *   aunque haya un ventilador/AC leve (`~0.010`), mientras el watchdog `maxContinuousOpenChunks = 115` (~3.68 s) corta TV plana.
  */
 export class KoreNoiseGate {
     private enabled: boolean
     private threshold: number
     private holdChunks: number
+    private preRollChunks: number
+    private maxContinuousOpenChunks: number
     private holdRemaining = 0
     private open = false
-    private preRoll: ArrayBuffer | null = null
+    private preRollQueue: ArrayBuffer[] = []
+    private ambientFloorRms = 0
+    private farFieldCandidateRms = 0
+    private rollingOpenRms = 0
+    private sustainedFarFieldChunks = 0
+    private quietStreakChunks = 0
+    private closedStreakChunks = 0
+    private continuousOpenWithoutNearPeakChunks = 0
+    private recentOpenAvgRms = 0
     private silenceCache = new Map<number, ArrayBuffer>()
 
-    constructor(opts?: { enabled?: boolean; threshold?: number; holdChunks?: number }) {
+    constructor(opts?: {
+        enabled?: boolean
+        threshold?: number
+        holdChunks?: number
+        preRollChunks?: number
+        maxContinuousOpenChunks?: number
+    }) {
         this.enabled = opts?.enabled !== false
         this.threshold =
             typeof opts?.threshold === 'number' && Number.isFinite(opts.threshold) && opts.threshold >= 0
@@ -372,6 +434,16 @@ export class KoreNoiseGate {
             typeof opts?.holdChunks === 'number' && Number.isInteger(opts.holdChunks) && opts.holdChunks >= 0
                 ? opts.holdChunks
                 : KORE_NOISE_GATE_HOLD_CHUNKS
+        this.preRollChunks =
+            typeof opts?.preRollChunks === 'number' && Number.isInteger(opts.preRollChunks) && opts.preRollChunks >= 0
+                ? Math.min(20, opts.preRollChunks)
+                : KORE_NOISE_GATE_PREROLL_CHUNKS
+        this.maxContinuousOpenChunks =
+            typeof opts?.maxContinuousOpenChunks === 'number' &&
+            Number.isInteger(opts.maxContinuousOpenChunks) &&
+            opts.maxContinuousOpenChunks >= 30
+                ? opts.maxContinuousOpenChunks
+                : KORE_NOISE_GATE_MAX_CONTINUOUS_OPEN_CHUNKS
     }
 
     get isEnabled(): boolean {
@@ -386,11 +458,43 @@ export class KoreNoiseGate {
         return this.threshold
     }
 
+    get ambientFloorRmsValue(): number {
+        return this.ambientFloorRms
+    }
+
+    /** Umbral dinámico efectivo de APERTURA considerando el piso adaptativo de TV/fondo (`ambientFloorRms`). */
+    get effectiveThresholdRms(): number {
+        if (!this.enabled || this.threshold <= 0) return this.threshold
+        const dynamic = Math.max(this.threshold, this.ambientFloorRms * KORE_NOISE_GATE_FLOOR_MULTIPLIER)
+        return Math.min(KORE_NOISE_GATE_MAX_EFFECTIVE_RMS, Math.max(this.threshold, dynamic))
+    }
+
+    /** Umbral de SOSTENIMIENTO (histéresis Schmitt-Trigger) una vez que el cliente ya abrió el gate. */
+    get sustainThresholdRms(): number {
+        if (!this.enabled || this.threshold <= 0) return this.threshold
+        const openThr = this.effectiveThresholdRms
+        return Math.max(
+            this.threshold,
+            Math.min(
+                KORE_NOISE_GATE_MAX_SUSTAIN_RMS,
+                Math.max(openThr * KORE_NOISE_GATE_SUSTAIN_RATIO, this.ambientFloorRms * 1.25)
+            )
+        )
+    }
+
     setEnabled(enabled: boolean): void {
         this.enabled = Boolean(enabled)
         if (!this.enabled) {
-            this.preRoll = null
+            this.preRollQueue = []
             this.holdRemaining = 0
+            this.ambientFloorRms = 0
+            this.farFieldCandidateRms = 0
+            this.rollingOpenRms = 0
+            this.sustainedFarFieldChunks = 0
+            this.quietStreakChunks = 0
+            this.closedStreakChunks = 0
+            this.continuousOpenWithoutNearPeakChunks = 0
+            this.recentOpenAvgRms = 0
         }
     }
 
@@ -400,10 +504,60 @@ export class KoreNoiseGate {
         }
     }
 
+    /** Cierra únicamente la ventana transitoria de voz preservando `ambientFloorRms` aprendido en la sala. */
+    closeTransientGate(): void {
+        this.open = false
+        this.holdRemaining = 0
+        this.preRollQueue = []
+        this.rollingOpenRms = 0
+        this.closedStreakChunks = 0
+        this.continuousOpenWithoutNearPeakChunks = 0
+        this.recentOpenAvgRms = 0
+    }
+
+    /**
+     * Eleva al instante `ambientFloorRms` al nivel abierto reciente (mínimo `0.018`) y cierra
+     * la ventana transitoria cuando el clasificador STT confirma que lo que suena es TV/YouTube.
+     */
+    lockBackgroundMediaFloor(hintRms?: number): number {
+        const maxFloor = KORE_NOISE_GATE_MAX_EFFECTIVE_RMS / KORE_NOISE_GATE_FLOOR_MULTIPLIER
+        const safeHint = typeof hintRms === 'number' && Number.isFinite(hintRms) && hintRms > 0 ? hintRms : 0
+        const candidate = Math.max(
+            0.018,
+            this.ambientFloorRms,
+            this.rollingOpenRms,
+            this.recentOpenAvgRms,
+            this.farFieldCandidateRms,
+            safeHint
+        )
+        this.ambientFloorRms = Math.min(maxFloor, candidate)
+        this.farFieldCandidateRms = Math.max(this.farFieldCandidateRms, this.ambientFloorRms)
+        this.sustainedFarFieldChunks = Math.max(this.sustainedFarFieldChunks, KORE_NOISE_GATE_ADAPT_ONSET_CHUNKS)
+        this.closeTransientGate()
+        return this.effectiveThresholdRms
+    }
+
+    /** Abre la compuerta inmediatamente tras confirmarse un barge-in cercano del cliente. */
+    primeOpenFromBargeIn(): void {
+        this.open = true
+        this.holdRemaining = this.holdChunks
+        this.preRollQueue = []
+        this.closedStreakChunks = 0
+        this.continuousOpenWithoutNearPeakChunks = 0
+    }
+
     reset(): void {
         this.open = false
         this.holdRemaining = 0
-        this.preRoll = null
+        this.preRollQueue = []
+        this.ambientFloorRms = 0
+        this.farFieldCandidateRms = 0
+        this.rollingOpenRms = 0
+        this.sustainedFarFieldChunks = 0
+        this.quietStreakChunks = 0
+        this.closedStreakChunks = 0
+        this.continuousOpenWithoutNearPeakChunks = 0
+        this.recentOpenAvgRms = 0
     }
 
     private getSilence(byteLength: number): ArrayBuffer {
@@ -415,6 +569,14 @@ export class KoreNoiseGate {
         return buf
     }
 
+    private pushPreRoll(pcm: ArrayBuffer): void {
+        if (this.preRollChunks <= 0) return
+        this.preRollQueue.push(pcm.slice(0))
+        while (this.preRollQueue.length > this.preRollChunks) {
+            this.preRollQueue.shift()
+        }
+    }
+
     process(pcm: ArrayBuffer, rms: number): KoreNoiseGateResult {
         const safeRms = Number.isFinite(rms) && rms >= 0 ? rms : 0
         if (!this.enabled || this.threshold <= 0) {
@@ -424,23 +586,125 @@ export class KoreNoiseGate {
             return {
                 chunksToSend: [pcm],
                 effectiveRms: safeRms,
+                effectiveThresholdRms: this.threshold,
+                ambientFloorRms: 0,
                 gated: false,
                 speechActive: active,
                 speechJustEnded,
+                forcedTvCut: false,
             }
         }
 
-        if (safeRms >= this.threshold) {
-            const chunksToSend = !this.open && this.preRoll ? [this.preRoll, pcm] : [pcm]
-            this.preRoll = null
+        const maxFloor = KORE_NOISE_GATE_MAX_EFFECTIVE_RMS / KORE_NOISE_GATE_FLOOR_MULTIPLIER
+        const priorRolling = this.rollingOpenRms > 0 ? this.rollingOpenRms : safeRms
+        // Razón dinámica de cresta: la TV/YouTube tiene envolvente plana alrededor de rollingOpenRms,
+        // mientras que la voz cercana del cliente produce picos francos >= max(0.045, rollingOpenRms * 2.15)
+        const hasCrestPeak =
+            this.rollingOpenRms > 0 &&
+            safeRms >= Math.max(KORE_NOISE_GATE_MIN_CREST_PEAK_RMS, priorRolling * KORE_NOISE_GATE_CREST_MULTIPLIER)
+
+        if (safeRms < this.threshold * 0.85) {
+            this.quietStreakChunks += 1
+            if (this.quietStreakChunks >= KORE_NOISE_GATE_QUIET_DECAY_ONSET_CHUNKS) {
+                this.sustainedFarFieldChunks = Math.max(0, this.sustainedFarFieldChunks - 2)
+                this.farFieldCandidateRms *= 0.92
+                const decayedFloor = this.ambientFloorRms * 0.93
+                this.ambientFloorRms = decayedFloor < 0.0004 ? 0 : decayedFloor
+            }
+        } else {
+            this.quietStreakChunks = 0
+            if (hasCrestPeak) {
+                // Voz humana con cresta clara: no inflar el piso gradual de TV
+                this.sustainedFarFieldChunks = Math.max(0, this.sustainedFarFieldChunks - 4)
+            } else if (this.open && safeRms <= 0.040) {
+                const clampedSample = Math.min(safeRms, maxFloor)
+                if (this.farFieldCandidateRms === 0) {
+                    this.farFieldCandidateRms = clampedSample
+                } else {
+                    const alpha = clampedSample > this.farFieldCandidateRms ? 0.16 : 0.03
+                    this.farFieldCandidateRms = this.farFieldCandidateRms * (1 - alpha) + clampedSample * alpha
+                }
+                this.sustainedFarFieldChunks = Math.min(600, this.sustainedFarFieldChunks + 1)
+                if (this.sustainedFarFieldChunks >= KORE_NOISE_GATE_ADAPT_ONSET_CHUNKS) {
+                    this.ambientFloorRms = Math.min(
+                        maxFloor,
+                        this.ambientFloorRms === 0
+                            ? this.farFieldCandidateRms * 0.65
+                            : this.ambientFloorRms * 0.85 + this.farFieldCandidateRms * 0.15
+                    )
+                }
+            }
+        }
+
+        const openThreshold = this.effectiveThresholdRms
+        const sustainThreshold = this.sustainThresholdRms
+        const activeThreshold = this.open ? sustainThreshold : openThreshold
+        const wouldStayOpen = safeRms >= activeThreshold || (this.open && this.holdRemaining > 0)
+
+        if (wouldStayOpen) {
+            this.closedStreakChunks = 0
+            const rollSample = hasCrestPeak ? Math.min(safeRms, priorRolling * 1.35) : safeRms
+            if (this.rollingOpenRms === 0) {
+                this.rollingOpenRms = rollSample
+            } else {
+                const rollAlpha = rollSample < this.rollingOpenRms ? 0.24 : 0.10
+                this.rollingOpenRms = this.rollingOpenRms * (1 - rollAlpha) + rollSample * rollAlpha
+            }
+            if (safeRms >= this.threshold * 0.85 && !hasCrestPeak) {
+                const cappedOpen = Math.min(safeRms, maxFloor)
+                this.recentOpenAvgRms =
+                    this.recentOpenAvgRms === 0
+                        ? cappedOpen
+                        : this.recentOpenAvgRms * 0.92 + cappedOpen * 0.08
+            }
+
+            if (hasCrestPeak) {
+                this.continuousOpenWithoutNearPeakChunks = 0
+            } else {
+                this.continuousOpenWithoutNearPeakChunks += 1
+            }
+
+            if (this.continuousOpenWithoutNearPeakChunks >= this.maxContinuousOpenChunks) {
+                const anchorRms = Math.min(
+                    maxFloor,
+                    Math.max(this.ambientFloorRms, this.rollingOpenRms, this.recentOpenAvgRms, this.farFieldCandidateRms)
+                )
+                this.ambientFloorRms = Math.max(0.018, anchorRms)
+                this.farFieldCandidateRms = Math.max(this.farFieldCandidateRms, this.ambientFloorRms)
+                this.sustainedFarFieldChunks = Math.max(this.sustainedFarFieldChunks, KORE_NOISE_GATE_ADAPT_ONSET_CHUNKS)
+                this.open = false
+                this.holdRemaining = 0
+                this.rollingOpenRms = 0
+                this.continuousOpenWithoutNearPeakChunks = 0
+                this.recentOpenAvgRms = 0
+                this.preRollQueue = []
+                return {
+                    chunksToSend: [this.getSilence(pcm.byteLength)],
+                    effectiveRms: 0,
+                    effectiveThresholdRms: this.effectiveThresholdRms,
+                    ambientFloorRms: this.ambientFloorRms,
+                    gated: true,
+                    speechActive: false,
+                    speechJustEnded: true,
+                    forcedTvCut: true,
+                }
+            }
+        }
+
+        if (safeRms >= activeThreshold) {
+            const chunksToSend = !this.open && this.preRollQueue.length > 0 ? [...this.preRollQueue, pcm] : [pcm]
+            this.preRollQueue = []
             this.open = true
             this.holdRemaining = this.holdChunks
             return {
                 chunksToSend,
                 effectiveRms: safeRms,
+                effectiveThresholdRms: openThreshold,
+                ambientFloorRms: this.ambientFloorRms,
                 gated: false,
                 speechActive: true,
                 speechJustEnded: false,
+                forcedTvCut: false,
             }
         }
 
@@ -449,21 +713,42 @@ export class KoreNoiseGate {
             return {
                 chunksToSend: [pcm],
                 effectiveRms: safeRms,
+                effectiveThresholdRms: openThreshold,
+                ambientFloorRms: this.ambientFloorRms,
                 gated: false,
                 speechActive: true,
                 speechJustEnded: false,
+                forcedTvCut: false,
             }
         }
 
         const speechJustEnded = this.open
         this.open = false
-        this.preRoll = pcm.slice(0)
+        this.rollingOpenRms = 0
+        this.continuousOpenWithoutNearPeakChunks = 0
+        this.recentOpenAvgRms = 0
+        this.closedStreakChunks += 1
+        if (this.closedStreakChunks >= KORE_NOISE_GATE_CLOSED_DECAY_ONSET_CHUNKS && this.ambientFloorRms > 0) {
+            const closedTarget = Math.max(0, safeRms * 0.85)
+            if (closedTarget < this.ambientFloorRms) {
+                const nextFloor = this.ambientFloorRms * 0.92 + closedTarget * 0.08
+                this.ambientFloorRms = nextFloor < this.threshold * 0.9 ? 0 : nextFloor
+                this.farFieldCandidateRms = Math.min(this.farFieldCandidateRms, Math.max(safeRms, this.ambientFloorRms))
+                if (this.ambientFloorRms === 0) {
+                    this.sustainedFarFieldChunks = 0
+                }
+            }
+        }
+        this.pushPreRoll(pcm)
         return {
             chunksToSend: [this.getSilence(pcm.byteLength)],
             effectiveRms: 0,
+            effectiveThresholdRms: this.effectiveThresholdRms,
+            ambientFloorRms: this.ambientFloorRms,
             gated: true,
             speechActive: false,
             speechJustEnded,
+            forcedTvCut: false,
         }
     }
 }

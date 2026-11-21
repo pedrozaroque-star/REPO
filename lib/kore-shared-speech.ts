@@ -49,9 +49,50 @@
  * - Calibrado Fase 21 (`2026-11-21`, sesión forense `99d29f93-7ad2-478d-99f7-015f9c7f2c82` en `#14 Lynwood`):
  *   marcadores de capturadoras/30 FPS (`30 fps`, `capado a`, `capturadora`, `me patrocinó`), verbos copulativos colgantes (`es|son|sea`)
  *   y candado determinista `isExplicitWholeOrderCancelIntent` / `shouldBlockUnconfirmedCancelOrder` contra `cancel_order` ante `"Olvídalo entonces."`.
+ * - Calibrado Fase 22 (`2026-11-21`, Soporte Multilingüe Universal): detector determinista `detectKoreThirdLanguage`
+ *   (`ko`, `zh`, `ja`, `pt`, `fr`, `tl`, `vi`, `ar`, `ru`, `hi`, `hy`, `de`, `it`) sin falsos positivos en español/inglés,
+ *   discriminación `hasMeaningfulNonLatinCustomerSpeech` vs `isNonLatinNoiseTranscript` (preservando bloqueo de `"जी के"`, `"だいたい"`,
+ *   `"担当者の責任"`, `"ㅋㅋ"`, `"अ"`, `"嗯"`), y soporte multilingüe en audio-check, espera `45 s` y cancelación explícita.
  */
 
 export type KoreSpeechChannelMode = 'phone' | 'drive_thru'
+
+export type KoreThirdLanguageCode =
+  | 'ko'
+  | 'zh'
+  | 'ja'
+  | 'pt'
+  | 'fr'
+  | 'tl'
+  | 'vi'
+  | 'ar'
+  | 'ru'
+  | 'hi'
+  | 'hy'
+  | 'de'
+  | 'it'
+
+export interface KoreThirdLanguageMatch {
+  code: KoreThirdLanguageCode
+  nameEn: string
+  nameEs: string
+}
+
+export const KORE_THIRD_LANGUAGES: Readonly<Record<KoreThirdLanguageCode, KoreThirdLanguageMatch>> = Object.freeze({
+  ko: { code: 'ko', nameEn: 'Korean', nameEs: 'Coreano' },
+  zh: { code: 'zh', nameEn: 'Chinese', nameEs: 'Chino' },
+  ja: { code: 'ja', nameEn: 'Japanese', nameEs: 'Japonés' },
+  pt: { code: 'pt', nameEn: 'Portuguese', nameEs: 'Portugués' },
+  fr: { code: 'fr', nameEn: 'French', nameEs: 'Francés' },
+  tl: { code: 'tl', nameEn: 'Tagalog', nameEs: 'Tagalo' },
+  vi: { code: 'vi', nameEn: 'Vietnamese', nameEs: 'Vietnamita' },
+  ar: { code: 'ar', nameEn: 'Arabic', nameEs: 'Árabe' },
+  ru: { code: 'ru', nameEn: 'Russian', nameEs: 'Ruso' },
+  hi: { code: 'hi', nameEn: 'Hindi', nameEs: 'Hindi' },
+  hy: { code: 'hy', nameEn: 'Armenian', nameEs: 'Armenio' },
+  de: { code: 'de', nameEn: 'German', nameEs: 'Alemán' },
+  it: { code: 'it', nameEn: 'Italian', nameEs: 'Italiano' }
+})
 
 export interface NormalizeKoreSpeechOptions {
   mode?: KoreSpeechChannelMode
@@ -93,9 +134,12 @@ const SPANISH_ENGLISH_QTY_WORDS: Readonly<Record<string, number>> = Object.freez
 
 function stripDiacriticsLower(raw: string): string {
   return raw
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC')
+    .replace(/[^\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Arabic}\p{Script=Cyrillic}]+/gu, (seg) =>
+      seg.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    )
     .toLowerCase()
+    .replace(/đ/g, 'd')
 }
 
 function parseQtyToken(rawToken: string | undefined): number | null {
@@ -288,7 +332,10 @@ const RESTAURANT_OR_CALL_DOMAIN_RE =
  * (ej. `"¿Me escuchas?"`, `"¿Sí me escuchas o no?"`, `"Can you hear me?"`, `"Are you there?"`).
  */
 const DIRECT_CUSTOMER_AUDIO_CHECK_RE =
-  /\b(?:(?:si\s+)?me\s+(?:escuchas?|oyes?|estan?\s+escuchando|entiendes?)|me\s+(?:puedes?|pueden)\s+(?:escuchar|oir)|(?:por\s*que\s+)?no\s+me\s+contestas?|me\s+contestas?|(?:por\s*que\s+)?me\s+(?:cortas?|callas?|interrumpes?|apresuras?)|te\s+estoy\s+hablando|estaba\s+hablando|tengo\s+un\s+video\s+en\s+mi\s+carro|(?:estas?|sigues?|sigue|estan)\s+ahi|hay\s+alguien(?:\s+ahi)?|(?:can|do|could)\s+you\s+hear\s+me|you\s+hear\s+me(?:\s+or\s+not)?|why\s+(?:arent|are\s+not|dont|do\s+not)\s+you\s+answering|why\s+(?:do|did)\s+you\s+cut\s+me\s+off|are\s+you\s+(?:still\s+)?there|still\s+there|anyone\s+there|anybody\s+there|is\s+this\s+thing\s+on)\b/i
+  /\b(?:(?:si\s+)?me\s+(?:escuchas?|oyes?|estan?\s+escuchando|entiendes?)|me\s+(?:puedes?|pueden)\s+(?:escuchar|oir)|(?:por\s*que\s+)?no\s+me\s+contestas?|me\s+contestas?|(?:por\s*que\s+)?me\s+(?:cortas?|callas?|interrumpes?|apresuras?)|te\s+estoy\s+hablando|estaba\s+hablando|tengo\s+un\s+video\s+en\s+mi\s+carro|(?:estas?|sigues?|sigue|estan)\s+ahi|hay\s+alguien(?:\s+ahi)?|(?:can|do|could)\s+you\s+hear\s+me|you\s+hear\s+me(?:\s+or\s+not)?|why\s+(?:aren\s*t|are\s+not|don\s*t|do\s+not)\s+you\s+answering|why\s+(?:do|did)\s+you\s+cut\s+me\s+off|are\s+you\s+(?:still\s+)?there|still\s+there|anyone\s+there|anybody\s+there|is\s+this\s+thing\s+on|vous\s+m\s*entendez|tu\s+m\s*entends|esta\s+me\s+ouvindo|consegue\s+me\s+ouvir)\b/i
+
+const MULTILINGUAL_AUDIO_CHECK_NFC_RE =
+  /(?:들려요|제\s*말\s*들려요|听得到吗?|听得见吗?|聞こえますか?|تسمعني|هل\s+تسمعني|слышите(?:\s+меня)?|меня\s+слышно|सुनाई\s*दे|सुनाई)/iu
 
 /**
  * Respuestas o cierres directos típicos de orden en Drive-Thru que no deben descartarse cuando se mezclan con ruido.
@@ -306,18 +353,240 @@ export const EXPLICIT_BACKGROUND_MEDIA_MARKER_RE =
 
 export const KORE_BG_MEDIA_MIN_WORDS = 12
 
+const NON_LATIN_KO_MEANINGFUL_RE =
+  /(?:안녕|저기요|실례|주세요|할게요|로\s*할게|주문|타코|부리또|브리또|퀘사디아|물리타|토르타|소페|나초|소고기|돼지고기|닭고기|아사다|파스토르|치즈|과카몰리|사워크림|살사|음료|오르차타|밥|콩|세트|메뉴|포함|뭐가|전부|계산|얼마|가격|감사|고마워|아니요|잠시만|잠깐만|기다려|매니저|취소|다예요|들려요|됐어요|괜찮아요|^(?:네|예|끝)[.!?~\s]*$)/u
+
+const NON_LATIN_JA_MEANINGFUL_RE =
+  /(?:こんにちは|こんばんは|おはようございます|すみません|ください|お願いします|お願い|注文|タコス?|ブリトー|ケサディーヤ|ムリータ|牛肉|豚肉|鶏肉|ポーク|チキン|ビーフ|アサダ|朝田|肉|ご飯|ライス|豆|セット|メニュー|にします|にして|選べ|選び|ついて|付い|何|なに|会計|全部|そう|他|ほか|チーズ|ワカモレ|サワークリーム|飲み物|オルチャータ|いくら|ありがとう|はい|いいえ|ちょっと待って|待って|マネージャー|キャンセル|以上です|以上|聞こえます|やっぱりいい|大丈夫)/u
+
+const NON_LATIN_ZH_MEANINGFUL_RE =
+  /(?:你好|您好|请问|不好意思|我要|我想|给我|来一|来两|来二|来三|点单|点餐|订单|一个|两个|二个|三个|一份|两份|一杯|两杯|塔可|玉米饼|卷饼|布里托|牛肉|猪肉|鸡肉|米饭|套餐|菜单|有什么|包括|结账|买单|芝士|奶酪|牛油果|酸奶油|饮料|米浆|多少钱|价格|一共|谢谢|可以|好的|不要|不加|等一下|稍等|经理|取消|听得到|听得见|算了|不用了)/u
+
+const NON_LATIN_AR_MEANINGFUL_RE =
+  /(?:مرحبا|أهلا|اهلا|السلام|لو\s+سمحت|من\s+فضلك|أريد|اريد|ابغى|أبغى|عطني|أعطني|اعطني|طلب|طلبي|تاكو|بوريتو|لحم|دجاج|جبن|أرز|ارز|فاصوليا|ماذا|معه|حساب|بكم|كم\s+السعر|شكرا|نعم|لحظة|انتظر|مدير|إلغاء|الغاء|ألغ|الغ|تسمعني)/u
+
+const NON_LATIN_RU_MEANINGFUL_RE =
+  /(?:здравствуйте|привет|добрый|можно|хочу|дайте|пожалуйста|заказ|тако|буррито|кесадиль|говядин|свинин|куриц|сыр|рис|фасоль|меню|что\s+входит|счет|счёт|сколько|спасибо|подождите|секунду|менеджер|отмен|слышно|слышите)/iu
+
+const NON_LATIN_HI_MEANINGFUL_RE =
+  /(?:नमस्ते|हेलो|कृपया|मुझे|चाहिए|ऑर्डर|ताको|टाको|बुरिटो|चिकन|पनीर|चावल|राजमा|मेनू|क्या\s+मिलता|बिल|कितना|कीमत|धन्यवाद|शुक्रिया|रुकिए|एक\s+मिनट|मैनेजर|कैंसिल|सुनाई)/u
+
+const NON_LATIN_HY_MEANINGFUL_RE =
+  /(?:բարև|խնդրում|ուզում|տակո|բուրիտո|միս|հավ|պանիր|բրինձ|լոբի|մենյու|հաշիվ|ինչ\s+արժե|շնորհակալություն|սպասեք|չեղարկ)/iu
+
 /**
- * Retorna `true` cuando el texto tiene caracteres alfabéticos/escritura visible pero **CERO letras latinas**
- * (`A-Z` / vocales acentuadas / `ñ`) y **CERO dígitos ASCII** (`0-9`), p. ej. alucinaciones STT de ruido de fondo
- * en escrituras Devanagari, Hiragana/Katakana, CJK, árabe o cirílico (`"जी के"`, `"だいたい"`, `"担当者の責任"`).
+ * Verifica si `rawText` contiene al menos 2 caracteres en el sistema de escritura propio de un 3.er idioma no latino
+ * (`ja` -> Hiragana/Katakana/Han, `zh` -> Han, `ko` -> Hangul, `ar` -> Arabic, `ru` -> Cyrillic, `hi` -> Devanagari, `hy` -> Armenian).
  */
-export function isNonLatinNoiseTranscript(rawText: string): boolean {
+export function matchesThirdLanguageScript(rawText: string, code: KoreThirdLanguageCode): boolean {
+  const nfc = String(rawText ?? '').normalize('NFC')
+  if (!nfc) return false
+  switch (code) {
+    case 'ja':
+      return (nfc.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) || []).length >= 2
+    case 'zh':
+      return (nfc.match(/\p{Script=Han}/gu) || []).length >= 2
+    case 'ko':
+      return (nfc.match(/\p{Script=Hangul}/gu) || []).length >= 2
+    case 'ar':
+      return (nfc.match(/\p{Script=Arabic}/gu) || []).length >= 2
+    case 'ru':
+      return (nfc.match(/\p{Script=Cyrillic}/gu) || []).length >= 2
+    case 'hi':
+      return (nfc.match(/\p{Script=Devanagari}/gu) || []).length >= 2
+    case 'hy':
+      return (nfc.match(/\p{Script=Armenian}/gu) || []).length >= 2
+    default:
+      return false
+  }
+}
+
+/**
+ * Retorna `true` cuando un texto en escritura no latina contiene vocabulario conversacional real de cliente
+ * (saludo, cortesía, comida/bebida, cantidad, precio, espera, audio-check, confirmación o cancelación)
+ * en Coreano (`ko`), Chino (`zh`), Japonés (`ja`), Árabe (`ar`), Ruso (`ru`), Hindi (`hi`) o Armenio (`hy`).
+ */
+export function hasMeaningfulNonLatinCustomerSpeech(rawText: string): boolean {
+  const nfc = String(rawText ?? '').normalize('NFC').trim()
+  if (!nfc) return false
+  if (/\p{Script=Hangul}/u.test(nfc) && NON_LATIN_KO_MEANINGFUL_RE.test(nfc)) return true
+  if (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(nfc) && NON_LATIN_JA_MEANINGFUL_RE.test(nfc)) return true
+  if (/\p{Script=Han}/u.test(nfc) && !/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(nfc) && NON_LATIN_ZH_MEANINGFUL_RE.test(nfc)) {
+    return true
+  }
+  if (/\p{Script=Arabic}/u.test(nfc) && NON_LATIN_AR_MEANINGFUL_RE.test(nfc.toLowerCase())) return true
+  if (/\p{Script=Cyrillic}/u.test(nfc) && NON_LATIN_RU_MEANINGFUL_RE.test(nfc.toLowerCase())) return true
+  if (/\p{Script=Devanagari}/u.test(nfc) && NON_LATIN_HI_MEANINGFUL_RE.test(nfc)) return true
+  if (/\p{Script=Armenian}/u.test(nfc) && NON_LATIN_HY_MEANINGFUL_RE.test(nfc.toLowerCase())) return true
+  return false
+}
+
+/**
+ * Retorna `true` cuando el texto tiene escritura no latina y **NO** contiene habla real de cliente/restaurante,
+ * bloqueando alucinaciones STT o TV ajena (`"जी के"`, `"だいたい"`, `"担当者の責任"`, `"ㅋㅋ"`, `"अ"`, `"嗯"` cuando `activeThirdLangCode` es `null`).
+ * Si la sesión ya fijó un 3.er idioma no latino (`activeThirdLangCode`) y el texto coincide con su escritura (`>= 2` caracteres),
+ * retorna `false` para jamás silenciar respuestas de seguimiento del cliente (ej. `"朝田にします。あとそれには何がついていますか?"`).
+ */
+export function isNonLatinNoiseTranscript(
+  rawText: string,
+  activeThirdLangCode?: KoreThirdLanguageCode | null
+): boolean {
   const raw = String(rawText ?? '').trim()
   if (!raw) return false
-  if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]/.test(raw)) return false
-  return /\p{L}|\p{Script=Devanagari}|\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|\p{Script=Arabic}|\p{Script=Cyrillic}|\p{Script=Thai}/u.test(
+  if (/[\p{Script=Latin}0-9]/u.test(raw)) return false
+  if (activeThirdLangCode && matchesThirdLanguageScript(raw, activeThirdLangCode)) return false
+  if (hasMeaningfulNonLatinCustomerSpeech(raw)) return false
+  return /\p{L}|\p{Script=Devanagari}|\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|\p{Script=Arabic}|\p{Script=Cyrillic}|\p{Script=Armenian}|\p{Script=Thai}/u.test(
     raw
   )
+}
+
+const EXPLICIT_SWITCH_TO_ES_RE =
+  /\b(?:(?:en|al|a)\s+espanol|espanol\s+por\s+favor|(?:habla(?:me|nos|r)?|hable(?:me|nos)?|hablemos|puedes?\s+hablar|podemos\s+hablar|cambia(?:r)?|cambie(?:mos)?)\s+(?:en\s+|a\s+|al\s+)?espanol|(?:in|to)\s+spanish|spanish\s+please|(?:speak|talk|switch)\s+(?:in\s+|to\s+)?spanish|can\s+(?:we|you)\s+speak\s+(?:in\s+)?spanish|solo\s+hablo\s+espanol|no\s+me\s+habl(?:es|as|e)\s+en\s+(?:ingles|japones|chino|mandarin|coreano|frances|portugues|aleman|italiano|ruso|arabe|tagalo|vietnamita|armenio|hindi))\b/i
+
+const EXPLICIT_SWITCH_TO_EN_RE =
+  /\b(?:(?:in|to)\s+english|english\s+please|(?:speak|talk|switch)\s+(?:in\s+|to\s+)?english|(?:can|could|do)\s+(?:we|you)\s+speak\s+(?:in\s+)?english|only\s+speak\s+english|(?:en|al|a)\s+ingles|ingles\s+por\s+favor|(?:habla(?:me|nos|r)?|hable(?:me|nos)?|hablemos|puedes?\s+hablar|podemos\s+hablar|cambia(?:r)?|cambie(?:mos)?)\s+(?:en\s+|a\s+|al\s+)?ingles|(?:don\s*t|do\s+not)\s+speak\s+(?:spanish|japanese|chinese|korean|french|portuguese|german|italian|russian|arabic|tagalog|vietnamese|armenian|hindi))\b/i
+
+/**
+ * Retorna `'es'` o `'en'` ÚNICAMENTE cuando el cliente pide de forma explícita cambiar el idioma de atención a español o inglés
+ * (`"en español por favor"`, `"habla en español"`, `"in English please"`, `"speak English"`).
+ * Retorna `null` ante comentarios de terceros o frases sin comando de cambio de idioma (ej. `"Las dos se quedaron calladas."`).
+ */
+export function isExplicitBaseLanguageSwitchRequest(rawText: string): 'es' | 'en' | null {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) return null
+  const norm = stripDiacriticsLower(raw)
+    .replace(/['’`]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!norm) return null
+  // Cuidado: "no me hablas en inglés" / "no me hables en inglés" pide español, no inglés!
+  if (/\bno\s+me\s+habl(?:es|as|e)\s+en\s+ingles\b/i.test(norm)) return 'es'
+  if (/\b(?:no\s+hablo|don\s*t\s+speak|do\s+not\s+speak|can\s*t\s+speak|cannot\s+speak)\s+espanol\b|\b(?:don\s*t|do\s+not|can\s*t|cannot)\s+speak\s+spanish\b/i.test(norm)) {
+    return 'en'
+  }
+  if (/\bno\s+hablo\s+ingles\b/i.test(norm)) return 'es'
+  if (EXPLICIT_SWITCH_TO_ES_RE.test(norm)) return 'es'
+  if (EXPLICIT_SWITCH_TO_EN_RE.test(norm)) return 'en'
+  return null
+}
+
+const EXPLICIT_THIRD_LANG_REQUEST_MAP: ReadonlyArray<readonly [RegExp, KoreThirdLanguageCode]> = [
+  [/\b(?:korean|coreano|한국어)\b/i, 'ko'],
+  [/\b(?:chinese|mandarin|cantonese|chino|mandar[ií]n|canton[eé]s|中文|普通话|广东话)\b/i, 'zh'],
+  [/\b(?:japanese|japon[eé]s|日本語)\b/i, 'ja'],
+  [/\b(?:portuguese|portugu[eé]s)\b/i, 'pt'],
+  [/\b(?:french|franc[eé]s|français)\b/i, 'fr'],
+  [/\b(?:tagalog|filipino|tagalo)\b/i, 'tl'],
+  [/\b(?:vietnamese|vietnamita|tiếng\s+việt|tieng\s+viet)\b/i, 'vi'],
+  [/\b(?:arabic|[aá]rabe)\b/i, 'ar'],
+  [/\b(?:russian|ruso)\b/i, 'ru'],
+  [/\b(?:hindi)\b/i, 'hi'],
+  [/\b(?:armenian|armenio)\b/i, 'hy'],
+  [/\b(?:german|alem[aá]n|deutsch)\b/i, 'de'],
+  [/\b(?:italian|italiano)\b/i, 'it']
+]
+
+/**
+ * Detecta si el cliente está hablando en un 3.er idioma distinto de Español e Inglés (`ko`, `zh`, `ja`, `pt`, `fr`,
+ * `tl`, `vi`, `ar`, `ru`, `hi`, `hy`, `de`, `it`), exigiendo marcadores exclusivos que JAMÁS colisionen con palabras
+ * compartidas de Español, Inglés o nombres del menú mexicano.
+ */
+export function detectKoreThirdLanguage(rawText: string): KoreThirdLanguageMatch | null {
+  const raw = String(rawText ?? '').trim()
+  if (!raw || isNonLatinNoiseTranscript(raw)) return null
+  const nfc = raw.normalize('NFC')
+  const nfcLower = nfc.toLowerCase()
+
+  // 1) Escrituras no latinas con habla real de cliente verificada
+  if (/\p{Script=Hangul}/u.test(nfc) && NON_LATIN_KO_MEANINGFUL_RE.test(nfc)) return KORE_THIRD_LANGUAGES.ko
+  if (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(nfc) && NON_LATIN_JA_MEANINGFUL_RE.test(nfc)) {
+    return KORE_THIRD_LANGUAGES.ja
+  }
+  if (/\p{Script=Han}/u.test(nfc) && !/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(nfc) && NON_LATIN_ZH_MEANINGFUL_RE.test(nfc)) {
+    return KORE_THIRD_LANGUAGES.zh
+  }
+  if (/\p{Script=Arabic}/u.test(nfc) && NON_LATIN_AR_MEANINGFUL_RE.test(nfcLower)) return KORE_THIRD_LANGUAGES.ar
+  if (/\p{Script=Cyrillic}/u.test(nfc) && NON_LATIN_RU_MEANINGFUL_RE.test(nfcLower)) return KORE_THIRD_LANGUAGES.ru
+  if (/\p{Script=Devanagari}/u.test(nfc) && NON_LATIN_HI_MEANINGFUL_RE.test(nfc)) return KORE_THIRD_LANGUAGES.hi
+  if (/\p{Script=Armenian}/u.test(nfc) && NON_LATIN_HY_MEANINGFUL_RE.test(nfcLower)) return KORE_THIRD_LANGUAGES.hy
+
+  const asciiNorm = stripDiacriticsLower(nfc)
+    .replace(/['’`]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!asciiNorm) return null
+
+  // 2) Solicitud explícita de 3.er idioma en ES/EN/nativo (sin negación tipo "no hablo...", "I don't speak...", "I can't speak...")
+  if (
+    !/\b(?:no\s+(?:hablo|hablas?|se\s+hablar|entiendo)|don\s*t\s+speak|do\s+not\s+speak|can\s*t\s+speak|cannot\s+speak|only\s+speak\s+(?:english|spanish)|solo\s+hablo\s+(?:espanol|ingles))\b/i.test(
+      asciiNorm
+    ) &&
+    /\b(?:do\s+you\s+speak|can\s+(?:you|we)\s+speak|speak(?:\s+in)?|hablas?|hablan|puedes?\s+hablar|fala(?:m)?|parlez(?:\s+vous)?|sprechen\s+sie|parla(?:te)?|marunong\s+ka)\b/i.test(
+      asciiNorm
+    )
+  ) {
+    for (const [langRe, code] of EXPLICIT_THIRD_LANG_REQUEST_MAP) {
+      if (langRe.test(nfc) || langRe.test(asciiNorm)) {
+        return KORE_THIRD_LANGUAGES[code]
+      }
+    }
+  }
+
+  // 3) Idiomas en alfabeto latino (exclusivamente marcadores inequívocos ausentes en Español e Inglés)
+  if (
+    /\b(?:xin\s+chao|cam\s+on|cho\s+toi|bao\s+nhieu|tieng\s+viet|huy\s+don\s+hang|cho\s+mot\s+chut|banh\s+mi)\b/i.test(
+      asciiNorm
+    ) ||
+    (/[ăắằẳẵặấầẩẫậđếềểễệốồổỗộơớờởỡợưứừửữự]/iu.test(nfcLower) && /\b(?:toi|cho|hai|mot|cam|huy|don|xin)\b/i.test(asciiNorm))
+  ) {
+    return KORE_THIRD_LANGUAGES.vi
+  }
+
+  if (
+    /\b(?:kumusta|gusto\s+ko(?:\s+ng)?|dalawa(?:ng)?|tatlo(?:ng)?|salamat|magkano|sandali\s+lang|ikansela\s+ang|kanselahin\s+ang|pakisuyo)\b/i.test(
+      asciiNorm
+    )
+  ) {
+    return KORE_THIRD_LANGUAGES.tl
+  }
+
+  if (
+    /(?:^|[^\p{L}])(?:olá|não|você|vocês|pão|feijão|então)(?![\p{L}])/iu.test(nfcLower) ||
+    /\b(?:obrigad[oa]s?|eu\s+(?:quero|gostaria|vou\s+querer)|gostaria\s+de|voce|voces|frango|queijo|abacate|esta\s+me\s+ouvindo|espera\s+um\s+pouco|so\s+um\s+minuto|deixa\s+pra\s+la|cancela(?:r)?\s+(?:o\s+)?meu\s+pedido|cancelar\s+o\s+pedido\s+todo|bom\s+dia|boa\s+tarde|boa\s+noite|por\s+gentileza)\b/i.test(
+      asciiNorm
+    )
+  ) {
+    return KORE_THIRD_LANGUAGES.pt
+  }
+
+  if (
+    /\b(?:bonjour|bonsoir|je\s+(?:voudrais|veux|prends|vais\s+prendre)|s\s+il\s+vous\s+plait|sil\s+vous\s+plait|s\s+il\s+te\s+plait|merci(?:\s+beaucoup)?|combien(?:\s+ca\s+coute)?|deux\s+tacos?|trois\s+tacos?|avec\s+du|sans\s+creme|vous\s+m\s*entendez|attendez(?:\s+un\s+instant)?|un\s+instant|laisse(?:z)?\s+tomber|annule(?:r|z)?\s+(?:ma|la|toute\s+la)\s+commande)\b/i.test(
+      asciiNorm
+    )
+  ) {
+    return KORE_THIRD_LANGUAGES.fr
+  }
+
+  if (
+    /\b(?:guten\s+(?:tag|morgen|abend)|ich\s+(?:mochte|will|hatte\s+gern|nehme)|zwei\s+tacos?|drei\s+tacos?|bitte(?:\s+schon)?|danke(?:\s+schon)?|wie\s+viel\s+kostet|entschuldigung|einen\s+moment(?:\s+bitte)?|meine\s+bestellung\s+stornieren|bestellung\s+stornieren)\b/i.test(
+      asciiNorm
+    )
+  ) {
+    return KORE_THIRD_LANGUAGES.de
+  }
+
+  if (
+    /\b(?:buongiorno|buonasera|vorrei|per\s+favore|grazie(?:\s+mille)?|quanto\s+costa(?:no)?|due\s+tacos?|tre\s+tacos?|formaggio|senza\s+panna|un\s+attimo|aspetta\s+un\s+attimo|annulla(?:re)?\s+(?:il\s+mio\s+|tutto\s+l\s*|l\s*)ordine)\b/i.test(
+      asciiNorm
+    )
+  ) {
+    return KORE_THIRD_LANGUAGES.it
+  }
+
+  return null
 }
 
 export interface NoisyTurnCustomerIntent {
@@ -335,7 +604,9 @@ export interface NoisyTurnCustomerIntent {
 export function hasDirectCustomerAudioCheck(rawText: string): boolean {
   const raw = String(rawText ?? '').trim()
   if (!raw) return false
+  if (MULTILINGUAL_AUDIO_CHECK_NFC_RE.test(raw.normalize('NFC'))) return true
   const norm = stripDiacriticsLower(raw)
+    .replace(/['’`]+/g, ' ')
     .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -364,10 +635,13 @@ export function hasExplicitBackgroundMediaMarkers(rawText: string): boolean {
  *   inequívocos de YouTube/streaming/videojuegos (`"dejen su like"`, `"GTA 6"`, `"DLSS"`, `"Xbox"`, `"modders"`, etc.).
  * Nunca descarta turnos mixtos donde la TV suena de fondo pero el cliente también habló o preguntó.
  */
-export function isLikelyBackgroundMediaSpeech(rawText: string): boolean {
+export function isLikelyBackgroundMediaSpeech(
+  rawText: string,
+  activeThirdLangCode?: KoreThirdLanguageCode | null
+): boolean {
   const raw = String(rawText ?? '').trim()
   if (!raw) return false
-  if (isNonLatinNoiseTranscript(raw)) return true
+  if (isNonLatinNoiseTranscript(raw, activeThirdLangCode)) return true
 
   const norm = stripDiacriticsLower(
     normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' })
@@ -383,9 +657,12 @@ export function isLikelyBackgroundMediaSpeech(rawText: string): boolean {
   if (digitsOnly.length >= 7) return false
 
   if (
-    DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm) ||
+    hasDirectCustomerAudioCheck(raw) ||
     RESTAURANT_OR_CALL_DOMAIN_RE.test(norm) ||
-    DIRECT_ORDER_PROGRESSION_RE.test(norm)
+    DIRECT_ORDER_PROGRESSION_RE.test(norm) ||
+    ((detectKoreThirdLanguage(raw) !== null ||
+      Boolean(activeThirdLangCode && matchesThirdLanguageScript(raw, activeThirdLangCode))) &&
+      !EXPLICIT_BACKGROUND_MEDIA_MARKER_RE.test(norm))
   ) {
     return false
   }
@@ -421,10 +698,11 @@ export function extractDirectCustomerIntentFromNoisyTurn(rawText: string): Noisy
     .replace(/\s+/g, ' ')
     .trim()
 
-  const hasAudioCheck = DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm)
+  const hasAudioCheck = hasDirectCustomerAudioCheck(raw)
   const hasOrderOrDomainIntent =
     RESTAURANT_OR_CALL_DOMAIN_RE.test(norm) ||
     DIRECT_ORDER_PROGRESSION_RE.test(norm) ||
+    detectKoreThirdLanguage(raw) !== null ||
     /^(?:regular|super|si|no|ok|okay)$/i.test(norm)
 
   if (isLikelyBackgroundMediaSpeech(raw)) {
@@ -627,58 +905,74 @@ export function hasUnresolvedCompoundOrderItems(customerTurnText: string, addedI
 }
 
 const CUSTOMER_HOLD_REQUEST_RE =
-  /\b(?:espera(?:me|te)?|espere(?:me)?|estoy\s+pensando|deja(?:me)?\s+(?:pensar|ver|checar)|deme\s+un\s+(?:momento|segundo|minuto)|dame\s+(?:un\s+(?:momento|momentito|segundo|segundito|minuto)|tantito|chance)|un\s+(?:momento|momentito|segundo|segundito)|aguanta(?:me)?|permite(?:me)?|no\s+me\s+apresures?|ahi\s+voy|hold\s+on|wait(?:\s+a\s+(?:second|sec|moment|minute))?|give\s+me\s+a\s+(?:second|sec|moment|minute)|one\s+(?:second|sec|moment)|just\s+a\s+(?:second|sec|moment)|let\s+me\s+(?:think|see|check)|dont\s+rush\s+me|do\s+not\s+rush\s+me)\b/i
+  /\b(?:espera(?:me|te)?|espere(?:me)?|estoy\s+pensando|deja(?:me)?\s+(?:pensar|ver|checar)|deme\s+un\s+(?:momento|segundo|minuto)|dame\s+(?:un\s+(?:momento|momentito|segundo|segundito|minuto)|tantito|chance)|un\s+(?:momento|momentito|segundo|segundito)|aguanta(?:me)?|permite(?:me)?|no\s+me\s+apresures?|ahi\s+voy|hold\s+on|wait(?:\s+a\s+(?:second|sec|moment|minute))?|give\s+me\s+a\s+(?:second|sec|moment|minute)|one\s+(?:second|sec|moment)|just\s+a\s+(?:second|sec|moment)|let\s+me\s+(?:think|see|check)|don\s*t\s+rush\s+me|do\s+not\s+rush\s+me|attendez(?:\s+un\s+instant)?|un\s+instant|espera\s+um\s+pouco|so\s+um\s+minuto|aguarde\s+um\s+momento|sandali\s+lang|cho\s+mot\s+chut|einen\s+moment|un\s+attimo|aspetta\s+un\s+attimo)\b/i
+
+const MULTILINGUAL_HOLD_REQUEST_NFC_RE =
+  /(?:잠시만요?|잠깐만요?|기다려\s*주세요|等一下|稍等(?:一下)?|ちょっと待って(?:ください)?|待ってください|لحظة(?:\s+من\s+فضلك)?|انتظر\s+قليلا|подождите(?:\s+секунду)?|секунду|एक\s+मिनट|रुकिए|սպասեք)/iu
+
+const MULTILINGUAL_CONCRETE_ORDER_NFC_RE =
+  /(?:타코|부리또|브리또|퀘사디아|물리타|오르차타|タコス?|ブリトー|ケサディーヤ|塔可|玉米饼|卷饼|布里托|تاكو|بوريتو|тако|буррито|кесадиль|ताको|टाको|बुरिटो|տակո|բուրիտո)/iu
 
 const CONCRETE_ORDER_OR_CLOSING_IN_HOLD_RE =
   /\b(?:tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|plates?|combos?|flan(?:es)?|cheesecakes?|postres?|desserts?|charolas?|platters?|trays?|desayunos?|breakfasts?|huevos?|eggs?|asada|pastor|adobada|pollo|chicken|steak|cabeza|lengua|buche|chorizo|carnitas|milanesa|cuban[oa]s?|vegetarian[oa]s?|veggie|horchatas?|jamaicas?|tamarindos?|pinas?|limonadas?|lemonades?|champurrados?|cafes?|coffees?|cocas?|cokes?|sprites?|fantas?|sodas?|refrescos?|aguas?|waters?|bebidas?|drinks?|regular|super|supreme|mediana|mediano|grande|medium|large|galon|gallon|es\s+todo|ya\s+es\s+todo|nada\s+mas|that\s*s\s+all|thats\s+all|cambiar|cambia|cambialo|quitar|quita|cancelar|cuanto\s+cuesta|precio|subtotal|ebt|calfresh|doordash|uber|grubhub)\b/i
 
 /**
  * Retorna `true` cuando el cliente pide tiempo para pensar o que no lo apresuren
- * (`"Ahi voy, espérame, estoy pensando"`, `"Espera, a mí no me apresures"`, `"Hold on, let me think"`),
+ * (`"Ahi voy, espérame, estoy pensando"`, `"Hold on, let me think"`, `"잠시만요"`, `"等一下"`, `"Attendez un instant"`, `"Espera um pouco"`),
  * siempre que en esa misma frase NO venga ya un pedido concreto (ej. `"espera, mejor dame un flan"` -> `false`).
  */
-export function detectKoreCustomerHoldRequest(rawText: string): boolean {
+export function detectKoreCustomerHoldRequest(
+  rawText: string,
+  activeThirdLangCode?: KoreThirdLanguageCode | null
+): boolean {
   const raw = String(rawText ?? '').trim()
-  if (!raw || isNonLatinNoiseTranscript(raw)) return false
+  if (!raw || isNonLatinNoiseTranscript(raw, activeThirdLangCode)) return false
+  const nfc = raw.normalize('NFC')
+  if (MULTILINGUAL_CONCRETE_ORDER_NFC_RE.test(nfc)) return false
 
   const norm = stripDiacriticsLower(normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' }))
-    .replace(/['’`]+/g, '')
+    .replace(/['’`]+/g, ' ')
     .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
   if (!norm) return false
   if (CONCRETE_ORDER_OR_CLOSING_IN_HOLD_RE.test(norm)) return false
+  if (MULTILINGUAL_HOLD_REQUEST_NFC_RE.test(nfc)) return true
   return CUSTOMER_HOLD_REQUEST_RE.test(norm)
 }
 
 const CUSTOMER_RESUME_FROM_HOLD_INTENT_RE =
-  /\b(?:ya\s+estoy\s+list[oa]|estoy\s+list[oa]|ya\s+list[oa]|list[oa]s?|ready|im\s+ready|i\s+am\s+ready|ahora\s+si|ya\s+se|ya\s+decidi|quiero|quisiera|querria|dame|deme|me\s+(?:das?|da|pones?|pone|traes?|regalas?)|ponme|ponle|agregame|agrega|i\s+want|id\s+like|i\s+would\s+like|can\s+i\s+(?:get|have)|give\s+me|que\s+mas\s+(?:tienes?|tienen|hay|me\s+ofreces?)|que\s+me\s+recomiendas?|cual\s+es|cuanto\s+es|oye|oiga|senorita|disculp[ae]|hola|hello|hi|excuse\s+me|eres\s+voz)\b/i
+  /\b(?:ya\s+estoy\s+list[oa]|estoy\s+list[oa]|ya\s+list[oa]|list[oa]s?|ready|i\s*m\s+ready|i\s+am\s+ready|ahora\s+si|ya\s+se|ya\s+decidi|quiero|quisiera|querria|dame|deme|me\s+(?:das?|da|pones?|pone|traes?|regalas?)|ponme|ponle|agregame|agrega|i\s+want|i\s*d\s+like|i\s+would\s+like|can\s+i\s+(?:get|have)|give\s+me|que\s+mas\s+(?:tienes?|tienen|hay|me\s+ofreces?)|que\s+me\s+recomiendas?|cual\s+es|cuanto\s+es|oye|oiga|senorita|disculp[ae]|hola|hello|hi|excuse\s+me|eres\s+voz)\b/i
 
 /**
- * Mientras `holdActive` está vigente (tras `"espérame, estoy pensando"`), retorna `true` ÚNICAMENTE cuando
+ * Mientras `holdActive` está vigente (tras `"espérame, estoy pensando"` / `"잠시만요"` / `"等一下"`), retorna `true` ÚNICAMENTE cuando
  * el nuevo turno contiene intención real del cliente dirigida a Kore (platillo/bebida/menú, cierre `"es todo"`,
- * `"ya estoy listo"`, `"quiero..."`, `"¿qué más tienes?"`, `"¿me escuchas?"`, `"sí"/"no"` o nueva petición de espera),
- * y retorna `false` ante ruido/video del carro (`"de repente me di"`, `"es esta cámara"`, `"जी के"`,
- * `"pues ahora imagínate que es de noche... el sensor le"`).
+ * pedido en cualquier idioma válido, `"¿me escuchas?"`, `"sí"/"no"` o nueva petición de espera),
+ * y retorna `false` ante ruido/video del carro (`"de repente me di"`, `"es esta cámara"`, `"जी के"`, `"だいたい"`).
  */
-export function isCustomerResumingFromHold(rawText: string): boolean {
+export function isCustomerResumingFromHold(
+  rawText: string,
+  activeThirdLangCode?: KoreThirdLanguageCode | null
+): boolean {
   const raw = String(rawText ?? '').trim()
   if (!raw) return false
-  if (isNonLatinNoiseTranscript(raw)) return false
+  if (isNonLatinNoiseTranscript(raw, activeThirdLangCode)) return false
 
   const norm = stripDiacriticsLower(normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' }))
-    .replace(/['’`]+/g, '')
+    .replace(/['’`]+/g, ' ')
     .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
   if (!norm) return false
 
-  if (detectKoreCustomerHoldRequest(raw)) return true
+  if (detectKoreCustomerHoldRequest(raw, activeThirdLangCode)) return true
+  if (hasDirectCustomerAudioCheck(raw)) return true
+  if (detectKoreThirdLanguage(raw) !== null) return true
+  if (activeThirdLangCode && matchesThirdLanguageScript(raw, activeThirdLangCode)) return true
 
   if (
-    DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm) ||
     CONCRETE_ORDER_OR_CLOSING_IN_HOLD_RE.test(norm) ||
     DIRECT_ORDER_PROGRESSION_RE.test(norm) ||
     CUSTOMER_RESUME_FROM_HOLD_INTENT_RE.test(norm) ||
@@ -724,7 +1018,7 @@ const KORE_EBT_CANCEL_REASON_RE =
   /\b(?:ebt|calfresh|cal\s*fresh|food\s*stamps?|estampillas?(?:\s+de\s+comida)?|cupones?\s+de\s+comida|snap)\b/i
 
 const KORE_KEEP_ORDER_VETO_RE =
-  /\b(?:(?:la|mi)\s+orden\s+si\s+la\s+quiero|si\s+quiero\s+(?:la|mi)\s+orden|no\s+canceles\s+(?:la|mi)\s+orden|sin\s+cancelar\s+(?:la|mi)\s+orden|(?:dont|do\s+not)\s+cancel\s+(?:my|the)\s+order|keep\s+(?:my|the)\s+order|i\s+still\s+want\s+(?:my|the)\s+order)\b/i
+  /\b(?:(?:la|mi)\s+orden\s+si\s+la\s+quiero|si\s+quiero\s+(?:la|mi)\s+orden|no\s+canceles\s+(?:la|mi)\s+orden|sin\s+cancelar\s+(?:la|mi)\s+orden|(?:don\s*t|do\s+not)\s+cancel\s+(?:my|the)\s+order|keep\s+(?:my|the)\s+order|i\s+still\s+want\s+(?:my|the)\s+order)\b/i
 
 const KORE_SUBTOPIC_CANCEL_VETO_RE =
   /\bcancel(?:a|ar|e|en|ing|ed)?\s+(?:lo\s+(?:de|del)\s+)?(?:hablar|platicar|el\s+manager|al\s+manager|el\s+gerente|al\s+gerente|el\s+encargado|al\s+encargado|la\s+pregunta|eso\s+del\s+manager|speaking|talking|asking|the\s+manager|the\s+question)\b/i
@@ -733,20 +1027,27 @@ const KORE_EXPLICIT_WHOLE_ORDER_CANCEL_ES_RE =
   /\b(?:cancel(?:a|ar|ame|eme|en|e|alo|ala)\s+(?:por\s+favor\s+)?(?:toda\s+|todo\s+)?(?:mi\s+|la\s+|el\s+|nuestra\s+|nuestro\s+)?(?:orden|pedido|compra|cuenta|ticket|todo)|(?:toda\s+|mi\s+|la\s+)(?:orden|compra|cuenta)\s+cancelad[oa]|ya\s+no\s+(?:quiero|voy\s+a\s+(?:querer|llevar|pedir|ordenar)|llevo)\s+(?:nada|la\s+orden|mi\s+orden|el\s+pedido|todo)|no\s+voy\s+a\s+(?:llevar|querer|pedir|ordenar)\s+(?:nada|la\s+orden|mi\s+orden|el\s+pedido)|no\s+quiero\s+(?:la\s+orden|mi\s+orden|el\s+pedido|nada(?:\s+de\s+nada)?)|me\s+voy\s+sin\s+nada)\b/i
 
 const KORE_EXPLICIT_WHOLE_ORDER_CANCEL_EN_RE =
-  /\b(?:cancel\s+(?:please\s+)?(?:my\s+|the\s+|our\s+)?(?:whole\s+|entire\s+|full\s+)?(?:order|everything|it\s+all)|(?:i|we)\s+(?:dont|do\s+not)\s+want\s+(?:anything(?:\s+at\s+all|\s+anymore)?|(?:my|the|our)\s+(?:whole\s+|entire\s+)?order(?:\s+anymore)?)|(?:i|we)\s+(?:wont|will\s+not|am\s+not\s+going\s+to|are\s+not\s+going\s+to)\s+(?:take|get|order)\s+anything)\b/i
+  /\b(?:cancel\s+(?:please\s+)?(?:my\s+|the\s+|our\s+)?(?:whole\s+|entire\s+|full\s+)?(?:order|everything|it\s+all)|(?:i|we)\s+(?:don\s*t|do\s+not)\s+want\s+(?:anything(?:\s+at\s+all|\s+anymore)?|(?:my|the|our)\s+(?:whole\s+|entire\s+)?order(?:\s+anymore)?)|(?:i|we)\s+(?:won\s*t|will\s+not|am\s+not\s+going\s+to|are\s+not\s+going\s+to)\s+(?:take|get|order)\s+anything)\b/i
+
+const KORE_EXPLICIT_WHOLE_ORDER_CANCEL_LATIN_MULTI_RE =
+  /\b(?:cancela(?:r)?\s+(?:o\s+)?meu\s+pedido|cancela(?:r)?\s+o\s+pedido\s+todo|nao\s+quero\s+mais\s+nada|annule(?:r|z)?\s+(?:ma|la|toute\s+la|notre)\s+commande|je\s+ne\s+veux\s+plus\s+rien|ikansela\s+ang\s+(?:buong\s+)?order|kanselahin\s+ang\s+order|huy\s+(?:toan\s+bo\s+)?don\s+hang|(?:meine\s+)?bestellung\s+(?:stornieren|abbrechen)|annulla(?:re)?\s+(?:il\s+mio\s+|tutto\s+l\s*|l\s*)ordine)\b/i
+
+const KORE_EXPLICIT_WHOLE_ORDER_CANCEL_NFC_RE =
+  /(?:주문을?\s*취소|전체\s*취소|取消(?:我的|全部|整个)?订单|订单取消|全部取消|不要了全部|注文を?キャンセル|全部キャンセル|ألغ\s+طلبي|الغ\s+طلبي|إلغاء\s+الطلب|الغاء\s+الطلب|отмени(?:те)?\s+(?:мой\s+|весь\s+)?заказ|कैंसिल\s+कर|ऑर्डर\s+कैंसिल|չեղարկ(?:ել|եք)\s+պատվեր)/iu
 
 /**
  * Retorna `true` ÚNICAMENTE cuando el cliente pide explícitamente cancelar **toda la orden / el pedido / la compra**
  * o irse sin llevar nada, o menciona EBT/CalFresh/Food Stamps.
- * Retorna `false` ante descartes ambiguos de subtema (`"Olvídalo entonces."`, `"Mejor no"`, `"Never mind"`, `"Forget it"`)
+ * Retorna `false` ante descartes ambiguos de subtema (`"Olvídalo entonces."`, `"Mejor no"`, `"Never mind"`, `"算了"`, `"됐어요"`, `"Deixa pra lá"`, `"Laisse tomber"`)
  * y cuando `"cancelar"` aplica a otro subtema (`"Entiende, me refería a cancelar hablar con el manager la orden si la quiero"`).
  */
 export function isExplicitWholeOrderCancelIntent(rawText: string): boolean {
   const raw = String(rawText ?? '').trim()
   if (!raw || isNonLatinNoiseTranscript(raw)) return false
+  const nfc = raw.normalize('NFC')
 
   const norm = stripDiacriticsLower(raw)
-    .replace(/['’`]+/g, '')
+    .replace(/['’`]+/g, ' ')
     .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -755,8 +1056,13 @@ export function isExplicitWholeOrderCancelIntent(rawText: string): boolean {
   if (KORE_KEEP_ORDER_VETO_RE.test(norm)) return false
   if (KORE_SUBTOPIC_CANCEL_VETO_RE.test(norm)) return false
   if (KORE_EBT_CANCEL_REASON_RE.test(norm)) return true
+  if (KORE_EXPLICIT_WHOLE_ORDER_CANCEL_NFC_RE.test(nfc)) return true
 
-  return KORE_EXPLICIT_WHOLE_ORDER_CANCEL_ES_RE.test(norm) || KORE_EXPLICIT_WHOLE_ORDER_CANCEL_EN_RE.test(norm)
+  return (
+    KORE_EXPLICIT_WHOLE_ORDER_CANCEL_ES_RE.test(norm) ||
+    KORE_EXPLICIT_WHOLE_ORDER_CANCEL_EN_RE.test(norm) ||
+    KORE_EXPLICIT_WHOLE_ORDER_CANCEL_LATIN_MULTI_RE.test(norm)
+  )
 }
 
 /**
