@@ -28,6 +28,7 @@
  *   - Hardened in 2026-11 security pass: `;Secure` cookie attribute on HTTPS and `Object.prototype.hasOwnProperty.call` guards.
  *   - Upgraded in 2026-11 Accessibility & Kore AI Voice pass: fixed Windows scrollbar & bottom card clipping, prevented Chromium
  *     `position: fixed` containment bugs via `#tg-color-filter-layer`, and added CSP-compliant `blob:` -> `'self'` audio fallback.
+ *   - Upgraded in 2026-11 v3.0 California ADA Title III / Unruh / CDPA / WCAG 2.1 & 2.2 AA Statement pass: interactive links, 711 Relay, 1-2 business day SLA, physical/Drive-Thru & service animals.
  */
 
 (function () {
@@ -194,8 +195,8 @@
             footerA11yLink: 'Declaración de Accesibilidad',
 
             // Statements
-            statementTitle: 'Declaración de Accesibilidad',
-            statementBody: 'Tacos Gavilan trabaja continuamente hacia la conformidad con las Pautas de Accesibilidad para el Contenido Web (WCAG) 2.2 Nivel AA y evalúa y mejora constantemente el sitio web para facilitar el acceso a todas las personas.\n\nALCANCE Y MEJORAS CONTINUAS:\nImplementamos estructura HTML5 semántica, navegación por teclado (atajo rápido Alt + A), lector de voz neuronal femenina Kore en español e inglés, perfiles inteligentes de accesibilidad, trampas de foco en modales y menú móvil, etiquetas de formulario accesibles y alternativas de texto para mapas e imágenes.\n\nASISTENCIA TELEFÓNICA Y REPORTE DE BARRERAS:\nSi experimenta alguna dificultad para navegar, consultar nuestro menú o realizar un pedido en línea en order.online (operado por DoorDash, Inc.), puede llamar directamente a cualquiera de nuestras 15 sucursales listadas en /locations/ para recibir asistencia de nuestro personal, o reportar cualquier barrera de accesibilidad:\n\n• Correo Electrónico: support@tacosgavilan.com\n• Formulario de Contacto y Accesibilidad: https://tacosgavilan.com/contact/\n• Directorio de 15 Sucursales: https://tacosgavilan.com/locations/'
+            statementTitle: 'Declaración de Accesibilidad (California y ADA)',
+            statementBody: '<div class="tg-stmt-meta">Actualizado: 21 de noviembre de 2026 · Versión 3.0 · Operador: Tacos Gavilan</div><div class="tg-stmt-sec"><h4>1. Marco Legal en California y Estándar Técnico</h4><p><strong>Tacos Gavilan</strong> promueve la igualdad de acceso en nuestras 15 sucursales del sur de California y en <code>tacosgavilan.com</code> conforme al <strong>Título III del ADA (42 U.S.C. § 12182)</strong>, la <strong>Ley de Derechos Civiles Unruh de California (Cal. Civ. Code § 51)</strong> y la <strong>Ley de Personas con Discapacidad de California (Cal. Civ. Code §§ 54–54.1)</strong>, trabajando continuamente hacia la conformidad con <strong>WCAG 2.1 Nivel AA y WCAG 2.2 Nivel AA</strong> mediante HTML5/ARIA semántico nativo y pruebas híbridas continuas (<code>axe-core</code>, Lighthouse, teclado y lectores <strong>NVDA</strong>, <strong>VoiceOver</strong> y <strong>TalkBack</strong>).</p></div><div class="tg-stmt-sec"><h4>2. Herramientas Complementarias y Voz Neuronal IA Kore (Alt + A)</h4><p>Conforme a las guías de la FTC, esta barra es un complemento gratuito opcional (nunca sustituto del código nativo) que ofrece nuestro lector bilingüe por <strong>Voz Neuronal Femenina IA Kore</strong> (modo Clic/Tab, Leer Página Completa y reproductor flotante), <strong>6 Perfiles Inteligentes</strong>, <strong>Máscara y Guía de Lectura</strong>, controles multinivel de tipografía/contraste y atajo rápido <code>Alt + A</code>.</p></div><div class="tg-stmt-sec"><h4>3. Sucursales Físicas, Drive-Thru, Animales de Servicio y Terceros</h4><p>Nuestras 15 sucursales cuentan con estacionamiento, entradas, comedores y sanitarios accesibles ADA, asistencia telefónica alternativa en nuestras 6 ubicaciones con <strong>Drive-Thru</strong> (incluyendo <em>Los Ángeles (Central y Washington)</em>), y dan siempre la bienvenida a <strong>animales de servicio entrenados</strong> (Cal. Civ. Code § 54.1). Plataformas externas como <code>order.online</code> (DoorDash, Inc.), <code>Toast POS</code>, <code>Uber Eats</code>, <code>Grubhub</code>, <code>Postmates</code> y <code>Google Maps</code> son operadas por terceros independientes.</p></div><div class="tg-stmt-sec"><h4>4. Asistencia Sin Fricción 24/7, Relevo 711 y Respuesta en 1–2 Días Hábiles</h4><ul class="tg-stmt-list"><li><strong>Correo 24/7 (SLA 1–2 días hábiles):</strong> <a href="mailto:support@tacosgavilan.com?subject=Asistencia%20de%20Accesibilidad%20Web">support@tacosgavilan.com</a></li><li><strong>Formulario Accesible 24/7:</strong> <a href="/contact/?reason=accessibility">/contact/?reason=accessibility</a> (opción <em>"Accesibilidad Web / Asistencia ADA"</em>)</li><li><strong>California Relay Service (Sordera / Habla):</strong> Marque gratis al <a href="tel:711">711</a> (24/7 en español e inglés)</li><li><strong>Teléfonos Directos en Horario de Sucursal:</strong> Lynwood <a href="tel:+14247855535">(424) 785-5535</a> · <em>Los Ángeles (Central y Washington)</em> <a href="tel:+12137426677">(213) 742-6677</a> · <a href="/locations/">Ver las 15 sucursales (/locations/)</a></li><li><strong>Correo Postal:</strong> Tacos Gavilan — Accesibilidad y Atención al Cliente, 5182 Malabar Street, Vernon, CA 90058</li></ul></div><div class="tg-stmt-cta-row"><a href="/accessibility/" class="tg-stmt-full-btn">Ver Declaración de Accesibilidad Completa (/accessibility/) →</a></div>'
         },
         en: {
             // Accessibility Trigger & Header
@@ -325,8 +326,8 @@
             footerA11yLink: 'Accessibility Statement',
 
             // Statements
-            statementTitle: 'Accessibility Statement',
-            statementBody: 'Tacos Gavilan is working toward Web Content Accessibility Guidelines (WCAG) 2.2 Level AA conformance and continuously evaluates and improves the website to support equal access for all guests.\n\nSCOPE & NATIVE ACCESSIBILITY MEASURES:\nWe implement semantic HTML5 landmarks, keyboard navigation (Alt + A quick shortcut), our bilingual Kore neural female voice reader, smart accessibility profiles, focus traps on modals and the mobile navigation drawer, accessible form labels, and native HTML store directory alternatives alongside interactive maps.\n\nTELEPHONE ASSISTANCE & BARRIER REPORTING:\nIf you encounter any difficulty accessing our website, reviewing menus, or placing an online order on order.online (operated by DoorDash, Inc.), you may call any of our 15 Southern California restaurant locations listed at /locations/ for direct staff assistance, or report an accessibility barrier:\n\n• Email: support@tacosgavilan.com\n• Online Contact & Accessibility Form: https://tacosgavilan.com/contact/\n• 15 Restaurant Locations Directory: https://tacosgavilan.com/locations/'
+            statementTitle: 'Accessibility Statement (California & ADA)',
+            statementBody: '<div class="tg-stmt-meta">Last Updated: November 21, 2026 · Version 3.0 · Operator: Tacos Gavilan</div><div class="tg-stmt-sec"><h4>1. California Legal Framework &amp; Technical Standard</h4><p><strong>Tacos Gavilan</strong> supports equal access across our 15 Southern California restaurants and <code>tacosgavilan.com</code> pursuant to <strong>ADA Title III (42 U.S.C. § 12182)</strong>, the <strong>California Unruh Civil Rights Act (Cal. Civ. Code § 51)</strong>, and the <strong>California Disabled Persons Act (Cal. Civ. Code §§ 54–54.1)</strong>, actively working toward <strong>WCAG 2.1 Level AA and WCAG 2.2 Level AA</strong> conformance through native semantic HTML5/ARIA and hybrid testing (<code>axe-core</code>, Lighthouse, manual keyboard navigation, and <strong>NVDA</strong>, <strong>VoiceOver</strong>, and <strong>TalkBack</strong> screen readers).</p></div><div class="tg-stmt-sec"><h4>2. Supplementary Assistive Toolbar &amp; Kore AI Voice (Alt + A)</h4><p>Consistent with FTC guidance, this toolbar is a free optional supplement (never a substitute for native source code) providing our bilingual <strong>Kore AI Neural Female Voice</strong> reader (Click/Tab Reader, Read Full Page, and floating audio player), <strong>6 Smart Profiles</strong>, <strong>Reading Mask &amp; Guide</strong>, multi-step typography/contrast controls, and the <code>Alt + A</code> shortcut.</p></div><div class="tg-stmt-sec"><h4>3. Physical Restaurants, Drive-Thru, Service Animals &amp; Third Parties</h4><p>Our 15 restaurants provide ADA accessible parking, step-free entrances, dining seating, and restrooms, telephone-assisted service at our 6 <strong>Drive-Thru</strong> locations (including <em>Los Angeles (Central &amp; Washington)</em>), and always welcome <strong>trained service animals</strong> (Cal. Civ. Code § 54.1). External platforms such as <code>order.online</code> (DoorDash, Inc.), <code>Toast POS</code>, <code>Uber Eats</code>, <code>Grubhub</code>, <code>Postmates</code>, and <code>Google Maps</code> are operated by independent third parties.</p></div><div class="tg-stmt-sec"><h4>4. 24/7 Barrier Reporting, 711 Relay &amp; 1–2 Business Day SLA</h4><ul class="tg-stmt-list"><li><strong>24/7 Email (1–2 business days SLA):</strong> <a href="mailto:support@tacosgavilan.com?subject=Website%20Accessibility%20Assistance">support@tacosgavilan.com</a></li><li><strong>24/7 Accessible Online Form:</strong> <a href="/contact/?reason=accessibility">/contact/?reason=accessibility</a> (topic: <em>"Website Accessibility / ADA Assistance"</em>)</li><li><strong>California Relay Service (Deaf / Speech):</strong> Dial <a href="tel:711">711</a> free 24/7 (English &amp; Spanish)</li><li><strong>Direct Live Store Phones:</strong> Lynwood <a href="tel:+14247855535">(424) 785-5535</a> · <em>Los Angeles (Central &amp; Washington)</em> <a href="tel:+12137426677">(213) 742-6677</a> · <a href="/locations/">All 15 locations (/locations/)</a></li><li><strong>Postal Mail:</strong> Tacos Gavilan — Accessibility &amp; Guest Support, 5182 Malabar Street, Vernon, CA 90058</li></ul></div><div class="tg-stmt-cta-row"><a href="/accessibility/" class="tg-stmt-full-btn">Read Full Accessibility Statement (/accessibility/) →</a></div>'
         }
     };
 
@@ -2228,7 +2229,7 @@
                 '    <h3 class="tg-modal-title" id="tg-stmt-title">' + t.statementTitle + '</h3>' +
                 '    <button type="button" id="tg-stmt-close" class="tg-close-btn" aria-label="' + t.a11yCloseLabel + '">×</button>' +
                 '  </div>' +
-                '  <div class="tg-modal-body" style="white-space: pre-line; line-height: 1.6; color: #d1d5db;" id="tg-stmt-body">' +
+                '  <div class="tg-modal-body tg-stmt-body" id="tg-stmt-body" tabindex="0" role="region" aria-labelledby="tg-stmt-title">' +
                 t.statementBody +
                 '  </div>' +
                 '</div>';
@@ -2553,7 +2554,8 @@
 
         // Statement Modal
         setText('tg-stmt-title', t.statementTitle);
-        setText('tg-stmt-body', t.statementBody);
+        var stmtBodyEl = document.getElementById('tg-stmt-body');
+        if (stmtBodyEl) stmtBodyEl.innerHTML = t.statementBody;
         setAttr('tg-stmt-close', 'aria-label', t.a11yCloseLabel);
 
         // Cookie Modal
@@ -3069,6 +3071,12 @@
                 e.stopPropagation();
                 stmtModal.style.display = 'none';
                 if (stmtBtn) stmtBtn.focus();
+            });
+            stmtModal.addEventListener('click', function (e) {
+                if (e.target === stmtModal) {
+                    stmtModal.style.display = 'none';
+                    if (stmtBtn) stmtBtn.focus();
+                }
             });
         }
 

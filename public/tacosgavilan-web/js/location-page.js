@@ -49,6 +49,11 @@ document.addEventListener('DOMContentLoaded', () => {
         safeStorage.set('tacosgavilan_lang', lang);
     };
 
+    const yearEl = document.getElementById('year');
+    if (yearEl && !yearEl.textContent.trim()) {
+        yearEl.textContent = String(new Date().getFullYear());
+    }
+
     applyLanguage(safeStorage.get('tacosgavilan_lang') || 'en');
 
     if (toggle) {

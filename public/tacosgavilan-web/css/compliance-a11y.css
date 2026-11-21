@@ -1511,6 +1511,140 @@ html.tg-a11y-pos-left #tg-speech-bar {
     margin: 0;
 }
 
+/* Structured ADA / California Statement Modal Typography & Keyboard Focusable Links */
+#tg-statement-modal .tg-modal-box {
+    overflow: hidden;
+    width: 660px;
+}
+
+#tg-statement-modal .tg-modal-header {
+    flex-shrink: 0;
+}
+
+#tg-stmt-body.tg-stmt-body {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(244, 196, 48, 0.48) rgba(255, 255, 255, 0.04);
+    gap: 11px;
+    padding: 20px 24px;
+    font-size: 13.3px;
+    line-height: 1.58;
+    color: #e5e7eb;
+}
+
+#tg-stmt-body.tg-stmt-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+#tg-stmt-body.tg-stmt-body::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 999px;
+    margin: 6px 0;
+}
+
+#tg-stmt-body.tg-stmt-body::-webkit-scrollbar-thumb {
+    background: rgba(244, 196, 48, 0.45);
+    border-radius: 999px;
+}
+
+#tg-stmt-body.tg-stmt-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(244, 196, 48, 0.82);
+}
+
+#tg-stmt-body.tg-stmt-body:focus-visible {
+    outline: 2px solid rgba(244, 196, 48, 0.7);
+    outline-offset: -2px;
+}
+
+.tg-stmt-meta {
+    display: inline-block;
+    background: rgba(244, 196, 48, 0.1);
+    border: 1px solid rgba(244, 196, 48, 0.35);
+    color: #f4c430;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 6px 11px;
+    border-radius: 8px;
+    width: fit-content;
+}
+
+.tg-stmt-sec {
+    background: #181c25;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 12px 15px;
+}
+
+.tg-stmt-sec h4 {
+    margin: 0 0 6px;
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #f4c430;
+}
+
+.tg-stmt-sec p {
+    margin: 0;
+    font-size: 12.8px;
+    line-height: 1.58;
+    color: #d1d5db;
+}
+
+.tg-stmt-list {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 12.6px;
+    color: #d1d5db;
+}
+
+#tg-stmt-body a:not(.tg-stmt-full-btn) {
+    color: #f4c430;
+    font-weight: 600;
+    text-decoration: underline;
+    border-radius: 4px;
+}
+
+#tg-stmt-body a:not(.tg-stmt-full-btn):hover,
+#tg-stmt-body a:not(.tg-stmt-full-btn):focus-visible {
+    color: #ffffff;
+    background: rgba(244, 196, 48, 0.2);
+    outline: 2px solid #f4c430;
+    outline-offset: 2px;
+}
+
+.tg-stmt-cta-row {
+    padding-top: 4px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.tg-stmt-full-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #f4c430;
+    color: #111318 !important;
+    font-weight: 800;
+    font-size: 12.8px;
+    text-decoration: none !important;
+    padding: 10px 16px;
+    border-radius: 10px;
+    min-height: 40px;
+    transition: background 0.18s ease, transform 0.15s ease;
+}
+
+.tg-stmt-full-btn:hover,
+.tg-stmt-full-btn:focus-visible {
+    background: #ffd754;
+    color: #000000 !important;
+    outline: 3px solid #ffffff;
+    outline-offset: 2px;
+}
+
 .tg-cookie-category {
     background: #181c25;
     border: 1px solid rgba(255, 255, 255, 0.08);
