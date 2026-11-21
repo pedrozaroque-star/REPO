@@ -1,20 +1,40 @@
 /**
  * @file compliance-a11y.css
- * @description California CCPA/CPRA Cookie Consent & ADA Title III / WCAG 2.2 AA Handicap Accessibility Suite Stylesheet
- * @brand Tacos Gavilan (Strictly official, zero emojis)
+ * @module TacosGavilanComplianceCSS
+ * @description California CCPA/CPRA Cookie Consent & Enterprise ADA Title III / WCAG 2.2 AA Accessibility Suite + Kore Neural Voice Player Stylesheet
+ * @brand Tacos Gavilan (Strictly official brand, zero emojis)
  */
 
 /* ==========================================================================
-   1. ACCESSIBILITY FLOATING BUTTON (TRIGGER) - MIDDLE RIGHT
+   0. VISUALLY HIDDEN POLITE ANNOUNCER (WCAG 4.1.3 STATUS MESSAGES)
+   ========================================================================== */
+#tg-a11y-live {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+    pointer-events: none;
+}
+
+/* ==========================================================================
+   1. ACCESSIBILITY FLOATING BUTTON (TRIGGER) - RIGHT OR LEFT DOCK
    ========================================================================== */
 #tg-a11y-trigger {
     position: fixed;
     top: 50%;
     right: 18px;
+    left: auto;
     transform: translateY(-50%);
-    width: 52px;
-    height: 52px;
-    background: #0d1117;
+    width: 54px;
+    height: 54px;
+    min-width: 54px;
+    min-height: 54px;
+    background: radial-gradient(circle at 30% 25%, #1b2230 0%, #0d1117 72%);
     border: 2px solid #f4c430;
     border-radius: 50%;
     color: #f4c430;
@@ -22,19 +42,25 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 0 10px rgba(244, 196, 48, 0.35);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 14px rgba(244, 196, 48, 0.32);
     z-index: 999980;
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, box-shadow 0.2s;
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, box-shadow 0.2s, border-color 0.2s;
     outline: none;
     padding: 0;
     margin: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html.tg-a11y-pos-left #tg-a11y-trigger {
+    right: auto;
+    left: 18px;
 }
 
 #tg-a11y-trigger:hover,
 #tg-a11y-trigger:focus-visible {
-    transform: translateY(-50%) scale(1.1);
-    background: #1a202c;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6), 0 0 16px rgba(244, 196, 48, 0.6);
+    transform: translateY(-50%) scale(1.09);
+    background: radial-gradient(circle at 30% 25%, #242d3f 0%, #121822 75%);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.72), 0 0 20px rgba(244, 196, 48, 0.62);
     outline: 3px solid #f4c430;
     outline-offset: 3px;
 }
@@ -44,9 +70,43 @@
     height: 28px;
     fill: currentColor;
     pointer-events: none;
+    position: relative;
+    z-index: 2;
 }
 
-/* Badge for active accessibility features count */
+/* Pulsing Golden Acoustic Halo when Kore AI Voice is actively speaking */
+#tg-a11y-trigger.is-speaking {
+    border-color: #ffd754;
+    box-shadow: 0 0 0 4px rgba(244, 196, 48, 0.28), 0 8px 28px rgba(0, 0, 0, 0.75), 0 0 24px rgba(244, 196, 48, 0.65);
+}
+
+#tg-a11y-trigger.is-speaking::before,
+#tg-a11y-trigger.is-speaking::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid rgba(244, 196, 48, 0.72);
+    pointer-events: none;
+    animation: tgKorePulseRing 1.9s cubic-bezier(0.2, 0.65, 0.35, 1) infinite;
+}
+
+#tg-a11y-trigger.is-speaking::after {
+    animation-delay: 0.95s;
+}
+
+@keyframes tgKorePulseRing {
+    0% {
+        transform: scale(0.96);
+        opacity: 0.85;
+    }
+    100% {
+        transform: scale(1.42);
+        opacity: 0;
+    }
+}
+
+/* Numeric Badge for active accessibility adjustments count */
 #tg-a11y-badge {
     position: absolute;
     top: -4px;
@@ -56,47 +116,71 @@
     font-size: 11px;
     font-weight: 800;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
+    min-width: 21px;
+    height: 21px;
+    padding: 0 5px;
+    border-radius: 999px;
     display: none;
     align-items: center;
     justify-content: center;
     border: 2px solid #0d1117;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+    z-index: 3;
+    line-height: 1;
+    box-sizing: border-box;
 }
 
 /* ==========================================================================
-   2. ACCESSIBILITY FLYOUT PANEL - MIDDLE RIGHT
+   2. ACCESSIBILITY FLYOUT PANEL - LUXURY OBSIDIAN & GOLD
    ========================================================================== */
 #tg-a11y-panel {
     position: fixed;
     top: 50%;
-    right: 80px;
+    right: 84px;
+    left: auto;
     transform: translateY(-50%);
-    width: 370px;
-    max-width: calc(100vw - 36px);
-    max-height: min(85vh, 680px);
-    background: #12141a;
-    border: 1px solid rgba(244, 196, 48, 0.4);
-    border-radius: 18px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.75), 0 0 20px rgba(244, 196, 48, 0.15);
+    width: 416px;
+    max-width: calc(100vw - 32px);
+    max-height: min(88vh, 740px);
+    background: #11141c;
+    border: 1px solid rgba(244, 196, 48, 0.42);
+    border-radius: 20px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.82), 0 0 28px rgba(244, 196, 48, 0.14);
     color: #f0f3f6;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    line-height: 1.35;
+    letter-spacing: normal;
+    word-spacing: normal;
+    text-align: left;
     z-index: 999990;
     display: none;
     flex-direction: column;
     overflow: hidden;
-    animation: tgSlideRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    box-sizing: border-box;
+    animation: tgSlideRight 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+html.tg-a11y-pos-left #tg-a11y-panel {
+    right: auto;
+    left: 84px;
+    animation-name: tgSlideLeft;
 }
 
 #tg-a11y-panel.is-open {
     display: flex;
 }
 
+#tg-a11y-panel *,
+#tg-a11y-panel *::before,
+#tg-a11y-panel *::after {
+    box-sizing: border-box;
+}
+
 @keyframes tgSlideRight {
     from {
         opacity: 0;
-        transform: translateY(-50%) translateX(20px) scale(0.96);
+        transform: translateY(-50%) translateX(18px) scale(0.97);
     }
     to {
         opacity: 1;
@@ -104,93 +188,508 @@
     }
 }
 
+@keyframes tgSlideLeft {
+    from {
+        opacity: 0;
+        transform: translateY(-50%) translateX(-18px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0) scale(1);
+    }
+}
+
+/* Panel Header */
 .tg-panel-header {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
-    background: #1a1d26;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 10px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, #1b202c 0%, #161a24 100%);
+    border-bottom: 1px solid rgba(244, 196, 48, 0.18);
+}
+
+.tg-panel-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 
 .tg-panel-title {
     font-size: 15px;
-    font-weight: 700;
+    font-weight: 800;
     color: #f4c430;
     display: flex;
     align-items: center;
     gap: 8px;
     margin: 0;
+    line-height: 1.2;
 }
 
 .tg-panel-title svg {
     width: 20px;
     height: 20px;
     fill: currentColor;
+    flex-shrink: 0;
+}
+
+.tg-kbd-hint {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: rgba(244, 196, 48, 0.1);
+    border: 1px solid rgba(244, 196, 48, 0.3);
+    color: #e2c56b;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
 }
 
 .tg-header-actions {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    flex-shrink: 0;
 }
 
 .tg-lang-btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(244, 196, 48, 0.4);
+    background: rgba(244, 196, 48, 0.1);
+    border: 1px solid rgba(244, 196, 48, 0.45);
     color: #f4c430;
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 11px;
+    min-height: 32px;
+    padding: 5px 11px;
+    border-radius: 8px;
+    font-size: 11.5px;
     font-weight: 700;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.18s, border-color 0.18s, color 0.18s;
     font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.tg-lang-btn:hover {
-    background: rgba(244, 196, 48, 0.15);
+.tg-lang-btn:hover,
+.tg-lang-btn:focus-visible {
+    background: rgba(244, 196, 48, 0.22);
+    border-color: #f4c430;
+    color: #ffffff;
+    outline: 2px solid #f4c430;
+    outline-offset: 2px;
 }
 
 .tg-close-btn {
-    background: transparent;
-    border: none;
-    color: #a0aec0;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #cbd5e1;
     font-size: 20px;
     cursor: pointer;
     line-height: 1;
-    padding: 4px;
-    border-radius: 4px;
-    display: flex;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    border-radius: 8px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.18s, color 0.18s, border-color 0.18s;
 }
 
 .tg-close-btn:hover,
 .tg-close-btn:focus-visible {
     color: #ffffff;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(244, 196, 48, 0.18);
+    border-color: #f4c430;
     outline: 2px solid #f4c430;
+    outline-offset: 2px;
 }
 
+/* Panel Scrollable Body — Custom Obsidian/Gold Scrollbar & Zero Cut-off */
 .tg-panel-body {
-    padding: 16px 20px;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 15px 18px 24px 18px;
     overflow-y: auto;
-    max-height: calc(100vh - 240px);
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(244, 196, 48, 0.48) rgba(255, 255, 255, 0.04);
+}
+
+.tg-panel-body::-webkit-scrollbar,
+.tg-modal-box::-webkit-scrollbar {
+    width: 6px;
+}
+
+.tg-panel-body::-webkit-scrollbar-track,
+.tg-modal-box::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 999px;
+    margin: 6px 0;
+}
+
+.tg-panel-body::-webkit-scrollbar-thumb,
+.tg-modal-box::-webkit-scrollbar-thumb {
+    background: rgba(244, 196, 48, 0.45);
+    border-radius: 999px;
+}
+
+.tg-panel-body::-webkit-scrollbar-thumb:hover,
+.tg-modal-box::-webkit-scrollbar-thumb:hover {
+    background: rgba(244, 196, 48, 0.82);
+}
+
+.tg-section-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .tg-section-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: #8b949e;
-    margin: 0 0 8px 0;
+    color: #94a3b8;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
+/* ==========================================================================
+   2B. SMART 1-CLICK ACCESSIBILITY PROFILES
+   ========================================================================== */
+.tg-profiles-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+}
+
+.tg-profile-btn {
+    background: #181d28;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 11px;
+    color: #e6edf3;
+    padding: 9px 10px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.15s ease;
+    text-align: left;
+    font-family: inherit;
+}
+
+.tg-profile-btn:hover {
+    background: #212838;
+    border-color: rgba(244, 196, 48, 0.45);
+}
+
+.tg-profile-btn:focus-visible {
+    outline: 3px solid #f4c430;
+    outline-offset: 2px;
+}
+
+.tg-profile-btn.is-active {
+    background: linear-gradient(135deg, rgba(244, 196, 48, 0.2) 0%, rgba(244, 196, 48, 0.07) 100%);
+    border-color: #f4c430;
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(244, 196, 48, 0.65), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.tg-profile-icon {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    border-radius: 8px;
+    background: rgba(244, 196, 48, 0.12);
+    color: #f4c430;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.18s, color 0.18s;
+}
+
+.tg-profile-btn.is-active .tg-profile-icon {
+    background: #f4c430;
+    color: #11141c;
+}
+
+.tg-profile-icon svg {
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+}
+
+.tg-profile-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 1px;
+}
+
+.tg-profile-name {
+    font-size: 11.5px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: inherit;
+}
+
+.tg-profile-sub {
+    font-size: 9.8px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tg-profile-btn.is-active .tg-profile-sub {
+    color: #f4c430;
+}
+
+/* ==========================================================================
+   2C. KORE AI VOICE PLAYER CARD (EMBEDDED IN PANEL)
+   ========================================================================== */
+.tg-kore-player {
+    background: linear-gradient(145deg, #191f2d 0%, #131722 100%);
+    border: 1px solid rgba(244, 196, 48, 0.38);
+    border-radius: 13px;
+    padding: 11px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.tg-kore-player.is-speaking {
+    border-color: #f4c430;
+    box-shadow: 0 0 0 1px rgba(244, 196, 48, 0.35), 0 8px 22px rgba(244, 196, 48, 0.12);
+}
+
+.tg-kore-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tg-kore-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(244, 196, 48, 0.15);
+    border: 1px solid rgba(244, 196, 48, 0.55);
+    color: #f4c430;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    line-height: 1.2;
+}
+
+.tg-kore-wave {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 12px;
+}
+
+.tg-kore-wave span {
+    display: block;
+    width: 2.5px;
+    height: 4px;
+    border-radius: 2px;
+    background: #f4c430;
+    transition: height 0.15s ease;
+}
+
+.tg-kore-player.is-speaking .tg-kore-wave span,
+#tg-speech-bar.is-speaking .tg-kore-wave span {
+    animation: tgKoreEqBar 0.85s ease-in-out infinite;
+}
+
+.tg-kore-player.is-speaking .tg-kore-wave span:nth-child(2),
+#tg-speech-bar.is-speaking .tg-kore-wave span:nth-child(2) {
+    animation-delay: 0.16s;
+}
+
+.tg-kore-player.is-speaking .tg-kore-wave span:nth-child(3),
+#tg-speech-bar.is-speaking .tg-kore-wave span:nth-child(3) {
+    animation-delay: 0.32s;
+}
+
+.tg-kore-player.is-speaking .tg-kore-wave span:nth-child(4),
+#tg-speech-bar.is-speaking .tg-kore-wave span:nth-child(4) {
+    animation-delay: 0.48s;
+}
+
+@keyframes tgKoreEqBar {
+    0%, 100% {
+        height: 4px;
+    }
+    50% {
+        height: 12px;
+    }
+}
+
+.tg-kore-progress {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #cbd5e1;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.tg-kore-snippet {
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: #dbe4ef;
+    background: rgba(9, 12, 18, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    padding: 7px 9px;
+    min-height: 36px;
+    max-height: 48px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.tg-kore-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tg-kore-transport {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.tg-kore-ctrl-btn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    border-radius: 9px;
+    background: #202736;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e6edf3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.16s, border-color 0.16s, color 0.16s, transform 0.14s;
+}
+
+.tg-kore-ctrl-btn:hover:not(:disabled) {
+    background: #2b3448;
+    border-color: rgba(244, 196, 48, 0.55);
+    color: #f4c430;
+}
+
+.tg-kore-ctrl-btn:focus-visible {
+    outline: 2px solid #f4c430;
+    outline-offset: 2px;
+}
+
+.tg-kore-ctrl-btn:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+}
+
+.tg-kore-ctrl-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.tg-kore-ctrl-btn.tg-kore-play-primary {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    background: #f4c430;
+    border-color: #f4c430;
+    color: #11141c;
+    box-shadow: 0 3px 10px rgba(244, 196, 48, 0.35);
+}
+
+.tg-kore-ctrl-btn.tg-kore-play-primary:hover:not(:disabled) {
+    background: #ffd54f;
+    border-color: #ffd54f;
+    color: #0b0d13;
+    transform: scale(1.04);
+}
+
+.tg-kore-speeds {
+    display: inline-flex;
+    align-items: center;
+    background: #141822;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.tg-kore-speed-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 10.5px;
+    font-weight: 700;
+    font-family: inherit;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.tg-kore-speed-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.tg-kore-speed-btn:focus-visible {
+    outline: 2px solid #f4c430;
+    outline-offset: 1px;
+}
+
+.tg-kore-speed-btn.is-active {
+    background: rgba(244, 196, 48, 0.22);
+    color: #f4c430;
+    box-shadow: inset 0 0 0 1px rgba(244, 196, 48, 0.5);
+}
+
+/* ==========================================================================
+   2D. GRANULAR WCAG 2.2 AA TOOL CARDS + MULTI-STEP DOTS
+   ========================================================================== */
 .tg-grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -198,28 +697,30 @@
 }
 
 .tg-tool-btn {
-    background: #1c212c;
+    position: relative;
+    background: #1a202c;
     border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 10px;
+    border-radius: 11px;
     color: #e6edf3;
-    padding: 12px 10px;
-    font-size: 12px;
+    padding: 11px 9px 10px;
+    min-height: 68px;
+    font-size: 11.5px;
     font-weight: 600;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     cursor: pointer;
-    transition: all 0.18s ease;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
     text-align: center;
-    line-height: 1.25;
+    line-height: 1.22;
     font-family: inherit;
 }
 
 .tg-tool-btn:hover {
-    background: #252c3b;
-    border-color: rgba(244, 196, 48, 0.4);
+    background: #232b3b;
+    border-color: rgba(244, 196, 48, 0.42);
     color: #ffffff;
 }
 
@@ -229,10 +730,10 @@
 }
 
 .tg-tool-btn.is-active {
-    background: #232b38;
+    background: linear-gradient(180deg, #242c3d 0%, #1c2331 100%);
     border-color: #f4c430;
     color: #f4c430;
-    box-shadow: inset 0 0 0 1px #f4c430, 0 2px 8px rgba(244, 196, 48, 0.2);
+    box-shadow: inset 0 0 0 1px #f4c430, 0 3px 10px rgba(244, 196, 48, 0.18);
 }
 
 .tg-tool-btn svg {
@@ -242,10 +743,108 @@
     flex-shrink: 0;
 }
 
+.tg-tool-sub {
+    font-size: 9.8px;
+    font-weight: 700;
+    color: #f4c430;
+    line-height: 1.1;
+    min-height: 11px;
+    display: none;
+}
+
+.tg-tool-btn.is-active .tg-tool-sub {
+    display: block;
+}
+
+/* Multi-step Visual Level Dots (• • •) */
+.tg-step-dots {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 2px;
+}
+
+.tg-step-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+
+.tg-step-dots span.is-filled {
+    background: #f4c430;
+    transform: scale(1.18);
+    box-shadow: 0 0 6px rgba(244, 196, 48, 0.65);
+}
+
+/* ==========================================================================
+   2E. PANEL FOOTER & BUTTON POSITION SWITCHER
+   ========================================================================== */
 .tg-panel-footer {
-    padding: 14px 20px;
-    background: #161a22;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    padding: 11px 18px 13px;
+    background: #151923;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.tg-footer-pos-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.tg-pos-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+.tg-pos-switch {
+    display: inline-flex;
+    align-items: center;
+    background: #0e1118;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 3px;
+}
+
+.tg-pos-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: inherit;
+    min-height: 28px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.16s, color 0.16s;
+}
+
+.tg-pos-btn:hover {
+    color: #ffffff;
+}
+
+.tg-pos-btn:focus-visible {
+    outline: 2px solid #f4c430;
+    outline-offset: 1px;
+}
+
+.tg-pos-btn.is-active {
+    background: rgba(244, 196, 48, 0.2);
+    color: #f4c430;
+    box-shadow: inset 0 0 0 1px rgba(244, 196, 48, 0.45);
+}
+
+.tg-footer-actions-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -253,39 +852,112 @@
 }
 
 .tg-reset-btn {
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #c9d1d9;
-    padding: 8px 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #e2e8f0;
+    min-height: 34px;
+    padding: 6px 14px;
     border-radius: 8px;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.18s;
     font-family: inherit;
 }
 
-.tg-reset-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
+.tg-reset-btn:hover,
+.tg-reset-btn:focus-visible {
+    background: rgba(214, 40, 40, 0.18);
+    border-color: #f87171;
     color: #ffffff;
+    outline: 2px solid #f4c430;
+    outline-offset: 2px;
 }
 
 .tg-statement-link {
-    font-size: 11px;
+    font-size: 11.5px;
+    font-weight: 600;
     color: #f4c430;
     text-decoration: underline;
     cursor: pointer;
     background: none;
     border: none;
-    padding: 0;
+    min-height: 32px;
+    padding: 4px 6px;
+    border-radius: 6px;
     font-family: inherit;
 }
 
+.tg-statement-link:hover,
+.tg-statement-link:focus-visible {
+    color: #ffd754;
+    outline: 2px solid #f4c430;
+    outline-offset: 2px;
+}
+
 /* ==========================================================================
-   3. ACCESSIBILITY MODIFIER CLASSES ON <html>
+   3. ACCESSIBILITY MODIFIER CLASSES & VIEWPORT COLOR LAYER
    ========================================================================== */
 
-/* High Contrast: Black background, High Contrast Yellow / White text */
+/* Viewport Color/Saturation/Invert Backdrop Layer — Preserves position:fixed on all page elements! */
+#tg-color-filter-layer {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 999960;
+    display: none;
+}
+
+html.tg-invert-colors #tg-color-filter-layer {
+    display: block;
+    -webkit-backdrop-filter: invert(100%) hue-rotate(180deg);
+    backdrop-filter: invert(100%) hue-rotate(180deg);
+}
+
+html.tg-sat-low #tg-color-filter-layer {
+    display: block;
+    -webkit-backdrop-filter: saturate(38%);
+    backdrop-filter: saturate(38%);
+}
+
+html.tg-sat-high #tg-color-filter-layer {
+    display: block;
+    -webkit-backdrop-filter: saturate(185%);
+    backdrop-filter: saturate(185%);
+}
+
+html.tg-grayscale #tg-color-filter-layer,
+html.tg-sat-mono #tg-color-filter-layer {
+    display: block;
+    -webkit-backdrop-filter: grayscale(100%);
+    backdrop-filter: grayscale(100%);
+}
+
+html.tg-invert-colors.tg-sat-low #tg-color-filter-layer {
+    -webkit-backdrop-filter: invert(100%) hue-rotate(180deg) saturate(38%);
+    backdrop-filter: invert(100%) hue-rotate(180deg) saturate(38%);
+}
+
+html.tg-invert-colors.tg-sat-high #tg-color-filter-layer {
+    -webkit-backdrop-filter: invert(100%) hue-rotate(180deg) saturate(185%);
+    backdrop-filter: invert(100%) hue-rotate(180deg) saturate(185%);
+}
+
+html.tg-invert-colors.tg-sat-mono #tg-color-filter-layer,
+html.tg-invert-colors.tg-grayscale #tg-color-filter-layer {
+    -webkit-backdrop-filter: invert(100%) grayscale(100%);
+    backdrop-filter: invert(100%) grayscale(100%);
+}
+
+/* Keep food photography natural when Invert Colors is active */
+html.tg-invert-colors img:not(#tg-a11y-panel img),
+html.tg-invert-colors video {
+    filter: invert(100%) hue-rotate(180deg) !important;
+}
+
+/* High Contrast: Black background, High Contrast Yellow / Cyan text */
 html.tg-high-contrast {
     background: #000000 !important;
     color: #ffff00 !important;
@@ -293,108 +965,139 @@ html.tg-high-contrast {
 html.tg-high-contrast body,
 html.tg-high-contrast header,
 html.tg-high-contrast footer,
+html.tg-high-contrast main,
 html.tg-high-contrast section,
-html.tg-high-contrast div:not(#tg-a11y-panel):not(#tg-cookie-banner):not(#tg-cookie-modal):not(#tg-statement-modal) {
+html.tg-high-contrast article,
+html.tg-high-contrast div:not(#tg-a11y-panel):not(#tg-a11y-panel *):not(#tg-speech-bar):not(#tg-speech-bar *):not(#tg-reading-mask):not(#tg-reading-mask *):not(#tg-reading-guide-line):not(#tg-color-filter-layer):not(#tg-cookie-banner):not(#tg-cookie-banner *):not(#cookie-banner):not(#cookie-banner *):not(#tg-cookie-modal):not(#tg-cookie-modal *):not(#tg-statement-modal):not(#tg-statement-modal *) {
     background-color: #000000 !important;
+    background-image: none !important;
     color: #ffff00 !important;
     border-color: #ffff00 !important;
 }
-html.tg-high-contrast h1,
-html.tg-high-contrast h2,
-html.tg-high-contrast h3,
-html.tg-high-contrast h4,
-html.tg-high-contrast h5,
-html.tg-high-contrast h6,
-html.tg-high-contrast p,
-html.tg-high-contrast span:not(.tg-badge):not(#tg-a11y-badge),
-html.tg-high-contrast li {
+html.tg-high-contrast :is(h1, h2, h3, h4, h5, h6, p, li, label):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-cookie-banner *):not(#cookie-banner *):not(#tg-cookie-modal *):not(#tg-statement-modal *),
+html.tg-high-contrast span:not(.tg-badge):not(#tg-a11y-badge):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-cookie-banner *):not(#cookie-banner *):not(#tg-cookie-modal *):not(#tg-statement-modal *) {
     color: #ffff00 !important;
 }
-html.tg-high-contrast a:not(#tg-cookie-banner a):not(#tg-cookie-modal a),
-html.tg-high-contrast button:not(.tg-tool-btn):not(.tg-close-btn):not(.tg-reset-btn):not(.tg-lang-btn):not(.tg-btn-primary):not(.tg-btn-secondary):not(.tg-btn-dns):not(#tg-a11y-trigger) {
+html.tg-high-contrast a:not(#tg-a11y-panel *):not(#tg-cookie-banner a):not(#cookie-banner a):not(#tg-cookie-modal a):not(#tg-statement-modal a),
+html.tg-high-contrast button:not(#tg-a11y-trigger):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-cookie-banner *):not(#cookie-banner *):not(#tg-cookie-modal *):not(#tg-statement-modal *) {
     color: #00ffff !important;
+    border-color: #00ffff !important;
     text-decoration: underline 2px !important;
 }
 
-/* Invert Colors */
-html.tg-invert-colors {
-    filter: invert(100%) hue-rotate(180deg) !important;
+/* Font Sizing (3 Multi-Levels: +15%, +30%, +45% + legacy aliases) */
+html.tg-font-large,
+html.tg-font-step-1 {
+    font-size: 115% !important;
 }
-html.tg-invert-colors img,
-html.tg-invert-colors video,
-html.tg-invert-colors iframe,
-html.tg-invert-colors #tg-a11y-trigger,
-html.tg-invert-colors #tg-a11y-panel,
-html.tg-invert-colors #tg-cookie-banner,
-html.tg-invert-colors #tg-cookie-modal,
-html.tg-invert-colors #tg-statement-modal {
-    filter: invert(100%) hue-rotate(180deg) !important;
+html.tg-font-xlarge,
+html.tg-font-step-2 {
+    font-size: 130% !important;
+}
+html.tg-font-step-3 {
+    font-size: 145% !important;
 }
 
-/* Monochromatic / Grayscale */
-html.tg-grayscale {
-    filter: grayscale(100%) !important;
+/* Text Spacing (3 Multi-Levels + legacy .tg-text-spacing) */
+html.tg-text-spacing :is(p, a, li, h1, h2, h3, h4, span):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-a11y-badge),
+html.tg-spacing-1 :is(p, a, li, h1, h2, h3, h4, span):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-a11y-badge) {
+    letter-spacing: 0.08em !important;
+    word-spacing: 0.14em !important;
+}
+html.tg-spacing-2 :is(p, a, li, h1, h2, h3, h4, span):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-a11y-badge) {
+    letter-spacing: 0.14em !important;
+    word-spacing: 0.22em !important;
+}
+html.tg-spacing-3 :is(p, a, li, h1, h2, h3, h4, span):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-a11y-badge) {
+    letter-spacing: 0.2em !important;
+    word-spacing: 0.3em !important;
 }
 
-/* Font Sizing */
-html.tg-font-large body {
-    font-size: 118% !important;
+/* Line Height (3 Multi-Levels) */
+html.tg-lh-1 :is(p, li, dd, blockquote, .menu-item-desc):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    line-height: 1.75 !important;
 }
-html.tg-font-xlarge body {
-    font-size: 135% !important;
+html.tg-lh-2 :is(p, li, dd, blockquote, .menu-item-desc):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    line-height: 2.0 !important;
+}
+html.tg-lh-3 :is(p, li, dd, blockquote, .menu-item-desc):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    line-height: 2.25 !important;
 }
 
-/* Text & Line Spacing */
-html.tg-text-spacing body,
-html.tg-text-spacing p,
-html.tg-text-spacing a,
-html.tg-text-spacing li,
-html.tg-text-spacing h1,
-html.tg-text-spacing h2,
-html.tg-text-spacing h3 {
-    letter-spacing: 0.12em !important;
-    word-spacing: 0.16em !important;
-    line-height: 1.85 !important;
+/* Text Alignment (Left / Center / Justify) */
+html.tg-align-left :is(p, li, h1, h2, h3, h4, .section-header, .menu-item-desc):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    text-align: left !important;
+}
+html.tg-align-center :is(p, li, h1, h2, h3, h4, .section-header, .menu-item-desc):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    text-align: center !important;
+}
+html.tg-align-justify :is(p, li, .menu-item-desc):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    text-align: justify !important;
 }
 
 /* Dyslexia-Friendly Font */
-html.tg-dyslexic-font,
-html.tg-dyslexic-font body,
-html.tg-dyslexic-font p,
-html.tg-dyslexic-font h1,
-html.tg-dyslexic-font h2,
-html.tg-dyslexic-font h3,
-html.tg-dyslexic-font a,
-html.tg-dyslexic-font span {
-    font-family: 'OpenDyslexic', 'Comic Sans MS', -apple-system, sans-serif !important;
+html.tg-dyslexic-font body :is(p, h1, h2, h3, h4, h5, h6, a, li, span, button, input, textarea, select):not(#tg-a11y-panel *):not(#tg-speech-bar *) {
+    font-family: 'OpenDyslexic', 'Lexend', 'Trebuchet MS', 'Comic Sans MS', sans-serif !important;
+}
+
+/* Highlight Headings */
+html.tg-highlight-headings :is(h1, h2, h3, h4, h5, h6):not(#tg-a11y-panel *):not(#tg-cookie-modal *):not(#tg-statement-modal *) {
+    background: rgba(244, 196, 48, 0.18) !important;
+    border-left: 4px solid #f4c430 !important;
+    outline: 1px solid rgba(244, 196, 48, 0.55) !important;
+    padding: 4px 10px !important;
+    border-radius: 6px !important;
+}
+
+/* Hide Images */
+html.tg-hide-images img:not(#tg-a11y-panel img) {
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+html.tg-hide-images :is(.hero, .catering-hero-banner, .menu-item-img) {
+    background-image: none !important;
 }
 
 /* Highlight All Links */
-html.tg-highlight-links a:not(.tg-tool-btn):not(.tg-statement-link):not(#tg-cookie-banner a):not(#tg-cookie-modal a),
-html.tg-highlight-links button:not(.tg-tool-btn):not(#tg-a11y-trigger):not(.tg-close-btn):not(.tg-reset-btn):not(.tg-lang-btn):not(.tg-btn-primary):not(.tg-btn-secondary):not(.tg-btn-dns):not(#tg-save-prefs-btn) {
+html.tg-highlight-links a:not(#tg-a11y-panel *):not(#tg-cookie-banner a):not(#cookie-banner a):not(#tg-cookie-modal a):not(#tg-statement-modal a),
+html.tg-highlight-links button:not(#tg-a11y-trigger):not(#tg-a11y-panel *):not(#tg-speech-bar *):not(#tg-cookie-banner *):not(#cookie-banner *):not(#tg-cookie-modal *):not(#tg-statement-modal *) {
     background-color: #ffff00 !important;
     color: #000000 !important;
     text-decoration: underline 3px !important;
     font-weight: 800 !important;
     outline: 2px solid #000000 !important;
-    padding: 2px 4px !important;
-    border-radius: 3px !important;
+    border-radius: 4px !important;
+}
+
+/* Enhanced Keyboard Focus Ring (Motor / Keyboard Profile & WCAG 2.4.11) */
+html.tg-focus-enhanced *:focus,
+html.tg-focus-enhanced *:focus-visible {
+    outline: 4px solid #f4c430 !important;
+    outline-offset: 4px !important;
+    box-shadow: 0 0 0 7px rgba(0, 0, 0, 0.85), 0 0 18px rgba(244, 196, 48, 0.85) !important;
 }
 
 /* Big Cursor */
 html.tg-big-cursor,
 html.tg-big-cursor * {
-    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' stroke='%23fff' stroke-width='1.5' d='M5 2l12 11.5-5.5 1 3.5 7-3 1.5-3.5-7L5 19V2z'/%3E%3C/svg%3E"), auto !important;
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' stroke='%23f4c430' stroke-width='1.8' d='M5 2l12 11.5-5.5 1 3.5 7-3 1.5-3.5-7L5 19V2z'/%3E%3C/svg%3E") 4 2, auto !important;
 }
 
-/* Stop Animations */
+/* Stop Animations (Pauses CSS animations, transitions & marquee tracks) */
 html.tg-stop-animations *,
 html.tg-stop-animations *::before,
 html.tg-stop-animations *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
+    animation-play-state: paused !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+}
+
+html.tg-stop-animations #tg-a11y-panel,
+html.tg-stop-animations #tg-speech-bar {
+    animation: none !important;
+    opacity: 1 !important;
 }
 
 /* Reading Guide Line */
@@ -403,11 +1106,12 @@ html.tg-stop-animations *::after {
     left: 0;
     width: 100vw;
     height: 18px;
-    background: rgba(244, 196, 48, 0.45);
+    background: rgba(244, 196, 48, 0.36);
     pointer-events: none;
-    z-index: 9999999;
+    z-index: 999976;
     border-top: 2px solid #f4c430;
     border-bottom: 2px solid #f4c430;
+    box-shadow: 0 0 16px rgba(244, 196, 48, 0.35);
     display: none;
     transform: translateY(-50%);
 }
@@ -416,68 +1120,197 @@ html.tg-stop-animations *::after {
     display: block;
 }
 
-/* Screen Reader Speech Synthesis Active Highlight */
-.tg-speech-active {
-    outline: 3px solid #f4c430 !important;
-    outline-offset: 3px !important;
-    background-color: rgba(244, 196, 48, 0.15) !important;
-    border-radius: 4px !important;
-    transition: outline 0.15s ease, background-color 0.15s ease !important;
+/* Reading Mask (ADHD Horizontal Focus Band) */
+#tg-reading-mask {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 999975;
+    display: none;
 }
 
-/* Floating Audio Announcement Bar when Screen Reader Mode is Active */
+#tg-reading-mask.is-active {
+    display: block;
+}
+
+.tg-mask-curtain {
+    position: fixed;
+    left: 0;
+    width: 100vw;
+    background: rgba(6, 8, 13, 0.74);
+    pointer-events: none;
+}
+
+#tg-reading-mask-top {
+    top: 0;
+    height: 32vh;
+    border-bottom: 2px solid #f4c430;
+    box-shadow: 0 2px 14px rgba(244, 196, 48, 0.3);
+}
+
+#tg-reading-mask-bottom {
+    top: calc(32vh + 132px);
+    bottom: 0;
+    border-top: 2px solid #f4c430;
+    box-shadow: 0 -2px 14px rgba(244, 196, 48, 0.3);
+}
+
+/* Kore Neural Voice Active Element Highlight on Host Page */
+.tg-speech-active {
+    outline: 3px solid #f4c430 !important;
+    outline-offset: 4px !important;
+    background-color: rgba(244, 196, 48, 0.16) !important;
+    box-shadow: 0 0 0 6px rgba(244, 196, 48, 0.12), 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+    border-radius: 6px !important;
+    transition: outline 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease !important;
+}
+
+/* ==========================================================================
+   3B. FLOATING MINI KORE PLAYER BAR (WHEN PANEL IS CLOSED DURING READING)
+   ========================================================================== */
 #tg-speech-bar {
     position: fixed;
     bottom: 24px;
-    right: 80px;
-    background: #12141a;
-    border: 2px solid #f4c430;
-    border-radius: 9999px;
-    padding: 8px 18px;
+    right: 84px;
+    left: auto;
+    max-width: min(520px, calc(100vw - 110px));
+    background: rgba(17, 20, 28, 0.97);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid #f4c430;
+    border-radius: 16px;
+    padding: 8px 12px;
     display: none;
     align-items: center;
-    gap: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 15px rgba(244, 196, 48, 0.3);
+    gap: 10px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.8), 0 0 18px rgba(244, 196, 48, 0.25);
     z-index: 999985;
     color: #ffffff;
-    font-size: 13px;
-    font-weight: 700;
-    font-family: inherit;
-    animation: tgSlideRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    animation: tgBarSlideRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    box-sizing: border-box;
+}
+
+html.tg-a11y-pos-left #tg-speech-bar {
+    right: auto;
+    left: 84px;
+    animation-name: tgBarSlideLeft;
+}
+
+@keyframes tgBarSlideRight {
+    from {
+        opacity: 0;
+        transform: translateY(0) translateX(16px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) translateX(0) scale(1);
+    }
+}
+
+@keyframes tgBarSlideLeft {
+    from {
+        opacity: 0;
+        transform: translateY(0) translateX(-16px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) translateX(0) scale(1);
+    }
 }
 
 #tg-speech-bar.is-visible {
     display: flex;
 }
 
-#tg-speech-bar button {
-    background: transparent;
-    border: none;
-    color: #f4c430;
-    cursor: pointer;
+.tg-mini-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 1px;
+}
+
+.tg-mini-meta {
     display: flex;
     align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #f4c430;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+#tg-speech-bar-text {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #e2e8f0;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.tg-mini-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+#tg-speech-bar .tg-mini-btn {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #f4c430;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    padding: 2px;
-    border-radius: 4px;
-    transition: transform 0.15s;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border-radius: 8px;
+    font-size: 10.5px;
+    font-weight: 800;
+    font-family: inherit;
+    transition: background 0.15s, border-color 0.15s, transform 0.14s;
 }
 
-#tg-speech-bar button:hover {
-    transform: scale(1.15);
+#tg-speech-bar .tg-mini-btn:hover:not(:disabled) {
+    background: rgba(244, 196, 48, 0.2);
+    border-color: #f4c430;
+    transform: scale(1.05);
 }
 
-@media (max-width: 768px) {
-    #tg-speech-bar {
-        bottom: 80px;
-        right: 14px;
-        left: 14px;
-        justify-content: space-between;
-    }
+#tg-speech-bar .tg-mini-btn:focus-visible {
+    outline: 2px solid #f4c430;
+    outline-offset: 2px;
+}
+
+#tg-speech-bar .tg-mini-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#tg-speech-bar .tg-mini-btn.tg-mini-primary {
+    background: #f4c430;
+    border-color: #f4c430;
+    color: #11141c;
+}
+
+#tg-speech-bar .tg-mini-btn svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
 }
 
 /* ==========================================================================
-   4. CALIFORNIA CCPA/CPRA COOKIE CONSENT BANNER
+   4. CALIFORNIA CCPA/CPRA COOKIE CONSENT BANNER (PRESERVED 100%)
    ========================================================================== */
 #tg-cookie-banner {
     position: fixed;
@@ -607,7 +1440,7 @@ html.tg-stop-animations *::after {
 }
 
 /* ==========================================================================
-   5. CCPA PREFERENCE CENTER MODAL & STATEMENT MODAL
+   5. CCPA PREFERENCE CENTER MODAL & STATEMENT MODAL (PRESERVED 100%)
    ========================================================================== */
 #tg-cookie-modal,
 #tg-statement-modal,
@@ -640,6 +1473,8 @@ html.tg-stop-animations *::after {
     max-width: 100%;
     max-height: 90vh;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(244, 196, 48, 0.48) rgba(255, 255, 255, 0.04);
     color: #ffffff;
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
     display: flex;
@@ -805,19 +1640,46 @@ html.tg-stop-animations *::after {
 @media (max-width: 768px) {
     #tg-a11y-trigger {
         top: 50%;
-        right: 12px;
+        right: 10px;
+        left: auto;
         transform: translateY(-50%);
         width: 48px;
         height: 48px;
+        min-width: 48px;
+        min-height: 48px;
     }
 
-    #tg-a11y-panel {
+    html.tg-a11y-pos-left #tg-a11y-trigger {
+        right: auto;
+        left: 10px;
+    }
+
+    #tg-a11y-panel,
+    html.tg-a11y-pos-left #tg-a11y-panel {
         top: 50%;
-        left: 12px;
-        right: 12px;
+        left: 10px;
+        right: 10px;
         width: auto;
+        max-width: none;
         transform: translateY(-50%);
-        max-height: 85vh;
+        max-height: 86vh;
+    }
+
+    .tg-kbd-hint {
+        display: none;
+    }
+
+    #tg-speech-bar,
+    html.tg-a11y-pos-left #tg-speech-bar {
+        bottom: 78px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+        justify-content: space-between;
+    }
+
+    #tg-speech-bar-text {
+        max-width: 155px;
     }
 
     #tg-cookie-banner {
@@ -870,5 +1732,44 @@ html.tg-stop-animations *::after {
         grid-column: 1 / -1;
         order: 4;
         font-size: 12.5px;
+    }
+}
+
+@media (max-width: 440px) {
+    #tg-speech-bar,
+    html.tg-a11y-pos-left #tg-speech-bar {
+        flex-wrap: wrap;
+        row-gap: 7px;
+        padding: 9px 11px;
+    }
+    .tg-mini-info {
+        flex: 1 1 calc(100% - 92px);
+        min-width: 140px;
+    }
+    .tg-mini-meta {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #tg-speech-bar-text {
+        max-width: 100%;
+    }
+    .tg-mini-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 390px) {
+    .tg-profiles-grid {
+        grid-template-columns: 1fr;
+    }
+    .tg-kore-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .tg-kore-transport,
+    .tg-kore-speeds {
+        justify-content: center;
     }
 }
