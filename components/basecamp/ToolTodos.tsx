@@ -23,6 +23,11 @@
  *     items con dividers sutiles, checkboxes con accent verde, metadata en gris #6B7B8D.
  *   - Norwalk accident todo image duplication fix: Added regex checking for blob UUIDs (`/blobs/[a-f0-9-]+`) in `parseAttachments`
  *     to properly match inner `<img>` tags to their parent `<bc-attachment>` tags.
+ *   - Audit fixes (2026): Fixed `rewriteHtmlUrls` closing-quote regex for attributes containing `/`,
+ *     stripped TEG author banners via `stripTegAuthorBanner`, fixed `parseAttachments` attribute word boundary,
+ *     restored Rich-Text Notes + Supabase Storage upload (`checklist-photos/basecamp-uploads/`) in Add To-do form,
+ *     fixed live hydration top-level fields + AbortController race guard + local comment preservation,
+ *     ordered completed tasks by `completed_at` DESC with per-list lazy fetch, and normalized accents/timezones.
  */
 
 'use client'
@@ -31,6 +36,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { ClipboardList, Plus, Trash2, Calendar, Clock, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2, Check } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
+import { stripTegAuthorBanner, normalizePersonName } from '@/lib/basecamp-person-resolver'
+import { rewriteBasecampHtmlUrls, safeDecodeFilename, sanitizeBasecampHtml } from '@/lib/basecamp-html'
+import { compressImage } from '@/lib/image-compression'
+
+export { sanitizeBasecampHtml }
+
+const SYNTHETIC_BC_ID_THRESHOLD = 100_000_000_000
 
 interface ToolTodosProps {
     project: any
@@ -45,22 +57,48 @@ const getBlobUuid = (url: string) => {
     return match ? match[1] : null
 }
 
+const normalizeSearch = (raw?: string | null): string =>
+    (raw || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+
+const plainTextToHtml = (raw: string): string => {
+    const trimmed = raw.trim()
+    if (!trimmed) return ''
+    return trimmed
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\r?\n/g, '<br>')
+}
+
+const escapeHtmlAttr = (raw: string): string =>
+    raw
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+
 const parseAttachments = (html: string) => {
     const attachments: any[] = []
     if (!html) return attachments
 
-    const bcAttachmentRegex = /<bc-attachment\s+([^>]+)>([\s\S]*?)<\/bc-attachment>/gi
+    const bcAttachmentRegex = /<bc-attachment\s+([^>]*?)(?:\/>|>([\s\S]*?)<\/bc-attachment>)/gi
     let match
     while ((match = bcAttachmentRegex.exec(html)) !== null) {
         const attrsStr = match[1]
         
         const getAttr = (name: string) => {
-            const m = attrsStr.match(new RegExp(`${name}=["']([^"']+)["']`, 'i'))
+            const m = attrsStr.match(new RegExp(`(?:^|\\s)${name}=["']([^"']+)["']`, 'i'))
             return m ? m[1] : null
         }
         
         const contentType = getAttr('content-type') || ''
-        const filename = getAttr('filename') || 'attachment'
+        const filename = getAttr('filename') || ''
         const href = getAttr('href') || ''
         const url = getAttr('url') || href || ''
         
@@ -114,99 +152,46 @@ const parseAttachments = (html: string) => {
 
 const rewriteHtmlUrls = (html: string) => {
     if (!html) return ''
-    
-    // Step 1: Remove srcset attributes entirely — browsers prefer srcset over src,
-    // which bypasses our URL rewriting. By stripping srcset, the browser falls back to src.
-    let rewritten = html.replace(/\s+srcset="[^"]*"/gi, '')
-    rewritten = rewritten.replace(/\s+srcset='[^']*'/gi, '')
-    
-    // Step 2: Rewrite Basecamp image src URLs to our proxy
-    rewritten = rewritten.replace(
-        /(<img[^>]+src=["'])(https:\/\/(?:preview\.app\.basecamp\.com|storage\.app\.basecamp\.com|3\.basecampapi\.com)[^"']+)((?:["'])[^\/>]*\/?>)/gi,
-        (match, p1, p2, p3) => {
-            return `${p1}/api/basecamp/attachment?url=${encodeURIComponent(p2)}${p3}`
-        }
-    )
-    
-    // Step 3: Rewrite Basecamp link href URLs to our proxy
-    rewritten = rewritten.replace(
-        /(<a[^>]+href=["'])(https:\/\/(?:preview\.app\.basecamp\.com|storage\.app\.basecamp\.com|3\.basecampapi\.com)[^"']+)((?:["'])[^\/>]*\/?>)/gi,
-        (match, p1, p2, p3) => {
-            return `${p1}/api/basecamp/attachment?url=${encodeURIComponent(p2)}${p3}`
-        }
-    )
-    
-    return sanitizeBasecampHtml(rewritten)
+    const withoutDataAuthor = html.replace(/<p\b[^>]*\bdata-teg-author=["'][^"']*["'][^>]*>[\s\S]*?<\/p>/gi, '')
+    return rewriteBasecampHtmlUrls(withoutDataAuthor)
 }
 
-export const sanitizeBasecampHtml = (html: string): string => {
-    if (!html || typeof html !== 'string') return ''
-    let clean = html.replace(/<!--[\s\S]*?-->/g, '')
-
-    let prev = ''
-    while (clean !== prev) {
-        prev = clean
-        clean = clean
-            .replace(/<\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-            .replace(/<\s*\/?\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template|input|button|textarea|select)\b[^>]*\/?>/gi, '')
-            .replace(/(<[^>]*?)(?:[\s/]+)(on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*))/gi, '$1')
-            .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*)/gi, '')
+const prepareRichContent = (rawHtml?: string | null) => {
+    if (!rawHtml) return { sanitizedHtml: '', nonImageAttachments: [] as any[], whenDoneNames: '' }
+    let whenDoneNames = ''
+    const whenDoneMatch = rawHtml.match(/<span\b[^>]*\bdata-teg-when-done=["']([^"']*)["'][^>]*>[\s\S]*?<\/span>/i)
+    if (whenDoneMatch?.[1]) {
+        whenDoneNames = whenDoneMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim()
     }
-
-    clean = clean.replace(
-        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)(["'])([\s\S]*?)\2/gi,
-        (full, attrPrefix, quote, rawVal) => {
-            const decoded = String(rawVal)
-                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-                .replace(/[\u0000-\u0020]+/g, '')
-                .toLowerCase()
-
-            if (
-                decoded.startsWith('javascript:') ||
-                decoded.startsWith('vbscript:') ||
-                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
-            ) {
-                const safeFallback = /href/i.test(attrPrefix) ? '#' : ''
-                return `${attrPrefix}${quote}${safeFallback}${quote}`
-            }
-            return full
-        }
-    )
-
-    clean = clean.replace(
-        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)([^\s>"']+)/gi,
-        (full, attrPrefix, rawVal) => {
-            const decoded = String(rawVal)
-                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-                .replace(/[\u0000-\u0020]+/g, '')
-                .toLowerCase()
-
-            if (
-                decoded.startsWith('javascript:') ||
-                decoded.startsWith('vbscript:') ||
-                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
-            ) {
-                const safeFallback = /href/i.test(attrPrefix) ? '"#"' : '""'
-                return `${attrPrefix}${safeFallback}`
-            }
-            return full
-        }
-    )
-
-    return clean
+    const cleaned = stripTegAuthorBanner(rawHtml).cleanHtml
+        .replace(/<p\b[^>]*\bdata-teg-author=["'][^"']*["'][^>]*>[\s\S]*?<\/p>/gi, '')
+        .replace(/<span\b[^>]*\bdata-teg-when-done=["'][^"']*["'][^>]*>[\s\S]*?<\/span>/gi, '')
+    const allAttachments = parseAttachments(cleaned)
+    const nonImageAttachments = allAttachments.filter(a => {
+        const ct = (a.contentType || '').toLowerCase()
+        const fn = (a.filename || '').toLowerCase()
+        return !ct.startsWith('image/') && !fn.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
+    })
+    const strippedBcHtml = cleaned
+        .replace(/<bc-attachment\b[^>]*>([\s\S]*?)<\/bc-attachment>/gi, (_match, inner) => {
+            if (/<img\b[^>]+>/i.test(inner)) return inner
+            return ''
+        })
+        .replace(/<bc-attachment\b[^>]*\/>/gi, '')
+        .trim()
+    const sanitizedHtml = rewriteHtmlUrls(strippedBcHtml)
+    return { sanitizedHtml, nonImageAttachments, whenDoneNames }
 }
 
 const sanitizeAttachmentHref = (rawUrl?: string): string => {
     if (!rawUrl || typeof rawUrl !== 'string') return '#'
-    const trimmed = rawUrl.trim()
+    const trimmed = rawUrl.trim().replace(/&amp;/g, '&')
     if (trimmed.startsWith('/api/basecamp/attachment?')) return trimmed
     try {
         const parsed = new URL(trimmed)
         if (parsed.protocol !== 'https:') return '#'
         const host = parsed.hostname.toLowerCase()
-        if (host.endsWith('.supabase.co')) return parsed.toString()
+        if (host.endsWith('.supabase.co') || host.endsWith('.amazonaws.com')) return parsed.toString()
         if (
             host === '3.basecampapi.com' ||
             host === 'preview.app.basecamp.com' ||
@@ -266,9 +251,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [highlightedNotifyIdx, setHighlightedNotifyIdx] = useState(0)
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
     const [newTaskNotes, setNewTaskNotes] = useState('')
+    const [notesIsEmpty, setNotesIsEmpty] = useState(true)
+    const [isDraggingOverNotes, setIsDraggingOverNotes] = useState(false)
+    const [showSubtasksInput, setShowSubtasksInput] = useState(false)
+    const [newTaskSubtasks, setNewTaskSubtasks] = useState<string[]>([''])
     // Inline Link bar states
     const [showLinkBar, setShowLinkBar] = useState(false)
     const [linkUrl, setLinkUrl] = useState('')
+    const [linkText, setLinkText] = useState('')
     const savedSelectionRef = React.useRef<Range | null>(null)
     // Inline Table controls states
     const [showTableControls, setShowTableControls] = useState(false)
@@ -285,10 +275,31 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [taskComments, setTaskComments] = useState<any[]>([])
     const [commentsLoading, setCommentsLoading] = useState(false)
     const [newComment, setNewComment] = useState('')
+    const [commentAttachments, setCommentAttachments] = useState<Array<{ url: string; filename: string; contentType: string; size: number }>>([])
+    const [uploadingCommentAttachment, setUploadingCommentAttachment] = useState(false)
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
     const [todoFilterQuery, setTodoFilterQuery] = useState('')
+    const [uploadingAttachment, setUploadingAttachment] = useState(false)
+    const [uploadError, setUploadError] = useState<string | null>(null)
+    const [mutationError, setMutationError] = useState<string | null>(null)
+    const [loadingCompletedByList, setLoadingCompletedByList] = useState<Record<string, boolean>>({})
 
-    // ── Rich text editor helpers (contentEditable + execCommand) ──
+    // Refs for race-condition guards and click-outside menus
+    const assigneeBoxRef = useRef<HTMLDivElement>(null)
+    const notifyBoxRef = useRef<HTMLDivElement>(null)
+    const textSizeMenuRef = useRef<HTMLDivElement>(null)
+    const colorMenuRef = useRef<HTMLDivElement>(null)
+    const commentImageInputRef = useRef<HTMLInputElement>(null)
+    const commentFileInputRef = useRef<HTMLInputElement>(null)
+    const activeSelectedTaskIdRef = useRef<string | null>(null)
+    const selectedTaskRef = useRef<any | null>(null)
+    const commentFetchAbortRef = useRef<AbortController | null>(null)
+    const peopleLookupRef = useRef<Map<string, string>>(new Map())
+
+    selectedTaskRef.current = selectedTask
+    activeSelectedTaskIdRef.current = selectedTask?.id || null
+
+    // ── Rich text editor helpers (contentEditable + Selection-safe execCommand) ──
     const notesEditorRef = React.useRef<HTMLDivElement>(null)
     const fileInputRef = React.useRef<HTMLInputElement>(null)
     const attachmentInputRef = React.useRef<HTMLInputElement>(null)
@@ -297,17 +308,46 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const editorHistoryIdxRef = React.useRef<number>(0)
     const editorIsUndoingRef = React.useRef<boolean>(false)
 
+    const syncNotesEmptyState = useCallback(() => {
+        const editor = notesEditorRef.current
+        if (!editor) {
+            setNotesIsEmpty(true)
+            return
+        }
+        const hasStructuredContent = Boolean(editor.querySelector('img, bc-attachment, table, pre, blockquote, ul, ol, hr'))
+        const plain = (editor.textContent || '').replace(/\u00a0/g, ' ').trim()
+        const empty = !hasStructuredContent && plain.length === 0
+        setNotesIsEmpty(prev => (prev === empty ? prev : empty))
+    }, [])
+
+    const saveEditorSelection = useCallback(() => {
+        const editor = notesEditorRef.current
+        if (!editor) return
+        const sel = window.getSelection()
+        if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+            savedSelectionRef.current = sel.getRangeAt(0).cloneRange()
+        }
+    }, [])
+
+    const restoreEditorSelection = useCallback(() => {
+        const editor = notesEditorRef.current
+        if (!editor) return
+        editor.focus()
+        if (savedSelectionRef.current && editor.contains(savedSelectionRef.current.startContainer)) {
+            const sel = window.getSelection()
+            sel?.removeAllRanges()
+            sel?.addRange(savedSelectionRef.current)
+        }
+    }, [])
+
     const editorSaveSnapshot = () => {
-        if (editorIsUndoingRef.current) return // Don't record while restoring
+        if (editorIsUndoingRef.current) return
         const html = notesEditorRef.current?.innerHTML || ''
         const history = editorHistoryRef.current
         const idx = editorHistoryIdxRef.current
-        // Only push if content actually changed
         if (history[idx] === html) return
-        // Truncate any redo history beyond current index
         editorHistoryRef.current = history.slice(0, idx + 1)
         editorHistoryRef.current.push(html)
-        // Keep max 100 snapshots
         if (editorHistoryRef.current.length > 100) editorHistoryRef.current.shift()
         editorHistoryIdxRef.current = editorHistoryRef.current.length - 1
     }
@@ -321,6 +361,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         const editor = notesEditorRef.current
         if (editor) editor.innerHTML = history[idx - 1]
         editorIsUndoingRef.current = false
+        syncNotesEmptyState()
         focusEditor()
     }
 
@@ -333,58 +374,102 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         const editor = notesEditorRef.current
         if (editor) editor.innerHTML = history[idx + 1]
         editorIsUndoingRef.current = false
+        syncNotesEmptyState()
         focusEditor()
     }
 
-    // Focus the contentEditable editor before executing any command
     const focusEditor = () => {
         const editor = notesEditorRef.current
         if (editor) editor.focus()
     }
 
-    // Execute a formatting command on the contentEditable div
     const execCmd = (command: string, value?: string) => {
-        focusEditor()
+        restoreEditorSelection()
         document.execCommand(command, false, value || '')
+        saveEditorSelection()
+        syncNotesEmptyState()
+        editorSaveSnapshot()
     }
 
-    // ── Link: inline bar (no browser prompt) ──
+    const insertHtmlIntoNotesEditor = (htmlSnippet: string) => {
+        const editor = notesEditorRef.current
+        if (!editor) return
+        restoreEditorSelection()
+        const sel = window.getSelection()
+        if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+            const ok = document.execCommand('insertHTML', false, htmlSnippet)
+            if (!ok) {
+                editor.insertAdjacentHTML('beforeend', htmlSnippet)
+            }
+        } else {
+            editor.insertAdjacentHTML('beforeend', htmlSnippet)
+            const range = document.createRange()
+            range.selectNodeContents(editor)
+            range.collapse(false)
+            sel?.removeAllRanges()
+            sel?.addRange(range)
+        }
+        saveEditorSelection()
+        syncNotesEmptyState()
+        editorSaveSnapshot()
+    }
+
+    // ── Link: inline bar (works with highlighted text OR empty/collapsed cursor!) ──
+    const normalizeLinkHref = (raw: string): string | null => {
+        const trimmed = raw.trim()
+        if (!trimmed) return null
+        const lower = trimmed.toLowerCase()
+        if (lower.startsWith('javascript:') || lower.startsWith('vbscript:') || lower.startsWith('data:')) {
+            return null
+        }
+        if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+            return trimmed
+        }
+        return `https://${trimmed}`
+    }
+
     const editorToggleLinkBar = () => {
         if (showLinkBar) {
             setShowLinkBar(false)
             setLinkUrl('')
+            setLinkText('')
             return
         }
-        // Save the current selection so we can restore it when applying the link
-        const sel = window.getSelection()
-        if (sel && sel.rangeCount > 0) {
-            savedSelectionRef.current = sel.getRangeAt(0).cloneRange()
+        saveEditorSelection()
+        let selectedStr = ''
+        if (savedSelectionRef.current && !savedSelectionRef.current.collapsed) {
+            selectedStr = savedSelectionRef.current.toString().trim()
         }
-        setShowLinkBar(true)
+        setLinkText(selectedStr)
         setLinkUrl('')
+        setShowTextSizeMenu(false)
+        setShowColorMenu(false)
+        setShowLinkBar(true)
     }
 
     const editorApplyLink = () => {
-        if (!linkUrl.trim()) return
-        // Restore the saved selection
-        const editor = notesEditorRef.current
-        if (editor && savedSelectionRef.current) {
-            editor.focus()
-            const sel = window.getSelection()
-            sel?.removeAllRanges()
-            sel?.addRange(savedSelectionRef.current)
-        }
-        document.execCommand('createLink', false, linkUrl.trim())
+        const normalizedHref = normalizeLinkHref(linkUrl)
+        if (!normalizedHref) return
+        const displayLabel = (linkText.trim() || normalizedHref).trim()
+        const safeHref = escapeHtmlAttr(normalizedHref)
+        const safeLabel = plainTextToHtml(displayLabel)
+        const anchorHtml = `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="color: #1D7DB5; text-decoration: underline;">${safeLabel}</a>&nbsp;`
+
+        insertHtmlIntoNotesEditor(anchorHtml)
         setShowLinkBar(false)
         setLinkUrl('')
+        setLinkText('')
         savedSelectionRef.current = null
     }
 
     const editorUnlink = () => {
-        focusEditor()
+        restoreEditorSelection()
         document.execCommand('unlink')
+        syncNotesEmptyState()
+        editorSaveSnapshot()
         setShowLinkBar(false)
         setLinkUrl('')
+        setLinkText('')
     }
 
     // ── Table: inline controls (no browser prompt) ──
@@ -398,22 +483,20 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             }
             html += '</tr>'
         }
-        html += '</table><br>'
+        html += '</table><p><br></p>'
         return html
     }
 
     const editorInsertTable = () => {
         if (showTableControls) {
-            // Toggle off
             setShowTableControls(false)
             return
         }
-        focusEditor()
         const rows = 3
         const cols = 3
         setTableRows(rows)
         setTableCols(cols)
-        document.execCommand('insertHTML', false, buildTableHtml(rows, cols))
+        insertHtmlIntoNotesEditor(buildTableHtml(rows, cols))
         setShowTableControls(true)
     }
 
@@ -422,10 +505,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         if (!editor) return
         const table = editor.querySelector('table[data-editor-table]')
         if (table) {
-            table.outerHTML = buildTableHtml(newRows, newCols).replace('<br>', '')
+            table.outerHTML = buildTableHtml(newRows, newCols).replace('<p><br></p>', '')
         }
         setTableRows(newRows)
         setTableCols(newCols)
+        syncNotesEmptyState()
+        editorSaveSnapshot()
     }
 
     const editorRemoveTable = () => {
@@ -436,63 +521,260 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         setShowTableControls(false)
         setTableRows(3)
         setTableCols(3)
+        syncNotesEmptyState()
+        editorSaveSnapshot()
     }
 
     const editorInsertCode = () => {
-        focusEditor()
+        restoreEditorSelection()
         const sel = window.getSelection()
-        const selectedText = sel?.toString() || 'code'
-        document.execCommand('insertHTML', false, `<pre style="background: #f4f4f4; padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; overflow-x: auto;"><code>${selectedText}</code></pre><br>`)
+        const selectedText = sel && notesEditorRef.current?.contains(sel.anchorNode) ? sel.toString() : ''
+        const safeCode = plainTextToHtml(selectedText || 'code')
+        insertHtmlIntoNotesEditor(`<pre style="background: #F4F4F5; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 13px; overflow-x: auto; border: 1px solid #E4E4E7;"><code>${safeCode}</code></pre><p><br></p>`)
     }
 
     const editorInsertQuote = () => {
-        focusEditor()
+        restoreEditorSelection()
         const sel = window.getSelection()
-        const selectedText = sel?.toString() || ''
-        document.execCommand('insertHTML', false, `<blockquote style="border-left: 3px solid #ccc; padding-left: 12px; margin: 8px 0; color: #666; font-style: italic;">${selectedText || 'Quote'}</blockquote><br>`)
+        const selectedText = sel && notesEditorRef.current?.contains(sel.anchorNode) ? sel.toString() : ''
+        const safeQuote = plainTextToHtml(selectedText || '...')
+        insertHtmlIntoNotesEditor(`<blockquote style="border-left: 3px solid #CBD5E1; padding-left: 12px; margin: 8px 0; color: #475569; font-style: italic;">${safeQuote}</blockquote><p><br></p>`)
     }
 
-    // ── Image & Attachment: file picker (no browser prompt) ──
+    const editorDictateSpeech = () => {
+        if (typeof window === 'undefined') return
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        if (!SpeechRecognition) return
+        const recognition = new SpeechRecognition()
+        recognition.lang = language === 'es' ? 'es-MX' : 'en-US'
+        recognition.start()
+        recognition.onresult = (event: any) => {
+            const transcript = event?.results?.[0]?.[0]?.transcript
+            if (transcript) {
+                insertHtmlIntoNotesEditor(`${plainTextToHtml(transcript)} `)
+            }
+        }
+    }
+
+    const resetAddTaskForm = useCallback(() => {
+        setNewTaskName('')
+        setNewTaskAssignees([])
+        setAssigneeSearchQuery('')
+        setShowAssigneeSuggestions(false)
+        setHighlightedAssigneeIdx(0)
+        setNewTaskNotifyees([])
+        setNotifySearchQuery('')
+        setShowNotifySuggestions(false)
+        setHighlightedNotifyIdx(0)
+        setNewTaskDueDate('')
+        setNewTaskNotes('')
+        setNotesIsEmpty(true)
+        setIsDraggingOverNotes(false)
+        setShowSubtasksInput(false)
+        setNewTaskSubtasks([''])
+        setShowLinkBar(false)
+        setLinkUrl('')
+        setLinkText('')
+        setShowTableControls(false)
+        setShowTextSizeMenu(false)
+        setShowColorMenu(false)
+        setUploadError(null)
+        savedSelectionRef.current = null
+        if (notesEditorRef.current) {
+            notesEditorRef.current.innerHTML = ''
+        }
+        editorHistoryRef.current = ['']
+        editorHistoryIdxRef.current = 0
+    }, [])
+
+    const uploadFileViaServer = async (
+        file: File,
+        targetFolder: string = 'todos'
+    ): Promise<{ url: string; filename: string; contentType: string; size: number } | null> => {
+        const MAX_BYTES = 25 * 1024 * 1024
+        if (file.size > MAX_BYTES) {
+            setUploadError(t('basecamp.file_too_large_25mb'))
+            return null
+        }
+
+        let fileToUpload = file
+        if (file.type.startsWith('image/')) {
+            fileToUpload = await compressImage(file)
+        }
+
+        // Primary path: Server-side FormData upload via /api/basecamp/upload (uses supabaseAdmin + httpOnly teg_token cookie)
+        try {
+            const fd = new FormData()
+            const uploadFilename = file.name || fileToUpload.name || (file.type.startsWith('image/') ? `screenshot-${Date.now()}.png` : `attachment-${Date.now()}`)
+            fd.append('file', fileToUpload, uploadFilename)
+            fd.append('folder', String(project.db_id || targetFolder))
+
+            const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+            const headers: Record<string, string> = {}
+            if (token) headers['Authorization'] = `Bearer ${token}`
+
+            const res = await fetch('/api/basecamp/upload', {
+                method: 'POST',
+                headers,
+                credentials: 'same-origin',
+                body: fd,
+            })
+
+            if (res.ok) {
+                const payload = await res.json()
+                if (payload?.url) {
+                    return {
+                        url: payload.url,
+                        filename: payload.filename || uploadFilename,
+                        contentType: payload.contentType || fileToUpload.type || file.type || 'application/octet-stream',
+                        size: Number(payload.size || fileToUpload.size || file.size),
+                    }
+                }
+            }
+        } catch (srvErr: any) {
+            console.warn('⚠️ [ToolTodos Upload] Server upload fallback triggered:', srvErr?.message || srvErr)
+        }
+
+        // Secondary fallback: Direct browser client upload to checklist-photos
+        const rawExt = (fileToUpload.name || file.name).split('.').pop() || 'bin'
+        const safeExt = rawExt.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'bin'
+        const folder = project.db_id || targetFolder
+        const filePath = `basecamp-uploads/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`
+
+        const { error: uploadErr } = await supabase.storage
+            .from('checklist-photos')
+            .upload(filePath, fileToUpload, {
+                contentType: fileToUpload.type || file.type || 'application/octet-stream',
+                cacheControl: '3600',
+                upsert: false,
+            })
+
+        if (uploadErr) throw uploadErr
+        const { data } = supabase.storage.from('checklist-photos').getPublicUrl(filePath)
+        if (!data?.publicUrl) throw new Error('Missing publicUrl')
+
+        return {
+            url: data.publicUrl,
+            filename: file.name || 'attachment',
+            contentType: fileToUpload.type || file.type || 'application/octet-stream',
+            size: fileToUpload.size,
+        }
+    }
+
+    const buildAttachmentEditorHtml = (uploaded: { url: string; filename: string; contentType: string; size: number }) => {
+        const safeUrl = escapeHtmlAttr(uploaded.url)
+        const safeName = escapeHtmlAttr(uploaded.filename)
+        const safeMime = escapeHtmlAttr(uploaded.contentType)
+        const isImg =
+            uploaded.contentType.toLowerCase().startsWith('image/') ||
+            /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(uploaded.filename)
+        if (isImg) {
+            return `<div style="margin: 8px 0;"><img src="${safeUrl}" alt="${safeName}" style="max-width: 100%; max-height: 320px; height: auto; border-radius: 6px; border: 1px solid #E2E8F0;" /></div><p><br></p>`
+        }
+        const sizeLabel = uploaded.size >= 1024 * 1024
+            ? `${(uploaded.size / (1024 * 1024)).toFixed(1)} MB`
+            : `${Math.max(1, Math.round(uploaded.size / 1024))} KB`
+        return `<bc-attachment content-type="${safeMime}" filename="${safeName}" url="${safeUrl}" href="${safeUrl}"><a href="${safeUrl}" target="_blank" rel="noopener noreferrer" contenteditable="false" style="display: inline-flex; align-items: center; gap: 6px; margin: 4px 0; padding: 6px 12px; border-radius: 6px; background: #F1F5F9; border: 1px solid #CBD5E1; color: #1D7DB5; text-decoration: none; font-size: 13px; font-weight: 600;">📎 ${safeName} <span style="color: #64748B; font-weight: 500; font-size: 11px;">(${sizeLabel})</span></a></bc-attachment><p><br></p>`
+    }
+
+    const uploadAndInsertFilesIntoNotes = async (files: File[]) => {
+        if (!files || files.length === 0) return
+        setUploadingAttachment(true)
+        setUploadError(null)
+        try {
+            for (const file of files) {
+                const uploaded = await uploadFileViaServer(file, 'todos')
+                if (uploaded) {
+                    insertHtmlIntoNotesEditor(buildAttachmentEditorHtml(uploaded))
+                }
+            }
+        } catch (err: any) {
+            console.error('❌ [ToolTodos Upload] Error uploading file:', err?.message || err)
+            setUploadError(t('basecamp.file_upload_error'))
+        } finally {
+            setUploadingAttachment(false)
+        }
+    }
+
     const editorInsertImage = () => {
+        saveEditorSelection()
         if (fileInputRef.current) fileInputRef.current.click()
     }
 
-    const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const reader = new FileReader()
-        reader.onload = (event) => {
-            const dataUrl = event.target?.result as string
-            focusEditor()
-            document.execCommand('insertImage', false, dataUrl)
-        }
-        reader.readAsDataURL(file)
+    const handleImageFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || [])
         e.target.value = ''
+        await uploadAndInsertFilesIntoNotes(files)
     }
 
     const editorInsertAttachment = () => {
+        saveEditorSelection()
         if (attachmentInputRef.current) attachmentInputRef.current.click()
     }
 
-    const handleAttachmentFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const reader = new FileReader()
-        reader.onload = (event) => {
-            const dataUrl = event.target?.result as string
-            focusEditor()
-            if (file.type.startsWith('image/')) {
-                document.execCommand('insertHTML', false,
-                    `<div style="margin: 8px 0;"><img src="${dataUrl}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 4px;" /></div>`
-                )
-            } else {
-                document.execCommand('insertHTML', false,
-                    `<div style="margin: 4px 0; padding: 6px 10px; background: #F7F7F5; border: 1px solid #E8E6E1; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;"><a href="${dataUrl}" download="${file.name}" style="color: #1D7DB5; text-decoration: none; font-size: 13px; font-weight: 500;">📎 ${file.name}</a> <span style="color: #999; font-size: 11px;">(${(file.size / 1024).toFixed(1)} KB)</span></div>&nbsp;`
-                )
+    const handleAttachmentFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || [])
+        e.target.value = ''
+        await uploadAndInsertFilesIntoNotes(files)
+    }
+
+    const handleNotesPaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+        const clipboardItems = Array.from(e.clipboardData?.items || [])
+        const pastedFiles: File[] = []
+        for (const item of clipboardItems) {
+            if (item.kind === 'file') {
+                const f = item.getAsFile()
+                if (f) pastedFiles.push(f)
             }
         }
-        reader.readAsDataURL(file)
-        e.target.value = ''
+        if (pastedFiles.length > 0) {
+            e.preventDefault()
+            saveEditorSelection()
+            await uploadAndInsertFilesIntoNotes(pastedFiles)
+            return
+        }
+
+        // Auto-convert plain pasted URL into a clickable link
+        const htmlData = e.clipboardData?.getData('text/html') || ''
+        const textData = (e.clipboardData?.getData('text/plain') || '').trim()
+        if (!htmlData && /^https?:\/\/[^\s]+$/i.test(textData)) {
+            e.preventDefault()
+            saveEditorSelection()
+            const safeHref = escapeHtmlAttr(textData)
+            const safeLabel = plainTextToHtml(textData)
+            insertHtmlIntoNotesEditor(`<a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="color: #1D7DB5; text-decoration: underline;">${safeLabel}</a>&nbsp;`)
+        }
+    }
+
+    const handleNotesDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsDraggingOverNotes(false)
+        const droppedFiles = Array.from(e.dataTransfer?.files || [])
+        if (droppedFiles.length > 0) {
+            await uploadAndInsertFilesIntoNotes(droppedFiles)
+        }
+    }
+
+    const uploadFilesForComment = async (files: File[]) => {
+        if (!files || files.length === 0) return
+        setUploadingCommentAttachment(true)
+        setMutationError(null)
+        try {
+            const added: Array<{ url: string; filename: string; contentType: string; size: number }> = []
+            for (const f of files) {
+                const up = await uploadFileViaServer(f, 'comments')
+                if (up) added.push(up)
+            }
+            if (added.length > 0) {
+                setCommentAttachments(prev => [...prev, ...added])
+            }
+        } catch (err: any) {
+            console.error('❌ [ToolTodos Comment Upload] Error:', err?.message || err)
+            setMutationError(t('basecamp.file_upload_error'))
+        } finally {
+            setUploadingCommentAttachment(false)
+        }
     }
 
     const toolbarBtnStyle: React.CSSProperties = {
@@ -515,42 +797,103 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         margin: '0 4px'
     }
 
-    const closeTaskDetail = () => {
+    const closeTaskDetail = useCallback(() => {
+        commentFetchAbortRef.current?.abort()
         setSelectedTask(null)
+        setCommentAttachments([])
         if (onCloseDetail) onCloseDetail()
-    }
+    }, [onCloseDetail])
 
-    // NOTE: Previously fetched fresh todo details from Basecamp API here.
-    // Removed: Our module is 100% LOCAL — all data comes from Supabase.
-    // Sync is ONE-WAY: Basecamp original → Supabase (via cron). We never call Basecamp API from UI.
-
-
-    // Close lightbox on Escape key
+    // Reset local view & form states when switching projects
     useEffect(() => {
-        if (!lightboxUrl) return
+        commentFetchAbortRef.current?.abort()
+        setLists([])
+        setSelectedListId(null)
+        setSelectedTask(null)
+        setSelectedTaskListId(null)
+        setTaskComments([])
+        setAddingTaskId(null)
+        setTodoFilterQuery('')
+        setExpandedCompleted({})
+        setLoadingCompletedByList({})
+        setShowAddList(false)
+        setMutationError(null)
+        resetAddTaskForm()
+    }, [project.db_id, resetAddTaskForm])
+
+    // Close dropdown popovers (Assignees, When Done, Text Size, Highlight Color) when clicking outside
+    useEffect(() => {
+        if (!showAssigneeSuggestions && !showNotifySuggestions && !showTextSizeMenu && !showColorMenu) return
+        const handleOutsideMenus = (e: MouseEvent) => {
+            const target = e.target as Node
+            if (showAssigneeSuggestions && assigneeBoxRef.current && !assigneeBoxRef.current.contains(target)) {
+                setShowAssigneeSuggestions(false)
+            }
+            if (showNotifySuggestions && notifyBoxRef.current && !notifyBoxRef.current.contains(target)) {
+                setShowNotifySuggestions(false)
+            }
+            if (showTextSizeMenu && textSizeMenuRef.current && !textSizeMenuRef.current.contains(target)) {
+                setShowTextSizeMenu(false)
+            }
+            if (showColorMenu && colorMenuRef.current && !colorMenuRef.current.contains(target)) {
+                setShowColorMenu(false)
+            }
+        }
+        document.addEventListener('mousedown', handleOutsideMenus)
+        return () => document.removeEventListener('mousedown', handleOutsideMenus)
+    }, [showAssigneeSuggestions, showNotifySuggestions, showTextSizeMenu, showColorMenu])
+
+    // Layered Escape key handling: Lightbox -> Task Detail Modal -> New List Modal -> Popovers
+    useEffect(() => {
+        if (!lightboxUrl && !selectedTask && !showAddList && !showAssigneeSuggestions && !showNotifySuggestions && !showLinkBar) return
         const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
+            if (e.key !== 'Escape') return
+            if (lightboxUrl) {
                 e.preventDefault()
                 setLightboxUrl(null)
+                return
             }
+            if (selectedTask) {
+                e.preventDefault()
+                closeTaskDetail()
+                return
+            }
+            if (showAddList) {
+                e.preventDefault()
+                setShowAddList(false)
+                return
+            }
+            if (showAssigneeSuggestions) setShowAssigneeSuggestions(false)
+            if (showNotifySuggestions) setShowNotifySuggestions(false)
+            if (showLinkBar) setShowLinkBar(false)
         }
         window.addEventListener('keydown', handleEsc)
         return () => window.removeEventListener('keydown', handleEsc)
-    }, [lightboxUrl])
+    }, [lightboxUrl, selectedTask, showAddList, showAssigneeSuggestions, showNotifySuggestions, showLinkBar, closeTaskDetail])
 
-    // Format due dates locally without UTC timezone shift
-    const formatDueDate = (dateStr: string) => {
+    // Format due dates cleanly without UTC timezone shift or ISO string NaN bugs
+    const formatDueDate = useCallback((dateStr?: string | null) => {
         if (!dateStr) return ''
-        const parts = dateStr.split('-').map(Number)
-        if (parts.length === 3) {
-            return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString(undefined, {
-                weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-            })
+        const locale = language === 'es' ? 'es-MX' : 'en-US'
+        const isoMatch = String(dateStr).trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+        if (isoMatch) {
+            const year = Number(isoMatch[1])
+            const month = Number(isoMatch[2])
+            const day = Number(isoMatch[3])
+            const localNoon = new Date(year, month - 1, day, 12, 0, 0)
+            if (!isNaN(localNoon.getTime())) {
+                return localNoon.toLocaleDateString(locale, {
+                    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+                })
+            }
         }
-        return new Date(dateStr).toLocaleDateString(undefined, {
-            weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+        const parsed = new Date(dateStr)
+        if (isNaN(parsed.getTime())) return String(dateStr)
+        return parsed.toLocaleDateString(locale, {
+            weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+            timeZone: 'America/Los_Angeles'
         })
-    }
+    }, [language])
 
     // Format creation timestamp in America/Los_Angeles with both date and time
     const formatCreatedDateTime = (dateStr?: string | null, includeYear: boolean = true) => {
@@ -620,11 +963,96 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         }
     }
 
+    // Helper to map a raw bc_todos row into UI task shape (safely unwrapping person arrays)
+    const mapDbTodoToTask = useCallback((row: any, lookup: Map<string, string>) => {
+        const assignees = (row.bc_todo_assignees || [])
+            .map((a: any) => {
+                const personObj = Array.isArray(a?.person) ? a.person[0] : a?.person
+                if (!personObj) return null
+                return {
+                    id: personObj.id,
+                    name: personObj.name || t('basecamp.unknown_user'),
+                    email: personObj.email || ''
+                }
+            })
+            .filter(Boolean)
+
+        const creatorName = row.created_by_person_id
+            ? (lookup.get(row.created_by_person_id) || null)
+            : null
+
+        return {
+            id: row.id,
+            bc_id: row.bc_id,
+            task_name: row.title,
+            description: row.description,
+            is_completed: Boolean(row.is_completed),
+            completed_at: row.completed_at || null,
+            due_date: row.due_date,
+            created_at: row.created_at || null,
+            creator_name: creatorName,
+            assignee: assignees.map((a: any) => a.name).join(', ') || null,
+            assigneeList: assignees,
+            comments_count: row.comments_count || 0,
+            created_by: creatorName
+        }
+    }, [t])
+
     // Estado para secciones colapsadas de tareas completadas (por lista)
     const [expandedCompleted, setExpandedCompleted] = useState<Record<string, boolean>>({})
 
-    const toggleCompletedSection = (listId: string) => {
-        setExpandedCompleted(prev => ({ ...prev, [listId]: !prev[listId] }))
+    const fetchCompletedForList = useCallback(async (listId: string) => {
+        if (!listId) return
+        setLoadingCompletedByList(prev => ({ ...prev, [listId]: true }))
+        try {
+            const { data: rows, error } = await supabase
+                .from('bc_todos')
+                .select(`
+                    id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
+                    comments_count, created_by_person_id, created_at, description,
+                    bc_todo_assignees(
+                        person:bc_people(id, name, email, avatar_url)
+                    )
+                `)
+                .eq('todolist_id', listId)
+                .eq('is_completed', true)
+                .order('completed_at', { ascending: false, nullsFirst: false })
+                .order('created_at', { ascending: false })
+                .limit(200)
+
+            if (error) throw error
+            const mappedExtra = (rows || []).map((r: any) => mapDbTodoToTask(r, peopleLookupRef.current))
+            setLists(prev =>
+                prev.map(l => {
+                    if (l.id !== listId) return l
+                    const existingIds = new Set(l.tasks.map((tk: any) => tk.id))
+                    const merged = [...l.tasks]
+                    for (const extra of mappedExtra) {
+                        if (!existingIds.has(extra.id)) {
+                            merged.push(extra)
+                            existingIds.add(extra.id)
+                        }
+                    }
+                    return { ...l, tasks: merged }
+                })
+            )
+        } catch (err: any) {
+            console.error('❌ [ToolTodos CompletedList Fetch] Error:', err?.message || err)
+        } finally {
+            setLoadingCompletedByList(prev => ({ ...prev, [listId]: false }))
+        }
+    }, [supabase, mapDbTodoToTask])
+
+    const toggleCompletedSection = (list: any, loadedCompletedCount: number) => {
+        const willExpand = !expandedCompleted[list.id]
+        setExpandedCompleted(prev => ({ ...prev, [list.id]: willExpand }))
+        if (
+            willExpand &&
+            !todoFilterQuery.trim() &&
+            loadedCompletedCount < Number(list.completed_count || 0)
+        ) {
+            fetchCompletedForList(list.id)
+        }
     }
 
     // 1. Fetch todo lists and tasks from Supabase (optimized with parallel queries)
@@ -655,7 +1083,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .eq('is_completed', false)
                     .order('created_at', { ascending: true }),
 
-                // Query 2b: Recent Completed Todos (limit 100 to avoid PostgREST 1000 row limits)
+                // Query 2b: Recent Completed Todos ordered by completed_at DESC so newly completed older tasks never vanish
                 supabase
                     .from('bc_todos')
                     .select(`
@@ -667,8 +1095,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     `)
                     .eq('project_id', project.db_id)
                     .eq('is_completed', true)
+                    .order('completed_at', { ascending: false, nullsFirst: false })
                     .order('created_at', { ascending: false })
-                    .limit(100),
+                    .limit(200),
 
                 // Query 3: Explicit selected todo to bypass pagination limit
                 selectedTodoId
@@ -703,7 +1132,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
             // Append selected todo if it's not already in the paginated tasks list
             if (selectedTodo && !dbTodos.some(t => t.id === selectedTodo.id)) {
-                console.log("➕ [ToolTodos] Appending selected todo to dbTodos list to bypass limit:", selectedTodo.title)
                 dbTodos = [...dbTodos, selectedTodo]
             }
 
@@ -719,36 +1147,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     if (p?.id && p?.name) peopleLookup.set(p.id, p.name)
                 })
             }
+            peopleLookupRef.current = peopleLookup
 
             // Map and combine lists with todos
             const mappedLists = dbLists.map(list => {
                 const listTodos = dbTodos.filter(t => t.todolist_id === list.id)
-                const tasks = listTodos.map(t => {
-                    const assignees = t.bc_todo_assignees?.map((a: any) => ({
-                        id: a.person?.id,
-                        name: a.person?.name || 'Unknown',
-                        email: a.person?.email || ''
-                    })) || []
-
-                    const creatorName = t.created_by_person_id
-                        ? (peopleLookup.get(t.created_by_person_id) || null)
-                        : null
-
-                    return {
-                        id: t.id,
-                        bc_id: t.bc_id,
-                        task_name: t.title,
-                        description: t.description,
-                        is_completed: t.is_completed,
-                        due_date: t.due_date,
-                        created_at: t.created_at || null,
-                        creator_name: creatorName,
-                        assignee: assignees.map((a: any) => a.name).join(', ') || null,
-                        assigneeList: assignees,
-                        comments_count: t.comments_count || 0,
-                        created_by: creatorName
-                    }
-                })
+                const tasks = listTodos.map(t => mapDbTodoToTask(t, peopleLookup))
 
                 return {
                     id: list.id,
@@ -762,7 +1166,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             })
 
             setLists(mappedLists)
-            console.log("📦 [ToolTodos] Lists loaded:", mappedLists.length, "Total tasks:", mappedLists.flatMap(l => l.tasks).length)
 
             // Update active selected task details if modal is open using functional state update
             setSelectedTask((prev: any) => {
@@ -777,12 +1180,24 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         } finally {
             setLoading(false)
         }
-    }, [project.db_id, project.id, selectedTodoId])
+    }, [project.db_id, project.people, selectedTodoId, supabase, mapDbTodoToTask])
 
     // Fetch comments specifically for the active selected task + live on-demand hydration from Basecamp API
-    const fetchTaskComments = useCallback(async (taskId: string, taskBcId?: number | string) => {
+    const fetchTaskComments = useCallback(async (
+        taskId: string,
+        taskBcId?: number | string,
+        opts?: { silent?: boolean; skipLiveHydration?: boolean }
+    ) => {
         if (!taskId) return
-        setCommentsLoading(true)
+        if (!opts?.skipLiveHydration) {
+            commentFetchAbortRef.current?.abort()
+        }
+        const controller = new AbortController()
+        if (!opts?.skipLiveHydration) {
+            commentFetchAbortRef.current = controller
+        }
+
+        if (!opts?.silent) setCommentsLoading(true)
         try {
             const { data: comments, error } = await supabase
                 .from('bc_comments')
@@ -792,62 +1207,119 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 .order('created_at', { ascending: true })
 
             if (error) throw error
+            if (activeSelectedTaskIdRef.current !== taskId) return
 
-            const formatted = (comments || []).map((c: any) => ({
-                id: c.id,
-                bc_id: c.bc_id,
-                author: (Array.isArray(c.author) ? c.author[0]?.name : c.author?.name) || 'Unknown',
-                text: c.content,
-                timestamp: c.created_at
-            }))
+            const formatted = (comments || []).map((c: any) => {
+                const authorObj = Array.isArray(c.author) ? c.author[0] : c.author
+                return {
+                    id: c.id,
+                    bc_id: c.bc_id,
+                    author: authorObj?.name || t('basecamp.unknown_user'),
+                    text: c.content || '',
+                    timestamp: c.created_at
+                }
+            })
 
             setTaskComments(formatted)
         } catch (err: any) {
             console.error('❌ [ToolTodos Comments Fetch] Error:', err?.message || err)
         } finally {
-            setCommentsLoading(false)
+            if (!opts?.silent && activeSelectedTaskIdRef.current === taskId) {
+                setCommentsLoading(false)
+            }
         }
 
-        // Background live hydration directly from Basecamp 3 API so opening a To-do never shows stale comments/status
-        if (taskBcId && project.id) {
-            fetch(`/api/basecamp/todo-detail?projectId=${project.id}&todoId=${taskBcId}`)
+        // Background live hydration ONLY for real Basecamp IDs (< SYNTHETIC_BC_ID_THRESHOLD), never synthetic local IDs
+        const numericBcId = Number(taskBcId)
+        if (!opts?.skipLiveHydration && project.id && numericBcId > 0 && numericBcId < SYNTHETIC_BC_ID_THRESHOLD) {
+            fetch(`/api/basecamp/todo-detail?projectId=${project.id}&todoId=${numericBcId}`, {
+                signal: controller.signal
+            })
                 .then(r => (r.ok ? r.json() : null))
                 .then(liveData => {
-                    if (!liveData) return
+                    if (!liveData || controller.signal.aborted || activeSelectedTaskIdRef.current !== taskId) return
+
                     if (Array.isArray(liveData.comments)) {
                         setTaskComments(prev => {
-                            if (liveData.comments.length !== prev.length) {
-                                return liveData.comments
+                            if (activeSelectedTaskIdRef.current !== taskId) return prev
+                            const prevByBcId = new Map<number, any>()
+                            for (const p of prev) {
+                                if (p.bc_id) prevByBcId.set(Number(p.bc_id), p)
                             }
-                            return prev
+                            const hydratedBcComments = liveData.comments.map((lc: any) => {
+                                const existing = lc.bc_id ? prevByBcId.get(Number(lc.bc_id)) : null
+                                return {
+                                    id: existing?.id || lc.id,
+                                    bc_id: lc.bc_id,
+                                    author: (!lc.author || lc.author === 'Unknown') ? (existing?.author || t('basecamp.unknown_user')) : lc.author,
+                                    text: lc.text ?? existing?.text ?? '',
+                                    timestamp: lc.timestamp || existing?.timestamp
+                                }
+                            })
+                            // Preserve local-only comments (bc_id >= SYNTHETIC_BC_ID_THRESHOLD) not yet mirrored to Basecamp
+                            const localOnly = prev.filter(p => {
+                                const bcNum = Number(p.bc_id || 0)
+                                if (bcNum > 0 && bcNum < SYNTHETIC_BC_ID_THRESHOLD) return false
+                                const normText = normalizeSearch(p.text)
+                                const alreadyMirrored = hydratedBcComments.some((hc: any) => normalizeSearch(hc.text) === normText)
+                                return !alreadyMirrored
+                            })
+                            const merged = [...hydratedBcComments, ...localOnly]
+                            merged.sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime())
+                            return merged
                         })
                     }
-                    if (typeof liveData.todo?.completed === 'boolean') {
-                        setSelectedTask((prev: any) => {
-                            if (!prev || String(prev.bc_id) !== String(taskBcId)) return prev
-                            const liveCount = liveData.todo.comments_count ?? prev.comments_count
-                            if (prev.is_completed !== liveData.todo.completed || prev.comments_count !== liveCount) {
-                                fetchLists({ silent: true })
+
+                    const curTask = selectedTaskRef.current
+                    if (curTask && curTask.id === taskId) {
+                        const nextCompleted = typeof liveData.is_completed === 'boolean' ? liveData.is_completed : curTask.is_completed
+                        const nextCount = typeof liveData.comments_count === 'number' ? Math.max(liveData.comments_count, Number(curTask.comments_count || 0)) : curTask.comments_count
+                        const nextDesc = typeof liveData.description === 'string' && liveData.description.length > 0 ? liveData.description : curTask.description
+
+                        const hasTaskDiff =
+                            curTask.is_completed !== nextCompleted ||
+                            curTask.comments_count !== nextCount ||
+                            curTask.description !== nextDesc
+
+                        if (hasTaskDiff) {
+                            setSelectedTask((prev: any) => {
+                                if (!prev || prev.id !== taskId) return prev
                                 return {
                                     ...prev,
-                                    is_completed: liveData.todo.completed,
-                                    comments_count: liveCount,
+                                    is_completed: nextCompleted,
+                                    comments_count: nextCount,
+                                    description: nextDesc,
                                 }
-                            }
-                            return prev
-                        })
+                            })
+                            fetchLists({ silent: true })
+                        }
                     }
                 })
-                .catch(() => {})
+                .catch((err: any) => {
+                    if (err?.name !== 'AbortError') {
+                        console.warn('⚠️ [ToolTodos LiveHydration] Skipped:', err?.message || err)
+                    }
+                })
         }
-    }, [project.id, fetchLists])
+    }, [project.id, supabase, fetchLists, t])
 
-    // Load comments on demand whenever selectedTask changes
+    // Load comments on demand whenever selectedTask ID changes
+    const prevLoadedTaskIdRef = useRef<string | null>(null)
     useEffect(() => {
         if (selectedTask?.id) {
-            fetchTaskComments(selectedTask.id, selectedTask.bc_id)
+            const isSameTask = prevLoadedTaskIdRef.current === selectedTask.id
+            prevLoadedTaskIdRef.current = selectedTask.id
+            if (!isSameTask) {
+                setTaskComments([])
+            }
+            fetchTaskComments(selectedTask.id, selectedTask.bc_id, { silent: isSameTask })
         } else {
+            prevLoadedTaskIdRef.current = null
+            commentFetchAbortRef.current?.abort()
             setTaskComments([])
+        }
+        return () => {
+            commentFetchAbortRef.current?.abort()
         }
     }, [selectedTask?.id, selectedTask?.bc_id, fetchTaskComments])
 
@@ -874,7 +1346,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     fetchLists({ silent: true })
                     const parentId = payload.new?.parent_id || payload.old?.parent_id
                     if (selectedTask?.id && parentId === selectedTask.id) {
-                        fetchTaskComments(selectedTask.id)
+                        fetchTaskComments(selectedTask.id, selectedTask.bc_id, { silent: true, skipLiveHydration: true })
                     }
                 }
             )
@@ -883,7 +1355,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [project.db_id, selectedTask?.id, fetchLists, fetchTaskComments])
+    }, [project.db_id, selectedTask?.id, selectedTask?.bc_id, fetchLists, fetchTaskComments, supabase])
 
     useEffect(() => {
         if (selectedTodoId && lists.length > 0) {
@@ -902,6 +1374,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const handleToggleTask = async (listId: string, task: any) => {
         const actionType = task.is_completed ? 'uncomplete_todo' : 'complete_todo'
         setActionLoading(task.id)
+        setMutationError(null)
         try {
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',
@@ -915,9 +1388,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             })
 
             if (!res.ok) throw new Error(await res.text())
-            await fetchLists()
+            await fetchLists({ silent: true })
         } catch (err: any) {
             console.error(`❌ [ToolTodos Toggle] Error performing ${actionType}:`, err.message)
+            setMutationError(`${t('basecamp.sync_error_prefix')}${err.message || t('basecamp.action_error')}`)
         } finally {
             setActionLoading(null)
         }
@@ -928,6 +1402,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         e.preventDefault()
         if (!newListName.trim()) return
         setLoading(true)
+        setMutationError(null)
         try {
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',
@@ -945,9 +1420,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             setNewListName('')
             setNewListDesc('')
             setShowAddList(false)
-            await fetchLists()
+            await fetchLists({ silent: true })
         } catch (err: any) {
             console.error('❌ [ToolTodos AddList] Error creating todolist:', err.message)
+            setMutationError(`${t('basecamp.sync_error_prefix')}${err.message || t('basecamp.action_error')}`)
+        } finally {
             setLoading(false)
         }
     }
@@ -955,8 +1432,18 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     // Create Task (Todo)
     const handleAddTask = async (listId: string, listBcId: number, e: React.FormEvent) => {
         e.preventDefault()
-        if (!newTaskName.trim()) return
-        setLoading(true)
+        if (!newTaskName.trim() || uploadingAttachment) return
+        setActionLoading(`add_task_${listId}`)
+        setMutationError(null)
+        const rawEditorHtml = (notesEditorRef.current?.innerHTML || newTaskNotes || '').trim()
+        const hasMediaOrText =
+            /<(img|bc-attachment|a|table|pre|blockquote)\b/i.test(rawEditorHtml) ||
+            rawEditorHtml.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim().length > 0
+        const cleanDescription = hasMediaOrText ? rawEditorHtml : ''
+        const cleanSubtasks = showSubtasksInput
+            ? newTaskSubtasks.map(s => s.trim()).filter(Boolean)
+            : []
+
         try {
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',
@@ -967,34 +1454,33 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     todolistId: listBcId,
                     todolistDbId: listId,
                     title: newTaskName.trim(),
-                    description: notesEditorRef.current?.innerHTML || '',
+                    description: cleanDescription,
                     due_date: newTaskDueDate || null,
-                    assigneeUuids: newTaskAssignees.map((a: any) => a.id)
+                    assigneeUuids: newTaskAssignees.map((a: any) => a.id),
+                    notifyeeUuids: newTaskNotifyees.map((n: any) => n.id),
+                    subtasks: cleanSubtasks
                 })
             })
 
             if (!res.ok) throw new Error(await res.text())
 
-            setNewTaskName('')
-            setNewTaskAssignees([])
-            setAssigneeSearchQuery('')
-            setNewTaskNotifyees([])
-            setNotifySearchQuery('')
-            setNewTaskDueDate('')
-            setNewTaskNotes('')
+            resetAddTaskForm()
             setAddingTaskId(null)
-            await fetchLists()
+            await fetchLists({ silent: true })
         } catch (err: any) {
             console.error('❌ [ToolTodos AddTask] Error creating todo:', err.message)
-            setLoading(false)
+            setMutationError(`${t('basecamp.sync_error_prefix')}${err.message || t('basecamp.action_error')}`)
+        } finally {
+            setActionLoading(null)
         }
     }
 
     // Delete Task
     const handleDeleteTask = async (listId: string, task: any, e: React.MouseEvent) => {
         e.stopPropagation()
-        if (!confirm(t('basecamp.delete_todo_confirm') || '¿Eliminar esta tarea de forma permanente?')) return
-        setLoading(true)
+        if (!confirm(t('basecamp.delete_todo_confirm'))) return
+        setActionLoading(task.id)
+        setMutationError(null)
         try {
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',
@@ -1012,19 +1498,24 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             if (selectedTask?.id === task.id) {
                 closeTaskDetail()
             }
-            await fetchLists()
+            await fetchLists({ silent: true })
         } catch (err: any) {
             console.error('❌ [ToolTodos Delete] Error deleting todo:', err.message)
-            setLoading(false)
+            setMutationError(`${t('basecamp.sync_error_prefix')}${err.message || t('basecamp.action_error')}`)
+        } finally {
+            setActionLoading(null)
         }
     }
 
-    // Add Comment to Todo
+    // Add Comment to Todo (supports text + photos + file attachments)
     const handleAddComment = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!newComment.trim() || !selectedTask) return
+        if ((!newComment.trim() && commentAttachments.length === 0) || !selectedTask || uploadingCommentAttachment) return
         setActionLoading('comment')
-        const commentContent = newComment.trim()
+        setMutationError(null)
+        const textHtml = plainTextToHtml(newComment)
+        const attHtml = commentAttachments.map(att => buildAttachmentEditorHtml(att)).join('')
+        const commentContent = [textHtml ? `<div>${textHtml}</div>` : '', attHtml].filter(Boolean).join('')
         try {
             const res = await fetch('/api/basecamp/action', {
                 method: 'POST',
@@ -1041,10 +1532,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
             if (!res.ok) throw new Error(await res.text())
             setNewComment('')
-            await fetchTaskComments(selectedTask.id)
-            fetchLists()
+            setCommentAttachments([])
+            await fetchTaskComments(selectedTask.id, selectedTask.bc_id, { silent: true, skipLiveHydration: true })
+            fetchLists({ silent: true })
         } catch (err: any) {
             console.error('❌ [ToolTodos Comment] Error saving comment:', err.message)
+            setMutationError(`${t('basecamp.sync_error_prefix')}${err.message || t('basecamp.action_error')}`)
         } finally {
             setActionLoading(null)
         }
@@ -1077,34 +1570,39 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     // List dot colors — each list gets a consistent colored dot
     const LIST_DOT_COLORS = ['#27AE60', '#E67E22', '#3498DB', '#E74C3C', '#8E44AD', '#1ABC9C', '#F39C12', '#2980B9', '#D35400', '#16A085']
 
-    // Filter suggestions based on what the user types
+    // Filter suggestions based on what the user types (accent & spelling resilient)
     const filteredSuggestions = (() => {
-        const q = assigneeSearchQuery.toLowerCase().trim()
+        const q = normalizeSearch(assigneeSearchQuery)
+        const personQ = normalizePersonName(assigneeSearchQuery)
         const available = (project.people || []).filter((p: any) => {
             const isAlreadySelected = newTaskAssignees.some((a) => a.id === p.id)
-            return !isAlreadySelected && p.name.toLowerCase().includes(q)
+            if (isAlreadySelected) return false
+            if (!q) return true
+            return normalizeSearch(p.name).includes(q) || (personQ ? normalizePersonName(p.name).includes(personQ) : false)
         })
-        // Sort: names that START with the query come first, then alphabetical within each group
         if (!q) return available
-        const startsWithQ = available.filter((p: any) => p.name.toLowerCase().startsWith(q))
-        const containsQ = available.filter((p: any) => !p.name.toLowerCase().startsWith(q))
+        const startsWithQ = available.filter((p: any) => normalizeSearch(p.name).startsWith(q))
+        const containsQ = available.filter((p: any) => !normalizeSearch(p.name).startsWith(q))
         return [...startsWithQ, ...containsQ]
     })()
 
-    // Filter suggestions for "When done" notify people — same logic as assignees
+    // Filter suggestions for "When done" notify people — accent & spelling resilient
     const filteredNotifySuggestions = (() => {
-        const q = notifySearchQuery.toLowerCase().trim()
+        const q = normalizeSearch(notifySearchQuery)
+        const personQ = normalizePersonName(notifySearchQuery)
         const available = (project.people || []).filter((p: any) => {
             const isAlreadySelected = newTaskNotifyees.some((a) => a.id === p.id)
-            return !isAlreadySelected && p.name.toLowerCase().includes(q)
+            if (isAlreadySelected) return false
+            if (!q) return true
+            return normalizeSearch(p.name).includes(q) || (personQ ? normalizePersonName(p.name).includes(personQ) : false)
         })
         if (!q) return available
-        const startsWithQ = available.filter((p: any) => p.name.toLowerCase().startsWith(q))
-        const containsQ = available.filter((p: any) => !p.name.toLowerCase().startsWith(q))
+        const startsWithQ = available.filter((p: any) => normalizeSearch(p.name).startsWith(q))
+        const containsQ = available.filter((p: any) => !normalizeSearch(p.name).startsWith(q))
         return [...startsWithQ, ...containsQ]
     })()
 
-    // Sort helper by creation date (newest first or oldest first)
+    // Sort helper by creation date (newest first or oldest first) for active tasks
     const sortTasksByCreatedDate = useCallback((tasks: any[]) => {
         return [...tasks].sort((a, b) => {
             const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -1113,10 +1611,25 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         })
     }, [sortOrder])
 
+    // Sort helper for completed tasks: most recently completed at top
+    const sortCompletedTasks = useCallback((tasks: any[]) => {
+        return [...tasks].sort((a, b) => {
+            const timeA = new Date(a.completed_at || a.created_at || 0).getTime()
+            const timeB = new Date(b.completed_at || b.created_at || 0).getTime()
+            return timeB - timeA
+        })
+    }, [])
+
     // Full List Renderer (Used for both List View and Single List drill-down view)
     const renderFullList = (list: any, listIdx: number, showBackBtn: boolean = false) => {
         const openTasks = sortTasksByCreatedDate(list.tasks.filter((tk: any) => !tk.is_completed))
-        const completedTasks = sortTasksByCreatedDate(list.tasks.filter((tk: any) => tk.is_completed))
+        const completedTasks = sortCompletedTasks(list.tasks.filter((tk: any) => tk.is_completed))
+        const isFiltering = Boolean(todoFilterQuery.trim())
+        const displayCompletedCount = isFiltering
+            ? completedTasks.length
+            : (list.completed_count !== undefined && list.completed_count !== null
+                ? Math.max(Number(list.completed_count), completedTasks.length)
+                : completedTasks.length)
         const isExpanded = expandedCompleted[list.id] || false
         const dotColor = LIST_DOT_COLORS[listIdx % LIST_DOT_COLORS.length]
 
@@ -1158,13 +1671,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
                                 onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                             >
-                                ← {t('basecamp.todos') || 'To-dos'}
+                                ← {t('basecamp.todos')}
                             </button>
 
                             <button
                                 type="button"
                                 onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
-                                title={t('basecamp.sort_by_created_tooltip') || 'Sorted by creation date (click to invert)'}
+                                title={t('basecamp.sort_by_created_tooltip')}
                                 style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -1226,7 +1739,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 <div style={{ padding: '8px 0' }}>
                     {openTasks.length === 0 && addingTaskId !== list.id && (
                         <div style={{ padding: '18px 24px', color: '#94A3B8', fontSize: 13.5, fontStyle: 'italic' }}>
-                            {t('basecamp.no_todos_in_list') || 'No to-dos in this list yet.'}
+                            {t('basecamp.no_todos_in_list')}
                         </div>
                     )}
 
@@ -1270,7 +1783,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     }}
                                     onMouseEnter={e => (e.currentTarget.style.borderColor = '#4BAE4F')}
                                     onMouseLeave={e => (e.currentTarget.style.borderColor = '#CBD5E1')}
-                                    title={t('basecamp.mark_as_done') || 'Mark as done'}
+                                    title={t('basecamp.mark_as_done')}
                                 >
                                     {actionLoading === task.id ? (
                                         <Loader2 size={12} className="animate-spin text-slate-400" />
@@ -1338,7 +1851,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 fontWeight: 600
                                             }}>
                                                 <Calendar size={11} />
-                                                {task.due_date}
+                                                {formatDueDate(task.due_date)}
                                             </span>
                                         )}
 
@@ -1431,7 +1944,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         e.currentTarget.style.opacity = '0.6'
                                         e.currentTarget.style.color = '#94A3B8'
                                     }}
-                                    title={t('basecamp.delete_todo') || 'Delete to-do'}
+                                    title={t('basecamp.delete_todo')}
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -1440,214 +1953,937 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     })}
                 </div>
 
-                {/* ── Inline Add To-do Form or Trigger Button ── */}
+                {/* ── Inline Add To-do Form (Exact Basecamp 4 Trix Clone) or Trigger Button ── */}
                 <div style={{ padding: '12px 24px 18px', borderTop: '1px solid #F0EFEB' }}>
                     {addingTaskId === list.id ? (
-                        <form onSubmit={(e) => handleAddTask(list.id, list.bc_id, e)} style={{ background: '#F8FAFC', padding: 16, borderRadius: 8, border: '1px solid #E2E8F0' }}>
-                            <div style={{ marginBottom: 12 }}>
+                        <form onSubmit={(e) => handleAddTask(list.id, list.bc_id, e)} style={{ paddingTop: 2 }}>
+                            {/* 1. Title Row — Checkbox + Seamless Input (like real Basecamp) */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 12,
+                                padding: '8px 0 12px',
+                                borderBottom: '1px solid #E2E8F0'
+                            }}>
+                                <span style={{
+                                    width: 18,
+                                    height: 18,
+                                    border: '2px solid #CBD5E1',
+                                    borderRadius: 4,
+                                    flexShrink: 0,
+                                    background: '#fff'
+                                }} />
                                 <input
                                     type="text"
                                     required
                                     autoFocus
                                     value={newTaskName}
                                     onChange={(e) => setNewTaskName(e.target.value)}
-                                    placeholder={t('basecamp.describe_todo') || 'Describe this to-do...'}
+                                    placeholder={t('basecamp.describe_todo')}
                                     style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        borderRadius: 6,
-                                        border: '1.5px solid #CBD5E1',
-                                        fontSize: 14.5,
-                                        outline: 'none',
+                                        flex: 1,
+                                        padding: '2px 0',
+                                        border: 'none',
+                                        fontSize: 15,
+                                        fontWeight: 500,
                                         color: '#1E293B',
-                                        background: '#fff'
+                                        outline: 'none',
+                                        background: 'transparent',
+                                        lineHeight: '22px'
                                     }}
                                 />
                             </div>
 
-                            {/* Assignees and Notify Bar */}
-                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                                {/* Assignees */}
-                                <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
-                                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>
-                                        {t('basecamp.assigned_to') || 'Assigned to'}
-                                    </label>
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        padding: '6px 10px',
-                                        borderRadius: 6,
-                                        border: '1px solid #CBD5E1',
-                                        background: '#fff',
-                                        flexWrap: 'wrap'
-                                    }}>
-                                        {newTaskAssignees.map(a => (
-                                            <span key={a.id} style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 4,
-                                                padding: '2px 8px',
-                                                borderRadius: 12,
-                                                background: '#E0F2FE',
-                                                color: '#0369A1',
-                                                fontSize: 12,
-                                                fontWeight: 600
-                                            }}>
-                                                {a.name}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setNewTaskAssignees(prev => prev.filter(p => p.id !== a.id))}
-                                                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: '#0369A1', fontWeight: 800 }}
-                                                >
-                                                    ✕
-                                                </button>
-                                            </span>
-                                        ))}
-                                        <input
-                                            type="text"
-                                            value={assigneeSearchQuery}
-                                            onChange={e => {
-                                                setAssigneeSearchQuery(e.target.value)
-                                                setShowAssigneeSuggestions(true)
-                                            }}
-                                            onFocus={() => setShowAssigneeSuggestions(true)}
-                                            placeholder={newTaskAssignees.length === 0 ? (t('basecamp.type_name') || 'Type a name...') : ''}
-                                            style={{ border: 'none', outline: 'none', fontSize: 13, flex: 1, minWidth: 80, background: 'transparent' }}
-                                        />
-                                    </div>
+                            {/* 2. Horizontally-Aligned Basecamp Fields (Assigned to, When done, Due on, Notes, Subtasks) */}
+                            <div className="flex flex-col gap-3 mt-3 pt-1 pb-2 pl-0 sm:pl-7">
 
-                                    {showAssigneeSuggestions && filteredSuggestions.length > 0 && (
+                                {/* Assigned to */}
+                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                    <label className="w-auto sm:w-[108px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-1.5">
+                                        {t('basecamp.assigned_to')}
+                                    </label>
+                                    <div ref={assigneeBoxRef} style={{ position: 'relative', flex: 1, maxWidth: 540 }}>
                                         <div style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            right: 0,
-                                            marginTop: 4,
-                                            background: '#fff',
-                                            borderRadius: 8,
-                                            border: '1px solid #CBD5E1',
-                                            boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-                                            zIndex: 40,
-                                            maxHeight: 180,
-                                            overflowY: 'auto'
-                                        }}>
-                                            {filteredSuggestions.map((p: any) => (
-                                                <div
-                                                    key={p.id}
-                                                    onClick={() => {
-                                                        setNewTaskAssignees(prev => [...prev, p])
-                                                        setAssigneeSearchQuery('')
-                                                        setShowAssigneeSuggestions(false)
-                                                    }}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 8,
-                                                        padding: '8px 12px',
-                                                        cursor: 'pointer',
-                                                        fontSize: 13,
-                                                        color: '#1E293B',
-                                                        borderBottom: '1px solid #F1F5F9'
-                                                    }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFC')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                                                >
-                                                    <span style={{
-                                                        width: 20,
-                                                        height: 20,
-                                                        borderRadius: '50%',
-                                                        background: getAvatarColor(p.name || 'U'),
-                                                        color: '#fff',
-                                                        fontSize: 9,
-                                                        fontWeight: 800,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center'
-                                                    }}>
-                                                        {getInitials(p.name || 'U')}
-                                                    </span>
-                                                    {p.name}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Due Date */}
-                                <div style={{ width: 160 }}>
-                                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 4 }}>
-                                        {t('basecamp.due_on') || 'Due on'}
-                                    </label>
-                                    <input
-                                        type="date"
-                                        value={newTaskDueDate}
-                                        onChange={e => setNewTaskDueDate(e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '6px 10px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap',
+                                            gap: 6,
+                                            padding: '5px 8px',
                                             borderRadius: 6,
                                             border: '1px solid #CBD5E1',
-                                            fontSize: 13,
-                                            outline: 'none',
                                             background: '#fff',
-                                            color: '#1E293B'
-                                        }}
-                                    />
+                                            minHeight: 34
+                                        }}>
+                                            {newTaskAssignees.map((person) => (
+                                                <span key={person.id} style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    padding: '2px 8px 2px 4px',
+                                                    borderRadius: 14,
+                                                    background: '#F8FAFC',
+                                                    border: '1px solid #CBD5E1',
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    color: '#1E293B'
+                                                }}>
+                                                    <span style={{
+                                                        width: 18,
+                                                        height: 18,
+                                                        borderRadius: '50%',
+                                                        background: getAvatarColor(person.name || 'U'),
+                                                        color: '#fff',
+                                                        fontSize: 9,
+                                                        fontWeight: 700,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        flexShrink: 0
+                                                    }}>
+                                                        {getInitials(person.name || 'U')}
+                                                    </span>
+                                                    <span>{person.name}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setNewTaskAssignees(prev => prev.filter(p => p.id !== person.id))}
+                                                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#EF4444', padding: '0 2px', fontWeight: 700 }}
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            <input
+                                                type="text"
+                                                placeholder={newTaskAssignees.length === 0 ? t('basecamp.type_names_placeholder') : ''}
+                                                value={assigneeSearchQuery}
+                                                onChange={(e) => {
+                                                    setAssigneeSearchQuery(e.target.value)
+                                                    setShowAssigneeSuggestions(true)
+                                                    setHighlightedAssigneeIdx(0)
+                                                }}
+                                                onFocus={() => setShowAssigneeSuggestions(true)}
+                                                onKeyDown={(e) => {
+                                                    if (!showAssigneeSuggestions || filteredSuggestions.length === 0) return
+                                                    if (e.key === 'ArrowDown') {
+                                                        e.preventDefault()
+                                                        setHighlightedAssigneeIdx(prev => Math.min(prev + 1, filteredSuggestions.length - 1))
+                                                    } else if (e.key === 'ArrowUp') {
+                                                        e.preventDefault()
+                                                        setHighlightedAssigneeIdx(prev => Math.max(prev - 1, 0))
+                                                    } else if (e.key === 'Enter') {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        const person = filteredSuggestions[highlightedAssigneeIdx]
+                                                        if (person) {
+                                                            setNewTaskAssignees(prev => [...prev, person])
+                                                            setAssigneeSearchQuery('')
+                                                            setShowAssigneeSuggestions(false)
+                                                            setHighlightedAssigneeIdx(0)
+                                                        }
+                                                    } else if (e.key === 'Escape') {
+                                                        setShowAssigneeSuggestions(false)
+                                                    }
+                                                }}
+                                                style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', fontSize: 13, color: '#1E293B', background: 'transparent' }}
+                                            />
+                                        </div>
+
+                                        {showAssigneeSuggestions && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                left: 0,
+                                                right: 0,
+                                                marginTop: 4,
+                                                background: '#fff',
+                                                border: '1px solid #CBD5E1',
+                                                borderRadius: 6,
+                                                boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                                                zIndex: 60,
+                                                maxHeight: 190,
+                                                overflowY: 'auto'
+                                            }}>
+                                                {filteredSuggestions.length > 0 ? (
+                                                    filteredSuggestions.map((person: any, idx: number) => (
+                                                        <div
+                                                            key={person.id}
+                                                            onMouseDown={(e) => e.preventDefault()}
+                                                            onClick={() => {
+                                                                setNewTaskAssignees(prev => [...prev, person])
+                                                                setAssigneeSearchQuery('')
+                                                                setShowAssigneeSuggestions(false)
+                                                                setHighlightedAssigneeIdx(0)
+                                                            }}
+                                                            onMouseEnter={() => setHighlightedAssigneeIdx(idx)}
+                                                            style={{
+                                                                padding: '8px 12px',
+                                                                cursor: 'pointer',
+                                                                fontSize: 13,
+                                                                color: idx === highlightedAssigneeIdx ? '#fff' : '#1E293B',
+                                                                background: idx === highlightedAssigneeIdx ? '#1D7DB5' : '#fff',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 8
+                                                            }}
+                                                        >
+                                                            <span style={{
+                                                                width: 20,
+                                                                height: 20,
+                                                                borderRadius: '50%',
+                                                                background: getAvatarColor(person.name || 'U'),
+                                                                color: '#fff',
+                                                                fontSize: 9,
+                                                                fontWeight: 700,
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                flexShrink: 0
+                                                            }}>
+                                                                {getInitials(person.name || 'U')}
+                                                            </span>
+                                                            <span style={{ fontWeight: idx === highlightedAssigneeIdx ? 600 : 400 }}>{person.name}</span>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#94A3B8', fontStyle: 'italic' }}>
+                                                        {t('basecamp.no_people_found')}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* When done (Notify people) */}
+                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                    <label className="w-auto sm:w-[108px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-1.5">
+                                        {t('basecamp.when_done')}
+                                    </label>
+                                    <div ref={notifyBoxRef} style={{ position: 'relative', flex: 1, maxWidth: 540 }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap',
+                                            gap: 6,
+                                            padding: '5px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid #CBD5E1',
+                                            background: '#fff',
+                                            minHeight: 34
+                                        }}>
+                                            {newTaskNotifyees.map((person) => (
+                                                <span key={person.id} style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 5,
+                                                    padding: '2px 8px 2px 4px',
+                                                    borderRadius: 14,
+                                                    background: '#F8FAFC',
+                                                    border: '1px solid #CBD5E1',
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    color: '#1E293B'
+                                                }}>
+                                                    <span style={{
+                                                        width: 18,
+                                                        height: 18,
+                                                        borderRadius: '50%',
+                                                        background: getAvatarColor(person.name || 'U'),
+                                                        color: '#fff',
+                                                        fontSize: 9,
+                                                        fontWeight: 700,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        flexShrink: 0
+                                                    }}>
+                                                        {getInitials(person.name || 'U')}
+                                                    </span>
+                                                    <span>{person.name}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setNewTaskNotifyees(prev => prev.filter(p => p.id !== person.id))}
+                                                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#EF4444', padding: '0 2px', fontWeight: 700 }}
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            <input
+                                                type="text"
+                                                placeholder={newTaskNotifyees.length === 0 ? t('basecamp.notify_people_placeholder') : ''}
+                                                value={notifySearchQuery}
+                                                onChange={(e) => {
+                                                    setNotifySearchQuery(e.target.value)
+                                                    setShowNotifySuggestions(true)
+                                                    setHighlightedNotifyIdx(0)
+                                                }}
+                                                onFocus={() => setShowNotifySuggestions(true)}
+                                                onKeyDown={(e) => {
+                                                    if (!showNotifySuggestions || filteredNotifySuggestions.length === 0) return
+                                                    if (e.key === 'ArrowDown') {
+                                                        e.preventDefault()
+                                                        setHighlightedNotifyIdx(prev => Math.min(prev + 1, filteredNotifySuggestions.length - 1))
+                                                    } else if (e.key === 'ArrowUp') {
+                                                        e.preventDefault()
+                                                        setHighlightedNotifyIdx(prev => Math.max(prev - 1, 0))
+                                                    } else if (e.key === 'Enter') {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        const person = filteredNotifySuggestions[highlightedNotifyIdx]
+                                                        if (person) {
+                                                            setNewTaskNotifyees(prev => [...prev, person])
+                                                            setNotifySearchQuery('')
+                                                            setShowNotifySuggestions(false)
+                                                            setHighlightedNotifyIdx(0)
+                                                        }
+                                                    } else if (e.key === 'Escape') {
+                                                        setShowNotifySuggestions(false)
+                                                    }
+                                                }}
+                                                style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', fontSize: 13, color: '#1E293B', background: 'transparent' }}
+                                            />
+                                        </div>
+
+                                        {showNotifySuggestions && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                left: 0,
+                                                right: 0,
+                                                marginTop: 4,
+                                                background: '#fff',
+                                                border: '1px solid #CBD5E1',
+                                                borderRadius: 6,
+                                                boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                                                zIndex: 60,
+                                                maxHeight: 190,
+                                                overflowY: 'auto'
+                                            }}>
+                                                {filteredNotifySuggestions.length > 0 ? (
+                                                    filteredNotifySuggestions.map((person: any, idx: number) => (
+                                                        <div
+                                                            key={person.id}
+                                                            onMouseDown={(e) => e.preventDefault()}
+                                                            onClick={() => {
+                                                                setNewTaskNotifyees(prev => [...prev, person])
+                                                                setNotifySearchQuery('')
+                                                                setShowNotifySuggestions(false)
+                                                                setHighlightedNotifyIdx(0)
+                                                            }}
+                                                            onMouseEnter={() => setHighlightedNotifyIdx(idx)}
+                                                            style={{
+                                                                padding: '8px 12px',
+                                                                cursor: 'pointer',
+                                                                fontSize: 13,
+                                                                color: idx === highlightedNotifyIdx ? '#fff' : '#1E293B',
+                                                                background: idx === highlightedNotifyIdx ? '#1D7DB5' : '#fff',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 8
+                                                            }}
+                                                        >
+                                                            <span style={{
+                                                                width: 20,
+                                                                height: 20,
+                                                                borderRadius: '50%',
+                                                                background: getAvatarColor(person.name || 'U'),
+                                                                color: '#fff',
+                                                                fontSize: 9,
+                                                                fontWeight: 700,
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                flexShrink: 0
+                                                            }}>
+                                                                {getInitials(person.name || 'U')}
+                                                            </span>
+                                                            <span style={{ fontWeight: idx === highlightedNotifyIdx ? 600 : 400 }}>{person.name}</span>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#94A3B8', fontStyle: 'italic' }}>
+                                                        {t('basecamp.no_people_found')}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Due on */}
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                                    <label className="w-auto sm:w-[108px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569]">
+                                        {t('basecamp.due_on')}
+                                    </label>
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                        <input
+                                            type="date"
+                                            value={newTaskDueDate}
+                                            onChange={e => setNewTaskDueDate(e.target.value)}
+                                            style={{
+                                                padding: '5px 10px',
+                                                borderRadius: 6,
+                                                border: '1px solid #CBD5E1',
+                                                fontSize: 13,
+                                                outline: 'none',
+                                                background: '#fff',
+                                                color: '#1E293B'
+                                            }}
+                                        />
+                                        {newTaskDueDate && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setNewTaskDueDate('')}
+                                                title={t('basecamp.clear_due_date')}
+                                                style={{ border: 'none', background: 'transparent', color: '#94A3B8', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Notes — Full Basecamp 4 Trix Rich-Text Editor */}
+                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                    <label className="w-auto sm:w-[108px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-2">
+                                        {t('basecamp.notes_short_label')}
+                                    </label>
+                                    <div className="w-full" style={{ maxWidth: 680 }}>
+                                        <div style={{
+                                            borderRadius: 8,
+                                            border: isDraggingOverNotes ? '2px dashed #1D7DB5' : '1px solid #CBD5E1',
+                                            background: '#fff',
+                                            transition: 'border-color 0.15s'
+                                        }}>
+                                            {/* Basecamp Trix Toolbar (exact icon order + selection-preserving onMouseDown) */}
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                flexWrap: 'wrap',
+                                                gap: 2,
+                                                padding: '5px 8px',
+                                                background: '#FAFAF8',
+                                                borderBottom: '1px solid #E2E8F0',
+                                                borderTopLeftRadius: 8,
+                                                borderTopRightRadius: 8
+                                            }}>
+                                                {/* Group 1: Media (Image + Attach File) */}
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={editorInsertImage}
+                                                    disabled={uploadingAttachment}
+                                                    title={t('basecamp.attach_image_btn')}
+                                                    style={toolbarBtnStyle}
+                                                >
+                                                    <Image size={15} color="#475569" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={editorInsertAttachment}
+                                                    disabled={uploadingAttachment}
+                                                    title={t('basecamp.attach_file_btn')}
+                                                    style={toolbarBtnStyle}
+                                                >
+                                                    <Paperclip size={15} color="#475569" />
+                                                </button>
+
+                                                <span style={dividerStyle} />
+
+                                                {/* Group 2: Inline Text Style (Bold, Italic, Strikethrough, Text Size Tt▾, Highlight▾, Link) */}
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => execCmd('bold')} title={t('basecamp.editor_bold')} style={toolbarBtnStyle}>
+                                                    <Bold size={14} color="#475569" />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => execCmd('italic')} title={t('basecamp.editor_italic')} style={toolbarBtnStyle}>
+                                                    <Italic size={14} color="#475569" />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => execCmd('strikeThrough')} title={t('basecamp.editor_strikethrough')} style={toolbarBtnStyle}>
+                                                    <Strikethrough size={14} color="#475569" />
+                                                </button>
+
+                                                {/* Text Size Dropdown (Tt▾) */}
+                                                <div ref={textSizeMenuRef} style={{ position: 'relative' }}>
+                                                    <button
+                                                        type="button"
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            saveEditorSelection()
+                                                            setShowTextSizeMenu(prev => !prev)
+                                                            setShowColorMenu(false)
+                                                        }}
+                                                        title={t('basecamp.editor_text_size')}
+                                                        style={{ ...toolbarBtnStyle, width: 36, gap: 1, background: showTextSizeMenu ? '#E2E8F0' : 'transparent' }}
+                                                    >
+                                                        <Type size={14} color="#475569" />
+                                                        <ChevronDown size={10} color="#475569" />
+                                                    </button>
+                                                    {showTextSizeMenu && (
+                                                        <div style={{
+                                                            position: 'absolute',
+                                                            top: '100%',
+                                                            left: 0,
+                                                            zIndex: 70,
+                                                            background: '#fff',
+                                                            border: '1px solid #CBD5E1',
+                                                            borderRadius: 6,
+                                                            boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
+                                                            minWidth: 165,
+                                                            padding: '4px 0',
+                                                            marginTop: 3
+                                                        }}>
+                                                            <button
+                                                                type="button"
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                onClick={() => { execCmd('formatBlock', 'h1'); setShowTextSizeMenu(false) }}
+                                                                style={{ display: 'block', width: '100%', padding: '7px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 17, fontWeight: 700, color: '#1E293B' }}
+                                                            >
+                                                                {t('basecamp.editor_heading_1')}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                onClick={() => { execCmd('formatBlock', 'h2'); setShowTextSizeMenu(false) }}
+                                                                style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 15, fontWeight: 600, color: '#1E293B' }}
+                                                            >
+                                                                {t('basecamp.editor_heading_2')}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                onClick={() => { execCmd('formatBlock', 'p'); setShowTextSizeMenu(false) }}
+                                                                style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 13, color: '#1E293B' }}
+                                                            >
+                                                                {t('basecamp.editor_normal_text')}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Highlight / Color Dropdown */}
+                                                <div ref={colorMenuRef} style={{ position: 'relative' }}>
+                                                    <button
+                                                        type="button"
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            saveEditorSelection()
+                                                            setShowColorMenu(prev => !prev)
+                                                            setShowTextSizeMenu(false)
+                                                        }}
+                                                        title={t('basecamp.editor_highlight_color')}
+                                                        style={{ ...toolbarBtnStyle, width: 36, gap: 1, background: showColorMenu ? '#E2E8F0' : 'transparent' }}
+                                                    >
+                                                        <Highlighter size={14} color="#475569" />
+                                                        <ChevronDown size={10} color="#475569" />
+                                                    </button>
+                                                    {showColorMenu && (
+                                                        <div style={{
+                                                            position: 'absolute',
+                                                            top: '100%',
+                                                            left: 0,
+                                                            zIndex: 70,
+                                                            background: '#fff',
+                                                            border: '1px solid #CBD5E1',
+                                                            borderRadius: 6,
+                                                            boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
+                                                            padding: 8,
+                                                            marginTop: 3,
+                                                            display: 'flex',
+                                                            gap: 5,
+                                                            flexWrap: 'wrap',
+                                                            width: 176
+                                                        }}>
+                                                            {[
+                                                                { color: '#FEF08A', label: t('basecamp.color_yellow') },
+                                                                { color: '#BBF7D0', label: t('basecamp.color_green') },
+                                                                { color: '#BAE6FD', label: t('basecamp.color_blue') },
+                                                                { color: '#FECDD3', label: t('basecamp.color_pink') },
+                                                                { color: '#FED7AA', label: t('basecamp.color_orange') },
+                                                                { color: '#E9D5FF', label: t('basecamp.color_purple') },
+                                                            ].map((c) => (
+                                                                <button
+                                                                    key={c.color}
+                                                                    type="button"
+                                                                    onMouseDown={(e) => e.preventDefault()}
+                                                                    title={c.label}
+                                                                    onClick={() => { execCmd('hiliteColor', c.color); setShowColorMenu(false) }}
+                                                                    style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #CBD5E1', background: c.color, cursor: 'pointer' }}
+                                                                />
+                                                            ))}
+                                                            <button
+                                                                type="button"
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                title={t('basecamp.editor_clear_highlight')}
+                                                                onClick={() => { execCmd('removeFormat'); setShowColorMenu(false) }}
+                                                                style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #CBD5E1', background: '#fff', cursor: 'pointer', fontSize: 11, color: '#64748B', fontWeight: 700 }}
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Link */}
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={editorToggleLinkBar}
+                                                    title={t('basecamp.editor_link')}
+                                                    style={{ ...toolbarBtnStyle, background: showLinkBar ? '#1D7DB5' : 'transparent' }}
+                                                >
+                                                    <Link size={14} color={showLinkBar ? '#fff' : '#475569'} />
+                                                </button>
+
+                                                <span style={dividerStyle} />
+
+                                                {/* Group 3: Quote & Code */}
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={editorInsertQuote} title={t('basecamp.editor_quote')} style={toolbarBtnStyle}>
+                                                    <Quote size={14} color="#475569" />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={editorInsertCode} title={t('basecamp.editor_code')} style={toolbarBtnStyle}>
+                                                    <Code size={14} color="#475569" />
+                                                </button>
+
+                                                <span style={dividerStyle} />
+
+                                                {/* Group 4: Lists */}
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => execCmd('insertUnorderedList')} title={t('basecamp.editor_bullet_list')} style={toolbarBtnStyle}>
+                                                    <List size={14} color="#475569" />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => execCmd('insertOrderedList')} title={t('basecamp.editor_numbered_list')} style={toolbarBtnStyle}>
+                                                    <ListOrdered size={14} color="#475569" />
+                                                </button>
+
+                                                <span style={dividerStyle} />
+
+                                                {/* Group 5: Table, Align, Dictation */}
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={editorInsertTable}
+                                                    title={t('basecamp.editor_table')}
+                                                    style={{ ...toolbarBtnStyle, background: showTableControls ? '#2C3E50' : 'transparent' }}
+                                                >
+                                                    <Table size={14} color={showTableControls ? '#fff' : '#475569'} />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => execCmd('justifyCenter')} title={t('basecamp.editor_align')} style={toolbarBtnStyle}>
+                                                    <AlignLeft size={14} color="#475569" />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={editorDictateSpeech} title={t('basecamp.editor_dictate')} style={toolbarBtnStyle}>
+                                                    <Mic size={14} color="#475569" />
+                                                </button>
+
+                                                {/* Right-aligned Undo / Redo */}
+                                                <div style={{ flex: 1 }} />
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={editorUndo} title={t('basecamp.editor_undo')} style={toolbarBtnStyle}>
+                                                    <Undo2 size={14} color="#475569" />
+                                                </button>
+                                                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={editorRedo} title={t('basecamp.editor_redo')} style={toolbarBtnStyle}>
+                                                    <Redo2 size={14} color="#475569" />
+                                                </button>
+                                            </div>
+
+                                            {/* Upload in-progress indicator */}
+                                            {uploadingAttachment && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: '#EFF6FF', borderBottom: '1px solid #BFDBFE', fontSize: 12, color: '#1D4ED8', fontWeight: 600 }}>
+                                                    <Loader2 size={14} className="animate-spin" />
+                                                    <span>{t('basecamp.uploading_real_file')}</span>
+                                                </div>
+                                            )}
+
+                                            {/* Inline Link Bar (works with or without prior selection, never triggers form submit on Enter) */}
+                                            {showLinkBar && (
+                                                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, padding: '8px 10px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                                                    <input
+                                                        type="text"
+                                                        value={linkUrl}
+                                                        onChange={e => setLinkUrl(e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                editorApplyLink()
+                                                            } else if (e.key === 'Escape') {
+                                                                e.preventDefault()
+                                                                setShowLinkBar(false)
+                                                            }
+                                                        }}
+                                                        placeholder={t('basecamp.link_url_placeholder')}
+                                                        autoFocus
+                                                        style={{ flex: '1 1 200px', padding: '5px 9px', borderRadius: 5, border: '1px solid #CBD5E1', fontSize: 12.5, outline: 'none', color: '#1E293B', background: '#fff' }}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        value={linkText}
+                                                        onChange={e => setLinkText(e.target.value)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                editorApplyLink()
+                                                            } else if (e.key === 'Escape') {
+                                                                e.preventDefault()
+                                                                setShowLinkBar(false)
+                                                            }
+                                                        }}
+                                                        placeholder={t('basecamp.editor_link_text_placeholder')}
+                                                        style={{ flex: '1 1 150px', padding: '5px 9px', borderRadius: 5, border: '1px solid #CBD5E1', fontSize: 12.5, outline: 'none', color: '#1E293B', background: '#fff' }}
+                                                    />
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={editorApplyLink} style={{ padding: '5px 12px', borderRadius: 5, border: 'none', background: '#1D7DB5', color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                                                        {t('basecamp.apply_link_btn')}
+                                                    </button>
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={editorUnlink} style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid #CBD5E1', background: '#fff', color: '#64748B', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                                                        {t('basecamp.remove_link_btn')}
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* Inline Dark Table Controls Bar (like real Basecamp) */}
+                                            {showTableControls && (
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '6px 12px', background: '#2C3E50', borderBottom: '1px solid #1E293B' }}>
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { if (tableRows > 1) editorUpdateTable(tableRows - 1, tableCols) }} style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>−</button>
+                                                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, minWidth: 54, textAlign: 'center' }}>{tableRows} {t('basecamp.editor_rows')}</span>
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => editorUpdateTable(tableRows + 1, tableCols)} style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>+</button>
+                                                    <span style={{ width: 8 }} />
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { if (tableCols > 1) editorUpdateTable(tableRows, tableCols - 1) }} style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>−</button>
+                                                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, minWidth: 72, textAlign: 'center' }}>{tableCols} {t('basecamp.editor_columns')}</span>
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => editorUpdateTable(tableRows, tableCols + 1)} style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>+</button>
+                                                    <span style={{ width: 8 }} />
+                                                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={editorRemoveTable} title={t('basecamp.editor_delete_table')} style={{ background: '#EF4444', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* Editable Rich-Text Surface with Non-Blocking Placeholder + Paste + Drag & Drop */}
+                                            <div
+                                                onClick={() => focusEditor()}
+                                                onDragOver={(e) => { e.preventDefault(); setIsDraggingOverNotes(true) }}
+                                                onDragLeave={() => setIsDraggingOverNotes(false)}
+                                                onDrop={handleNotesDrop}
+                                                style={{ position: 'relative', cursor: 'text' }}
+                                            >
+                                                {notesIsEmpty && !isDraggingOverNotes && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        top: 12,
+                                                        left: 14,
+                                                        right: 14,
+                                                        color: '#94A3B8',
+                                                        fontSize: 14,
+                                                        pointerEvents: 'none',
+                                                        userSelect: 'none'
+                                                    }}>
+                                                        {t('basecamp.notes_placeholder')}
+                                                    </div>
+                                                )}
+                                                {isDraggingOverNotes && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        inset: 6,
+                                                        borderRadius: 6,
+                                                        background: 'rgba(239, 246, 255, 0.92)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: '#1D7DB5',
+                                                        fontSize: 13.5,
+                                                        fontWeight: 700,
+                                                        pointerEvents: 'none',
+                                                        zIndex: 5
+                                                    }}>
+                                                        {t('basecamp.drop_files_here')}
+                                                    </div>
+                                                )}
+                                                <div
+                                                    ref={notesEditorRef}
+                                                    contentEditable="true"
+                                                    suppressContentEditableWarning
+                                                    className="bc-rich-text"
+                                                    onInput={() => {
+                                                        syncNotesEmptyState()
+                                                        saveEditorSelection()
+                                                        editorSaveSnapshot()
+                                                    }}
+                                                    onKeyUp={saveEditorSelection}
+                                                    onMouseUp={saveEditorSelection}
+                                                    onPaste={handleNotesPaste}
+                                                    style={{
+                                                        minHeight: 128,
+                                                        maxHeight: 340,
+                                                        overflowY: 'auto',
+                                                        padding: '12px 14px',
+                                                        fontSize: 14,
+                                                        lineHeight: 1.6,
+                                                        color: '#1E293B',
+                                                        outline: 'none',
+                                                        wordBreak: 'break-word',
+                                                        borderBottomLeftRadius: 8,
+                                                        borderBottomRightRadius: 8
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Hidden multi-file inputs */}
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            onChange={handleImageFileSelected}
+                                            style={{ display: 'none' }}
+                                        />
+                                        <input
+                                            ref={attachmentInputRef}
+                                            type="file"
+                                            accept="*/*"
+                                            multiple
+                                            onChange={handleAttachmentFileSelected}
+                                            style={{ display: 'none' }}
+                                        />
+
+                                        {uploadError && (
+                                            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
+                                                {uploadError}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Subtasks (Matches Basecamp 4 "Subtasks  Add subtasks") */}
+                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                    <label className="w-auto sm:w-[108px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-1">
+                                        {t('basecamp.subtasks_label')}
+                                    </label>
+                                    <div style={{ flex: 1, maxWidth: 540 }}>
+                                        {!showSubtasksInput ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowSubtasksInput(true)
+                                                    if (newTaskSubtasks.length === 0) setNewTaskSubtasks([''])
+                                                }}
+                                                style={{
+                                                    border: 'none',
+                                                    background: 'transparent',
+                                                    padding: '4px 0',
+                                                    fontSize: 13.5,
+                                                    color: '#64748B',
+                                                    cursor: 'pointer',
+                                                    textAlign: 'left'
+                                                }}
+                                                onMouseEnter={e => (e.currentTarget.style.color = '#1D7DB5')}
+                                                onMouseLeave={e => (e.currentTarget.style.color = '#64748B')}
+                                            >
+                                                {t('basecamp.add_subtasks_placeholder')}
+                                            </button>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                {newTaskSubtasks.map((st, stIdx) => (
+                                                    <div key={stIdx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <span style={{ width: 14, height: 14, borderRadius: 3, border: '1.5px solid #CBD5E1', flexShrink: 0, background: '#fff' }} />
+                                                        <input
+                                                            type="text"
+                                                            value={st}
+                                                            onChange={e => {
+                                                                const val = e.target.value
+                                                                setNewTaskSubtasks(prev => prev.map((item, idx) => (idx === stIdx ? val : item)))
+                                                            }}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') {
+                                                                    e.preventDefault()
+                                                                    e.stopPropagation()
+                                                                    setNewTaskSubtasks(prev => [...prev.slice(0, stIdx + 1), '', ...prev.slice(stIdx + 1)])
+                                                                }
+                                                            }}
+                                                            placeholder={t('basecamp.add_subtask_item_placeholder')}
+                                                            style={{ flex: 1, padding: '5px 8px', borderRadius: 5, border: '1px solid #CBD5E1', fontSize: 13, color: '#1E293B', background: '#fff', outline: 'none' }}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (newTaskSubtasks.length <= 1) {
+                                                                    setNewTaskSubtasks([''])
+                                                                    setShowSubtasksInput(false)
+                                                                } else {
+                                                                    setNewTaskSubtasks(prev => prev.filter((_, idx) => idx !== stIdx))
+                                                                }
+                                                            }}
+                                                            style={{ border: 'none', background: 'transparent', color: '#94A3B8', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                <div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setNewTaskSubtasks(prev => [...prev, ''])}
+                                                        style={{ border: 'none', background: 'transparent', color: '#1D7DB5', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}
+                                                    >
+                                                        {t('basecamp.add_another_subtask')}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Action Buttons */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
+                            {/* 3. Action Buttons — Aligned under fields like Basecamp */}
+                            <div className="flex items-center gap-3 mt-3 pt-1 pb-1 pl-0 sm:pl-[152px]">
                                 <button
                                     type="submit"
-                                    disabled={loading}
+                                    disabled={loading || uploadingAttachment || actionLoading === `add_task_${list.id}`}
                                     style={{
                                         padding: '8px 18px',
-                                        borderRadius: 6,
+                                        borderRadius: 18,
                                         border: 'none',
-                                        background: '#22C55E',
+                                        background: '#1DAB45',
                                         color: '#fff',
                                         fontSize: 13.5,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
+                                        fontWeight: 600,
+                                        cursor: (loading || uploadingAttachment) ? 'not-allowed' : 'pointer',
+                                        opacity: (loading || uploadingAttachment || actionLoading === `add_task_${list.id}`) ? 0.65 : 1,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
                                         transition: 'background 0.15s'
                                     }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#16A34A')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = '#22C55E')}
+                                    onMouseEnter={e => (e.currentTarget.style.background = '#168A37')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = '#1DAB45')}
                                 >
-                                    {t('basecamp.add_todo') || 'Add this to-do'}
+                                    {actionLoading === `add_task_${list.id}` && <Loader2 size={14} className="animate-spin" />}
+                                    {t('basecamp.add_todo_btn_label')}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => {
                                         setAddingTaskId(null)
-                                        setNewTaskName('')
-                                        setNewTaskAssignees([])
-                                        setNewTaskDueDate('')
+                                        resetAddTaskForm()
                                     }}
                                     style={{
-                                        padding: '8px 14px',
-                                        borderRadius: 6,
+                                        padding: '7px 16px',
+                                        borderRadius: 18,
                                         border: '1px solid #CBD5E1',
                                         background: '#fff',
-                                        color: '#64748B',
+                                        color: '#475569',
                                         fontSize: 13.5,
-                                        fontWeight: 600,
+                                        fontWeight: 500,
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    {t('basecamp.cancel') || 'Cancel'}
+                                    {t('basecamp.cancel')}
                                 </button>
                             </div>
                         </form>
                     ) : (
                         <button
                             onClick={() => {
+                                resetAddTaskForm()
                                 setAddingTaskId(list.id)
-                                setNewTaskName('')
-                                setNewTaskAssignees([])
-                                setNewTaskDueDate('')
                             }}
                             style={{
                                 display: 'inline-flex',
@@ -1673,16 +2909,16 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                             }}
                         >
                             <Plus size={15} />
-                            {t('basecamp.add_todo') || 'Add a to-do'}
+                            {t('basecamp.add_todo')}
                         </button>
                     )}
                 </div>
 
                 {/* ── Completed Tasks Accordion ── */}
-                {completedTasks.length > 0 && (
+                {displayCompletedCount > 0 && (
                     <div style={{ borderTop: '1px solid #F0EFEB', background: '#FAFAF8' }}>
                         <button
-                            onClick={() => toggleCompletedSection(list.id)}
+                            onClick={() => toggleCompletedSection(list, completedTasks.length)}
                             style={{
                                 width: '100%',
                                 display: 'flex',
@@ -1700,12 +2936,18 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         >
                             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                {(list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : completedTasks.length)} {t('basecamp.completed_todos') || 'completed to-dos'}
+                                {displayCompletedCount} {t('basecamp.completed_todos')}
                             </span>
                         </button>
 
                         {isExpanded && (
                             <div style={{ padding: '4px 0 12px' }}>
+                                {loadingCompletedByList[list.id] && completedTasks.length === 0 && (
+                                    <div style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8, color: '#64748B', fontSize: 12.5 }}>
+                                        <Loader2 size={14} className="animate-spin" style={{ color: '#1D7DB5' }} />
+                                        <span>{t('basecamp.loading_bc')}</span>
+                                    </div>
+                                )}
                                 {completedTasks.map((task: any) => (
                                     <div
                                         key={task.id}
@@ -1734,7 +2976,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 padding: 0,
                                                 flexShrink: 0
                                             }}
-                                            title={t('basecamp.mark_incomplete') || 'Mark incomplete'}
+                                            title={t('basecamp.mark_incomplete')}
                                         >
                                             <Check size={12} strokeWidth={3} />
                                         </button>
@@ -1752,9 +2994,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         >
                                             {task.task_name}
                                         </span>
-                                        {task.created_at && (
+                                        {(task.completed_at || task.created_at) && (
                                             <span
-                                                title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}`}
+                                                title={`${t('basecamp.completed_label')}: ${formatCreatedDateTime(task.completed_at || task.created_at)}`}
                                                 style={{
                                                     display: 'inline-flex',
                                                     alignItems: 'center',
@@ -1771,7 +3013,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 }}
                                             >
                                                 <Clock size={9.5} style={{ color: '#94A3B8', flexShrink: 0 }} />
-                                                {formatCreatedDateTime(task.created_at)}
+                                                {formatCreatedDateTime(task.completed_at || task.created_at)}
                                             </span>
                                         )}
                                     </div>
@@ -1789,11 +3031,17 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             ...list,
             tasks: sortTasksByCreatedDate(list.tasks)
         }))
-        if (!todoFilterQuery.trim()) return sortedLists
-        const q = todoFilterQuery.toLowerCase().trim()
+        const q = normalizeSearch(todoFilterQuery)
+        if (!q) return sortedLists
         return sortedLists.map(list => {
-            const listMatches = list.list_name.toLowerCase().includes(q) || (list.description && list.description.toLowerCase().includes(q))
-            const matchingTasks = list.tasks.filter((tk: any) => tk.task_name.toLowerCase().includes(q))
+            const listMatches =
+                normalizeSearch(list.list_name).includes(q) ||
+                normalizeSearch(list.description).includes(q)
+            const matchingTasks = list.tasks.filter((tk: any) =>
+                normalizeSearch(tk.task_name).includes(q) ||
+                normalizeSearch(tk.creator_name).includes(q) ||
+                normalizeSearch(tk.assignee).includes(q)
+            )
             if (listMatches) return list
             if (matchingTasks.length > 0) {
                 return { ...list, tasks: matchingTasks }
@@ -1804,6 +3052,48 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
     return (
         <div style={{ maxWidth: 1280, width: '100%', margin: '0 auto', padding: '0 12px' }}>
+            <style dangerouslySetInnerHTML={{ __html: `
+                .bc-notes-editor:empty:before {
+                    content: attr(data-placeholder);
+                    color: #94A3B8;
+                    pointer-events: none;
+                }
+                .bc-rich-text a { color: #1D7DB5; text-decoration: none; font-weight: 500; }
+                .bc-rich-text a:hover { text-decoration: underline; }
+                .bc-rich-text img { max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; cursor: pointer; display: block; }
+                .bc-rich-text h1 { font-size: 1.35rem; font-weight: 700; margin: 6px 0; line-height: 1.3; }
+                .bc-rich-text h2 { font-size: 1.12rem; font-weight: 600; margin: 5px 0; line-height: 1.35; }
+                .bc-rich-text ul { padding-left: 20px; list-style-type: disc; margin: 6px 0; }
+                .bc-rich-text ol { padding-left: 20px; list-style-type: decimal; margin: 6px 0; }
+                .bc-rich-text blockquote { border-left: 3px solid #CBD5E1; padding-left: 12px; margin: 8px 0; color: #64748B; font-style: italic; }
+                .bc-rich-text table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+                .bc-rich-text td, .bc-rich-text th { border: 1px solid #CBD5E1; padding: 6px 8px; }
+            ` }} />
+            {mutationError && (
+                <div style={{
+                    marginTop: 12,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    background: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    color: '#B91C1C',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12
+                }}>
+                    <span>{mutationError}</span>
+                    <button
+                        type="button"
+                        onClick={() => setMutationError(null)}
+                        style={{ border: 'none', background: 'transparent', color: '#B91C1C', cursor: 'pointer', fontWeight: 800 }}
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
             {/* ── Drill-down Single List View ── */}
             {selectedListId ? (
                 (() => {
@@ -1813,7 +3103,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         return (
                             <div style={{ padding: '36px 0', textAlign: 'center' }}>
                                 <p style={{ color: '#64748B', fontSize: 15, marginBottom: 16 }}>
-                                    {t('basecamp.list_not_found') || 'This list could not be found.'}
+                                    {t('basecamp.list_not_found')}
                                 </p>
                                 <button
                                     onClick={() => setSelectedListId(null)}
@@ -1828,7 +3118,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    ← {t('basecamp.back_to_todos') || 'Back to all to-dos'}
+                                    ← {t('basecamp.back_to_todos')}
                                 </button>
                             </div>
                         )
@@ -1852,7 +3142,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                             lineHeight: 1.1,
                             fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                            {t('basecamp.todos') || 'To-dos'}
+                            {t('basecamp.todos')}
                         </h1>
 
                         <div style={{
@@ -1883,7 +3173,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
                             >
                                 <Plus size={15} />
-                                {t('basecamp.add_list') || 'New list'}
+                                {t('basecamp.add_list')}
                             </button>
 
                             {/* View As Menu */}
@@ -1908,7 +3198,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     onMouseEnter={e => (e.currentTarget.style.background = '#F7F7F5')}
                                     onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                 >
-                                    <span>{t('basecamp.view_as') || 'View as'}</span>
+                                    <span>{t('basecamp.view_as')}</span>
                                     <ChevronDown
                                         size={14}
                                         style={{
@@ -1946,7 +3236,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             borderBottom: '1px solid rgba(255,255,255,0.1)',
                                             marginBottom: 4
                                         }}>
-                                            {t('basecamp.view_todos_prompt') || 'View to-dos...'}
+                                            {t('basecamp.view_todos_prompt')}
                                         </div>
                                         <button
                                             onClick={() => { setViewMode('list'); setShowViewAsMenu(false) }}
@@ -1968,7 +3258,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
                                             onMouseLeave={e => (e.currentTarget.style.background = viewMode === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent')}
                                         >
-                                            <span>{t('basecamp.view_in_list') || 'In a list'}</span>
+                                            <span>{t('basecamp.view_in_list')}</span>
                                             {viewMode === 'list' && <Check size={16} style={{ color: '#38BDF8' }} />}
                                         </button>
                                         <button
@@ -1991,7 +3281,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
                                             onMouseLeave={e => (e.currentTarget.style.background = viewMode === 'cards' ? 'rgba(255,255,255,0.1)' : 'transparent')}
                                         >
-                                            <span>{t('basecamp.view_as_cards') || 'As cards'}</span>
+                                            <span>{t('basecamp.view_as_cards')}</span>
                                             {viewMode === 'cards' && <Check size={16} style={{ color: '#38BDF8' }} />}
                                         </button>
                                     </div>
@@ -2002,7 +3292,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                             <button
                                 type="button"
                                 onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
-                                title={t('basecamp.sort_by_created_tooltip') || 'Sorted by creation date (click to invert)'}
+                                title={t('basecamp.sort_by_created_tooltip')}
                                 style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -2029,7 +3319,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     type="text"
                                     value={todoFilterQuery}
                                     onChange={(e) => setTodoFilterQuery(e.target.value)}
-                                    placeholder={t('basecamp.filter_placeholder') || 'Filter to-dos...'}
+                                    placeholder={t('basecamp.filter_placeholder')}
                                     style={{
                                         padding: todoFilterQuery ? '8px 28px 8px 12px' : '8px 12px',
                                         borderRadius: 6,
@@ -2066,7 +3356,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             padding: '2px 4px',
                                             lineHeight: 1
                                         }}
-                                        title="Clear filter"
+                                        title={t('basecamp.clear_filter')}
                                     >
                                         ✕
                                     </button>
@@ -2084,7 +3374,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         filteredLists.length === 0 ? (
                             <div style={{ padding: '48px 0', textAlign: 'center', color: '#64748B' }}>
                                 <p style={{ fontSize: 15, fontWeight: 600, color: '#1E293B', marginBottom: 8 }}>
-                                    {t('basecamp.no_matching_todos') || 'No to-dos match your filter'}
+                                    {t('basecamp.no_matching_todos')}
                                 </p>
                                 <button
                                     onClick={() => setTodoFilterQuery('')}
@@ -2099,7 +3389,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    {t('common.clear') || 'Clear filter'}
+                                    {t('basecamp.clear_filter')}
                                 </button>
                             </div>
                         ) : viewMode === 'cards' ? (
@@ -2188,7 +3478,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0 16px' }}>
                                                 {openTasks.length === 0 ? (
                                                     <div style={{ color: '#94A3B8', fontSize: 13, fontStyle: 'italic', padding: '12px 0' }}>
-                                                        {t('basecamp.no_open_todos') || 'No open to-dos'}
+                                                        {t('basecamp.no_open_todos')}
                                                     </div>
                                                 ) : (
                                                     previewTasks.map((task: any) => {
@@ -2306,15 +3596,15 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 <div>
                                                     {remainingCount > 0 && (
                                                         <span style={{ color: '#1D7DB5' }}>
-                                                            +{remainingCount} {t('basecamp.more_todos') || 'more to-dos'}
+                                                            +{remainingCount} {t('basecamp.more_todos')}
                                                         </span>
                                                     )}
                                                 </div>
 
-                                                {((list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : list.tasks.filter((tk: any) => tk.is_completed).length) > 0) && (
+                                                {((todoFilterQuery.trim() ? completedTasks.length : (list.completed_count !== undefined && list.completed_count !== null ? Math.max(Number(list.completed_count), completedTasks.length) : completedTasks.length)) > 0) && (
                                                     <span style={{ color: '#16A34A', display: 'flex', alignItems: 'center', gap: 4 }}>
                                                         <Check size={12} />
-                                                        {list.completed_count !== undefined && list.completed_count !== null ? list.completed_count : list.tasks.filter((tk: any) => tk.is_completed).length} {t('basecamp.done_short') || 'done'}
+                                                        {todoFilterQuery.trim() ? completedTasks.length : (list.completed_count !== undefined && list.completed_count !== null ? Math.max(Number(list.completed_count), completedTasks.length) : completedTasks.length)} {t('basecamp.done_short')}
                                                     </span>
                                                 )}
                                             </div>
@@ -2332,10 +3622,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         <div style={{ padding: '60px 0', textAlign: 'center', color: '#64748B' }}>
                             <ClipboardList style={{ width: 48, height: 48, margin: '0 auto 16px', color: '#CBD5E1' }} />
                             <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1E293B', marginBottom: 6 }}>
-                                {t('basecamp.no_todolists') || 'No to-do lists yet'}
+                                {t('basecamp.no_todolists')}
                             </h3>
                             <p style={{ fontSize: 14, color: '#64748B', maxWidth: 400, margin: '0 auto 20px' }}>
-                                {t('basecamp.no_todolists_desc') || 'Create your first to-do list to organize team tasks, prep items, and follow-ups.'}
+                                {t('basecamp.no_todolists_desc')}
                             </p>
                             <button
                                 onClick={() => setShowAddList(true)}
@@ -2354,7 +3644,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 }}
                             >
                                 <Plus size={16} />
-                                {t('basecamp.add_first_list') || 'Create a list'}
+                                {t('basecamp.add_first_list')}
                             </button>
                         </div>
                     )}
@@ -2398,7 +3688,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 color: '#1D2D35',
                                 margin: 0
                             }}>
-                                {t('basecamp.new_list_title') || 'Add a new to-do list'}
+                                {t('basecamp.new_list_title')}
                             </h2>
                             <button
                                 onClick={() => setShowAddList(false)}
@@ -2424,14 +3714,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     color: '#1D2D35',
                                     marginBottom: 6
                                 }}>
-                                    {t('basecamp.list_name_label') || 'Name this list'}
+                                    {t('basecamp.list_name_label')}
                                 </label>
                                 <input
                                     type="text"
                                     required
                                     value={newListName}
                                     onChange={(e) => setNewListName(e.target.value)}
-                                    placeholder={t('basecamp.new_list_placeholder') || 'e.g., Opening Checklist, Food Safety...'}
+                                    placeholder={t('basecamp.new_list_placeholder')}
                                     autoFocus
                                     style={{
                                         width: '100%',
@@ -2453,12 +3743,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     color: '#1D2D35',
                                     marginBottom: 6
                                 }}>
-                                    {t('basecamp.list_desc_label') || 'Add extra details or notes (optional)'}
+                                    {t('basecamp.list_desc_label')}
                                 </label>
                                 <textarea
                                     value={newListDesc}
                                     onChange={(e) => setNewListDesc(e.target.value)}
-                                    placeholder={t('basecamp.list_desc_placeholder') || 'Describe what belongs in this list...'}
+                                    placeholder={t('basecamp.list_desc_placeholder')}
                                     rows={3}
                                     style={{
                                         width: '100%',
@@ -2488,7 +3778,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    {t('basecamp.cancel') || 'Cancel'}
+                                    {t('basecamp.cancel')}
                                 </button>
                                 <button
                                     type="submit"
@@ -2504,7 +3794,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    {t('basecamp.create_list') || 'Create this list'}
+                                    {t('basecamp.create_list')}
                                 </button>
                             </div>
                         </form>
@@ -2517,7 +3807,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                ══════════════════════════════════════════════════════════════════ */}
             {selectedTask && (() => {
                 const parentList = lists.find(l => l.id === selectedTaskListId)
-                const listName = parentList?.list_name || 'To-dos'
+                const listName = parentList?.list_name || t('basecamp.todos')
 
                 return (
                     <div
@@ -2548,14 +3838,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             handleDeleteTask(selectedTaskListId || '', selectedTask, e)
                                         }}
                                         className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400 text-slate-400 transition-all flex items-center justify-center cursor-pointer"
-                                        title={t('basecamp.delete_todo') || 'Delete to-do'}
+                                        title={t('basecamp.delete_todo')}
                                     >
                                         <Trash2 size={15} />
                                     </button>
                                     <button
                                         onClick={() => closeTaskDetail()}
                                         className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold transition-all flex items-center justify-center cursor-pointer text-sm"
-                                        title={t('basecamp.close_esc') || 'Close (Esc)'}
+                                        title={t('basecamp.close_esc')}
                                     >
                                         ✕
                                     </button>
@@ -2600,7 +3890,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             <div className="flex items-center gap-3 mt-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
                                                 {selectedTask.is_completed && (
                                                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold">
-                                                        ✓ {t('basecamp.completed_label') || 'Completed'}
+                                                        ✓ {t('basecamp.completed_label')}
                                                     </span>
                                                 )}
                                                 {selectedTask.created_at && (
@@ -2634,7 +3924,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     {/* Assigned To */}
                                     <div className="space-y-1.5">
                                         <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                            {t('basecamp.assign_to') || 'Assigned to'}
+                                            {t('basecamp.assign_to')}
                                         </span>
                                         <div className="flex flex-wrap gap-1.5 items-center">
                                             {selectedTask.assigneeList && selectedTask.assigneeList.length > 0 ? (
@@ -2655,7 +3945,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 ))
                                             ) : (
                                                 <span className="text-xs text-slate-400 italic">
-                                                    {t('basecamp.no_assigned') || 'No assignee'}
+                                                    {t('basecamp.no_assigned')}
                                                 </span>
                                             )}
                                         </div>
@@ -2664,7 +3954,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     {/* Due Date */}
                                     <div className="space-y-1.5">
                                         <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                            {t('basecamp.due_on') || 'Due on'}
+                                            {t('basecamp.due_on')}
                                         </span>
                                         <div>
                                             {selectedTask.due_date ? (
@@ -2674,7 +3964,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 </span>
                                             ) : (
                                                 <span className="text-xs text-slate-400 italic">
-                                                    {t('basecamp.no_due_date') || 'No due date'}
+                                                    {t('basecamp.no_due_date')}
                                                 </span>
                                             )}
                                         </div>
@@ -2683,46 +3973,43 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     {/* When Done */}
                                     <div className="space-y-1.5">
                                         <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                            {t('basecamp.when_done') || 'When done'}
+                                            {t('basecamp.when_done')}
                                         </span>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                                            {t('basecamp.notify_people') || 'Notify people...'}
-                                        </p>
+                                        {(() => {
+                                            const parsedMeta = prepareRichContent(selectedTask.description as string)
+                                            if (parsedMeta.whenDoneNames) {
+                                                return (
+                                                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                                        {parsedMeta.whenDoneNames}
+                                                    </p>
+                                                )
+                                            }
+                                            return (
+                                                <p className="text-xs text-slate-500 dark:text-slate-400 italic">
+                                                    {t('basecamp.notify_people')}
+                                                </p>
+                                            )
+                                        })()}
                                     </div>
                                 </div>
 
                                 {/* ── 4. Description / Notes Section ── */}
                                 {selectedTask.description && (() => {
-                                    const desc = selectedTask.description as string
-                                    const allAttachments = parseAttachments(desc)
-                                    const nonImageAttachments = allAttachments.filter(a => {
-                                        const ct = (a.contentType || '').toLowerCase()
-                                        const fn = (a.filename || '').toLowerCase()
-                                        return !ct.startsWith('image/') && !fn.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
-                                    })
-
-                                    let richHtml = desc
-                                        .replace(/<bc-attachment[^>]*>([\s\S]*?)<\/bc-attachment>/gi, (match, inner) => {
-                                            if (/<img[^>]+>/i.test(inner)) return inner
-                                            return ''
-                                        })
-                                        .trim()
-
-                                    richHtml = rewriteHtmlUrls(richHtml)
+                                    const { sanitizedHtml: richHtml, nonImageAttachments } = prepareRichContent(selectedTask.description as string)
 
                                     if (!richHtml && nonImageAttachments.length === 0) return null
 
                                     return (
                                         <div className="rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-5 space-y-4">
                                             <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                                                {t('basecamp.notes_label') || 'Notes'}
+                                                {t('basecamp.notes_label')}
                                             </span>
 
                                             {richHtml && (
                                                 <div
                                                     className="bc-rich-text text-sm text-slate-800 dark:text-slate-200 leading-relaxed"
                                                     onClick={handleHtmlClick}
-                                                    dangerouslySetInnerHTML={{ __html: sanitizeBasecampHtml(richHtml) }}
+                                                    dangerouslySetInnerHTML={{ __html: richHtml }}
                                                 />
                                             )}
 
@@ -2732,14 +4019,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     {nonImageAttachments.map((att: any, attIdx: number) => (
                                                         <a
                                                             key={attIdx}
-                                                            href={sanitizeAttachmentHref(att.url)}
+                                                            href={sanitizeAttachmentHref(att.url || att.href)}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#1D7DB5] text-xs font-semibold text-slate-700 dark:text-slate-200 transition-all shadow-2xs hover:shadow-xs"
                                                         >
                                                             <Paperclip size={13} className="text-[#1D7DB5]" />
-                                                            <span className="truncate max-w-[200px]">{att.filename || 'Archivo adjunto'}</span>
-                                                            <span className="text-[10px] font-bold text-[#1D7DB5]">{t('basecamp.download_btn') || '⬇'}</span>
+                                                            <span className="truncate max-w-[200px]">{safeDecodeFilename(att.filename) || t('basecamp.attached_file_fallback')}</span>
+                                                            <span className="text-[10px] font-bold text-[#1D7DB5]">{t('basecamp.download_btn')}</span>
                                                         </a>
                                                     ))}
                                                 </div>
@@ -2753,7 +4040,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                                         <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
                                             <MessageSquare size={15} className="text-[#1D7DB5]" />
-                                            {t('basecamp.comments_title') || 'Discussion'} ({taskComments.length})
+                                            {t('basecamp.comments_title')} ({commentsLoading && taskComments.length === 0 ? (selectedTask.comments_count || 0) : taskComments.length})
                                         </h4>
                                     </div>
 
@@ -2763,53 +4050,74 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         </div>
                                     ) : taskComments && taskComments.length > 0 ? (
                                         <div className="space-y-4">
-                                            {taskComments.map((c: any, idx: number) => (
-                                                <div
-                                                    key={c.id || idx}
-                                                    className="flex items-start gap-3.5 p-4 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 shadow-2xs"
-                                                >
-                                                    {/* Avatar */}
+                                            {taskComments.map((c: any, idx: number) => {
+                                                const { sanitizedHtml: commentHtml, nonImageAttachments: commentFiles } = prepareRichContent(c.text)
+                                                return (
                                                     <div
-                                                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-2xs mt-0.5"
-                                                        style={{ backgroundColor: getAvatarColor(c.author) }}
+                                                        key={c.id || idx}
+                                                        className="flex items-start gap-3.5 p-4 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 shadow-2xs"
                                                     >
-                                                        {getInitials(c.author)}
-                                                    </div>
-
-                                                    {/* Content */}
-                                                    <div className="flex-1 min-w-0 space-y-1">
-                                                        <div className="flex items-center justify-between flex-wrap gap-2">
-                                                            <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                                                                {c.author}
-                                                            </span>
-                                                            <span className="text-[11px] text-slate-400">
-                                                                {new Date(c.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                                                {' · '}
-                                                                {new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                            </span>
+                                                        {/* Avatar */}
+                                                        <div
+                                                            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-2xs mt-0.5"
+                                                            style={{ backgroundColor: getAvatarColor(c.author) }}
+                                                        >
+                                                            {getInitials(c.author)}
                                                         </div>
 
-                                                        <div
-                                                            className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
-                                                            onClick={handleHtmlClick}
-                                                            dangerouslySetInnerHTML={{ __html: sanitizeBasecampHtml(rewriteHtmlUrls(c.text)) }}
-                                                        />
+                                                        {/* Content */}
+                                                        <div className="flex-1 min-w-0 space-y-2">
+                                                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                                                <span className="text-xs font-extrabold text-slate-900 dark:text-white">
+                                                                    {c.author}
+                                                                </span>
+                                                                <span className="text-[11px] text-slate-400">
+                                                                    {formatCreatedDateTime(c.timestamp)}
+                                                                </span>
+                                                            </div>
+
+                                                            {commentHtml && (
+                                                                <div
+                                                                    className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
+                                                                    onClick={handleHtmlClick}
+                                                                    dangerouslySetInnerHTML={{ __html: commentHtml }}
+                                                                />
+                                                            )}
+
+                                                            {commentFiles.length > 0 && (
+                                                                <div className="pt-1 flex flex-wrap gap-2">
+                                                                    {commentFiles.map((att: any, attIdx: number) => (
+                                                                        <a
+                                                                            key={attIdx}
+                                                                            href={sanitizeAttachmentHref(att.url || att.href)}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[#1D7DB5] text-xs font-semibold text-slate-700 dark:text-slate-200 transition-all"
+                                                                        >
+                                                                            <Paperclip size={13} className="text-[#1D7DB5]" />
+                                                                            <span className="truncate max-w-[200px]">{safeDecodeFilename(att.filename) || t('basecamp.attached_file_fallback')}</span>
+                                                                            <span className="text-[10px] font-bold text-[#1D7DB5]">{t('basecamp.download_btn')}</span>
+                                                                        </a>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                )
+                                            })}
                                         </div>
                                     ) : (
                                         <div className="text-center py-8 px-4 rounded-2xl bg-slate-50/60 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-800">
                                             <MessageSquare size={24} className="text-slate-300 dark:text-slate-600 mx-auto mb-2" />
                                             <p className="text-xs text-slate-400 font-medium">
-                                                {t('basecamp.no_comments_desc') || 'No comments yet. Start the conversation!'}
+                                                {t('basecamp.no_comments_desc')}
                                             </p>
                                         </div>
                                     )}
                                 </div>
                             </div>
 
-                            {/* ── 6. Bottom Sticky Comment Input Form ── */}
+                            {/* ── 6. Bottom Sticky Comment Input Form (with Photo & File Attachments) ── */}
                             <div className="p-4 sm:p-5 bg-slate-50/90 dark:bg-slate-900/90 border-t border-slate-100 dark:border-slate-800 backdrop-blur-md flex-shrink-0">
                                 <form onSubmit={handleAddComment} className="flex gap-3 items-start">
                                     <div
@@ -2820,23 +4128,108 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     </div>
                                     <div className="flex-1 flex flex-col gap-2">
                                         <textarea
-                                            required
                                             value={newComment}
                                             onChange={(e) => setNewComment(e.target.value)}
-                                            placeholder={t('basecamp.add_comment_placeholder') || 'Type a comment...'}
+                                            onPaste={async (e) => {
+                                                const files: File[] = []
+                                                for (const item of Array.from(e.clipboardData?.items || [])) {
+                                                    if (item.kind === 'file') {
+                                                        const f = item.getAsFile()
+                                                        if (f) files.push(f)
+                                                    }
+                                                }
+                                                if (files.length > 0) {
+                                                    e.preventDefault()
+                                                    await uploadFilesForComment(files)
+                                                }
+                                            }}
+                                            placeholder={t('basecamp.add_comment_placeholder')}
                                             rows={2}
                                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-[#1D7DB5] transition-all resize-y"
                                         />
-                                        <div className="flex justify-end">
+
+                                        {commentAttachments.length > 0 && (
+                                            <div className="flex flex-wrap gap-2">
+                                                {commentAttachments.map((att, idx) => (
+                                                    <span
+                                                        key={idx}
+                                                        className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200"
+                                                    >
+                                                        {att.contentType.startsWith('image/') ? <Image size={13} className="text-[#1D7DB5]" /> : <Paperclip size={13} className="text-[#1D7DB5]" />}
+                                                        <span className="truncate max-w-[180px]">{att.filename}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setCommentAttachments(prev => prev.filter((_, i) => i !== idx))}
+                                                            className="text-red-500 hover:text-red-600 font-bold cursor-pointer"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => commentImageInputRef.current?.click()}
+                                                    disabled={uploadingCommentAttachment}
+                                                    title={t('basecamp.attach_image_btn')}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-[#1D7DB5] text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                >
+                                                    <Image size={14} className="text-[#1D7DB5]" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => commentFileInputRef.current?.click()}
+                                                    disabled={uploadingCommentAttachment}
+                                                    title={t('basecamp.attach_file_btn')}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-[#1D7DB5] text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                >
+                                                    <Paperclip size={14} className="text-[#1D7DB5]" />
+                                                </button>
+                                                {uploadingCommentAttachment && (
+                                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1D7DB5]">
+                                                        <Loader2 size={13} className="animate-spin" />
+                                                        {t('basecamp.uploading_real_file')}
+                                                    </span>
+                                                )}
+                                                <input
+                                                    ref={commentImageInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    multiple
+                                                    onChange={async (e) => {
+                                                        const files = Array.from(e.target.files || [])
+                                                        e.target.value = ''
+                                                        await uploadFilesForComment(files)
+                                                    }}
+                                                    style={{ display: 'none' }}
+                                                />
+                                                <input
+                                                    ref={commentFileInputRef}
+                                                    type="file"
+                                                    accept="*/*"
+                                                    multiple
+                                                    onChange={async (e) => {
+                                                        const files = Array.from(e.target.files || [])
+                                                        e.target.value = ''
+                                                        await uploadFilesForComment(files)
+                                                    }}
+                                                    style={{ display: 'none' }}
+                                                />
+                                            </div>
+
                                             <button
                                                 type="submit"
-                                                disabled={actionLoading === 'comment'}
+                                                disabled={actionLoading === 'comment' || uploadingCommentAttachment || (!newComment.trim() && commentAttachments.length === 0)}
                                                 className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
                                             >
                                                 {actionLoading === 'comment' ? (
                                                     <Loader2 className="animate-spin" size={14} />
                                                 ) : (
-                                                    t('basecamp.post_comment') || 'Post comment'
+                                                    t('basecamp.post_comment')
                                                 )}
                                             </button>
                                         </div>
@@ -2876,7 +4269,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     </button>
                     <img
                         src={lightboxUrl}
-                        alt="Fullscreen view"
+                        alt={t('basecamp.fullscreen_view')}
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             maxWidth: '90vw', maxHeight: '90vh',
@@ -2890,6 +4283,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     <a
                         href={lightboxUrl}
                         download
+                        target="_blank"
+                        rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             position: 'absolute', bottom: 20,

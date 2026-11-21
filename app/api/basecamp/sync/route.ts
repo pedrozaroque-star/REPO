@@ -55,13 +55,17 @@ import {
   parseHtmlAttachments,
   assertSafeBasecampApiUrl,
   resolveHtmlAttachmentsFromCache,
+  syncTodolistCounts,
+  formatQuestionScheduleText,
   type BasecampProject,
 } from '@/lib/basecamp-api'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import {
   stripTegAuthorBanner,
-  normalizePersonName,
+  findPersonInListByFuzzyName,
   isMaskedOrEmptyEmail,
+  isRealBasecampId,
+  SYNTHETIC_BC_ID_THRESHOLD,
 } from '@/lib/basecamp-person-resolver'
 
 export const dynamic = 'force-dynamic'
@@ -286,66 +290,116 @@ async function processHtmlContent(
   return resolveHtmlAttachmentsFromCache(html, supabase, urlCache)
 }
 
+interface SyncPersonMeta {
+  id: string
+  bc_id?: number | string | null
+  name?: string | null
+  email?: string | null
+}
+
+function chunkArray<T>(items: T[], chunkSize: number = 200): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize))
+  }
+  return chunks
+}
+
 async function resolveOrCreatePerson(
   creator: any,
   supabase: any,
-  peopleMap: Record<number, string>
+  peopleMap: Record<number, string>,
+  allPeopleList?: SyncPersonMeta[]
 ): Promise<string | null> {
   if (!creator || !creator.id) return null
   const creatorId = Number(creator.id)
-  
+
   if (peopleMap[creatorId]) {
     return peopleMap[creatorId]
   }
-  
+
   const { data: dbPerson } = await supabase
     .from('bc_people')
-    .select('id')
+    .select('id, bc_id, name, email')
     .eq('bc_id', creatorId)
     .maybeSingle()
-    
+
   if (dbPerson) {
     peopleMap[creatorId] = dbPerson.id
+    if (allPeopleList && !allPeopleList.some((p) => p.id === dbPerson.id)) {
+      allPeopleList.push(dbPerson)
+    }
     return dbPerson.id
   }
-  
+
   console.log(`👤 [Basecamp Sync] Dynamically inserting missing person: ${creator.name || 'Unknown'} (bc_id: ${creatorId})`)
   try {
+    const incomingEmail = creator.email_address || ''
+    const cleanEmail = isMaskedOrEmptyEmail(incomingEmail) ? '' : incomingEmail
     const { data: newPerson, error: pErr } = await supabase
       .from('bc_people')
       .insert({
         bc_id: creatorId,
         name: creator.name || 'Unknown',
-        email: creator.email_address || '',
+        email: cleanEmail,
         avatar_url: creator.avatar_url || '',
         role: creator.employee ? 'employee' : creator.client ? 'client' : 'user',
         title: creator.title || '',
-        is_active: true
+        is_active: true,
       })
-      .select('id')
+      .select('id, bc_id, name, email')
       .maybeSingle()
-      
+
     if (!pErr && newPerson) {
       peopleMap[creatorId] = newPerson.id
+      if (allPeopleList && !allPeopleList.some((p) => p.id === newPerson.id)) {
+        allPeopleList.push(newPerson)
+      }
       return newPerson.id
     } else if (pErr) {
-      // Conflict: another async loop just inserted this person — look it up
       console.warn(`      ⚠️ Insert conflict for person ${creator.name}, looking up existing...`)
       const { data: conflictPerson } = await supabase
         .from('bc_people')
-        .select('id')
+        .select('id, bc_id, name, email')
         .eq('bc_id', creatorId)
         .maybeSingle()
       if (conflictPerson) {
         peopleMap[creatorId] = conflictPerson.id
+        if (allPeopleList && !allPeopleList.some((p) => p.id === conflictPerson.id)) {
+          allPeopleList.push(conflictPerson)
+        }
         return conflictPerson.id
       }
     }
   } catch (err: any) {
     console.warn(`      ⚠️ Exception inserting missing person ${creator.name}:`, err.message)
   }
-  
+
   return null
+}
+
+/**
+ * Author Priority Inversion:
+ *  - Priority #1: Embedded TEG author banner resolved via Pass 2 + Pass 3 fuzzy matching (findPersonInListByFuzzyName).
+ *  - Priority #2: Existing local author/creator in Supabase (created_by_person_id / author_person_id).
+ *  - Priority #3: Basecamp API creator.
+ */
+async function resolveSyncedAuthorUuid(opts: {
+  extractedAuthorName: string | null
+  existingAuthorUuid?: string | null
+  bcCreator: any
+  allPeopleList: SyncPersonMeta[]
+  supabase: any
+  peopleMap: Record<number, string>
+}): Promise<string | null> {
+  if (opts.extractedAuthorName) {
+    const matched = findPersonInListByFuzzyName(opts.allPeopleList, opts.extractedAuthorName)
+    if (matched?.id) return matched.id
+  }
+  if (opts.existingAuthorUuid) {
+    return opts.existingAuthorUuid
+  }
+  return resolveOrCreatePerson(opts.bcCreator, opts.supabase, opts.peopleMap, opts.allPeopleList)
 }
 
 export async function GET(request: Request) {
@@ -468,7 +522,7 @@ export async function POST(request: Request) {
       .in('status', ['completed', 'completed_with_errors'])
       .order('started_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
 
     lastSyncAt = lastSync?.started_at || null
     if (lastSyncAt) {
@@ -627,6 +681,26 @@ export async function POST(request: Request) {
       counters.errors.push(`People: ${err.message}`)
     }
 
+    // Build shared in-memory people directory + synthetic person ID set for Pass 2+3 fuzzy matching & assignee preservation
+    const allKnownPeopleList: SyncPersonMeta[] = []
+    const syntheticPersonIds = new Set<string>()
+    {
+      const { data: allDbPeople } = await supabase
+        .from('bc_people')
+        .select('id, bc_id, name, email')
+        .limit(5000)
+      for (const p of allDbPeople || []) {
+        allKnownPeopleList.push(p)
+        if (p.bc_id != null) {
+          const numBcId = Number(p.bc_id)
+          peopleMap[numBcId] = p.id
+          if (numBcId >= SYNTHETIC_BC_ID_THRESHOLD) {
+            syntheticPersonIds.add(p.id)
+          }
+        }
+      }
+    }
+
     // ================================================================
     // STEP 2: SYNC PROJECTS (diff-based to skip no-op upserts & preserve member_count)
     // ================================================================
@@ -760,6 +834,21 @@ export async function POST(request: Request) {
       // 1. Sync documents inside this vault
       try {
         const docs = await fetchDocuments(projectId, vaultId)
+        const existingDocAuthorByBcId = new Map<number, string>()
+        if (docs.length > 0) {
+          for (const chunk of chunkArray(docs.map((d) => d.id))) {
+            const { data: existingDocs } = await supabase
+              .from('bc_documents')
+              .select('bc_id, author_person_id')
+              .in('bc_id', chunk)
+            for (const ed of existingDocs || []) {
+              if (ed.bc_id && ed.author_person_id) {
+                existingDocAuthorByBcId.set(Number(ed.bc_id), ed.author_person_id)
+              }
+            }
+          }
+        }
+
         for (const d of docs) {
           const docUpdatedAt = d.updated_at || d.created_at
           const isUnchanged = !forceFullSync && lastSyncAt && docUpdatedAt && docUpdatedAt <= lastSyncAt
@@ -769,21 +858,41 @@ export async function POST(request: Request) {
             continue
           }
 
-          const authorUuid = await resolveOrCreatePerson(d.creator, supabase, peopleMap)
-          const processedContent = await processHtmlContent(d.content || '', token, 'documents', d.id, supabase, urlCache)
+          const rawProcessedDocContent = await processHtmlContent(
+            d.content || '',
+            token,
+            'documents',
+            d.id,
+            supabase,
+            urlCache
+          )
+          const { cleanHtml: processedContent, extractedAuthorName: extractedDocAuthor } =
+            stripTegAuthorBanner(rawProcessedDocContent)
+
+          const authorUuid = await resolveSyncedAuthorUuid({
+            extractedAuthorName: extractedDocAuthor,
+            existingAuthorUuid: existingDocAuthorByBcId.get(Number(d.id)) || null,
+            bcCreator: d.creator,
+            allPeopleList: allKnownPeopleList,
+            supabase,
+            peopleMap,
+          })
 
           const { data: dbDoc, error: docErr } = await supabase
             .from('bc_documents')
-            .upsert({
-              bc_id: d.id,
-              project_id: projectUuid,
-              vault_id: vaultUuid,
-              title: d.title,
-              content: processedContent,
-              author_person_id: authorUuid,
-              created_at: d.created_at || new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'bc_id' })
+            .upsert(
+              {
+                bc_id: d.id,
+                project_id: projectUuid,
+                vault_id: vaultUuid,
+                title: d.title,
+                content: processedContent,
+                author_person_id: authorUuid,
+                created_at: d.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'bc_id' }
+            )
             .select('id')
             .single()
 
@@ -797,26 +906,55 @@ export async function POST(request: Request) {
           counters.documents++
           hasContentMutations = true
 
-          // Sync comments on document
+          // Sync comments on document (scoped by parent_id to avoid 1,000-row cap)
           if (d.comments_count > 0) {
             try {
-              const comments = await fetchComments(projectId, d.id)
+              const [comments, { data: existingDocComments }] = await Promise.all([
+                fetchComments(projectId, d.id),
+                supabase.from('bc_comments').select('bc_id, author_person_id').eq('parent_id', docUuid),
+              ])
+              const existingComAuthorMap = new Map<number, string>()
+              for (const ec of existingDocComments || []) {
+                if (ec.bc_id && ec.author_person_id) {
+                  existingComAuthorMap.set(Number(ec.bc_id), ec.author_person_id)
+                }
+              }
+
               const commentRows = []
               for (const c of comments) {
-                const processedCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                const rawCommentContent = await processHtmlContent(
+                  c.content || '',
+                  token,
+                  'comments',
+                  c.id,
+                  supabase,
+                  urlCache
+                )
+                const { cleanHtml: processedCommentContent, extractedAuthorName: extractedCommentAuthor } =
+                  stripTegAuthorBanner(rawCommentContent)
+                const finalCommentAuthorUuid = await resolveSyncedAuthorUuid({
+                  extractedAuthorName: extractedCommentAuthor,
+                  existingAuthorUuid: existingComAuthorMap.get(Number(c.id)) || null,
+                  bcCreator: c.creator,
+                  allPeopleList: allKnownPeopleList,
+                  supabase,
+                  peopleMap,
+                })
                 commentRows.push({
                   bc_id: c.id,
                   project_id: projectUuid,
                   parent_type: 'document',
                   parent_id: docUuid,
                   content: processedCommentContent,
-                  author_person_id: await resolveOrCreatePerson(c.creator, supabase, peopleMap),
+                  author_person_id: finalCommentAuthorUuid,
                   created_at: c.created_at || new Date().toISOString(),
                 })
               }
 
-              await supabase.from('bc_comments').upsert(commentRows, { onConflict: 'bc_id' })
-              counters.comments += comments.length
+              if (commentRows.length > 0) {
+                await supabase.from('bc_comments').upsert(commentRows, { onConflict: 'bc_id' })
+                counters.comments += comments.length
+              }
             } catch (comFetchErr: any) {
               console.warn(`      ⚠️ comments fetch error for doc ${d.id}:`, comFetchErr.message)
             }
@@ -830,20 +968,22 @@ export async function POST(request: Request) {
       try {
         const uploads = await fetchUploads(projectId, vaultId)
         if (uploads.length > 0) {
-          const bcIds = uploads.map((u) => u.id)
-          const { data: existingUploads } = await supabase
-            .from('bc_uploads')
-            .select('bc_id, download_url')
-            .in('bc_id', bcIds)
-
           const existingMap = new Map<number, string>()
-          if (existingUploads) {
-            existingUploads.forEach((eu: any) => {
+          const existingUploadAuthorByBcId = new Map<number, string>()
+          for (const chunk of chunkArray(uploads.map((u) => u.id))) {
+            const { data: existingUploads } = await supabase
+              .from('bc_uploads')
+              .select('bc_id, download_url, author_person_id')
+              .in('bc_id', chunk)
+            for (const eu of existingUploads || []) {
               const url = eu.download_url || ''
               if (url.includes('supabase.co') || url.includes('checklist-photos')) {
                 existingMap.set(Number(eu.bc_id), url)
               }
-            })
+              if (eu.bc_id && eu.author_person_id) {
+                existingUploadAuthorByBcId.set(Number(eu.bc_id), eu.author_person_id)
+              }
+            }
           }
 
           const uploadRows = []
@@ -871,6 +1011,10 @@ export async function POST(request: Request) {
               }
             }
 
+            const uploadAuthorUuid =
+              existingUploadAuthorByBcId.get(Number(u.id)) ||
+              (await resolveOrCreatePerson(u.creator, supabase, peopleMap, allKnownPeopleList))
+
             uploadRows.push({
               bc_id: u.id,
               project_id: projectUuid,
@@ -879,7 +1023,7 @@ export async function POST(request: Request) {
               content_type: u.content_type || '',
               byte_size: u.byte_size || 0,
               download_url: finalUrl || u.download_url || '',
-              author_person_id: await resolveOrCreatePerson(u.creator, supabase, peopleMap),
+              author_person_id: uploadAuthorUuid,
               created_at: u.created_at || new Date().toISOString(),
             })
           }
@@ -954,52 +1098,44 @@ export async function POST(request: Request) {
 
       console.log(`\n📁 Processing project: "${project.name}" (bc_id: ${project.id})`)
 
-      // Preload existing todos, messages, and comments metadata for delta comparison & TEG author preservation
+      // Preload existing todos (TWO queries to respect PostgREST 1,000-row cap: all active + 1,000 most recent completed) & messages
       const [
-        { data: existingProjectTodos },
+        { data: activeProjectTodos },
+        { data: recentCompletedProjectTodos },
         { data: existingProjectMessages },
-        { data: existingProjectComments },
-        { data: allKnownPeople },
       ] = await Promise.all([
         supabase
           .from('bc_todos')
           .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
           .eq('project_id', projectUuid)
-          .limit(5000),
+          .eq('is_completed', false)
+          .limit(1000),
+        supabase
+          .from('bc_todos')
+          .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
+          .eq('project_id', projectUuid)
+          .eq('is_completed', true)
+          .order('updated_at', { ascending: false })
+          .limit(1000),
         supabase
           .from('bc_messages')
           .select('id, bc_id, comments_count, title, author_person_id')
           .eq('project_id', projectUuid)
-          .limit(2000),
-        supabase
-          .from('bc_comments')
-          .select('bc_id, author_person_id')
-          .eq('project_id', projectUuid)
-          .limit(5000),
-        supabase
-          .from('bc_people')
-          .select('id, name')
-          .limit(5000),
+          .limit(1000),
       ])
 
       const existingTodoByBcId = new Map<number, any>()
-      ;(existingProjectTodos || []).forEach((et: any) => existingTodoByBcId.set(Number(et.bc_id), et))
+      for (const et of recentCompletedProjectTodos || []) {
+        existingTodoByBcId.set(Number(et.bc_id), et)
+      }
+      for (const et of activeProjectTodos || []) {
+        existingTodoByBcId.set(Number(et.bc_id), et)
+      }
 
       const existingMsgByBcId = new Map<number, any>()
-      ;(existingProjectMessages || []).forEach((em: any) => existingMsgByBcId.set(Number(em.bc_id), em))
-
-      const existingCommentAuthorByBcId = new Map<number, string>()
-      ;(existingProjectComments || []).forEach((ec: any) => {
-        if (ec.bc_id && ec.author_person_id) {
-          existingCommentAuthorByBcId.set(Number(ec.bc_id), ec.author_person_id)
-        }
-      })
-
-      const personIdByNormalizedName = new Map<string, string>()
-      ;(allKnownPeople || []).forEach((p: any) => {
-        const norm = normalizePersonName(p.name)
-        if (norm && p.id) personIdByNormalizedName.set(norm, p.id)
-      })
+      for (const em of existingProjectMessages || []) {
+        existingMsgByBcId.set(Number(em.bc_id), em)
+      }
 
       // ---- MEMBERSHIPS ----
       try {
@@ -1102,9 +1238,25 @@ export async function POST(request: Request) {
             try {
               const todos = await fetchAllTodos(project.id, list.id, !forceFullSync)
 
+              // Hydrate any older completed todos in this batch that weren't in the top-1,000 recent preload
+              const uncachedTodoBcIds = todos
+                .map((t) => Number(t.id))
+                .filter((bcId) => !existingTodoByBcId.has(bcId))
+              if (uncachedTodoBcIds.length > 0) {
+                for (const chunk of chunkArray(uncachedTodoBcIds)) {
+                  const { data: extraTodos } = await supabase
+                    .from('bc_todos')
+                    .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
+                    .in('bc_id', chunk)
+                  for (const et of extraTodos || []) {
+                    existingTodoByBcId.set(Number(et.bc_id), et)
+                  }
+                }
+              }
+
               // Separate active and completed todos
-              const activeTodos = todos.filter(t => !t.completed)
-              const activeBcIds = activeTodos.map(t => t.id)
+              const activeTodos = todos.filter((t) => !t.completed)
+              const activeBcIds = activeTodos.map((t) => Number(t.id))
 
               for (const t of todos) {
                 const todoUpdatedAt = t.updated_at || t.created_at
@@ -1128,31 +1280,45 @@ export async function POST(request: Request) {
                   continue
                 }
 
-                const bcAuthorUuid = await resolveOrCreatePerson(t.creator, supabase, peopleMap)
-                const rawProcessedTodoDesc = await processHtmlContent(t.description || '', token, 'todos', t.id, supabase, urlCache)
-                const { cleanHtml: processedTodoDesc, extractedAuthorName: extractedTodoAuthor } = stripTegAuthorBanner(rawProcessedTodoDesc)
-                const finalTodoAuthorUuid =
-                  existingTodo?.created_by_person_id ||
-                  (extractedTodoAuthor ? personIdByNormalizedName.get(normalizePersonName(extractedTodoAuthor)) || null : null) ||
-                  bcAuthorUuid
+                const rawProcessedTodoDesc = await processHtmlContent(
+                  t.description || '',
+                  token,
+                  'todos',
+                  t.id,
+                  supabase,
+                  urlCache
+                )
+                const { cleanHtml: processedTodoDesc, extractedAuthorName: extractedTodoAuthor } =
+                  stripTegAuthorBanner(rawProcessedTodoDesc)
+                const finalTodoAuthorUuid = await resolveSyncedAuthorUuid({
+                  extractedAuthorName: extractedTodoAuthor,
+                  existingAuthorUuid: existingTodo?.created_by_person_id || null,
+                  bcCreator: t.creator,
+                  allPeopleList: allKnownPeopleList,
+                  supabase,
+                  peopleMap,
+                })
 
                 const { data: dbTodo, error: todoErr } = await supabase
                   .from('bc_todos')
-                  .upsert({
-                    bc_id: t.id,
-                    project_id: projectUuid,
-                    todolist_id: todolistUuid,
-                    title: t.content || t.title,
-                    description: processedTodoDesc,
-                    is_completed: t.completed || false,
-                    completed_at: t.completed ? (t.updated_at || new Date().toISOString()) : null,
-                    due_date: t.due_on || null,
-                    position: t.position,
-                    comments_count: t.comments_count || 0,
-                    created_by_person_id: finalTodoAuthorUuid,
-                    created_at: t.created_at || new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                  }, { onConflict: 'bc_id' })
+                  .upsert(
+                    {
+                      bc_id: t.id,
+                      project_id: projectUuid,
+                      todolist_id: todolistUuid,
+                      title: t.content || t.title,
+                      description: processedTodoDesc,
+                      is_completed: t.completed || false,
+                      completed_at: t.completed ? t.updated_at || new Date().toISOString() : null,
+                      due_date: t.due_on || null,
+                      position: t.position,
+                      comments_count: t.comments_count || 0,
+                      created_by_person_id: finalTodoAuthorUuid,
+                      created_at: t.created_at || new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    },
+                    { onConflict: 'bc_id' }
+                  )
                   .select('id')
                   .single()
 
@@ -1166,45 +1332,79 @@ export async function POST(request: Request) {
                 counters.todos++
                 hasContentMutations = true
 
-                // Todo Assignees (N:N) — Replace cleanly so removed assignees don't linger
-                await supabase.from('bc_todo_assignees').delete().eq('todo_id', todoUuid)
-                if (t.assignees && t.assignees.length > 0) {
-                  const assigneeRows = t.assignees
-                    .map((a) => {
-                      const personUuid = peopleMap[a.id]
-                      if (!personUuid) return null
-                      return {
-                        todo_id: todoUuid,
-                        person_id: personUuid,
-                      }
-                    })
-                    .filter((row) => row !== null)
+                // Todo Assignees (N:N) — Preserve local synthetic TEG assignees (bc_id >= SYNTHETIC_BC_ID_THRESHOLD)
+                const { data: existingAssignees } = await supabase
+                  .from('bc_todo_assignees')
+                  .select('person_id')
+                  .eq('todo_id', todoUuid)
 
-                  if (assigneeRows.length > 0) {
-                    const { error: assErr } = await supabase
-                      .from('bc_todo_assignees')
-                      .upsert(assigneeRows, { onConflict: 'todo_id,person_id' })
-                    
-                    if (assErr) {
-                      console.error(`      ❌ assignees error for todo ${t.id}:`, assErr.message)
-                    } else {
-                      counters.todo_assignees += assigneeRows.length
-                    }
+                const mergedAssigneePersonIds = new Set<string>()
+                for (const ea of existingAssignees || []) {
+                  if (ea.person_id && syntheticPersonIds.has(ea.person_id)) {
+                    mergedAssigneePersonIds.add(ea.person_id)
+                  }
+                }
+                for (const a of t.assignees || []) {
+                  const personUuid =
+                    peopleMap[a.id] || (await resolveOrCreatePerson(a, supabase, peopleMap, allKnownPeopleList))
+                  if (personUuid) mergedAssigneePersonIds.add(personUuid)
+                }
+
+                await supabase.from('bc_todo_assignees').delete().eq('todo_id', todoUuid)
+                if (mergedAssigneePersonIds.size > 0) {
+                  const assigneeRows = Array.from(mergedAssigneePersonIds).map((personUuid) => ({
+                    todo_id: todoUuid,
+                    person_id: personUuid,
+                  }))
+                  const { error: assErr } = await supabase
+                    .from('bc_todo_assignees')
+                    .upsert(assigneeRows, { onConflict: 'todo_id,person_id' })
+
+                  if (assErr) {
+                    console.error(`      ❌ assignees error for todo ${t.id}:`, assErr.message)
+                  } else {
+                    counters.todo_assignees += assigneeRows.length
                   }
                 }
 
-                // Sync comments on todo
+                // Sync comments on todo (scoped to parent_id so we NEVER hit PostgREST 1,000-row cap)
                 if (t.comments_count > 0) {
                   try {
-                    const comments = await fetchComments(project.id, t.id)
+                    const [comments, { data: existingTodoComments }] = await Promise.all([
+                      fetchComments(project.id, t.id),
+                      supabase.from('bc_comments').select('bc_id, author_person_id').eq('parent_id', todoUuid),
+                    ])
+                    const existingComAuthorMap = new Map<number, string>()
+                    let localSyntheticComCount = 0
+                    for (const ec of existingTodoComments || []) {
+                      if (ec.bc_id != null && Number(ec.bc_id) >= SYNTHETIC_BC_ID_THRESHOLD) {
+                        localSyntheticComCount++
+                      }
+                      if (ec.bc_id && ec.author_person_id) {
+                        existingComAuthorMap.set(Number(ec.bc_id), ec.author_person_id)
+                      }
+                    }
+
                     const commentRows = []
                     for (const c of comments) {
-                      const rawCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
-                      const { cleanHtml: processedCommentContent, extractedAuthorName: extractedCommentAuthor } = stripTegAuthorBanner(rawCommentContent)
-                      const finalCommentAuthorUuid =
-                        existingCommentAuthorByBcId.get(Number(c.id)) ||
-                        (extractedCommentAuthor ? personIdByNormalizedName.get(normalizePersonName(extractedCommentAuthor)) || null : null) ||
-                        (await resolveOrCreatePerson(c.creator, supabase, peopleMap))
+                      const rawCommentContent = await processHtmlContent(
+                        c.content || '',
+                        token,
+                        'comments',
+                        c.id,
+                        supabase,
+                        urlCache
+                      )
+                      const { cleanHtml: processedCommentContent, extractedAuthorName: extractedCommentAuthor } =
+                        stripTegAuthorBanner(rawCommentContent)
+                      const finalCommentAuthorUuid = await resolveSyncedAuthorUuid({
+                        extractedAuthorName: extractedCommentAuthor,
+                        existingAuthorUuid: existingComAuthorMap.get(Number(c.id)) || null,
+                        bcCreator: c.creator,
+                        allPeopleList: allKnownPeopleList,
+                        supabase,
+                        peopleMap,
+                      })
                       commentRows.push({
                         bc_id: c.id,
                         project_id: projectUuid,
@@ -1216,14 +1416,23 @@ export async function POST(request: Request) {
                       })
                     }
 
-                    const { error: comErr } = await supabase
-                      .from('bc_comments')
-                      .upsert(commentRows, { onConflict: 'bc_id' })
+                    if (commentRows.length > 0) {
+                      const { error: comErr } = await supabase
+                        .from('bc_comments')
+                        .upsert(commentRows, { onConflict: 'bc_id' })
 
-                    if (comErr) {
-                      console.error(`      ❌ comments error for todo ${t.id}:`, comErr.message)
-                    } else {
-                      counters.comments += comments.length
+                      if (comErr) {
+                        console.error(`      ❌ comments error for todo ${t.id}:`, comErr.message)
+                      } else {
+                        counters.comments += comments.length
+                        const exactTotalComments = comments.length + localSyntheticComCount
+                        if (exactTotalComments !== Number(t.comments_count || 0)) {
+                          await supabase
+                            .from('bc_todos')
+                            .update({ comments_count: exactTotalComments })
+                            .eq('id', todoUuid)
+                        }
+                      }
                     }
                   } catch (comFetchErr: any) {
                     console.warn(`      ⚠️ comments fetch error for todo ${t.id}:`, comFetchErr.message)
@@ -1231,40 +1440,67 @@ export async function POST(request: Request) {
                 }
               }
 
-              // Self-healing: Reconcile active vs completed tasks in both directions
-              if (activeBcIds.length > 0 || todos.length > 0) {
-                const { data: dbListTodos } = await supabase
+              // Self-healing: Reconcile active vs completed tasks without hitting 1,000-row cap & excluding local synthetic tasks
+              {
+                const activeSet = new Set(activeBcIds)
+                const { data: localActiveTodos } = await supabase
                   .from('bc_todos')
-                  .select('bc_id, is_completed')
+                  .select('bc_id')
                   .eq('todolist_id', todolistUuid)
+                  .eq('is_completed', false)
+                  .limit(1000)
 
-                if (dbListTodos && dbListTodos.length > 0) {
-                  const activeSet = new Set(activeBcIds.map(Number))
-                  const completedBcIds = dbListTodos
-                    .filter(t => !t.is_completed && !activeSet.has(Number(t.bc_id)))
-                    .map(t => Number(t.bc_id))
-                  const reopenedBcIds = dbListTodos
-                    .filter(t => t.is_completed && activeSet.has(Number(t.bc_id)))
-                    .map(t => Number(t.bc_id))
+                const completedBcIds = (localActiveTodos || [])
+                  .map((r: any) => Number(r.bc_id))
+                  .filter((bcId: number) => isRealBasecampId(bcId) && !activeSet.has(bcId))
 
-                  if (completedBcIds.length > 0) {
-                    console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name || list.title}:`, completedBcIds)
+                if (completedBcIds.length > 0) {
+                  console.log(
+                    `🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name || list.title}:`,
+                    completedBcIds
+                  )
+                  const nowIso = new Date().toISOString()
+                  for (const chunk of chunkArray(completedBcIds)) {
                     await supabase
                       .from('bc_todos')
-                      .update({ is_completed: true, completed_at: new Date().toISOString() })
+                      .update({ is_completed: true, completed_at: nowIso, updated_at: nowIso })
                       .eq('todolist_id', todolistUuid)
-                      .in('bc_id', completedBcIds)
+                      .in('bc_id', chunk)
+                  }
+                }
+
+                if (activeBcIds.length > 0) {
+                  const reopenedBcIds: number[] = []
+                  for (const chunk of chunkArray(activeBcIds)) {
+                    const { data: wronglyCompleted } = await supabase
+                      .from('bc_todos')
+                      .select('bc_id')
+                      .eq('todolist_id', todolistUuid)
+                      .eq('is_completed', true)
+                      .in('bc_id', chunk)
+                    for (const r of wronglyCompleted || []) {
+                      reopenedBcIds.push(Number(r.bc_id))
+                    }
                   }
 
                   if (reopenedBcIds.length > 0) {
-                    console.log(`🧹 [Basecamp Sync] Self-healing: Re-opening ${reopenedBcIds.length} tasks for list ${list.name || list.title}:`, reopenedBcIds)
-                    await supabase
-                      .from('bc_todos')
-                      .update({ is_completed: false, completed_at: null })
-                      .eq('todolist_id', todolistUuid)
-                      .in('bc_id', reopenedBcIds)
+                    console.log(
+                      `🧹 [Basecamp Sync] Self-healing: Re-opening ${reopenedBcIds.length} tasks for list ${list.name || list.title}:`,
+                      reopenedBcIds
+                    )
+                    const nowIso = new Date().toISOString()
+                    for (const chunk of chunkArray(reopenedBcIds)) {
+                      await supabase
+                        .from('bc_todos')
+                        .update({ is_completed: false, completed_at: null, updated_at: nowIso })
+                        .eq('todolist_id', todolistUuid)
+                        .in('bc_id', chunk)
+                    }
                   }
                 }
+
+                // Keep bc_todolists completed_count & total_count 100% aligned with exact DB counts
+                await syncTodolistCounts(supabase, todolistUuid)
               }
             } catch (todosErr: any) {
               counters.errors.push(`Todos fetch for list ${list.id}: ${todosErr.message}`)
@@ -1318,27 +1554,41 @@ export async function POST(request: Request) {
               continue
             }
 
-            const bcMsgAuthorUuid = await resolveOrCreatePerson(m.creator, supabase, peopleMap)
-            const rawMsgContent = await processHtmlContent(m.content || '', token, 'messages', m.id, supabase, urlCache)
-            const { cleanHtml: processedMsgContent, extractedAuthorName: extractedMsgAuthor } = stripTegAuthorBanner(rawMsgContent)
-            const finalMsgAuthorUuid =
-              existingMsg?.author_person_id ||
-              (extractedMsgAuthor ? personIdByNormalizedName.get(normalizePersonName(extractedMsgAuthor)) || null : null) ||
-              bcMsgAuthorUuid
+            const rawMsgContent = await processHtmlContent(
+              m.content || '',
+              token,
+              'messages',
+              m.id,
+              supabase,
+              urlCache
+            )
+            const { cleanHtml: processedMsgContent, extractedAuthorName: extractedMsgAuthor } =
+              stripTegAuthorBanner(rawMsgContent)
+            const finalMsgAuthorUuid = await resolveSyncedAuthorUuid({
+              extractedAuthorName: extractedMsgAuthor,
+              existingAuthorUuid: existingMsg?.author_person_id || null,
+              bcCreator: m.creator,
+              allPeopleList: allKnownPeopleList,
+              supabase,
+              peopleMap,
+            })
             const { data: dbMsg, error: msgErr } = await supabase
               .from('bc_messages')
-              .upsert({
-                bc_id: m.id,
-                project_id: projectUuid,
-                board_id: boardUuid,
-                title: m.subject || m.title,
-                content: processedMsgContent,
-                category: m.category?.name || 'General',
-                author_person_id: finalMsgAuthorUuid,
-                comments_count: m.comments_count || 0,
-                created_at: m.created_at || new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              }, { onConflict: 'bc_id' })
+              .upsert(
+                {
+                  bc_id: m.id,
+                  project_id: projectUuid,
+                  board_id: boardUuid,
+                  title: m.subject || m.title,
+                  content: processedMsgContent,
+                  category: m.category?.name || 'General',
+                  author_person_id: finalMsgAuthorUuid,
+                  comments_count: m.comments_count || 0,
+                  created_at: m.created_at || new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'bc_id' }
+              )
               .select('id')
               .single()
 
@@ -1352,32 +1602,61 @@ export async function POST(request: Request) {
             counters.messages++
             hasContentMutations = true
 
-            // Sync comments on message
+            // Sync comments on message (scoped by parent_id to avoid 1,000-row cap)
             if (m.comments_count > 0) {
               try {
-                const comments = await fetchComments(project.id, m.id)
+                const [comments, { data: existingMsgComments }] = await Promise.all([
+                  fetchComments(project.id, m.id),
+                  supabase.from('bc_comments').select('bc_id, author_person_id').eq('parent_id', messageUuid),
+                ])
+                const existingComAuthorMap = new Map<number, string>()
+                for (const ec of existingMsgComments || []) {
+                  if (ec.bc_id && ec.author_person_id) {
+                    existingComAuthorMap.set(Number(ec.bc_id), ec.author_person_id)
+                  }
+                }
+
                 const commentRows = []
                 for (const c of comments) {
-                  const processedCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                  const rawCommentContent = await processHtmlContent(
+                    c.content || '',
+                    token,
+                    'comments',
+                    c.id,
+                    supabase,
+                    urlCache
+                  )
+                  const { cleanHtml: processedCommentContent, extractedAuthorName: extractedCommentAuthor } =
+                    stripTegAuthorBanner(rawCommentContent)
+                  const finalCommentAuthorUuid = await resolveSyncedAuthorUuid({
+                    extractedAuthorName: extractedCommentAuthor,
+                    existingAuthorUuid: existingComAuthorMap.get(Number(c.id)) || null,
+                    bcCreator: c.creator,
+                    allPeopleList: allKnownPeopleList,
+                    supabase,
+                    peopleMap,
+                  })
                   commentRows.push({
                     bc_id: c.id,
                     project_id: projectUuid,
                     parent_type: 'message',
                     parent_id: messageUuid,
                     content: processedCommentContent,
-                    author_person_id: await resolveOrCreatePerson(c.creator, supabase, peopleMap),
+                    author_person_id: finalCommentAuthorUuid,
                     created_at: c.created_at || new Date().toISOString(),
                   })
                 }
 
-                const { error: comErr } = await supabase
-                  .from('bc_comments')
-                  .upsert(commentRows, { onConflict: 'bc_id' })
+                if (commentRows.length > 0) {
+                  const { error: comErr } = await supabase
+                    .from('bc_comments')
+                    .upsert(commentRows, { onConflict: 'bc_id' })
 
-                if (comErr) {
-                  console.error(`      ❌ comments error for message ${m.id}:`, comErr.message)
-                } else {
-                  counters.comments += comments.length
+                  if (comErr) {
+                    console.error(`      ❌ comments error for message ${m.id}:`, comErr.message)
+                  } else {
+                    counters.comments += comments.length
+                  }
                 }
               } catch (comFetchErr: any) {
                 console.warn(`      ⚠️ comments fetch error for message ${m.id}:`, comFetchErr.message)
@@ -1417,15 +1696,45 @@ export async function POST(request: Request) {
           console.log(`   🔥 Found ${lines.length} campfire lines`)
 
           if (lines.length > 0) {
+            const existingLineAuthorByBcId = new Map<number, string>()
+            for (const chunk of chunkArray(lines.map((l) => l.id))) {
+              const { data: existingLines } = await supabase
+                .from('bc_campfire_lines')
+                .select('bc_id, author_person_id')
+                .in('bc_id', chunk)
+              for (const el of existingLines || []) {
+                if (el.bc_id && el.author_person_id) {
+                  existingLineAuthorByBcId.set(Number(el.bc_id), el.author_person_id)
+                }
+              }
+            }
+
             const lineRows = []
             for (const l of lines) {
-              const processedLineContent = await processHtmlContent(l.content || '', token, 'campfire', l.id, supabase, urlCache)
+              const rawLineContent = await processHtmlContent(
+                l.content || '',
+                token,
+                'campfire',
+                l.id,
+                supabase,
+                urlCache
+              )
+              const { cleanHtml: processedLineContent, extractedAuthorName: extractedLineAuthor } =
+                stripTegAuthorBanner(rawLineContent)
+              const finalLineAuthorUuid = await resolveSyncedAuthorUuid({
+                extractedAuthorName: extractedLineAuthor,
+                existingAuthorUuid: existingLineAuthorByBcId.get(Number(l.id)) || null,
+                bcCreator: l.creator,
+                allPeopleList: allKnownPeopleList,
+                supabase,
+                peopleMap,
+              })
               lineRows.push({
                 bc_id: l.id,
                 project_id: projectUuid,
                 campfire_id: campfireUuid,
                 content: processedLineContent,
-                author_person_id: await resolveOrCreatePerson(l.creator, supabase, peopleMap),
+                author_person_id: finalLineAuthorUuid,
                 created_at: l.created_at || new Date().toISOString(),
               })
             }
@@ -1509,9 +1818,39 @@ export async function POST(request: Request) {
           console.log(`   📅 Found ${entries.length} schedule entries`)
 
           if (entries.length > 0) {
+            const existingEntryAuthorByBcId = new Map<number, string>()
+            for (const chunk of chunkArray(entries.map((e) => e.id))) {
+              const { data: existingEntries } = await supabase
+                .from('bc_schedule_entries')
+                .select('bc_id, author_person_id')
+                .in('bc_id', chunk)
+              for (const ee of existingEntries || []) {
+                if (ee.bc_id && ee.author_person_id) {
+                  existingEntryAuthorByBcId.set(Number(ee.bc_id), ee.author_person_id)
+                }
+              }
+            }
+
             const eventRows = []
             for (const e of entries) {
-              const processedEventDesc = await processHtmlContent(e.description || '', token, 'schedules', e.id, supabase, urlCache)
+              const rawEventDesc = await processHtmlContent(
+                e.description || '',
+                token,
+                'schedules',
+                e.id,
+                supabase,
+                urlCache
+              )
+              const { cleanHtml: processedEventDesc, extractedAuthorName: extractedEntryAuthor } =
+                stripTegAuthorBanner(rawEventDesc)
+              const finalEntryAuthorUuid = await resolveSyncedAuthorUuid({
+                extractedAuthorName: extractedEntryAuthor,
+                existingAuthorUuid: existingEntryAuthorByBcId.get(Number(e.id)) || null,
+                bcCreator: e.creator,
+                allPeopleList: allKnownPeopleList,
+                supabase,
+                peopleMap,
+              })
               eventRows.push({
                 bc_id: e.id,
                 project_id: projectUuid,
@@ -1521,7 +1860,7 @@ export async function POST(request: Request) {
                 starts_at: e.starts_at || null,
                 ends_at: e.ends_at || null,
                 all_day: e.all_day || false,
-                author_person_id: await resolveOrCreatePerson(e.creator, supabase, peopleMap),
+                author_person_id: finalEntryAuthorUuid,
                 updated_at: new Date().toISOString(),
               })
             }
@@ -1577,7 +1916,7 @@ export async function POST(request: Request) {
                   project_id: projectUuid,
                   questionnaire_id: questionnaireUuid,
                   title: q.title,
-                  schedule_text: `${q.schedule_day || ''} at ${q.schedule_time || ''}`.trim(),
+                  schedule_text: formatQuestionScheduleText(q),
                   is_paused: q.paused || false,
                 },
                 { onConflict: 'bc_id' }
@@ -1599,15 +1938,43 @@ export async function POST(request: Request) {
               const answers = await fetchAnswers(project.id, q.id)
 
               if (answers.length > 0) {
+                const { data: existingAnswers } = await supabase
+                  .from('bc_answers')
+                  .select('bc_id, author_person_id')
+                  .eq('question_id', questionUuid)
+                const existingAnswerAuthorByBcId = new Map<number, string>()
+                for (const ea of existingAnswers || []) {
+                  if (ea.bc_id && ea.author_person_id) {
+                    existingAnswerAuthorByBcId.set(Number(ea.bc_id), ea.author_person_id)
+                  }
+                }
+
                 const answerRows = []
                 for (const a of answers) {
-                  const processedAnswerContent = await processHtmlContent(a.content || '', token, 'answers', a.id, supabase, urlCache)
+                  const rawAnswerContent = await processHtmlContent(
+                    a.content || '',
+                    token,
+                    'answers',
+                    a.id,
+                    supabase,
+                    urlCache
+                  )
+                  const { cleanHtml: processedAnswerContent, extractedAuthorName: extractedAnswerAuthor } =
+                    stripTegAuthorBanner(rawAnswerContent)
+                  const finalAnswerAuthorUuid = await resolveSyncedAuthorUuid({
+                    extractedAuthorName: extractedAnswerAuthor,
+                    existingAuthorUuid: existingAnswerAuthorByBcId.get(Number(a.id)) || null,
+                    bcCreator: a.creator,
+                    allPeopleList: allKnownPeopleList,
+                    supabase,
+                    peopleMap,
+                  })
                   answerRows.push({
                     bc_id: a.id,
                     project_id: projectUuid,
                     question_id: questionUuid,
                     content: processedAnswerContent,
-                    author_person_id: await resolveOrCreatePerson(a.creator, supabase, peopleMap),
+                    author_person_id: finalAnswerAuthorUuid,
                     created_at: a.created_at || new Date().toISOString(),
                   })
                 }

@@ -22,10 +22,16 @@
 
 import { NextResponse } from 'next/server'
 import { getAuthorizationUrl } from '@/lib/basecamp-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = verifyStaffAuth(request, { allowCron: false, allowedRoles: ['admin'] })
+  if (!auth.authorized) {
+    return auth.response!
+  }
+
   try {
     const authUrl = await getAuthorizationUrl()
     console.log('🔐 [Basecamp Auth] Redirecting to Basecamp authorization...')

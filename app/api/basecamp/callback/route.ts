@@ -26,7 +26,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { exchangeCodeForToken } from '@/lib/basecamp-api'
-import { getServerUser } from '@/lib/auth-server'
+import { getServerUser, verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,10 +48,17 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Get current logged-in user from request cookies using custom auth helper
-    const user = await getServerUser()
+    // 1. Require authenticated admin staff user
+    const staffAuth = verifyStaffAuth(request, { allowCron: false, allowedRoles: ['admin'] })
+    if (!staffAuth.authorized) {
+      console.error('❌ [Basecamp Callback] Unauthorized or non-admin user attempted OAuth callback')
+      return NextResponse.redirect(
+        `${origin}/basecamp?auth=error&error=${encodeURIComponent(staffAuth.error || 'Admin access required')}`
+      )
+    }
 
-    if (!user) {
+    const user = await getServerUser(request)
+    if (!user?.email) {
       console.error('❌ [Basecamp Callback] User is not authenticated via teg_token cookie')
       return NextResponse.redirect(
         `${origin}/basecamp?auth=error&error=${encodeURIComponent('User not authenticated in SM TEG')}`
@@ -84,13 +91,13 @@ export async function GET(request: Request) {
       }
     )
 
-    // 5. Look up user's auth_id (UUID referencing auth.users) from the custom users table
-    // because user.id from the custom JWT is the integer PK of the public.users table.
+    // 5. Look up user's auth_id (UUID referencing auth.users) case-insensitively
     const { data: dbUser, error: dbUserError } = await supabaseAdmin
       .from('users')
       .select('auth_id')
-      .eq('email', user.email)
-      .single()
+      .ilike('email', user.email.trim())
+      .limit(1)
+      .maybeSingle()
 
     if (dbUserError || !dbUser?.auth_id) {
       console.error('❌ [Basecamp Callback] Failed to fetch auth_id for user:', user.email, dbUserError)
@@ -99,22 +106,26 @@ export async function GET(request: Request) {
 
     const authUserId = dbUser.auth_id
 
-    // Delete any existing tokens first (singleton pattern)
-    await supabaseAdmin.from('bc_oauth_tokens').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    // Insert the new token FIRST so existing tokens are NEVER wiped if insert fails
+    const { data: insertedToken, error: insertError } = await supabaseAdmin
+      .from('bc_oauth_tokens')
+      .insert({
+        user_id: authUserId,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single()
 
-    // Insert the new token tied to the user's UUID auth_id
-    const { error: insertError } = await supabaseAdmin.from('bc_oauth_tokens').insert({
-      user_id: authUserId,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: expiresAt,
-      updated_at: new Date().toISOString(),
-    })
-
-    if (insertError) {
+    if (insertError || !insertedToken?.id) {
       console.error('❌ [Basecamp Callback] DB insert error:', insertError)
-      throw new Error(`Failed to save tokens: ${insertError.message}`)
+      throw new Error(`Failed to save tokens: ${insertError?.message || 'Unknown insert error'}`)
     }
+
+    // Delete older singleton tokens ONLY after the new token is safely persisted
+    await supabaseAdmin.from('bc_oauth_tokens').delete().neq('id', insertedToken.id)
 
     console.log('✅ [Basecamp Callback] Tokens saved successfully for user email', user.email, 'with authUserId', authUserId, '. Expires at:', expiresAt)
 

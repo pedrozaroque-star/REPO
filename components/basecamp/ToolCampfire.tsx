@@ -1,136 +1,386 @@
 /**
  * @module ToolCampfire
  * @description Módulo de Chat Campfire de Basecamp para coordinación rápida de proyectos de Tacos Gavilan.
- *              Carga el historial desde Supabase (bc_campfire_lines) y escucha nuevos mensajes
- *              en tiempo real utilizando canales de Supabase Realtime.
+ *              Carga las últimas 80 líneas del proyecto desde Supabase (`bc_campfire_lines` por `project_id`),
+ *              renderiza HTML de Basecamp Trix de forma segura, reconcilia mensajes optimistas al instante
+ *              y escucha cambios en tiempo real (`INSERT`, `UPDATE`, `DELETE`) vía Supabase Realtime.
  * @businessRules
- *   - Chat grupal compartido en tiempo real por proyecto.
- *   - Enviar mensajes invoca la API de Basecamp y persiste la línea en Supabase.
- *   - No utiliza respuestas simuladas automáticas.
+ *   - Chat grupal compartido en tiempo real por proyecto (`project_id`).
+ *   - Proyectos como "All Locations" pueden tener más de un contenedor en `bc_campfires`; la lectura siempre
+ *     filtra por `project_id` (últimos 80 mensajes ordenados cronológicamente) y la escritura elige el
+ *     contenedor activo/poblado.
+ *   - Identificación de mensajes propios (`isMe`) resiliente a tildes y variantes ortográficas (`normalizePersonName`).
+ *   - Fechas y horas formateadas siempre en zona horaria `America/Los_Angeles`.
  * @dataFlow
- *   - Entrada: Props `project` (contiene db_id y bc_id) y `currentUserName`.
- *   - Fetch: Carga las líneas de chat desde `bc_campfire_lines` ordenadas cronológicamente.
- *   - Realtime: Escucha eventos `INSERT` en `bc_campfire_lines` filtrados por `project_id`.
- *   - Escritura: Envía peticiones POST a `/api/basecamp/action`.
+ *   - Entrada: Props `project` (contiene `id` = bc_id y `db_id` = UUID) y `currentUserName`.
+ *   - Fetch: `bc_campfires` + `bc_campfire_lines` (`.eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(80)` + `.reverse()`).
+ *   - Realtime: Canal `postgres_changes` (`event: '*'`) filtrado por `project_id=eq.${project.db_id}`.
+ *   - Escritura: `POST /api/basecamp/action` (`action: 'create_campfire_line'`), reconciliando `{ id }` de inmediato.
  * @notes
- *   - Soporte multilingüe (ES/EN) con useLanguage.
- *   - Standalone: El chat funciona localmente en Supabase de forma autónoma.
+ *   - Corrige bug donde `.eq('campfire_id', dbCampfire.id)` ocultaba mensajes reales cuando existían múltiples `bc_campfires`.
+ *   - Renderiza HTML Trix limpio sin exponer etiquetas `<div>`/`<br>` crudas ni banners `<p data-teg-author=...>`.
  */
 
 'use client'
 
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { Send, MessageSquare, Loader2 } from 'lucide-react'
+import { Send, MessageSquare, Loader2, Paperclip, AlertCircle, X } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
+import { normalizePersonName, stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
+import { rewriteBasecampHtmlUrls, proxyBasecampUrl, safeDecodeFilename } from '@/lib/basecamp-html'
 
 interface ToolCampfireProps {
     project: any
     currentUserName: string
 }
 
+function extractAuthorObj(rel: any): { name?: string; email?: string; avatar_url?: string } | null {
+    if (!rel) return null
+    return Array.isArray(rel) ? rel[0] || null : rel
+}
+
+function isSameTegPerson(authorName?: string | null, currentUserName?: string | null): boolean {
+    const normA = normalizePersonName(authorName)
+    const normB = normalizePersonName(currentUserName)
+    if (!normA || !normB) return false
+    if (normA === normB) return true
+
+    const tokensA = normA.split(' ').filter(Boolean)
+    const tokensB = normB.split(' ').filter(Boolean)
+    if (tokensA.length === 0 || tokensB.length === 0) return false
+    if (tokensA[0] !== tokensB[0]) return false
+
+    // Handle Basecamp initialed profiles like "Victor M" <-> "Victor Muñoz" without colliding distinct last names
+    if (tokensA.length >= 2 && tokensB.length >= 2) {
+        const lastA = tokensA[tokensA.length - 1]
+        const lastB = tokensB[tokensB.length - 1]
+        if (lastA.length === 1 && lastB.startsWith(lastA)) return true
+        if (lastB.length === 1 && lastA.startsWith(lastB)) return true
+    }
+
+    return false
+}
+
+function renderCampfireLineHtml(raw?: string | null): {
+    html: string
+    fileAttachments: { filename: string; url: string }[]
+    hasVisibleContent: boolean
+    plainText: string
+} {
+    if (!raw) {
+        return { html: '', fileAttachments: [], hasVisibleContent: false, plainText: '' }
+    }
+    const { cleanHtml } = stripTegAuthorBanner(raw)
+    if (!cleanHtml) {
+        return { html: '', fileAttachments: [], hasVisibleContent: false, plainText: '' }
+    }
+
+    const fileAttachments: { filename: string; url: string }[] = []
+    const attachRegex = /<bc-attachment\b([^>]*)>([\s\S]*?)<\/bc-attachment>/gi
+    let match: RegExpExecArray | null
+    while ((match = attachRegex.exec(cleanHtml)) !== null) {
+        const attrs = match[1] || ''
+        const getAttr = (attr: string) => {
+            const r = attrs.match(new RegExp(`(?:^|\\s)${attr}\\s*=\\s*(["'])([^"']+)\\1`, 'i'))
+            return r ? r[2] : ''
+        }
+        const ct = getAttr('content-type').toLowerCase()
+        const rawHref = getAttr('href') || getAttr('url')
+        if (rawHref && !ct.startsWith('image/')) {
+            fileAttachments.push({
+                filename: safeDecodeFilename(getAttr('filename'), 'attachment'),
+                url: proxyBasecampUrl(rawHref),
+            })
+        }
+    }
+
+    const hasHtmlTags = /<\s*(?:div|p|br|ul|ol|li|h[1-6]|blockquote|pre|table|figure|bc-attachment|img|a|strong|b|em|i|span|del|u)\b/i.test(
+        cleanHtml
+    )
+    let safeHtml: string
+    if (hasHtmlTags) {
+        safeHtml = rewriteBasecampHtmlUrls(cleanHtml).replace(
+            /<bc-attachment\b[^>]*>([\s\S]*?)<\/bc-attachment>/gi,
+            '$1'
+        )
+    } else {
+        safeHtml = cleanHtml
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\r?\n/g, '<br />')
+    }
+
+    const plainText = safeHtml
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const hasImages = /<img\b/i.test(safeHtml)
+
+    return {
+        html: safeHtml,
+        fileAttachments,
+        hasVisibleContent: plainText.length > 0 || hasImages || fileAttachments.length > 0,
+        plainText,
+    }
+}
+
+function formatCampfireTimestamp(isoStr: string | undefined | null, locale: string): string {
+    if (!isoStr) return ''
+    const date = new Date(isoStr)
+    if (Number.isNaN(date.getTime())) return ''
+    try {
+        const nowYear = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+        }).format(new Date())
+        const msgYear = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+        }).format(date)
+
+        const datePart = new Intl.DateTimeFormat(locale, {
+            timeZone: 'America/Los_Angeles',
+            month: 'short',
+            day: 'numeric',
+            ...(msgYear !== nowYear ? { year: 'numeric' } : {}),
+        }).format(date)
+
+        const timePart = new Intl.DateTimeFormat(locale, {
+            timeZone: 'America/Los_Angeles',
+            hour: 'numeric',
+            minute: '2-digit',
+        }).format(date)
+
+        return `${datePart} • ${timePart}`
+    } catch {
+        return date.toLocaleString(locale)
+    }
+}
+
+async function parseActionError(res: Response, fallback: string): Promise<string> {
+    try {
+        const text = await res.text()
+        if (!text) return fallback
+        const parsed = JSON.parse(text)
+        return parsed?.error || text
+    } catch {
+        return fallback
+    }
+}
+
 export default function ToolCampfire({ project, currentUserName }: ToolCampfireProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
+    const locale = language === 'es' ? 'es-MX' : 'en-US'
+
     const [campfire, setCampfire] = useState<{ id: string; bc_id: number } | null>(null)
     const [messages, setMessages] = useState<any[]>([])
     const [inputText, setInputText] = useState('')
     const [loading, setLoading] = useState(true)
     const [sending, setSending] = useState(false)
+    const [errorBanner, setErrorBanner] = useState<string | null>(null)
+
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const creatingCampfireRef = useRef<Record<string, boolean>>({})
+    const activeProjectDbIdRef = useRef<string | null>(project?.db_id || null)
 
-    // 1. Fetch campfire and message history
-    const fetchCampfireAndLines = async () => {
-        if (!project.db_id) return
+    const fetchCampfireAndLines = useCallback(async (projectDbId: string) => {
+        if (!projectDbId) return
         try {
-            // Get or create campfire container
-            let { data: dbCampfire } = await supabase
+            // 1. Fetch all campfires for this project ordered oldest-first
+            const { data: existingCampfires, error: cfQueryErr } = await supabase
                 .from('bc_campfires')
-                .select('id, bc_id')
-                .eq('project_id', project.db_id)
-                .limit(1)
-                .single()
+                .select('id, bc_id, created_at')
+                .eq('project_id', projectDbId)
+                .order('created_at', { ascending: true })
 
-            if (!dbCampfire) {
-                const tempBcId = Math.floor(Date.now() / 1000)
-                const { data: newCampfire, error: campErr } = await supabase
-                    .from('bc_campfires')
-                    .insert({
-                        project_id: project.db_id,
-                        bc_id: tempBcId
-                    })
-                    .select('id, bc_id')
-                    .single()
-                if (campErr) throw campErr
-                dbCampfire = newCampfire
+            if (cfQueryErr) throw cfQueryErr
+
+            let campfiresList = existingCampfires || []
+
+            // Auto-create container safely with in-flight guard if none exists
+            if (campfiresList.length === 0 && !creatingCampfireRef.current[projectDbId]) {
+                creatingCampfireRef.current[projectDbId] = true
+                try {
+                    const { data: recheck } = await supabase
+                        .from('bc_campfires')
+                        .select('id, bc_id, created_at')
+                        .eq('project_id', projectDbId)
+                        .order('created_at', { ascending: true })
+                        .limit(1)
+                        .maybeSingle()
+
+                    if (recheck) {
+                        campfiresList = [recheck]
+                    } else {
+                        const uniqueBcId = Date.now() * 1000 + Math.floor(Math.random() * 1000)
+                        const { data: createdCf, error: insertErr } = await supabase
+                            .from('bc_campfires')
+                            .insert({
+                                project_id: projectDbId,
+                                bc_id: uniqueBcId,
+                            })
+                            .select('id, bc_id, created_at')
+                            .maybeSingle()
+                        if (insertErr) throw insertErr
+                        if (createdCf) campfiresList = [createdCf]
+                    }
+                } finally {
+                    creatingCampfireRef.current[projectDbId] = false
+                }
             }
 
-            if (dbCampfire) {
-                setCampfire({ id: dbCampfire.id, bc_id: Number(dbCampfire.bc_id) })
+            // 2. Fetch latest 80 campfire lines across the entire project (fixes multi-campfire projects like All Locations)
+            const { data: dbLines, error: linesErr } = await supabase
+                .from('bc_campfire_lines')
+                .select(`
+                    id,
+                    bc_id,
+                    campfire_id,
+                    content,
+                    created_at,
+                    author:bc_people!bc_campfire_lines_author_person_id_fkey(name, email, avatar_url)
+                `)
+                .eq('project_id', projectDbId)
+                .order('created_at', { ascending: false })
+                .limit(80)
 
-                // Fetch last 80 campfire lines
-                const { data: dbLines, error: linesErr } = await supabase
-                    .from('bc_campfire_lines')
-                    .select(`
-                        id,
-                        content,
-                        created_at,
-                        author:bc_people!bc_campfire_lines_author_person_id_fkey(name, email, avatar_url)
-                    `)
-                    .eq('campfire_id', dbCampfire.id)
-                    .order('created_at', { ascending: true })
-                    .limit(80)
+            if (linesErr) throw linesErr
+            if (activeProjectDbIdRef.current !== projectDbId) return
 
-                if (linesErr) throw linesErr
-                setMessages(dbLines || [])
+            const latestLinesDesc = dbLines || []
+            const chronologicalLines = [...latestLinesDesc].reverse()
+
+            // Pick the active/populated campfire container for sending new messages
+            let chosenCampfire = campfiresList[0] || null
+            if (campfiresList.length > 1) {
+                const populatedId = latestLinesDesc.find((l: any) =>
+                    campfiresList.some((c: any) => c.id === l.campfire_id)
+                )?.campfire_id
+                if (populatedId) {
+                    chosenCampfire = campfiresList.find((c: any) => c.id === populatedId) || chosenCampfire
+                } else {
+                    const realBcCampfire = campfiresList.find(
+                        (c: any) => Number(c.bc_id) > 0 && Number(c.bc_id) < 100_000_000_000
+                    )
+                    if (realBcCampfire) chosenCampfire = realBcCampfire
+                }
             }
+
+            if (chosenCampfire) {
+                setCampfire({ id: chosenCampfire.id, bc_id: Number(chosenCampfire.bc_id) })
+            }
+            setMessages(chronologicalLines)
         } catch (err: any) {
             console.error('❌ [ToolCampfire Fetch] Error:', err.message)
+            if (activeProjectDbIdRef.current === projectDbId) {
+                setErrorBanner(`${t('basecamp.action_error')}: ${err.message}`)
+            }
         } finally {
+            if (activeProjectDbIdRef.current === projectDbId) {
+                setLoading(false)
+            }
+        }
+    }, [supabase, t])
+
+    // Reset state cleanly when project changes
+    useEffect(() => {
+        const projectDbId = project?.db_id || null
+        activeProjectDbIdRef.current = projectDbId
+        setCampfire(null)
+        setMessages([])
+        setInputText('')
+        setErrorBanner(null)
+        setLoading(true)
+
+        if (projectDbId) {
+            fetchCampfireAndLines(projectDbId)
+        } else {
             setLoading(false)
         }
-    }
+    }, [project?.id, project?.db_id, fetchCampfireAndLines])
 
+    // Subscribe to Supabase Realtime (`event: '*'`) scoped to `project_id`
     useEffect(() => {
-        setLoading(true)
-        fetchCampfireAndLines()
-    }, [project.id, project.db_id])
+        const projectDbId = project?.db_id
+        if (!projectDbId) return
 
-    // 2. Set up Supabase Realtime Subscription
-    useEffect(() => {
-        if (!campfire?.id) return
+        const hydrateLine = async (lineId: string) => {
+            const { data, error } = await supabase
+                .from('bc_campfire_lines')
+                .select(`
+                    id,
+                    bc_id,
+                    campfire_id,
+                    content,
+                    created_at,
+                    author:bc_people!bc_campfire_lines_author_person_id_fkey(name, email, avatar_url)
+                `)
+                .eq('id', lineId)
+                .maybeSingle()
+            if (error || !data) return null
+            return data
+        }
 
         const channel = supabase
-            .channel(`campfire-lines-${campfire.id}`)
+            .channel(`campfire-lines-project-${projectDbId}`)
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT',
+                    event: '*',
                     schema: 'public',
                     table: 'bc_campfire_lines',
-                    filter: `campfire_id=eq.${campfire.id}`
+                    filter: `project_id=eq.${projectDbId}`,
                 },
                 async (payload) => {
-                    // Fetch details of the newly inserted line
-                    const { data: newLine, error } = await supabase
-                        .from('bc_campfire_lines')
-                        .select(`
-                            id,
-                            content,
-                            created_at,
-                            author:bc_people!bc_campfire_lines_author_person_id_fkey(name, email, avatar_url)
-                        `)
-                        .eq('id', payload.new.id)
-                        .single()
+                    if (activeProjectDbIdRef.current !== projectDbId) return
 
-                    if (!error && newLine) {
-                        setMessages((prev) => {
-                            // Avoid duplicate appends (and replace temporary optimistic message)
-                            if (prev.some((m) => m.id === newLine.id)) return prev
-                            const withoutTemp = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newLine.content)
-                            return [...withoutTemp, newLine]
-                        })
+                    if (payload.eventType === 'DELETE') {
+                        const deletedId = (payload.old as any)?.id
+                        if (deletedId) {
+                            setMessages((prev) => prev.filter((m) => m.id !== deletedId))
+                        }
+                        return
                     }
+
+                    const targetId = (payload.new as any)?.id
+                    if (!targetId) return
+
+                    const hydrated = await hydrateLine(targetId)
+                    if (!hydrated || activeProjectDbIdRef.current !== projectDbId) return
+
+                    setMessages((prev) => {
+                        // Already present (e.g. reconciled from POST or UPDATE event): update in place
+                        if (prev.some((m) => m.id === hydrated.id)) {
+                            return prev.map((m) => (m.id === hydrated.id ? hydrated : m))
+                        }
+
+                        // Check if this matches a single pending optimistic temp-* message
+                        const incomingPlain = renderCampfireLineHtml(hydrated.content).plainText
+                        const tempIdx = prev.findIndex(
+                            (m) =>
+                                typeof m.id === 'string' &&
+                                m.id.startsWith('temp-') &&
+                                renderCampfireLineHtml(m.content).plainText === incomingPlain
+                        )
+
+                        if (tempIdx !== -1) {
+                            const copy = [...prev]
+                            copy[tempIdx] = hydrated
+                            return copy
+                        }
+
+                        const merged = [...prev, hydrated]
+                        merged.sort(
+                            (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+                        )
+                        return merged
+                    })
                 }
             )
             .subscribe()
@@ -138,27 +388,26 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [campfire?.id, supabase])
+    }, [project?.db_id, supabase])
 
-    // Auto-scroll
+    // Auto-scroll when messages change
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
-    // Send Message
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!inputText.trim() || !campfire || sending) return
 
         const textToSend = inputText.trim()
-        const tempId = 'temp-' + Date.now()
+        const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+        setErrorBanner(null)
 
-        // Optimistic UI update
         const optimisticLine = {
             id: tempId,
             content: textToSend,
             created_at: new Date().toISOString(),
-            author: { name: currentUserName }
+            author: { name: currentUserName },
         }
         setMessages((prev) => [...prev, optimisticLine])
         setInputText('')
@@ -173,16 +422,47 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                     projectId: project.id,
                     campfireId: campfire.bc_id,
                     campfireDbId: campfire.id,
-                    content: textToSend
-                })
+                    content: textToSend,
+                }),
             })
 
-            if (!res.ok) throw new Error(await res.text())
+            if (!res.ok) {
+                const msg = await parseActionError(res, t('basecamp.action_error'))
+                throw new Error(msg)
+            }
+
+            const result = await res.json()
+            const createdId: string | undefined = result?.id
+
+            if (createdId) {
+                const { data: hydrated } = await supabase
+                    .from('bc_campfire_lines')
+                    .select(`
+                        id,
+                        bc_id,
+                        campfire_id,
+                        content,
+                        created_at,
+                        author:bc_people!bc_campfire_lines_author_person_id_fkey(name, email, avatar_url)
+                    `)
+                    .eq('id', createdId)
+                    .maybeSingle()
+
+                setMessages((prev) => {
+                    const finalRow = hydrated || { ...optimisticLine, id: createdId }
+                    if (prev.some((m) => m.id === createdId)) {
+                        return prev
+                            .filter((m) => m.id !== tempId)
+                            .map((m) => (m.id === createdId ? finalRow : m))
+                    }
+                    return prev.map((m) => (m.id === tempId ? finalRow : m))
+                })
+            }
         } catch (err: any) {
             console.error('❌ [ToolCampfire Send] Error sending message:', err.message)
-            // Revert optimistic message on failure
-            setMessages((prev) => prev.filter(m => m.id !== tempId))
+            setMessages((prev) => prev.filter((m) => m.id !== tempId))
             setInputText(textToSend)
+            setErrorBanner(`${t('basecamp.action_error')}: ${err.message}`)
         } finally {
             setSending(false)
         }
@@ -205,37 +485,107 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                 </div>
             </div>
 
+            {/* Banner de error visible */}
+            {errorBanner && (
+                <div className="mx-4 mt-3 px-3.5 py-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-red-700 dark:text-red-300 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <AlertCircle size={14} className="shrink-0" />
+                        <span className="truncate">{errorBanner}</span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setErrorBanner(null)}
+                        className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 shrink-0"
+                    >
+                        <X size={13} />
+                    </button>
+                </div>
+            )}
+
             {/* Panel de mensajes */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4 max-h-[480px] min-h-[350px] no-scrollbar">
                 {loading ? (
-                    <div className="flex justify-center items-center h-full">
+                    <div className="flex justify-center items-center h-full py-12">
                         <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
                     </div>
                 ) : messages.length > 0 ? (
                     messages.map((m) => {
-                        const authorName = m.author?.name || t('basecamp.anonymous_user') || 'Usuario'
-                        const isMe = authorName === currentUserName
+                        const authorObj = extractAuthorObj(m.author)
+                        const authorName =
+                            (authorObj?.name && String(authorObj.name).trim()) ||
+                            t('basecamp.anonymous_user')
+                        const isMe = isSameTegPerson(authorName, currentUserName)
+                        const rendered = renderCampfireLineHtml(m.content)
+
                         return (
-                            <div key={m.id} className={`flex gap-3 items-start ${isMe ? 'flex-row-reverse' : ''}`}>
+                            <div
+                                key={m.id}
+                                className={`flex gap-3 items-start ${isMe ? 'flex-row-reverse' : ''}`}
+                            >
                                 {/* Avatar */}
                                 <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 uppercase border border-slate-300/30">
                                     {(authorName[0] || 'U').toUpperCase()}
                                 </div>
-                                
+
                                 {/* Detalle */}
-                                <div className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
+                                <div
+                                    className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${
+                                        isMe ? 'items-end' : 'items-start'
+                                    }`}
+                                >
                                     <div className="flex items-baseline gap-2">
-                                        <span className="text-[10px] font-black text-slate-800 dark:text-slate-200">{authorName}</span>
-                                        <span className="text-[8px] text-slate-400 dark:text-slate-500 font-medium">
-                                            {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        <span className="text-[10px] font-black text-slate-800 dark:text-slate-200">
+                                            {authorName}
+                                        </span>
+                                        <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                                            {formatCampfireTimestamp(m.created_at, locale)}
                                         </span>
                                     </div>
-                                    <div className={`p-2.5 sm:p-3 rounded-2xl text-xs mt-1 leading-relaxed whitespace-pre-wrap border ${
-                                        isMe 
-                                            ? 'bg-orange-500 text-white border-orange-600 rounded-tr-none' 
-                                            : 'bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 border-slate-200/40 dark:border-slate-800 rounded-tl-none'
-                                    }`}>
-                                        {m.content}
+
+                                    <div
+                                        className={`p-2.5 sm:p-3 rounded-2xl text-xs mt-1 leading-relaxed border break-words ${
+                                            isMe
+                                                ? 'bg-orange-500 text-white border-orange-600 rounded-tr-none [&_a]:underline [&_a]:text-white'
+                                                : 'bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 border-slate-200/40 dark:border-slate-800 rounded-tl-none [&_a]:underline [&_a]:text-blue-600 dark:[&_a]:text-blue-400'
+                                        }`}
+                                    >
+                                        {rendered.hasVisibleContent ? (
+                                            <>
+                                                {rendered.html && (
+                                                    <div
+                                                        className="[&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-1 [&_p]:my-0.5"
+                                                        dangerouslySetInnerHTML={{ __html: rendered.html }}
+                                                    />
+                                                )}
+                                                {rendered.fileAttachments.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                        {rendered.fileAttachments.map((att, idx) => (
+                                                            <a
+                                                                key={idx}
+                                                                href={att.url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border ${
+                                                                    isMe
+                                                                        ? 'bg-orange-600/60 border-orange-400/50 text-white'
+                                                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                                                                }`}
+                                                            >
+                                                                <Paperclip size={11} />
+                                                                <span className="truncate max-w-[180px]">
+                                                                    {att.filename}
+                                                                </span>
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1.5 italic opacity-85">
+                                                <Paperclip size={12} />
+                                                <span>{t('basecamp.attached_file_fallback')}</span>
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -251,7 +601,10 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             </div>
 
             {/* Input */}
-            <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2">
+            <form
+                onSubmit={handleSendMessage}
+                className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2"
+            >
                 <input
                     type="text"
                     value={inputText}

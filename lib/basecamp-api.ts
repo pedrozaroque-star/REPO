@@ -320,8 +320,16 @@ export interface BasecampQuestion {
   paused: boolean
   answers_count: number
   answers_url: string
-  schedule_day: string
-  schedule_time: string
+  schedule_day?: string
+  schedule_time?: string
+  schedule?: {
+    frequency?: string
+    days?: number[]
+    hour?: number | null
+    minute?: number | null
+    start_date?: string | null
+    end_date?: string | null
+  } | null
 }
 
 export interface BasecampAnswer {
@@ -611,7 +619,7 @@ export async function getValidToken(): Promise<string> {
     .select('*')
     .order('updated_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (fetchError || !tokenRow) {
     throw new Error(
@@ -700,12 +708,153 @@ function parseLinkHeader(linkHeader: string | null): string | null {
  * @param options - Standard RequestInit options
  * @returns Parsed JSON response
  */
-export async function basecampFetch<T>(path: string, options?: RequestInit & { noPaginate?: boolean }): Promise<T> {
-  const token = await getValidToken()
-  const noPaginate = options?.noPaginate ?? false
+/**
+ * Validates that a target Basecamp API URL strictly targets `https://3.basecampapi.com/{accountId}/...`
+ * with zero path traversal (`..` / `%2e` / `\`), credentials, or alternate ports, preventing SSRF token exfiltration.
+ */
+export function assertSafeBasecampApiUrl(rawUrl: string, accountId: string = BASECAMP_ACCOUNT_ID): string {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    throw new Error('Blocked unsafe Basecamp URL: empty input')
+  }
+  const trimmed = rawUrl.trim()
+  if (
+    trimmed.includes('..') ||
+    trimmed.includes('\\') ||
+    /%2e|%5c|%00/i.test(trimmed) ||
+    /[\r\n\t]/.test(trimmed)
+  ) {
+    throw new Error('Blocked unsafe Basecamp URL: path traversal or control characters detected')
+  }
 
-  // Build full URL (if path is already absolute, use as-is)
-  let url = path.startsWith('http') ? path : `${BASECAMP_API_BASE}${path}`
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    throw new Error('Blocked unsafe Basecamp URL: malformed URL')
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Blocked unsafe Basecamp URL: HTTPS protocol required')
+  }
+  if (parsed.hostname.toLowerCase() !== '3.basecampapi.com') {
+    throw new Error(`Blocked unsafe Basecamp URL host: ${parsed.hostname}`)
+  }
+  if (parsed.port !== '' || parsed.username !== '' || parsed.password !== '') {
+    throw new Error('Blocked unsafe Basecamp URL: custom port or credentials not allowed')
+  }
+
+  let decodedPathname = parsed.pathname
+  try {
+    decodedPathname = decodeURIComponent(parsed.pathname)
+  } catch {
+    throw new Error('Blocked unsafe Basecamp URL: invalid percent-encoding')
+  }
+
+  if (
+    decodedPathname.includes('..') ||
+    decodedPathname.includes('\\') ||
+    parsed.pathname.includes('//') ||
+    !parsed.pathname.startsWith(`/${accountId}/`)
+  ) {
+    throw new Error('Blocked unsafe Basecamp URL: path outside configured Basecamp account scope')
+  }
+
+  return parsed.toString()
+}
+
+export const sanitizeBasecampHtml = (html: string): string => {
+    if (!html || typeof html !== 'string') return ''
+    let clean = html.replace(/<!--[\s\S]*?-->/g, '')
+
+    let prev = ''
+    while (clean !== prev) {
+        prev = clean
+        clean = clean
+            .replace(/<\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+            .replace(/<\s*\/?\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template|input|button|textarea|select)\b[^>]*\/?>/gi, '')
+            .replace(/(<[^>]*?)(?:[\s/]+)(on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*))/gi, '$1')
+            .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*)/gi, '')
+    }
+
+    clean = clean.replace(
+        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)(["'])([\s\S]*?)\2/gi,
+        (full, attrPrefix, quote, rawVal) => {
+            const decoded = String(rawVal)
+                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+                .replace(/[\u0000-\u0020]+/g, '')
+                .toLowerCase()
+
+            if (
+                decoded.startsWith('javascript:') ||
+                decoded.startsWith('vbscript:') ||
+                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
+            ) {
+                const safeFallback = /href/i.test(attrPrefix) ? '#' : ''
+                return `${attrPrefix}${quote}${safeFallback}${quote}`
+            }
+            return full
+        }
+    )
+
+    clean = clean.replace(
+        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)([^\s>"']+)/gi,
+        (full, attrPrefix, rawVal) => {
+            const decoded = String(rawVal)
+                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+                .replace(/[\u0000-\u0020]+/g, '')
+                .toLowerCase()
+
+            if (
+                decoded.startsWith('javascript:') ||
+                decoded.startsWith('vbscript:') ||
+                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
+            ) {
+                const safeFallback = /href/i.test(attrPrefix) ? '"#"' : '""'
+                return `${attrPrefix}${safeFallback}`
+            }
+            return full
+        }
+    )
+
+    return clean
+}
+
+const sanitizeAttachmentHref = (rawUrl?: string): string => {
+    if (!rawUrl || typeof rawUrl !== 'string') return '#'
+    const trimmed = rawUrl.trim()
+    if (trimmed.startsWith('/api/basecamp/attachment?')) return trimmed
+    try {
+        const parsed = new URL(trimmed)
+        if (parsed.protocol !== 'https:') return '#'
+        const host = parsed.hostname.toLowerCase()
+        if (host.endsWith('.supabase.co')) return parsed.toString()
+        if (
+            host === '3.basecampapi.com' ||
+            host === 'preview.app.basecamp.com' ||
+            host === 'storage.app.basecamp.com'
+        ) {
+            return `/api/basecamp/attachment?url=${encodeURIComponent(parsed.toString())}`
+        }
+        return '#'
+    } catch {
+        return '#'
+    }
+}
+
+export async function basecampFetch<T>(path: string, options?: RequestInit & { noPaginate?: boolean }): Promise<T> {
+  if (!path || typeof path !== 'string') {
+    throw new Error('Blocked unsafe Basecamp path: empty path')
+  }
+  const trimmedPath = path.trim()
+  const isAbsoluteInput = /^[a-z][a-z0-9+.-]*:/i.test(trimmedPath) || trimmedPath.startsWith('//')
+  const candidateUrl = isAbsoluteInput
+    ? trimmedPath
+    : `${BASECAMP_API_BASE}${trimmedPath.startsWith('/') ? trimmedPath : `/${trimmedPath}`}`
+
+  // Strictly validate URL BEFORE retrieving or attaching OAuth Bearer token
+  let url = assertSafeBasecampApiUrl(candidateUrl)
 
   // Ensure .json extension for Basecamp API
   if (!url.includes('.json') && !url.includes('?')) {
@@ -713,11 +862,16 @@ export async function basecampFetch<T>(path: string, options?: RequestInit & { n
   } else if (!url.includes('.json') && url.includes('?')) {
     url = url.replace('?', '.json?')
   }
+  url = assertSafeBasecampApiUrl(url)
+
+  const token = await getValidToken()
+  const noPaginate = options?.noPaginate ?? false
 
   let allResults: any[] = []
   let currentUrl: string | null = url
 
   while (currentUrl) {
+    const verifiedCurrentUrl = assertSafeBasecampApiUrl(currentUrl)
     // Wait for rate limit slot
     await waitForRateLimit()
 
@@ -730,8 +884,9 @@ export async function basecampFetch<T>(path: string, options?: RequestInit & { n
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 30_000) // 30s timeout
 
-        response = await fetch(currentUrl, {
+        response = await fetch(verifiedCurrentUrl, {
           ...options,
+          redirect: 'error',
           signal: controller.signal,
           headers: {
             Authorization: `Bearer ${token}`,
@@ -990,7 +1145,7 @@ export async function createCampfireLine(
     `/buckets/${projectId}/chats/${campfireId}/lines.json`,
     {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, content_type: 'text/html' }),
       noPaginate: true,
     }
   )
@@ -1069,6 +1224,28 @@ export async function createDocument(
       noPaginate: true,
     }
   )
+}
+
+/**
+ * Sube un archivo binario a Basecamp 3 (`POST /attachments.json?name=...`) y retorna su `attachable_sgid`
+ * para incrustarlo como `<bc-attachment sgid="...">` en descripciones de To-dos, comentarios o mensajes.
+ */
+export async function uploadBasecampAttachment(
+  buffer: Buffer,
+  filename: string,
+  contentType: string
+): Promise<string | null> {
+  const safeName = encodeURIComponent((filename || 'attachment').trim() || 'attachment')
+  const res = await basecampFetch<{ attachable_sgid?: string }>(`/attachments.json?name=${safeName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': contentType || 'application/octet-stream',
+      'Content-Length': String(buffer.length),
+    },
+    body: new Uint8Array(buffer),
+    noPaginate: true,
+  })
+  return res?.attachable_sgid || null
 }
 
 // ============================================================================
@@ -1236,7 +1413,7 @@ export function healPartiallyMigratedBcAttachmentHrefs(html: string): {
   while ((match = bcAttachmentRegex.exec(html)) !== null) {
     const attrsStr = match[1]
     const getAttr = (name: string) => {
-      const m = attrsStr.match(new RegExp(`${name}=["']([^"']+)["']`, 'i'))
+      const m = attrsStr.match(new RegExp(`(?:^|\\s)${name}=["']([^"']+)["']`, 'i'))
       return m ? m[1] : null
     }
     const rawUrl = getAttr('url') || ''
@@ -1263,7 +1440,7 @@ export function parseHtmlAttachments(html: string): HtmlAttachment[] {
   while ((match = bcAttachmentRegex.exec(html)) !== null) {
     const attrsStr = match[1]
     const getAttr = (name: string) => {
-      const m = attrsStr.match(new RegExp(`${name}=["']([^"']+)["']`, 'i'))
+      const m = attrsStr.match(new RegExp(`(?:^|\\s)${name}=["']([^"']+)["']`, 'i'))
       return m ? m[1] : null
     }
     const contentType = getAttr('content-type') || ''
@@ -1371,4 +1548,75 @@ export async function resolveHtmlAttachmentsFromCache(
   }
 
   return updatedHtml
+}
+
+// ============================================================================
+// SHARED DB COUNTER & SCHEDULE FORMATTER HELPERS (Safe outside App Router route.ts)
+// ============================================================================
+
+export async function syncTodolistCounts(supabase: any, todolistDbId?: string | null): Promise<void> {
+  if (!todolistDbId) return
+  const [{ count: totalCount, error: totalErr }, { count: completedCount, error: compErr }] = await Promise.all([
+    supabase.from('bc_todos').select('*', { count: 'exact', head: true }).eq('todolist_id', todolistDbId),
+    supabase
+      .from('bc_todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('todolist_id', todolistDbId)
+      .eq('is_completed', true),
+  ])
+  if (!totalErr && !compErr) {
+    await supabase
+      .from('bc_todolists')
+      .update({
+        total_count: totalCount ?? 0,
+        completed_count: completedCount ?? 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', todolistDbId)
+  }
+}
+
+export function formatQuestionScheduleText(q: any): string {
+  const rawDay = String(q?.schedule_day || '').trim()
+  const rawTime = String(q?.schedule_time || '').trim()
+  if (rawDay && rawTime) return `${rawDay} at ${rawTime}`
+  if (rawDay || rawTime) return rawDay || rawTime
+
+  const sched = q?.schedule
+  if (sched && typeof sched === 'object') {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    let dayPart = ''
+    if (Array.isArray(sched.days) && sched.days.length > 0) {
+      const sorted = [...sched.days].map(Number).sort((a, b) => a - b)
+      if (sorted.length === 7) {
+        dayPart = 'Every day'
+      } else if (sorted.join(',') === '1,2,3,4,5') {
+        dayPart = 'Mon–Fri'
+      } else {
+        dayPart = sorted.map((d) => dayNames[d] || '').filter(Boolean).join(', ')
+      }
+    } else if (typeof sched.frequency === 'string' && sched.frequency.trim()) {
+      const freqMap: Record<string, string> = {
+        every_day: 'Every day',
+        every_week: 'Weekly',
+        every_other_week: 'Every 2 weeks',
+        every_month: 'Monthly',
+      }
+      dayPart = freqMap[sched.frequency] || ''
+    }
+
+    let timePart = ''
+    if (typeof sched.hour === 'number' && Number.isFinite(sched.hour)) {
+      const h = sched.hour
+      const m = String(sched.minute ?? 0).padStart(2, '0')
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      const h12 = h % 12 || 12
+      timePart = `${h12}:${m} ${ampm}`
+    }
+
+    if (dayPart && timePart) return `${dayPart} at ${timePart}`
+    if (dayPart || timePart) return dayPart || timePart
+  }
+
+  return ''
 }

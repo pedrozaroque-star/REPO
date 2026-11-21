@@ -107,13 +107,24 @@ export const formatStoreName = (name: string | null | undefined): string => {
 // El token JWT generado en /api/login tiene role: 'authenticated', lo que le permite
 // pasar las políticas RLS de las tablas bc_* sin necesidad del service_role key.
 // ⚠️ Solo funciona en el lado del cliente (browser) donde existe localStorage.
+let cachedAuthToken: string | null = null
+let cachedAuthClient: typeof supabase | null = null
+
 export function getSupabaseWithAuth() {
   if (typeof window === 'undefined') return supabase // Fallback en SSR
 
   const token = localStorage.getItem('teg_token')
-  if (!token) return supabase // Sin token, retorna el cliente anon
+  if (!token) {
+    cachedAuthToken = null
+    cachedAuthClient = null
+    return supabase // Sin token, retorna el cliente anon
+  }
 
-  return createClient(supabaseUrl, supabaseAnonKey, {
+  if (cachedAuthClient && cachedAuthToken === token) {
+    return cachedAuthClient
+  }
+
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -125,4 +136,9 @@ export function getSupabaseWithAuth() {
       }
     }
   })
+
+  client.realtime.setAuth(token)
+  cachedAuthToken = token
+  cachedAuthClient = client
+  return client
 }

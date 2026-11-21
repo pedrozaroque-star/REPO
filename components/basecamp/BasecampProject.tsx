@@ -1,24 +1,22 @@
 /**
  * @module BasecampProject
- * @description Vista detallada de un proyecto de Basecamp replicando fielmente el dashboard real de Basecamp 3.
+ * @description Vista detallada de un proyecto de Basecamp replicando fielmente el dashboard de Basecamp 3.
  *              Muestra cabecera de proyecto con breadcrumb y avatares, feed de actividad reciente con autores,
  *              medidor de aguja de progreso, y cuadrícula de 6 tarjetas enriquecidas con vistas previas reales
  *              (To-dos con checkboxes, Messages con avatar+preview, Docs & Files con íconos por tipo,
  *              Campfire con burbujas de chat, Schedule con mini-calendario, y Check-ins).
  * @businessRules
- *   - El medidor de aguja gira en consonancia al porcentaje de tareas completadas de To-dos, o de forma manual.
+ *   - El medidor de aguja gira en consonancia al porcentaje real de tareas completadas de To-dos (`0/0` -> `0%`), o de forma manual.
  *   - Cada tarjeta de herramienta proporciona una vista previa con datos reales desde Supabase.
- *   - El feed de actividad muestra los últimos 3 comentarios con hora, autor y padre.
- *   - El mini-calendario resalta el día actual y los días con eventos programados.
+ *   - El feed de actividad muestra los últimos 3 comentarios con hora en `America/Los_Angeles`, autor y enlace directo al ítem.
+ *   - El mini-calendario resalta el día actual en `America/Los_Angeles` y los días con eventos (`all_day` sin desfase UTC + multi-día).
  * @dataFlow
- *   - Pasa la navegación a través de navigateTo(project, tool).
- *   - Permite destacar o quitar destacado directamente.
- *   - Consulta bc_comments, bc_todos, bc_todolists, bc_messages, bc_documents, bc_uploads,
- *     bc_campfire_lines, bc_schedule_entries, bc_memberships y bc_people.
+ *   - Navegación a través de `navigateTo(params)`.
+ *   - Consulta `bc_comments`, `bc_todos`, `bc_todolists`, `bc_messages`, `bc_documents`, `bc_uploads`,
+ *     `bc_campfire_lines`, `bc_schedule_entries`, `bc_memberships` y `bc_people`.
  * @notes
- *   - La variable `t` del i18n NO colisiona con las variables de mapeo de tareas (renombradas a `todo`).
- *   - bc_uploads se envuelve en try/catch por si la tabla no existe.
- *   - bc_comments NO tiene columna parent_title; se obtiene el título del padre con una consulta separada.
+ *   - `supabase` está memoizado con `useMemo` para evitar ciclos infinitos de re-render y re-suscripción Realtime.
+ *   - Limpia banners `<p data-teg-author=...>` y entidades HTML en las vistas previas, y usa clases Tailwind estándar.
  */
 
 'use client'
@@ -27,20 +25,66 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import {
     Star, MessageSquare, ClipboardList, FolderOpen, Calendar, HelpCircle,
-    Mail, Plus, Bell, Users, FileText
+    Mail, Users, FileText
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
+import { stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
+import { safeDecodeFilename } from '@/lib/basecamp-html'
 
-// ───────── Avatar helpers (shared pattern from ToolTodos) ─────────
+// ───────── Avatar helpers ─────────
 const AVATAR_COLORS = ['#3498DB', '#E74C3C', '#27AE60', '#F39C12', '#8E44AD', '#1ABC9C', '#D35400', '#2980B9', '#C0392B', '#16A085']
 const getAvatarColor = (name: string) => {
+    const clean = (name || '?').trim() || '?'
     let hash = 0
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+    for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash)
     return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/)
-    return parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() : name.slice(0, 2).toUpperCase()
+    const clean = (name || '').trim()
+    if (!clean) return '?'
+    const parts = clean.split(/\s+/).filter(Boolean)
+    return parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : clean.slice(0, 2).toUpperCase()
+}
+
+const formatAbbreviatedAuthor = (rawName: string, fallback: string) => {
+    const clean = (rawName || '').trim()
+    if (!clean) return fallback
+    const tokens = clean.split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return fallback
+    if (tokens.length === 1) return tokens[0]
+    const lastInitial = tokens[tokens.length - 1][0]
+    return lastInitial ? `${tokens[0]} ${lastInitial}.` : tokens[0]
+}
+
+const unwrapPersonName = (rel: any): string => {
+    const obj = Array.isArray(rel) ? rel[0] : rel
+    return typeof obj?.name === 'string' ? obj.name.trim() : ''
+}
+
+// ───────── Pacific Timezone Date Helpers ─────────
+function getPacificParts(date: Date = new Date()): { year: number; month: number; day: number; ymd: string } {
+    const ymd = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date)
+    const [y, m, d] = ymd.split('-').map(Number)
+    return { year: y, month: m - 1, day: d, ymd }
+}
+
+function getEventYMD(isoStr?: string | null, allDay?: boolean): string | null {
+    if (!isoStr) return null
+    const str = String(isoStr)
+    if (allDay) {
+        const m = str.match(/^(\d{4}-\d{2}-\d{2})/)
+        if (m) return m[1]
+    }
+    const d = new Date(str)
+    if (Number.isNaN(d.getTime())) return null
+    return getPacificParts(d).ymd
 }
 
 // ───────── Color Classes for project theming ─────────
@@ -54,28 +98,37 @@ const COLOR_CLASSES: Record<string, { border: string; bg: string; text: string; 
     blue: { border: 'border-blue-300 dark:border-blue-700', bg: 'bg-blue-50/50 dark:bg-blue-950/20', text: 'text-blue-900 dark:text-blue-100', dot: 'bg-blue-500', theme: 'var(--recording-color-blue)' },
     green: { border: 'border-green-300 dark:border-green-700', bg: 'bg-green-50/50 dark:bg-green-950/20', text: 'text-green-900 dark:text-green-100', dot: 'bg-green-500', theme: 'var(--recording-color-green)' },
     brown: { border: 'border-amber-600/30 dark:border-amber-700/50', bg: 'bg-amber-50/30 dark:bg-amber-950/10', text: 'text-amber-900 dark:text-amber-100', dot: 'bg-amber-600', theme: 'var(--recording-color-sand)' },
-    gray: { border: 'border-gray-300 dark:border-gray-700', bg: 'bg-gray-50 dark:bg-gray-850/40', text: 'text-gray-800 dark:text-gray-200', dot: 'bg-gray-500', theme: 'var(--recording-color-primary)' }
+    gray: { border: 'border-gray-300 dark:border-gray-700', bg: 'bg-gray-50 dark:bg-gray-800/40', text: 'text-gray-800 dark:text-gray-200', dot: 'bg-gray-500', theme: 'var(--recording-color-primary)' },
 }
 
 // ───────── Mini Calendar Component ─────────
 function MiniCalendar({ events, t: tFn }: { events: any[]; t: (key: string) => string }) {
-    const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth()
-    const todayDate = now.getDate()
+    const { year, month, day: todayDate } = getPacificParts()
 
     const firstDay = new Date(year, month, 1).getDay()
     const daysInMonth = new Date(year, month + 1, 0).getDate()
 
-    // Build set of days that have events
+    // Build set of days in the current Pacific month that have events (supporting all_day & multi-day spans)
     const eventDays = useMemo(() => {
         const days = new Set<number>()
-        events.forEach(ev => {
-            if (ev.starts_at) {
-                const d = new Date(ev.starts_at)
-                if (d.getMonth() === month && d.getFullYear() === year) {
-                    days.add(d.getDate())
+        events.forEach((ev) => {
+            const startYmd = getEventYMD(ev.starts_at, Boolean(ev.all_day))
+            if (!startYmd) return
+            const endYmdRaw = getEventYMD(ev.ends_at || ev.starts_at, Boolean(ev.all_day)) || startYmd
+            const endYmd = endYmdRaw >= startYmd ? endYmdRaw : startYmd
+
+            const [sy, sm, sd] = startYmd.split('-').map(Number)
+            const [ey, em, ed] = endYmd.split('-').map(Number)
+            const cursor = new Date(sy, sm - 1, sd, 12, 0, 0)
+            const endDate = new Date(ey, em - 1, ed, 12, 0, 0)
+
+            let guard = 0
+            while (cursor.getTime() <= endDate.getTime() && guard < 62) {
+                if (cursor.getFullYear() === year && cursor.getMonth() === month) {
+                    days.add(cursor.getDate())
                 }
+                cursor.setDate(cursor.getDate() + 1)
+                guard++
             }
         })
         return days
@@ -83,7 +136,7 @@ function MiniCalendar({ events, t: tFn }: { events: any[]; t: (key: string) => s
 
     const weekdayKeys = [
         'basecamp.weekday_sun', 'basecamp.weekday_mon', 'basecamp.weekday_tue',
-        'basecamp.weekday_wed', 'basecamp.weekday_thu', 'basecamp.weekday_fri', 'basecamp.weekday_sat'
+        'basecamp.weekday_wed', 'basecamp.weekday_thu', 'basecamp.weekday_fri', 'basecamp.weekday_sat',
     ]
 
     const cells: (number | null)[] = []
@@ -92,15 +145,13 @@ function MiniCalendar({ events, t: tFn }: { events: any[]; t: (key: string) => s
 
     return (
         <div className="mt-1">
-            {/* Weekday headers */}
             <div className="grid grid-cols-7 gap-0 mb-1">
                 {weekdayKeys.map((key) => (
-                    <div key={key} className="text-[10px] font-black text-slate-400 dark:text-slate-550 text-center uppercase">
+                    <div key={key} className="text-[10px] font-black text-slate-400 dark:text-slate-500 text-center uppercase">
                         {tFn(key)}
                     </div>
                 ))}
             </div>
-            {/* Day cells */}
             <div className="grid grid-cols-7 gap-0">
                 {cells.map((day, idx) => {
                     if (day === null) {
@@ -130,27 +181,36 @@ interface ActivityItem {
     content: string
     created_at: string
     parent_type: string
+    parent_id: string | null
     parent_title: string
     author_name: string
 }
 
 interface BasecampProjectProps {
     project: any
-    navigateTo: (params: { project?: string; tool?: string; section?: string }) => void
+    navigateTo: (params: {
+        project?: string
+        tool?: string
+        section?: string
+        todoId?: string
+        messageId?: string
+        docId?: string
+    }) => void
     saveProjects: (projects: any[]) => void
     projects: any[]
     currentUserName: string
     onOpenSearch?: () => void
 }
 
-export default function BasecampProject({ project, navigateTo, saveProjects, projects, currentUserName, onOpenSearch }: BasecampProjectProps) {
-    const supabase = getSupabaseWithAuth()
-    const { t } = useLanguage()
+export default function BasecampProject({ project, navigateTo, saveProjects, projects, onOpenSearch }: BasecampProjectProps) {
+    const supabase = useMemo(() => getSupabaseWithAuth(), [])
+    const { t, language } = useLanguage()
+    const locale = language === 'es' ? 'es-MX' : 'en-US'
 
-    // Progreso de aguja
-    const [progressPercent, setProgressPercent] = useState(34)
+    // Progreso de aguja (sin mocks iniciales)
+    const [progressPercent, setProgressPercent] = useState(0)
     const [showNeedleModal, setShowNeedleModal] = useState(false)
-    const [manualProgress, setManualProgress] = useState(34)
+    const [manualProgress, setManualProgress] = useState(0)
 
     // ───── Enriched state variables ─────
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
@@ -165,8 +225,19 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
     const [calendarEvents, setCalendarEvents] = useState<any[]>([])
     const [projectMembers, setProjectMembers] = useState<any[]>([])
 
+    useEffect(() => {
+        if (!showNeedleModal) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setShowNeedleModal(false)
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [showNeedleModal])
+
     // ───── Data Fetching ─────
     useEffect(() => {
+        let cancelled = false
+
         const fetchProjectDetails = async () => {
             if (!project.db_id) return
 
@@ -174,15 +245,10 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 const sevenDaysAgo = new Date()
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-                const startOfMonth = new Date()
-                startOfMonth.setDate(1)
-                startOfMonth.setHours(0, 0, 0, 0)
-                const endOfMonth = new Date(startOfMonth)
-                endOfMonth.setMonth(endOfMonth.getMonth() + 1)
+                const { year: pYear, month: pMonth } = getPacificParts()
+                const windowStart = new Date(Date.UTC(pYear, pMonth, -6, 0, 0, 0)).toISOString()
+                const windowEnd = new Date(Date.UTC(pYear, pMonth + 1, 3, 23, 59, 59)).toISOString()
 
-                // ═══════════════════════════════════════════════════
-                // Execute all primary dashboard queries in parallel (No waterfall)
-                // ═══════════════════════════════════════════════════
                 const [
                     resLists,
                     resComments,
@@ -193,73 +259,70 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     resUploads,
                     resChatLines,
                     resEvents,
-                    resMembers
+                    resMembers,
                 ] = await Promise.all([
-                    // 1. Progress count
                     supabase.from('bc_todolists').select('completed_count, total_count').eq('project_id', project.db_id),
-                    // 2. Activity Feed
                     supabase.from('bc_comments').select('id, content, created_at, parent_type, parent_id, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(3),
-                    // 3. Active people count
                     supabase.from('bc_comments').select('author_person_id, author:bc_people(name)').eq('project_id', project.db_id).gte('created_at', sevenDaysAgo.toISOString()),
-                    // 4. First list info
                     supabase.from('bc_todolists').select('id, name, bc_id').eq('project_id', project.db_id).order('position', { ascending: true }).limit(1).maybeSingle(),
-                    // 5. Messages
                     supabase.from('bc_messages').select('id, title, content, created_at, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
-                    // 6. Docs
                     supabase.from('bc_documents').select('id, title, created_at, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
-                    // 7. Uploads (Safely handled in case table is missing)
                     supabase.from('bc_uploads').select('id, filename, content_type, byte_size, created_at, author:bc_people(name), download_url').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
-                    // 8. Campfire
                     supabase.from('bc_campfire_lines').select('id, content, created_at, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
-                    // 9. Schedule Entries
-                    supabase.from('bc_schedule_entries').select('id, title, starts_at, ends_at, all_day').eq('project_id', project.db_id).gte('starts_at', startOfMonth.toISOString()).lt('starts_at', endOfMonth.toISOString()),
-                    // 10. Memberships
-                    supabase.from('bc_memberships').select('person:bc_people(id, name, role)').eq('project_id', project.db_id)
+                    supabase
+                        .from('bc_schedule_entries')
+                        .select('id, title, starts_at, ends_at, all_day')
+                        .eq('project_id', project.db_id)
+                        .or(`and(starts_at.gte.${windowStart},starts_at.lt.${windowEnd}),and(ends_at.gte.${windowStart},starts_at.lt.${windowEnd})`)
+                        .order('starts_at', { ascending: true }),
+                    supabase.from('bc_memberships').select('person:bc_people(id, name, role)').eq('project_id', project.db_id),
                 ])
 
-                // ═══════════════════════════════════════════════════
-                // Process results
-                // ═══════════════════════════════════════════════════
+                if (cancelled) return
 
-                // 1. Process Progress
+                // 1. Process Progress (guarded against 0/0, NaN, Infinity)
                 let totalCompleted = 0
                 let totalTasks = 0
                 if (resLists.data && resLists.data.length > 0) {
                     resLists.data.forEach((l: any) => {
-                        totalCompleted += l.completed_count || 0
-                        totalTasks += l.total_count || 0
+                        totalCompleted += Number(l.completed_count) || 0
+                        totalTasks += Number(l.total_count) || 0
                     })
                 }
-                const pct = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0
-                setProgressPercent(pct)
-                setManualProgress(pct)
+                const rawPct = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0
+                const safePct = Number.isFinite(rawPct) ? Math.min(100, Math.max(0, rawPct)) : 0
+                setProgressPercent(safePct)
+                setManualProgress(safePct)
 
-                // 2. Process Activity Comments & Resolve Parent Titles in Parallel (No loop queries)
+                // 2. Process Activity Comments & Resolve Parent Titles in Parallel
                 if (resComments.data && resComments.data.length > 0) {
-                    const activityItems = await Promise.all(resComments.data.map(async (c: any) => {
-                        let parentTitle = ''
-                        try {
-                            if (c.parent_type === 'todo' && c.parent_id) {
-                                const { data: parentTodo } = await supabase.from('bc_todos').select('title').eq('id', c.parent_id).maybeSingle()
-                                parentTitle = parentTodo?.title || ''
-                            } else if (c.parent_type === 'message' && c.parent_id) {
-                                const { data: parentMsg } = await supabase.from('bc_messages').select('title').eq('id', c.parent_id).maybeSingle()
-                                parentTitle = parentMsg?.title || ''
-                            } else if (c.parent_type === 'document' && c.parent_id) {
-                                const { data: parentDoc } = await supabase.from('bc_documents').select('title').eq('id', c.parent_id).maybeSingle()
-                                parentTitle = parentDoc?.title || ''
+                    const activityItems = await Promise.all(
+                        resComments.data.map(async (c: any) => {
+                            let parentTitle = ''
+                            try {
+                                if (c.parent_type === 'todo' && c.parent_id) {
+                                    const { data: parentTodo } = await supabase.from('bc_todos').select('title').eq('id', c.parent_id).maybeSingle()
+                                    parentTitle = parentTodo?.title || ''
+                                } else if (c.parent_type === 'message' && c.parent_id) {
+                                    const { data: parentMsg } = await supabase.from('bc_messages').select('title').eq('id', c.parent_id).maybeSingle()
+                                    parentTitle = parentMsg?.title || ''
+                                } else if (c.parent_type === 'document' && c.parent_id) {
+                                    const { data: parentDoc } = await supabase.from('bc_documents').select('title').eq('id', c.parent_id).maybeSingle()
+                                    parentTitle = parentDoc?.title || ''
+                                }
+                            } catch { /* ignore parent resolve errors */ }
+                            return {
+                                id: c.id,
+                                content: c.content || '',
+                                created_at: c.created_at,
+                                parent_type: c.parent_type || 'unknown',
+                                parent_id: c.parent_id || null,
+                                parent_title: parentTitle,
+                                author_name: unwrapPersonName(c.author),
                             }
-                        } catch { /* ignore parent resolve errors */ }
-                        return {
-                            id: c.id,
-                            content: c.content || '',
-                            created_at: c.created_at,
-                            parent_type: c.parent_type || 'unknown',
-                            parent_title: parentTitle,
-                            author_name: (c.author as any)?.name || 'Unknown'
-                        }
-                    }))
-                    setRecentActivity(activityItems)
+                        })
+                    )
+                    if (!cancelled) setRecentActivity(activityItems)
                 } else {
                     setRecentActivity([])
                 }
@@ -269,11 +332,14 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     const uniqueAuthors = new Map<string, string>()
                     resActivePeople.data.forEach((ap: any) => {
                         if (ap.author_person_id && !uniqueAuthors.has(ap.author_person_id)) {
-                            uniqueAuthors.set(ap.author_person_id, (ap.author as any)?.name || 'U')
+                            uniqueAuthors.set(ap.author_person_id, unwrapPersonName(ap.author) || 'U')
                         }
                     })
                     setActivePeopleCount(uniqueAuthors.size)
                     setActivePeopleAvatars(Array.from(uniqueAuthors.values()).slice(0, 8))
+                } else {
+                    setActivePeopleCount(0)
+                    setActivePeopleAvatars([])
                 }
 
                 // 4. Process First List and fetch tasks (oldest first by creation date)
@@ -286,23 +352,27 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                         .order('created_at', { ascending: true })
                         .limit(10)
 
-                    setFirstTodoList({
-                        name: resFirstList.data.name || 'To-dos',
-                        tasks: listTasks || []
-                    })
+                    if (!cancelled) {
+                        setFirstTodoList({
+                            name: resFirstList.data.name || '',
+                            tasks: listTasks || [],
+                        })
+                    }
                 } else {
                     setFirstTodoList(null)
                 }
 
                 // 5. Process Messages
                 if (resMessages.data) {
-                    setLastMessages(resMessages.data.map((m: any) => ({
-                        id: m.id,
-                        title: m.title,
-                        content: m.content,
-                        created_at: m.created_at,
-                        author: (m.author as any)?.name || 'Unknown'
-                    })))
+                    setLastMessages(
+                        resMessages.data.map((m: any) => ({
+                            id: m.id,
+                            title: m.title,
+                            content: m.content,
+                            created_at: m.created_at,
+                            author: unwrapPersonName(m.author),
+                        }))
+                    )
                 } else {
                     setLastMessages([])
                 }
@@ -315,16 +385,20 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                             id: d.id,
                             title: d.title,
                             created_at: d.created_at,
-                            author: (d.author as any)?.name || 'Unknown',
-                            file_type: 'doc'
+                            author: unwrapPersonName(d.author),
+                            file_type: 'doc',
                         })
                     })
                 }
                 if (resUploads.data) {
                     resUploads.data.forEach((u: any) => {
-                        const isGoogle = u.download_url?.includes('docs.google.com') || u.download_url?.includes('drive.google.com') ||
-                            u.content_type?.endsWith('.document') || u.content_type?.endsWith('.spreadsheet')
-                        const ext = u.filename?.split('.').pop()?.toLowerCase() || ''
+                        const isGoogle =
+                            u.download_url?.includes('docs.google.com') ||
+                            u.download_url?.includes('drive.google.com') ||
+                            u.content_type?.endsWith('.document') ||
+                            u.content_type?.endsWith('.spreadsheet')
+                        const decodedName = safeDecodeFilename(u.filename, '')
+                        const ext = (decodedName.includes('.') ? decodedName.split('.').pop()?.toLowerCase() : '') || ''
                         let fileType = 'file'
                         if (isGoogle) fileType = 'google_doc'
                         else if (ext === 'pdf') fileType = 'pdf'
@@ -332,10 +406,10 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
                         allDocsFiles.push({
                             id: u.id,
-                            title: u.filename || 'File',
+                            title: decodedName,
                             created_at: u.created_at,
-                            author: (u.author as any)?.name || 'Unknown',
-                            file_type: fileType
+                            author: unwrapPersonName(u.author),
+                            file_type: fileType,
                         })
                     })
                 }
@@ -344,12 +418,14 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
                 // 8. Process Campfire Lines
                 if (resChatLines.data) {
-                    const mappedChat = resChatLines.data.map((c: any) => ({
-                        id: c.id,
-                        author: (c.author as any)?.name || 'Unknown',
-                        message: c.content,
-                        created_at: c.created_at
-                    })).reverse()
+                    const mappedChat = resChatLines.data
+                        .map((c: any) => ({
+                            id: c.id,
+                            author: unwrapPersonName(c.author),
+                            message: c.content,
+                            created_at: c.created_at,
+                        }))
+                        .reverse()
                     setLastChat(mappedChat)
                 } else {
                     setLastChat([])
@@ -360,14 +436,24 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
                 // 10. Process Members
                 if (resMembers.data) {
-                    setProjectMembers(resMembers.data.map((m: any) => ({
-                        name: (m.person as any)?.name || 'Unknown',
-                        role: (m.person as any)?.role || 'user'
-                    })))
+                    const seenIds = new Set<string>()
+                    const mappedMembers: any[] = []
+                    resMembers.data.forEach((m: any) => {
+                        const p = Array.isArray(m.person) ? m.person[0] : m.person
+                        if (!p) return
+                        const key = p.id || p.name
+                        if (key && seenIds.has(key)) return
+                        if (key) seenIds.add(key)
+                        mappedMembers.push({
+                            id: p.id,
+                            name: typeof p.name === 'string' ? p.name.trim() : '',
+                            role: p.role || 'user',
+                        })
+                    })
+                    setProjectMembers(mappedMembers)
                 } else {
                     setProjectMembers([])
                 }
-
             } catch (err: any) {
                 console.error('Error loading project dashboard:', err.message)
             }
@@ -375,75 +461,98 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
         fetchProjectDetails()
 
-        if (!project.db_id) return
+        if (!project.db_id) return () => { cancelled = true }
         const channel = supabase
             .channel(`bc_project_dashboard_${project.db_id}`)
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'bc_todos', filter: `project_id=eq.${project.db_id}` },
-                () => fetchProjectDetails()
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'bc_messages', filter: `project_id=eq.${project.db_id}` },
-                () => fetchProjectDetails()
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'bc_comments', filter: `project_id=eq.${project.db_id}` },
-                () => fetchProjectDetails()
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'bc_documents', filter: `project_id=eq.${project.db_id}` },
-                () => fetchProjectDetails()
-            )
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_todolists', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_todos', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_messages', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_comments', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_documents', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_uploads', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_campfire_lines', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_schedule_entries', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
             .subscribe()
 
         return () => {
+            cancelled = true
             supabase.removeChannel(channel)
         }
-    }, [project.id, project.db_id, supabase])
+    }, [project.id, project.db_id])
 
     // ───── Handlers ─────
     const handleUpdateNeedle = (e: React.FormEvent) => {
         e.preventDefault()
-        setProgressPercent(manualProgress)
+        const clamped = Number.isFinite(manualProgress) ? Math.min(100, Math.max(0, manualProgress)) : 0
+        setProgressPercent(clamped)
         setShowNeedleModal(false)
     }
 
     const togglePin = () => {
-        const updated = projects.map(p => p.id === project.id ? { ...p, is_pinned: !p.is_pinned } : p)
+        const updated = projects.map((p) => (p.id === project.id ? { ...p, is_pinned: !p.is_pinned } : p))
         saveProjects(updated)
     }
 
-    // Format time for activity feed
+    // Format time for activity feed (America/Los_Angeles)
     const formatActivityTime = (dateStr: string) => {
         const d = new Date(dateStr)
-        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+        if (Number.isNaN(d.getTime())) return ''
+        return d
+            .toLocaleTimeString(locale, {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'America/Los_Angeles',
+            })
+            .toLowerCase()
     }
 
-    // Format date for card previews
-    const formatShortDate = (dateStr: string) => {
+    // Format date for card previews (America/Los_Angeles, or pure YYYY-MM-DD for all_day)
+    const formatShortDate = (dateStr: string, allDay?: boolean) => {
+        if (!dateStr) return ''
+        if (allDay) {
+            const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/)
+            if (m) {
+                const localNoon = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0)
+                return localNoon.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+            }
+        }
         const d = new Date(dateStr)
-        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+        if (Number.isNaN(d.getTime())) return ''
+        return d.toLocaleDateString(locale, {
+            month: 'short',
+            day: 'numeric',
+            timeZone: 'America/Los_Angeles',
+        })
     }
 
-    // Strip HTML tags from content previews
-    const stripHtml = (html: string) => {
-        return html?.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim() || ''
+    // Strip TEG author banner, <bc-attachment> blocks, HTML tags, and decode entities
+    const stripHtml = (html?: string | null) => {
+        if (!html) return ''
+        const { cleanHtml } = stripTegAuthorBanner(html)
+        return cleanHtml
+            .replace(/<bc-attachment[\s\S]*?<\/bc-attachment>/gi, ' ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;/gi, "'")
+            .replace(/\s+/g, ' ')
+            .trim()
     }
 
     // Needle rotation: 0% = -90deg, 100% = +90deg
-    const needleRotationAngle = -90 + (progressPercent / 100) * 180
+    const safeProgress = Number.isFinite(progressPercent) ? Math.min(100, Math.max(0, progressPercent)) : 0
+    const needleRotationAngle = -90 + (safeProgress / 100) * 180
 
-    const colorStyles = COLOR_CLASSES[project.color] || COLOR_CLASSES.white
+    const _colorStyles = COLOR_CLASSES[project.color] || COLOR_CLASSES.white
+    void _colorStyles
 
-    // Determine people display
     const membersToShow = projectMembers.length > 0 ? projectMembers : (project.people || [])
     const memberCount = membersToShow.length
 
-    // File type icon helpers
     const getFileTypeIcon = (fileType: string) => {
         switch (fileType) {
             case 'google_doc': return { color: '#34A853', label: t('basecamp.google_doc') }
@@ -453,6 +562,8 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
             default: return { color: '#6B7B8D', label: t('basecamp.generic_file_label') }
         }
     }
+
+    const hintShortParts = t('basecamp.search_jump_hint_short').split('Shift + J')
 
     return (
         <div className="flex-1 flex flex-col gap-6">
@@ -464,7 +575,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     <div className="flex items-center gap-2 mb-1">
                         <button
                             onClick={() => navigateTo({})}
-                            className="text-sm text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 font-bold"
+                            className="text-sm text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-bold"
                         >
                             {t('basecamp.home')}
                         </button>
@@ -490,23 +601,26 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 <div className="flex flex-col md:items-end gap-2.5">
                     <div className="flex items-center gap-4">
                         <div className="flex -space-x-2">
-                            {membersToShow.slice(0, 5).map((m: any, idx: number) => (
-                                <div
-                                    key={idx}
-                                    className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-black text-white"
-                                    style={{ backgroundColor: getAvatarColor(m.name) }}
-                                    title={m.name}
-                                >
-                                    {getInitials(m.name)}
-                                </div>
-                            ))}
+                            {membersToShow.slice(0, 5).map((m: any, idx: number) => {
+                                const mName = m?.name || t('basecamp.unknown_user')
+                                return (
+                                    <div
+                                        key={m?.id || idx}
+                                        className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-black text-white"
+                                        style={{ backgroundColor: getAvatarColor(mName) }}
+                                        title={mName}
+                                    >
+                                        {getInitials(mName)}
+                                    </div>
+                                )
+                            })}
                             {memberCount > 5 && (
                                 <div className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300">
                                     +{memberCount - 5}
                                 </div>
                             )}
                         </div>
-                        <button 
+                        <button
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300 text-xs font-bold opacity-50 cursor-not-allowed"
                             title={t('basecamp.invite_coming_soon')}
                             disabled
@@ -516,15 +630,19 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                         </button>
                     </div>
                     {onOpenSearch && (
-                        <div 
+                        <div
                             onClick={onOpenSearch}
                             className="border border-slate-200/60 dark:border-slate-800 bg-[#fffdf9] dark:bg-slate-900 px-3 py-1 rounded-lg text-[11px] font-semibold text-slate-500 dark:text-slate-400 shadow-inner cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all flex items-center gap-1.5"
                         >
-                            <span>
-                                {t('basecamp.search_jump_hint_short').split('Shift + J')[0]}
-                                <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">J</kbd>
-                                {t('basecamp.search_jump_hint_short').split('Shift + J')[1]}
-                            </span>
+                            {hintShortParts.length > 1 ? (
+                                <span>
+                                    {hintShortParts[0]}
+                                    <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[9px] mx-0.5 font-bold">J</kbd>
+                                    {hintShortParts[1]}
+                                </span>
+                            ) : (
+                                <span>{t('basecamp.search_jump_hint_short')}</span>
+                            )}
                         </div>
                     )}
                 </div>
@@ -534,7 +652,6 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 SECTION 2: FEED & GAUGE
             ════════════════════════════════════════════════ */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
                 {/* Recent Activity Feed */}
                 <div className="lg:col-span-2 bg-[#fcfaf6] dark:bg-slate-800/20 border border-slate-300 dark:border-slate-800/60 rounded-2xl p-5 shadow-sm">
                     {recentActivity.length > 0 ? (
@@ -546,7 +663,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                         {formatActivityTime(act.created_at)}
                                     </span>
                                     <span className="text-slate-700 dark:text-slate-300">
-                                        <strong>{act.author_name.split(' ')[0]} {act.author_name.split(' ').length > 1 ? act.author_name.split(' ')[act.author_name.split(' ').length - 1][0] + '.' : ''}</strong>
+                                        <strong>{formatAbbreviatedAuthor(act.author_name, t('basecamp.unknown_user'))}</strong>
                                         {' '}
                                         {t('basecamp.commented_on')}
                                         {' '}
@@ -560,8 +677,22 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                                 else if (pType?.includes('chat') || pType?.includes('campfire')) tool = 'campfire'
                                                 else if (pType?.includes('schedule') || pType?.includes('event') || pType?.includes('calendar')) tool = 'schedule'
                                                 else if (pType?.includes('checkin') || pType?.includes('question')) tool = 'checkins'
-                                                
-                                                if (tool) navigateTo({ project: project.id, tool })
+
+                                                if (tool) {
+                                                    const navParams: {
+                                                        project: string
+                                                        tool: string
+                                                        todoId?: string
+                                                        messageId?: string
+                                                        docId?: string
+                                                    } = { project: project.id, tool }
+                                                    if (act.parent_id) {
+                                                        if (tool === 'todos') navParams.todoId = act.parent_id
+                                                        else if (tool === 'messages') navParams.messageId = act.parent_id
+                                                        else if (tool === 'docs') navParams.docId = act.parent_id
+                                                    }
+                                                    navigateTo(navParams)
+                                                }
                                             }}
                                             className="font-bold text-[#1D7DB5] hover:text-[#155D8A] hover:underline dark:text-blue-400 dark:hover:text-blue-300 transition-colors inline-flex items-center text-left"
                                         >
@@ -579,7 +710,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
                     {/* Active people bar */}
                     {activePeopleCount > 0 && (
-                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/40">
+                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/40 flex-wrap">
                             <div className="flex -space-x-1">
                                 {activePeopleAvatars.slice(0, 6).map((name, idx) => (
                                     <div
@@ -612,7 +743,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     <h3 className="text-base font-black text-slate-800 dark:text-slate-100">
                         {t('basecamp.project_progress')}
                     </h3>
-                    
+
                     <div className="relative w-[200px] h-[100px] overflow-hidden select-none">
                         <svg className="absolute w-[200px] h-[100px] top-0 overflow-visible" viewBox="0 0 200 100">
                             <path
@@ -628,25 +759,22 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                 stroke="#4BAE4F"
                                 strokeWidth="8"
                                 strokeDasharray="282"
-                                strokeDashoffset={282 - (progressPercent / 100) * 282}
+                                strokeDashoffset={282 - (safeProgress / 100) * 282}
                                 style={{ transition: 'stroke-dashoffset 0.5s ease' }}
                             />
                         </svg>
 
-                        {/* Pin de la aguja */}
                         <div className="absolute bottom-0 left-[94px] w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-600 border-4 border-white dark:border-slate-900 z-20 flex items-center justify-center">
                             <div className="w-1.5 h-1.5 rounded-full bg-white" />
                         </div>
 
-                        {/* La Aguja */}
                         <div
                             className="absolute bottom-4 left-[107px] w-1.5 h-20 bg-slate-800 dark:bg-slate-200 origin-bottom rounded-t-full z-10 transition-transform duration-500 ease-out"
                             style={{ transform: `rotate(${needleRotationAngle}deg)` }}
                         />
 
-                        {/* Valor en porcentaje */}
                         <span className="absolute bottom-1 right-0 left-0 text-center text-2xl font-black text-slate-800 dark:text-slate-100">
-                            {progressPercent}%
+                            {safeProgress}%
                         </span>
                     </div>
 
@@ -663,8 +791,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 SECTION 4: TOOL CARDS GRID (3 columns, rich previews)
             ════════════════════════════════════════════════ */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-                {/* ─────── Card 1: TO-DOS (tall card with checkboxes) ─────── */}
+                {/* ─────── Card 1: TO-DOS ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'todos' })}
                     className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
@@ -678,27 +805,27 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
                     {firstTodoList ? (
                         <div className="flex-1">
-                            {/* List name with colored dot */}
                             <div className="flex items-center gap-2 mb-2.5">
                                 <span className="w-2 h-2 rounded-full bg-green-500" />
-                                <span className="text-sm font-extrabold text-slate-700 dark:text-slate-300">{firstTodoList.name}</span>
+                                <span className="text-sm font-extrabold text-slate-700 dark:text-slate-300">
+                                    {firstTodoList.name || t('basecamp.todos')}
+                                </span>
                             </div>
-                            {/* Task checkboxes */}
                             <div className="space-y-1.5">
                                 {firstTodoList.tasks.map((todo) => (
                                     <div key={todo.id} className="flex items-center gap-2 text-sm">
                                         <input
                                             type="checkbox"
-                                            checked={todo.is_completed}
+                                            checked={Boolean(todo.is_completed)}
                                             readOnly
                                             className="rounded text-green-600 focus:ring-green-500 w-4 h-4 flex-shrink-0"
                                         />
-                                        <span className={`truncate flex-1 ${todo.is_completed ? 'line-through text-slate-400 dark:text-slate-600' : 'text-slate-650 dark:text-slate-300'}`}>
+                                        <span className={`truncate flex-1 ${todo.is_completed ? 'line-through text-slate-400 dark:text-slate-600' : 'text-slate-700 dark:text-slate-300'}`}>
                                             {todo.title}
                                         </span>
                                         {todo.created_at && (
                                             <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
-                                                {new Date(todo.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })} · {new Date(todo.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })}
+                                                {new Date(todo.created_at).toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })} · {new Date(todo.created_at).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })}
                                             </span>
                                         )}
                                     </div>
@@ -713,7 +840,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.manage_tasks')} →</span>
                 </div>
 
-                {/* ─────── Card 2: MESSAGE BOARD (with avatar + preview) ─────── */}
+                {/* ─────── Card 2: MESSAGE BOARD ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'messages' })}
                     className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
@@ -727,27 +854,29 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
 
                     <div className="space-y-3.5 flex-1">
                         {lastMessages.length > 0 ? (
-                            lastMessages.slice(0, 3).map((msg) => (
-                                <div key={msg.id} className="flex items-start gap-3 border-b border-slate-100 dark:border-slate-800/30 pb-3 last:border-0">
-                                    {/* Author avatar */}
-                                    <div
-                                        className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white flex-shrink-0 mt-0.5 shadow-sm"
-                                        style={{ backgroundColor: getAvatarColor(msg.author) }}
-                                    >
-                                        {getInitials(msg.author)}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-baseline gap-1.5">
-                                            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{msg.author}</span>
-                                            <span className="text-[10px] text-slate-400">{formatShortDate(msg.created_at)}</span>
+                            lastMessages.slice(0, 3).map((msg) => {
+                                const msgAuthor = msg.author || t('basecamp.unknown_user')
+                                return (
+                                    <div key={msg.id} className="flex items-start gap-3 border-b border-slate-100 dark:border-slate-800/30 pb-3 last:border-0">
+                                        <div
+                                            className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white flex-shrink-0 mt-0.5 shadow-sm"
+                                            style={{ backgroundColor: getAvatarColor(msgAuthor) }}
+                                        >
+                                            {getInitials(msgAuthor)}
                                         </div>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate leading-snug">{msg.title}</p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-500 line-clamp-2 leading-relaxed">
-                                            {stripHtml(msg.content || '').slice(0, 120)}
-                                        </p>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-baseline gap-1.5">
+                                                <span className="text-xs font-bold text-slate-600 dark:text-slate-400 truncate">{msgAuthor}</span>
+                                                <span className="text-[10px] text-slate-400 shrink-0">{formatShortDate(msg.created_at)}</span>
+                                            </div>
+                                            <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate leading-snug">{msg.title}</p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-500 line-clamp-2 leading-relaxed">
+                                                {stripHtml(msg.content).slice(0, 120)}
+                                            </p>
+                                        </div>
                                     </div>
-                                </div>
-                            ))
+                                )
+                            })
                         ) : (
                             <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
                                 {t('basecamp.no_messages')}
@@ -757,7 +886,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_board')} →</span>
                 </div>
 
-                {/* ─────── Card 3: DOCS & FILES (with file type icons) ─────── */}
+                {/* ─────── Card 3: DOCS & FILES ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'docs' })}
                     className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
@@ -773,6 +902,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                         {docsAndFiles.length > 0 ? (
                             docsAndFiles.slice(0, 5).map((doc) => {
                                 const typeInfo = getFileTypeIcon(doc.file_type)
+                                const docAuthor = (doc.author || t('basecamp.unknown_user')).trim().split(/\s+/)[0] || t('basecamp.unknown_user')
                                 return (
                                     <div key={doc.id} className="flex items-center gap-2.5 text-sm">
                                         <div
@@ -782,11 +912,11 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                             <FileText size={14} style={{ color: typeInfo.color }} />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-bold text-slate-750 dark:text-slate-300 truncate leading-none mb-0.5">
-                                                {doc.title}
+                                            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate leading-none mb-0.5">
+                                                {doc.title || t('basecamp.attached_file_fallback')}
                                             </p>
                                             <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
-                                                {typeInfo.label} • {doc.author.split(' ')[0]} • {formatShortDate(doc.created_at)}
+                                                {typeInfo.label} • {docAuthor} • {formatShortDate(doc.created_at)}
                                             </p>
                                         </div>
                                     </div>
@@ -814,19 +944,23 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     </div>
                     <div className="flex-1 space-y-2">
                         {lastChat && lastChat.length > 0 ? (
-                            lastChat.slice(0, 4).map((line: any) => (
-                                <div key={line.id} className="flex items-start gap-2 text-sm">
-                                    <div
-                                        className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black text-white flex-shrink-0 mt-0.5"
-                                        style={{ backgroundColor: getAvatarColor(line.author || 'U') }}
-                                    >
-                                        {getInitials(line.author || 'U')}
+                            lastChat.slice(0, 4).map((line: any) => {
+                                const chatAuthor = line.author || t('basecamp.unknown_user')
+                                const previewText = stripHtml(line.message || line.content).slice(0, 80) || `📎 ${t('basecamp.attached_file_fallback')}`
+                                return (
+                                    <div key={line.id} className="flex items-start gap-2 text-sm">
+                                        <div
+                                            className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black text-white flex-shrink-0 mt-0.5"
+                                            style={{ backgroundColor: getAvatarColor(chatAuthor) }}
+                                        >
+                                            {getInitials(chatAuthor)}
+                                        </div>
+                                        <p className="text-slate-600 dark:text-slate-400 line-clamp-1 flex-1">
+                                            {previewText}
+                                        </p>
                                     </div>
-                                    <p className="text-slate-600 dark:text-slate-400 line-clamp-1 flex-1">
-                                        {((line.message || line.content || '')).replace(/<[^>]*>/g, '').slice(0, 80)}
-                                    </p>
-                                </div>
-                            ))
+                                )
+                            })
                         ) : (
                             <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
                                 {t('basecamp.no_chat')}
@@ -856,7 +990,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                         <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
                                         <span className="text-slate-600 dark:text-slate-400 truncate flex-1 font-medium">{evt.title}</span>
                                         <span className="text-[10px] text-slate-400 flex-shrink-0">
-                                            {new Date(evt.starts_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                            {formatShortDate(evt.starts_at, Boolean(evt.all_day))}
                                         </span>
                                     </div>
                                 ))}
@@ -884,16 +1018,18 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     </div>
                     <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_checkins')} →</span>
                 </div>
-
             </div>
 
             {/* ════════════════════════════════════════════════
                 Modal para Ajustar Progreso de Aguja
             ════════════════════════════════════════════════ */}
             {showNeedleModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowNeedleModal(false) }}
+                >
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
-                        <h3 className="text-lg font-bold text-slate-855 dark:text-slate-100 mb-4">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">
                             {t('basecamp.move_needle')}
                         </h3>
                         <form onSubmit={handleUpdateNeedle} className="space-y-4">
@@ -908,7 +1044,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                                         onChange={(e) => setManualProgress(Number(e.target.value))}
                                         className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#1D7DB5]"
                                     />
-                                    <span className="text-xl font-black text-slate-850 dark:text-slate-200 w-12 text-right">
+                                    <span className="text-xl font-black text-slate-800 dark:text-slate-200 w-12 text-right">
                                         {manualProgress}%
                                     </span>
                                 </div>

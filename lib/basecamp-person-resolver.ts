@@ -53,12 +53,80 @@ export function normalizePersonName(raw?: string | null): string {
 }
 
 /**
+ * Synthetic `bc_id` threshold (`100_000_000_000` / `1e11`).
+ * Real Basecamp 3 IDs are 9–11 digits (< 1e11), whereas locally generated IDs
+ * (`Date.now() * 1000 + rand`) are ~1.7e15 (>= 1e11).
+ */
+export const SYNTHETIC_BC_ID_THRESHOLD = 100_000_000_000
+
+export function isRealBasecampId(bcId?: number | string | null): boolean {
+  const n = Number(bcId)
+  return Number.isFinite(n) && n > 0 && n < SYNTHETIC_BC_ID_THRESHOLD
+}
+
+/**
  * Checks whether an email returned by Basecamp 3 API is masked (contains bullet characters) or empty.
  */
 export function isMaskedOrEmptyEmail(email?: string | null): boolean {
   if (!email) return true
   const trimmed = email.trim()
   return trimmed.length === 0 || trimmed.includes('•') || trimmed.includes('*')
+}
+
+/**
+ * Finds a person in an in-memory `bc_people` list using:
+ * - Pass 1: Case-insensitive unmasked email match (when `targetEmail` provided)
+ * - Pass 2: Normalized full-name match (Erick/Erik, Velazquez/Velasquez, Nuñez/Nunez, Alejandro/Alex)
+ * - Pass 3: Unambiguous first-name or first-name + single-letter last-initial match (e.g. "Victor Muñoz" <-> "Victor M", "Marco Salgado" <-> "Marco")
+ */
+export function findPersonInListByFuzzyName<
+  T extends { id: string; name?: string | null; email?: string | null }
+>(people: T[], targetName?: string | null, targetEmail?: string | null): T | null {
+  if (!Array.isArray(people) || people.length === 0) return null
+
+  const cleanEmail = (targetEmail || '').trim().toLowerCase()
+  if (cleanEmail && !isMaskedOrEmptyEmail(cleanEmail)) {
+    const byEmail = people.find(
+      (p) => !isMaskedOrEmptyEmail(p.email) && String(p.email).trim().toLowerCase() === cleanEmail
+    )
+    if (byEmail) return byEmail
+  }
+
+  const normTarget = normalizePersonName(targetName)
+  if (!normTarget) return null
+
+  // Pass 2: Exact normalized full-name match
+  const exactMatch = people.find((p) => normalizePersonName(p.name) === normTarget)
+  if (exactMatch) return exactMatch
+
+  // Pass 3: Unambiguous first-name or first-name + last-initial match
+  const targetTokens = normTarget.split(' ').filter(Boolean)
+  if (targetTokens.length === 0) return null
+
+  const targetFirst = targetTokens[0]
+  const targetLast = targetTokens.length > 1 ? targetTokens[targetTokens.length - 1] : ''
+
+  const candidates = people.filter((p) => {
+    const normP = normalizePersonName(p.name)
+    const pTokens = normP.split(' ').filter(Boolean)
+    if (pTokens.length === 0) return false
+
+    // Special single-token containment (e.g. "Bell" <-> "Teg Bell")
+    if (targetTokens.length === 1 && pTokens.includes(targetFirst)) return true
+
+    const pFirst = pTokens[0]
+    if (pFirst !== targetFirst) return false
+
+    if (pTokens.length === 1 || targetTokens.length === 1) return true
+
+    const pLast = pTokens[pTokens.length - 1]
+    if (pLast.length === 1 && targetLast.startsWith(pLast)) return true
+    if (targetLast.length === 1 && pLast.startsWith(targetLast)) return true
+
+    return false
+  })
+
+  return candidates.length === 1 ? candidates[0] : null
 }
 
 /**
@@ -104,45 +172,8 @@ export async function resolveOrCreateTegPerson(
     }
   }
 
-  const normUser = normalizePersonName(userName)
-  const userTokens = normUser.split(' ').filter(Boolean)
-
-  let matchedPerson: any = null
-
-  // Pass 2: Exact normalized full-name match
-  if (normUser) {
-    matchedPerson = people.find((p) => normalizePersonName(p.name) === normUser)
-  }
-
-  // Pass 3: First-name + optional last-initial match (for single-name or initialed Basecamp profiles like "Marco", "Lucia", "Yasmin", "Victor M")
-  if (!matchedPerson && userTokens.length >= 1) {
-    const userFirst = userTokens[0]
-    const userLast = userTokens.length > 1 ? userTokens[userTokens.length - 1] : ''
-
-    const candidates = people.filter((p) => {
-      const normP = normalizePersonName(p.name)
-      const pTokens = normP.split(' ').filter(Boolean)
-      if (pTokens.length === 0) return false
-      const pFirst = pTokens[0]
-      if (pFirst !== userFirst) return false
-
-      // If bc_people only has first name (e.g. "Marco", "Lucia", "Yasmin")
-      if (pTokens.length === 1) return true
-
-      // If bc_people has first name + single-letter last initial (e.g. "Victor M")
-      const pLast = pTokens[pTokens.length - 1]
-      if (pLast.length === 1 && userLast.startsWith(pLast)) return true
-
-      // Or if user only has 1 token (e.g. "Bell" matching "Teg Bell")
-      if (userTokens.length === 1 && pTokens.includes(userFirst)) return true
-
-      return false
-    })
-
-    if (candidates.length === 1) {
-      matchedPerson = candidates[0]
-    }
-  }
+  // Pass 2 + Pass 3: Normalized full-name & unambiguous first-name / last-initial match
+  const matchedPerson = findPersonInListByFuzzyName(people, userName)
 
   if (matchedPerson) {
     // Auto-heal masked email in bc_people so future queries match in Pass 1
@@ -250,20 +281,23 @@ export function stripTegAuthorBanner(html?: string | null): {
 
   let extractedAuthorName: string | null = null
 
-  // Match data-teg-author or visible "👤 Solicitado por: <strong>Name</strong>" / "<strong>👤 Name:</strong>"
+  // Match data-teg-author attribute or visible "👤 Solicitado por: <strong>Name</strong>" / "<strong>👤 Name:</strong>"
+  const attrMatch = html.match(/data-teg-author=["']([^"']+)["']/i)
   const solMatch = html.match(/👤\s*Solicitado por:\s*<strong>([^<]+)<\/strong>/i)
-  if (solMatch?.[1]) {
+  const comMatch = html.match(/<strong>\s*👤\s*([^<:]+):\s*<\/strong>/i)
+
+  if (attrMatch?.[1]?.trim()) {
+    extractedAuthorName = attrMatch[1].trim()
+  } else if (solMatch?.[1]?.trim()) {
     extractedAuthorName = solMatch[1].trim()
-  } else {
-    const comMatch = html.match(/<strong>👤\s*([^<:]+):<\/strong>/i)
-    if (comMatch?.[1]) {
-      extractedAuthorName = comMatch[1].trim()
-    }
+  } else if (comMatch?.[1]?.trim()) {
+    extractedAuthorName = comMatch[1].trim()
   }
 
   const cleanHtml = html
-    .replace(/<p[^>]*>\s*<em>\s*👤\s*Solicitado por:\s*<strong>[^<]+<\/strong>\s*\(Sistema TEG\)\s*<\/em>\s*<\/p>/gi, '')
-    .replace(/<p[^>]*>\s*<strong>\s*👤\s*[^<:]+:\s*<\/strong>\s*<\/p>/gi, '')
+    .replace(/<(?:p|div)\b[^>]*\bdata-teg-author=["'][^"']*["'][^>]*>[\s\S]*?<\/(?:p|div)>/gi, '')
+    .replace(/<(?:p|div)\b[^>]*>\s*<em>\s*👤\s*Solicitado por:\s*<strong>[^<]+<\/strong>\s*\(Sistema TEG\)\s*<\/em>\s*<\/(?:p|div)>/gi, '')
+    .replace(/<(?:p|div)\b[^>]*>\s*<strong>\s*👤\s*[^<:]+:\s*<\/strong>\s*<\/(?:p|div)>/gi, '')
     .trim()
 
   return { cleanHtml, extractedAuthorName }

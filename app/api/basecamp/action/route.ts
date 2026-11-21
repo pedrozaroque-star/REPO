@@ -22,6 +22,7 @@
  *   - `create_schedule_entry`
  *   - `create_vault`
  *   - `create_document`
+ *   - `create_upload`
  *   - `delete_recording`
  *
  * @dataFlow
@@ -34,7 +35,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { getServerUser } from '@/lib/auth-server'
+import { getServerUser, verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
   createTodo as bcCreateTodo,
@@ -46,11 +47,14 @@ import {
   createAnswer as bcCreateAnswer,
   createScheduleEntry as bcCreateScheduleEntry,
   createDocument as bcCreateDocument,
+  uploadBasecampAttachment,
+  syncTodolistCounts,
 } from '@/lib/basecamp-api'
 import {
   resolveOrCreateTegPerson,
   buildBasecampDescriptionWithAuthor,
   buildBasecampCommentWithAuthor,
+  isRealBasecampId,
 } from '@/lib/basecamp-person-resolver'
 
 export const dynamic = 'force-dynamic'
@@ -71,9 +75,219 @@ async function basecampBestEffort<T>(label: string, fn: () => Promise<T>): Promi
   }
 }
 
+async function syncParentCommentsCount(
+  supabase: any,
+  parentType?: string | null,
+  parentDbId?: string | null
+): Promise<void> {
+  if (!parentDbId || (parentType !== 'todo' && parentType !== 'message')) return
+  const { count, error } = await supabase
+    .from('bc_comments')
+    .select('*', { count: 'exact', head: true })
+    .eq('parent_type', parentType)
+    .eq('parent_id', parentDbId)
+  if (error) return
+
+  if (parentType === 'todo') {
+    await supabase
+      .from('bc_todos')
+      .update({ comments_count: count ?? 0, updated_at: new Date().toISOString() })
+      .eq('id', parentDbId)
+  } else {
+    await supabase
+      .from('bc_messages')
+      .update({ comments_count: count ?? 0, updated_at: new Date().toISOString() })
+      .eq('id', parentDbId)
+  }
+}
+
+function extractBasecampUploadStoragePath(downloadUrl?: string | null): string | null {
+  if (!downloadUrl || typeof downloadUrl !== 'string') return null
+  const marker = '/storage/v1/object/public/checklist-photos/'
+  const idx = downloadUrl.indexOf(marker)
+  if (idx === -1) return null
+  let relPath = downloadUrl.slice(idx + marker.length).split('?')[0]
+  try {
+    relPath = decodeURIComponent(relPath)
+  } catch {
+    // Keep raw path when not percent-encoded
+  }
+  if (!relPath.startsWith('basecamp-uploads/') || relPath.includes('..')) {
+    return null
+  }
+  return relPath
+}
+
+const MIME_EXT_MAP: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'application/pdf': 'pdf',
+  'text/plain': 'txt',
+  'text/csv': 'csv',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+}
+
+/**
+ * Uploads any embedded `<img src="data:...">` / `<a href="data:...">` / `url="data:..."` base64 payloads
+ * to Supabase Storage (`checklist-photos/basecamp-attachments/...`) and replaces them with durable HTTPS
+ * public URLs before saving to Supabase or mirroring to Basecamp API.
+ */
+async function uploadEmbeddedDataUrisToStorage(
+  html: string | undefined | null,
+  folder: string,
+  supabase: any
+): Promise<string> {
+  if (!html || typeof html !== 'string' || !html.includes('data:')) {
+    return html || ''
+  }
+
+  const dataAttrRegex =
+    /(?:src|href|url)\s*=\s*(["'])(data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+)(?:;[a-zA-Z0-9=._-]+)*;base64,([A-Za-z0-9+/=\s]+))\1/gi
+
+  const pendingMatches = new Map<string, { mimeType: string; b64: string }>()
+  let match: RegExpExecArray | null
+  while ((match = dataAttrRegex.exec(html)) !== null) {
+    const fullDataUri = match[2]
+    const mimeType = (match[3] || 'application/octet-stream').toLowerCase()
+    const b64 = (match[4] || '').replace(/\s+/g, '')
+    if (fullDataUri && b64 && !pendingMatches.has(fullDataUri)) {
+      pendingMatches.set(fullDataUri, { mimeType, b64 })
+    }
+  }
+
+  if (pendingMatches.size === 0) return html
+
+  let updatedHtml = html
+  for (const [dataUri, { mimeType, b64 }] of pendingMatches.entries()) {
+    try {
+      const buffer = Buffer.from(b64, 'base64')
+      if (buffer.length === 0) continue
+      const fallbackExt = (mimeType.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin'
+      const ext = MIME_EXT_MAP[mimeType] || fallbackExt
+      const filePath = `basecamp-attachments/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+      const { error: upErr } = await supabase.storage.from('checklist-photos').upload(filePath, buffer, {
+        contentType: mimeType,
+        cacheControl: '3600',
+        upsert: true,
+      })
+      if (upErr) {
+        console.warn(`⚠️ [Basecamp Action] Failed to upload embedded data URI (${mimeType}):`, upErr.message)
+        continue
+      }
+
+      const { data: pub } = supabase.storage.from('checklist-photos').getPublicUrl(filePath)
+      if (pub?.publicUrl) {
+        updatedHtml = updatedHtml.replaceAll(dataUri, pub.publicUrl)
+      }
+    } catch (err: any) {
+      console.warn('⚠️ [Basecamp Action] Non-fatal data URI upload error:', err.message)
+    }
+  }
+
+  return updatedHtml
+}
+
+/**
+ * Converts Supabase Storage (`checklist-photos/...`) `<bc-attachment>` and `<img>` elements into native
+ * Basecamp 3 `<bc-attachment sgid="...">` tags strictly for the outbound Basecamp API payload, while keeping
+ * Supabase's permanent public URLs untouched in our own database.
+ */
+async function mirrorSupabaseAttachmentsForBasecampHtml(html: string | undefined | null, supabase: any): Promise<string> {
+  if (!html || typeof html !== 'string' || !html.includes('/storage/v1/object/public/checklist-photos/')) {
+    return html || ''
+  }
+
+  const marker = '/storage/v1/object/public/checklist-photos/'
+  const sgidCache = new Map<string, string | null>()
+
+  const resolveSgidForUrl = async (rawUrl: string, fallbackName: string, fallbackMime: string): Promise<string | null> => {
+    const unescapedUrl = rawUrl.replace(/&amp;/gi, '&').trim()
+    if (sgidCache.has(unescapedUrl)) return sgidCache.get(unescapedUrl) || null
+    const idx = unescapedUrl.indexOf(marker)
+    if (idx === -1) return null
+    let relPath = unescapedUrl.slice(idx + marker.length).split('?')[0]
+    try {
+      relPath = decodeURIComponent(relPath)
+    } catch {
+      // keep raw
+    }
+    if (!relPath || relPath.includes('..')) return null
+
+    try {
+      const { data: blob, error } = await supabase.storage.from('checklist-photos').download(relPath)
+      if (error || !blob) {
+        sgidCache.set(unescapedUrl, null)
+        return null
+      }
+      const arrBuf = await blob.arrayBuffer()
+      const buf = Buffer.from(arrBuf)
+      const detectedMime = blob.type || fallbackMime || 'application/octet-stream'
+      const sgid = await uploadBasecampAttachment(buf, fallbackName || relPath.split('/').pop() || 'attachment', detectedMime)
+      sgidCache.set(unescapedUrl, sgid)
+      return sgid
+    } catch (err: any) {
+      console.warn('⚠️ [Basecamp Action] Could not upload attachment to Basecamp SGID:', err?.message || err)
+      sgidCache.set(unescapedUrl, null)
+      return null
+    }
+  }
+
+  let out = html
+
+  // 1. Convert <bc-attachment ... url="https://...checklist-photos/...">...</bc-attachment>
+  const bcAttRegex = /<bc-attachment\b([^>]*)>([\s\S]*?)<\/bc-attachment>/gi
+  const bcMatches = [...out.matchAll(bcAttRegex)]
+  for (const m of bcMatches) {
+    const fullTag = m[0]
+    const attrs = m[1] || ''
+    const urlMatch = attrs.match(/\b(?:url|href)=["']([^"']+)["']/i)
+    const rawUrl = urlMatch?.[1] || ''
+    if (!rawUrl.includes(marker)) continue
+    const fnMatch = attrs.match(/\bfilename=["']([^"']+)["']/i)
+    const ctMatch = attrs.match(/\bcontent-type=["']([^"']+)["']/i)
+    const filename = fnMatch?.[1] || 'attachment'
+    const mime = ctMatch?.[1] || 'application/octet-stream'
+    const sgid = await resolveSgidForUrl(rawUrl, filename, mime)
+    if (sgid) {
+      out = out.replace(fullTag, `<bc-attachment sgid="${sgid}"></bc-attachment>`)
+    } else {
+      out = out.replace(fullTag, `<p><a href="${rawUrl}">📎 ${filename}</a></p>`)
+    }
+  }
+
+  // 2. Convert standalone <img ... src="https://...checklist-photos/..." ...>
+  const imgRegex = /<img\b([^>]*?)\bsrc=(["'])([^"']+)\2([^>]*)>/gi
+  const imgMatches = [...out.matchAll(imgRegex)]
+  for (const m of imgMatches) {
+    const fullImg = m[0]
+    const rawUrl = m[3] || ''
+    if (!rawUrl.includes(marker)) continue
+    const altMatch = (m[1] + ' ' + m[4]).match(/\balt=(["'])([^"']+)\1/i)
+    const filename = altMatch?.[2] || rawUrl.split('/').pop()?.split('?')[0] || 'photo.jpg'
+    const sgid = await resolveSgidForUrl(rawUrl, filename, 'image/jpeg')
+    if (sgid) {
+      out = out.replace(fullImg, `<bc-attachment sgid="${sgid}"></bc-attachment>`)
+    } else {
+      out = out.replace(fullImg, `<a href="${rawUrl}">🖼 ${filename}</a>`)
+    }
+  }
+
+  return out
+}
+
 export async function POST(request: Request) {
-  // 1. Get authenticated user using our custom JWT token
-  const user = await getServerUser()
+  // 1. Require authenticated staff user (blocks unauthenticated & employee kiosk tokens)
+  const staffAuth = verifyStaffAuth(request, { allowCron: false })
+  if (!staffAuth.authorized) {
+    return staffAuth.response!
+  }
+
+  const user = await getServerUser(request)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -111,7 +325,7 @@ export async function POST(request: Request) {
     .select('id')
     .eq('bc_id', bcProjectId)
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (!dbProject) {
     return NextResponse.json({ error: `Project not found with bc_id ${projectId}` }, { status: 404 })
@@ -142,16 +356,30 @@ export async function POST(request: Request) {
       case 'complete_todo': {
         requireArgs(['todoDbId'])
         const { todoDbId } = args
+        const { data: todoRow } = await supabase
+          .from('bc_todos')
+          .select('bc_id, todolist_id')
+          .eq('id', todoDbId)
+          .eq('project_id', projectUuid)
+          .maybeSingle()
+
+        if (!todoRow) {
+          return NextResponse.json({ error: 'Todo not found in project' }, { status: 404 })
+        }
+
         // 1. Update locally
+        const nowIso = new Date().toISOString()
         await supabase
           .from('bc_todos')
-          .update({ is_completed: true, completed_at: new Date().toISOString() })
+          .update({ is_completed: true, completed_at: nowIso, updated_at: nowIso })
           .eq('id', todoDbId)
+          .eq('project_id', projectUuid)
+
+        await syncTodolistCounts(supabase, todoRow.todolist_id)
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: todoRow } = await supabase.from('bc_todos').select('bc_id').eq('id', todoDbId).single()
-        if (todoRow?.bc_id) {
-          await basecampBestEffort('complete_todo', () => bcCompleteTodo(bcProjectId, todoRow.bc_id))
+        if (isRealBasecampId(todoRow.bc_id)) {
+          await basecampBestEffort('complete_todo', () => bcCompleteTodo(bcProjectId, Number(todoRow.bc_id)))
         }
 
         return NextResponse.json({ success: true })
@@ -160,16 +388,29 @@ export async function POST(request: Request) {
       case 'uncomplete_todo': {
         requireArgs(['todoDbId'])
         const { todoDbId } = args
+        const { data: todoRow } = await supabase
+          .from('bc_todos')
+          .select('bc_id, todolist_id')
+          .eq('id', todoDbId)
+          .eq('project_id', projectUuid)
+          .maybeSingle()
+
+        if (!todoRow) {
+          return NextResponse.json({ error: 'Todo not found in project' }, { status: 404 })
+        }
+
         // 1. Update locally
         await supabase
           .from('bc_todos')
-          .update({ is_completed: false, completed_at: null })
+          .update({ is_completed: false, completed_at: null, updated_at: new Date().toISOString() })
           .eq('id', todoDbId)
+          .eq('project_id', projectUuid)
+
+        await syncTodolistCounts(supabase, todoRow.todolist_id)
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: todoRow } = await supabase.from('bc_todos').select('bc_id').eq('id', todoDbId).single()
-        if (todoRow?.bc_id) {
-          await basecampBestEffort('uncomplete_todo', () => bcUncompleteTodo(bcProjectId, todoRow.bc_id))
+        if (isRealBasecampId(todoRow.bc_id)) {
+          await basecampBestEffort('uncomplete_todo', () => bcUncompleteTodo(bcProjectId, Number(todoRow.bc_id)))
         }
 
         return NextResponse.json({ success: true })
@@ -185,8 +426,9 @@ export async function POST(request: Request) {
           .from('bc_todosets')
           .select('id, bc_id')
           .eq('project_id', projectUuid)
+          .order('created_at', { ascending: true })
           .limit(1)
-          .single()
+          .maybeSingle()
 
         let todosetUuid = dbTodoset?.id
 
@@ -206,6 +448,7 @@ export async function POST(request: Request) {
         }
 
         // 1. Save to Supabase
+        const cleanListDesc = await uploadEmbeddedDataUrisToStorage(description, 'todolists', supabase)
         const { data: dbList, error: listErr } = await supabase
           .from('bc_todolists')
           .insert({
@@ -213,7 +456,7 @@ export async function POST(request: Request) {
             project_id: projectUuid,
             todoset_id: todosetUuid,
             name,
-            description: description || '',
+            description: cleanListDesc,
             position: 99,
             completed_count: 0,
             total_count: 0,
@@ -224,17 +467,49 @@ export async function POST(request: Request) {
 
         if (listErr) throw listErr
 
-        // TODO: Implement upward sync for todolist creation.
-        // Basecamp API supports: POST /buckets/{projectId}/todosets/{todosetId}/todolists.json
-        // Currently, locally-created lists only exist in Supabase until a manual full sync runs.
-
         return NextResponse.json({ success: true, id: dbList?.id, bc_id: bcListId })
       }
 
       case 'create_todo': {
         requireArgs(['todolistDbId', 'title'])
-        const { todolistDbId, title, description, due_date, assigneeUuids } = args
+        const { todolistDbId, title, description, due_date, assigneeUuids, notifyeeUuids, subtasks } = args
         const bcTodoId = generateUniqueBcId()
+        let cleanTodoDesc = await uploadEmbeddedDataUrisToStorage(description, 'todos', supabase)
+
+        // Append structured Subtasks checklist if provided
+        const validSubtasks = Array.isArray(subtasks)
+          ? subtasks.map((s: any) => String(s || '').trim()).filter(Boolean)
+          : []
+        if (validSubtasks.length > 0) {
+          const escHtml = (v: string) =>
+            v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+          const itemsHtml = validSubtasks.map((st: string) => `<li>☐ ${escHtml(st)}</li>`).join('')
+          const subtasksBlock = `<div data-teg-subtasks="true" style="margin-top: 10px;"><strong>Subtasks:</strong><ul>${itemsHtml}</ul></div>`
+          cleanTodoDesc = cleanTodoDesc ? `${cleanTodoDesc}${subtasksBlock}` : subtasksBlock
+        }
+
+        // Resolve "When done" notifyees (names for TEG metadata + bc_id for Basecamp completion_subscriber_ids)
+        let notifyeeBcIds: number[] = []
+        if (Array.isArray(notifyeeUuids) && notifyeeUuids.length > 0) {
+          const { data: notifyPeople } = await supabase
+            .from('bc_people')
+            .select('name, bc_id')
+            .in('id', notifyeeUuids)
+          if (notifyPeople && notifyPeople.length > 0) {
+            notifyeeBcIds = notifyPeople
+              .map((p: any) => Number(p.bc_id))
+              .filter((id: number) => isRealBasecampId(id))
+            const namesAttr = notifyPeople
+              .map((p: any) => String(p.name || '').trim())
+              .filter(Boolean)
+              .join(', ')
+              .replace(/&/g, '&amp;')
+              .replace(/"/g, '&quot;')
+            if (namesAttr) {
+              cleanTodoDesc = `<span data-teg-when-done="${namesAttr}" style="display:none;"></span>${cleanTodoDesc}`
+            }
+          }
+        }
 
         // 1. Save to Supabase
         const { data: dbTodo, error: todoErr } = await supabase
@@ -244,7 +519,7 @@ export async function POST(request: Request) {
             project_id: projectUuid,
             todolist_id: todolistDbId,
             title,
-            description: description || '',
+            description: cleanTodoDesc,
             is_completed: false,
             due_date: due_date || null,
             created_by_person_id: authorPersonId,
@@ -264,11 +539,16 @@ export async function POST(request: Request) {
           await supabase.from('bc_todo_assignees').insert(assigneeRows)
         }
 
+        await syncTodolistCounts(supabase, todolistDbId)
+
         // 2. Mirror to Basecamp API (best-effort)
-        // Need the bc_id of the todolist to call the API
-        const { data: todolistRow } = await supabase.from('bc_todolists').select('bc_id').eq('id', todolistDbId).single()
-        if (todolistRow?.bc_id) {
-          // Resolve assignee bc_ids for Basecamp API
+        let finalTodoBcId = bcTodoId
+        const { data: todolistRow } = await supabase
+          .from('bc_todolists')
+          .select('bc_id')
+          .eq('id', todolistDbId)
+          .maybeSingle()
+        if (isRealBasecampId(todolistRow?.bc_id)) {
           let assigneeBcIds: number[] = []
           if (assigneeUuids && assigneeUuids.length > 0) {
             const { data: assigneePeople } = await supabase
@@ -276,27 +556,29 @@ export async function POST(request: Request) {
               .select('bc_id')
               .in('id', assigneeUuids)
             if (assigneePeople) {
-              assigneeBcIds = assigneePeople.map((p: any) => p.bc_id).filter(Boolean)
+              assigneeBcIds = assigneePeople.map((p: any) => Number(p.bc_id)).filter((id: number) => isRealBasecampId(id))
             }
           }
 
+          const bcReadyDesc = await mirrorSupabaseAttachmentsForBasecampHtml(cleanTodoDesc, supabase)
           const bcDescriptionWithAuthor = buildBasecampDescriptionWithAuthor(
-            description,
+            bcReadyDesc,
             authorDisplayName,
             user.email
           )
 
           const bcResult = await basecampBestEffort('create_todo', () =>
-            bcCreateTodo(bcProjectId, todolistRow.bc_id, {
+            bcCreateTodo(bcProjectId, Number(todolistRow!.bc_id), {
               content: title,
               description: bcDescriptionWithAuthor || undefined,
               assignee_ids: assigneeBcIds.length > 0 ? assigneeBcIds : undefined,
+              completion_subscriber_ids: notifyeeBcIds.length > 0 ? notifyeeBcIds : undefined,
               due_on: due_date || undefined,
             })
           )
 
-          // If Basecamp API succeeded, update the Supabase record with the real bc_id and re-assert local authorPersonId
           if (bcResult && dbTodo) {
+            finalTodoBcId = bcResult.id
             await supabase.from('bc_todos').delete().eq('bc_id', bcResult.id).neq('id', dbTodo.id)
             await supabase
               .from('bc_todos')
@@ -305,13 +587,14 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbTodo?.id, bc_id: bcTodoId })
+        return NextResponse.json({ success: true, id: dbTodo?.id, bc_id: finalTodoBcId })
       }
 
       case 'create_message': {
         requireArgs(['boardDbId', 'title'])
         const { boardDbId, title, content, category } = args
         const bcMsgId = generateUniqueBcId()
+        const cleanMsgContent = await uploadEmbeddedDataUrisToStorage(content, 'messages', supabase)
 
         // 1. Save to Supabase
         const { data: dbMsg, error: msgErr } = await supabase
@@ -321,7 +604,7 @@ export async function POST(request: Request) {
             project_id: projectUuid,
             board_id: boardDbId,
             title,
-            content: content || '',
+            content: cleanMsgContent,
             category: category || 'General',
             author_person_id: authorPersonId,
             comments_count: 0,
@@ -333,21 +616,27 @@ export async function POST(request: Request) {
         if (msgErr) throw msgErr
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: boardRow } = await supabase.from('bc_message_boards').select('bc_id').eq('id', boardDbId).single()
-        if (boardRow?.bc_id) {
+        let finalMsgBcId = bcMsgId
+        const { data: boardRow } = await supabase
+          .from('bc_message_boards')
+          .select('bc_id')
+          .eq('id', boardDbId)
+          .maybeSingle()
+        if (isRealBasecampId(boardRow?.bc_id)) {
           const bcMsgContentWithAuthor = buildBasecampCommentWithAuthor(
-            content || '',
+            cleanMsgContent,
             authorDisplayName,
             user.email
           )
           const bcResult = await basecampBestEffort('create_message', () =>
-            bcCreateMessage(bcProjectId, boardRow.bc_id, {
+            bcCreateMessage(bcProjectId, Number(boardRow!.bc_id), {
               subject: title,
               content: bcMsgContentWithAuthor || undefined,
             })
           )
 
           if (bcResult && dbMsg) {
+            finalMsgBcId = bcResult.id
             await supabase.from('bc_messages').delete().eq('bc_id', bcResult.id).neq('id', dbMsg.id)
             await supabase
               .from('bc_messages')
@@ -356,13 +645,14 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbMsg?.id, bc_id: bcMsgId })
+        return NextResponse.json({ success: true, id: dbMsg?.id, bc_id: finalMsgBcId })
       }
 
       case 'create_campfire_line': {
         requireArgs(['campfireDbId', 'content'])
         const { campfireDbId, content } = args
         const bcLineId = generateUniqueBcId()
+        const cleanLineContent = await uploadEmbeddedDataUrisToStorage(content, 'campfire', supabase)
 
         // 1. Save to Supabase
         const { data: dbLine, error: lineErr } = await supabase
@@ -371,7 +661,7 @@ export async function POST(request: Request) {
             bc_id: bcLineId,
             project_id: projectUuid,
             campfire_id: campfireDbId,
-            content,
+            content: cleanLineContent,
             author_person_id: authorPersonId,
           })
           .select('id')
@@ -380,18 +670,24 @@ export async function POST(request: Request) {
         if (lineErr) throw lineErr
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: campfireRow } = await supabase.from('bc_campfires').select('bc_id').eq('id', campfireDbId).single()
-        if (campfireRow?.bc_id) {
+        let finalLineBcId = bcLineId
+        const { data: campfireRow } = await supabase
+          .from('bc_campfires')
+          .select('bc_id')
+          .eq('id', campfireDbId)
+          .maybeSingle()
+        if (isRealBasecampId(campfireRow?.bc_id)) {
           const bcLineContentWithAuthor = buildBasecampCommentWithAuthor(
-            content,
+            cleanLineContent,
             authorDisplayName,
             user.email
           )
           const bcResult = await basecampBestEffort('create_campfire_line', () =>
-            bcCreateCampfireLine(bcProjectId, campfireRow.bc_id, bcLineContentWithAuthor)
+            bcCreateCampfireLine(bcProjectId, Number(campfireRow!.bc_id), bcLineContentWithAuthor)
           )
 
           if (bcResult && dbLine) {
+            finalLineBcId = bcResult.id
             await supabase.from('bc_campfire_lines').delete().eq('bc_id', bcResult.id).neq('id', dbLine.id)
             await supabase
               .from('bc_campfire_lines')
@@ -400,13 +696,14 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbLine?.id, bc_id: bcLineId })
+        return NextResponse.json({ success: true, id: dbLine?.id, bc_id: finalLineBcId })
       }
 
       case 'create_comment': {
         requireArgs(['parentType', 'parentDbId', 'content'])
         const { parentType, parentDbId, content } = args
         const bcCommentId = generateUniqueBcId()
+        const cleanCommentContent = await uploadEmbeddedDataUrisToStorage(content, 'comments', supabase)
 
         // 1. Save to Supabase
         const { data: dbComment, error: comErr } = await supabase
@@ -416,7 +713,7 @@ export async function POST(request: Request) {
             project_id: projectUuid,
             parent_type: parentType,
             parent_id: parentDbId,
-            content,
+            content: cleanCommentContent,
             author_person_id: authorPersonId,
           })
           .select('id')
@@ -424,21 +721,11 @@ export async function POST(request: Request) {
 
         if (comErr) throw comErr
 
-        // Update comment counter in the parent table if needed
-        if (parentType === 'message') {
-          const { data: msg } = await supabase.from('bc_messages').select('comments_count').eq('id', parentDbId).single()
-          if (msg) {
-            await supabase.from('bc_messages').update({ comments_count: (msg.comments_count || 0) + 1 }).eq('id', parentDbId)
-          }
-        } else if (parentType === 'todo') {
-          const { data: todo } = await supabase.from('bc_todos').select('comments_count').eq('id', parentDbId).single()
-          if (todo) {
-            await supabase.from('bc_todos').update({ comments_count: (todo.comments_count || 0) + 1 }).eq('id', parentDbId)
-          }
-        }
+        // Update comment counter in the parent table using exact DB count
+        await syncParentCommentsCount(supabase, parentType, parentDbId)
 
         // 2. Mirror to Basecamp API (best-effort)
-        // Resolve the parent's bc_id to use as recordingId in Basecamp API
+        let finalCommentBcId = bcCommentId
         const parentTableMap: Record<string, string> = {
           message: 'bc_messages',
           todo: 'bc_todos',
@@ -446,18 +733,24 @@ export async function POST(request: Request) {
         }
         const parentTable = parentTableMap[parentType]
         if (parentTable) {
-          const { data: parentRow } = await supabase.from(parentTable).select('bc_id').eq('id', parentDbId).single()
-          if (parentRow?.bc_id) {
+          const { data: parentRow } = await supabase
+            .from(parentTable)
+            .select('bc_id')
+            .eq('id', parentDbId)
+            .maybeSingle()
+          if (isRealBasecampId(parentRow?.bc_id)) {
+            const bcReadyComment = await mirrorSupabaseAttachmentsForBasecampHtml(cleanCommentContent, supabase)
             const bcCommentWithAuthor = buildBasecampCommentWithAuthor(
-              content,
+              bcReadyComment,
               authorDisplayName,
               user.email
             )
             const bcResult = await basecampBestEffort('create_comment', () =>
-              bcCreateComment(bcProjectId, parentRow.bc_id, bcCommentWithAuthor)
+              bcCreateComment(bcProjectId, Number(parentRow!.bc_id), bcCommentWithAuthor)
             )
 
             if (bcResult && dbComment) {
+              finalCommentBcId = bcResult.id
               await supabase.from('bc_comments').delete().eq('bc_id', bcResult.id).neq('id', dbComment.id)
               await supabase
                 .from('bc_comments')
@@ -467,13 +760,14 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbComment?.id, bc_id: bcCommentId })
+        return NextResponse.json({ success: true, id: dbComment?.id, bc_id: finalCommentBcId })
       }
 
       case 'create_answer': {
         requireArgs(['questionDbId', 'content'])
         const { questionDbId, content } = args
         const bcAnswerId = generateUniqueBcId()
+        const cleanAnswerContent = await uploadEmbeddedDataUrisToStorage(content, 'answers', supabase)
 
         // 1. Save to Supabase
         const { data: dbAnswer, error: ansErr } = await supabase
@@ -482,7 +776,7 @@ export async function POST(request: Request) {
             bc_id: bcAnswerId,
             project_id: projectUuid,
             question_id: questionDbId,
-            content,
+            content: cleanAnswerContent,
             author_person_id: authorPersonId,
           })
           .select('id')
@@ -491,14 +785,20 @@ export async function POST(request: Request) {
         if (ansErr) throw ansErr
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: questionRow } = await supabase.from('bc_questions').select('bc_id').eq('id', questionDbId).single()
-        if (questionRow?.bc_id) {
-          const bcAnswerWithAuthor = buildBasecampCommentWithAuthor(content, authorDisplayName, user.email)
+        let finalAnswerBcId = bcAnswerId
+        const { data: questionRow } = await supabase
+          .from('bc_questions')
+          .select('bc_id')
+          .eq('id', questionDbId)
+          .maybeSingle()
+        if (isRealBasecampId(questionRow?.bc_id)) {
+          const bcAnswerWithAuthor = buildBasecampCommentWithAuthor(cleanAnswerContent, authorDisplayName, user.email)
           const bcResult = await basecampBestEffort('create_answer', () =>
-            bcCreateAnswer(bcProjectId, questionRow.bc_id, bcAnswerWithAuthor)
+            bcCreateAnswer(bcProjectId, Number(questionRow!.bc_id), bcAnswerWithAuthor)
           )
 
           if (bcResult && dbAnswer) {
+            finalAnswerBcId = bcResult.id
             await supabase.from('bc_answers').delete().eq('bc_id', bcResult.id).neq('id', dbAnswer.id)
             await supabase
               .from('bc_answers')
@@ -507,13 +807,14 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbAnswer?.id, bc_id: bcAnswerId })
+        return NextResponse.json({ success: true, id: dbAnswer?.id, bc_id: finalAnswerBcId })
       }
 
       case 'create_schedule_entry': {
         requireArgs(['scheduleDbId', 'title', 'starts_at', 'ends_at'])
         const { scheduleDbId, title, description, starts_at, ends_at, all_day } = args
         const bcEventId = generateUniqueBcId()
+        const cleanEventDesc = await uploadEmbeddedDataUrisToStorage(description, 'schedules', supabase)
 
         // 1. Save to Supabase
         const { data: dbEvent, error: evtErr } = await supabase
@@ -523,7 +824,7 @@ export async function POST(request: Request) {
             project_id: projectUuid,
             schedule_id: scheduleDbId,
             title,
-            description: description || '',
+            description: cleanEventDesc,
             starts_at,
             ends_at,
             all_day: all_day || false,
@@ -536,11 +837,16 @@ export async function POST(request: Request) {
         if (evtErr) throw evtErr
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: scheduleRow } = await supabase.from('bc_schedules').select('bc_id').eq('id', scheduleDbId).single()
-        if (scheduleRow?.bc_id) {
-          const bcDescWithAuthor = buildBasecampDescriptionWithAuthor(description, authorDisplayName, user.email)
+        let finalEventBcId = bcEventId
+        const { data: scheduleRow } = await supabase
+          .from('bc_schedules')
+          .select('bc_id')
+          .eq('id', scheduleDbId)
+          .maybeSingle()
+        if (isRealBasecampId(scheduleRow?.bc_id)) {
+          const bcDescWithAuthor = buildBasecampDescriptionWithAuthor(cleanEventDesc, authorDisplayName, user.email)
           const bcResult = await basecampBestEffort('create_schedule_entry', () =>
-            bcCreateScheduleEntry(bcProjectId, scheduleRow.bc_id, {
+            bcCreateScheduleEntry(bcProjectId, Number(scheduleRow!.bc_id), {
               summary: title,
               description: bcDescWithAuthor || undefined,
               starts_at,
@@ -550,6 +856,7 @@ export async function POST(request: Request) {
           )
 
           if (bcResult && dbEvent) {
+            finalEventBcId = bcResult.id
             await supabase.from('bc_schedule_entries').delete().eq('bc_id', bcResult.id).neq('id', dbEvent.id)
             await supabase
               .from('bc_schedule_entries')
@@ -558,7 +865,7 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbEvent?.id, bc_id: bcEventId })
+        return NextResponse.json({ success: true, id: dbEvent?.id, bc_id: finalEventBcId })
       }
 
       case 'create_vault': {
@@ -592,6 +899,7 @@ export async function POST(request: Request) {
         requireArgs(['vaultDbId', 'title'])
         const { vaultDbId, title, content } = args
         const bcDocId = generateUniqueBcId()
+        const cleanDocContent = await uploadEmbeddedDataUrisToStorage(content, 'documents', supabase)
 
         // 1. Save to Supabase
         const { data: dbDoc, error: docErr } = await supabase
@@ -601,7 +909,7 @@ export async function POST(request: Request) {
             project_id: projectUuid,
             vault_id: vaultDbId,
             title,
-            content: content || '',
+            content: cleanDocContent,
             author_person_id: authorPersonId,
             updated_at: new Date().toISOString(),
           })
@@ -611,14 +919,20 @@ export async function POST(request: Request) {
         if (docErr) throw docErr
 
         // 2. Mirror to Basecamp API (best-effort)
-        const { data: vaultRow } = await supabase.from('bc_vaults').select('bc_id').eq('id', vaultDbId).single()
-        if (vaultRow?.bc_id) {
-          const bcDocContentWithAuthor = buildBasecampDescriptionWithAuthor(content || '', authorDisplayName, user.email)
+        let finalDocBcId = bcDocId
+        const { data: vaultRow } = await supabase
+          .from('bc_vaults')
+          .select('bc_id')
+          .eq('id', vaultDbId)
+          .maybeSingle()
+        if (isRealBasecampId(vaultRow?.bc_id)) {
+          const bcDocContentWithAuthor = buildBasecampDescriptionWithAuthor(cleanDocContent, authorDisplayName, user.email)
           const bcResult = await basecampBestEffort('create_document', () =>
-            bcCreateDocument(bcProjectId, vaultRow.bc_id, { title, content: bcDocContentWithAuthor })
+            bcCreateDocument(bcProjectId, Number(vaultRow!.bc_id), { title, content: bcDocContentWithAuthor })
           )
 
           if (bcResult && dbDoc) {
+            finalDocBcId = bcResult.id
             await supabase.from('bc_documents').delete().eq('bc_id', bcResult.id).neq('id', dbDoc.id)
             await supabase
               .from('bc_documents')
@@ -627,7 +941,80 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({ success: true, id: dbDoc?.id, bc_id: bcDocId })
+        return NextResponse.json({ success: true, id: dbDoc?.id, bc_id: finalDocBcId })
+      }
+
+      case 'create_upload': {
+        requireArgs(['filename', 'download_url'])
+        const { vaultDbId, filename, content_type, byte_size, download_url } = args
+        const trimmedFilename = String(filename).trim()
+        const trimmedDownloadUrl = String(download_url).trim()
+        if (!trimmedFilename || !trimmedDownloadUrl) {
+          return NextResponse.json({ error: 'Missing filename or download_url' }, { status: 400 })
+        }
+
+        let targetVaultDbId: string | null = vaultDbId || null
+        if (!targetVaultDbId) {
+          const { data: existingVault } = await supabase
+            .from('bc_vaults')
+            .select('id')
+            .eq('project_id', projectUuid)
+            .is('parent_vault_id', null)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+          if (existingVault?.id) {
+            targetVaultDbId = existingVault.id
+          } else {
+            const { data: createdVault, error: createdVaultErr } = await supabase
+              .from('bc_vaults')
+              .insert({
+                bc_id: generateUniqueBcId(),
+                project_id: projectUuid,
+                name: 'Docs & Files',
+                parent_vault_id: null,
+                created_at: new Date().toISOString(),
+              })
+              .select('id')
+              .single()
+            if (createdVaultErr) throw createdVaultErr
+            targetVaultDbId = createdVault.id
+          }
+        }
+
+        const bcUploadId = generateUniqueBcId()
+        const { data: dbUpload, error: upErr } = await supabase
+          .from('bc_uploads')
+          .insert({
+            bc_id: bcUploadId,
+            project_id: projectUuid,
+            vault_id: targetVaultDbId,
+            filename: trimmedFilename,
+            content_type: content_type || 'application/octet-stream',
+            byte_size: Math.max(0, Number(byte_size) || 0),
+            download_url: trimmedDownloadUrl,
+            author_person_id: authorPersonId,
+            created_at: new Date().toISOString(),
+          })
+          .select(
+            `
+            id, bc_id, filename, content_type, byte_size, download_url, vault_id, author_person_id, created_at,
+            author:bc_people(name)
+          `
+          )
+          .single()
+
+        if (upErr) throw upErr
+
+        return NextResponse.json({
+          success: true,
+          id: dbUpload?.id,
+          bc_id: bcUploadId,
+          vault_id: targetVaultDbId,
+          author_person_id: authorPersonId,
+          upload: dbUpload,
+        })
       }
 
       case 'delete_recording': {
@@ -637,44 +1024,157 @@ export async function POST(request: Request) {
         }
 
         // Validate table
-        const allowedTables = ['bc_todos', 'bc_messages', 'bc_comments', 'bc_documents', 'bc_schedule_entries', 'bc_vaults']
+        const allowedTables = [
+          'bc_todos',
+          'bc_messages',
+          'bc_comments',
+          'bc_documents',
+          'bc_schedule_entries',
+          'bc_vaults',
+          'bc_uploads',
+        ]
         if (!allowedTables.includes(tableName)) {
           return NextResponse.json({ error: 'Invalid tableName' }, { status: 400 })
         }
 
-        // If deleting a comment, decrement the parent's comments_count first
+        let commentParentToSync: { parent_type?: string | null; parent_id?: string | null } | null = null
+        let todolistDbIdToSync: string | null = null
+
         if (tableName === 'bc_comments') {
           const { data: commentRow } = await supabase
             .from('bc_comments')
             .select('parent_type, parent_id')
             .eq('id', recordingDbId)
-            .single()
-
-          if (commentRow?.parent_type === 'message' && commentRow?.parent_id) {
-            const { data: msg } = await supabase.from('bc_messages').select('comments_count').eq('id', commentRow.parent_id).single()
-            if (msg && (msg.comments_count || 0) > 0) {
-              await supabase.from('bc_messages').update({ comments_count: (msg.comments_count || 0) - 1 }).eq('id', commentRow.parent_id)
+            .eq('project_id', projectUuid)
+            .maybeSingle()
+          commentParentToSync = commentRow || null
+        } else if (tableName === 'bc_todos') {
+          const { data: todoRow } = await supabase
+            .from('bc_todos')
+            .select('id, todolist_id')
+            .eq('id', recordingDbId)
+            .eq('project_id', projectUuid)
+            .maybeSingle()
+          if (todoRow) {
+            todolistDbIdToSync = todoRow.todolist_id || null
+            await supabase.from('bc_todo_assignees').delete().eq('todo_id', recordingDbId)
+            await supabase
+              .from('bc_comments')
+              .delete()
+              .eq('project_id', projectUuid)
+              .eq('parent_type', 'todo')
+              .eq('parent_id', recordingDbId)
+          }
+        } else if (tableName === 'bc_messages') {
+          await supabase
+            .from('bc_comments')
+            .delete()
+            .eq('project_id', projectUuid)
+            .eq('parent_type', 'message')
+            .eq('parent_id', recordingDbId)
+        } else if (tableName === 'bc_documents') {
+          await supabase
+            .from('bc_comments')
+            .delete()
+            .eq('project_id', projectUuid)
+            .eq('parent_type', 'document')
+            .eq('parent_id', recordingDbId)
+        } else if (tableName === 'bc_uploads') {
+          const { data: uploadRow } = await supabase
+            .from('bc_uploads')
+            .select('download_url')
+            .eq('id', recordingDbId)
+            .eq('project_id', projectUuid)
+            .maybeSingle()
+          const storagePath = extractBasecampUploadStoragePath(uploadRow?.download_url)
+          if (storagePath) {
+            const { error: storageDelErr } = await supabase.storage.from('checklist-photos').remove([storagePath])
+            if (storageDelErr) {
+              console.warn(`⚠️ [Basecamp Action] Non-fatal Storage delete warning (${storagePath}):`, storageDelErr.message)
             }
-          } else if (commentRow?.parent_type === 'todo' && commentRow?.parent_id) {
-            const { data: todo } = await supabase.from('bc_todos').select('comments_count').eq('id', commentRow.parent_id).single()
-            if (todo && (todo.comments_count || 0) > 0) {
-              await supabase.from('bc_todos').update({ comments_count: (todo.comments_count || 0) - 1 }).eq('id', commentRow.parent_id)
+          }
+        } else if (tableName === 'bc_vaults') {
+          // Recursively collect all nested sub-vaults and delete child bc_documents + bc_uploads (since FK is ON DELETE SET NULL)
+          const { data: projectVaults } = await supabase
+            .from('bc_vaults')
+            .select('id, parent_vault_id')
+            .eq('project_id', projectUuid)
+
+          const childrenByParent = new Map<string, string[]>()
+          for (const v of projectVaults || []) {
+            if (v.parent_vault_id) {
+              const arr = childrenByParent.get(v.parent_vault_id) || []
+              arr.push(v.id)
+              childrenByParent.set(v.parent_vault_id, arr)
+            }
+          }
+
+          const subtreeVaultIds: string[] = []
+          const collectBottomUp = (vid: string) => {
+            const kids = childrenByParent.get(vid) || []
+            for (const kid of kids) collectBottomUp(kid)
+            subtreeVaultIds.push(vid)
+          }
+          if ((projectVaults || []).some((v: any) => v.id === recordingDbId)) {
+            collectBottomUp(recordingDbId)
+          }
+
+          if (subtreeVaultIds.length > 0) {
+            const [{ data: childDocs }, { data: childUploads }] = await Promise.all([
+              supabase.from('bc_documents').select('id').eq('project_id', projectUuid).in('vault_id', subtreeVaultIds),
+              supabase
+                .from('bc_uploads')
+                .select('id, download_url')
+                .eq('project_id', projectUuid)
+                .in('vault_id', subtreeVaultIds),
+            ])
+
+            const docIds = (childDocs || []).map((d: any) => d.id)
+            if (docIds.length > 0) {
+              await supabase
+                .from('bc_comments')
+                .delete()
+                .eq('project_id', projectUuid)
+                .eq('parent_type', 'document')
+                .in('parent_id', docIds)
+              await supabase.from('bc_documents').delete().eq('project_id', projectUuid).in('id', docIds)
+            }
+
+            const uploadIds = (childUploads || []).map((u: any) => u.id)
+            const storagePaths = (childUploads || [])
+              .map((u: any) => extractBasecampUploadStoragePath(u.download_url))
+              .filter((p: string | null): p is string => Boolean(p))
+            if (storagePaths.length > 0) {
+              await supabase.storage.from('checklist-photos').remove(storagePaths)
+            }
+            if (uploadIds.length > 0) {
+              await supabase.from('bc_uploads').delete().eq('project_id', projectUuid).in('id', uploadIds)
+            }
+
+            // Delete descendant sub-vaults bottom-up before deleting the target vault itself
+            for (const subId of subtreeVaultIds) {
+              if (subId !== recordingDbId) {
+                await supabase.from('bc_vaults').delete().eq('project_id', projectUuid).eq('id', subId)
+              }
             }
           }
         }
 
-        // If deleting a todo, also clean up its assignee records
-        if (tableName === 'bc_todos') {
-          await supabase.from('bc_todo_assignees').delete().eq('todo_id', recordingDbId)
-        }
-
-        // LOCAL delete — Basecamp API trash is not supported via our sync
+        // LOCAL delete — scoped to projectUuid for safety
         const { error: delErr } = await supabase
           .from(tableName)
           .delete()
           .eq('id', recordingDbId)
+          .eq('project_id', projectUuid)
 
         if (delErr) throw delErr
+
+        if (commentParentToSync?.parent_id) {
+          await syncParentCommentsCount(supabase, commentParentToSync.parent_type, commentParentToSync.parent_id)
+        }
+        if (todolistDbIdToSync) {
+          await syncTodolistCounts(supabase, todolistDbIdToSync)
+        }
 
         return NextResponse.json({ success: true })
       }

@@ -1,144 +1,216 @@
 /**
  * @module NewForYouDrawer
- * @description Panel lateral derecho de notificaciones (Hey!) y Pings para el emulador de Basecamp.
- *              Réplica exacta del menú lateral "New for you" del Basecamp original.
+ * @description Panel lateral derecho de notificaciones (Hey!) y Pings para el módulo de Basecamp.
+ *              Réplica funcional del menú lateral "New for you" de Basecamp.
  * @businessRules
  *   - Permite iniciar pings (mensajes directos) con colaboradores.
- *   - Muestra notificaciones no leídas de bc_notifications con estados visuales claros (puntos naranjas/rojos).
- *   - Permite filtrar notificaciones en tiempo real con la caja de búsqueda inferior.
+ *   - Muestra notificaciones de `bc_notifications`, pings entrantes y actividad reciente real de proyectos.
+ *   - Permite filtrar notificaciones y colaboradores en tiempo real (insensible a acentos/mayúsculas).
  *   - Permite marcar todas las notificaciones como leídas con un solo click.
  * @dataFlow
- *   - Entrada: Props isOpen, onClose, navigateTo.
- *   - Fetch: Carga notificaciones de bc_notifications y colaboradores de bc_people en Supabase.
- *   - Escritura: Actualiza la tabla bc_notifications al marcar como leídas.
+ *   - Entrada: Props `isOpen`, `onClose`, `navigateTo`.
+ *   - Fetch: Resuelve al usuario mediante `resolveOrCreateTegPerson` y consulta actividad y colaboradores en Supabase.
+ *   - Escritura: Actualiza `bc_notifications.is_read = true` al marcar como leídas.
  * @notes
- *   - Soporte bilingüe completo (ES/EN).
- *   - Utiliza framer-motion para transiciones suaves de entrada y salida lateral.
+ *   - Soporte bilingüe completo (ES/EN) con `useLanguage()` y zona horaria `America/Los_Angeles`.
+ *   - Sin consultas `.single()` frágiles que arrojen errores HTTP 406.
  */
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
+import {
+    resolveOrCreateTegPerson,
+    normalizePersonName,
+    stripTegAuthorBanner,
+} from '@/lib/basecamp-person-resolver'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
     Plus, Bell, CheckCircle2, MessageSquare, FileText, Calendar,
-    HelpCircle, Search, X, Loader2, VolumeX, BellOff
+    Search, X, Loader2, VolumeX, BellOff
 } from 'lucide-react'
 
 interface NewForYouDrawerProps {
     isOpen: boolean
     onClose: () => void
-    navigateTo: (params: { project?: string; tool?: string; section?: string; ping?: string }) => void
+    onMarkAllRead?: () => void
+    navigateTo: (params: {
+        project?: string
+        tool?: string
+        section?: string
+        ping?: string
+        todoId?: string
+        messageId?: string
+        docId?: string
+    }) => void
 }
 
-export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForYouDrawerProps) {
-    const supabase = getSupabaseWithAuth()
-    const { t } = useLanguage()
+function cleanFeedSnippet(raw?: string | null): string {
+    if (!raw) return ''
+    const { cleanHtml } = stripTegAuthorBanner(raw)
+    return cleanHtml
+        .replace(/<bc-attachment[\s\S]*?<\/bc-attachment>/gi, '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+function stripAccentsLower(s?: string | null): string {
+    if (!s) return ''
+    return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, navigateTo }: NewForYouDrawerProps) {
+    const supabase = useMemo(() => getSupabaseWithAuth(), [])
+    const { t, language } = useLanguage()
+    const locale = language === 'es' ? 'es-MX' : 'en-US'
     const { user: authUser, loading: authLoading } = useAuth()
 
     const [notifications, setNotifications] = useState<any[]>([])
     const [collaborators, setCollaborators] = useState<any[]>([])
+    const [resolvedPersonId, setResolvedPersonId] = useState<string | null>(null)
+    const [locallyReadIds, setLocallyReadIds] = useState<Set<string>>(() => new Set())
     const [loading, setLoading] = useState(true)
     const [filterQuery, setFilterQuery] = useState('')
     const [isSnoozed, setIsSnoozed] = useState(false)
     const [showPingSelect, setShowPingSelect] = useState(false)
 
-    // Load data — builds a dynamic activity feed from REAL Supabase data
-    // Shows: tasks assigned to user, comments on user's tasks, messages in user's projects, recently completed tasks
-    const loadDrawerData = async () => {
-        if (!authUser) return
-        try {
-            // 1. Resolve current user in bc_people (try email, then name fallback)
-            let personId: string | null = null
-            const { data: personByEmail } = await supabase
-                .from('bc_people')
-                .select('id')
-                .ilike('email', authUser.email || '')
-                .limit(1)
-                .single()
+    const getLastSeenStorageKey = (pid: string | null) =>
+        `teg_bc_new_for_you_last_seen_${pid || authUser?.email || 'anon'}`
 
-            if (personByEmail) {
-                personId = personByEmail.id
-            } else if (authUser.name) {
-                const { data: personByName } = await supabase
-                    .from('bc_people')
-                    .select('id')
-                    .ilike('name', `%${authUser.name}%`)
-                    .limit(1)
-                    .single()
-                if (personByName) personId = personByName.id
-            }
+    const loadDrawerData = useCallback(async () => {
+        if (!authUser) return
+        setLoading(true)
+        try {
+            const person = await resolveOrCreateTegPerson(supabase, {
+                email: authUser.email,
+                name: authUser.name,
+                role: (authUser as any)?.role,
+            })
+
+            const personId = person?.id || null
+            setResolvedPersonId(personId)
 
             const feedItems: any[] = []
 
             if (personId) {
-                // Parallelize independent queries: memberships, myTasks, and people
-                const thirtyDaysAgo = new Date()
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                const sevenDaysAgo = new Date()
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-                const [membershipsRes, myTasksRes, peopleRes] = await Promise.all([
+                const [membershipsRes, myTasksRes, peopleRes, dbNotifsRes, pingsRes] = await Promise.all([
                     supabase.from('bc_memberships').select('project_id').eq('person_id', personId),
                     supabase.from('bc_todo_assignees').select(`
                         todo:bc_todos(id, title, is_completed, updated_at, project_id,
                             project:bc_projects(bc_id, name)
                         )
                     `).eq('person_id', personId).limit(20),
-                    supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true })
+                    supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true }).limit(5000),
+                    supabase.from('bc_notifications').select(`
+                        id, title, description, recording_type, recording_id, is_read, created_at,
+                        project:bc_projects(bc_id, name)
+                    `).eq('person_id', personId).order('created_at', { ascending: false }).limit(20),
+                    supabase.from('bc_pings').select(`
+                        id, content, created_at,
+                        sender:bc_people!bc_pings_sender_person_id_fkey(id, name)
+                    `).eq('recipient_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10),
                 ])
 
-                const myProjectIds = membershipsRes.data?.map(m => m.project_id) || []
-                const myTasks = myTasksRes.data
+                const myProjectIds = membershipsRes.data?.map((m: any) => m.project_id) || []
                 setCollaborators(peopleRes.data || [])
 
-                if (myTasks) {
-                    for (const row of myTasks) {
-                        const todo = (row as any).todo
+                if (dbNotifsRes.data) {
+                    for (const n of dbNotifsRes.data) {
+                        const proj = Array.isArray(n.project) ? n.project[0] : n.project
+                        feedItems.push({
+                            id: `notif-${n.id}`,
+                            dbNotifId: n.id,
+                            type: n.recording_type || 'notification',
+                            recordingId: n.recording_id,
+                            title: n.title,
+                            description: cleanFeedSnippet(n.description),
+                            project: proj,
+                            created_at: n.created_at,
+                            is_read: Boolean(n.is_read),
+                        })
+                    }
+                }
+
+                if (pingsRes.data) {
+                    for (const p of pingsRes.data) {
+                        const senderObj = Array.isArray((p as any).sender) ? (p as any).sender[0] : (p as any).sender
+                        const senderName = senderObj?.name || t('basecamp.unknown_user')
+                        feedItems.push({
+                            id: `ping-${p.id}`,
+                            type: 'ping',
+                            pingPartner: senderName,
+                            title: `💬 ${senderName}`,
+                            description: cleanFeedSnippet(p.content).slice(0, 90),
+                            project: null,
+                            created_at: p.created_at,
+                            is_read: false,
+                        })
+                    }
+                }
+
+                if (myTasksRes.data) {
+                    for (const row of myTasksRes.data) {
+                        const rawTodo = (row as any).todo
+                        const todo = Array.isArray(rawTodo) ? rawTodo[0] : rawTodo
                         if (!todo || !todo.updated_at) continue
+                        const proj = Array.isArray(todo.project) ? todo.project[0] : todo.project
                         feedItems.push({
                             id: `todo-${todo.id}`,
                             type: 'todo',
+                            recordingId: todo.id,
                             title: todo.title,
                             description: todo.is_completed
                                 ? t('basecamp.task_completed_notif')
                                 : t('basecamp.task_assigned_notif'),
-                            project: todo.project,
+                            project: proj,
                             created_at: todo.updated_at,
-                            is_read: todo.is_completed ? true : false,
+                            is_read: Boolean(todo.is_completed),
                         })
                     }
                 }
 
                 if (myProjectIds.length > 0) {
-                    const sevenDaysAgo = new Date()
-                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
-                    // Parallelize recentComments and recentMessages
                     const [recentCommentsRes, recentMessagesRes] = await Promise.all([
                         supabase.from('bc_comments').select(`
-                            id, content, created_at, parent_type,
+                            id, content, created_at, parent_type, parent_id, author_person_id,
                             author:bc_people(name),
                             project:bc_projects(bc_id, name)
-                        `).in('project_id', myProjectIds).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(15),
+                        `).in('project_id', myProjectIds).neq('author_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(15),
                         supabase.from('bc_messages').select(`
-                            id, title, created_at, comments_count,
+                            id, title, created_at, comments_count, author_person_id,
                             author:bc_people(name),
                             project:bc_projects(bc_id, name)
-                        `).in('project_id', myProjectIds).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10)
+                        `).in('project_id', myProjectIds).neq('author_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10),
                     ])
 
                     if (recentCommentsRes.data) {
                         for (const c of recentCommentsRes.data) {
-                            const authorName = (Array.isArray(c.author) ? (c.author as any)[0]?.name : (c.author as any)?.name) || '?'
-                            const plainText = (c.content || '').replace(/<[^>]*>/g, '').slice(0, 80)
+                            if ((c as any).author_person_id === personId) continue
+                            const authorName =
+                                (Array.isArray(c.author) ? (c.author as any)[0]?.name : (c.author as any)?.name) ||
+                                t('basecamp.unknown_user')
+                            const proj = Array.isArray(c.project) ? c.project[0] : c.project
+                            const plainText = cleanFeedSnippet(c.content).slice(0, 90)
                             feedItems.push({
                                 id: `comment-${c.id}`,
-                                type: c.parent_type === 'message' ? 'message' : 'todo',
+                                type: c.parent_type === 'message' ? 'message' : c.parent_type === 'document' ? 'document' : 'todo',
+                                recordingId: c.parent_id,
                                 title: `💬 ${authorName}`,
                                 description: plainText || t('basecamp.new_comment_notif'),
-                                project: c.project,
+                                project: proj,
                                 created_at: c.created_at,
                                 is_read: false,
                             })
@@ -147,13 +219,18 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
 
                     if (recentMessagesRes.data) {
                         for (const m of recentMessagesRes.data) {
-                            const authorName = (Array.isArray(m.author) ? (m.author as any)[0]?.name : (m.author as any)?.name) || '?'
+                            if ((m as any).author_person_id === personId) continue
+                            const authorName =
+                                (Array.isArray(m.author) ? (m.author as any)[0]?.name : (m.author as any)?.name) ||
+                                t('basecamp.unknown_user')
+                            const proj = Array.isArray(m.project) ? m.project[0] : m.project
                             feedItems.push({
                                 id: `msg-${m.id}`,
                                 type: 'message',
+                                recordingId: m.id,
                                 title: m.title || t('basecamp.new_msg_notif'),
                                 description: `📢 ${authorName}${m.comments_count ? ` · ${m.comments_count} 💬` : ''}`,
-                                project: m.project,
+                                project: proj,
                                 created_at: m.created_at,
                                 is_read: false,
                             })
@@ -161,81 +238,163 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                     }
                 }
             } else {
-                // If no personId, still fetch people
-                const { data: people } = await supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true })
+                const { data: people } = await supabase
+                    .from('bc_people')
+                    .select('*')
+                    .eq('is_active', true)
+                    .order('name', { ascending: true })
+                    .limit(5000)
                 setCollaborators(people || [])
             }
 
-            // Sort all feed items by date descending, dedupe, and limit to 40
+            let lastSeenMs = 0
+            try {
+                const rawSeen = typeof window !== 'undefined' ? window.localStorage.getItem(getLastSeenStorageKey(personId)) : null
+                if (rawSeen) {
+                    const parsed = new Date(rawSeen).getTime()
+                    if (Number.isFinite(parsed)) lastSeenMs = parsed
+                }
+            } catch { /* ignore storage errors */ }
+
             feedItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-            const uniqueItems = feedItems.filter((item, idx, arr) => arr.findIndex(i => i.id === item.id) === idx).slice(0, 40)
+            const uniqueItems = feedItems
+                .filter((item, idx, arr) => arr.findIndex((i) => i.id === item.id) === idx)
+                .slice(0, 40)
+                .map((item) => {
+                    if (item.is_read) return item
+                    const itemMs = item.created_at ? new Date(item.created_at).getTime() : 0
+                    if (lastSeenMs > 0 && itemMs > 0 && itemMs <= lastSeenMs) {
+                        return { ...item, is_read: true }
+                    }
+                    return item
+                })
             setNotifications(uniqueItems)
         } catch (err: any) {
             console.error('Error loading drawer data:', err.message)
         } finally {
             setLoading(false)
         }
-    }
+    }, [authUser, supabase, t])
 
     useEffect(() => {
         if (isOpen && !authLoading && authUser) {
             loadDrawerData()
+        } else if (isOpen && !authLoading && !authUser) {
+            setLoading(false)
         }
-    }, [isOpen, authUser, authLoading])
+    }, [isOpen, authUser, authLoading, loadDrawerData])
 
-    // Mark all as read — just clears the visual state (feed is dynamic, not stored)
+    // Close drawer on Escape
+    useEffect(() => {
+        if (!isOpen) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.stopPropagation()
+                onClose()
+            }
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [isOpen, onClose])
+
+    // Mark all as read (visual state + localStorage last_seen_at + persist bc_notifications in Supabase)
     const handleMarkAllRead = async () => {
-        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+        const dbNotifIds = notifications.filter((n) => n.dbNotifId && !n.is_read).map((n) => n.dbNotifId)
+        try {
+            if (typeof window !== 'undefined') {
+                window.localStorage.setItem(getLastSeenStorageKey(resolvedPersonId), new Date().toISOString())
+            }
+        } catch { /* ignore storage errors */ }
+        setLocallyReadIds((prev) => {
+            const next = new Set(prev)
+            notifications.forEach((n) => next.add(n.id))
+            return next
+        })
+        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+        onMarkAllRead?.()
+        if (dbNotifIds.length > 0) {
+            await supabase.from('bc_notifications').update({ is_read: true }).in('id', dbNotifIds)
+        }
     }
 
     const getIcon = (type: string | null) => {
-        switch (type) {
-            case 'todo':
-                return <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-            case 'message':
-            case 'campfire':
-                return <MessageSquare size={16} className="text-blue-500 shrink-0" />
-            case 'document':
-                return <FileText size={16} className="text-green-600 shrink-0" />
-            case 'schedule':
-                return <Calendar size={16} className="text-red-500 shrink-0" />
-            default:
-                return <Bell size={16} className="text-slate-400 shrink-0" />
+        const norm = (type || '').toLowerCase()
+        if (norm.includes('todo') || norm.includes('list')) {
+            return <CheckCircle2 size={16} className="text-green-500 shrink-0" />
         }
+        if (norm.includes('message') || norm.includes('campfire') || norm.includes('ping') || norm.includes('chat')) {
+            return <MessageSquare size={16} className="text-blue-500 shrink-0" />
+        }
+        if (norm.includes('doc') || norm.includes('file') || norm.includes('upload')) {
+            return <FileText size={16} className="text-green-600 shrink-0" />
+        }
+        if (norm.includes('schedule') || norm.includes('event') || norm.includes('calendar')) {
+            return <Calendar size={16} className="text-red-500 shrink-0" />
+        }
+        return <Bell size={16} className="text-slate-400 shrink-0" />
     }
 
     const getToolName = (type: string | null) => {
         if (!type) return undefined
-        const t = type.toLowerCase()
-        if (t.includes('todo') || t.includes('list')) return 'todos'
-        if (t.includes('message') || t.includes('board')) return 'messages'
-        if (t.includes('chat') || t.includes('campfire')) return 'campfire'
-        if (t.includes('document') || t.includes('doc') || t.includes('file') || t.includes('upload')) return 'docs'
-        if (t.includes('schedule') || t.includes('event') || t.includes('calendar')) return 'schedule'
-        if (t.includes('checkin') || t.includes('question') || t.includes('answer')) return 'checkins'
+        const rt = type.toLowerCase()
+        if (rt.includes('todo') || rt.includes('list')) return 'todos'
+        if (rt.includes('message') || rt.includes('board')) return 'messages'
+        if (rt.includes('chat') || rt.includes('campfire')) return 'campfire'
+        if (rt.includes('document') || rt.includes('doc') || rt.includes('file') || rt.includes('upload')) return 'docs'
+        if (rt.includes('schedule') || rt.includes('event') || rt.includes('calendar')) return 'schedule'
+        if (rt.includes('checkin') || rt.includes('question') || rt.includes('answer')) return 'checkins'
         return undefined
     }
 
-    // Filter notifications
-    const filteredNotifications = notifications.filter(n => {
-        if (!filterQuery) return true
-        const q = filterQuery.toLowerCase()
-        return (
-            (n.title && n.title.toLowerCase().includes(q)) ||
-            (n.description && n.description.toLowerCase().includes(q)) ||
-            (n.project?.name && n.project.name.toLowerCase().includes(q))
-        )
-    })
+    const otherCollaborators = useMemo(() => {
+        const selfNorm = normalizePersonName(authUser?.name)
+        const selfEmail = (authUser?.email || '').trim().toLowerCase()
+        return collaborators.filter((c) => {
+            if (resolvedPersonId && c.id === resolvedPersonId) return false
+            if (selfEmail && c.email && String(c.email).trim().toLowerCase() === selfEmail) return false
+            if (selfNorm && normalizePersonName(c.name) === selfNorm) return false
+            return true
+        })
+    }, [collaborators, resolvedPersonId, authUser?.name, authUser?.email])
 
-    const filteredCollaborators = collaborators.filter(c => {
-        if (c.email === authUser?.email) return false
-        if (!filterQuery) return true
-        const q = filterQuery.toLowerCase()
-        return (
-            c.name.toLowerCase().includes(q) ||
-            (c.email && c.email.toLowerCase().includes(q))
-        )
-    })
+    // Filter notifications (accent-insensitive)
+    const filteredNotifications = useMemo(() => {
+        if (!filterQuery.trim()) return notifications
+        const q = stripAccentsLower(filterQuery.trim())
+        return notifications.filter((n) => (
+            stripAccentsLower(n.title).includes(q) ||
+            stripAccentsLower(n.description).includes(q) ||
+            stripAccentsLower(n.project?.name).includes(q)
+        ))
+    }, [notifications, filterQuery])
+
+    const filteredPingCollaborators = useMemo(() => {
+        if (!filterQuery.trim()) return otherCollaborators
+        const q = stripAccentsLower(filterQuery.trim())
+        const qPerson = normalizePersonName(filterQuery)
+        return otherCollaborators.filter((c) => (
+            stripAccentsLower(c.name).includes(q) ||
+            (qPerson.length > 0 && normalizePersonName(c.name).includes(qPerson))
+        ))
+    }, [otherCollaborators, filterQuery])
+
+    const formatDrawerTime = (dateStr?: string | null) => {
+        if (!dateStr) return ''
+        const d = new Date(dateStr)
+        if (Number.isNaN(d.getTime())) return ''
+        const datePart = d.toLocaleDateString(locale, {
+            month: 'short',
+            day: 'numeric',
+            timeZone: 'America/Los_Angeles',
+        })
+        const timePart = d.toLocaleTimeString(locale, {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/Los_Angeles',
+        })
+        return `${datePart} · ${timePart}`
+    }
 
     return (
         <AnimatePresence>
@@ -261,7 +420,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                         {/* Header: Pings */}
                         <div className="p-4 border-b border-slate-200/60 dark:border-slate-800">
                             <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">
-                                Pings
+                                {t('basecamp.pings')}
                             </h3>
 
                             {/* Yellow helper sticky-note box */}
@@ -278,12 +437,14 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                     <div className="w-10 h-10 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 flex items-center justify-center text-slate-400 group-hover:text-blue-500 transition-colors bg-white dark:bg-slate-800">
                                         <Plus size={18} />
                                     </div>
-                                    <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">Ping</span>
+                                    <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                                        {t('basecamp.ping_action')}
+                                    </span>
                                 </button>
 
                                 {/* Collaborator quick list */}
                                 <div className="flex -space-x-1.5 overflow-hidden">
-                                    {collaborators.filter(c => c.email !== authUser?.email).slice(0, 4).map((c, i) => (
+                                    {otherCollaborators.slice(0, 4).map((c) => (
                                         <button
                                             key={c.id}
                                             onClick={() => {
@@ -293,7 +454,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                             className="w-10 h-10 rounded-full bg-blue-500 text-white font-extrabold border-2 border-[#f4f7f6] dark:border-slate-900 flex items-center justify-center text-[10px] uppercase shadow-sm hover:-translate-y-0.5 transition-transform"
                                             title={c.name}
                                         >
-                                            {c.name[0]}
+                                            {String(c.name || '?').trim()[0] || '?'}
                                         </button>
                                     ))}
                                 </div>
@@ -305,7 +466,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                     <p className="text-[9px] font-black text-slate-400 uppercase mb-2 px-2">
                                         {t('basecamp.start_chat_with')}
                                     </p>
-                                    {collaborators.filter(c => c.email !== authUser?.email).map(c => (
+                                    {filteredPingCollaborators.map((c) => (
                                         <button
                                             key={c.id}
                                             onClick={() => {
@@ -348,6 +509,7 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                             ) : (
                                 <div className="space-y-3">
                                     {filteredNotifications.map((n) => {
+                                        const isRead = Boolean(n.is_read || locallyReadIds.has(n.id))
                                         const tool = getToolName(n.type)
                                         const projectBcId = n.project?.bc_id ? String(n.project.bc_id) : undefined
 
@@ -355,41 +517,59 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                             <div
                                                 key={n.id}
                                                 onClick={() => {
+                                                    if (n.type === 'ping' && n.pingPartner) {
+                                                        navigateTo({ section: 'pings', ping: n.pingPartner })
+                                                        onClose()
+                                                        return
+                                                    }
                                                     if (tool && projectBcId) {
-                                                        navigateTo({ project: projectBcId, tool })
+                                                        const nav: {
+                                                            project: string
+                                                            tool: string
+                                                            todoId?: string
+                                                            messageId?: string
+                                                            docId?: string
+                                                        } = { project: projectBcId, tool }
+                                                        if (n.recordingId) {
+                                                            if (tool === 'todos') nav.todoId = String(n.recordingId)
+                                                            else if (tool === 'messages') nav.messageId = String(n.recordingId)
+                                                            else if (tool === 'docs') nav.docId = String(n.recordingId)
+                                                        }
+                                                        navigateTo(nav)
                                                         onClose()
                                                     }
                                                 }}
                                                 className={`flex gap-3 p-3 rounded-xl border transition-all cursor-pointer hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm relative text-left ${
-                                                    !n.is_read
-                                                        ? 'bg-orange-50/20 border-orange-200/50 dark:bg-orange-950/5 dark:border-orange-900/10'
+                                                    !isRead
+                                                        ? 'bg-orange-50/20 border-orange-200/50 dark:bg-orange-950/10 dark:border-orange-900/20'
                                                         : 'bg-slate-100/50 border-transparent dark:bg-slate-800/30'
                                                 }`}
                                             >
-                                                {/* Unread badge dot */}
-                                                {!n.is_read && (
+                                                {!isRead && (
                                                     <span className="absolute top-3 right-3 w-1.5 h-1.5 rounded-full bg-orange-500" />
                                                 )}
 
-                                                <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center shadow-inner shrink-0 border border-slate-200/40">
+                                                <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center shadow-inner shrink-0 border border-slate-200/40 dark:border-slate-700/50">
                                                     {getIcon(n.type)}
                                                 </div>
 
                                                 <div className="flex-1 min-w-0 text-xs">
-                                                    <h4 className="font-bold text-slate-800 dark:text-slate-150 truncate leading-tight pr-4">
+                                                    <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate leading-tight pr-4">
                                                         {n.title}
                                                     </h4>
-                                                    <p className="text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
-                                                        {n.description}
-                                                    </p>
-                                                    <div className="flex items-center gap-1.5 mt-2">
+                                                    {n.description && (
+                                                        <p className="text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                                            {n.description}
+                                                        </p>
+                                                    )}
+                                                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                                                         {n.project?.name && (
                                                             <span className="text-[9px] font-black text-[#1D7DB5] dark:text-blue-400 uppercase tracking-wider bg-blue-50/50 dark:bg-blue-950/20 px-1.5 py-0.5 rounded border border-blue-100/30">
                                                                 {n.project.name}
                                                             </span>
                                                         )}
                                                         <span className="text-[8px] text-slate-400 dark:text-slate-500 font-semibold">
-                                                            {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            {formatDrawerTime(n.created_at)}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -402,7 +582,6 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
 
                         {/* Footer Section: Filter, Snooze, Close */}
                         <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-[#eef2f1] dark:bg-slate-900/90 flex gap-2 items-center">
-                            {/* Search box */}
                             <div className="relative flex-1">
                                 <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
                                 <input
@@ -410,28 +589,27 @@ export default function NewForYouDrawer({ isOpen, onClose, navigateTo }: NewForY
                                     value={filterQuery}
                                     onChange={(e) => setFilterQuery(e.target.value)}
                                     placeholder={t('basecamp.filter_placeholder')}
-                                    className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-[#1D7DB5]"
+                                    className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#1D7DB5]"
                                 />
                             </div>
 
-                            {/* Snooze (Shhhh...) */}
                             <button
                                 onClick={() => setIsSnoozed(!isSnoozed)}
                                 className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 ${
                                     isSnoozed
                                         ? 'bg-orange-500 border-orange-600 text-white shadow-inner'
-                                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
                                 }`}
                                 title={isSnoozed ? t('basecamp.snooze_active') : t('basecamp.snooze')}
                             >
                                 <VolumeX size={13} />
-                                <span className="hidden sm:inline">Shhhh...</span>
+                                <span className="hidden sm:inline">{t('basecamp.snooze_short')}</span>
                             </button>
 
-                            {/* Close */}
                             <button
                                 onClick={onClose}
-                                className="p-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-600 dark:text-slate-300 transition-colors"
+                                className="p-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+                                title={t('basecamp.close_esc')}
                             >
                                 <X size={15} />
                             </button>

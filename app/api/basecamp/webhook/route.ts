@@ -2,18 +2,21 @@
  * @module api/basecamp/webhook
  * @description Receptor en tiempo real (Webhook Endpoint) para eventos push de Basecamp 3.
  *              Recibe notificaciones instantáneas cuando se crean, completan, reabren, editan o eliminan
- *              To-dos, Comentarios, Mensajes, Documentos, Líneas de Campfire o Respuestas de Check-ins
- *              en Basecamp, actualizando Supabase en menos de 1 segundo.
+ *              To-dos, Comentarios, Mensajes, Documentos, Líneas de Campfire, Eventos de Schedule o
+ *              Respuestas de Check-ins en Basecamp, actualizando Supabase en menos de 1 segundo.
  *
  * @businessRules
  * - **Tiempo Real (< 1s)**: Elimina la espera del Cron para cambios originados directamente en Basecamp.
  * - **Hidratación Completa**: Usa `basecampFetch` contra `recording.url` para obtener la versión completa
  *   del recurso (incluyendo asignados, descripción HTML, conteo de comentarios y estado `completed`).
- * - **Preservación de Autoría TEG**: Si el registro fue creado desde el sistema TEG (o ya existe en Supabase
- *   con `created_by_person_id` / `author_person_id`), NUNCA sobreescribe el autor real de TEG con el dueño
- *   del token OAuth compartido de Basecamp.
- * - **Reconciliación de Contadores**: Actualiza automáticamente `comments_count` y `completed_count` en las
- *   tablas padre (`bc_todos`, `bc_messages`, `bc_todolists`) para disparar eventos en Supabase Realtime.
+ * - **Inversión de Prioridad de Autoría TEG**:
+ *   1. `extractedAuthorName` de `stripTegAuthorBanner` resuelto con `findPersonInListByFuzzyName` (Prioridad #1).
+ *   2. `created_by_person_id` / `author_person_id` local existente en Supabase (Prioridad #2).
+ *   3. `creator` devuelto por Basecamp API (Prioridad #3).
+ * - **Preservación de Asignados Locales**: Al actualizar `bc_todo_assignees`, preserva asignados sintéticos
+ *   locales (`bc_people.bc_id >= 100_000_000_000`) para no borrar usuarios TEG sin cuenta en Basecamp.
+ * - **Reconciliación Idempotente de Contadores**: Recalcula `comments_count` y `completed_count` / `total_count`
+ *   con conteos exactos (`count: 'exact', head: true`) en `bc_todos`, `bc_messages` y `bc_todolists`.
  *
  * @dataFlow
  * - Basecamp 3 Webhook POST → /api/basecamp/webhook → basecampFetch(recording.url) → Upsert en Supabase (`bc_*`)
@@ -25,11 +28,17 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { assertSafeBasecampApiUrl, basecampFetch, resolveHtmlAttachmentsFromCache } from '@/lib/basecamp-api'
+import {
+  assertSafeBasecampApiUrl,
+  basecampFetch,
+  resolveHtmlAttachmentsFromCache,
+  syncTodolistCounts,
+} from '@/lib/basecamp-api'
 import {
   stripTegAuthorBanner,
-  normalizePersonName,
+  findPersonInListByFuzzyName,
   isMaskedOrEmptyEmail,
+  SYNTHETIC_BC_ID_THRESHOLD,
 } from '@/lib/basecamp-person-resolver'
 
 export const dynamic = 'force-dynamic'
@@ -69,11 +78,9 @@ function getAdminSupabase() {
 
 async function resolvePersonByExtractedName(extractedName: string | null, supabase: any): Promise<string | null> {
   if (!extractedName) return null
-  const normTarget = normalizePersonName(extractedName)
-  if (!normTarget) return null
-  const { data: people } = await supabase.from('bc_people').select('id, name').limit(5000)
+  const { data: people } = await supabase.from('bc_people').select('id, name, email').limit(5000)
   if (!people) return null
-  const found = people.find((p: any) => normalizePersonName(p.name) === normTarget)
+  const found = findPersonInListByFuzzyName(people, extractedName)
   return found?.id || null
 }
 
@@ -111,6 +118,32 @@ async function resolvePersonUuid(creator: any, supabase: any): Promise<string | 
   return inserted?.id || null
 }
 
+async function syncWebhookParentCommentsCount(
+  supabase: any,
+  parentType: 'todo' | 'message' | 'document',
+  parentUuid: string
+): Promise<void> {
+  if (parentType !== 'todo' && parentType !== 'message') return
+  const { count, error } = await supabase
+    .from('bc_comments')
+    .select('*', { count: 'exact', head: true })
+    .eq('parent_type', parentType)
+    .eq('parent_id', parentUuid)
+  if (error) return
+
+  if (parentType === 'todo') {
+    await supabase
+      .from('bc_todos')
+      .update({ comments_count: count ?? 0, updated_at: new Date().toISOString() })
+      .eq('id', parentUuid)
+  } else {
+    await supabase
+      .from('bc_messages')
+      .update({ comments_count: count ?? 0, updated_at: new Date().toISOString() })
+      .eq('id', parentUuid)
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const payload = await request.json().catch(() => null)
@@ -132,7 +165,11 @@ export async function POST(request: Request) {
     // Validate recording.url strictly BEFORE any DB mutation or Basecamp API call
     if (recording?.url !== undefined && recording?.url !== null && String(recording.url).trim() !== '') {
       try {
-        resolveSafeWebhookRecordingPath(recording.url, bucketBcId, `/buckets/${bucketBcId}/recordings/${recordingBcId}.json`)
+        resolveSafeWebhookRecordingPath(
+          recording.url,
+          bucketBcId,
+          `/buckets/${bucketBcId}/recordings/${recordingBcId}.json`
+        )
       } catch (urlErr: any) {
         console.warn(`🚨 [Basecamp Webhook] Rejected unsafe recording.url:`, urlErr.message)
         return NextResponse.json({ error: 'Forbidden recording URL' }, { status: 403 })
@@ -175,15 +212,47 @@ export async function POST(request: Request) {
       }
 
       if (recordingType === 'Todo') {
-        const { data: todoRow } = await supabase.from('bc_todos').select('id').eq('bc_id', recordingBcId).maybeSingle()
+        const { data: todoRow } = await supabase
+          .from('bc_todos')
+          .select('id, todolist_id')
+          .eq('bc_id', recordingBcId)
+          .maybeSingle()
         if (todoRow?.id) {
           await supabase.from('bc_todo_assignees').delete().eq('todo_id', todoRow.id)
+          await supabase.from('bc_comments').delete().eq('parent_type', 'todo').eq('parent_id', todoRow.id)
           await supabase.from('bc_todos').delete().eq('id', todoRow.id)
+          await syncTodolistCounts(supabase, todoRow.todolist_id)
         }
       } else if (recordingType === 'Comment') {
+        const { data: comRow } = await supabase
+          .from('bc_comments')
+          .select('id, parent_type, parent_id')
+          .eq('bc_id', recordingBcId)
+          .maybeSingle()
         await supabase.from('bc_comments').delete().eq('bc_id', recordingBcId)
+        if (comRow?.parent_id && (comRow.parent_type === 'todo' || comRow.parent_type === 'message')) {
+          await syncWebhookParentCommentsCount(supabase, comRow.parent_type, comRow.parent_id)
+        }
       } else if (recordingType === 'Message') {
-        await supabase.from('bc_messages').delete().eq('bc_id', recordingBcId)
+        const { data: msgRow } = await supabase.from('bc_messages').select('id').eq('bc_id', recordingBcId).maybeSingle()
+        if (msgRow?.id) {
+          await supabase.from('bc_comments').delete().eq('parent_type', 'message').eq('parent_id', msgRow.id)
+          await supabase.from('bc_messages').delete().eq('id', msgRow.id)
+        }
+      } else if (recordingType === 'Document') {
+        const { data: docRow } = await supabase.from('bc_documents').select('id').eq('bc_id', recordingBcId).maybeSingle()
+        if (docRow?.id) {
+          await supabase.from('bc_comments').delete().eq('parent_type', 'document').eq('parent_id', docRow.id)
+          await supabase.from('bc_documents').delete().eq('id', docRow.id)
+        }
+      } else if (recordingType === 'Upload') {
+        await supabase.from('bc_uploads').delete().eq('bc_id', recordingBcId)
+      } else if (recordingType === 'Schedule::Entry') {
+        await supabase.from('bc_schedule_entries').delete().eq('bc_id', recordingBcId)
+      } else if (recordingType === 'Question::Answer') {
+        await supabase.from('bc_answers').delete().eq('bc_id', recordingBcId)
+      } else if (recordingType === 'Campfire::Line') {
+        await supabase.from('bc_campfire_lines').delete().eq('bc_id', recordingBcId)
       }
       return NextResponse.json({ received: true, action: 'deleted_trashed' })
     }
@@ -227,22 +296,19 @@ export async function POST(request: Request) {
             ? false
             : Boolean(fullTodo.completed)
 
-        const rawDesc = await resolveHtmlAttachmentsFromCache(
-          fullTodo.description ?? '',
-          supabase
-        )
+        const rawDesc = await resolveHtmlAttachmentsFromCache(fullTodo.description ?? '', supabase)
         const { cleanHtml: resolvedTodoDescription, extractedAuthorName } = stripTegAuthorBanner(rawDesc)
 
-        // Check if this todo already exists in Supabase with a local TEG creator
         const { data: existingTodo } = await supabase
           .from('bc_todos')
-          .select('id, created_by_person_id')
+          .select('id, todolist_id, created_by_person_id')
           .eq('bc_id', recordingBcId)
           .maybeSingle()
 
+        // Author Priority Inversion: Priority #1 = extractedAuthorName, #2 = existing local, #3 = Basecamp creator
         const authorUuid =
-          existingTodo?.created_by_person_id ||
           (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+          existingTodo?.created_by_person_id ||
           (await resolvePersonUuid(fullTodo.creator || payload.creator, supabase))
 
         const { data: dbTodo } = await supabase
@@ -255,7 +321,7 @@ export async function POST(request: Request) {
               title: fullTodo.content || fullTodo.title || recording.title || 'Untitled',
               description: resolvedTodoDescription,
               is_completed: isCompleted,
-              completed_at: isCompleted ? (fullTodo.updated_at || new Date().toISOString()) : null,
+              completed_at: isCompleted ? fullTodo.updated_at || new Date().toISOString() : null,
               due_date: fullTodo.due_on || null,
               position: fullTodo.position ?? 1,
               comments_count: fullTodo.comments_count ?? 0,
@@ -269,15 +335,41 @@ export async function POST(request: Request) {
           .maybeSingle()
 
         if (dbTodo?.id && Array.isArray(fullTodo.assignees)) {
+          // Preserve local synthetic assignees (bc_people.bc_id >= SYNTHETIC_BC_ID_THRESHOLD)
+          const { data: existingAssignees } = await supabase
+            .from('bc_todo_assignees')
+            .select('person_id, person:bc_people(bc_id)')
+            .eq('todo_id', dbTodo.id)
+
+          const preservedSyntheticIds = new Set<string>()
+          for (const ea of existingAssignees || []) {
+            const pRel: any = Array.isArray(ea.person) ? ea.person[0] : ea.person
+            const personBcId = Number(pRel?.bc_id || 0)
+            if (ea.person_id && personBcId >= SYNTHETIC_BC_ID_THRESHOLD) {
+              preservedSyntheticIds.add(ea.person_id)
+            }
+          }
+
           await supabase.from('bc_todo_assignees').delete().eq('todo_id', dbTodo.id)
-          const assigneeRows: { todo_id: string; person_id: string }[] = []
+
+          const mergedPersonIds = new Set<string>(preservedSyntheticIds)
           for (const a of fullTodo.assignees) {
             const pUuid = await resolvePersonUuid(a, supabase)
-            if (pUuid) assigneeRows.push({ todo_id: dbTodo.id, person_id: pUuid })
+            if (pUuid) mergedPersonIds.add(pUuid)
           }
-          if (assigneeRows.length > 0) {
+
+          if (mergedPersonIds.size > 0) {
+            const assigneeRows = Array.from(mergedPersonIds).map((pid) => ({
+              todo_id: dbTodo.id,
+              person_id: pid,
+            }))
             await supabase.from('bc_todo_assignees').upsert(assigneeRows, { onConflict: 'todo_id,person_id' })
           }
+        }
+
+        await syncTodolistCounts(supabase, todolistUuid)
+        if (existingTodo?.todolist_id && existingTodo.todolist_id !== todolistUuid) {
+          await syncTodolistCounts(supabase, existingTodo.todolist_id)
         }
       }
 
@@ -301,22 +393,16 @@ export async function POST(request: Request) {
 
       if (parentRawType.includes('message')) {
         parentType = 'message'
-        const { data: msg } = await supabase.from('bc_messages').select('id, comments_count').eq('bc_id', parentBcId).maybeSingle()
+        const { data: msg } = await supabase.from('bc_messages').select('id').eq('bc_id', parentBcId).maybeSingle()
         parentUuid = msg?.id || null
-        if (parentUuid && kind === 'comment_created') {
-          await supabase.from('bc_messages').update({ comments_count: (msg?.comments_count || 0) + 1 }).eq('id', parentUuid)
-        }
       } else if (parentRawType.includes('document')) {
         parentType = 'document'
         const { data: doc } = await supabase.from('bc_documents').select('id').eq('bc_id', parentBcId).maybeSingle()
         parentUuid = doc?.id || null
       } else {
         parentType = 'todo'
-        const { data: todo } = await supabase.from('bc_todos').select('id, comments_count').eq('bc_id', parentBcId).maybeSingle()
+        const { data: todo } = await supabase.from('bc_todos').select('id').eq('bc_id', parentBcId).maybeSingle()
         parentUuid = todo?.id || null
-        if (parentUuid && kind === 'comment_created') {
-          await supabase.from('bc_todos').update({ comments_count: (todo?.comments_count || 0) + 1, updated_at: new Date().toISOString() }).eq('id', parentUuid)
-        }
       }
 
       if (parentUuid) {
@@ -332,9 +418,10 @@ export async function POST(request: Request) {
           .eq('bc_id', recordingBcId)
           .maybeSingle()
 
+        // Priority #1 = extractedAuthorName, #2 = existing local, #3 = Basecamp creator
         const authorUuid =
-          existingComment?.author_person_id ||
           (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+          existingComment?.author_person_id ||
           (await resolvePersonUuid(fullComment.creator || payload.creator, supabase))
 
         await supabase.from('bc_comments').upsert(
@@ -349,6 +436,8 @@ export async function POST(request: Request) {
           },
           { onConflict: 'bc_id' }
         )
+
+        await syncWebhookParentCommentsCount(supabase, parentType, parentUuid)
       }
 
       return NextResponse.json({ received: true, synced: 'comment', bc_id: recordingBcId })
@@ -371,10 +460,7 @@ export async function POST(request: Request) {
         .maybeSingle()
 
       if (boardRow?.id) {
-        const rawMsgHtml = await resolveHtmlAttachmentsFromCache(
-          fullMsg.content || '',
-          supabase
-        )
+        const rawMsgHtml = await resolveHtmlAttachmentsFromCache(fullMsg.content || '', supabase)
         const { cleanHtml: resolvedMsgContent, extractedAuthorName } = stripTegAuthorBanner(rawMsgHtml)
 
         const { data: existingMsg } = await supabase
@@ -384,8 +470,8 @@ export async function POST(request: Request) {
           .maybeSingle()
 
         const authorUuid =
-          existingMsg?.author_person_id ||
           (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+          existingMsg?.author_person_id ||
           (await resolvePersonUuid(fullMsg.creator || payload.creator, supabase))
 
         await supabase.from('bc_messages').upsert(
@@ -406,6 +492,221 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ received: true, synced: 'message', bc_id: recordingBcId })
+    }
+
+    // 4. Handle DOCUMENT events
+    if (recordingType === 'Document' || kind.startsWith('document_')) {
+      const safeDocUrl = resolveSafeWebhookRecordingPath(
+        recording.url,
+        bucketBcId,
+        `/buckets/${bucketBcId}/documents/${recordingBcId}.json`
+      )
+      const fullDoc = await basecampFetch<any>(safeDocUrl, { noPaginate: true })
+
+      const parentVaultBcId = Number(fullDoc?.parent?.id || recording?.parent?.id || 0)
+      let vaultUuid: string | null = null
+      if (parentVaultBcId) {
+        const { data: vaultRow } = await supabase
+          .from('bc_vaults')
+          .select('id')
+          .eq('bc_id', parentVaultBcId)
+          .maybeSingle()
+        vaultUuid = vaultRow?.id || null
+      }
+      if (!vaultUuid) {
+        const { data: rootVault } = await supabase
+          .from('bc_vaults')
+          .select('id')
+          .eq('project_id', projectUuid)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        vaultUuid = rootVault?.id || null
+      }
+
+      if (vaultUuid) {
+        const rawDocHtml = await resolveHtmlAttachmentsFromCache(fullDoc.content || '', supabase)
+        const { cleanHtml: resolvedDocContent, extractedAuthorName } = stripTegAuthorBanner(rawDocHtml)
+
+        const { data: existingDoc } = await supabase
+          .from('bc_documents')
+          .select('id, author_person_id')
+          .eq('bc_id', recordingBcId)
+          .maybeSingle()
+
+        const authorUuid =
+          (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+          existingDoc?.author_person_id ||
+          (await resolvePersonUuid(fullDoc.creator || payload.creator, supabase))
+
+        await supabase.from('bc_documents').upsert(
+          {
+            bc_id: recordingBcId,
+            project_id: projectUuid,
+            vault_id: vaultUuid,
+            title: fullDoc.title || recording.title || 'Untitled',
+            content: resolvedDocContent,
+            author_person_id: authorUuid,
+            created_at: fullDoc.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'bc_id' }
+        )
+      }
+
+      return NextResponse.json({ received: true, synced: 'document', bc_id: recordingBcId })
+    }
+
+    // 5. Handle CAMPFIRE::LINE events
+    if (recordingType === 'Campfire::Line' || kind.startsWith('campfire_line_')) {
+      const parentChatBcId = Number(recording?.parent?.id || 0)
+      if (parentChatBcId) {
+        const safeLineUrl = resolveSafeWebhookRecordingPath(
+          recording.url,
+          bucketBcId,
+          `/buckets/${bucketBcId}/chats/${parentChatBcId}/lines/${recordingBcId}.json`
+        )
+        const fullLine = await basecampFetch<any>(safeLineUrl, { noPaginate: true })
+
+        const { data: campfireRow } = await supabase
+          .from('bc_campfires')
+          .select('id')
+          .eq('bc_id', parentChatBcId)
+          .maybeSingle()
+
+        if (campfireRow?.id) {
+          const rawLineHtml = await resolveHtmlAttachmentsFromCache(
+            fullLine.content || recording.content || '',
+            supabase
+          )
+          const { cleanHtml: resolvedLineContent, extractedAuthorName } = stripTegAuthorBanner(rawLineHtml)
+
+          const { data: existingLine } = await supabase
+            .from('bc_campfire_lines')
+            .select('id, author_person_id')
+            .eq('bc_id', recordingBcId)
+            .maybeSingle()
+
+          const authorUuid =
+            (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+            existingLine?.author_person_id ||
+            (await resolvePersonUuid(fullLine.creator || payload.creator, supabase))
+
+          await supabase.from('bc_campfire_lines').upsert(
+            {
+              bc_id: recordingBcId,
+              project_id: projectUuid,
+              campfire_id: campfireRow.id,
+              content: resolvedLineContent,
+              author_person_id: authorUuid,
+              created_at: fullLine.created_at || new Date().toISOString(),
+            },
+            { onConflict: 'bc_id' }
+          )
+        }
+      }
+
+      return NextResponse.json({ received: true, synced: 'campfire_line', bc_id: recordingBcId })
+    }
+
+    // 6. Handle SCHEDULE::ENTRY events
+    if (recordingType === 'Schedule::Entry' || kind.startsWith('schedule_entry_')) {
+      const safeEntryUrl = resolveSafeWebhookRecordingPath(
+        recording.url,
+        bucketBcId,
+        `/buckets/${bucketBcId}/schedule_entries/${recordingBcId}.json`
+      )
+      const fullEntry = await basecampFetch<any>(safeEntryUrl, { noPaginate: true })
+
+      const { data: scheduleRow } = await supabase
+        .from('bc_schedules')
+        .select('id')
+        .eq('project_id', projectUuid)
+        .limit(1)
+        .maybeSingle()
+
+      if (scheduleRow?.id) {
+        const rawEntryHtml = await resolveHtmlAttachmentsFromCache(fullEntry.description || '', supabase)
+        const { cleanHtml: resolvedEntryDesc, extractedAuthorName } = stripTegAuthorBanner(rawEntryHtml)
+
+        const { data: existingEntry } = await supabase
+          .from('bc_schedule_entries')
+          .select('id, author_person_id')
+          .eq('bc_id', recordingBcId)
+          .maybeSingle()
+
+        const authorUuid =
+          (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+          existingEntry?.author_person_id ||
+          (await resolvePersonUuid(fullEntry.creator || payload.creator, supabase))
+
+        await supabase.from('bc_schedule_entries').upsert(
+          {
+            bc_id: recordingBcId,
+            project_id: projectUuid,
+            schedule_id: scheduleRow.id,
+            title: fullEntry.summary || fullEntry.title || recording.title || 'Untitled',
+            description: resolvedEntryDesc,
+            starts_at: fullEntry.starts_at || null,
+            ends_at: fullEntry.ends_at || null,
+            all_day: Boolean(fullEntry.all_day),
+            author_person_id: authorUuid,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'bc_id' }
+        )
+      }
+
+      return NextResponse.json({ received: true, synced: 'schedule_entry', bc_id: recordingBcId })
+    }
+
+    // 7. Handle QUESTION::ANSWER events
+    if (recordingType === 'Question::Answer' || kind.startsWith('question_answer_')) {
+      const safeAnswerUrl = resolveSafeWebhookRecordingPath(
+        recording.url,
+        bucketBcId,
+        `/buckets/${bucketBcId}/question_answers/${recordingBcId}.json`
+      )
+      const fullAnswer = await basecampFetch<any>(safeAnswerUrl, { noPaginate: true })
+
+      const parentQuestionBcId = Number(fullAnswer?.parent?.id || recording?.parent?.id || 0)
+      if (parentQuestionBcId) {
+        const { data: qRow } = await supabase
+          .from('bc_questions')
+          .select('id')
+          .eq('bc_id', parentQuestionBcId)
+          .maybeSingle()
+
+        if (qRow?.id) {
+          const rawAnsHtml = await resolveHtmlAttachmentsFromCache(fullAnswer.content || '', supabase)
+          const { cleanHtml: resolvedAnsContent, extractedAuthorName } = stripTegAuthorBanner(rawAnsHtml)
+
+          const { data: existingAns } = await supabase
+            .from('bc_answers')
+            .select('id, author_person_id')
+            .eq('bc_id', recordingBcId)
+            .maybeSingle()
+
+          const authorUuid =
+            (await resolvePersonByExtractedName(extractedAuthorName, supabase)) ||
+            existingAns?.author_person_id ||
+            (await resolvePersonUuid(fullAnswer.creator || payload.creator, supabase))
+
+          await supabase.from('bc_answers').upsert(
+            {
+              bc_id: recordingBcId,
+              project_id: projectUuid,
+              question_id: qRow.id,
+              content: resolvedAnsContent,
+              author_person_id: authorUuid,
+              created_at: fullAnswer.created_at || new Date().toISOString(),
+            },
+            { onConflict: 'bc_id' }
+          )
+        }
+      }
+
+      return NextResponse.json({ received: true, synced: 'question_answer', bc_id: recordingBcId })
     }
 
     return NextResponse.json({ received: true, kind, recordingType })

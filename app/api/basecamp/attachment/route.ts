@@ -16,11 +16,17 @@
 
 import { NextResponse } from 'next/server'
 import { getValidToken } from '@/lib/basecamp-api'
-import { getServerUser } from '@/lib/auth-server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
+  // 1. Require authenticated staff user (never log cookies)
+  const auth = verifyStaffAuth(request, { allowCron: false })
+  if (!auth.authorized) {
+    return auth.response!
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     const urlParam = searchParams.get('url')
@@ -29,28 +35,58 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
     }
 
-    // 2. Normalize and validate URL
-    let targetUrl = urlParam.trim()
-
-    // Replace cookie-only domains with the API domain that supports Bearer authentication
-    targetUrl = targetUrl.replace('preview.app.basecamp.com', '3.basecampapi.com')
-    targetUrl = targetUrl.replace('storage.app.basecamp.com', '3.basecampapi.com')
-
-    // 1. Get authenticated user
-    const user = await getServerUser()
-    if (!user) {
-      console.log('❌ [Basecamp Attachment API] getServerUser returned null. Cookies:', request.headers.get('cookie'))
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    console.log('✅ [Basecamp Attachment API] Authenticated user:', user.email, 'Target URL:', targetUrl)
-
-    const accountId = process.env.BASECAMP_ACCOUNT_ID || '5052386'
-    
-    // Safety check: ensure it is a Basecamp URL and matches our account ID
-    const basecampPattern = new RegExp(`^https://3\\.basecampapi\\.com/${accountId}/`, 'i')
-    if (!basecampPattern.test(targetUrl)) {
+    const rawTrimmed = urlParam.trim()
+    if (
+      rawTrimmed.includes('..') ||
+      rawTrimmed.includes('\\') ||
+      /%2e|%5c|%00/i.test(rawTrimmed) ||
+      /[\r\n\t]/.test(rawTrimmed)
+    ) {
       return NextResponse.json({ error: 'Forbidden URL' }, { status: 403 })
     }
+
+    let parsed: URL
+    try {
+      parsed = new URL(rawTrimmed)
+    } catch {
+      return NextResponse.json({ error: 'Invalid URL' }, { status: 400 })
+    }
+
+    if (parsed.protocol !== 'https:' || parsed.port !== '' || parsed.username !== '' || parsed.password !== '') {
+      return NextResponse.json({ error: 'Forbidden URL' }, { status: 403 })
+    }
+
+    const allowedInputHosts = new Set([
+      '3.basecampapi.com',
+      'preview.app.basecamp.com',
+      'storage.app.basecamp.com',
+    ])
+    const inputHost = parsed.hostname.toLowerCase()
+    if (!allowedInputHosts.has(inputHost)) {
+      return NextResponse.json({ error: 'Forbidden URL' }, { status: 403 })
+    }
+
+    // Replace cookie-only Basecamp attachment domains with API domain supporting Bearer auth
+    parsed.hostname = '3.basecampapi.com'
+
+    let decodedPath = parsed.pathname
+    try {
+      decodedPath = decodeURIComponent(parsed.pathname)
+    } catch {
+      return NextResponse.json({ error: 'Forbidden URL' }, { status: 403 })
+    }
+
+    const accountId = process.env.BASECAMP_ACCOUNT_ID || '5052386'
+    if (
+      decodedPath.includes('..') ||
+      decodedPath.includes('\\') ||
+      parsed.pathname.includes('//') ||
+      !parsed.pathname.startsWith(`/${accountId}/`)
+    ) {
+      return NextResponse.json({ error: 'Forbidden URL' }, { status: 403 })
+    }
+
+    const targetUrl = parsed.toString()
 
     // 3. Get valid Basecamp token
     const token = await getValidToken()
@@ -64,21 +100,37 @@ export async function GET(request: Request) {
         'User-Agent': userAgent,
       },
       redirect: 'manual',
+      signal: AbortSignal.timeout(15_000),
     })
 
     // Basecamp download/preview endpoints return a 302/307 redirect to S3
     const s3Url = res.headers.get('location')
 
     if (s3Url) {
+      let parsedRedirect: URL
+      try {
+        parsedRedirect = new URL(s3Url)
+      } catch {
+        return NextResponse.json({ error: 'Invalid upstream redirect URL' }, { status: 502 })
+      }
+      if (parsedRedirect.protocol !== 'https:' || parsedRedirect.username !== '' || parsedRedirect.password !== '') {
+        return NextResponse.json({ error: 'Forbidden upstream redirect URL' }, { status: 403 })
+      }
       // Return 307 Temporary Redirect to the AWS S3 URL
-      return NextResponse.redirect(s3Url, { status: 307 })
+      return NextResponse.redirect(parsedRedirect.toString(), { status: 307 })
     }
 
     // If it did not redirect, but returned 200 OK (unlikely for blobs, but possible)
     if (res.ok) {
+      const contentType = (res.headers.get('Content-Type') || 'application/octet-stream').toLowerCase()
+      if (contentType.includes('application/json') || contentType.includes('text/html')) {
+        return NextResponse.json({ error: 'Forbidden attachment content type' }, { status: 403 })
+      }
       const blob = await res.blob()
       const headers = new Headers()
-      headers.set('Content-Type', res.headers.get('Content-Type') || 'application/octet-stream')
+      headers.set('Content-Type', contentType)
+      headers.set('X-Content-Type-Options', 'nosniff')
+      headers.set('Content-Security-Policy', "default-src 'none'; sandbox")
       headers.set('Cache-Control', 'private, max-age=3600')
       return new Response(blob, {
         status: 200,
