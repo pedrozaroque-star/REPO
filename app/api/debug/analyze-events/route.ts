@@ -1,7 +1,11 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseClient } from '@/lib/supabase'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
+    if (!auth.authorized) return auth.response!
+
     try {
         const supabase = await getSupabaseClient()
 

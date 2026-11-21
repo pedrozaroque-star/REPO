@@ -25,6 +25,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import {
     escapeHtmlSafe,
     evaluatePunchBreakViolation,
@@ -36,6 +37,8 @@ import { sendSystemEmail } from '@/lib/system-mailer'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
+const CORPORATE_TEST_EMAIL_REGEX = /^[a-z0-9._%+-]+@tacosgavilan\.com$/i
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -44,19 +47,22 @@ const supabaseKey =
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function GET(req: Request) {
+    const auth = verifyStaffAuth(req, {
+        allowedRoles: ['admin', 'supervisor'],
+        allowCron: true,
+    })
+    if (!auth.authorized) return auth.response!
+
     try {
         const url = new URL(req.url)
-        const authHeader = req.headers.get('authorization')
         const isDryRun = url.searchParams.get('dry_run') === 'true'
-        const isManual = url.searchParams.get('manual') === 'true'
+        const testToParam = (url.searchParams.get('test_to') || '').trim()
 
-        if (
-            process.env.CRON_SECRET &&
-            authHeader !== `Bearer ${process.env.CRON_SECRET}` &&
-            !isManual &&
-            !isDryRun
-        ) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        if (testToParam && testToParam !== 'all' && !CORPORATE_TEST_EMAIL_REGEX.test(testToParam)) {
+            return NextResponse.json(
+                { error: 'Destinatario test_to restringido exclusivamente a cuentas @tacosgavilan.com' },
+                { status: 403 }
+            )
         }
 
         // Rango de la semana anterior completa (lunes a domingo) en hora de California
@@ -95,6 +101,7 @@ export async function GET(req: Request) {
                 .select('store_id, employee_toast_guid, business_date, breaks')
                 .gte('business_date', mondayStr)
                 .lte('business_date', sundayStr)
+                .order('toast_id', { ascending: true })
                 .range(currentOffset, currentOffset + pageSize - 1)
 
             if (error) {
@@ -348,7 +355,7 @@ export async function GET(req: Request) {
             })
         }
 
-        const testTo = url.searchParams.get('test_to')
+        const testTo = testToParam || null
         const isTest = Boolean(testTo)
         const recipientsToSend = testTo && testTo !== 'all' ? [testTo] : allRecipients
         const subjectPrefix = isTest ? '[PRUEBA] ' : ''

@@ -11,10 +11,12 @@
  * - Vercel Cron -> GET /api/cron/sync-food-cost-today -> in-process foodCostGet() -> Toast PMIX + Recetas -> food_cost_daily_cache (Supabase) -> Response.
  * @notes
  * - [2026-09-10] FIX: Migrado a invocación in-process directa con fallback HTTP para evitar fallos de DNS o Vercel Deployment Protection.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { buildInternalCronAuthHeaders, verifyStaffAuth } from '@/lib/auth-server'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 
 export const dynamic = 'force-dynamic'
@@ -23,10 +25,9 @@ export const maxDuration = 300 // 5 minutos máximo en Vercel (Pro)
 
 export async function GET(request: Request) {
     try {
-        // Validación de Vercel Cron Secret
-        const authHeader = request.headers.get('authorization')
-        if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const supabase = await getSupabaseAdminClient()
@@ -63,11 +64,7 @@ export async function GET(request: Request) {
         try {
             console.log(`🔄 [CRON FC TODAY] Calculando in-process para ${todayStr}...`)
             const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}`, {
-                headers: {
-                    'x-cron-auth': process.env.CRON_SECRET || '',
-                    authorization: request.headers.get('authorization') || '',
-                    cookie: request.headers.get('cookie') || ''
-                }
+                headers: buildInternalCronAuthHeaders(request)
             })
             const directRes = await foodCostGet(directReq)
             
@@ -92,9 +89,7 @@ export async function GET(request: Request) {
             const res = await fetch(apiUrl, {
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-cron-auth': process.env.CRON_SECRET || '',
-                    authorization: request.headers.get('authorization') || '',
-                    cookie: request.headers.get('cookie') || ''
+                    ...buildInternalCronAuthHeaders(request)
                 }
             })
 

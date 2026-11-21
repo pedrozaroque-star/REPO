@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { verifyAdminAuth } from '@/lib/auth-server'
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -11,8 +11,8 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 )
 
-export async function GET(request: Request) {
-    const auth = await verifyAdminAuth(request)
+export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
     if (!auth.authorized) return auth.response!
     try {
         let allData: any[] = [];

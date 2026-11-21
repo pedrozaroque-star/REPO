@@ -30,9 +30,12 @@
  *
  * @notes
  * - Módulo 100% determinista, inmutable y libre de efectos secundarios (`KORE_FAST_CLIP_SPECS.length === 140`).
+ * - Fase 19 (`cb6234d1`): `matchKoreFastClipForToolOutcome` soporta `customerTurnText` opcional y omite el acuse parcial
+ *   cuando `hasUnresolvedCompoundOrderItems(customerTurnText, newlyAdded.length) === true` (ej. `"Quiero un taco de asada y dos burritos"`).
  */
 
 import type { KoreOrderLine, KoreOrderState } from '@/lib/drive-thru-kore-order'
+import { hasUnresolvedCompoundOrderItems } from '@/lib/kore-shared-speech'
 
 export type KoreFastClipCategory = 'clarify' | 'item_ack' | 'ops' | 'sendoff'
 
@@ -1280,6 +1283,7 @@ export function matchKoreFastClipForToolOutcome(params: {
   result: Record<string, unknown>
   lang: 'es' | 'en'
   variantSeed?: number
+  customerTurnText?: string
 }): KoreFastClipMatch | null {
   const tool = String(params.toolName || '').trim()
   const lang: 'es' | 'en' = params.lang === 'en' ? 'en' : 'es'
@@ -1411,6 +1415,15 @@ export function matchKoreFastClipForToolOutcome(params: {
 
       const beforeIds = new Set((params.stateBefore?.lines || []).map((l) => l.lineId))
       const newlyAdded = (params.stateAfter?.lines || []).filter((l) => !beforeIds.has(l.lineId))
+      const effectiveAddedCount =
+        newlyAdded.length > 0
+          ? newlyAdded.length
+          : tool === 'add_items' && Array.isArray(args.items)
+            ? args.items.length
+            : 1
+      if (params.customerTurnText && hasUnresolvedCompoundOrderItems(params.customerTurnText, effectiveAddedCount)) {
+        return null
+      }
 
       if (newlyAdded.length === 1) {
         const line = newlyAdded[0]

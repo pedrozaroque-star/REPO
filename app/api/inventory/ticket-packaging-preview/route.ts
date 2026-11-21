@@ -8,16 +8,22 @@
  *   store + businessDate → toast_ticket_consumption_snapshots → ticket-packaging → totales y detalle por ticket.
  * @notes
  *   - Se mantiene separado de inventory_usage_log hasta integrar todos los grupos de productos y prevenir doble conteo contra PMIX.
+ *   - Protegido con `verifyStaffAuth`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateTicketPackaging, type PackagingItemKey, type ToastTicketSelection } from '@/lib/inventory/ticket-packaging'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) {
+      return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
     const externalStoreId = request.nextUrl.searchParams.get('storeId')
     const businessDate = request.nextUrl.searchParams.get('businessDate')
     if (!externalStoreId || !businessDate) return NextResponse.json({ error: 'storeId and businessDate are required' }, { status: 400 })

@@ -14,14 +14,21 @@
  *
  * @notes
  *   - Cumple con las políticas RLS y estándares de arquitectura multi-proveedor de Tacos Gavilan.
+ *   - Protegido con `verifyStaffAuth` (`allowedRoles: ['admin', 'supervisor']`, `allowCron: false`).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: false })
+    if (!auth.authorized) {
+      return auth.response || NextResponse.json({ success: false, error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const body = await request.json()
     const { name, supplier_code, category = 'general', portal_url, notes } = body
 

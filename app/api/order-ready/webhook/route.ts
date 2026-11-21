@@ -19,28 +19,159 @@
  * - `ready_at` usa la hora real del bump (modifiedDate de los platillos).
  * - FIX (2026-10-22): el SELECT previo incluye `items_summary` y `ready_at`; `updateData` construye únicamente cambios semánticos reales usando `areOrderItemsSummariesEqual()` y omite ejecutar `UPDATE` si `updateData` está vacío.
  * - FIX (2026-11-09, Paridad 1:1 con Toast KDS): prioriza `evaluation.sentAt` / `orderObj.createdDate` sobre `openedDate`, y reconcilia `created_at` en registros existentes cuando llega el timestamp autoritativo de disparo a cocina (`sentAtAuthoritative`).
+ * - FIX (2026-11-20, Escudo Anti-Falso-Recall por Webhook Tardío — La Puente #228): bloquea transiciones `READY -> IN_PROGRESS` (y `COMPLETED -> IN_PROGRESS` sin ítems) cuando el webhook `order_updated` carece de `selections` (`evaluation.activeItems === 0`) o cuando su timestamp de modificación (`getLatestToastOrderSnapshotMs`) es anterior o igual al bump real del KDS (`existing.ready_at`), preservando intacto el RECALL legítimo en KDS (`latestSnapshotMs > existingReadyMs`).
+ * - BLINDAJE CRIPTOGRÁFICO Y ANTI-SPOOFING WEBHOOK (2026-11-21): cuando `TOAST_WEBHOOK_SECRET` está configurado valida `Toast-Signature` HMAC-SHA256 / Bearer con `crypto.timingSafeEqual`; cuando no está configurado en entorno, exige `restaurantGuid` oficial en `TOAST_STORE_MAP` + `orderGuid` UUID válido y verifica/hidrata la orden directamente contra la API oficial de Toast (`ws-api.toasttab.com`) antes de tocar Supabase (cero downtime en producción y cero inyección de órdenes falsas).
  */
 
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { checkRateLimit } from '@/lib/auth-server'
 import { getAuthToken } from '@/lib/toast-api'
-import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap, extractOrderItemsSummary, areOrderItemsSummariesEqual } from '@/lib/order-ready-sync'
+import { TOAST_STORE_MAP, STORE_GUID_BY_CODE, evaluateToastOrder, classifyDiningName, getDiningMap, extractOrderItemsSummary, areOrderItemsSummariesEqual, getLatestToastOrderSnapshotMs } from '@/lib/order-ready-sync'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 
 function getToastApiHost(): string {
   return process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 }
 
+function safeTimingEqualStrings(a: string, b: string): boolean {
+  if (!a || !b) return false
+  const bufA = Buffer.from(a, 'utf8')
+  const bufB = Buffer.from(b, 'utf8')
+  if (bufA.length !== bufB.length) {
+    const ha = createHash('sha256').update(bufA).digest()
+    const hb = createHash('sha256').update(bufB).digest()
+    timingSafeEqual(ha, hb)
+    return false
+  }
+  return timingSafeEqual(bufA, bufB)
+}
+
+function verifyToastWebhookRequest(request: Request, rawBody: string, secret: string): boolean {
+  const rawSig = (request.headers.get('toast-signature') || request.headers.get('Toast-Signature') || '').trim()
+  if (rawSig) {
+    const cleanedSig = rawSig.replace(/^(?:sha256=|v1=)/i, '').trim()
+    const expectedHex = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')
+    const expectedBase64 = createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
+    if (safeTimingEqualStrings(cleanedSig.toLowerCase(), expectedHex.toLowerCase()) || safeTimingEqualStrings(cleanedSig, expectedBase64)) {
+      return true
+    }
+  }
+
+  const authHeader = (request.headers.get('authorization') || request.headers.get('Authorization') || '').trim()
+  if (authHeader.toLowerCase().startsWith('bearer ')) {
+    const bearer = authHeader.slice(7).trim()
+    if (safeTimingEqualStrings(bearer, secret)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export const dynamic = 'force-dynamic'
+
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function POST(request: Request) {
   try {
-    const payload = await request.json()
+    const clientIp =
+      (request.headers.get('x-vercel-forwarded-for') || request.headers.get('x-real-ip') || 'unknown')
+        .split(',')[0]
+        .trim() || 'unknown'
+    const rl = checkRateLimit(`order-ready-webhook:${clientIp}`, 240, 60_000)
+    if (rl.limited) {
+      return NextResponse.json({ error: 'Too many webhook requests' }, { status: 429 })
+    }
+
+    const rawBody = await request.text()
+    const webhookSecret = (process.env.TOAST_WEBHOOK_SECRET || '').trim()
+    if (webhookSecret) {
+      if (!verifyToastWebhookRequest(request, rawBody, webhookSecret)) {
+        return NextResponse.json(
+          { error: 'No autorizado: firma Toast-Signature o token inválido' },
+          { status: 401 }
+        )
+      }
+    }
+
+    let payload: any
+    try {
+      payload = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 })
+    }
 
     // Soporte para estructura Toast { details: { order, restaurantGuid } } o directo { order }
-    const orderObj = payload.details?.order || payload.order || payload
-    const restaurantId = payload.restaurantGuid || payload.details?.restaurantGuid || payload.restaurantId || payload.restaurantExternalId || payload.storeId
+    let orderObj = payload?.details?.order || payload?.order || payload || {}
+    const restaurantId = String(
+      payload?.restaurantGuid ||
+        payload?.details?.restaurantGuid ||
+        payload?.restaurantId ||
+        payload?.restaurantExternalId ||
+        payload?.storeId ||
+        ''
+    ).trim()
+    let orderGuid = String(
+      payload?.details?.orderGuid || payload?.orderGuid || orderObj?.guid || payload?.guid || ''
+    ).trim()
+
+    // Si TOAST_WEBHOOK_SECRET no está configurado en Vercel, verificamos criptográficamente el evento
+    // consultando la orden real directo en la API oficial de Toast (cero órdenes falsas y cero downtime).
+    if (!webhookSecret) {
+      if (
+        !restaurantId ||
+        !Object.prototype.hasOwnProperty.call(TOAST_STORE_MAP, restaurantId) ||
+        !UUID_V4_REGEX.test(orderGuid)
+      ) {
+        return NextResponse.json(
+          { error: 'No autorizado: se requiere restaurantGuid oficial y orderGuid UUID válido' },
+          { status: 401 }
+        )
+      }
+
+      const toastToken = await getAuthToken()
+      if (!toastToken) {
+        return NextResponse.json({ error: 'Servicio Toast temporalmente no disponible' }, { status: 503 })
+      }
+
+      const verifyRes = await fetch(`${getToastApiHost()}/orders/v2/orders/${orderGuid}`, {
+        headers: {
+          Authorization: `Bearer ${toastToken}`,
+          'Toast-Restaurant-External-ID': restaurantId,
+        },
+      })
+      if (!verifyRes.ok) {
+        return NextResponse.json(
+          { error: 'No autorizado: orden no verificada en Toast POS API' },
+          { status: 401 }
+        )
+      }
+
+      const verifiedToastOrder = await verifyRes.json().catch(() => null)
+      if (!verifiedToastOrder || String(verifiedToastOrder.guid || '').toLowerCase() !== orderGuid.toLowerCase()) {
+        return NextResponse.json(
+          { error: 'No autorizado: respuesta de orden Toast inválida' },
+          { status: 401 }
+        )
+      }
+
+      // Usar exclusivamente el objeto autoritativo de Toast API (nunca confiar en campos del body no firmado)
+      orderObj = verifiedToastOrder
+      orderGuid = String(verifiedToastOrder.guid)
+      payload = {
+        restaurantGuid: restaurantId,
+        details: {
+          restaurantGuid: restaurantId,
+          orderGuid,
+          order: verifiedToastOrder,
+        },
+      }
+    }
+
     const explicitTestStoreCode =
+      Boolean(webhookSecret) &&
       process.env.ALLOW_ORDER_READY_TEST_DB === 'true' &&
       typeof payload.storeCode === 'string' &&
       payload.storeCode.toUpperCase().startsWith('CODEX_ORDER_READY_TEST')
@@ -52,7 +183,6 @@ export async function POST(request: Request) {
 
     // El número de orden puede venir en varios formatos
     const orderNumber = orderObj.displayNumber || orderObj.orderNumber || payload.orderNumber || payload.displayNumber || payload.ticketNumber
-    const orderGuid = payload.details?.orderGuid || payload.orderGuid || orderObj.guid || payload.guid
     const rawStatus = (payload.details?.guestOrderStatus || payload.guestOrderStatus || orderObj.fulfillmentStatus || payload.status || orderObj.approvalStatus || '').toString().toUpperCase()
 
     if (!orderNumber && !orderGuid) {
@@ -171,9 +301,30 @@ export async function POST(request: Request) {
     // Si ya existe la orden, actualizarla solo si cambió algún campo real
     if (existing) {
       const itemsSummary = extractOrderItemsSummary(orderObj)
-      const isRecall = existing.status === 'READY' && status === 'IN_PROGRESS'
+      const existingReadyMs = Date.parse(existing.ready_at || '')
+      const latestSnapshotMs = getLatestToastOrderSnapshotMs(orderObj)
+      const isAttemptedRecall = existing.status === 'READY' && status === 'IN_PROGRESS'
+      // Escudo contra falso RECALL por webhook atrasado/reintentado de cobro previo al bump de KDS o webhook sin selections:
+      const isStaleOrEmptyRecall =
+        isAttemptedRecall &&
+        (evaluation.activeItems === 0 ||
+          (Number.isFinite(existingReadyMs) &&
+            Number.isFinite(latestSnapshotMs) &&
+            latestSnapshotMs <= existingReadyMs + 500))
+      const isEmptyReopenAfterComplete =
+        existing.status === 'COMPLETED' && status === 'IN_PROGRESS' && evaluation.activeItems === 0
+
+      const isRecall = isAttemptedRecall && !isStaleOrEmptyRecall
       const isKdsBump = existing.status === 'IN_PROGRESS' && status === 'READY'
-      const nextStatus = isRecall ? 'IN_PROGRESS' : isKdsBump ? 'READY' : status
+      const nextStatus = isStaleOrEmptyRecall
+        ? 'READY'
+        : isEmptyReopenAfterComplete
+          ? 'COMPLETED'
+          : isRecall
+            ? 'IN_PROGRESS'
+            : isKdsBump
+              ? 'READY'
+              : status
 
       const updateData: any = {}
       if (existing.status !== nextStatus) {
@@ -182,7 +333,11 @@ export async function POST(request: Request) {
       if (existing.dining_option !== diningOption) {
         updateData.dining_option = diningOption
       }
-      if (itemsSummary && (!existing.items_summary || !areOrderItemsSummariesEqual(existing.items_summary, itemsSummary))) {
+      if (
+        itemsSummary &&
+        (!existing.items_summary ||
+          (!isStaleOrEmptyRecall && !areOrderItemsSummariesEqual(existing.items_summary, itemsSummary)))
+      ) {
         updateData.items_summary = itemsSummary
       }
       if (evaluation.sentAt && evaluation.sentAtAuthoritative) {

@@ -22,12 +22,14 @@
  *     (descending) applied automatically to #locations-grid, #locations-list, store <select> dropdowns,
  *     and gavilanLocations.
  *   - #contact-form -> POST /api/contact -> Supabase public.customer_feedback.
- *   - Google Maps API -> Interactive locator with dark/light/satellite themes and 15-store fallback card.
+ *   - Google Maps API -> Interactive locator with dark/light/satellite themes, first-party `/api/geo` IP fallback, and 15-store fallback card.
  *
  * @notes
  *   - Slauson / LA Broadway store ID collision resolved (Slauson assigned 23989119).
  *   - Automatic monthly store ordering (initLiveStoreRanking) syncs store card positions with the
  *     VENTAS monitoring module (6:00 AM America/Los_Angeles business day boundary).
+ *   - Hardened in 2026-11 security pass: replaced third-party `geojs.io`/`ipapi.co` with first-party `/api/geo`,
+ *     and guarded `legalDialogTriggers` and `storeCatalogBySlug` lookups with `Object.prototype.hasOwnProperty.call`.
  *   - Fixed translation text node replacement to prevent destroying child SVGs.
  *   - Enhanced keyboard accessibility (WCAG 2.2 AA) with roving tabindex and focus traps.
  *   - Protected storage access with safeStorage helper against Private Browsing exceptions.
@@ -1923,7 +1925,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const phoneE164 = loc.phone ? `+1${loc.phone.replace(/\D/g, '')}` : '';
 
         // Pull store schedule rows if available in storeCatalogBySlug
-        const catalogMeta = (typeof storeCatalogBySlug !== 'undefined' && loc.slug && storeCatalogBySlug[loc.slug])
+        const catalogMeta = (typeof storeCatalogBySlug !== 'undefined' && loc.slug && Object.prototype.hasOwnProperty.call(storeCatalogBySlug, loc.slug))
             ? storeCatalogBySlug[loc.slug]
             : null;
         let hoursHtml = '';
@@ -2367,25 +2369,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
 
                 const fetchIpGeoFallback = async () => {
-                    const endpoints = [
-                        'https://get.geojs.io/v1/ip/geo.json',
-                        'https://ipapi.co/json/'
-                    ];
-                    for (const url of endpoints) {
-                        try {
-                            const ctrl = new AbortController();
-                            const tid = setTimeout(() => ctrl.abort(), 3500);
-                            const r = await fetch(url, { signal: ctrl.signal, headers: { 'Accept': 'application/json' } });
-                            clearTimeout(tid);
-                            if (!r.ok) continue;
-                            const d = await r.json();
-                            const lat = parseFloat(d.latitude);
-                            const lng = parseFloat(d.longitude);
-                            if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                                return { lat, lng };
-                            }
-                        } catch (_) {}
-                    }
+                    try {
+                        const ctrl = new AbortController();
+                        const tid = setTimeout(() => ctrl.abort(), 3500);
+                        const r = await fetch('/api/geo/', {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            signal: ctrl.signal,
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        clearTimeout(tid);
+                        if (!r.ok) return null;
+                        const d = await r.json();
+                        if (!d || d.ok !== true) return null;
+                        const lat = parseFloat(d.lat);
+                        const lng = parseFloat(d.lng);
+                        if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                            return { lat, lng };
+                        }
+                    } catch (_) {}
                     return null;
                 };
 
@@ -2756,7 +2758,7 @@ document.addEventListener('DOMContentLoaded', () => {
         terms: 'open-terms-btn',
         accessibility: 'open-accessibility-btn'
     };
-    if (legalDialogTriggers[requestedLegalDialog]) {
+    if (requestedLegalDialog && Object.prototype.hasOwnProperty.call(legalDialogTriggers, requestedLegalDialog)) {
         document.getElementById(legalDialogTriggers[requestedLegalDialog])?.click();
     }
 
@@ -3654,7 +3656,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderStoreDetailsModalContent = (slug) => {
-        const meta = storeCatalogBySlug[slug];
+        const meta = (slug && Object.prototype.hasOwnProperty.call(storeCatalogBySlug, slug)) ? storeCatalogBySlug[slug] : null;
         if (!meta) return false;
         const loc = gavilanLocations.find(l => l.code === meta.code);
         if (!loc) return false;
@@ -3723,7 +3725,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const openStoreDetailsModal = (slug) => {
-        if (!storeCatalogBySlug[slug]) return;
+        if (!slug || !Object.prototype.hasOwnProperty.call(storeCatalogBySlug, slug)) return;
         activeStoreSlug = slug;
         const overlay = ensureStoreDetailsModalDom();
         if (!renderStoreDetailsModalContent(slug)) return;
@@ -3766,7 +3768,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rawHref = link.getAttribute('href') || '';
         // Match /locations/{slug}/ or ./{slug}/
         const match = rawHref.match(/(?:^\/locations\/|^\.\/)([a-z0-9-]+)\/?$/i);
-        if (match && storeCatalogBySlug[match[1]]) {
+        if (match && Object.prototype.hasOwnProperty.call(storeCatalogBySlug, match[1])) {
             e.preventDefault();
             openStoreDetailsModal(match[1]);
         }
@@ -3783,7 +3785,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Auto-open modal if URL has ?store={slug}
     const initialStoreSlug = new URLSearchParams(window.location.search).get('store');
-    if (initialStoreSlug && storeCatalogBySlug[initialStoreSlug]) {
+    if (initialStoreSlug && Object.prototype.hasOwnProperty.call(storeCatalogBySlug, initialStoreSlug)) {
         openStoreDetailsModal(initialStoreSlug);
     }
 

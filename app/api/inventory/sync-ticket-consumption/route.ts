@@ -11,10 +11,12 @@
  *   - Los snapshots alimentan la vista de empaque por ticket; los movimientos se activarán cuando termine la conciliación con PMIX para evitar doble conteo.
  *   - [2026-09-23] Toast requiere el prefijo `Bearer ` en ordersBulk; omitirlo causaba 401 aunque el login fuera exitoso.
  *   - Los GUID de diningOption se resuelven con el catálogo de la tienda. Se guardan solo campos de canal, sin direcciones ni datos de clientes.
+ *   - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,8 +33,9 @@ async function getToken() {
 
 export async function GET(request: NextRequest) {
   try {
-  if (process.env.CRON_SECRET && request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) {
+    return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
   }
   const businessDate = request.nextUrl.searchParams.get('businessDate')
   const externalStoreId = request.nextUrl.searchParams.get('storeId')

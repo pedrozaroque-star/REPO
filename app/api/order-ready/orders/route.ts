@@ -27,6 +27,7 @@
  *   1. Eliminada clave redundante `allOrders` de la respuesta JSON (cero consumidores en el repositorio; reduce ~50% de transferencia).
  *   2. Reemplazado `.select('*')` por lista explícita de las 15 columnas requeridas (`ORDER_READY_SELECT_COLUMNS`).
  *   3. Nuevo parámetro opcional `?view=prep` (usado por `/inventory/preparador`): omite la consulta secundaria `beverageCalls` y excluye `readyOrders`/`beverageCalls` de la respuesta, manteniendo 100% intacta la respuesta por defecto para `/order-ready-board`.
+ * - BLINDAJE TV PÚBLICO & TOAST API (2026-11-21): Cuando `!access` (modo TV público sin cookie `teg_token`), se ignora `forceToast=true` para proteger Toast API contra ráfagas, se enmascara `customer_name` a nombre + inicial (`"Carlos R."`) y se omiten `items_summary`/`order_guid` internos.
  */
 
 import { NextResponse } from 'next/server'
@@ -39,6 +40,32 @@ export const dynamic = 'force-dynamic'
 
 const ORDER_READY_SELECT_COLUMNS =
   'id, created_at, business_date, store_id, store_code, store_name, order_number, order_guid, dining_option, customer_name, status, ready_at, announced, announced_at, items_summary'
+
+function maskPublicCustomerName(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== 'string') return null
+  // Remover teléfonos o correos accidentales del nombre público en pantalla TV
+  const stripped = raw
+    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '')
+    .replace(/\+?\d[\d\s().-]{6,}\d/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!stripped) return null
+  const parts = stripped.split(' ').filter(Boolean)
+  if (parts.length === 1) return parts[0].slice(0, 24)
+  const firstName = parts[0].slice(0, 24)
+  const secondClean = parts[1].replace(/^[^A-Za-zÀ-ÿ0-9]+/, '')
+  const initial = secondClean ? secondClean.charAt(0).toUpperCase() : ''
+  return initial ? `${firstName} ${initial}.` : firstName
+}
+
+function sanitizeOrderForPublicTv(order: any) {
+  return {
+    ...order,
+    customer_name: maskPublicCustomerName(order.customer_name),
+    items_summary: null,
+    order_guid: null,
+  }
+}
 
 interface OrderPayload {
   storeCode?: string
@@ -70,9 +97,10 @@ export async function GET(request: Request) {
     }
 
     const syncToast = searchParams.get('syncToast') === 'true'
-    const forceToast = searchParams.get('forceToast') === 'true'
+    // Nunca permitir forceToast=true sin sesión autenticada (impide saturar Toast API desde modo TV público)
+    const forceToast = Boolean(access) && searchParams.get('forceToast') === 'true'
     const parsedMinutes = parseInt(searchParams.get('minutes') || '45', 10)
-    const minutes = Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : 45
+    const minutes = Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? Math.min(parsedMinutes, 240) : 45
     const view = (searchParams.get('view') || '').trim().toLowerCase()
     const isPrepView = view === 'prep'
 
@@ -173,12 +201,15 @@ export async function GET(request: Request) {
       )
       .sort(compareOrdersKdsFifo)
 
+    const outputReadyOrders = access ? readyOrders : readyOrders.map(sanitizeOrderForPublicTv)
+    const outputInProgressOrders = access ? inProgressOrders : inProgressOrders.map(sanitizeOrderForPublicTv)
+
     if (isPrepView) {
       return NextResponse.json({
         success: true,
         businessDate: currentBusinessDate,
         shift: currentShift,
-        inProgressOrders
+        inProgressOrders: outputInProgressOrders
       })
     }
 
@@ -189,11 +220,11 @@ export async function GET(request: Request) {
       shift: currentShift,
       counts: {
         total: filteredOrders.length,
-        ready: readyOrders.length,
-        inProgress: inProgressOrders.length
+        ready: outputReadyOrders.length,
+        inProgress: outputInProgressOrders.length
       },
-      readyOrders,
-      inProgressOrders,
+      readyOrders: outputReadyOrders,
+      inProgressOrders: outputInProgressOrders,
       beverageCalls
     })
   } catch (err: any) {

@@ -10,8 +10,12 @@
  */
 
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export async function GET(request: Request) {
+  const auth = verifyStaffAuth(request, { allowCron: false })
+  if (!auth.authorized) return auth.response!
+
   try {
     const { searchParams } = new URL(request.url)
     const address = searchParams.get('address')
@@ -56,7 +60,7 @@ export async function GET(request: Request) {
     const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`
     const nominatimRes = await fetch(nominatimUrl, {
       headers: {
-        'User-Agent': 'TacosElGavilanPortal/1.0'
+        'User-Agent': 'TacosGavilanPortal/1.0'
       }
     })
 

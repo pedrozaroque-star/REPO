@@ -1,9 +1,21 @@
 'use client'
 
+/**
+ * @module app/checklists-manager/ver/[id]/page
+ * @description Vista individual de detalle de Manager Checklist con autenticación RLS (`fetchWithAuth`).
+ * @businessRules
+ * - Consulta `manager_checklists` y el nombre de sucursal (`stores(name)`) adjuntando `teg_token` vía `fetchWithAuth`.
+ * @dataFlow
+ * - `params.id` -> `fetchWithAuth('/rest/v1/manager_checklists')` -> `DetailsModal`.
+ * @notes
+ * - Hardened 2026-11-21: Migrado de cabeceras `anon` crudas a `fetchWithAuth`.
+ */
+
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import DetailsModal from '@/components/DetailsModal'
 import LoadingSkeleton from '@/components/LoadingSkeleton'
+import { fetchWithAuth } from '@/lib/supabase'
 
 export default function VerManagerChecklistPage() {
   const params = useParams()
@@ -18,16 +30,9 @@ export default function VerManagerChecklistPage() {
   const loadChecklist = async () => {
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      const res = await fetch(
-        `${url}/rest/v1/manager_checklists?id=eq.${params.id}&select=*,stores(name)`,
-        {
-          headers: {
-            'apikey': key || '',
-            'Authorization': `Bearer ${key}`
-          }
-        }
+      const res = await fetchWithAuth(
+        `${url}/rest/v1/manager_checklists?id=eq.${encodeURIComponent(String(params.id || ''))}&select=*,stores(name)`
       )
 
       if (res.ok) {

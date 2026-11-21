@@ -102,7 +102,15 @@ export async function PUT(request: Request) {
     const user = await getServerUser(request)
     const body = await request.json()
 
-    // Si es guardado de plantillas de Anuncios al Comedor (permitido para gerentes, supervisores y admins con acceso al tablero)
+    // 2. REGLA ESTRICTA: Solo admin puede modificar plantillas globales, Timer Inteligente o voz global
+    if (!access.all) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: solo los usuarios administradores pueden modificar esta configuración' },
+        { status: 403 }
+      )
+    }
+
+    // Si es guardado de plantillas de Anuncios al Comedor (restringido a administradores)
     if (body?.presets && typeof body.presets === 'object') {
       const serialized = JSON.stringify(body.presets)
       const { error: presetErr } = await supabaseAdmin
@@ -138,14 +146,6 @@ export async function PUT(request: Request) {
         presets: body.presets,
         message: 'Plantilla de anuncio al comedor guardada y sincronizada con voz Kore'
       })
-    }
-
-    // 2. REGLA ESTRICTA: Solo admin puede cambiar la configuración del Timer Inteligente o la voz global
-    if (!access.all) {
-      return NextResponse.json(
-        { error: 'Acceso denegado: solo los usuarios administradores pueden modificar esta configuración' },
-        { status: 403 }
-      )
     }
 
     // Si es actualización de configuración del Timer Inteligente Manos Libres por sucursal (completa o parche atómico por tienda)

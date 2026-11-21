@@ -1,78 +1,32 @@
 /**
  * @module api/inventory/sync-quickbooks
  *
- * MODULE:
- * Endpoint de sincronización de precios de inventario desde QuickBooks Online (QBO).
- * Se ejecuta diariamente vía cron (7 AM PDT) o manualmente vía GET/POST.
- * Actualiza `inventory_items.purchase_unit_cost` con el costo real de compra
- * del proveedor y registra cambios de precio en `inventory_price_history`.
+ * @description Endpoint de sincronización de precios y plantillas de inventario desde QuickBooks Online (QBO).
+ * Se ejecuta diariamente vía cron o manualmente vía GET/POST, actualizando `inventory_items.purchase_unit_cost`
+ * y registrando cambios en `inventory_price_history`.
  *
- * BUSINESS RULES:
+ * @businessRules
  * - PRECIO CORRECTO: Se usa `UnitPrice` (precio que la bodega cobra al restaurante),
- *   que refleja el costo real del restaurante. `PurchaseCost` es lo que la bodega
- *   paga al proveedor externo y resulta en un food cost artificialmente bajo (~27%
- *   en vez del real ~33-35%).
- * - Fallback: `PurchaseCost` se usa si `UnitPrice` no existe.
- * - EXCEPCIÓN multiplier: Items con multiplier > 1 (ej: Papelito, que tiene UnitPrice=$18
- *   inflado) usan PurchaseCost × multiplier para obtener el precio correcto por case.
- * - MODELO BODEGA: La bodega de Tacos Gavilán compra al proveedor externo (PurchaseCost)
- *   y revende a los restaurantes (UnitPrice). El food cost del restaurante debe usar
- *   UnitPrice porque es lo que realmente paga.
+ *   que refleja el costo real del restaurante. `PurchaseCost` es fallback o usado cuando `multiplier > 1`.
+ * - QuickBooks solo gobierna insumos de La Bodega (`is_bodega: true`).
  * - Solo se procesan items de QB con Type = 'Inventory' o 'NonInventory'.
+ * - `max_drop_percent`: bloquea caídas sospechosas > 50% salvo cambio legítimo de empaque.
  *
- * SMART PRICE PROTECTION (2026-06-19):
- * - `multiplier`: Columna en `quickbooks_mappings` para items donde QB tiene precio
- *   por pieza pero DB guarda por case. Ej: Papelito (QB $0.58/pza × 60 = DB $34.80).
- *   Fallback: mapa hardcodeado `FALLBACK_MULTIPLIERS` si la columna no existe.
- * - `max_drop_percent`: % máximo permitido de caída por sync (default 50%).
- *   → SUBIDAS de precio: SIEMPRE se permiten (ej: $0.58 → $0.62 ✅)
- *   → BAJADAS ≤ max_drop_percent: se permiten (ej: -10% ✅)
- *   → BAJADAS > max_drop_percent: se BLOQUEAN y se logea warning (ej: -60% ❌)
+ * @dataFlow
+ * - Cron / Admin -> `GET|POST /api/inventory/sync-quickbooks` -> `integrations` -> QBO SDK/REST -> `inventory_items`, `quickbooks_mappings`, `inventory_price_history`, `store_order_template`.
  *
- * DATA FLOW:
- * 1. Lee la integración de QB desde `integrations` table (tokens OAuth)
- * 2. Renueva el OAuth token via `authClient.refreshUsingToken()`
- * 3. Inicializa QB client con `node-quickbooks` SDK
- * 4. Fetch de todos los items activos de QB (`findItems`)
- * 5. Para cada QB item:
- *    - Case A (ya mapeado): Verifica protección → Actualiza si pasa
- *    - Case B (no mapeado, nombre coincide): Crea mapping en `quickbooks_mappings`
- *    - Case C (no mapeado, no existe): Crea nuevo `inventory_item` + mapping
- *
- * Dependencias:
- * - `@/lib/supabase` → `getSupabaseAdminClient` (acceso admin a DB)
- * - `@/lib/quickbooks` → `authClient` (OAuth2 client para QuickBooks)
- * - `node-quickbooks` → SDK para la API de QuickBooks Online
- *
- * Tablas Supabase:
- * - `integrations` → tokens OAuth, realm_id de QuickBooks
- * - `inventory_items` → catálogo interno de ingredientes con precios
- * - `quickbooks_mappings` → relación QB item ID ↔ inventory_item_id + multiplier + max_drop_percent
- * - `inventory_price_history` → historial de cambios de precio por item
- *
- * NOTES:
- * - Si el token refresh falla, se intenta usar el token existente (probable 401).
- * - `DEFAULT_CATEGORY_ID` apunta a la categoría "QuickBooks Import" para items
- *   auto-creados que no tienen categoría asignada.
- * - Items nuevos se crean con `unit_type: 'Unit'` por defecto; el gerente
- *   debe ajustar la unidad correcta después.
- * - El matching de nombres es exact-match case-insensitive con trim.
+ * @notes
  * - [2026-06-19] Added smart price protection: multiplier from DB, max_drop_percent blocking.
  * - [2026-07-08] Fixed liquids template matching to search specifically for 'orden liquidos' to prevent 'Bodega Liquidos' from overwriting it.
- * - [2026-07-26] Added packaging auto-sync: reads Description field from QB RecurringTransactions
- *   (e.g. "(Bag of 5 lbs)") to auto-update quantity_per_unit, order_unit_description, and
- *   unit_measure. When packaging changes, auto-adjusts PAR across all stores and invalidates
- *   food_cost_daily_cache. Smart Price Protection now compares cost-per-unit-measure
- *   (e.g. $/lb) instead of cost-per-bag when a packaging change is detected.
- * - [2026-11-10] Added QBO Invoice return reconciliation (`reconcileStoreOrdersWithQbInvoices`)
- *   to sync actual warehouse-shipped quantities back into `inventory_order_lines.final_qty` and
- *   mark invoiced orders as `received`.
+ * - [2026-07-26] Added packaging auto-sync from QB RecurringTransactions.
+ * - [2026-11-10] Added QBO Invoice return reconciliation (`reconcileStoreOrdersWithQbInvoices`).
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor` en GET y POST (rechaza tokens de `employee` y llamadas anónimas).
  */
-import { NextResponse, NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { authClient } from '@/lib/quickbooks';
 import QuickBooks from 'node-quickbooks';
-import { verifyAuthToken } from '@/lib/auth-server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import { reconcileStoreOrdersWithQbInvoices } from '@/lib/inventory/qb-shipped-reconciliation';
 
 // ── Packaging Parser ──────────────────────────────────────────────────
@@ -121,22 +75,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
     try {
-        // Dual Gate: CRON_SECRET or authenticated user session
-        const authHeader = request.headers.get('authorization')
-        const isCron = process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`
-        if (!isCron) {
-            const cookieHeader = request.headers.get('cookie') || ''
-            const cookieMatch = cookieHeader.match(/teg_token=([^;]+)/)
-            const cookieToken = cookieMatch ? cookieMatch[1] : null
-            const bearerToken = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : null
-            const token = cookieToken || bearerToken
-            if (!token) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
-            const user = verifyAuthToken(token)
-            if (!user) {
-                return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
-            }
+        const auth = verifyStaffAuth(request, { allowCron: true });
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 });
         }
         const supabase = await getSupabaseAdminClient();
 

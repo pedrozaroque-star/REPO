@@ -8,15 +8,18 @@
  * - Incluye modo `ai-explain` para que Carlos o un Administrador puedan describir brevemente un paso o platillo
  *   y la IA redacte el guion instructivo bilingüe (ES/EN) respetando los gramajes oficiales de Tacos Gavilan,
  *   generando de inmediato el audio neuronal masculino en Supabase Storage.
+ * - `POST` exige sesión válida de personal (`verifyStaffAuth`) o expediente de entrenamiento activo verificado (`enrollmentId + accessCode` vía `crypto.timingSafeEqual`) más límite de tasa por IP.
  *
  * @dataFlow
- * - `GET /api/training/tts?text=...&lang=es|en&voice=Orus` -> `getTrainingStepSpeech()` -> stream `audio/wav`
- * - `POST /api/training/tts` `{ text, lang, voice, forceRegenerate, mode }` -> JSON con `publicUrl` o guion mejorado por IA.
+ * - `GET /api/training/tts?text=...&lang=es|en&voice=Orus` -> Rate Limit -> `getTrainingStepSpeech()` -> stream `audio/wav`
+ * - `POST /api/training/tts` `{ text, lang, voice, forceRegenerate, mode, enrollmentId, accessCode }` -> Auth + Rate Limit -> JSON con `publicUrl` o guion mejorado por IA.
  *
  * @notes
  * - Blindaje Paid Tier 1 (2026-11-20): usa `getGeminiKeyPoolWithRemote()`, modelos `3.x` (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite-preview`, `gemini-3.5-flash`), header `x-goog-api-key` y filtro `!p?.thought`.
+ * - Blindaje de Seguridad (2026-11-21): `POST` protegido contra síntesis anónima (exige `verifyStaffAuth` o `enrollmentId + accessCode` vigente) + rate limit por IP acotado en `GET` y `POST`.
  */
 
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   DEFAULT_TRAINING_VOICE,
@@ -26,7 +29,8 @@ import {
   TrainingVoiceId,
 } from '@/lib/training-tts';
 import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts';
-import { getServerUser } from '@/lib/auth-server';
+import { getJwtSecret, getServerUser, verifyStaffAuth } from '@/lib/auth-server';
+import { supabaseAdmin } from '@/lib/supabase';
 
 const EXPLAIN_MODELS = [
   'gemini-3.5-flash-lite',
@@ -36,15 +40,123 @@ const EXPLAIN_MODELS = [
 
 const ALLOWED_TTS_ADMIN_ROLES = new Set([
   'admin',
+  'administrador',
   'supervisor',
   'manager',
   'asistente',
   'assistant',
   'gerente',
+  'general_manager',
 ]);
+
+const MAX_TTS_RATE_BUCKETS = 2000;
+const ttsRateBuckets = new Map<string, number[]>();
+
+function extractTrustedIp(headers: Headers): string {
+  const vercelFwd = headers.get('x-vercel-forwarded-for') || '';
+  const firstVercel = vercelFwd.split(',')[0]?.trim();
+  if (firstVercel) return firstVercel.slice(0, 64);
+  const realIp = headers.get('x-real-ip')?.trim();
+  if (realIp) return realIp.slice(0, 64);
+  const fwd = headers.get('x-forwarded-for') || '';
+  return fwd.split(',')[0]?.trim().slice(0, 64) || 'unknown';
+}
+
+function checkBoundedRateLimit(key: string, limit: number, windowMs: number): { allowed: boolean; retryAfterSec: number } {
+  const now = Date.now();
+  if (ttsRateBuckets.size >= MAX_TTS_RATE_BUCKETS && !ttsRateBuckets.has(key)) {
+    for (const [k, arr] of ttsRateBuckets) {
+      const valid = arr.filter((t) => now - t < windowMs);
+      if (valid.length === 0) ttsRateBuckets.delete(k);
+      else ttsRateBuckets.set(k, valid);
+    }
+    if (ttsRateBuckets.size >= MAX_TTS_RATE_BUCKETS) {
+      const oldest = ttsRateBuckets.keys().next().value;
+      if (oldest) ttsRateBuckets.delete(oldest);
+    }
+  }
+  const hits = (ttsRateBuckets.get(key) || []).filter((t) => now - t < windowMs);
+  if (hits.length >= limit) {
+    ttsRateBuckets.set(key, hits);
+    const retryAfterSec = Math.max(1, Math.ceil((windowMs - (now - hits[0])) / 1000));
+    return { allowed: false, retryAfterSec };
+  }
+  hits.push(now);
+  ttsRateBuckets.set(key, hits);
+  return { allowed: true, retryAfterSec: 0 };
+}
+
+function safeTimingEqualStrings(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) {
+    const ha = createHash('sha256').update(bufA).digest();
+    const hb = createHash('sha256').update(bufB).digest();
+    timingSafeEqual(ha, hb);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
+
+function parseVerifiedTraineePassCookie(req: NextRequest): { enrollmentId: string; accessCode: string } | null {
+  const secret = getJwtSecret() || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!secret.trim()) return null;
+  const raw = req.cookies.get('teg_trainee_pass')?.value?.trim() || '';
+  if (!raw) return null;
+  const parts = raw.split('.');
+  if (parts.length !== 3) return null;
+  const [enrollmentId, accessCode, sig] = parts;
+  if (!enrollmentId || !accessCode || !sig) return null;
+  const expectedSig = createHmac('sha256', secret.trim()).update(`trainee:${enrollmentId}:${accessCode}`).digest('hex');
+  if (!safeTimingEqualStrings(sig, expectedSig)) return null;
+  return { enrollmentId, accessCode: accessCode.toUpperCase() };
+}
+
+async function verifyActiveTraineeAccess(req: NextRequest, body: any): Promise<boolean> {
+  const cookieCreds = parseVerifiedTraineePassCookie(req);
+  const enrollmentId = String(body?.enrollmentId || body?.id || cookieCreds?.enrollmentId || '').trim();
+  const rawCode = String(body?.accessCode || body?.code || cookieCreds?.accessCode || '').trim().toUpperCase();
+
+  if (!enrollmentId || !rawCode) return false;
+
+  const { data: enrollment, error } = await supabaseAdmin
+    .from('training_enrollments')
+    .select('id, access_code, status, expires_at')
+    .eq('id', enrollmentId)
+    .maybeSingle();
+
+  if (error || !enrollment) return false;
+
+  const storedCode = String(enrollment.access_code || '').trim().toUpperCase();
+  if (!storedCode) return false;
+
+  const normalizedProvided = rawCode.startsWith('TG-') ? rawCode : `TG-${rawCode}`;
+  const matches =
+    safeTimingEqualStrings(rawCode, storedCode) ||
+    safeTimingEqualStrings(normalizedProvided, storedCode);
+  if (!matches) return false;
+
+  if (enrollment.status === 'EXPIRED') return false;
+  const expMs = new Date(enrollment.expires_at).getTime();
+  if (enrollment.status !== 'CERTIFIED' && (!Number.isFinite(expMs) || expMs < Date.now())) {
+    return false;
+  }
+
+  return true;
+}
 
 export async function GET(req: NextRequest) {
   try {
+    const ip = extractTrustedIp(req.headers);
+    const rl = checkBoundedRateLimit(`train-tts-get:${ip}`, 60, 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { ok: false, code: 'RATE_LIMITED', error: 'Demasiadas solicitudes de audio. Intenta en unos segundos.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const text = (searchParams.get('text') || '').trim();
     const langParam = searchParams.get('lang');
@@ -102,13 +214,40 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const ip = extractTrustedIp(req.headers);
+    const rl = checkBoundedRateLimit(`train-tts-post:${ip}`, 30, 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { ok: false, code: 'RATE_LIMITED', error: `Demasiadas solicitudes. Espera ${rl.retryAfterSec}s.` },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+      );
+    }
+
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ ok: false, error: 'Cuerpo JSON inválido.' }, { status: 400 });
+    }
+
+    const staffAuth = verifyStaffAuth(req, { allowCron: false });
+    if (!staffAuth.authorized) {
+      const traineeAuthorized = await verifyActiveTraineeAccess(req, body);
+      if (!traineeAuthorized) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'No autorizado: se requiere sesión de personal o inscripción activa (enrollmentId + accessCode).',
+          },
+          { status: 401 }
+        );
+      }
+    }
+
     const mode = body.mode || 'tts';
     const voice: TrainingVoiceId = isValidTrainingVoice(body.voice)
       ? body.voice
       : DEFAULT_TRAINING_VOICE;
 
-    // Modo IA: Generar o perfeccionar explicación de un paso con IA + sintetizar voz masculina
+    // Modo IA: Generar o perfeccionar explicación de un paso con IA + sintetizar voz masculina (Exclusivo liderazgo)
     if (mode === 'ai-explain') {
       const serverUser = await getServerUser(req);
       if (!serverUser || !ALLOWED_TTS_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {

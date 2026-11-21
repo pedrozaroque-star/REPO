@@ -14,18 +14,18 @@
  *   `X-Frame-Options: DENY` y sin empaquetar `public/tacosgavilan-web/**` en la Serverless Function).
  * - **Fallback Local**: Fuera de Vercel, si el directorio local no existe, sirve HTML/JS desde `public/tacosgavilan-web`
  *   y redirige assets estáticos binarios/CSS/media (`307`) a `/tacosgavilan-web/...`.
- * - **Seguridad y Aislamiento**: Bloquea ataques de Directory Traversal (`..`, `.`, rutas ocultas, `api/`) tanto antes
- *   de redirigir como al resolver rutas locales.
- * - **Lanzador Local Nativo**: El endpoint POST /api/web-preview/launch o GET con ?action=launch permite
- *   abrir file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html directamente en el navegador del sistema operativo
- *   sin restricciones de sandbox web.
+ * - **Seguridad y Aislamiento**:
+ *   1. Autenticación obligatoria `verifyStaffAuth` restringida a roles ejecutivos `['admin', 'supervisor']` con `allowCron: false`.
+ *   2. Bloquea ataques de Directory Traversal (`..`, `.`, rutas ocultas, `api/`, `vercel.json`, `wp-*`) y valida frontera exacta con `path.sep`.
+ *   3. Falla cerrado (`503`) si `SUPABASE_SERVICE_ROLE_KEY` no está configurada (sin fallback a `anon_key`), sanea errores internos y oculta rutas locales `C:\Users\...` en Vercel.
+ * - **Acciones Locales Solo en Desarrollo (`POST`)**: `launch` y `sync` están deshabilitadas en `GET` y solo se permiten vía `POST` cuando `NODE_ENV === 'development' && VERCEL !== '1'`, usando `execFile` sin interpolación de shell.
  * - **Cero Caché en Desarrollo**: Encabezados Cache-Control 'no-cache, no-store, must-revalidate' para reflejar
  *   cualquier cambio de código al instante.
  * 
  * @dataFlow
- * - Producción Vercel: Cliente (Iframe /nueva-web) -> GET /api/web-preview/[...slug] -> 307 Redirect -> Vercel Static CDN (/tacosgavilan-web/...).
- * - Desarrollo local: Cliente -> GET /api/web-preview/[...slug] -> Node fs.readFile -> Response (Stream / Buffer con Content-Type).
- * - Cliente (Lanzador) -> POST /api/web-preview/launch -> child_process.exec -> Windows shell (cmd /c start ...).
+ * - Producción Vercel: Cliente autenticado (`admin`/`supervisor`, Iframe /nueva-web) -> GET /api/web-preview/[...slug] -> 307 Redirect -> Vercel Static CDN (/tacosgavilan-web/...).
+ * - Desarrollo local: Cliente autenticado -> GET /api/web-preview/[...slug] -> Node fs.readFile -> Response (Stream / Buffer con Content-Type).
+ * - Desarrollo local (Lanzador) -> POST /api/web-preview/launch -> child_process.execFile('cmd.exe', ...).
  * 
  * @notes
  * - La extensión [[...slug]] de Next.js App Router captura tanto la raíz (/api/web-preview) como cualquier
@@ -33,6 +33,7 @@
  * - [Paquete 2C] Redirección Static CDN en Vercel + exclusión `./public/tacosgavilan-web/**` en `next.config.ts`
  *   ahorra ~83.5 MB de Function Storage por despliegue sin afectar el iframe de `/nueva-web` ni las imágenes `.webp`
  *   de `customer-app-v2` (que se sirven directamente desde Vercel Static CDN).
+ * - Endurecido en auditoría de seguridad 2026-11 (RBAC `admin`/`supervisor`, `execFile`, `encodeURIComponent(bDate)`, `path.sep` guard, Vercel Anycast IPs).
  */
 
 import { NextResponse } from 'next/server'
@@ -40,7 +41,7 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import path from 'path'
 import fs from 'fs'
 import dns from 'dns'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { syncTacosGavilanWeb } from '@/scripts/sync-web'
 import { getAuthToken } from '@/lib/toast-api'
 
@@ -365,12 +366,23 @@ export async function GET(
     request: Request,
     context: { params: Promise<{ slug?: string[] }> }
 ) {
-    const auth = await verifyStaffAuth(request)
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: false })
     if (!auth.authorized) return auth.response!
 
     const { slug } = await context.params
     const url = new URL(request.url)
     const action = url.searchParams.get('action')
+
+    if (
+        action === 'launch' ||
+        action === 'sync' ||
+        (slug?.length === 1 && (slug[0] === 'launch' || slug[0] === 'sync'))
+    ) {
+        return Response.json(
+            { ok: false, error: 'Method Not Allowed. Use POST in local development.' },
+            { status: 405, headers: { Allow: 'POST' } }
+        )
+    }
 
     // Acción ejecutiva para consultar analíticas de visitas web, clics de orden y cruce con órdenes order.online (Opción 2)
     if (action === 'analytics' || (slug?.length === 1 && slug[0] === 'analytics')) {
@@ -449,8 +461,14 @@ export async function GET(
                 }
             }
 
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ywwwdcvgfculqmcfkihq.supabase.co'
-            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || (process.env.VERCEL === '1' ? '' : 'https://ywwwdcvgfculqmcfkihq.supabase.co')
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+            if (!supabaseUrl || !supabaseKey) {
+                return Response.json(
+                    { ok: false, error: 'Analytics database configuration unavailable.' },
+                    { status: 503 }
+                )
+            }
             const headers: Record<string, string> = {
                 'apikey': supabaseKey,
                 'Authorization': `Bearer ${supabaseKey}`
@@ -465,7 +483,7 @@ export async function GET(
                 let offset = 0
                 while (offset < 25000) {
                     const r = await fetch(
-                        `${supabaseUrl}/rest/v1/activity_logs?select=*&entity_type=eq.tacosgavilan_web&created_at=gte.${queryStartIso}&created_at=lte.${queryEndIso}&order=created_at.desc&limit=1000&offset=${offset}`,
+                        `${supabaseUrl}/rest/v1/activity_logs?select=*&entity_type=eq.tacosgavilan_web&created_at=gte.${encodeURIComponent(queryStartIso)}&created_at=lte.${encodeURIComponent(queryEndIso)}&order=created_at.desc&limit=1000&offset=${offset}`,
                         { headers, cache: 'no-store' }
                     )
                     if (!r.ok) break
@@ -527,7 +545,7 @@ export async function GET(
 
                     // Delete any existing cache row(s) for this business_date to prevent duplicate rows
                     await fetch(
-                        `${supabaseUrl}/rest/v1/activity_logs?entity_type=eq.tacosgavilan_storefront_cache&new_values->>business_date=eq.${bDate}`,
+                        `${supabaseUrl}/rest/v1/activity_logs?entity_type=eq.tacosgavilan_storefront_cache&new_values->>business_date=eq.${encodeURIComponent(bDate)}`,
                         {
                             method: 'DELETE',
                             headers
@@ -1033,7 +1051,8 @@ export async function GET(
                 feedback: feedbackRows
             })
         } catch (err: any) {
-            return Response.json({ ok: false, error: err.message }, { status: 500 })
+            console.error('[api/web-preview:analytics] Unhandled error:', err)
+            return Response.json({ ok: false, error: 'Internal error loading website analytics.' }, { status: 500 })
         }
     }
 
@@ -1042,14 +1061,14 @@ export async function GET(
         if (process.env.VERCEL === '1') {
             return Response.json({
                 ok: true,
-                localDir: LOCAL_WEB_DIR,
+                localDir: null,
                 localExists: false,
                 localLastModified: null,
                 fallbackExists: true,
                 fallbackLastModified: null,
                 activeSource: 'cloud',
                 cdnBasePath: '/tacosgavilan-web/index.html',
-                fileUrl: 'file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html'
+                fileUrl: null
             })
         }
 
@@ -1081,24 +1100,6 @@ export async function GET(
         })
     }
 
-    // Acción para sincronizar desde desarrollo local hacia public/tacosgavilan-web
-    if (action === 'sync' || (slug?.length === 1 && slug[0] === 'sync')) {
-        if (process.env.VERCEL === '1') {
-            return Response.json({
-                ok: false,
-                copiedFiles: 0,
-                message: 'Sincronización local solo disponible en entorno de desarrollo.'
-            })
-        }
-        const syncResult = syncTacosGavilanWeb()
-        return Response.json(syncResult)
-    }
-
-    // Acción para abrir directamente en el navegador del sistema operativo
-    if (action === 'launch' || (slug?.length === 1 && slug[0] === 'launch')) {
-        return handleLaunch()
-    }
-
     // Acción para consultar en vivo el estado DNS de tacosgavilan.com
     if (action === 'dns-status' || (slug?.length === 1 && slug[0] === 'dns-status')) {
         try {
@@ -1110,7 +1111,7 @@ export async function GET(
                 dns.promises.resolveNs(domain).catch(() => [] as string[])
             ])
 
-            const isVercel = aRecords.includes('76.76.21.21')
+            const isVercel = aRecords.some(ip => ip === '76.76.21.21' || ip.startsWith('216.150.1.') || ip.startsWith('216.150.16.'))
             const isCnameVercel = cnameRecords.some(c => c.includes('vercel-dns.com'))
             const isWpEngine = aRecords.some(ip => ip.startsWith('141.193.')) || cnameRecords.some(c => c.includes('wpengine'))
             const isMxSafe = mxRecords.some(m => m.exchange && m.exchange.includes('google.com'))
@@ -1134,15 +1135,22 @@ export async function GET(
                 lastChecked: new Date().toISOString()
             })
         } catch (err: any) {
-            return Response.json({ ok: false, error: err.message }, { status: 500 })
+            console.error('[api/web-preview:dns-status] Unhandled error:', err)
+            return Response.json({ ok: false, error: 'Unable to resolve DNS status.' }, { status: 500 })
         }
     }
 
     // Acción para consultar feedback y leads de contacto recibidos exclusivamente desde la web oficial
     if (action === 'feedback' || (slug?.length === 1 && slug[0] === 'feedback')) {
         try {
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ywwwdcvgfculqmcfkihq.supabase.co'
-            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || (process.env.VERCEL === '1' ? '' : 'https://ywwwdcvgfculqmcfkihq.supabase.co')
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+            if (!supabaseUrl || !supabaseKey) {
+                return Response.json(
+                    { ok: false, error: 'Feedback database configuration unavailable.' },
+                    { status: 503 }
+                )
+            }
 
             const queryUrl = `${supabaseUrl}/rest/v1/customer_feedback?select=*&source=in.(website_contact,website_newsletter,website)&order=created_at.desc&limit=50`
             const res = await fetch(queryUrl, {
@@ -1154,8 +1162,8 @@ export async function GET(
             })
 
             if (!res.ok) {
-                const text = await res.text()
-                return Response.json({ ok: false, error: text }, { status: 500 })
+                console.error('[api/web-preview:feedback] Supabase query failed:', res.status)
+                return Response.json({ ok: false, error: 'Failed to retrieve website feedback records.' }, { status: 500 })
             }
 
             const rawRows = await res.json()
@@ -1165,12 +1173,16 @@ export async function GET(
             }))
             return Response.json({ ok: true, data: rows })
         } catch (err: any) {
-            return Response.json({ ok: false, error: err.message }, { status: 500 })
+            console.error('[api/web-preview:feedback] Unhandled error:', err)
+            return Response.json({ ok: false, error: 'Internal error loading website feedback.' }, { status: 500 })
         }
     }
 
     // Acción para obtener catálogo de medios y recursos de marca del respaldo
     if (action === 'brand-assets' || (slug?.length === 1 && slug[0] === 'brand-assets')) {
+        if (process.env.VERCEL === '1') {
+            return Response.json({ ok: true, totalItems: 0, items: [] })
+        }
         const backupMediaDir = 'C:\\Users\\pedro\\Desktop\\tacosgavilan-oficial-backup\\media'
         const catalogPath = path.join(backupMediaDir, 'media-catalog.json')
         let catalog = []
@@ -1189,7 +1201,17 @@ export async function GET(
     // Determinar la ruta relativa del archivo solicitado
     const slugParts = slug || []
 
-    // Seguridad: Prevenir Directory Traversal y bloqueo de archivos ocultos (.env, .git) o directorio api/
+    // Seguridad: Prevenir Directory Traversal y bloqueo de archivos ocultos (.env, .git), configuraciones o directorio api/
+    const BLOCKED_SEGMENTS = new Set([
+        'api',
+        'vercel.json',
+        'axe-audit-results.json',
+        'e2e-compliance-verification.json',
+        'wp-content',
+        'wp-includes',
+        'scripts',
+        'tests'
+    ])
     if (
         slugParts.some(
             part =>
@@ -1200,7 +1222,7 @@ export async function GET(
                 part.startsWith('.') ||
                 part.includes('\\') ||
                 part.includes('/') ||
-                part.toLowerCase() === 'api'
+                BLOCKED_SEGMENTS.has(part.toLowerCase())
         )
     ) {
         return new Response('Forbidden: Access denied', { status: 403 })
@@ -1249,10 +1271,11 @@ export async function GET(
         return buildStaticCdnRedirect(relativePath)
     }
 
+    const resolvedBase = path.resolve(baseDir)
     const targetPath = path.resolve(baseDir, relativePath)
 
-    // Seguridad adicional sobre la ruta resuelta en disco
-    if (!targetPath.startsWith(path.resolve(baseDir))) {
+    // Seguridad adicional sobre la ruta resuelta en disco (previene colisiones de prefijo en directorios hermanos)
+    if (targetPath !== resolvedBase && !targetPath.startsWith(resolvedBase + path.sep)) {
         return new Response('Forbidden: Access denied', { status: 403 })
     }
 
@@ -1262,8 +1285,12 @@ export async function GET(
         finalPath = path.join(finalPath, 'index.html')
     }
 
+    if (finalPath !== resolvedBase && !finalPath.startsWith(resolvedBase + path.sep)) {
+        return new Response('Forbidden: Access denied', { status: 403 })
+    }
+
     if (!fs.existsSync(finalPath)) {
-        return new Response(`File not found: ${relativePath}`, { status: 404 })
+        return new Response('File not found', { status: 404 })
     }
 
     try {
@@ -1325,7 +1352,8 @@ export async function GET(
             }
         })
     } catch (error: any) {
-        return new Response(`Error reading file: ${error?.message}`, { status: 500 })
+        console.error('[api/web-preview:asset] Error reading preview file:', error)
+        return new Response('Internal server error reading preview asset', { status: 500 })
     }
 }
 
@@ -1333,48 +1361,64 @@ export async function POST(
     request: Request,
     context: { params: Promise<{ slug?: string[] }> }
 ) {
-    const auth = await verifyStaffAuth(request)
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: false })
     if (!auth.authorized) return auth.response!
 
     const { slug } = await context.params
-    if (slug?.length === 1 && slug[0] === 'launch') {
-        return handleLaunch()
-    }
-    if (slug?.length === 1 && slug[0] === 'sync') {
-        if (process.env.VERCEL === '1') {
-            return Response.json({
-                ok: false,
-                copiedFiles: 0,
-                message: 'Sincronización local solo disponible en entorno de desarrollo.'
-            })
+    const url = new URL(request.url)
+    const action = url.searchParams.get('action')
+    const isLaunch = action === 'launch' || (slug?.length === 1 && slug[0] === 'launch')
+    const isSync = action === 'sync' || (slug?.length === 1 && slug[0] === 'sync')
+
+    if (isLaunch || isSync) {
+        if (process.env.NODE_ENV !== 'development' || process.env.VERCEL === '1') {
+            return Response.json(
+                {
+                    ok: false,
+                    error: 'Local preview actions are permitted only in local development.'
+                },
+                { status: 403 }
+            )
+        }
+        if (isLaunch) {
+            return handleLaunch()
         }
         const syncResult = syncTacosGavilanWeb()
         return Response.json(syncResult)
     }
+
     return Response.json({ error: 'Endpoint not found' }, { status: 404 })
 }
 
 function handleLaunch() {
+    if (process.env.NODE_ENV !== 'development' || process.env.VERCEL === '1') {
+        return Response.json(
+            { ok: false, error: 'Local browser launch is disabled outside local development.' },
+            { status: 403 }
+        )
+    }
+
     const indexPath = path.join(LOCAL_WEB_DIR, 'index.html')
     if (!fs.existsSync(indexPath)) {
-        return Response.json({
-            ok: false,
-            error: 'El archivo index.html no existe en ' + LOCAL_WEB_DIR
-        }, { status: 404 })
+        return Response.json(
+            { ok: false, error: 'Local preview index.html was not found.' },
+            { status: 404 }
+        )
     }
 
     try {
-        // En Windows, cmd /c start "" "C:\..." lanza el navegador predeterminado con el archivo local
-        exec(`cmd.exe /c start "" "${indexPath}"`)
+        // En Windows local dev, execFile invoca cmd.exe sin interpolación de shell
+        execFile('cmd.exe', ['/c', 'start', '', indexPath], { windowsHide: true }, () => {})
         return Response.json({
             ok: true,
             message: 'Abriendo en navegador predeterminado...',
             fileUrl: 'file:///C:/Users/pedro/Desktop/tacosgavilan-web/index.html'
         })
     } catch (err: any) {
-        return Response.json({
-            ok: false,
-            error: err?.message || 'Error al ejecutar comando start en el sistema operativo'
-        }, { status: 500 })
+        console.error('[api/web-preview:launch] Error launching browser:', err)
+        return Response.json(
+            { ok: false, error: 'Failed to launch local browser preview.' },
+            { status: 500 }
+        )
     }
 }

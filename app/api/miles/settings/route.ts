@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles } from '@/lib/store-coordinates'
 
@@ -29,7 +30,10 @@ function calculateDirectDistance(orig: string, dest: string, storeMap: Record<st
   return { distance: 4.5, notes: 'Estimación mapa por defecto' }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = await getSupabaseAdminClient()
 
@@ -67,6 +71,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin'], allowCron: false })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await req.json()
     const { action, rate_per_mile, origin_name, destination_name, distance_miles, notes, updated_by } = body

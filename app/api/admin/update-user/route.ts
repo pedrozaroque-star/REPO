@@ -1,82 +1,320 @@
 /**
  * @module UpdateUserRoute
- * @description API route to update a user profile in the database.
+ * @description API route para actualizar perfiles de usuario en `public.users` con control estricto de privilegios.
  * @businessRules
- * - Requires authenticated session via verifyStaffAuth.
- * - Admins/Supervisors can update any user; other staff can only update their own non-privilege profile fields.
- * - Executes profile updates in public.users using service role credentials and strips sensitive columns from response.
+ * - Exige sesión autenticada de personal vía `verifyStaffAuth` (`allowCron: false`).
+ * - Consulta en `public.users` tanto al usuario invocador como al usuario objetivo antes de mutar.
+ * - Un `supervisor` NO puede editar cuentas con rol `admin` o `supervisor`, ni asignar rol `admin` o `supervisor` (`HTTP 403`).
+ * - Usuarios auto-editándose (no-admin) están restringidos a una lista blanca estricta (`full_name`, `phone`, `avatar_url`, desconexión propia de Gmail `google_email_connected: null, google_refresh_token: null`, y cambio de contraseña propia con `currentPassword` verificado).
+ * - Toda contraseña nueva se almacena cifrada con `bcrypt.hash(password, 12)` en `public.users` y se sincroniza con Supabase Auth.
  * @dataFlow
- * - Request (userId, userData) -> Verify Auth & Role Scope -> Supabase admin.from('users').update() -> Response (success, data)
+ * - Request (`userId`, `userData`) -> `verifyStaffAuth` + verificación DB -> Whitelist + `bcrypt.hash` -> `supabaseAdmin.from('users').update()` -> Invalidate Auth Cache -> Response.
+ * @notes
+ * - Hardened 2026-11-21: Bloqueada escalación `supervisor -> admin`, aplicada whitelist explícita en auto-edición y cifrado `bcrypt` (cost 12).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyStaffAuth } from '@/lib/auth-server'
+import bcrypt from 'bcryptjs'
+import {
+    invalidateActiveUserStatusCache,
+    safeTimingEqual,
+    verifyStaffAuth,
+} from '@/lib/auth-server'
 
-// Cliente admin con service_role key (solo del lado del servidor)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder'
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 
-if (!supabaseServiceKey) {
-    console.error('⚠️ SUPABASE_SERVICE_ROLE_KEY no está configurado')
-}
+const BCRYPT_HASH_REGEX = /^\$2[aby]\$\d{2}\$/
 
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-        persistSession: false,
-        autoRefreshToken: false
-    }
-})
+const ALLOWED_ROLES_SET = new Set([
+    'admin',
+    'supervisor',
+    'general_manager',
+    'manager',
+    'gerente',
+    'asistente',
+    'assistant',
+    'shift_leader',
+    'planificador',
+    'accounting',
+    'contador',
+    'auditor',
+])
 
 export async function POST(request: NextRequest) {
-    const auth = await verifyStaffAuth(request)
+    const auth = verifyStaffAuth(request, { allowCron: false })
     if (!auth.authorized || !auth.user) return auth.response!
+
+    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder') {
+        console.error('⚠️ SUPABASE_SERVICE_ROLE_KEY no está configurado')
+        return NextResponse.json({ success: false, error: 'Configuración de seguridad del servidor no disponible' }, { status: 500 })
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+        },
+    })
 
     try {
         const body = await request.json()
-        const { userId, userData } = body
+        const { userId, userData } = body || {}
 
         if (!userId || !userData || typeof userData !== 'object') {
             return NextResponse.json({ success: false, error: 'Datos inválidos' }, { status: 400 })
         }
 
-        const isAdminOrSupervisor = ['admin', 'supervisor'].includes((auth.user.role || '').toLowerCase())
-        const isSelf = String(auth.user.id) === String(userId)
-
-        if (!isAdminOrSupervisor && !isSelf) {
-            return NextResponse.json({ success: false, error: 'Forbidden: No autorizado para modificar otro usuario' }, { status: 403 })
+        const targetIdNum = Number(userId)
+        if (!Number.isFinite(targetIdNum) || targetIdNum <= 0) {
+            return NextResponse.json({ success: false, error: 'Identificador de usuario inválido' }, { status: 400 })
         }
 
-        // Si no es admin/supervisor, impedir escalación de privilegios
-        const sanitizedData = { ...userData }
-        if (!isAdminOrSupervisor) {
-            delete sanitizedData.role
-            delete sanitizedData.store_id
-            delete sanitizedData.store_scope
-            delete sanitizedData.is_active
-            delete sanitizedData.auth_id
+        // 1. Obtener usuario objetivo en public.users
+        const { data: targetUser, error: targetErr } = await supabaseAdmin
+            .from('users')
+            .select('id, email, role, password, auth_id, is_active')
+            .eq('id', targetIdNum)
+            .maybeSingle()
+
+        if (targetErr || !targetUser) {
+            return NextResponse.json({ success: false, error: 'Usuario objetivo no encontrado' }, { status: 404 })
         }
 
-        console.log('🔧 API: Actualizando usuario', userId)
+        // 2. Resolver rol autoritativo del invocador desde public.users
+        let callerRole = String(auth.user.role || '').trim().toLowerCase()
+        let callerDbId: number | null = null
+        const callerIdNum = Number(auth.user.id)
+        if (Number.isFinite(callerIdNum) && callerIdNum > 0) {
+            const { data: callerDb } = await supabaseAdmin
+                .from('users')
+                .select('id, role, is_active')
+                .eq('id', callerIdNum)
+                .maybeSingle()
+            if (!callerDb || callerDb.is_active === false) {
+                return NextResponse.json({ success: false, error: 'Cuenta invocadora inactiva o no autorizada' }, { status: 403 })
+            }
+            callerRole = String(callerDb.role || callerRole).trim().toLowerCase()
+            callerDbId = Number(callerDb.id)
+        }
 
-        // Actualizar usando el cliente admin (bypasea RLS) y devolver solo columnas seguras
+        const isAdmin = callerRole === 'admin' || callerRole === 'administrador'
+        const isSupervisor = callerRole === 'supervisor'
+        const isSelf =
+            String(auth.user.id) === String(targetUser.id) ||
+            (callerDbId !== null && callerDbId === Number(targetUser.id))
+
+        if (!isAdmin && !isSupervisor && !isSelf) {
+            return NextResponse.json(
+                { success: false, error: 'Forbidden: No autorizado para modificar otro usuario' },
+                { status: 403 }
+            )
+        }
+
+        const currentTargetRole = String(targetUser.role || '').trim().toLowerCase()
+        const requestedRole =
+            userData.role !== undefined && userData.role !== null
+                ? String(userData.role).trim().toLowerCase()
+                : undefined
+
+        // 3. Impedir escalación supervisor -> admin/supervisor
+        if (isSupervisor) {
+            if (
+                !isSelf &&
+                (currentTargetRole === 'admin' ||
+                    currentTargetRole === 'administrador' ||
+                    currentTargetRole === 'supervisor')
+            ) {
+                return NextResponse.json(
+                    { success: false, error: 'Forbidden: Un supervisor no puede modificar cuentas de administrador o supervisor.' },
+                    { status: 403 }
+                )
+            }
+            if (
+                requestedRole !== undefined &&
+                (requestedRole === 'admin' ||
+                    requestedRole === 'administrador' ||
+                    requestedRole === 'supervisor')
+            ) {
+                return NextResponse.json(
+                    { success: false, error: 'Forbidden: Un supervisor no puede asignar rol de administrador o supervisor.' },
+                    { status: 403 }
+                )
+            }
+        }
+
+        const canManagePrivilegedFields = isAdmin || (isSupervisor && !isSelf)
+        const sanitizedData: Record<string, unknown> = {}
+        let rawPasswordForAuthSync: string | null = null
+
+        if (canManagePrivilegedFields) {
+            if (typeof userData.full_name === 'string' && userData.full_name.trim()) {
+                sanitizedData.full_name = userData.full_name.trim()
+            }
+            if (typeof userData.email === 'string' && userData.email.trim()) {
+                sanitizedData.email = userData.email.trim().toLowerCase()
+            }
+            if (userData.phone !== undefined) {
+                sanitizedData.phone = typeof userData.phone === 'string' ? userData.phone.trim() : null
+            }
+            if (userData.avatar_url !== undefined) {
+                sanitizedData.avatar_url = typeof userData.avatar_url === 'string' ? userData.avatar_url.trim() : null
+            }
+            if (requestedRole !== undefined) {
+                if (!ALLOWED_ROLES_SET.has(requestedRole)) {
+                    return NextResponse.json({ success: false, error: `Rol inválido: ${requestedRole}` }, { status: 400 })
+                }
+                sanitizedData.role = requestedRole
+            }
+            if (userData.store_id !== undefined) {
+                sanitizedData.store_id =
+                    userData.store_id !== null && userData.store_id !== '' && Number.isFinite(Number(userData.store_id))
+                        ? Number(userData.store_id)
+                        : null
+            }
+            if (userData.store_scope !== undefined) {
+                sanitizedData.store_scope = Array.isArray(userData.store_scope)
+                    ? userData.store_scope.map((s: unknown) => String(s))
+                    : null
+            }
+            if (userData.is_active !== undefined) {
+                sanitizedData.is_active = Boolean(userData.is_active)
+            }
+            if (userData.position_type !== undefined) {
+                sanitizedData.position_type =
+                    typeof userData.position_type === 'string' && userData.position_type.trim()
+                        ? userData.position_type.trim()
+                        : null
+            }
+            if (userData.toast_guid !== undefined) {
+                sanitizedData.toast_guid =
+                    typeof userData.toast_guid === 'string' && userData.toast_guid.trim()
+                        ? userData.toast_guid.trim()
+                        : null
+            }
+            // Solo permitir desconexión explícita de Gmail (nunca inyectar refresh_token desde cliente)
+            if (
+                userData.google_email_connected === false ||
+                userData.google_email_connected === null ||
+                userData.google_email_connected === ''
+            ) {
+                sanitizedData.google_email_connected = null
+                sanitizedData.google_refresh_token = null
+            }
+
+            if (typeof userData.password === 'string' && userData.password.trim() !== '') {
+                if (userData.password.trim().length < 6 || userData.password.length > 256) {
+                    return NextResponse.json(
+                        { success: false, error: 'La contraseña debe tener al menos 6 caracteres' },
+                        { status: 400 }
+                    )
+                }
+                rawPasswordForAuthSync = userData.password
+                sanitizedData.password = await bcrypt.hash(userData.password, 12)
+            }
+        } else {
+            // Auto-edición de usuario no-admin: rechazar intentos de escalación y aplicar allowlist estricta
+            if (
+                userData.role !== undefined ||
+                userData.store_id !== undefined ||
+                userData.store_scope !== undefined ||
+                userData.is_active !== undefined ||
+                userData.auth_id !== undefined
+            ) {
+                return NextResponse.json(
+                    { success: false, error: 'Forbidden: No puedes modificar campos de privilegio o alcance.' },
+                    { status: 403 }
+                )
+            }
+
+            if (typeof userData.full_name === 'string' && userData.full_name.trim()) {
+                sanitizedData.full_name = userData.full_name.trim()
+            }
+            if (userData.phone !== undefined) {
+                sanitizedData.phone = typeof userData.phone === 'string' ? userData.phone.trim() : null
+            }
+            if (userData.avatar_url !== undefined) {
+                sanitizedData.avatar_url = typeof userData.avatar_url === 'string' ? userData.avatar_url.trim() : null
+            }
+            // Permitir ÚNICAMENTE desconectar su propio Gmail
+            if (
+                userData.google_email_connected === false ||
+                userData.google_email_connected === null ||
+                userData.google_email_connected === ''
+            ) {
+                sanitizedData.google_email_connected = null
+                sanitizedData.google_refresh_token = null
+            } else if (userData.google_refresh_token !== undefined || userData.google_email_connected !== undefined) {
+                return NextResponse.json(
+                    { success: false, error: 'Forbidden: La vinculación de Gmail solo puede realizarse mediante el flujo OAuth oficial.' },
+                    { status: 403 }
+                )
+            }
+
+            if (typeof userData.password === 'string' && userData.password.trim() !== '') {
+                if (userData.password.trim().length < 6 || userData.password.length > 256) {
+                    return NextResponse.json(
+                        { success: false, error: 'La contraseña debe tener al menos 6 caracteres' },
+                        { status: 400 }
+                    )
+                }
+
+                const providedCurrent = body?.currentPassword ?? userData?.currentPassword
+                if (typeof providedCurrent !== 'string' || providedCurrent.length === 0) {
+                    return NextResponse.json(
+                        { success: false, error: 'Se requiere verificar la contraseña actual (currentPassword).' },
+                        { status: 403 }
+                    )
+                }
+
+                const storedPw = typeof targetUser.password === 'string' ? targetUser.password : ''
+                const currentMatches = storedPw
+                    ? BCRYPT_HASH_REGEX.test(storedPw)
+                        ? await bcrypt.compare(providedCurrent, storedPw)
+                        : safeTimingEqual(providedCurrent, storedPw)
+                    : false
+
+                if (!currentMatches) {
+                    return NextResponse.json(
+                        { success: false, error: 'La contraseña actual es incorrecta.' },
+                        { status: 403 }
+                    )
+                }
+
+                rawPasswordForAuthSync = userData.password
+                sanitizedData.password = await bcrypt.hash(userData.password, 12)
+            }
+        }
+
+        if (Object.keys(sanitizedData).length === 0) {
+            return NextResponse.json({ success: false, error: 'No hay campos válidos para actualizar' }, { status: 400 })
+        }
+
+        sanitizedData.updated_at = new Date().toISOString()
+
         const { data, error } = await supabaseAdmin
             .from('users')
             .update(sanitizedData)
-            .eq('id', userId)
+            .eq('id', targetUser.id)
             .select('id, email, full_name, role, phone, is_active, store_scope, avatar_url, last_login, created_at, updated_at, auth_id, store_id, google_email_connected, position_type, toast_guid')
 
         if (error) {
-            console.error('❌ Error en API:', error)
+            console.error('❌ Error en API update-user:', error)
             return NextResponse.json({ success: false, error: error.message }, { status: 500 })
         }
 
-        // Si se actualizó la contraseña, sincronizar también con Supabase Auth si existe auth_id
-        if (sanitizedData.password && typeof sanitizedData.password === 'string' && data?.[0]?.auth_id) {
+        invalidateActiveUserStatusCache(targetUser.id, targetUser.email)
+        if (typeof sanitizedData.email === 'string') {
+            invalidateActiveUserStatusCache(targetUser.id, sanitizedData.email)
+        }
+
+        // Sincronizar contraseña en texto plano con Supabase Auth (GoTrue aplica su propio hash interno)
+        if (rawPasswordForAuthSync && data?.[0]?.auth_id) {
             try {
                 await supabaseAdmin.auth.admin.updateUserById(data[0].auth_id, {
-                    password: sanitizedData.password,
-                    email_confirm: true
+                    password: rawPasswordForAuthSync,
+                    email_confirm: true,
                 })
             } catch (syncErr) {
                 console.warn('⚠️ Sync Auth password warning:', syncErr)
@@ -85,7 +323,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ success: true, data })
     } catch (err: any) {
-        console.error('❌ Error inesperado:', err)
+        console.error('❌ Error inesperado en update-user:', err)
         return NextResponse.json({ success: false, error: err.message }, { status: 500 })
     }
 }

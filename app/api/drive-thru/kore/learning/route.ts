@@ -25,6 +25,7 @@
  *
  * @notes
  * - `Cache-Control: no-store` en todas las respuestas para reflejar cambios de reglas en tiempo real.
+ * - Blindaje de Seguridad (2026-11-21): `authorizePhoneModuleRequest(request)` estricto con bloqueo explícito si `effectiveStoreId` queda `null` para usuarios no globales + límite de tasa acotado por usuario/IP.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -48,13 +49,37 @@ export const maxDuration = 30
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, max-age=0' }
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MAX_LEARNING_BUCKETS = 1000
+const learningRateBuckets = new Map<string, number[]>()
+
+function checkLearningRateLimit(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now()
+  if (learningRateBuckets.size >= MAX_LEARNING_BUCKETS && !learningRateBuckets.has(key)) {
+    const oldest = learningRateBuckets.keys().next().value
+    if (oldest) learningRateBuckets.delete(oldest)
+  }
+  const hits = (learningRateBuckets.get(key) || []).filter((t) => now - t < windowMs)
+  if (hits.length >= limit) {
+    learningRateBuckets.set(key, hits)
+    return false
+  }
+  hits.push(now)
+  learningRateBuckets.set(key, hits)
+  return true
+}
 
 function jsonError(error: string, status: number) {
   return NextResponse.json({ error }, { status, headers: NO_STORE_HEADERS })
 }
 
-async function authorize(request: NextRequest): Promise<{ user?: PhoneAuthorizedUser; response?: NextResponse }> {
-  const auth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
+async function authorize(
+  request: NextRequest,
+  targetStoreId?: number | null
+): Promise<{ user?: PhoneAuthorizedUser; response?: NextResponse }> {
+  const auth = await authorizePhoneModuleRequest(request, {
+    permission: 'simulate',
+    targetStoreId,
+  })
   if (!auth.authorized || !auth.user) {
     return { response: auth.response || jsonError(auth.error || 'No autenticado.', auth.status || 401) }
   }
@@ -73,11 +98,15 @@ function parseOptionalStoreId(raw: unknown): { storeId: number | null; invalid: 
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, response } = await authorize(request)
-    if (!user) return response!
-
     const parsed = parseOptionalStoreId(request.nextUrl.searchParams.get('storeId') ?? request.nextUrl.searchParams.get('store_id'))
     if (parsed.invalid) return jsonError('storeId inválido.', 400)
+
+    const { user, response } = await authorize(request, parsed.storeId)
+    if (!user) return response!
+
+    if (!checkLearningRateLimit(`get:${user.id}`, 60, 60_000)) {
+      return jsonError('Demasiadas solicitudes. Espera unos segundos.', 429)
+    }
 
     let effectiveStoreId = parsed.storeId
     if (!user.isGlobalAdmin) {
@@ -85,6 +114,9 @@ export async function GET(request: NextRequest) {
         return jsonError('Acceso denegado: no tienes autorización sobre esa sucursal.', 403)
       }
       if (!effectiveStoreId) effectiveStoreId = user.assignedStoreId || user.allowedStoreIds[0] || null
+      if (!effectiveStoreId) {
+        return jsonError('Acceso denegado: tu cuenta no tiene una sucursal autorizada.', 403)
+      }
     }
 
     const dashboard = await getKoreLearningDashboard(effectiveStoreId)
@@ -100,6 +132,10 @@ export async function POST(request: NextRequest) {
     const { user, response } = await authorize(request)
     if (!user) return response!
 
+    if (!checkLearningRateLimit(`post:${user.id}`, 20, 60_000)) {
+      return jsonError('Demasiadas acciones de aprendizaje por minuto. Intenta en unos segundos.', 429)
+    }
+
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonError('Cuerpo JSON inválido.', 400)
     const b = body as Record<string, any>
@@ -114,6 +150,9 @@ export async function POST(request: NextRequest) {
           return jsonError('Acceso denegado: no tienes autorización sobre esa sucursal.', 403)
         }
         if (!effectiveStoreId) effectiveStoreId = user.assignedStoreId || user.allowedStoreIds[0] || null
+        if (!effectiveStoreId) {
+          return jsonError('Acceso denegado: tu cuenta no tiene una sucursal autorizada.', 403)
+        }
       }
       const analysis = await analyzeUnprocessedKoreSessions({
         storeId: effectiveStoreId,
@@ -206,6 +245,10 @@ export async function PATCH(request: NextRequest) {
   try {
     const { user, response } = await authorize(request)
     if (!user) return response!
+
+    if (!checkLearningRateLimit(`patch:${user.id}`, 30, 60_000)) {
+      return jsonError('Demasiadas actualizaciones por minuto. Intenta en unos segundos.', 429)
+    }
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonError('Cuerpo JSON inválido.', 400)

@@ -29,10 +29,11 @@
  * - startDate y endDate son obligatorios.
  * - storeId es opcional (default 'all' = todas las tiendas).
  * - groupBy es opcional (default 'day').
- * - No requiere autenticación CRON_SECRET (es endpoint público interno).
+ * - Requiere sesión autenticada de personal vía `verifyStaffAuth` (con soporte `CRON_SECRET`).
  * - El pct_within_goal se calcula usando los slots donde avg_duration ≤ 210 como proporción de order_count.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,6 +78,9 @@ interface StoreAccumulator {
 }
 
 export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request)
+    if (!auth.authorized) return auth.response!
+
     try {
         const searchParams = request.nextUrl.searchParams
 
@@ -130,6 +134,7 @@ export async function GET(request: NextRequest) {
             const { data, error } = await query
                 .order('business_date', { ascending: true })
                 .order('slot_index', { ascending: true })
+                .order('store_id', { ascending: true })
                 .range(page * pageSize, (page + 1) * pageSize - 1)
 
             if (error) {

@@ -20,6 +20,7 @@
  * @notes
  * - Normaliza `user.phone` en la respuesta para ocultar el prefijo interno `em_` cuando el usuario aún no ha registrado teléfono.
  * - Nov 2026: Endurecido sin secretos hardcodeados de respaldo, con bloqueo `429 LOCKED` y manejo estricto de errores en `app_users`.
+ * - Blindaje de Seguridad (2026-11-21): rate limit acotado por IP (`x-vercel-forwarded-for` / `x-real-ip`) e identificador + comparación constante de hashes OTP mediante `crypto.timingSafeEqual`.
  */
 
 import crypto from 'crypto'
@@ -98,7 +99,165 @@ const APP_REVIEW_TEST_CODE = '123456'
 
 function isAllowedAppReviewPhone(phone10: string): boolean {
   if (process.env.ENABLE_APP_REVIEW_TEST_ACCOUNTS === 'false') return false
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_REVIEWER_TEST_OTP !== 'true') {
+    return false
+  }
   return APP_REVIEW_ALLOWED_PHONES.has(phone10)
+}
+
+const TIER_RANK: Record<RewardsBalance['tier'], number> = {
+  BRONZE: 0,
+  SILVER: 1,
+  GOLD: 2,
+  PLATINUM: 3,
+}
+
+async function reconcileLegacyAppUserToAuthId(
+  legacyUser: AppUserProfile & Record<string, unknown>,
+  authUserId: string,
+  opts: { verifiedPhone?: string; verifiedEmail?: string }
+): Promise<AppUserProfile> {
+  const legacyUserId = legacyUser.id
+  if (legacyUserId === authUserId) {
+    return legacyUser
+  }
+
+  const { data: existingTarget } = await supabaseAdmin
+    .from('app_users')
+    .select('*')
+    .eq('id', authUserId)
+    .maybeSingle()
+
+  const tempPlaceholderPhone = `mig_${legacyUserId.replace(/-/g, '').slice(0, 14)}`
+  const { error: releaseErr } = await supabaseAdmin
+    .from('app_users')
+    .update({
+      phone: tempPlaceholderPhone,
+      email: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', legacyUserId)
+
+  if (releaseErr) {
+    console.error('[MOBILE AUTH] Error liberando phone/email temporal en migración app_users:', releaseErr.message)
+    return legacyUser
+  }
+
+  const resolvedPhone =
+    opts.verifiedPhone ||
+    (existingTarget?.phone && !String(existingTarget.phone).startsWith('em_')
+      ? String(existingTarget.phone)
+      : legacyUser.phone)
+
+  const upsertPayload: Record<string, unknown> = {
+    id: authUserId,
+    phone: resolvedPhone,
+    first_name: existingTarget?.first_name || legacyUser.first_name || '',
+    last_name: existingTarget?.last_name || legacyUser.last_name || '',
+    email: opts.verifiedEmail || existingTarget?.email || legacyUser.email || null,
+    avatar_url: existingTarget?.avatar_url || legacyUser.avatar_url || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  if ('wallet_balance' in legacyUser || (existingTarget && 'wallet_balance' in existingTarget)) {
+    upsertPayload.wallet_balance =
+      Number((existingTarget as Record<string, unknown> | null)?.wallet_balance || 0) +
+      Number(legacyUser.wallet_balance || 0)
+  }
+  if ('loyalty_points' in legacyUser || (existingTarget && 'loyalty_points' in existingTarget)) {
+    upsertPayload.loyalty_points =
+      Number((existingTarget as Record<string, unknown> | null)?.loyalty_points || 0) +
+      Number(legacyUser.loyalty_points || 0)
+  }
+
+  const { data: targetRow, error: targetUpsertErr } = await supabaseAdmin
+    .from('app_users')
+    .upsert(upsertPayload, { onConflict: 'id' })
+    .select('*')
+    .single()
+
+  if (targetUpsertErr || !targetRow) {
+    // Rollback unique fields on legacyUser so zero data is lost
+    await supabaseAdmin
+      .from('app_users')
+      .update({
+        phone: legacyUser.phone,
+        email: legacyUser.email,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', legacyUserId)
+    console.error('[MOBILE AUTH] Error creando fila destino en migración app_users:', targetUpsertErr?.message)
+    return legacyUser
+  }
+
+  // 1. Merge app_rewards_balances (preserving points_balance, points_accumulated, points_redeemed & highest tier)
+  const [{ data: legacyRewards }, { data: targetRewards }] = await Promise.all([
+    supabaseAdmin
+      .from('app_rewards_balances')
+      .select('points_balance, points_accumulated, points_redeemed, tier')
+      .eq('user_id', legacyUserId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('app_rewards_balances')
+      .select('points_balance, points_accumulated, points_redeemed, tier')
+      .eq('user_id', authUserId)
+      .maybeSingle(),
+  ])
+
+  if (legacyRewards) {
+    const legTier = (legacyRewards.tier as RewardsBalance['tier']) || 'BRONZE'
+    const tgtTier = (targetRewards?.tier as RewardsBalance['tier']) || 'BRONZE'
+    const bestTier = (TIER_RANK[legTier] ?? 0) >= (TIER_RANK[tgtTier] ?? 0) ? legTier : tgtTier
+
+    await supabaseAdmin.from('app_rewards_balances').upsert(
+      {
+        user_id: authUserId,
+        points_balance: Number(targetRewards?.points_balance || 0) + Number(legacyRewards.points_balance || 0),
+        points_accumulated:
+          Number(targetRewards?.points_accumulated || 0) + Number(legacyRewards.points_accumulated || 0),
+        points_redeemed: Number(targetRewards?.points_redeemed || 0) + Number(legacyRewards.points_redeemed || 0),
+        tier: bestTier,
+      },
+      { onConflict: 'user_id' }
+    )
+    await supabaseAdmin.from('app_rewards_balances').delete().eq('user_id', legacyUserId)
+  }
+
+  // 2. Preserve rewards transactions, favorite orders, historical orders & quotes
+  await Promise.all([
+    supabaseAdmin.from('app_rewards_transactions').update({ user_id: authUserId }).eq('user_id', legacyUserId),
+    supabaseAdmin.from('app_favorite_orders').update({ user_id: authUserId }).eq('user_id', legacyUserId),
+    supabaseAdmin.from('app_orders').update({ user_id: authUserId }).eq('user_id', legacyUserId),
+    supabaseAdmin.from('app_quotes').update({ user_id: authUserId }).eq('user_id', legacyUserId),
+  ])
+
+  // 3. Preserve non-conflicting carts & devices
+  const [{ data: legacyCarts }, { data: targetCarts }] = await Promise.all([
+    supabaseAdmin.from('app_carts').select('id, store_id').eq('user_id', legacyUserId),
+    supabaseAdmin.from('app_carts').select('store_id').eq('user_id', authUserId),
+  ])
+  const targetCartStores = new Set((targetCarts || []).map((c: any) => String(c.store_id)))
+  for (const c of legacyCarts || []) {
+    if (!targetCartStores.has(String(c.store_id))) {
+      await supabaseAdmin.from('app_carts').update({ user_id: authUserId }).eq('id', c.id)
+    }
+  }
+
+  const [{ data: legacyDevices }, { data: targetDevices }] = await Promise.all([
+    supabaseAdmin.from('app_devices').select('id, push_token').eq('user_id', legacyUserId),
+    supabaseAdmin.from('app_devices').select('push_token').eq('user_id', authUserId),
+  ])
+  const targetTokens = new Set((targetDevices || []).map((d: any) => String(d.push_token)))
+  for (const d of legacyDevices || []) {
+    if (!targetTokens.has(String(d.push_token))) {
+      await supabaseAdmin.from('app_devices').update({ user_id: authUserId }).eq('id', d.id)
+    }
+  }
+
+  // 4. Clean up empty legacy shell row after all child rows are safely re-pointed
+  await supabaseAdmin.from('app_users').delete().eq('id', legacyUserId)
+
+  return targetRow as AppUserProfile
 }
 
 function normalizeUsPhone10(raw?: string): string {
@@ -124,6 +283,55 @@ function buildReviewerCredentials(phone10: string): { email: string; password: s
   return { email, password }
 }
 
+const MAX_VERIFY_OTP_BUCKETS = 2000
+const VERIFY_OTP_IP_LIMIT = 15
+const VERIFY_OTP_IDENTIFIER_LIMIT = 6
+const VERIFY_OTP_WINDOW_MS = 10 * 60_000
+const verifyOtpBuckets = new Map<string, number[]>()
+
+function extractTrustedClientIp(headers: Headers): string {
+  const vercelFwd = headers.get('x-vercel-forwarded-for') || ''
+  const firstVercel = vercelFwd.split(',')[0]?.trim()
+  if (firstVercel) return firstVercel.slice(0, 64)
+  const realIp = headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp.slice(0, 64)
+  const fwd = headers.get('x-forwarded-for') || ''
+  return fwd.split(',')[0]?.trim().slice(0, 64) || 'unknown'
+}
+
+function checkBoundedVerifyOtpLimit(key: string, limit: number): { allowed: boolean; retryAfterSec: number } {
+  const now = Date.now()
+  if (verifyOtpBuckets.size >= MAX_VERIFY_OTP_BUCKETS && !verifyOtpBuckets.has(key)) {
+    for (const [k, arr] of verifyOtpBuckets) {
+      const valid = arr.filter((t) => now - t < VERIFY_OTP_WINDOW_MS)
+      if (valid.length === 0) verifyOtpBuckets.delete(k)
+      else verifyOtpBuckets.set(k, valid)
+    }
+    if (verifyOtpBuckets.size >= MAX_VERIFY_OTP_BUCKETS) {
+      const oldest = verifyOtpBuckets.keys().next().value
+      if (oldest) verifyOtpBuckets.delete(oldest)
+    }
+  }
+  const hits = (verifyOtpBuckets.get(key) || []).filter((t) => now - t < VERIFY_OTP_WINDOW_MS)
+  if (hits.length >= limit) {
+    verifyOtpBuckets.set(key, hits)
+    return {
+      allowed: false,
+      retryAfterSec: Math.max(1, Math.ceil((VERIFY_OTP_WINDOW_MS - (now - hits[0])) / 1000)),
+    }
+  }
+  hits.push(now)
+  verifyOtpBuckets.set(key, hits)
+  return { allowed: true, retryAfterSec: 0 }
+}
+
+function verifyOtpHashConstantTime(candidateCode: string, expectedCode: string): boolean {
+  const key = process.env.MOBILE_OTP_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'teg-otp-hmac'
+  const candidateDigest = crypto.createHmac('sha256', key).update(String(candidateCode)).digest()
+  const expectedDigest = crypto.createHmac('sha256', key).update(String(expectedCode)).digest()
+  return candidateDigest.length === expectedDigest.length && crypto.timingSafeEqual(candidateDigest, expectedDigest)
+}
+
 export async function OPTIONS(): Promise<NextResponse> {
   return corsResponse()
 }
@@ -132,6 +340,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   const headers = corsHeaders()
   const isEn = (request.headers.get('Accept-Language') || '').toLowerCase().startsWith('en')
   try {
+    const clientIp = extractTrustedClientIp(request.headers)
+    const ipRl = checkBoundedVerifyOtpLimit(`ip:${clientIp}`, VERIFY_OTP_IP_LIMIT)
+    if (!ipRl.allowed) {
+      return NextResponse.json<VerifyErrorResponse>(
+        {
+          ok: false,
+          error: isEn
+            ? `Too many verification attempts. Please wait ${ipRl.retryAfterSec}s before trying again.`
+            : `Demasiados intentos de verificación. Espera ${ipRl.retryAfterSec}s antes de intentar de nuevo.`,
+        },
+        { status: 429, headers: { ...headers, 'Retry-After': String(ipRl.retryAfterSec) } }
+      )
+    }
     let body: { email?: string; phone?: string; identifier?: string; code?: string }
     try {
       body = (await request.json()) as {
@@ -173,6 +394,19 @@ export async function POST(request: Request): Promise<NextResponse> {
           error: isEn ? 'Verification code must be 6 digits.' : 'El código debe tener 6 dígitos.',
         },
         { status: 400, headers }
+      )
+    }
+
+    const idRl = checkBoundedVerifyOtpLimit(`ident:${rawIdentifier.toLowerCase().slice(0, 120)}`, VERIFY_OTP_IDENTIFIER_LIMIT)
+    if (!idRl.allowed) {
+      return NextResponse.json<VerifyErrorResponse>(
+        {
+          ok: false,
+          error: isEn
+            ? `Too many attempts for this account. Please wait ${idRl.retryAfterSec}s.`
+            : `Demasiados intentos para esta cuenta. Espera ${idRl.retryAfterSec}s.`,
+        },
+        { status: 429, headers: { ...headers, 'Retry-After': String(idRl.retryAfterSec) } }
       )
     }
 
@@ -244,7 +478,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       verifiedPhone = phone
 
       if (isAllowedAppReviewPhone(phone)) {
-        if (code !== APP_REVIEW_TEST_CODE) {
+        if (!verifyOtpHashConstantTime(code, APP_REVIEW_TEST_CODE)) {
           return NextResponse.json<VerifyErrorResponse>(
             {
               ok: false,
@@ -343,31 +577,46 @@ export async function POST(request: Request): Promise<NextResponse> {
           userProfile = existingById as AppUserProfile
         }
       } else {
-        const defaultFirstName = verifiedEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ').trim().slice(0, 30)
-        const { data: created, error: createProfileErr } = await supabaseAdmin
+        const { data: legacyByEmail } = await supabaseAdmin
           .from('app_users')
-          .upsert(
-            {
-              id: authUserId,
-              phone: buildUniqueEmailPhonePlaceholder(authUserId),
-              first_name: defaultFirstName ? defaultFirstName.charAt(0).toUpperCase() + defaultFirstName.slice(1) : '',
-              last_name: '',
-              email: verifiedEmail,
-              avatar_url: null,
-            },
-            { onConflict: 'id' }
-          )
           .select('*')
-          .single()
+          .ilike('email', verifiedEmail)
+          .limit(1)
+          .maybeSingle()
 
-        if (createProfileErr || !created) {
-          console.error('[MOBILE AUTH] Error sincronizando perfil app_users por correo:', createProfileErr?.message)
-          return NextResponse.json<VerifyErrorResponse>(
-            { ok: false, error: 'Error sincronizando perfil de usuario. Intenta de nuevo.' },
-            { status: 500, headers }
+        if (legacyByEmail && legacyByEmail.id !== authUserId) {
+          userProfile = await reconcileLegacyAppUserToAuthId(
+            legacyByEmail as AppUserProfile & Record<string, unknown>,
+            authUserId,
+            { verifiedEmail }
           )
+        } else {
+          const defaultFirstName = verifiedEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ').trim().slice(0, 30)
+          const { data: created, error: createProfileErr } = await supabaseAdmin
+            .from('app_users')
+            .upsert(
+              {
+                id: authUserId,
+                phone: buildUniqueEmailPhonePlaceholder(authUserId),
+                first_name: defaultFirstName ? defaultFirstName.charAt(0).toUpperCase() + defaultFirstName.slice(1) : '',
+                last_name: '',
+                email: verifiedEmail,
+                avatar_url: null,
+              },
+              { onConflict: 'id' }
+            )
+            .select('*')
+            .single()
+
+          if (createProfileErr || !created) {
+            console.error('[MOBILE AUTH] Error sincronizando perfil app_users por correo:', createProfileErr?.message)
+            return NextResponse.json<VerifyErrorResponse>(
+              { ok: false, error: 'Error sincronizando perfil de usuario. Intenta de nuevo.' },
+              { status: 500, headers }
+            )
+          }
+          userProfile = created as AppUserProfile
         }
-        userProfile = created as AppUserProfile
       }
     } else {
       const candidatePhones = [verifiedPhone, `+1${verifiedPhone}`, `1${verifiedPhone}`]
@@ -381,21 +630,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (existingUser) {
         userProfile = existingUser as AppUserProfile
         if (userProfile.id !== authUserId) {
-          const legacyUserId = userProfile.id
-          await supabaseAdmin.from('app_devices').delete().eq('user_id', legacyUserId)
-          await supabaseAdmin.from('app_carts').delete().eq('user_id', legacyUserId)
-          await supabaseAdmin.from('app_favorite_orders').delete().eq('user_id', legacyUserId)
-          await supabaseAdmin.from('app_rewards_transactions').delete().eq('user_id', legacyUserId)
-          await supabaseAdmin.from('app_rewards_balances').delete().eq('user_id', legacyUserId)
-          const { error: updateIdError } = await supabaseAdmin
-            .from('app_users')
-            .update({ id: authUserId, phone: verifiedPhone, updated_at: new Date().toISOString() })
-            .eq('id', legacyUserId)
-
-          if (!updateIdError) {
-            userProfile.id = authUserId
-            userProfile.phone = verifiedPhone
-          }
+          userProfile = await reconcileLegacyAppUserToAuthId(
+            existingUser as AppUserProfile & Record<string, unknown>,
+            authUserId,
+            { verifiedPhone }
+          )
         }
       } else {
         const { data: createdUser, error: createPhoneErr } = await supabaseAdmin

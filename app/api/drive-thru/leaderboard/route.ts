@@ -18,15 +18,19 @@
  *   → Retorna entries[] ordenados por avg_duration ASC
  *
  * @notes
- * - No requiere autenticación CRON_SECRET (es endpoint público interno).
+ * - Requiere sesión autenticada de personal vía `verifyStaffAuth` (con soporte `CRON_SECRET`).
  * - Si date no se provee, se usa la fecha de hoy según regla de las 6 AM.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getLeaderboard } from '@/lib/drive-thru-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request)
+    if (!auth.authorized) return auth.response!
+
     try {
         const searchParams = request.nextUrl.searchParams
 

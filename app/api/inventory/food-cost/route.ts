@@ -40,10 +40,14 @@ import { normalizeToLbs } from '@/lib/inventory/conversions'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
 import { Recipe, InventoryItem } from '@/types/inventory'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     try {
         const searchParams = request.nextUrl.searchParams
         const storeId = searchParams.get('storeId')

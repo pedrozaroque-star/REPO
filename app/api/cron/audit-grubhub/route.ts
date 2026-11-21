@@ -12,27 +12,21 @@
  * - Vercel Cron (07:30 AM PDT) -> GET /api/cron/audit-grubhub -> lib/grubhub-audit-sentinel.ts -> Toast API + Supabase -> Nodemailer -> carlos@tacosgavilan.com.
  * 
  * @notes
- * - Soporta autenticación por Bearer token CRON_SECRET y parámetro de consulta ?date=YYYY-MM-DD para auditorías históricas.
+ * - Autenticación Fail-Closed mediante `verifyStaffAuth` (`CRON_SECRET` en headers o sesión `admin`/`supervisor`); prohibido pasar secretos por URL query (`?secret=`).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { executeGrubhubAudit, sendGrubhubAuditEmail } from '@/lib/grubhub-audit-sentinel'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const maxDuration = 300 // 5 minutos máximo para procesar 15 tiendas vía Toast API
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
     try {
-        const authHeader = req.headers.get('authorization')
-        if (process.env.CRON_SECRET) {
-            const isBearerValid = authHeader === `Bearer ${process.env.CRON_SECRET}`
-            const hasSecretQuery = req.nextUrl.searchParams.get('secret') === process.env.CRON_SECRET
-            if (!isBearerValid && !hasSecretQuery) {
-                // Permitir en local si no hay token o validar
-                if (process.env.NODE_ENV === 'production') {
-                    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-                }
-            }
+        const auth = await verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const { searchParams } = new URL(req.url)

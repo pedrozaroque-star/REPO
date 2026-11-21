@@ -11,6 +11,7 @@
  *   - [2026-11-17] FIX: Eliminado retorno anticipado `if (!recipe)` antes de evaluar `isPartyTray`,
  *     resolución de nombre desde `toast_menu_items` cuando no viene `name` en query params, y uso
  *     de `buildPartyTrayVirtualIngredients` con `358_9604BT Tortilla Regular 8 in` (`1df90372-7648-4ec1-9a6c-fca4032095a6`).
+ *   - Protegido con `verifyStaffAuth`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -18,6 +19,7 @@ import { getSupabaseClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { Recipe, InventoryItem } from '@/types/inventory'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 /**
  * GET /api/inventory/recipe-detail?guid=<toast_menu_item_guid>
@@ -26,6 +28,10 @@ import { Recipe, InventoryItem } from '@/types/inventory'
  */
 export async function GET(request: NextRequest) {
     try {
+        const auth = await verifyStaffAuth(request)
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
         const guid = request.nextUrl.searchParams.get('guid')
         const itemName = request.nextUrl.searchParams.get('name') || ''
         const quantityParam = request.nextUrl.searchParams.get('quantity')

@@ -1,26 +1,29 @@
+/**
+ * @module app/api/inventory/food-cost-cache
+ * @description Lector ligero de agregados diarios pre-calculados de Food Cost desde `food_cost_daily_cache`.
+ *
+ * @businessRules
+ * - Devuelve agregados consolidados y desglose por sucursal (`byStore` y `byStoreName`) para el rango `startDate`..`endDate`.
+ * - La caché es alimentada vía write-through por `/api/inventory/food-cost` y los crons de sincronización.
+ *
+ * @dataFlow
+ * - Dashboard Ventas / Inventario -> `GET /api/inventory/food-cost-cache` -> `food_cost_daily_cache` (Supabase) -> JSON.
+ *
+ * @notes
+ * - Protegido con `verifyStaffAuth` para personal interno autenticado.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
-/**
- * LIGHTWEIGHT Food Cost Cache Reader
- * 
- * Instead of recalculating food cost from Toast + Recipes every time,
- * this endpoint reads pre-calculated aggregates from food_cost_daily_cache.
- * 
- * Response time: ~50ms (vs ~5-15s for the full calculation)
- * 
- * Cache is populated via write-through in /api/inventory/food-cost
- * every time someone views food cost data for a single day.
- * 
- * Params:
- *   - startDate: YYYY-MM-DD
- *   - endDate: YYYY-MM-DD
- *   - storeId: (optional) filter by specific store
- */
 export async function GET(request: NextRequest) {
     try {
+        const auth = await verifyStaffAuth(request)
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
         const searchParams = request.nextUrl.searchParams
         const startDate = searchParams.get('startDate')
         const endDate = searchParams.get('endDate')

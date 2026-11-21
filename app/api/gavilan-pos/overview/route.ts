@@ -17,12 +17,15 @@
  *
  * @notes
  * - Garantiza idempotencia mediante `client_order_id` único en `gavilan_pos_orders` para evitar órdenes duplicadas al vaciar la cola Offline (`Outbox`).
+ * - Blindaje de Seguridad (2026-11-21): `authorizePosAction` exige autenticación válida (`verifyStaffAuth` / `getServerUser`) en el 100% de acciones POS (cero fallback abierto), aplica aislamiento por sucursal (`authorizeStoreScope`) para roles no globales y bloquea sockets TCP crudos en `TEST_TCP_PRINT` cuando `process.env.VERCEL === '1'`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import net from 'net'
 import os from 'os'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { authorizeStoreScope, getServerUser, verifyStaffAuth } from '@/lib/auth-server'
+import { formatCustomerStoreName } from '@/lib/customer-store-names'
 
 function getLocalLanAddresses() {
     const nets = os.networkInterfaces()
@@ -69,26 +72,314 @@ const TOAST_GUID_TO_NAME: Record<string, string> = {
 
 const STORE_NUMBER_BY_NAME: Record<string, number> = {
     'Rialto': 1,
-    'Azusa': 2,
-    'Norwalk': 3,
-    'Downey': 4,
+    'West Covina': 3,
+    'Azusa': 4,
     'LA Broadway': 5,
-    'Bell': 6,
-    'Hollywood': 7,
-    'Huntington Park': 8,
-    'LA Central': 9,
+    'LA Central': 6,
+    'Slauson': 7,
+    'Hollywood': 8,
+    'Santa Ana': 9,
     'La Puente': 10,
-    'South Gate': 11,
-    'Santa Ana': 12,
-    'Slauson': 13,
+    'Huntington Park': 11,
+    'Norwalk': 12,
+    'Bell': 13,
     'Lynwood': 14,
-    'West Covina': 15,
+    'South Gate': 15,
+    'Downey': 16,
+}
+
+const STORE_PHONE_BY_ID: Record<number, string> = {
+    1: '(909) 562-0430',
+    3: '(626) 917-2662',
+    4: '(626) 969-1011',
+    5: '(323) 233-2302',
+    6: '(213) 742-6677',
+    7: '(323) 615-0084',
+    8: '(323) 963-7993',
+    9: '(714) 480-0713',
+    10: '(626) 336-3000',
+    11: '(323) 581-7309',
+    12: '(562) 651-0045',
+    13: '(323) 771-1722',
+    14: '(424) 785-5535',
+    15: '(562) 806-1200',
+    16: '(562) 927-7486',
+}
+
+const ADMIN_PROTECTED_POS_ACTIONS = new Set([
+    'SCAN_WAREHOUSE_PRINTERS',
+    'VERIFY_IDEMPOTENCY_LAB',
+    'TOGGLE_86',
+    'UPDATE_MENU_ITEM',
+    'BULK_PUBLISH_MENU',
+    'SAVE_STORE_CONFIG',
+])
+
+const GLOBAL_CATALOG_POS_ACTIONS = new Set([
+    'SCAN_WAREHOUSE_PRINTERS',
+    'UPDATE_MENU_ITEM',
+    'BULK_PUBLISH_MENU',
+])
+
+const STORE_SCOPED_PAYLOAD_POS_ACTIONS = new Set([
+    'CREATE_ORDER',
+    'RECORD_CASH_EVENT',
+    'PUNCH_TIMECLOCK',
+    'CREATE_CLOSEOUT',
+    'SAVE_STORE_CONFIG',
+    'VERIFY_IDEMPOTENCY_LAB',
+])
+
+const ORDER_TARGETED_POS_ACTIONS = new Set([
+    'UPDATE_DRIVETHRU_ORDER',
+    'FIRE_SCHEDULED_CATERING',
+    'VOID_OR_COMP_ORDER',
+    'BUMP_ORDER',
+    'RECALL_ORDER',
+])
+
+const ALL_ALLOWED_POS_ACTIONS = new Set([
+    ...ADMIN_PROTECTED_POS_ACTIONS,
+    ...STORE_SCOPED_PAYLOAD_POS_ACTIONS,
+    ...ORDER_TARGETED_POS_ACTIONS,
+    'UPDATE_LOYALTY_OR_GIFTCARD',
+    'TEST_TCP_PRINT',
+])
+
+async function resolveHydratedPosUser(req: NextRequest, supabase: any, fallbackTokenUser: any) {
+    const base = (await getServerUser(req)) || {
+        id: String(fallbackTokenUser.id || fallbackTokenUser.sub || ''),
+        email: String(fallbackTokenUser.email || ''),
+        name: String(fallbackTokenUser.user_metadata?.full_name || fallbackTokenUser.email || ''),
+        role: String(fallbackTokenUser.role || fallbackTokenUser.user_role || '').toLowerCase(),
+        store_id: fallbackTokenUser.user_metadata?.store_id,
+        store_ids: Array.isArray(fallbackTokenUser.user_metadata?.store_ids) ? fallbackTokenUser.user_metadata.store_ids : undefined,
+        store_scope: fallbackTokenUser.user_metadata?.store_scope,
+    }
+    const role = String(base.role || '').toLowerCase()
+    if (role !== 'admin' && role !== 'administrador' && role !== 'supervisor' && role !== 'employee' && (base.store_id === undefined || base.store_id === null)) {
+        const numericId = Number(base.id)
+        if (Number.isFinite(numericId) && numericId > 0) {
+            const { data: dbUser } = await supabase.from('users').select('store_id, store_scope, role').eq('id', numericId).maybeSingle()
+            if (dbUser) {
+                base.store_id = dbUser.store_id ?? base.store_id
+                base.store_scope = dbUser.store_scope ?? base.store_scope
+            }
+        }
+    }
+    return base
+}
+
+async function authorizePosAction(
+    req: NextRequest,
+    supabase: any,
+    actionName: string,
+    payload: any
+): Promise<{ authorized: boolean; status?: number; error?: string }> {
+    const cleanAction = String(actionName || '').trim()
+    if (!ALL_ALLOWED_POS_ACTIONS.has(cleanAction)) {
+        return { authorized: false, status: 400, error: `Acción POS desconocida o no permitida: ${cleanAction || '(vacía)'}` }
+    }
+
+    const requiresNonEmployeeStaff =
+        ADMIN_PROTECTED_POS_ACTIONS.has(cleanAction) ||
+        cleanAction === 'RECORD_CASH_EVENT' ||
+        cleanAction === 'CREATE_CLOSEOUT'
+
+    const allowedRoles = GLOBAL_CATALOG_POS_ACTIONS.has(cleanAction)
+        ? ['admin', 'administrador', 'supervisor', 'manager', 'gerente', 'general_manager']
+        : undefined
+
+    const auth = verifyStaffAuth(req, {
+        allowCron: false,
+        allowEmployee: !requiresNonEmployeeStaff,
+        allowedRoles,
+    })
+
+    if (!auth.authorized || !auth.user) {
+        return {
+            authorized: false,
+            status: auth.status || 401,
+            error: auth.error || 'No autenticado: se requiere sesión activa de personal POS.',
+        }
+    }
+
+    const callerRole = String(auth.user.role || auth.user.user_role || '').toLowerCase()
+    const isEmployeeCaller = auth.user.user_type === 'employee' || callerRole === 'employee'
+
+    if (cleanAction === 'VOID_OR_COMP_ORDER' && isEmployeeCaller) {
+        const approverName = String(payload?.managerPinUsed || '').trim()
+        if (!approverName || approverName === '1425') {
+            return {
+                authorized: false,
+                status: 403,
+                error: 'Acceso denegado: anular o aplicar cortesía desde cuenta de cajero exige PIN gerencial verificado.',
+            }
+        }
+        const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+        const { data: approvalRows } = await supabase
+            .from('gavilan_pos_discount_approvals')
+            .select('id')
+            .eq('approver_name', approverName)
+            .gte('created_at', sinceIso)
+            .limit(1)
+        if (!Array.isArray(approvalRows) || approvalRows.length === 0) {
+            return {
+                authorized: false,
+                status: 403,
+                error: 'Acceso denegado: no existe aprobación gerencial verificada reciente para esta anulación.',
+            }
+        }
+    }
+
+    const isGlobalRole = callerRole === 'admin' || callerRole === 'administrador' || callerRole === 'supervisor'
+    if (isGlobalRole) {
+        return { authorized: true }
+    }
+
+    const serverUser = await resolveHydratedPosUser(req, supabase, auth.user)
+
+    if (STORE_SCOPED_PAYLOAD_POS_ACTIONS.has(cleanAction)) {
+        const rawTargetStore =
+            payload?.storeNumber ??
+            payload?.store_id ??
+            payload?.storeId ??
+            serverUser.store_id ??
+            serverUser.store_ids?.[0]
+        if (rawTargetStore === undefined || rawTargetStore === null || String(rawTargetStore).trim() === '') {
+            return { authorized: false, status: 403, error: 'Acceso denegado: sucursal destino requerida.' }
+        }
+        const scopeRes = await authorizeStoreScope(serverUser, rawTargetStore, supabase, { allowEmployeeRead: true })
+        if (!scopeRes.authorized) {
+            return { authorized: false, status: scopeRes.status, error: scopeRes.error }
+        }
+        if (scopeRes.resolvedStoreId && payload && typeof payload === 'object') {
+            payload.storeNumber = scopeRes.resolvedStoreId
+        }
+        return { authorized: true }
+    }
+
+    if (ORDER_TARGETED_POS_ACTIONS.has(cleanAction)) {
+        const ownStoreCandidate = serverUser.store_id ?? serverUser.store_ids?.[0]
+        const ownScope = await authorizeStoreScope(serverUser, ownStoreCandidate, supabase, { allowEmployeeRead: true })
+        if (!ownScope.authorized || !ownScope.resolvedStoreId) {
+            return {
+                authorized: false,
+                status: ownScope.status || 403,
+                error: ownScope.error || 'Acceso denegado: tu cuenta no tiene una sucursal autorizada.',
+            }
+        }
+
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        const orderId = payload?.orderId ? String(payload.orderId).trim() : ''
+        const clientOrderId = payload?.clientOrderId ? String(payload.clientOrderId).trim() : ''
+        const orderNumber = Number(payload?.orderNumber || 0)
+
+        let targetOrder: { id: string; store_number: number } | null = null
+        if (orderId && uuidRegex.test(orderId)) {
+            const { data } = await supabase.from('gavilan_pos_orders').select('id, store_number').eq('id', orderId).maybeSingle()
+            targetOrder = data
+        } else if (clientOrderId || orderId) {
+            const { data } = await supabase
+                .from('gavilan_pos_orders')
+                .select('id, store_number')
+                .eq('client_order_id', clientOrderId || orderId)
+                .maybeSingle()
+            targetOrder = data
+        } else if (orderNumber > 0) {
+            const { data } = await supabase
+                .from('gavilan_pos_orders')
+                .select('id, store_number')
+                .eq('store_number', ownScope.resolvedStoreId)
+                .eq('order_number', orderNumber)
+                .order('synced_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            targetOrder = data
+        } else if (cleanAction === 'RECALL_ORDER') {
+            const { data } = await supabase
+                .from('gavilan_pos_orders')
+                .select('id, store_number')
+                .eq('store_number', ownScope.resolvedStoreId)
+                .eq('kds_status', 'BUMPED')
+                .order('bumped_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            targetOrder = data
+        }
+
+        if (!targetOrder) {
+            return { authorized: false, status: 404, error: 'Orden POS no encontrada o fuera de tu sucursal.' }
+        }
+        const orderScope = await authorizeStoreScope(serverUser, targetOrder.store_number, supabase, { allowEmployeeRead: true })
+        if (!orderScope.authorized) {
+            return { authorized: false, status: orderScope.status, error: orderScope.error }
+        }
+        if (payload && typeof payload === 'object') {
+            payload.orderId = targetOrder.id
+        }
+        return { authorized: true }
+    }
+
+    // Para acciones sin store explícito (ej. TOGGLE_86, UPDATE_LOYALTY_OR_GIFTCARD, TEST_TCP_PRINT), exigir pertenencia válida a sucursal
+    const ownStoreCandidate = serverUser.store_id ?? serverUser.store_ids?.[0]
+    const ownScope = await authorizeStoreScope(serverUser, ownStoreCandidate, supabase, { allowEmployeeRead: true })
+    if (!ownScope.authorized) {
+        return { authorized: false, status: ownScope.status, error: ownScope.error }
+    }
+    return { authorized: true }
+}
+
+function isPrivateRfc1918Ipv4(rawHost: string): boolean {
+    const clean = String(rawHost || '').trim()
+    const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(clean)
+    if (!match) return false
+    const octets = [match[1], match[2], match[3], match[4]]
+    // Reject leading zeros (octal ambiguity)
+    if (octets.some(o => o.length > 1 && o.startsWith('0'))) return false
+    const [a, b, c, d] = octets.map(Number)
+    if ([a, b, c, d].some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false
+    if (d === 0 || d === 255) return false
+    if (a === 10) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    return false
+}
+
+function isPrivateRfc1918SubnetPrefix(rawPrefix: string): boolean {
+    const clean = String(rawPrefix || '').trim()
+    return isPrivateRfc1918Ipv4(`${clean}.1`)
+}
+
+function parseValidatedLanPrinterTarget(
+    rawTarget: unknown
+): { ok: true; host: string; port: 9100 } | { ok: false; error: string } {
+    const raw = typeof rawTarget === 'string' && rawTarget.trim() ? rawTarget.trim() : '192.168.14.50:9100'
+    if (raw.includes('/') || raw.includes('@') || raw.includes(' ') || raw.startsWith('[')) {
+        return { ok: false, error: 'Destino de impresora inválido: solo se permite IPv4 LAN privada en puerto 9100.' }
+    }
+    const parts = raw.split(':')
+    if (parts.length > 2) {
+        return { ok: false, error: 'Formato IP:Puerto inválido.' }
+    }
+    const host = parts[0].trim()
+    const port = parts[1] !== undefined && parts[1] !== '' ? Number(parts[1].trim()) : 9100
+    if (port !== 9100) {
+        return { ok: false, error: 'Puerto bloqueado por seguridad: solo se permite el puerto térmico TCP 9100.' }
+    }
+    if (!isPrivateRfc1918Ipv4(host)) {
+        return {
+            ok: false,
+            error: 'IP bloqueada por seguridad anti-SSRF: solo se permiten direcciones IPv4 LAN privadas RFC1918 (192.168.x.x, 10.x.x.x, 172.16-31.x.x).'
+        }
+    }
+    return { ok: true, host, port: 9100 }
 }
 
 /**
  * Calcula la fecha operativa actual de Tacos Gavilan (día laboral 6:00 AM a 5:59 AM PT)
  */
-export function getCurrentGavilanBusinessDate(dateInput?: Date): string {
+function getCurrentGavilanBusinessDate(dateInput?: Date): string {
     const now = dateInput || new Date()
     const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles',
@@ -116,7 +407,7 @@ export function getCurrentGavilanBusinessDate(dateInput?: Date): string {
 /**
  * Calcula el turno operativo actual (AM: 06:00 a 16:59, PM: 17:00 a 05:59 PT)
  */
-export function getCurrentGavilanShift(dateInput?: Date): 'AM' | 'PM' {
+function getCurrentGavilanShift(dateInput?: Date): 'AM' | 'PM' {
     const now = dateInput || new Date()
     const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Los_Angeles',
@@ -143,8 +434,10 @@ function inferPrepStation(groupName: string, itemName: string): 'PARRILLA' | 'LI
     return 'LINEA'
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
+        const staffAuth = verifyStaffAuth(req, { allowCron: false })
+        const isStaffAuthenticated = staffAuth.authorized
         const supabase = await getSupabaseAdminClient()
         const currentBusinessDate = getCurrentGavilanBusinessDate()
 
@@ -203,10 +496,10 @@ export async function GET() {
 
         // Build clean 15-store list with real daily metrics & persistent config
         const storesList = Object.entries(TOAST_GUID_TO_NAME).map(([toastGuid, cleanName], idx) => {
-            const storeNumber = STORE_NUMBER_BY_NAME[cleanName] || (idx + 1)
             const dbStore = (storesData || []).find(
-                s => s.external_id === toastGuid || s.name.toLowerCase().includes(cleanName.toLowerCase())
+                s => s.external_id === toastGuid || s.name.toLowerCase() === cleanName.toLowerCase()
             )
+            const storeNumber = (typeof dbStore?.id === 'number' ? dbStore.id : null) || STORE_NUMBER_BY_NAME[cleanName] || (idx + 1)
             const dayRow = latestDayRows.find(r => r.store_id === toastGuid || String(r.store_id) === String(dbStore?.id))
             const cfgRow = (storeConfigsData || []).find(c => Number(c.store_number) === storeNumber)
 
@@ -223,16 +516,19 @@ export async function GET() {
                 toastGuid,
                 storeNumber,
                 name: cleanName,
+                customerNameEs: formatCustomerStoreName({ id: storeNumber, name: cleanName }, 'es'),
+                customerNameEn: formatCustomerStoreName({ id: storeNumber, name: cleanName }, 'en'),
+                phone: STORE_PHONE_BY_ID[storeNumber] || '(424) 785-5535',
                 taxRate: cleanName === 'Santa Ana' ? 9.25 : cleanName === 'Rialto' ? 8.75 : 10.25,
                 fnsNumber: `04829${String(10 + storeNumber).padStart(2, '0')}`,
                 status: 'ONLINE' as const,
                 latestDate: latestFullDate,
-                netSales,
-                orderCount,
-                uberSales,
-                doordashSales,
-                grubhubSales,
-                ebtAmount,
+                netSales: isStaffAuthenticated ? netSales : 0,
+                orderCount: isStaffAuthenticated ? orderCount : 0,
+                uberSales: isStaffAuthenticated ? uberSales : 0,
+                doordashSales: isStaffAuthenticated ? doordashSales : 0,
+                grubhubSales: isStaffAuthenticated ? grubhubSales : 0,
+                ebtAmount: isStaffAuthenticated ? ebtAmount : 0,
                 quoteMinutes: Number(cfgRow?.quote_minutes || 12),
                 receiptHeader: cfgRow?.receipt_header || 'TACOS GAVILAN — SABOR AUTÉNTICO',
                 receiptFooter: cfgRow?.receipt_footer || '¡GRACIAS POR SU VISITA! CALFRESH EBT RMP ACCEPTED',
@@ -619,35 +915,64 @@ export async function GET() {
             .order('points_balance', { ascending: false })
             .limit(30)
 
+        const sanitizedOrders = isStaffAuthenticated
+            ? (ordersData || []).map((o: any) => ({
+                ...o,
+                manager_pin_used: o.manager_pin_used ? '****' : null,
+            }))
+            : []
+        const sanitizedCashEvents = isStaffAuthenticated
+            ? (cashEventsData || []).map((ev: any) => ({ ...ev, manager_pin_used: ev.manager_pin_used ? '****' : null }))
+            : []
+        const sanitizedTimeclock = isStaffAuthenticated
+            ? (timeclockData || []).map((tc: any) => ({ ...tc, passcode: '****' }))
+            : []
+
         return NextResponse.json({
             ok: true,
             currentBusinessDate,
             currentShift: getCurrentGavilanShift(),
             latestBusinessDate: latestFullDate,
-            localLanInfo: getLocalLanAddresses(),
+            localLanInfo: isStaffAuthenticated ? getLocalLanAddresses() : null,
             stores: storesList,
-            storeConfigs: storeConfigsData || [],
+            storeConfigs: isStaffAuthenticated ? (storeConfigsData || []) : [],
             menuItems: cleanMenu,
-            orders: ordersData || [],
-            closeouts: closeoutsData || [],
-            cashEvents: cashEventsData || [],
-            timeclockEntries: timeclockData || [],
-            loyaltyAccounts: loyaltyData || [],
-            metricsSummary: {
-                daysSampled: uniqueDates30d.size || 30,
-                sampleNetSales: total30dNet,
-                sampleOrders: total30dOrders,
-                sampleUber: total30dUber,
-                sampleDoordash: total30dDoordash,
-                sampleGrubhub: total30dGrubhub,
-                sampleEbt: total30dEbt,
-                annualizedNetSales: 71090000,
-                annualizedGrossCollected: 77911000,
-                annualizedCardVolume: 43200000,
-                annualizedOrders: 3662000,
-                annualizedDeliveryNet: 12919000,
-                annualizedEbtSales: 1980000,
-            }
+            orders: sanitizedOrders,
+            closeouts: isStaffAuthenticated ? (closeoutsData || []) : [],
+            cashEvents: sanitizedCashEvents,
+            timeclockEntries: sanitizedTimeclock,
+            loyaltyAccounts: isStaffAuthenticated ? (loyaltyData || []) : [],
+            metricsSummary: isStaffAuthenticated
+                ? {
+                    daysSampled: uniqueDates30d.size || 30,
+                    sampleNetSales: total30dNet,
+                    sampleOrders: total30dOrders,
+                    sampleUber: total30dUber,
+                    sampleDoordash: total30dDoordash,
+                    sampleGrubhub: total30dGrubhub,
+                    sampleEbt: total30dEbt,
+                    annualizedNetSales: 71090000,
+                    annualizedGrossCollected: 77911000,
+                    annualizedCardVolume: 43200000,
+                    annualizedOrders: 3662000,
+                    annualizedDeliveryNet: 12919000,
+                    annualizedEbtSales: 1980000,
+                }
+                : {
+                    daysSampled: 0,
+                    sampleNetSales: 0,
+                    sampleOrders: 0,
+                    sampleUber: 0,
+                    sampleDoordash: 0,
+                    sampleGrubhub: 0,
+                    sampleEbt: 0,
+                    annualizedNetSales: 0,
+                    annualizedGrossCollected: 0,
+                    annualizedCardVolume: 0,
+                    annualizedOrders: 0,
+                    annualizedDeliveryNet: 0,
+                    annualizedEbtSales: 0,
+                }
         })
     } catch (error: any) {
         console.error('[Gavilan POS Overview GET Error]:', error)
@@ -1131,8 +1456,16 @@ async function executeSingleMutation(supabase: any, action: string, payload: any
                 receipt_header: receiptHeader || 'TACOS GAVILAN — SABOR AUTÉNTICO',
                 receipt_footer: receiptFooter || '¡GRACIAS POR SU VISITA! CALFRESH EBT RMP ACCEPTED',
                 print_red_modifiers: Boolean(printRedModifiers ?? true),
-                printer_receipt_ip: printerReceiptIp || '192.168.14.50:9100',
-                printer_kitchen_ip: printerKitchenIp || '192.168.14.51:9100',
+                printer_receipt_ip: (() => {
+                    const p = parseValidatedLanPrinterTarget(printerReceiptIp || '192.168.14.50:9100')
+                    if (!p.ok) throw new Error(p.error)
+                    return `${p.host}:${p.port}`
+                })(),
+                printer_kitchen_ip: (() => {
+                    const p = parseValidatedLanPrinterTarget(printerKitchenIp || '192.168.14.51:9100')
+                    if (!p.ok) throw new Error(p.error)
+                    return `${p.host}:${p.port}`
+                })(),
                 offline_saf_limit_usd: Number(offlineSafLimitUsd || 75),
                 ups_battery_model: upsBatteryModel || 'EcoFlow DELTA 2 LiFePO4 (1024Wh) + SUNMI UPS Base',
                 cellular_failover_model: cellularFailoverModel || 'Peplink BR1 Mini 5G Dual-WAN (<1s Failover)',
@@ -1187,8 +1520,12 @@ async function sendEscPosOverTcp(
     orderInfo: any,
     printerProfile: 'TP200_80MM' | 'EPSON_L90_LABEL' | 'DRAWER_ONLY' = 'TP200_80MM'
 ) {
-    const [host, portStr] = (targetIpPort || '192.168.14.50:9100').split(':')
-    const port = Number(portStr || 9100)
+    const validatedTarget = parseValidatedLanPrinterTarget(targetIpPort)
+    if (!validatedTarget.ok) {
+        throw new Error(validatedTarget.error)
+    }
+    const host = validatedTarget.host
+    const port = validatedTarget.port
     const orderNum = orderInfo?.orderNumber ?? orderInfo?.checkNumber ?? 1045
     const diningOpt = orderInfo?.diningOption || 'TO_GO'
     const totalAmt = Number(orderInfo?.totalAmount ?? orderInfo?.total ?? 0)
@@ -1272,6 +1609,10 @@ async function sendEscPosOverTcp(
     const payloadBuffer = Buffer.concat(chunks)
     const hexDump = payloadBuffer.toString('hex').toUpperCase().match(/.{1,2}/g)?.slice(0, 64).join(' ') + ' ...'
 
+    if (process.env.VERCEL === '1') {
+        throw new Error('Conexiones TCP crudas bloqueadas en entorno cloud serverless (VERCEL=1) por seguridad anti-SSRF.')
+    }
+
     const socketResult = await new Promise<{ connected: boolean; message: string }>((resolve) => {
         const socket = new net.Socket()
         let settled = false
@@ -1322,7 +1663,19 @@ async function sendEscPosOverTcp(
  */
 async function scanWarehouseLanForPrinters(customSubnetPrefix?: string) {
     const lanInfo = getLocalLanAddresses()
-    const prefix = customSubnetPrefix || lanInfo.subnetPrefix
+    const rawPrefix = customSubnetPrefix ? String(customSubnetPrefix).trim() : lanInfo.subnetPrefix
+    if (!isPrivateRfc1918SubnetPrefix(rawPrefix)) {
+        throw new Error('Prefijo de subred bloqueado por seguridad anti-SSRF: solo se permiten subredes LAN privadas RFC1918.')
+    }
+    const prefix = rawPrefix
+    if (process.env.VERCEL === '1') {
+        return {
+            scannedSubnet: `${prefix}.1-254`,
+            localLanInfo: lanInfo,
+            discoveredPrinters: [],
+            cloudRestricted: true,
+        }
+    }
     const candidateIps: string[] = []
     for (let i = 1; i <= 254; i++) {
         candidateIps.push(`${prefix}.${i}`)
@@ -1391,7 +1744,31 @@ export async function POST(req: NextRequest) {
         const body = await req.json()
         const { action } = body
 
+        if (action !== 'SYNC_OFFLINE_OUTBOX') {
+            const actionAuth = await authorizePosAction(req, supabase, String(action || ''), body)
+            if (!actionAuth.authorized) {
+                return NextResponse.json(
+                    { ok: false, error: actionAuth.error || 'No autorizado' },
+                    { status: actionAuth.status || 401 }
+                )
+            }
+        }
+
         if (action === 'TEST_TCP_PRINT') {
+            if (process.env.VERCEL === '1') {
+                return NextResponse.json(
+                    {
+                        ok: false,
+                        cloudRestricted: true,
+                        error: 'Impresión TCP directa (puerto 9100) bloqueada en entorno cloud serverless (VERCEL=1) por seguridad anti-SSRF.',
+                    },
+                    { status: 403 }
+                )
+            }
+            const targetCheck = parseValidatedLanPrinterTarget(body.targetIpPort)
+            if (!targetCheck.ok) {
+                return NextResponse.json({ ok: false, error: targetCheck.error }, { status: 400 })
+            }
             const printResult = await sendEscPosOverTcp(
                 body.targetIpPort,
                 body.receiptHeader || 'TACOS GAVILAN — SABOR AUTÉNTICO',
@@ -1404,6 +1781,12 @@ export async function POST(req: NextRequest) {
         }
 
         if (action === 'SCAN_WAREHOUSE_PRINTERS') {
+            if (body.subnetPrefix && !isPrivateRfc1918SubnetPrefix(String(body.subnetPrefix))) {
+                return NextResponse.json(
+                    { ok: false, error: 'Subred bloqueada por seguridad anti-SSRF: solo se permiten subredes LAN privadas RFC1918.' },
+                    { status: 400 }
+                )
+            }
             const scanResult = await scanWarehouseLanForPrinters(body.subnetPrefix)
             return NextResponse.json({ ok: true, scanResult })
         }
@@ -1460,10 +1843,22 @@ export async function POST(req: NextRequest) {
         }
 
         if (action === 'SYNC_OFFLINE_OUTBOX') {
-            const events = Array.isArray(body.events) ? body.events : []
+            const baseAuth = verifyStaffAuth(req, { allowCron: false, allowEmployee: true })
+            if (!baseAuth.authorized) {
+                return NextResponse.json(
+                    { ok: false, error: baseAuth.error || 'No autenticado' },
+                    { status: baseAuth.status || 401 }
+                )
+            }
+            const events = Array.isArray(body.events) ? body.events.slice(0, 100) : []
             const results: any[] = []
             for (const ev of events) {
                 try {
+                    const evAuth = await authorizePosAction(req, supabase, String(ev?.action || ''), ev?.payload || {})
+                    if (!evAuth.authorized) {
+                        results.push({ id: ev.id, action: ev.action, ok: false, error: evAuth.error || 'No autorizado' })
+                        continue
+                    }
                     const res = await executeSingleMutation(supabase, ev.action, ev.payload)
                     results.push({ id: ev.id, action: ev.action, ok: true, res })
                 } catch (err: any) {

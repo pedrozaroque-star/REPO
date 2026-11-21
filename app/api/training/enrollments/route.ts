@@ -18,23 +18,136 @@
  * - `POST /api/training/enrollments` -> crea inscripción y genera código temporal `TG-XXXX`
  * - `PUT /api/training/enrollments` -> actualiza progreso de Día 1, Día 2, Día 3, Certificación Día 4 o extiende vigencia
  * - `DELETE /api/training/enrollments?id=...` -> elimina registro de entrenamiento
+ *
+ * @notes
+ * - Blindaje de Seguridad (2026-11-21): `GET ?code=` limita a `10 consultas / 10 min` por IP para impedir enumerar `TG-1000..TG-9999`; `PUT` sin sesión de staff exige `accessCode` obligatorio verificado con `crypto.timingSafeEqual` (`401` si falta, `403` si no coincide); `GET`/`POST`/`DELETE` aplican `authorizeStoreScope` por sucursal.
  */
 
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, formatStoreName } from '@/lib/supabase';
-import { getServerUser } from '@/lib/auth-server';
+import { getJwtSecret, getServerUser, verifyStaffAuth, authorizeStoreScope } from '@/lib/auth-server';
 
 const ENROLLMENT_ADMIN_ROLES = new Set([
   'admin',
+  'administrador',
   'supervisor',
   'manager',
   'asistente',
   'assistant',
   'gerente',
+  'general_manager',
   'shift_leader',
   'shift leader',
   'shiftleader',
 ]);
+
+const DAY4_CERTIFICATION_ROLES = [
+  'admin',
+  'administrador',
+  'supervisor',
+  'manager',
+  'asistente',
+  'assistant',
+  'gerente',
+  'general_manager',
+];
+
+const MAX_LOOKUP_BUCKETS = 2000;
+const CODE_LOOKUP_LIMIT = 10;
+const CODE_LOOKUP_WINDOW_MS = 10 * 60_000;
+const codeLookupBuckets = new Map<string, number[]>();
+
+function extractTrustedIp(headers: Headers): string {
+  const vercelFwd = headers.get('x-vercel-forwarded-for') || '';
+  const firstVercel = vercelFwd.split(',')[0]?.trim();
+  if (firstVercel) return firstVercel.slice(0, 64);
+  const realIp = headers.get('x-real-ip')?.trim();
+  if (realIp) return realIp.slice(0, 64);
+  const fwd = headers.get('x-forwarded-for') || '';
+  return fwd.split(',')[0]?.trim().slice(0, 64) || 'unknown';
+}
+
+function checkCodeLookupRateLimit(key: string, limit = CODE_LOOKUP_LIMIT, windowMs = CODE_LOOKUP_WINDOW_MS): {
+  allowed: boolean;
+  retryAfterSec: number;
+} {
+  const now = Date.now();
+  if (codeLookupBuckets.size >= MAX_LOOKUP_BUCKETS && !codeLookupBuckets.has(key)) {
+    for (const [k, arr] of codeLookupBuckets) {
+      const valid = arr.filter((t) => now - t < windowMs);
+      if (valid.length === 0) codeLookupBuckets.delete(k);
+      else codeLookupBuckets.set(k, valid);
+    }
+    if (codeLookupBuckets.size >= MAX_LOOKUP_BUCKETS) {
+      const oldest = codeLookupBuckets.keys().next().value;
+      if (oldest) codeLookupBuckets.delete(oldest);
+    }
+  }
+  const hits = (codeLookupBuckets.get(key) || []).filter((t) => now - t < windowMs);
+  if (hits.length >= limit) {
+    codeLookupBuckets.set(key, hits);
+    const retryAfterSec = Math.max(1, Math.ceil((windowMs - (now - hits[0])) / 1000));
+    return { allowed: false, retryAfterSec };
+  }
+  hits.push(now);
+  codeLookupBuckets.set(key, hits);
+  return { allowed: true, retryAfterSec: 0 };
+}
+
+function safeTimingEqualStrings(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) {
+    const ha = createHash('sha256').update(bufA).digest();
+    const hb = createHash('sha256').update(bufB).digest();
+    timingSafeEqual(ha, hb);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
+
+function buildSignedTraineeCookieValue(enrollmentId: string, accessCode: string): string | null {
+  const secret = getJwtSecret() || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!secret.trim()) return null;
+  const cleanId = String(enrollmentId).trim();
+  const cleanCode = String(accessCode).trim().toUpperCase();
+  const sig = createHmac('sha256', secret.trim()).update(`trainee:${cleanId}:${cleanCode}`).digest('hex');
+  return `${cleanId}.${cleanCode}.${sig}`;
+}
+
+function extractVerifiedTraineeCookieCode(req: NextRequest, expectedEnrollmentId: string): string | null {
+  const secret = getJwtSecret() || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!secret.trim()) return null;
+  const rawCookie = req.cookies.get('teg_trainee_pass')?.value?.trim() || '';
+  if (!rawCookie) return null;
+  const parts = rawCookie.split('.');
+  if (parts.length !== 3) return null;
+  const [cookieId, cookieCode, cookieSig] = parts;
+  if (!cookieId || !cookieCode || !cookieSig) return null;
+  if (cookieId !== expectedEnrollmentId) return null;
+  const expectedSig = createHmac('sha256', secret.trim()).update(`trainee:${cookieId}:${cookieCode}`).digest('hex');
+  if (!safeTimingEqualStrings(cookieSig, expectedSig)) return null;
+  return cookieCode.toUpperCase();
+}
+
+async function hydrateStaffStoreUser(req: NextRequest) {
+  const serverUser = await getServerUser(req);
+  if (!serverUser) return null;
+  const role = String(serverUser.role || '').trim().toLowerCase();
+  if (role !== 'admin' && role !== 'administrador' && role !== 'supervisor' && (serverUser.store_id === undefined || serverUser.store_id === null)) {
+    const numId = Number(serverUser.id);
+    if (Number.isFinite(numId) && numId > 0) {
+      const { data: dbUser } = await supabaseAdmin.from('users').select('store_id, store_scope').eq('id', numId).maybeSingle();
+      if (dbUser) {
+        serverUser.store_id = dbUser.store_id ?? serverUser.store_id;
+        serverUser.store_scope = dbUser.store_scope ?? serverUser.store_scope;
+      }
+    }
+  }
+  return serverUser;
+}
 
 function generateTemporaryCode(): string {
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -55,13 +168,28 @@ export async function GET(req: NextRequest) {
     const storeIdParam = searchParams.get('store_id');
     const statusParam = searchParams.get('status');
 
-    // 1. Consulta por Código de Acceso Temporal (Modo Aprendiz / Tableta)
+    // 1. Consulta por Código de Acceso Temporal (Modo Aprendiz / Tableta) con Rate Limit Anti-Enumeración
     if (codeParam) {
+      const ip = extractTrustedIp(req.headers);
+      const rl = checkCodeLookupRateLimit(`get-code:${ip}`);
+      if (!rl.allowed) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: 'RATE_LIMITED',
+            error: `Demasiadas consultas de código. Espera ${rl.retryAfterSec}s antes de volver a intentar.`,
+            errorEn: `Too many code lookups. Please wait ${rl.retryAfterSec}s before trying again.`,
+          },
+          { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } }
+        );
+      }
+
       const normalizedCode = codeParam.startsWith('TG-') ? codeParam : `TG-${codeParam}`;
+      const candidates = Array.from(new Set([codeParam, normalizedCode])).filter((c) => c.length >= 4 && c.length <= 24);
       const { data: enrollment, error } = await supabaseAdmin
         .from('training_enrollments')
         .select('*')
-        .or(`access_code.ilike.${codeParam},access_code.ilike.${normalizedCode}`)
+        .in('access_code', candidates)
         .limit(1)
         .maybeSingle();
 
@@ -101,31 +229,65 @@ export async function GET(req: NextRequest) {
         .update({ last_accessed_at: now.toISOString() })
         .eq('id', enrollment.id);
 
-      return NextResponse.json({
+      const res = NextResponse.json({
         ok: true,
         enrollment: {
           ...enrollment,
           last_accessed_at: now.toISOString(),
         },
       });
+
+      const signedPass = buildSignedTraineeCookieValue(enrollment.id, enrollment.access_code);
+      if (signedPass) {
+        res.cookies.set('teg_trainee_pass', signedPass, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          path: '/api/training',
+          maxAge: 4 * 24 * 60 * 60,
+        });
+      }
+
+      return res;
     }
 
-    // 2. Consulta general administrativa (Exige sesión autenticada)
-    const serverUser = await getServerUser(req);
-    if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
+    // 2. Consulta general administrativa (Exige sesión autenticada + aislamiento de sucursal)
+    const serverUser = await hydrateStaffStoreUser(req);
+    const roleLower = String(serverUser?.role || '').trim().toLowerCase();
+    if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(roleLower)) {
       return NextResponse.json({ ok: false, error: 'No autorizado.' }, { status: 401 });
     }
+
+    const isGlobal = roleLower === 'admin' || roleLower === 'administrador' || roleLower === 'supervisor';
+    let effectiveStoreFilter: number | null = null;
+
+    if (!isGlobal) {
+      const ownScope = await authorizeStoreScope(serverUser, serverUser.store_id, supabaseAdmin, { action: 'view' });
+      if (!ownScope.authorized || !ownScope.resolvedStoreId) {
+        return NextResponse.json({ ok: false, error: ownScope.error || 'Sin sucursal asignada.' }, { status: ownScope.status || 403 });
+      }
+      if (storeIdParam && storeIdParam !== 'all') {
+        const reqCheck = await authorizeStoreScope(serverUser, storeIdParam, supabaseAdmin, { action: 'view' });
+        if (!reqCheck.authorized) {
+          return NextResponse.json({ ok: false, error: reqCheck.error || 'No autorizado para otra sucursal.' }, { status: reqCheck.status || 403 });
+        }
+      }
+      effectiveStoreFilter = ownScope.resolvedStoreId;
+    } else if (storeIdParam && storeIdParam !== 'all') {
+      const numericStore = Number(storeIdParam);
+      if (!isNaN(numericStore) && numericStore > 0) {
+        effectiveStoreFilter = numericStore;
+      }
+    }
+
     let query = supabaseAdmin
       .from('training_enrollments')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(300);
 
-    if (storeIdParam && storeIdParam !== 'all') {
-      const numericStore = Number(storeIdParam);
-      if (!isNaN(numericStore) && numericStore > 0) {
-        query = query.eq('store_id', numericStore);
-      }
+    if (effectiveStoreFilter) {
+      query = query.eq('store_id', effectiveStoreFilter);
     }
 
     if (statusParam && statusParam !== 'all') {
@@ -164,7 +326,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const serverUser = await getServerUser(req);
+    const serverUser = await hydrateStaffStoreUser(req);
     if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
       return NextResponse.json({ ok: false, error: 'No autenticado.' }, { status: 401 });
     }
@@ -192,6 +354,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const scopeCheck = await authorizeStoreScope(serverUser, storeId, supabaseAdmin, { action: 'complete_checklist' });
+    if (!scopeCheck.authorized) {
+      return NextResponse.json(
+        { ok: false, error: scopeCheck.error || 'No autorizado para inscribir en otra sucursal.' },
+        { status: scopeCheck.status || 403 }
+      );
+    }
+
     // Obtener nombre limpio de la sucursal desde public.stores
     let storeName = String(body.storeName || '').trim();
     if (!storeName) {
@@ -203,12 +373,12 @@ export async function POST(req: NextRequest) {
       storeName = formatStoreName(storeRow?.name || `Sucursal #${storeId}`);
     }
 
-    // Reutilizar el expediente unificado de 4 días del colaborador en la sucursal (certificación por Puesto, no fragmentado por estación)
+    const safeIlikeName = employeeName.replace(/[\\%_]/g, '\\$&');
     const { data: existingEnrollment } = await supabaseAdmin
       .from('training_enrollments')
       .select('*')
       .eq('store_id', storeId)
-      .ilike('employee_name', employeeName)
+      .ilike('employee_name', safeIlikeName)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -311,12 +481,64 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const id = String(body.id || '').trim();
     const action = String(body.action || 'update_progress').trim();
+    const normalizedAction = action.toLowerCase();
+
+    const requiresManagerOrAdminCertAuth =
+      normalizedAction === 'certify_day4' ||
+      normalizedAction === 'extend_access' ||
+      body.day4_completed !== undefined ||
+      body.day4Completed !== undefined ||
+      body.certificate_folio !== undefined ||
+      body.certificateFolio !== undefined ||
+      body.examScore !== undefined ||
+      body.practicalScore !== undefined ||
+      (typeof body.status === 'string' && body.status.trim().toUpperCase() === 'CERTIFIED');
+
+    const staffAuth = verifyStaffAuth(req, {
+      allowedRoles: requiresManagerOrAdminCertAuth ? DAY4_CERTIFICATION_ROLES : undefined,
+      allowCron: false,
+    });
+
+    if (requiresManagerOrAdminCertAuth && !staffAuth.authorized) {
+      return staffAuth.response!;
+    }
 
     if (!id) {
       return NextResponse.json(
         { ok: false, error: 'ID de inscripción requerido.' },
         { status: 400 }
       );
+    }
+
+    // Si no tiene sesión de staff, exigir código TG-XXXX no vacío ANTES de consultar DB + aplicar rate limit por IP
+    let providedCodeRaw = '';
+    if (!staffAuth.authorized) {
+      providedCodeRaw = String(body.accessCode || body.code || '').trim().toUpperCase();
+      if (!providedCodeRaw) {
+        providedCodeRaw = extractVerifiedTraineeCookieCode(req, id) || '';
+      }
+      if (!providedCodeRaw) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'No autenticado: se requiere sesión de personal o código de acceso TG-XXXX válido.',
+          },
+          { status: 401 }
+        );
+      }
+
+      const ip = extractTrustedIp(req.headers);
+      const putRl = checkCodeLookupRateLimit(`put-code:${ip}`, 15, CODE_LOOKUP_WINDOW_MS);
+      if (!putRl.allowed) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: 'RATE_LIMITED',
+            error: `Demasiados intentos. Espera ${putRl.retryAfterSec}s.`,
+          },
+          { status: 429, headers: { 'Retry-After': String(putRl.retryAfterSec) } }
+        );
+      }
     }
 
     const { data: existing, error: fetchErr } = await supabaseAdmin
@@ -330,6 +552,63 @@ export async function PUT(req: NextRequest) {
         { ok: false, error: 'Inscripción no encontrada.' },
         { status: 404 }
       );
+    }
+
+    if (staffAuth.authorized && staffAuth.user) {
+      const serverUser = (await hydrateStaffStoreUser(req)) || {
+        id: staffAuth.user.id,
+        email: staffAuth.user.email,
+        name: staffAuth.user.user_metadata?.full_name || staffAuth.user.email,
+        role: staffAuth.user.role,
+        store_id: staffAuth.user.user_metadata?.store_id,
+        store_ids: staffAuth.user.user_metadata?.store_ids,
+        store_scope: staffAuth.user.user_metadata?.store_scope,
+      };
+      const storeScopeCheck = await authorizeStoreScope(
+        serverUser,
+        existing.store_id,
+        supabaseAdmin,
+        { requireWrite: requiresManagerOrAdminCertAuth, action: requiresManagerOrAdminCertAuth ? undefined : 'complete_checklist' }
+      );
+      if (!storeScopeCheck.authorized) {
+        return NextResponse.json(
+          { ok: false, error: storeScopeCheck.error || 'No autorizado para esta sucursal.' },
+          { status: storeScopeCheck.status }
+        );
+      }
+    } else {
+      // Flujo de aprendiz (Día 1–3): exige coincidencia criptográfica constante de código TG-XXXX vigente
+      const storedCode = String(existing.access_code || '').trim().toUpperCase();
+      if (!/^TG-[A-Z0-9]{4,}$/.test(storedCode)) {
+        return NextResponse.json(
+          { ok: false, error: 'Código temporal TG-XXXX inválido para esta inscripción.' },
+          { status: 403 }
+        );
+      }
+      const normalizedProvided = providedCodeRaw.startsWith('TG-') ? providedCodeRaw : `TG-${providedCodeRaw}`;
+      const codeMatches =
+        safeTimingEqualStrings(providedCodeRaw, storedCode) ||
+        safeTimingEqualStrings(normalizedProvided, storedCode);
+
+      if (!codeMatches) {
+        return NextResponse.json(
+          { ok: false, error: 'Código de acceso TG-XXXX no coincide con la inscripción.' },
+          { status: 403 }
+        );
+      }
+      const expMs = new Date(existing.expires_at).getTime();
+      if (isNaN(expMs) || expMs < Date.now() || existing.status === 'EXPIRED') {
+        return NextResponse.json(
+          { ok: false, expired: true, error: 'Tu pase temporal TG-XXXX ha expirado. Solicita renovación a tu Manager.' },
+          { status: 403 }
+        );
+      }
+      if (existing.status === 'CERTIFIED') {
+        return NextResponse.json(
+          { ok: false, error: 'Esta inscripción ya se encuentra certificada.' },
+          { status: 403 }
+        );
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -402,7 +681,6 @@ export async function PUT(req: NextRequest) {
         patch.status = 'IN_PROGRESS';
       }
     } else {
-      // Actualización parcial en tiempo real (videos vistos, reps, tiempo de cronómetro, checklist, cambio de día manual)
       if (Array.isArray(body.day1VideosWatched)) {
         patch.day1_videos_watched = body.day1VideosWatched;
       }
@@ -458,7 +736,7 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const serverUser = await getServerUser(req);
+    const serverUser = await hydrateStaffStoreUser(req);
     if (!serverUser || !ENROLLMENT_ADMIN_ROLES.has(String(serverUser.role || '').trim().toLowerCase())) {
       return NextResponse.json({ ok: false, error: 'No autorizado.' }, { status: 401 });
     }
@@ -467,6 +745,24 @@ export async function DELETE(req: NextRequest) {
     const id = (searchParams.get('id') || '').trim();
     if (!id) {
       return NextResponse.json({ ok: false, error: 'ID requerido' }, { status: 400 });
+    }
+
+    const { data: target } = await supabaseAdmin
+      .from('training_enrollments')
+      .select('id, store_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!target) {
+      return NextResponse.json({ ok: false, error: 'Inscripción no encontrada.' }, { status: 404 });
+    }
+
+    const scopeCheck = await authorizeStoreScope(serverUser, target.store_id, supabaseAdmin, { requireWrite: true });
+    if (!scopeCheck.authorized) {
+      return NextResponse.json(
+        { ok: false, error: scopeCheck.error || 'No autorizado para eliminar registros de otra sucursal.' },
+        { status: scopeCheck.status || 403 }
+      );
     }
 
     const { error } = await supabaseAdmin

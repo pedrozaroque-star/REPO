@@ -11,10 +11,45 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth, type DecodedToken } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaTime } from '@/lib/business-date'
 
+async function resolveSupervisorIdentity(supabase: any, user?: DecodedToken) {
+  if (!user) return { uid: '', email: '', name: '' }
+  const uid = String(user.id || '').trim()
+  let email = String(user.email || '').trim().toLowerCase()
+  let name = String(user.user_metadata?.full_name || '').trim().toLowerCase()
+
+  const numericUid = Number(uid)
+  if (!name && Number.isFinite(numericUid) && numericUid > 0) {
+    const { data: uRow } = await supabase
+      .from('users')
+      .select('full_name, email')
+      .eq('id', numericUid)
+      .maybeSingle()
+    if (uRow) {
+      if (uRow.full_name) name = String(uRow.full_name).trim().toLowerCase()
+      if (!email && uRow.email) email = String(uRow.email).trim().toLowerCase()
+    }
+  }
+  return { uid, email, name }
+}
+
+function tripBelongsToSupervisor(t: any, ident: { uid: string; email: string; name: string }): boolean {
+  const supId = String(t?.supervisor_id || '').trim()
+  const supEmail = String(t?.supervisor_email || '').trim().toLowerCase()
+  const supName = String(t?.supervisor_name || '').trim().toLowerCase()
+  if (ident.uid && supId === ident.uid) return true
+  if (ident.email && supEmail === ident.email) return true
+  if (ident.name && (supName === ident.name || supId.toLowerCase() === ident.name)) return true
+  return false
+}
+
 export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = await getSupabaseAdminClient()
     const { searchParams } = new URL(req.url)
@@ -24,13 +59,16 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get('end_date')
     const status = searchParams.get('status')
 
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
+
     let query = supabase
       .from('supervisor_mileage_trips')
       .select('*')
       .order('trip_date', { ascending: false })
       .order('created_at', { ascending: false })
 
-    if (supervisorId) {
+    if (isAdminOrCron && supervisorId) {
       query = query.eq('supervisor_id', supervisorId)
     }
     if (startDate) {
@@ -50,7 +88,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: error.message, trips: [] }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, trips: trips || [] })
+    let scopedTrips = trips || []
+    if (!isAdminOrCron) {
+      const ident = await resolveSupervisorIdentity(supabase, auth.user)
+      scopedTrips = scopedTrips.filter((t: any) => tripBelongsToSupervisor(t, ident))
+    }
+
+    return NextResponse.json({ success: true, trips: scopedTrips })
   } catch (err: any) {
     console.error('Error in GET /api/miles:', err)
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
@@ -58,6 +102,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await req.json()
     const {
@@ -84,26 +131,41 @@ export async function POST(req: NextRequest) {
       tolls_amount = 0
     } = body
 
-    if (!supervisor_id || !origin_name || !destination_name || distance_miles === undefined) {
+    const supabase = await getSupabaseAdminClient()
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
+    const ident = !isAdminOrCron ? await resolveSupervisorIdentity(supabase, auth.user) : null
+
+    const effectiveSupervisorId = !isAdminOrCron ? ident!.uid : supervisor_id
+    if (!effectiveSupervisorId || !origin_name || !destination_name || distance_miles === undefined) {
       return NextResponse.json(
         { error: 'Campos requeridos faltantes: supervisor_id, origin_name, destination_name, distance_miles' },
         { status: 400 }
       )
     }
 
-    const effectiveMiles = is_round_trip ? Number(distance_miles) * 2 : Number(distance_miles)
-    const rate = Number(rate_per_mile) || 0.76
-    const parking = Number(parking_amount) || 0
-    const tolls = Number(tolls_amount) || 0
-    const mileageVal = effectiveMiles * rate
-    const totalReimbursement = mileageVal + parking + tolls
+    const baseMiles = Number(distance_miles)
+    if (!Number.isFinite(baseMiles) || baseMiles < 0) {
+      return NextResponse.json({ error: 'distance_miles inválido' }, { status: 400 })
+    }
 
-    const supabase = await getSupabaseAdminClient()
+    let rate = Number(rate_per_mile) || 0.76
+    if (!isAdminOrCron) {
+      const { data: settings } = await supabase
+        .from('supervisor_mileage_settings')
+        .select('current_rate_per_mile')
+        .limit(1)
+      rate = Number(settings?.[0]?.current_rate_per_mile) || 0.76
+    }
+
+    const effectiveMiles = is_round_trip ? baseMiles * 2 : baseMiles
+    const parking = Math.max(0, Number(parking_amount) || 0)
+    const tolls = Math.max(0, Number(tolls_amount) || 0)
 
     const { data: inserted, error } = await supabase
       .from('supervisor_mileage_trips')
       .insert({
-        supervisor_id,
+        supervisor_id: effectiveSupervisorId,
         supervisor_name: supervisor_name || 'Supervisor',
         supervisor_email: supervisor_email || 'supervisor@tacosgavilan.com',
         trip_date: trip_date || getCaliforniaBusinessDate(),

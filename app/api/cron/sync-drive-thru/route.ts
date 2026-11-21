@@ -25,11 +25,12 @@
  * @notes
  * - Requiere que `syncDriveThruData` y `autoDetectDTStores` estén en `@/lib/drive-thru-api`.
  * - El maxDuration de 300s es el máximo permitido en Vercel Pro.
- * - Autenticación vía CRON_SECRET header (Bearer token).
+ * - Autenticación Fail-Closed vía `verifyStaffAuth` (`CRON_SECRET` o rol `admin`/`supervisor`).
  * - 2026-11-19 (Paquete 2A): Alineadas horas muertas a `4:15–6:59 AM LA` con soporte `?force=1` y corregido disparo de `autoDetectDTStores()` a `currentHour === 7 && currentMinute < 15` (1×/mañana en lugar de 6×).
  */
 import { NextResponse } from 'next/server'
 import { syncDriveThruData, autoDetectDTStores } from '@/lib/drive-thru-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,12 +39,9 @@ export const maxDuration = 300
 
 export async function GET(request: Request) {
     try {
-        // ─── Verificar firma de autorización (Vercel Cron) ───
-        const authHeader = request.headers.get('authorization')
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            if (process.env.CRON_SECRET) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         // ─── Calcular businessDate con regla de las 6 AM (zona LA) ───

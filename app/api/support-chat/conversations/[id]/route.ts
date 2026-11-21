@@ -2,30 +2,50 @@
  * @module api/support-chat/conversations/[id]/route
  * @description API route to fetch all messages and full context for a specific conversation by ID.
  * @businessRules
- * - Messages are retrieved in chronological ascending order (created_at ASC) to rebuild the full conversation.
- * - Supports instant re-loading of past questions and answers in TEG Assistant.
+ * - Requires staff JWT (`verifyStaffAuth(req, { allowCron: false })`) and verifies conversation ownership (`user_email` / `user_id`) unless `auth.user.role === 'admin'`.
+ * - Messages are retrieved in chronological ascending order (`created_at ASC`) to rebuild the full conversation.
  * @dataFlow
- * - GET: Client (conversation_id) -> Query assistant_conversations + assistant_messages -> JSON Conversation with messages.
- * - DELETE: Client (conversation_id) -> Delete conversation from database -> JSON Status.
- * @notes Cascading foreign keys automatically delete child messages when the parent conversation is deleted.
+ * - GET: Client (`id`) -> `verifyStaffAuth` + ownership check -> Query `assistant_conversations` + `assistant_messages` -> JSON Conversation with messages.
+ * - DELETE: Client (`id`) -> `verifyStaffAuth` + ownership check -> Delete conversation from database -> JSON Status.
+ * @notes
+ * - Cascading foreign keys automatically delete child messages when the parent conversation is deleted.
+ * - Blindaje anti-IDOR (2026-11-21): validación estricta de titularidad en `GET` y `DELETE`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function canAccessConversation(authUser: any, conversation: { user_email?: string | null; user_id?: string | null }): boolean {
+  const roleLower = String(authUser?.role || authUser?.user_role || '').toLowerCase();
+  if (roleLower === 'admin' || roleLower === 'administrador') return true;
+  const emailMatches = Boolean(
+    authUser?.email &&
+    conversation.user_email &&
+    String(conversation.user_email).trim().toLowerCase() === String(authUser.email).trim().toLowerCase()
+  );
+  const idMatches = Boolean(
+    authUser?.id &&
+    conversation.user_id &&
+    String(conversation.user_id).trim() === String(authUser.id).trim()
+  );
+  return emailMatches || idMatches;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await verifyStaffAuth(req);
-  if (!auth.authorized) return auth.response!;
+  const auth = verifyStaffAuth(req, { allowCron: false });
+  if (!auth.authorized || !auth.user) return auth.response!;
 
   try {
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json({ error: 'Missing conversation id.' }, { status: 400 });
+    if (!id || !UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'Invalid or missing conversation id.' }, { status: 400 });
     }
 
     // 1. Fetch conversation details
@@ -33,10 +53,14 @@ export async function GET(
       .from('assistant_conversations')
       .select('id, title, user_id, user_name, user_email, user_role, store_id, created_at, updated_at')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (convError || !conversation) {
       return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
+    }
+
+    if (!canAccessConversation(auth.user, conversation)) {
+      return NextResponse.json({ error: 'Acceso denegado a esta conversación.' }, { status: 403 });
     }
 
     // 2. Fetch all messages for this conversation
@@ -57,7 +81,7 @@ export async function GET(
     });
   } catch (error: any) {
     console.error('[Conversation Detail API] Unexpected error:', error);
-    return NextResponse.json({ error: 'Internal server error.', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
   }
 }
 
@@ -65,14 +89,28 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await verifyStaffAuth(req);
-  if (!auth.authorized) return auth.response!;
+  const auth = verifyStaffAuth(req, { allowCron: false });
+  if (!auth.authorized || !auth.user) return auth.response!;
 
   try {
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json({ error: 'Missing conversation id.' }, { status: 400 });
+    if (!id || !UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'Invalid or missing conversation id.' }, { status: 400 });
+    }
+
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+      .from('assistant_conversations')
+      .select('id, user_id, user_email')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr || !existing) {
+      return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
+    }
+
+    if (!canAccessConversation(auth.user, existing)) {
+      return NextResponse.json({ error: 'Acceso denegado: no puedes eliminar conversaciones de otro usuario.' }, { status: 403 });
     }
 
     const { error } = await supabaseAdmin
@@ -88,6 +126,6 @@ export async function DELETE(
     return NextResponse.json({ success: true, deleted_id: id });
   } catch (error: any) {
     console.error('[Conversation Detail API] Unexpected error in DELETE:', error);
-    return NextResponse.json({ error: 'Internal server error.', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
   }
 }

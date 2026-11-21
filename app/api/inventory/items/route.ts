@@ -13,6 +13,18 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
+
+const INVENTORY_WRITE_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'asistente',
+    'assistant',
+    'general_manager',
+    'accounting',
+    'contador',
+]
 
 const INVENTORY_ITEM_SELECT = `
     id,
@@ -29,7 +41,10 @@ const INVENTORY_ITEM_SELECT = `
     category:inventory_categories(name)
 `
 
-export async function GET() {
+export async function GET(request: Request) {
+    const auth = verifyStaffAuth(request, { allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     const cookieStore = await cookies()
 
     const supabase = createServerClient(
@@ -89,6 +104,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+    const auth = verifyStaffAuth(request, { allowedRoles: INVENTORY_WRITE_ROLES, allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     // Use Admin Client to bypass missing RLS insert policy for now
     const supabase = await getSupabaseAdminClient()
     const body = await request.json()
@@ -123,6 +141,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
+    const auth = verifyStaffAuth(request, { allowedRoles: INVENTORY_WRITE_ROLES, allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     const supabase = await getSupabaseAdminClient()
     const body = await request.json()
 

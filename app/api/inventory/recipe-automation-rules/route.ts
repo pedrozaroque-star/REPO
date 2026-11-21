@@ -8,10 +8,24 @@
  */
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 const VALID_TYPES = new Set(['historical_allocation', 'special_request_protein_mix', 'channel_packaging'])
+const RULE_WRITE_ROLES = [
+  'admin',
+  'supervisor',
+  'manager',
+  'asistente',
+  'assistant',
+  'general_manager',
+  'accounting',
+  'contador',
+]
 
 export async function GET(request: Request) {
+  const auth = verifyStaffAuth(request, { allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   const guid = new URL(request.url).searchParams.get('guid')
   if (!guid) return NextResponse.json({ error: 'guid is required' }, { status: 400 })
 
@@ -27,6 +41,9 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const auth = verifyStaffAuth(request, { allowedRoles: RULE_WRITE_ROLES, allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   const body = await request.json()
   const { toast_guid, rules } = body
   if (!toast_guid || !Array.isArray(rules)) {

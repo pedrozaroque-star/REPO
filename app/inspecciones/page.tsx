@@ -83,11 +83,8 @@ function InspeccionesContent() {
 
       const supabase = await getSupabaseClient()
 
-      // Asegurar que el cliente reconozca el token antes de la primera petición RLS
-      const token = localStorage.getItem('teg_token')
-      if (token) {
-        await supabase.auth.setSession({ access_token: token, refresh_token: '' })
-      }
+      const roleLower = user?.role?.toLowerCase()
+      const isSingleStoreManager = (roleLower === 'manager' || roleLower === 'gerente') && Boolean(user?.store_id)
 
       // 1. Obtener tiendas y usuarios para mapeo manual
       const { data: storesList, error: storesListError } = await supabase.from('stores').select('*').order('name', { ascending: true })
@@ -96,7 +93,11 @@ function InspeccionesContent() {
       const { data: usersList, error: usersListError } = await supabase.from('users').select('id, full_name, role')
       if (usersListError) console.error('❌ Error fetching users list:', usersListError);
 
-      setStores(storesList || [])
+      setStores(
+        isSingleStoreManager
+          ? (storesList || []).filter(s => String(s.id) === String(user?.store_id))
+          : (storesList || [])
+      )
       setUsers(usersList || [])
 
       // Resolver storeFilter si viene por nombre en lugar de ID
@@ -136,11 +137,11 @@ function InspeccionesContent() {
         .from('supervisor_inspections')
         .select('*', { count: 'exact' })
 
-      // Aplicar filtros a la consulta de Supabase (independientes para permitir Tienda + Supervisor + Fechas)
-      if (effectiveStoreFilter !== 'all') {
+      // Restringir rol manager a su propia tienda ANTES de evaluar ?store= / effectiveStoreFilter
+      if (isSingleStoreManager) {
+        query = query.eq('store_id', user!.store_id)
+      } else if (effectiveStoreFilter !== 'all') {
         query = query.eq('store_id', effectiveStoreFilter)
-      } else if (user?.role === 'manager' || user?.role === 'gerente') {
-        if (user.store_id) query = query.eq('store_id', user.store_id)
       }
 
       if (effectiveSupervisorFilter !== 'all') {
@@ -176,10 +177,8 @@ function InspeccionesContent() {
 
       // 2.5 Obtener Stats Globales (para las tarjetas de arriba)
       let statsQuery = supabase.from('supervisor_inspections').select('overall_score, estatus_admin')
-      if (effectiveStoreFilter !== 'all') statsQuery = statsQuery.eq('store_id', effectiveStoreFilter)
-      else if (user?.role === 'manager' || user?.role === 'gerente') {
-        if (user.store_id) statsQuery = statsQuery.eq('store_id', user.store_id)
-      }
+      if (isSingleStoreManager) statsQuery = statsQuery.eq('store_id', user!.store_id)
+      else if (effectiveStoreFilter !== 'all') statsQuery = statsQuery.eq('store_id', effectiveStoreFilter)
       if (effectiveSupervisorFilter !== 'all') statsQuery = statsQuery.eq('inspector_id', effectiveSupervisorFilter)
       if (startDateFilter) statsQuery = statsQuery.gte('inspection_date', startDateFilter)
       if (endDateFilter) statsQuery = statsQuery.lte('inspection_date', endDateFilter)
@@ -239,11 +238,14 @@ function InspeccionesContent() {
         if (targetInPage) {
           handleRowClick(targetInPage)
         } else {
-          const { data: singleInsp } = await supabase
+          let singleInspQuery = supabase
             .from('supervisor_inspections')
             .select('*')
             .eq('id', openId)
-            .maybeSingle()
+          if (isSingleStoreManager) {
+            singleInspQuery = singleInspQuery.eq('store_id', user!.store_id)
+          }
+          const { data: singleInsp } = await singleInspQuery.maybeSingle()
           if (singleInsp) {
             handleRowClick(mapInspectionItem(singleInsp))
           }

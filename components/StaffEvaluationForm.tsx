@@ -310,14 +310,13 @@ export default function StaffEvaluationForm({
                 }
             }
 
-            const { data, error } = await supabase
+            const { error } = await supabase
                 .from('staff_evaluations')
                 .insert([payload])
-                .select()
 
             if (error) throw error
 
-            const created = data && data.length > 0 ? data[0] : payload
+            const created = payload
             setSubmittedRecord(created)
             setShowThanks(true)
 

@@ -1,11 +1,23 @@
 'use client'
 
+/**
+ * @module app/admin/plantillas/page
+ * @description Catálogo administrativo de plantillas dinámicas de checklists, inspecciones, evaluaciones y encuestas para Tacos Gavilan.
+ * @businessRules
+ * - Consulta plantillas autenticando la sesión JWT (`teg_token`) vía `fetchWithAuth` hacia Supabase PostgREST.
+ * @dataFlow
+ * - `fetchWithAuth('/rest/v1/templates')` -> listado filtrable -> `/admin/plantillas/[id]`.
+ * @notes
+ * - Hardened 2026-11-21: Migrado de cabeceras `anon` crudas a `fetchWithAuth` para cumplimiento estricto de RLS.
+ */
+
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, FileText, Plus, Search, Edit } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { fetchWithAuth } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'
 
 interface Template {
@@ -32,14 +44,8 @@ export default function TemplatesPage() {
     const fetchTemplates = async () => {
         try {
             const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-            const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-            const res = await fetch(`${url}/rest/v1/templates?select=*&order=title.asc`, {
-                headers: {
-                    'apikey': key || '',
-                    'Authorization': `Bearer ${key}`
-                }
-            })
+            const res = await fetchWithAuth(`${url}/rest/v1/templates?select=*&order=title.asc`)
 
             if (!res.ok) throw new Error('Error fetching templates')
             const data = await res.json()

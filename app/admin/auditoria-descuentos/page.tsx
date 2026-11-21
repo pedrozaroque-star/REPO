@@ -16,17 +16,10 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
-import { formatStoreName } from '@/lib/supabase'
-import { createClient } from '@supabase/supabase-js'
+import { supabase, formatStoreName } from '@/lib/supabase'
 import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight, ShieldAlert, Target, Info, X } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts'
-
-// Utiliza cliente supabase de entorno publico para lecturas
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 type DiscountRow = {
     id: string

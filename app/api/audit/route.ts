@@ -1,11 +1,29 @@
-
+/**
+ * @module app/api/audit/route
+ * @description Endpoint administrativo de diagnóstico que devuelve conteos globales de tablas principales (`users`, `stores`, `inspections`, `sales_daily_cache` por año).
+ *
+ * @businessRules
+ * - Acceso exclusivo para `admin`, `supervisor` o invocación interna autorizada (`CRON_SECRET`).
+ *
+ * @dataFlow
+ * - Admin / Cron -> `GET /api/audit` -> `verifyStaffAuth` -> conteos HEAD en Supabase -> respuesta JSON.
+ *
+ * @notes
+ * - Protegido con `verifyStaffAuth` Fail-Closed.
+ */
 import { getSupabaseClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
+
         const supabase = await getSupabaseClient()
 
         // 1. Usuarios

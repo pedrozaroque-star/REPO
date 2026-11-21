@@ -23,6 +23,7 @@
  *   - Fallos de catálogo o de Order Guides generan respuesta de error y auditoría failed, no éxito parcial.
  *   - Seguro para ejecución desatendida en Vercel Serverless con Vercel Cron.
  *   - QuickBooks sync tiene blindaje is_bodega para NO pisar estos precios externos.
+ *   - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -30,15 +31,15 @@ import { syncVielePortalDirect } from '@/lib/vendor-scraper'
 import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
 import { sendSupplierPriceAlertEmail, PriceIncreaseItem } from '@/lib/supplier-price-email'
 import { syncVielePurchasesCatalog, syncVieleOrderGuides } from '@/lib/viele-price-sync'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 async function handleSync(request: NextRequest) {
-  // Validar CRON_SECRET solo si está configurado en el entorno
-  const authHeader = request.headers.get('authorization')
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) {
+    return auth.response || NextResponse.json({ success: false, error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
   }
 
   const startTime = Date.now()

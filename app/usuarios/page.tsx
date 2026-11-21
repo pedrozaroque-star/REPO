@@ -19,7 +19,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 
 import UserModal from '@/components/UserModal'
 import ToastSyncModal from '@/components/ToastSyncModal'
-import { getSupabaseClient, getSupabaseAdminClient, formatStoreName } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'
 
 function UsuariosPage() {
@@ -64,7 +64,10 @@ function UsuariosPage() {
 
       // Traemos empleados de Toast formateados para autocompletado
       try {
-        const syncRes = await fetch('/api/admin/users/sync-toast')
+        const tegToken = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+        const syncRes = await fetch('/api/admin/users/sync-toast', {
+          headers: tegToken ? { Authorization: `Bearer ${tegToken}` } : undefined
+        })
         const syncJson = await syncRes.json()
         if (syncJson.success) {
           setToastEmployees(syncJson.toastEmployees || [])
@@ -85,16 +88,27 @@ function UsuariosPage() {
   // --- LÓGICA MAESTRA DE GUARDADO ---
   const handleSaveUser = async (formData: any, isEdit: boolean) => {
     try {
-      // ⚠️ USAR CLIENTE ADMIN para bypasear RLS en operaciones de gestión de usuarios
-      const supabase = await getSupabaseAdminClient()
+      const tegToken = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(tegToken ? { Authorization: `Bearer ${tegToken}` } : {})
+      }
 
       // Si había un conflicto de sucursal y se solicitó desactivar al manager/asistente anterior
       if (formData.deactivateCurrentId) {
         console.log('🔄 Desactivando usuario conflictivo anterior:', formData.deactivateCurrentId)
-        await supabase
-          .from('users')
-          .update({ is_active: false })
-          .eq('id', formData.deactivateCurrentId)
+        const deactRes = await fetch('/api/admin/update-user', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            userId: formData.deactivateCurrentId,
+            userData: { is_active: false }
+          })
+        })
+        const deactJson = await deactRes.json().catch(() => ({}))
+        if (!deactRes.ok || !deactJson.success) {
+          throw new Error(deactJson.error || 'No se pudo desactivar al usuario anterior')
+        }
       }
 
       // 1. Preparar datos limpios según el rol
@@ -128,13 +142,9 @@ function UsuariosPage() {
 
       if (isEdit) {
         // A. ACTUALIZAR USUARIO EXISTENTE
-
-
-
-        // Usar API route del servidor (tiene acceso al service_role key)
         const response = await fetch('/api/admin/update-user', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders,
           body: JSON.stringify({
             userId: formData.id,
             userData: cleanData
@@ -152,41 +162,15 @@ function UsuariosPage() {
 
         if (!result.data || result.data.length === 0) {
           console.error('⚠️ El update no afectó ninguna fila.')
-          // alert('⚠️ Advertencia: No se pudo actualizar el usuario.') // Using browser alert for now, but UI text should be cleaner
           return
         }
 
         console.log('✅ Usuario actualizado exitosamente')
-
-        if (formData.password && formData.password.trim() !== '') {
-          // Intentar sincronizar con Supabase Auth
-          try {
-            const response = await fetch('/api/admin/reset-password', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                userId: formData.id,
-                email: formData.email,
-                password: formData.password
-              })
-            })
-
-            if (!response.ok) {
-              const resData = await response.json()
-              console.warn('Sync Auth warning:', resData.error || 'Failed to sync auth password')
-            }
-          } catch (syncErr) {
-            console.error('Failed to sync auth password:', syncErr)
-          }
-        }
-
-        // alert('✅ Usuario actualizado correctamente')
-
       } else {
         // B. CREAR NUEVO USUARIO
         const response = await fetch('/api/admin/create-user', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders,
           body: JSON.stringify({
             email: formData.email,
             password: formData.password,

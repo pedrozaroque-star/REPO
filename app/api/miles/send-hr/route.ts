@@ -24,7 +24,7 @@ function normalizeMilesMailbox(raw?: string | null): string {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await verifyStaffAuth(req)
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin'], allowCron: true })
   if (!auth.authorized) return auth.response!
 
   try {
@@ -100,10 +100,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Query target trips
+    // 2. Query strictly eligible Business + pending trips (never pay Personal, Commute, rejected, submitted_hr, or paid!)
+    const { data: settingsRows } = await supabase
+      .from('supervisor_mileage_settings')
+      .select('current_rate_per_mile')
+      .limit(1)
+    const defaultRatePerMile = Number(settingsRows?.[0]?.current_rate_per_mile) || 0.76
+
     let query = supabase
       .from('supervisor_mileage_trips')
       .select('*')
+      .eq('purpose', 'Business')
+      .eq('status', 'pending')
       .gte('trip_date', period_start)
       .lte('trip_date', period_end)
 
@@ -118,7 +126,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: tripsErr.message }, { status: 500 })
     }
 
-    const targetTrips = trips || []
+    const targetTrips = (trips || []).filter(
+      (t: any) => t.purpose === 'Business' && t.status === 'pending'
+    )
 
     if (targetTrips.length === 0) {
       return NextResponse.json(
@@ -254,7 +264,7 @@ export async function POST(req: NextRequest) {
             periodStart: period_start,
             periodEnd: period_end,
             trips: supTrips,
-            ratePerMile: 0.76,
+            ratePerMile: defaultRatePerMile,
             submittedByName: sender_name
           })
           supervisorPdfResults.push({
@@ -461,6 +471,8 @@ export async function POST(req: NextRequest) {
           hr_submission_id: hrSub.id
         })
         .in('id', tripIdsToUpdate)
+        .eq('status', 'pending')
+        .eq('purpose', 'Business')
     }
 
     return NextResponse.json({

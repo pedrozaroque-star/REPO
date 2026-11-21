@@ -11,9 +11,11 @@
  * @notes
  *   - Se ejecutan lotes por minuto LA para balancear consumo de API Toast sin timeouts.
  *   - 2026-11-19 (Paquete 2A): Salto en horas muertas (`4:15–5:59 AM` y `6:30–6:59 AM LA`), pasada única `[dateStrYest]` en `6:00–6:29 AM LA`, proyecciones slim en `inventory_items`/`recipes`, y reemplazo de `DELETE+INSERT` ciego por `UPSERT` por diferencias + `DELETE` selectivo de cubetas anuladas (Caveat A: maneja órdenes anuladas en Toast con 0% drift eliminando >95% de dead tuples).
+ *   - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutes max on Vercel Pro
@@ -64,11 +66,9 @@ function get30MinBucket(isoDateStr: string): string {
 
 export async function GET(request: Request) {
     try {
-        const authHeader = request.headers.get('authorization')
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            if (process.env.CRON_SECRET) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const searchParams = new URL(request.url).searchParams

@@ -18,6 +18,8 @@
  * @notes
  *   - Diseñado específicamente para resolver la falta de precios en el CSV de Viele & Sons,
  *     permitiendo capturar en 0.1s la tabla visible de shop.vieleandsons.com/orderentry/.
+ *   - [2026-11-20] FIX CRÍTICO: Excluidos descriptores fraccionales (`1/2 Size`, `1/3 Pan`, `1/4`, `1/6`, `1/9`, `2/3`)
+ *     en `inferPackQuantity` para evitar inflación `50x` cuando el conteo real viene en `"100 count"` / `"200 count"`.
  */
 
 import { VIELE_CATALOG_87 } from './seeds/viele-catalog-87'
@@ -122,64 +124,102 @@ function cleanCommentText(rawComment?: string): string {
 /**
  * Intenta inferir la cantidad de piezas por caja a partir del texto de la unidad o descripción
  * Ej: "1000 count", "12/1000 count", "24/300 count", "4/1 gal", "5 gal BIB"
+ * Ignora fracciones culinarias/dimensiones como "1/2 Size", "1/3 Pan", "1/4", "1/6", "1/9", "2/3", "8-1/2".
  */
-export function inferPackQuantity(unitStr: string, descStr?: string): number {
+export function inferPackQuantity(unitStr: string, descStr?: string, skuStr?: string): number {
   let combined = `${unitStr || ''} ${descStr || ''}`.toLowerCase().trim()
-  // Limpiar comas en números como 2,500
-  combined = combined.replace(/(\d+),(\d+)/g, '$1$2')
+  // Limpiar comas en números de miles como 2,500
+  combined = combined.replace(/(\d+),(\d{3})\b/g, '$1$2')
 
-  // Formato tipo botellas / líquidos: 12/32 OZ -> 12 unidades
-  const bottleMatch = combined.match(/(\d+)\s*\/\s*(\d+)\s*(?:oz|fl\.?\s*oz|ounce|ounces|lb|lbs)/i)
+  // Eliminar descriptores fraccionales de charolas/insertos/pliegues/pulgadas para que jamás se confundan con sub-empaques
+  const sanitizedForPacks = combined
+    .replace(/\b\d+\s*-\s*\d+\s*\/\s*\d+\b/gi, ' ')
+    .replace(/\b(?:1\s*\/\s*(?:2|3|4|6|8|9|12|16)|2\s*\/\s*3|3\s*\/\s*(?:4|8))\s*(?:size|pan|pans|lid|lids|hotel|insert|inserts|deep|shallow|medium|fold|folded|in\.?|inch(?:es)?|")?/gi, ' ')
+    .replace(/\b\d+\s*\/\s*\d+\s*(?:size|pan|pans|lid|lids|hotel|insert|inserts|deep|shallow|medium|fold|folded|in\.?|inch(?:es)?|")/gi, ' ')
+
+  // 1. Formato tipo botellas / líquidos: 12/32 OZ -> 12 unidades
+  const bottleMatch = sanitizedForPacks.match(/(\d+)\s*\/\s*(\d+)\s*(?:oz|fl\.?\s*oz|ounce|ounces|lb|lbs)\b/i)
   if (bottleMatch) {
     const p1 = parseInt(bottleMatch[1], 10)
     if (!isNaN(p1) && p1 > 0) return p1
   }
 
-  // 12/1000 count, 20/250, 10/100, 4/1 gal, 24/300, 6/500, 24/250
-  const slashMatch = combined.match(/(\d+)\s*\/\s*(\d+)(?:\s*(?:count|ct|cs|pk|pza|gal|gallon|rolls|sheets|gloves|napkins|bags|totes))?/i)
-  if (slashMatch) {
-    const p1 = parseInt(slashMatch[1], 10)
-    const p2 = parseInt(slashMatch[2], 10)
+  // 1b. Latas institucionales foodservice (#10 Cans / #5 Cans): "6/#10 Cans", "6/#10" -> 6 latas
+  const numberCanMatch = sanitizedForPacks.match(/(\d+)\s*\/\s*#\s*\d+\b/i)
+  if (numberCanMatch) {
+    const p1 = parseInt(numberCanMatch[1], 10)
+    if (!isNaN(p1) && p1 > 0) return p1
+  }
+
+  // 2. Sub-empaque explícito con unidad de conteo/volumen: 12/1000 count, 4/1 gal, 24/300 count, 6/500 count
+  const explicitSlashMatch = sanitizedForPacks.match(/(\d+)\s*\/\s*(\d+)\s*(?:count|ct|cs|pk|pza|pzas|pcs|pieces|gal|gallon|rolls|sheets|gloves|napkins|bags|totes)\b/i)
+  if (explicitSlashMatch) {
+    const p1 = parseInt(explicitSlashMatch[1], 10)
+    const p2 = parseInt(explicitSlashMatch[2], 10)
     if (!isNaN(p1) && !isNaN(p2) && p1 > 0 && p2 > 0) {
       return p1 * p2
     }
   }
 
-  // 1000 count, 500 count, 2000ct, 250 count, 2500/cs, 500 pzas
-  const countMatch = combined.match(/(\d+)\s*(?:\/)?\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls|cs)/i)
+  // 3. Conteo directo explícito: 100 count, 200 count, 1000 count, 500 ct, 2500/cs, 500 pzas
+  const countMatch = sanitizedForPacks.match(/(?:^|[^\d/])(\d+)\s*(?:\/)?\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls|cs)\b/i)
   if (countMatch) {
     const p = parseInt(countMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
   }
 
-  // 5 gal, 4 gal, 3 gal, 10 gal
-  const galMatch = combined.match(/(\d+)\s*(?:gal|gallon|galones|bib)/i)
+  // 4. Sub-empaque sin palabra "count" (ej. "24/250", "20/250", "10/100"): exigir subpacks reales (p1 >= 2 y p2 >= 6)
+  const bareSlashMatch = sanitizedForPacks.match(/\b(\d+)\s*\/\s*(\d+)\b/i)
+  if (bareSlashMatch) {
+    const p1 = parseInt(bareSlashMatch[1], 10)
+    const p2 = parseInt(bareSlashMatch[2], 10)
+    if (!isNaN(p1) && !isNaN(p2) && p1 >= 2 && p2 >= 6) {
+      return p1 * p2
+    }
+  }
+
+  // 5. Galones / BIB: 5 gal, 4 gal, 3 gal, 10 gal
+  const galMatch = sanitizedForPacks.match(/(\d+)\s*(?:gal|gallon|galones|bib)\b/i)
   if (galMatch) {
     const p = parseInt(galMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
   }
 
-  // 10CS, 12CS, 4CS, 6CS, 20CS, 24CS, 3CS
+  // 6. Catálogo maestro Viele & Sons por SKU exacto si fue provisto y la descripción no traía conteo explícito
+  if (skuStr) {
+    const cleanSku = skuStr.trim().toUpperCase()
+    const catMatch = VIELE_CATALOG_87.find(c => c.sku.toUpperCase() === cleanSku)
+    if (catMatch && catMatch.packQuantity > 0) {
+      return catMatch.packQuantity
+    }
+  }
+
+  // 7. 10CS, 12CS, 4CS, 6CS, 20CS, 24CS, 3CS
   const csMatch = unitStr?.match(/^(\d+)CS$/i)
   if (csMatch) {
     const p = parseInt(csMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
   }
 
-  // Fallback para SKUs conocidos de empaques de alta rotación
-  const upperCombined = `${unitStr || ''} ${descStr || ''}`.toUpperCase()
+  // 8. Fallback para SKUs conocidos de empaques de alta rotación
+  const upperCombined = `${skuStr || ''} ${unitStr || ''} ${descStr || ''}`.toUpperCase()
   const KNOWN_SKU_PACK_MAP: Record<string, number> = {
     EP9PR: 500,
     EL4OZ: 2500,
     ELDP32: 500,
     ELDP24: 500,
     ELDP16: 1000,
+    '1175YLPR': 1800,
     '117SYLPR': 1800,
     '12PR': 1000,
     '108SPOON': 144,
     '10WRTO': 12000,
+    '6STIR': 10000,
+    '2BT1000': 12,
     '2611000': 12,
+    '2HOHA': 300,
     '2HOMA': 300,
+    '4HOHADO': 250,
     '4HOMA': 300,
     '44OZ': 1000
   }
@@ -253,7 +293,7 @@ function parseVerticalWebTable(rawLines: string[]): ParsedSupplierItem[] {
           }
 
           if (sku && (desc || price > 0)) {
-            const packQty = inferPackQuantity(unit, desc)
+            const packQty = inferPackQuantity(unit, desc, sku)
             items.push({
               rawLineIndex: i + 1,
               supplierSku: sku.toUpperCase(),
@@ -295,7 +335,7 @@ function parseVerticalWebTable(rawLines: string[]): ParsedSupplierItem[] {
         }
 
         if (price > 0) {
-          const packQty = inferPackQuantity(unit, desc)
+          const packQty = inferPackQuantity(unit, desc, sku)
           items.push({
             rawLineIndex: i + 1,
             supplierSku: sku.toUpperCase(),
@@ -464,7 +504,7 @@ function parseHorizontalTable(rawLines: string[], detectedFormat: 'tab_separated
       }
 
       if (desc || price > 0) {
-        const packQty = inferPackQuantity(unit, desc)
+        const packQty = inferPackQuantity(unit, desc, sku)
         items.push({
           rawLineIndex: i + 1,
           supplierSku: sku.toUpperCase(),

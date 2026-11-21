@@ -11,10 +11,14 @@
  */
 
 import { NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import { fetchUniformsSafeBalance } from '@/app/inventory/uniforms/actions';
 import { getBusinessDate } from '@/app/inventory/uniforms/utils';
 
 export async function GET(request: Request) {
+  const auth = verifyStaffAuth(request, { allowCron: true });
+  if (!auth.authorized) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
     const storeIdParam = searchParams.get('storeId');
@@ -35,7 +39,17 @@ export async function GET(request: Request) {
       );
     }
 
-    const balance = await fetchUniformsSafeBalance(storeId, businessDate);
+    const cookieHeader = request.headers.get('cookie') || request.headers.get('Cookie') || '';
+    const cookieToken = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)?.[1]
+      ? decodeURIComponent(cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)![1].trim())
+      : '';
+    const forwardedAuthToken =
+      request.headers.get('x-cron-auth') ||
+      request.headers.get('authorization') ||
+      request.headers.get('Authorization') ||
+      cookieToken;
+
+    const balance = await fetchUniformsSafeBalance(storeId, businessDate, forwardedAuthToken || undefined);
 
     return NextResponse.json({
       storeId: balance.storeId,

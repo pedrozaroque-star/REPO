@@ -15,17 +15,23 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 export async function POST(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await req.json().catch(() => ({}))
     const supabase = await getSupabaseAdminClient()
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
 
     const {
-      supervisor_id,
+      supervisor_id: rawSupervisorId,
       supervisor_name,
       supervisor_email,
       store_name,
@@ -37,6 +43,8 @@ export async function POST(req: NextRequest) {
       auto_create_trip = false,
       source = 'gps_auto'
     } = body
+
+    const supervisor_id = !isAdminOrCron && auth.user?.id ? String(auth.user.id) : rawSupervisorId
 
     if (!supervisor_name || !store_name) {
       return NextResponse.json(
@@ -139,13 +147,20 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Look up distance between origin and currentStore
+    const pairNames = Array.from(new Set([originName, currentStore].filter(Boolean)))
     const { data: distances } = await supabase
       .from('store_distances')
-      .select('distance_miles')
-      .or(`and(origin_name.ilike.%${originName}%,destination_name.ilike.%${currentStore}%),and(origin_name.ilike.%${currentStore}%,destination_name.ilike.%${originName}%)`)
-      .limit(1)
+      .select('origin_name, destination_name, distance_miles')
+      .in('origin_name', pairNames)
+      .in('destination_name', pairNames)
+      .limit(5)
+    const matchedDist = (distances || []).find(
+      (d: any) =>
+        (d.origin_name === originName && d.destination_name === currentStore) ||
+        (d.origin_name === currentStore && d.destination_name === originName)
+    )
 
-    let distanceMiles = distances?.[0]?.distance_miles ? Number(distances[0].distance_miles) : 0
+    let distanceMiles = matchedDist?.distance_miles ? Number(matchedDist.distance_miles) : 0
 
     if (!distanceMiles || distanceMiles <= 0) {
       const oLoc = CANONICAL_STORE_COORDINATES[originName]
@@ -201,15 +216,21 @@ export async function POST(req: NextRequest) {
     // 5. If auto_create_trip is true, insert the trip directly into supervisor_mileage_trips
     if (auto_create_trip) {
       let finalSupervisorId = supervisor_id ? String(supervisor_id) : ''
-      if (!finalSupervisorId && (supervisor_name || supervisor_email)) {
-        const { data: matchedUser } = await supabase
+      if (!finalSupervisorId && supervisor_email) {
+        const { data: byEmail } = await supabase
           .from('users')
           .select('id')
-          .or(`email.eq.${supervisor_email || ''},full_name.ilike.%${supervisor_name || ''}%`)
+          .ilike('email', String(supervisor_email).trim())
           .limit(1)
-        if (matchedUser && matchedUser[0]?.id) {
-          finalSupervisorId = String(matchedUser[0].id)
-        }
+        if (byEmail?.[0]?.id) finalSupervisorId = String(byEmail[0].id)
+      }
+      if (!finalSupervisorId && supervisor_name) {
+        const { data: byName } = await supabase
+          .from('users')
+          .select('id')
+          .ilike('full_name', `%${String(supervisor_name).trim()}%`)
+          .limit(1)
+        if (byName?.[0]?.id) finalSupervisorId = String(byName[0].id)
       }
 
       if (!finalSupervisorId) {

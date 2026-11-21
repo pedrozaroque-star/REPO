@@ -10,6 +10,7 @@
  * @notes
  *   - [2026-11-17] Integrado `buildPartyTrayVirtualIngredients` para que Party Trays muestren su costo real completo
  *     en lugar de solo los 7 insumos fijos base de `recipes`.
+ *   - Protegido con `verifyStaffAuth` para evitar exposición pública de costos y márgenes del menú.
  */
 
 import { getSupabaseClient } from '@/lib/supabase'
@@ -17,8 +18,14 @@ import { NextResponse } from 'next/server'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { InventoryItem, Recipe } from '@/types/inventory'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
-export async function GET() {
+export async function GET(request: Request) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const supabase = await getSupabaseClient()
 
     try {

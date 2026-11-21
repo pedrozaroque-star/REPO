@@ -70,4 +70,4 @@ export function clearAttempts(key: string): void {
     attempts.delete(key)
 }
 
-export const MANAGER_ROLES = ['admin', 'supervisor', 'manager', 'asistente']
+export const MANAGER_ROLES = ['admin', 'supervisor', 'manager', 'gerente', 'general_manager', 'asistente', 'assistant']

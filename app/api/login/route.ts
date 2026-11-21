@@ -3,29 +3,79 @@
  * @description Endpoint de autenticación central para usuarios del sistema TEG (administradores, supervisores, gerentes y empleados).
  *
  * @businessRules
- * - Autenticación con verificación de contraseña segura vía bcrypt.
- * - Genera token JWT compatible con Supabase PostgREST para RLS de usuarios autenticados.
- * - Asigna roles operativos (admin, supervisor, manager, asistente) y alcance de tiendas (store_scope).
+ * - Valida formato y longitud de `email` y `password` antes de tocar la base de datos (previniendo enumeración de cuentas con contraseña vacía).
+ * - Aplica rate limiting en memoria por IP (`máx 12` intentos fallidos / `10 min`) y por correo normalizado (`máx 8` intentos fallidos / `10 min`).
+ * - Bloquea inyección de comodines PostgREST `ILIKE` (`%`, `_`, `\0`, espacios) y exige coincidencia exacta en JS (`row.email.trim().toLowerCase() === normalizedEmail`).
+ * - Verificación híbrida `bcrypt` (`$2a$`, `$2b$`, `$2y$`) + comparación en tiempo constante (`safeTimingEqual`) con actualización automática progresiva a `bcrypt` (cost 12) tras login exitoso.
+ * - Genera token JWT HS256 compatible con Supabase PostgREST para RLS (`role: 'authenticated'`) y sincroniza cookie `teg_token`.
  *
  * @dataFlow
- * - POST /api/login { email, password } -> Supabase users / toast_employees -> bcrypt.compare() -> JWT token en cookie/payload.
+ * - POST /api/login { email, password } -> Rate Limit + Validación -> Supabase `users` / `toast_employees` -> `bcrypt.compare` / upgrade -> JWT token en cookie + JSON.
  *
  * @notes
- * - Fail-closed: verificación estricta de SUPABASE_JWT_SECRET en el servidor; sin secretos por defecto hardcodeados.
+ * - Fail-closed: verificación estricta de `SUPABASE_JWT_SECRET` en el servidor; sin secretos por defecto hardcodeados.
+ * - Contraseña compartida de empleados configurable vía `process.env.EMPLOYEE_SHARED_PASSWORD` (fallback `'Gavilan123'`), comparada en tiempo constante.
  */
 
 import { NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import {
+  checkRateLimit,
+  getJwtSecret,
+  invalidateActiveUserStatusCache,
+  peekRateLimit,
+  resetRateLimit,
+  safeTimingEqual,
+} from '@/lib/auth-server'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
+const LOGIN_WINDOW_MS = 10 * 60 * 1000 // 10 minutos
+const MAX_FAILED_PER_IP = 12
+const MAX_FAILED_PER_EMAIL = 8
+
+// Exige inicio/fin alfanumérico en local-part y bloquea %, *, \, espacios y caracteres de control
+const SAFE_EMAIL_REGEX = /^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i
+const BCRYPT_HASH_REGEX = /^\$2[aby]\$\d{2}\$/
+
+function getClientIp(request: Request): string {
+  const vercelFwd = request.headers.get('x-vercel-forwarded-for')
+  if (vercelFwd) {
+    const first = vercelFwd.split(',')[0]?.trim()
+    if (first) return first
+  }
+  const xFwd = request.headers.get('x-forwarded-for')
+  if (xFwd) {
+    const first = xFwd.split(',')[0]?.trim()
+    if (first) return first
+  }
+  const realIp = request.headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+  return 'unknown'
+}
+
+function escapePostgrestIlike(email: string): string {
+  return email.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
+function rateLimitedResponse(retryAfterSec: number) {
+  return NextResponse.json(
+    { error: 'Demasiados intentos de inicio de sesión. Intenta nuevamente en unos minutos.' },
+    {
+      status: 429,
+      headers: {
+        'Retry-After': String(Math.max(1, retryAfterSec)),
+      },
+    }
+  )
+}
+
 export async function POST(request: Request) {
   try {
-    // Verificación fail-closed: Sin fallback hardcodeado
-    const rawSecret = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET
-    if (!rawSecret || !rawSecret.trim()) {
+    const secret = getJwtSecret()
+    if (!secret) {
       console.error('❌ Server authentication configuration error: JWT_SECRET / SUPABASE_JWT_SECRET no configurado')
       return NextResponse.json(
         { error: 'Server authentication configuration error' },
@@ -33,65 +83,170 @@ export async function POST(request: Request) {
       )
     }
 
-    // IMPORTANT: Supabase PostgREST uses the SUPABASE_JWT_SECRET as a RAW STRING
-    // to verify JWTs, NOT decoded from base64. Using the raw string ensures our
-    // custom tokens pass Supabase RLS policies for 'authenticated' role.
-    const secret = rawSecret.trim().replace(/^"(.*)"$/, '$1')
+    const clientIp = getClientIp(request)
+    const ipKey = `login:ip:${clientIp}`
 
-    const { email, password } = await request.json()
+    const ipPeek = peekRateLimit(ipKey, MAX_FAILED_PER_IP)
+    if (ipPeek.limited) {
+      return rateLimitedResponse(ipPeek.retryAfterSec)
+    }
 
-    if (!email) {
+    let body: any = null
+    try {
+      body = await request.json()
+    } catch {
+      checkRateLimit(ipKey, MAX_FAILED_PER_IP, LOGIN_WINDOW_MS)
+      return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 })
+    }
+
+    const rawEmail = body?.email
+    const rawPassword = body?.password
+
+    // Validación estricta ANTES de tocar la base de datos (elimina enumeración con password vacío)
+    if (
+      typeof rawEmail !== 'string' ||
+      typeof rawPassword !== 'string' ||
+      rawEmail.trim().length === 0 ||
+      rawEmail.trim().length > 254 ||
+      rawPassword.length === 0 ||
+      rawPassword.trim().length === 0 ||
+      rawPassword.length > 256
+    ) {
+      const ipHit = checkRateLimit(ipKey, MAX_FAILED_PER_IP, LOGIN_WINDOW_MS)
+      if (ipHit.limited) return rateLimitedResponse(ipHit.retryAfterSec)
       return NextResponse.json(
-        { error: 'Email es requerido' },
+        { error: 'Email y contraseña válidos son requeridos' },
         { status: 400 }
       )
     }
 
-    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedEmail = rawEmail.trim().toLowerCase()
+    const password = rawPassword
+
+    // Bloquear comodines %, *, \0, \, espacios o formato inválido ANTES de consultar PostgREST
+    if (
+      normalizedEmail.includes('%') ||
+      normalizedEmail.includes('*') ||
+      normalizedEmail.includes('\0') ||
+      normalizedEmail.includes('\\') ||
+      /\s/.test(normalizedEmail) ||
+      !SAFE_EMAIL_REGEX.test(normalizedEmail)
+    ) {
+      const ipHit = checkRateLimit(ipKey, MAX_FAILED_PER_IP, LOGIN_WINDOW_MS)
+      if (ipHit.limited) return rateLimitedResponse(ipHit.retryAfterSec)
+      return NextResponse.json(
+        { error: 'Formato de correo electrónico inválido' },
+        { status: 400 }
+      )
+    }
+
+    const emailKey = `login:email:${normalizedEmail}`
+    const emailPeek = peekRateLimit(emailKey, MAX_FAILED_PER_EMAIL)
+    if (emailPeek.limited) {
+      return rateLimitedResponse(emailPeek.retryAfterSec)
+    }
+
+    const recordFailedLogin = () => {
+      const ipRes = checkRateLimit(ipKey, MAX_FAILED_PER_IP, LOGIN_WINDOW_MS)
+      const emRes = checkRateLimit(emailKey, MAX_FAILED_PER_EMAIL, LOGIN_WINDOW_MS)
+      if (ipRes.limited || emRes.limited) {
+        return rateLimitedResponse(Math.max(ipRes.retryAfterSec, emRes.retryAfterSec))
+      }
+      return null
+    }
+
+    const escapedEmail = escapePostgrestIlike(normalizedEmail)
 
     // ============================================
     // STEP 1: Check USERS table (admins/managers)
     // ============================================
     const usersResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/users?email=ilike.${encodeURIComponent(normalizedEmail)}&select=*&limit=1`,
+      `${SUPABASE_URL}/rest/v1/users?email=ilike.${encodeURIComponent(escapedEmail)}&select=id,email,password,full_name,role,store_scope,store_id,is_active&limit=5`,
       {
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
       }
     )
 
-    const users = await usersResponse.json()
+    const usersRaw = await usersResponse.json()
+    const matchedUser = Array.isArray(usersRaw)
+      ? usersRaw.find((row: any) => String(row?.email || '').trim().toLowerCase() === normalizedEmail)
+      : null
 
-    if (users && users.length > 0) {
-      const user = users[0]
+    if (matchedUser) {
+      const user = matchedUser
 
-      // User found in users table - require password
-      if (!password) {
-        return NextResponse.json(
-          { error: 'Contraseña requerida para este usuario' },
-          { status: 400 }
-        )
-      }
-
-      // Verify user is active
-      if (!user.is_active) {
+      if (user.is_active === false) {
+        const rlResp = recordFailedLogin()
+        if (rlResp) return rlResp
         return NextResponse.json(
           { error: 'Usuario inactivo. Contacta al administrador.' },
           { status: 403 }
         )
       }
 
-      // Validate password (plain text for now, should use bcrypt in production)
-      if (user.password !== password) {
+      const storedPassword = typeof user.password === 'string' ? user.password : ''
+      if (!storedPassword) {
+        const rlResp = recordFailedLogin()
+        if (rlResp) return rlResp
         return NextResponse.json(
           { error: 'Credenciales incorrectas' },
           { status: 401 }
         )
       }
 
-      // Generate JWT token (7 days for admin/manager)
+      const isBcryptStored = BCRYPT_HASH_REGEX.test(storedPassword)
+      let isPasswordValid = false
+
+      if (isBcryptStored) {
+        isPasswordValid = await bcrypt.compare(password, storedPassword)
+      } else {
+        isPasswordValid = safeTimingEqual(password, storedPassword)
+      }
+
+      if (!isPasswordValid) {
+        const rlResp = recordFailedLogin()
+        if (rlResp) return rlResp
+        return NextResponse.json(
+          { error: 'Credenciales incorrectas' },
+          { status: 401 }
+        )
+      }
+
+      // Login exitoso: limpiar contador de fallos del email
+      resetRateLimit(emailKey)
+
+      // Actualización progresiva automática a bcrypt (cost 12) + last_login vía service-role PATCH
+      const patchPayload: Record<string, unknown> = {
+        last_login: new Date().toISOString(),
+      }
+      if (!isBcryptStored) {
+        try {
+          patchPayload.password = await bcrypt.hash(password, 12)
+        } catch (hashErr) {
+          console.warn('⚠️ [login] No se pudo generar hash bcrypt progresivo:', hashErr)
+        }
+      }
+
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(String(user.id))}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify(patchPayload),
+        })
+      } catch (patchErr) {
+        console.warn('⚠️ [login] No se pudo actualizar last_login/password upgrade:', patchErr)
+      }
+
+      invalidateActiveUserStatusCache(user.id, user.email)
+
       const token = jwt.sign(
         {
           sub: String(user.id),
@@ -99,33 +254,18 @@ export async function POST(request: Request) {
           role: 'authenticated',
           email: user.email,
           user_role: user.role,
-          user_type: 'admin', // Mark as admin user
+          user_type: 'admin',
           user_metadata: {
             full_name: user.full_name,
             role: user.role,
             store_scope: user.store_scope,
-            store_id: user.store_id
-          }
+            store_id: user.store_id,
+          },
         },
         secret,
         {
           algorithm: 'HS256',
-          expiresIn: '30d'
-        }
-      )
-
-      // Update last_login
-      await fetch(
-        `${SUPABASE_URL}/rest/v1/users?id=eq.${user.id}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify({ last_login: new Date().toISOString() })
+          expiresIn: '30d',
         }
       )
 
@@ -138,18 +278,18 @@ export async function POST(request: Request) {
           role: user.role,
           store_scope: user.store_scope,
           store_id: user.store_id,
-          user_type: 'admin'
+          user_type: 'admin',
         },
-        token
+        token,
       })
 
-      // Set cookie for server-side auth support (e.g. Basecamp OAuth & 24/7 store tablets)
+      // httpOnly: false requerido porque ProtectedRoute.tsx y el cliente browser de Supabase sincronizan teg_token en cliente
       response.cookies.set('teg_token', token, {
-        httpOnly: true,
+        httpOnly: false,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 30 * 24 * 60 * 60 // 30 days
+        maxAge: 30 * 24 * 60 * 60, // 30 days
       })
 
       return response
@@ -159,123 +299,112 @@ export async function POST(request: Request) {
     // STEP 2: Check TOAST_EMPLOYEES table (employees)
     // ============================================
     const employeesResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/toast_employees?email=ilike.${encodeURIComponent(normalizedEmail)}&deleted=eq.false&select=id,toast_guid,first_name,last_name,email,store_ids&limit=1`,
+      `${SUPABASE_URL}/rest/v1/toast_employees?email=ilike.${encodeURIComponent(escapedEmail)}&deleted=eq.false&select=id,toast_guid,first_name,last_name,email,store_ids&limit=5`,
       {
         headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
       }
     )
 
-    const employees = await employeesResponse.json()
+    const employeesRaw = await employeesResponse.json()
+    const matchedEmployee = Array.isArray(employeesRaw)
+      ? employeesRaw.find((row: any) => String(row?.email || '').trim().toLowerCase() === normalizedEmail)
+      : null
 
-    if (employees && employees.length > 0) {
-      const employee = employees[0]
+    if (matchedEmployee) {
+      const employee = matchedEmployee
+      const employeeSharedPassword = process.env.EMPLOYEE_SHARED_PASSWORD || 'Gavilan123'
 
-      // Employee found - require password "Gavilan123"
-      const EMPLOYEE_PASSWORD = 'Gavilan123'
-
-      if (!password) {
-        return NextResponse.json(
-          { error: 'Contraseña requerida' },
-          { status: 400 }
-        )
-      }
-
-      if (password !== EMPLOYEE_PASSWORD) {
+      if (!safeTimingEqual(password, employeeSharedPassword)) {
+        const rlResp = recordFailedLogin()
+        if (rlResp) return rlResp
         return NextResponse.json(
           { error: 'Credenciales incorrectas' },
           { status: 401 }
         )
       }
 
-      // Get employee's job/position from job_references in toast_employees
+      resetRateLimit(emailKey)
+
       let position_type: 'kitchen' | 'cashier' | null = null
 
-      console.log(`🔍 Looking up jobs for employee: ${employee.id} (${employee.first_name} ${employee.last_name})`)
-
-      // First, get the employee's job_references
       const empResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/toast_employees?id=eq.${employee.id}&select=job_references`,
+        `${SUPABASE_URL}/rest/v1/toast_employees?id=eq.${encodeURIComponent(String(employee.id))}&select=job_references`,
         {
           headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`
-          }
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+          },
         }
       )
 
       const empData = await empResponse.json()
       const jobRefs = empData?.[0]?.job_references || []
-      console.log(`🔍 Job references:`, JSON.stringify(jobRefs))
 
       if (jobRefs.length > 0) {
-        // Get the first job's guid and look up its title
         const firstJobGuid = jobRefs[0]?.guid
         if (firstJobGuid) {
           const jobResponse = await fetch(
-            `${SUPABASE_URL}/rest/v1/toast_jobs?guid=eq.${firstJobGuid}&select=title`,
+            `${SUPABASE_URL}/rest/v1/toast_jobs?guid=eq.${encodeURIComponent(String(firstJobGuid))}&select=title`,
             {
               headers: {
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`
-              }
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
+              },
             }
           )
           const jobData = await jobResponse.json()
           const jobTitle = jobData?.[0]?.title?.toLowerCase() || ''
-          console.log(`🔍 Job title found: "${jobTitle}"`)
 
-          if (jobTitle.includes('cook') || jobTitle.includes('cocinero') || jobTitle.includes('kitchen') || jobTitle.includes('prep') || jobTitle.includes('preparador')) {
+          if (
+            jobTitle.includes('cook') ||
+            jobTitle.includes('cocinero') ||
+            jobTitle.includes('kitchen') ||
+            jobTitle.includes('prep') ||
+            jobTitle.includes('preparador')
+          ) {
             position_type = 'kitchen'
-          } else if (jobTitle.includes('cashier') || jobTitle.includes('cajero') || jobTitle.includes('register')) {
+          } else if (
+            jobTitle.includes('cashier') ||
+            jobTitle.includes('cajero') ||
+            jobTitle.includes('register')
+          ) {
             position_type = 'cashier'
           }
-          console.log(`🔍 Position type detected: ${position_type}`)
         }
-      } else {
-        console.log(`⚠️ No job_references found for employee ${employee.id}`)
       }
 
-      // Determine shift_type (AM/PM) based on punch history
       let shift_type: 'AM' | 'PM' | null = null
-
-      // Get punches from last 30 days for this employee
       const thirtyDaysAgo = new Date()
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
       const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
 
       const punchesResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/punches?employee_toast_guid=eq.${employee.toast_guid}&business_date=gte.${thirtyDaysAgoStr}&clock_in=not.is.null&select=clock_in`,
+        `${SUPABASE_URL}/rest/v1/punches?employee_toast_guid=eq.${encodeURIComponent(String(employee.toast_guid || ''))}&business_date=gte.${thirtyDaysAgoStr}&clock_in=not.is.null&select=clock_in`,
         {
           headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`
-          }
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+          },
         }
       )
 
       const punches = await punchesResponse.json()
-      console.log(`🕐 Found ${punches?.length || 0} punches in last 30 days for shift_type calculation`)
 
-      if (punches && punches.length >= 3) {
-        // Calculate average clock-in hour (in local time)
+      if (Array.isArray(punches) && punches.length >= 3) {
         let totalMinutes = 0
         let validPunches = 0
 
         for (const punch of punches) {
           if (punch.clock_in) {
             const clockIn = new Date(punch.clock_in)
-            // Convert to LA time
             const laTimeStr = clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
             const laTime = new Date(laTimeStr)
-            const hour = laTime.getHours()
-            const minutes = laTime.getMinutes()
-            const totalMins = hour * 60 + minutes
+            const totalMins = laTime.getHours() * 60 + laTime.getMinutes()
 
-            // Only count punches that are "normal" (6am to 10pm range)
-            if (totalMins >= 360 && totalMins <= 1320) { // 6am to 10pm
+            if (totalMins >= 360 && totalMins <= 1320) {
               totalMinutes += totalMins
               validPunches++
             }
@@ -284,24 +413,10 @@ export async function POST(request: Request) {
 
         if (validPunches >= 3) {
           const avgMinutes = totalMinutes / validPunches
-          const avgHour = avgMinutes / 60
-
-          // Threshold: 3pm (15:00 = 900 minutes)
-          if (avgMinutes < 900) {
-            shift_type = 'AM'
-          } else {
-            shift_type = 'PM'
-          }
-
-          console.log(`🕐 Average clock-in time: ${Math.floor(avgHour)}:${String(Math.round(avgMinutes % 60)).padStart(2, '0')} → shift_type: ${shift_type}`)
-        } else {
-          console.log(`⚠️ Not enough valid punches (${validPunches}) to determine shift_type`)
+          shift_type = avgMinutes < 900 ? 'AM' : 'PM'
         }
-      } else {
-        console.log(`⚠️ Not enough punches (${punches?.length || 0}) to determine shift_type`)
       }
 
-      // Generate JWT token (15 MINUTES for employees)
       const token = jwt.sign(
         {
           sub: employee.id,
@@ -310,21 +425,21 @@ export async function POST(request: Request) {
           email: employee.email,
           user_role: 'employee',
           user_type: 'employee',
-          position_type: position_type,
-          shift_type: shift_type, // AM/PM based on punch history
+          position_type,
+          shift_type,
           user_metadata: {
-            full_name: `${employee.first_name} ${employee.last_name}`.trim(),
+            full_name: `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
             role: 'employee',
             store_ids: employee.store_ids,
             toast_guid: employee.toast_guid,
-            position_type: position_type,
-            shift_type: shift_type
-          }
+            position_type,
+            shift_type,
+          },
         },
         secret,
         {
           algorithm: 'HS256',
-          expiresIn: '15m'
+          expiresIn: '15m',
         }
       )
 
@@ -333,37 +448,38 @@ export async function POST(request: Request) {
         user: {
           id: employee.id,
           email: employee.email,
-          name: `${employee.first_name} ${employee.last_name}`.trim(),
+          name: `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
           role: 'employee',
           store_ids: employee.store_ids,
           user_type: 'employee',
-          position_type: position_type,
-          shift_type: shift_type // Include for frontend filtering
+          position_type,
+          shift_type,
         },
         token,
-        redirect: '/mis-horarios'
+        redirect: '/mis-horarios',
       })
 
-      // Set cookie for server-side auth support (expires in 15 minutes)
       response.cookies.set('teg_token', token, {
-        httpOnly: true,
+        httpOnly: false,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 15 * 60 // 15 minutes
+        maxAge: 15 * 60, // 15 minutes
       })
 
       return response
     }
 
     // ============================================
-    // STEP 3: No user found in either table
+    // STEP 3: No user found in either table (respuesta uniforme anti-enumeración)
     // ============================================
+    const rlResp = recordFailedLogin()
+    if (rlResp) return rlResp
+
     return NextResponse.json(
-      { error: 'No se encontró una cuenta con este correo' },
+      { error: 'Credenciales incorrectas' },
       { status: 401 }
     )
-
   } catch (error) {
     console.error('Error en login:', error)
     return NextResponse.json(

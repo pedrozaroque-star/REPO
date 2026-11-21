@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
-import { verifyAdminAuth } from '@/lib/auth-server';
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-export async function GET(request: Request) {
-  const auth = await verifyAdminAuth(request);
+export async function GET(request: NextRequest) {
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false });
   if (!auth.authorized) return auth.response!;
   // Check what position_type values exist
   const { data: users } = await supabaseAdmin

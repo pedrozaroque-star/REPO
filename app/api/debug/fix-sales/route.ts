@@ -1,14 +1,35 @@
 
-import { NextResponse } from 'next/server'
-import { verifyAdminAuth } from '@/lib/auth-server'
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: Request) {
-    const auth = await verifyAdminAuth(request)
+export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
     if (!auth.authorized) return auth.response!
+
+    return NextResponse.json(
+        {
+            error: 'Operación destructiva bloqueada en GET. Use POST con { "confirm": "FIX_SALES_2026_01_22" } autenticado como admin.'
+        },
+        { status: 405 }
+    )
+}
+
+export async function POST(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
+    if (!auth.authorized) return auth.response!
+
+    const body = await request.json().catch(() => ({}))
+    if (body?.confirm !== 'FIX_SALES_2026_01_22') {
+        return NextResponse.json(
+            { error: 'Confirmación explícita requerida: { "confirm": "FIX_SALES_2026_01_22" }' },
+            { status: 400 }
+        )
+    }
+
     // 1. HARDCODE TARGET DATE
     const TARGET_DATE = '2026-01-22'
 
@@ -16,6 +37,20 @@ export async function GET(request: Request) {
 
     try {
         const supabase = await getSupabaseClient()
+
+        // Preserve existing labor_hours & labor_cost before deleting sales_daily_cache rows
+        const { data: existingLaborRows } = await supabase
+            .from('sales_daily_cache')
+            .select('store_id, labor_hours, labor_cost, hourly_labor')
+            .eq('business_date', TARGET_DATE)
+        const existingLaborMap = new Map<string, { labor_hours: number; labor_cost: number; hourly_labor: any }>()
+        for (const lr of existingLaborRows || []) {
+            existingLaborMap.set(lr.store_id, {
+                labor_hours: Number(lr.labor_hours || 0),
+                labor_cost: Number(lr.labor_cost || 0),
+                hourly_labor: lr.hourly_labor || null
+            })
+        }
 
         // 2. DELETE OLD DATA
         console.log(`🗑️ Borrando datos corruptos...`)
@@ -56,27 +91,31 @@ export async function GET(request: Request) {
         // Si fetchToastData es de bajo nivel, necesitamos hacer el upsert aquí.
 
         // 4. MAP TO DB COLUMNS (Api returns camelCase, DB needs snake_case)
-        const dbRows = rows.map((r: any) => ({
-            store_id: r.storeId,
-            business_date: r.periodStart.split('T')[0], // Ensure YYYY-MM-DD
-            net_sales: r.netSales,
-            gross_sales: r.grossSales,
-            discounts: r.discounts,
-            tips: r.tips,
-            taxes: r.taxes,
-            service_charges: r.serviceCharges || 0,
-            order_count: r.orderCount,
-            guest_count: r.guestCount,
-            labor_hours: 0, // Should be updated by sync-labor, setting 0 safe
-            labor_cost: 0,
-            uber_sales: r.uberSales || 0,
-            doordash_sales: r.doordashSales || 0,
-            grubhub_sales: r.grubhubSales || 0,
-            ebt_count: r.ebtCount || 0,
-            ebt_amount: r.ebtAmount || 0,
-            hourly_data: r.hourlySales || {},
-            updated_at: new Date().toISOString()
-        }))
+        const dbRows = rows.map((r: any) => {
+            const prevLabor = existingLaborMap.get(r.storeId)
+            return {
+                store_id: r.storeId,
+                business_date: r.periodStart.split('T')[0], // Ensure YYYY-MM-DD
+                net_sales: r.netSales,
+                gross_sales: r.grossSales,
+                discounts: r.discounts,
+                tips: r.tips,
+                taxes: r.taxes,
+                service_charges: r.serviceCharges || 0,
+                order_count: r.orderCount,
+                guest_count: r.guestCount,
+                labor_hours: prevLabor ? prevLabor.labor_hours : 0,
+                labor_cost: prevLabor ? prevLabor.labor_cost : 0,
+                hourly_labor: prevLabor ? prevLabor.hourly_labor : null,
+                uber_sales: r.uberSales || 0,
+                doordash_sales: r.doordashSales || 0,
+                grubhub_sales: r.grubhubSales || 0,
+                ebt_count: r.ebtCount || 0,
+                ebt_amount: r.ebtAmount || 0,
+                hourly_data: r.hourlySales || {},
+                updated_at: new Date().toISOString()
+            }
+        })
 
         // Upsert manual para asegurar
         const { error: upsertError } = await supabase

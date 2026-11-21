@@ -15,14 +15,20 @@
  * @notes
  * - Fixed critical bug where missing Content-Type caused silent fallback to all 15 stores.
  * - Added support for target store via searchParams (?storeId=...) and body ({ storeId }).
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): restringido a `admin`, `supervisor` o `CRON_SECRET`.
  */
 
 import { NextResponse } from 'next/server'
 import { syncToastJobs, syncToastEmployees } from '@/lib/toast-labor'
 import { supabaseAdmin } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export async function POST(req: Request) {
     try {
+        const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager', 'planificador', 'asistente', 'assistant'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ success: false, error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
         const { searchParams } = new URL(req.url)
         const urlStoreId = searchParams.get('storeId')
         const urlType = searchParams.get('type')

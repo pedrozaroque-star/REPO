@@ -1,13 +1,17 @@
 /**
  * @module app/auth/sso/page
- * @description Callback de autenticación SSO corporativa (Google OAuth) para Tacos Gavilan.
+ * @description Callback cliente de autenticación SSO corporativa (Google OAuth) para Tacos Gavilan.
  *
  * @businessRules
- * - Almacena el token JWT y datos del usuario en `localStorage` y cookie `teg_token`.
- * - Redirige a `/inicio` (pantalla principal de módulos) para roles administrativos y operativos.
+ * - Exige que el token de sesión sea un JWT de 3 segmentos válido (`eyJ...`) leído de la cookie `teg_token` establecida por el servidor (o parámetro verificado), rechazando tokens sin firma (`g_sso_...`).
+ * - Limpia de inmediato los parámetros sensibles de la URL mediante `window.history.replaceState({}, '', '/auth/sso')`.
+ * - Persiste `teg_token` y `teg_user` en `localStorage` y redirige al selector post-login (`/login?welcome=1`) o `/planificador`.
  *
  * @dataFlow
- * - Query params (`token`, `user`) -> `localStorage` + `document.cookie` -> redirección a `/inicio` o `/planificador`.
+ * - Cookie `teg_token` + Query param (`user`) -> Limpieza URL (`history.replaceState`) -> `localStorage` + `document.cookie` -> Redirección segura.
+ *
+ * @notes
+ * - Hardened 2026-11-21: Validación de formato JWT de 3 segmentos y purga inmediata de query string en historial del navegador.
  */
 
 'use client'
@@ -15,46 +19,100 @@ import { useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 
+function isValidThreePartJwt(candidate: string | null | undefined): candidate is string {
+    if (!candidate || typeof candidate !== 'string') return false
+    const trimmed = candidate.trim()
+    if (!trimmed.startsWith('eyJ')) return false
+    const parts = trimmed.split('.')
+    return parts.length === 3 && Boolean(parts[0]) && Boolean(parts[1]) && Boolean(parts[2])
+}
+
+function readCookieTegToken(): string | null {
+    if (typeof document === 'undefined') return null
+    const match = document.cookie.match(/(?:^|;\s*)teg_token=([^;]+)/)
+    if (!match?.[1]) return null
+    try {
+        return decodeURIComponent(match[1].trim())
+    } catch {
+        return match[1].trim()
+    }
+}
+
+function decodeUserFromJwt(token: string): Record<string, any> | null {
+    try {
+        const parts = token.split('.')
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+        const payload = JSON.parse(atob(padded))
+        if (!payload?.sub || !payload?.email) return null
+        return {
+            id: payload.sub,
+            email: payload.email,
+            name: payload.user_metadata?.full_name || payload.email,
+            role: payload.user_role || payload.user_metadata?.role || 'user',
+            store_scope: payload.user_metadata?.store_scope ?? null,
+            store_id: payload.user_metadata?.store_id ?? null,
+            user_type: payload.user_type || 'admin',
+        }
+    } catch {
+        return null
+    }
+}
+
 function SSOHandler() {
     const router = useRouter()
     const searchParams = useSearchParams()
 
     useEffect(() => {
-        const token = searchParams.get('token')
+        const paramToken = searchParams.get('token')
         const userStr = searchParams.get('user')
+        const cookieToken = readCookieTegToken()
 
-        if (token && userStr) {
+        // Limpiar parámetros sensibles de la barra de direcciones de inmediato
+        if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState({}, '', '/auth/sso')
+        }
+
+        const resolvedToken = isValidThreePartJwt(paramToken)
+            ? paramToken.trim()
+            : isValidThreePartJwt(cookieToken)
+              ? cookieToken.trim()
+              : null
+
+        if (resolvedToken) {
             try {
-                // Login
-                localStorage.setItem('teg_token', token)
-                localStorage.setItem('teg_user', userStr)
+                const parsedUser = userStr ? JSON.parse(userStr) : decodeUserFromJwt(resolvedToken)
+                if (!parsedUser || !parsedUser.email) {
+                    throw new Error('Missing SSO user profile')
+                }
 
-                // Guardar token en cookie para soporte de autenticación en SSR/Callbacks (e.g., Basecamp)
-                document.cookie = `teg_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
+                localStorage.setItem('teg_token', resolvedToken)
+                localStorage.setItem('teg_user', JSON.stringify(parsedUser))
 
-                // Decode user to check role
-                const user = JSON.parse(userStr)
-                const role = (user.role || '').toLowerCase()
-                const emailNorm = (user.email || '').trim().toLowerCase()
+                const maxAge = 30 * 24 * 60 * 60
+                const secureAttr = window.location.protocol === 'https:' ? '; Secure' : ''
+                document.cookie = `teg_token=${resolvedToken}; path=/; max-age=${maxAge}; SameSite=Lax${secureAttr}`
 
-                // Redirect to post-login destination selector (or planificador for restricted role)
+                const role = String(parsedUser.role || '').toLowerCase()
+                const emailNorm = String(parsedUser.email || '').trim().toLowerCase()
+
                 if (emailNorm === 'stephany@cingularhr.com' || role === 'planificador') {
                     window.location.href = '/planificador'
                 } else {
                     window.location.href = '/login?welcome=1'
                 }
-
+                return
             } catch (e) {
                 console.error('SSO Parse Error', e)
                 router.push('/login?error=sso_failed')
+                return
             }
-        } else {
-            // Wait briefly before redirecting to allow params to mount if slow
-            const t = setTimeout(() => {
-                router.push('/login?error=invalid_sso_params')
-            }, 2000)
-            return () => clearTimeout(t)
         }
+
+        const t = setTimeout(() => {
+            router.push('/login?error=invalid_sso_params')
+        }, 1500)
+        return () => clearTimeout(t)
     }, [searchParams, router])
 
     return (

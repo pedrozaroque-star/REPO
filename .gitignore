@@ -63,3 +63,24 @@ temp_hr.json
 transcript_analysis_*
 test_api.py
 script.py
+
+# security hardening: legacy wp exports, private keys, backups & public web mirror exclusions
+scripts/*wp*
+scripts/wp-exports/
+wp-exports/
+scripts/trigger-updraft*
+scripts/download-gavilan-theme*
+scripts/qb_inspection_output*.txt
+.tmp/
+*.key
+*.p12
+*.cert
+*.sql.gz
+*.bak
+public/tacosgavilan-web/api/
+public/tacosgavilan-web/vercel.json
+public/tacosgavilan-web/axe-audit-results.json
+public/tacosgavilan-web/e2e-compliance-verification.json
+public/tacosgavilan-web/wp-content/
+public/tacosgavilan-web/wp-includes/
+

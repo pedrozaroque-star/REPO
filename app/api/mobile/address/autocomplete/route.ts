@@ -9,19 +9,18 @@
  * - Terceros que reciben el texto escrito (desde nuestro servidor, no desde el teléfono):
  *   1) Esri ArcGIS World Geocoder `suggest` (sin llave); 2) Google Geocoding API (solo si hay < 2 resultados y existe
  *   `GOOGLE_MAPS_API_KEY`). Debe reflejarse en la Política de Privacidad de la app.
- * - Límite: 40 solicitudes/min por IP (memoria, mejor esfuerzo), consulta ≤ 120 caracteres, timeout 4 s por proveedor.
+ * - Límite acotado por IP (`x-vercel-forwarded-for` / `x-real-ip`, 35 solicitudes/min, máx 2,000 cubetas en RAM) + validación de `Origin`/`Referer` para bloquear abuso cross-origin de cuota de Google Maps.
  *
  * @dataFlow
- * Cliente Móvil/Web (`GET /api/mobile/address/autocomplete?q=...&lat=...&lng=...`) -> Proveedor de Geocodificación -> Lista de `AddressSuggestion`.
+ * Cliente Móvil/Web (`GET /api/mobile/address/autocomplete?q=...&lat=...&lng=...`) -> Origin Check + Rate Limit -> Proveedor de Geocodificación -> Lista de `AddressSuggestion`.
  *
  * @notes
- * - 2026-10-16: se retiró OpenStreetMap Nominatim (su política pública prohíbe búsquedas tipo autocompletado) y los
- *   errores ya no devuelven `err.message` al cliente.
+ * - 2026-10-16: se retiró OpenStreetMap Nominatim y los errores ya no devuelven `err.message` al cliente.
+ * - 2026-11-21: blindado con validación estricta de `Origin`/`Referer` para navegadores web y `Map` acotado por IP (`x-vercel-forwarded-for` / `x-real-ip`).
  */
 
 import { NextResponse } from 'next/server'
 import { corsHeaders } from '../../_helpers'
-import { checkRateLimit, getClientIp } from '@/lib/storefront/rate-limit'
 
 export interface AddressSuggestionDTO {
   id: string
@@ -41,6 +40,126 @@ const DEFAULT_LA_LNG = -118.2115
 const SUBADDRESS_REGEX =
   /\b(?:apt|apartment|ste|suite|unit|bldg|building|fl|floor|spc|space|lot|#)\s*[a-z0-9-]+$/i
 
+const PROVIDER_TIMEOUT_MS = 4000
+const MAX_QUERY_LENGTH = 120
+const RATE_LIMIT_PER_MINUTE = 35
+const RATE_WINDOW_MS = 60_000
+const MAX_IP_BUCKETS = 2000
+const ipBuckets = new Map<string, number[]>()
+
+function extractTrustedClientIp(headers: Headers): string {
+  const vercelFwd = headers.get('x-vercel-forwarded-for') || ''
+  const firstVercel = vercelFwd.split(',')[0]?.trim()
+  if (firstVercel) return firstVercel.slice(0, 64)
+  const realIp = headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp.slice(0, 64)
+  const fwd = headers.get('x-forwarded-for') || ''
+  return fwd.split(',')[0]?.trim().slice(0, 64) || 'unknown'
+}
+
+function checkBoundedAutocompleteRateLimit(ip: string): { allowed: boolean; retryAfterSeconds: number } {
+  const now = Date.now()
+  if (ipBuckets.size >= MAX_IP_BUCKETS && !ipBuckets.has(ip)) {
+    for (const [k, arr] of ipBuckets) {
+      const valid = arr.filter((t) => now - t < RATE_WINDOW_MS)
+      if (valid.length === 0) ipBuckets.delete(k)
+      else ipBuckets.set(k, valid)
+    }
+    if (ipBuckets.size >= MAX_IP_BUCKETS) {
+      const oldest = ipBuckets.keys().next().value
+      if (oldest) ipBuckets.delete(oldest)
+    }
+  }
+  const hits = (ipBuckets.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS)
+  if (hits.length >= RATE_LIMIT_PER_MINUTE) {
+    ipBuckets.set(ip, hits)
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((RATE_WINDOW_MS - (now - hits[0])) / 1000)),
+    }
+  }
+  hits.push(now)
+  ipBuckets.set(ip, hits)
+  return { allowed: true, retryAfterSeconds: 0 }
+}
+
+function isAllowedAutocompleteOrigin(request: Request): { allowed: boolean; resolvedOrigin: string | null } {
+  const rawOrigin = request.headers.get('origin')?.trim() || ''
+  const rawReferer = request.headers.get('referer')?.trim() || ''
+
+  // Clientes nativos iOS/Android (Expo React Native fetch) no envían Origin/Referer
+  if (!rawOrigin && !rawReferer) {
+    return { allowed: true, resolvedOrigin: null }
+  }
+
+  // Esquemas nativos móviles (Expo / Capacitor / React Native WebView local)
+  if (/^(?:exp|exps|tacosgavilan|capacitor|ionic):\/\//i.test(rawOrigin)) {
+    return { allowed: true, resolvedOrigin: rawOrigin }
+  }
+
+  const candidateUrlStr = rawOrigin || rawReferer
+  let parsed: URL
+  try {
+    parsed = new URL(candidateUrlStr)
+  } catch {
+    return { allowed: false, resolvedOrigin: null }
+  }
+
+  const host = parsed.hostname.toLowerCase()
+  let reqHost = ''
+  try {
+    reqHost = new URL(request.url).hostname.toLowerCase()
+  } catch {
+    reqHost = ''
+  }
+
+  const envHostCandidates = [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
+  ]
+    .filter(Boolean)
+    .map((u) => {
+      try {
+        return new URL(String(u)).hostname.toLowerCase()
+      } catch {
+        return ''
+      }
+    })
+    .filter(Boolean)
+
+  const isTrustedProdHost =
+    host === 'tacosgavilan.com' ||
+    host.endsWith('.tacosgavilan.com') ||
+    host === 'tacosgavilan.vercel.app' ||
+    host === 'teg-modernizado.vercel.app' ||
+    (host.endsWith('.vercel.app') && (host.includes('tacosgavilan') || host.includes('teg-modernizado'))) ||
+    (reqHost !== '' && host === reqHost) ||
+    envHostCandidates.includes(host)
+
+  const isDevLocalhost =
+    process.env.NODE_ENV !== 'production' && (host === 'localhost' || host === '127.0.0.1')
+
+  if (isTrustedProdHost || isDevLocalhost) {
+    return { allowed: true, resolvedOrigin: `${parsed.protocol}//${parsed.host}` }
+  }
+
+  return { allowed: false, resolvedOrigin: null }
+}
+
+function buildAutocompleteCorsHeaders(resolvedOrigin: string | null): Record<string, string> {
+  const base = corsHeaders()
+  if (resolvedOrigin) {
+    return {
+      ...base,
+      'Access-Control-Allow-Origin': resolvedOrigin,
+      Vary: 'Origin',
+    }
+  }
+  return base
+}
+
 /**
  * Parsea una línea de dirección formateada estilo:
  * "11005 Long Beach Blvd, Lynwood, CA, 90262, USA" o
@@ -59,7 +178,6 @@ export function parseFormattedUsAddress(
     .map((p) => p.trim())
     .filter(Boolean)
 
-  // Eliminar país final si es USA / United States
   if (
     parts.length > 0 &&
     /^(usa|united states|us)$/i.test(parts[parts.length - 1])
@@ -77,14 +195,12 @@ export function parseFormattedUsAddress(
   const lastPart = parts[parts.length - 1]
   const secondLastPart = parts[parts.length - 2]
 
-  // Caso A: [..., City, State, Zip] (ej. "11005 Long Beach Blvd", "Lynwood", "CA", "90262")
   if (/^\d{5}(-\d{4})?$/.test(lastPart) && /^[A-Za-z]{2}$/.test(secondLastPart)) {
     zipCode = lastPart.slice(0, 5)
     state = secondLastPart.toUpperCase()
     city = parts[parts.length - 3] || ''
     streetParts = parts.slice(0, parts.length - 3)
   } else {
-    // Caso B: [..., City, "CA 90262"]
     const stateZipMatch = lastPart.match(/^([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?$/)
     if (stateZipMatch) {
       state = stateZipMatch[1].toUpperCase()
@@ -92,7 +208,6 @@ export function parseFormattedUsAddress(
       city = secondLastPart || ''
       streetParts = parts.slice(0, parts.length - 2)
     } else if (/^[A-Za-z]{2}$/.test(lastPart)) {
-      // Caso C: [Street, City, State] sin ZIP explícito
       state = lastPart.toUpperCase()
       city = secondLastPart || ''
       streetParts = parts.slice(0, parts.length - 2)
@@ -116,7 +231,6 @@ export function parseFormattedUsAddress(
     }
   }
 
-  // Filtrar sugerencias que no comienzan con número de calle o dirección válida
   if (!street || street.length < 3) return null
 
   const primaryText = aptSuite ? `${street} (${aptSuite})` : street
@@ -136,22 +250,41 @@ export function parseFormattedUsAddress(
   }
 }
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders() })
+export async function OPTIONS(request: Request) {
+  const originCheck = isAllowedAutocompleteOrigin(request)
+  if (!originCheck.allowed) {
+    return NextResponse.json({ ok: false, code: 'FORBIDDEN_ORIGIN' }, { status: 403 })
+  }
+  return new NextResponse(null, {
+    status: 204,
+    headers: buildAutocompleteCorsHeaders(originCheck.resolvedOrigin),
+  })
 }
 
-const PROVIDER_TIMEOUT_MS = 4000
-const MAX_QUERY_LENGTH = 120
-const RATE_LIMIT_PER_MINUTE = 40
-
 export async function GET(request: Request) {
+  const originCheck = isAllowedAutocompleteOrigin(request)
+  if (!originCheck.allowed) {
+    return NextResponse.json(
+      { ok: false, suggestions: [], code: 'FORBIDDEN_ORIGIN', error: 'Origin not allowed' },
+      { status: 403 }
+    )
+  }
+
+  const responseHeaders = buildAutocompleteCorsHeaders(originCheck.resolvedOrigin)
+
   try {
-    const ip = getClientIp(request.headers)
-    const rl = checkRateLimit(`address-autocomplete:${ip}`, RATE_LIMIT_PER_MINUTE, 60_000)
+    const ip = extractTrustedClientIp(request.headers)
+    const rl = checkBoundedAutocompleteRateLimit(ip)
     if (!rl.allowed) {
       return NextResponse.json(
         { ok: false, suggestions: [], code: 'RATE_LIMITED', retryAfterSeconds: rl.retryAfterSeconds },
-        { status: 429, headers: corsHeaders() }
+        {
+          status: 429,
+          headers: {
+            ...responseHeaders,
+            'Retry-After': String(rl.retryAfterSeconds),
+          },
+        }
       )
     }
 
@@ -172,7 +305,7 @@ export async function GET(request: Request) {
     if (q.length < 3) {
       return NextResponse.json(
         { ok: true, suggestions: [] },
-        { status: 200, headers: corsHeaders() }
+        { status: 200, headers: responseHeaders }
       )
     }
 
@@ -305,7 +438,7 @@ export async function GET(request: Request) {
           }
         }
       } catch {
-        // Sin más respaldos: Nominatim se retiró (su política de uso prohíbe autocompletado).
+        // Sin más respaldos
       }
     }
 
@@ -314,12 +447,12 @@ export async function GET(request: Request) {
         ok: true,
         suggestions: suggestions.slice(0, 5),
       },
-      { status: 200, headers: corsHeaders() }
+      { status: 200, headers: responseHeaders }
     )
   } catch {
     return NextResponse.json(
-      { ok: false, suggestions: [], code: 'AUTOCOMPLETE_ERROR' },
-      { status: 200, headers: corsHeaders() }
+      { ok: false, suggestions: [], error: 'Address lookup failed' },
+      { status: 500, headers: responseHeaders }
     )
   }
 }

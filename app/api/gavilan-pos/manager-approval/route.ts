@@ -37,9 +37,6 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
     const user = await getServerUser(req)
-    if (!user) {
-        return NextResponse.json({ ok: false, error: 'No autenticado. Inicia sesión nuevamente.' }, { status: 401 })
-    }
 
     let body: any
     try {
@@ -51,6 +48,9 @@ export async function POST(req: Request) {
 
     try {
         if (action === 'SET_PIN') {
+            if (!user) {
+                return NextResponse.json({ ok: false, error: 'No autenticado. Inicia sesión nuevamente.' }, { status: 401 })
+            }
             const role = String(user.role || '').toLowerCase()
             if (!MANAGER_ROLES.includes(role)) {
                 return NextResponse.json({ ok: false, error: 'Solo gerentes, asistentes, supervisores o administradores pueden registrar un PIN.' }, { status: 403 })
@@ -94,15 +94,17 @@ export async function POST(req: Request) {
         }
 
         if (action === 'VERIFY') {
-            const requester = String(user.email).trim().toLowerCase()
-            if (isRateLimited(requester)) {
+            const forwardedFor = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'pos-lan'
+            const requesterEmail = user?.email ? String(user.email).trim().toLowerCase() : null
+            const requesterKey = requesterEmail || `pos-ip:${forwardedFor}`
+            if (isRateLimited(requesterKey)) {
                 return NextResponse.json({ ok: false, error: 'Demasiados intentos. Espera 5 minutos.' }, { status: 429 })
             }
             const pin = body?.pin
             const approvalType = String(body?.approvalType || '')
             const discountPct = Number(body?.discountPct ?? 0)
             if (!isValidPinFormat(pin)) {
-                registerFailedAttempt(requester)
+                registerFailedAttempt(requesterKey)
                 return NextResponse.json({ ok: false, error: 'PIN inválido.' }, { status: 400 })
             }
             const isVoid = approvalType === 'VOID_ORDER'
@@ -117,10 +119,10 @@ export async function POST(req: Request) {
             if (pinsErr) throw pinsErr
             const match = (pins || []).find((p: any) => verifyPin(pin, p.pin_salt, p.pin_hash))
             if (!match) {
-                registerFailedAttempt(requester)
+                registerFailedAttempt(requesterKey)
                 return NextResponse.json({ ok: false, error: 'PIN incorrecto.' }, { status: 401 })
             }
-            clearAttempts(requester)
+            clearAttempts(requesterKey)
 
             const nowIso = new Date().toISOString()
             await supabaseAdmin.from('gavilan_pos_manager_pins').update({ last_used_at: nowIso, updated_at: nowIso }).eq('id', match.id)
@@ -135,7 +137,7 @@ export async function POST(req: Request) {
                     discount_pct: isVoid ? 0 : discountPct,
                     approver_name: match.approver_name,
                     approver_email: match.approver_email,
-                    requested_by_email: requester,
+                    requested_by_email: requesterEmail || 'pos-terminal@tacosgavilan.com',
                     note: body?.note ? String(body.note).slice(0, 300) : null,
                 })
                 .select('id')

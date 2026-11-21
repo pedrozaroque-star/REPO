@@ -9,7 +9,12 @@
  *   - Dynamic tracking pixel enforcement: controls Facebook Pixel (fbq), TikTok Pixel (ttq), and Google Tag Manager (dataLayer).
  *   - ADA Handicap Widget: Floating middle-right button (top: 50%, right: 18px), keyboard focus trap, high contrast, dyslexia font, font scaling, reading guide, stop animations.
  *   - Full bilingual support (English / Spanish with correct "Español" spelling and accents).
- *   - Client-side persistence in safe storage (localStorage and cookie fallback).
+ *   - Client-side persistence in safe storage (localStorage and cookie fallback with `;Secure` on HTTPS).
+ * @dataFlow
+ *   - Consent Banner / Preferences Modal -> `safeStorage` (`tg_cookie_consent`) -> Google Consent Mode v2 + GTM/Meta/TikTok gates.
+ *   - First-Party Analytics (`isAnalyticsAllowed()`) -> `POST /api/track` (`website_page_view` / `website_order_click`).
+ * @notes
+ *   - Hardened in 2026-11 security pass: `;Secure` cookie attribute on HTTPS and `Object.prototype.hasOwnProperty.call` guards on `SLUG_TO_STORE`.
  */
 
 (function () {
@@ -38,7 +43,8 @@
             try {
                 var d = new Date();
                 d.setTime(d.getTime() + (365 * 24 * 60 * 60 * 1000));
-                document.cookie = key + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+                var secureFlag = (window.location && window.location.protocol === 'https:') ? ';Secure' : '';
+                document.cookie = key + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax' + secureFlag;
             } catch (e) {}
         }
     };
@@ -291,14 +297,15 @@
         var host = window.location.hostname || '';
         var hostParts = host.split('.');
         var rootDomain = hostParts.length >= 2 ? '.' + hostParts.slice(-2).join('.') : host;
+        var secureFlag = (window.location && window.location.protocol === 'https:') ? ';Secure' : '';
         allToPurge.forEach(function (name) {
             try {
-                document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/' + secureFlag;
                 if (host) {
-                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + host;
+                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + host + secureFlag;
                 }
                 if (rootDomain) {
-                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + rootDomain;
+                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + rootDomain + secureFlag;
                 }
             } catch (e) {}
         });
@@ -1706,30 +1713,30 @@
         // 2. Check tel: number
         if (href.indexOf('tel:') === 0) {
             var digits = href.replace(/\D/g, '').slice(-10);
-            if (PHONE_TO_STORE[digits]) return PHONE_TO_STORE[digits];
+            if (digits && Object.prototype.hasOwnProperty.call(PHONE_TO_STORE, digits)) return PHONE_TO_STORE[digits];
         }
         // 3. Check closest store-card [data-store]
         if (el && el.closest) {
             var card = el.closest('[data-store]');
             if (card) {
                 var slug = card.getAttribute('data-store');
-                if (SLUG_TO_STORE[slug]) return SLUG_TO_STORE[slug];
+                if (slug && Object.prototype.hasOwnProperty.call(SLUG_TO_STORE, slug)) return SLUG_TO_STORE[slug];
             }
             var locCard = el.closest('.location-card');
             if (locCard) {
                 var detLink = locCard.querySelector('a[href*="/locations/"]');
                 if (detLink) {
                     var m = (detLink.getAttribute('href') || '').match(/\/locations\/([a-z0-9-]+)\/?/i);
-                    if (m && SLUG_TO_STORE[m[1]]) return SLUG_TO_STORE[m[1]];
+                    if (m && Object.prototype.hasOwnProperty.call(SLUG_TO_STORE, m[1])) return SLUG_TO_STORE[m[1]];
                 }
             }
         }
         // 4. Check URL query ?store= or current pathname /locations/{slug}/
         try {
             var qStore = new URLSearchParams(window.location.search).get('store');
-            if (qStore && SLUG_TO_STORE[qStore]) return SLUG_TO_STORE[qStore];
+            if (qStore && Object.prototype.hasOwnProperty.call(SLUG_TO_STORE, qStore)) return SLUG_TO_STORE[qStore];
             var pathMatch = window.location.pathname.match(/\/locations\/([a-z0-9-]+)\/?/i);
-            if (pathMatch && SLUG_TO_STORE[pathMatch[1]]) return SLUG_TO_STORE[pathMatch[1]];
+            if (pathMatch && Object.prototype.hasOwnProperty.call(SLUG_TO_STORE, pathMatch[1])) return SLUG_TO_STORE[pathMatch[1]];
         } catch (e) {}
         // 5. Check address hint in Google Maps link
         var decoded = '';
@@ -1798,7 +1805,7 @@
 
             // Check if user opened a Store Details modal (/locations/{slug}/ or ./{slug}/)
             var modalMatch = href.match(/(?:^\/locations\/|^\.\/)([a-z0-9-]+)\/?$/i);
-            if (modalMatch && SLUG_TO_STORE[modalMatch[1]]) {
+            if (modalMatch && Object.prototype.hasOwnProperty.call(SLUG_TO_STORE, modalMatch[1])) {
                 var st = SLUG_TO_STORE[modalMatch[1]];
                 sendTrackEvent({
                     event_type: 'page_view',

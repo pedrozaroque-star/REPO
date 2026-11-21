@@ -39,7 +39,7 @@ import { VieleInvoiceCategory } from '@/types/quickbooks-bills';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-    const auth = await verifyStaffAuth(request);
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'] });
     if (!auth.authorized) return auth.response!;
 
     try {
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-    const auth = await verifyStaffAuth(request);
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false });
     if (!auth.authorized) return auth.response!;
 
     try {

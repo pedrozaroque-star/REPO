@@ -21,6 +21,7 @@
  * @notes
  * - La orden se guarda en la columna `order_json` (ORDER es palabra reservada en SQL/PostgREST).
  * - `taxRatePct` enviado por el cliente se ignora: se usa siempre la tasa del servidor (marcada como estimada).
+ * - Blindaje de Seguridad (2026-11-21): `authorizePhoneModuleRequest(request, { permission: 'simulate', targetStoreId })` más límite de tasa acotado por usuario.
  */
 
 import { NextRequest, NextResponse, after } from 'next/server'
@@ -38,6 +39,24 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store, max-age=0' }
+const MAX_SESSION_RATE_BUCKETS = 1000
+const sessionRateBuckets = new Map<string, number[]>()
+
+function checkSessionRateLimit(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now()
+  if (sessionRateBuckets.size >= MAX_SESSION_RATE_BUCKETS && !sessionRateBuckets.has(key)) {
+    const oldest = sessionRateBuckets.keys().next().value
+    if (oldest) sessionRateBuckets.delete(oldest)
+  }
+  const hits = (sessionRateBuckets.get(key) || []).filter((t) => now - t < windowMs)
+  if (hits.length >= limit) {
+    sessionRateBuckets.set(key, hits)
+    return false
+  }
+  hits.push(now)
+  sessionRateBuckets.set(key, hits)
+  return true
+}
 const OUTCOMES = new Set(['confirmed', 'cancelled', 'abandoned'])
 const TRANSCRIPT_ROLE_MAP: Readonly<Record<string, string>> = {
   customer: 'customer',
@@ -62,8 +81,8 @@ function jsonError(error: string, status: number, details?: string[]) {
   return NextResponse.json(details?.length ? { error, details } : { error }, { status, headers: NO_STORE_HEADERS })
 }
 
-async function authorize(request: NextRequest): Promise<{ user?: PhoneAuthorizedUser; response?: NextResponse }> {
-  const auth = await authorizePhoneModuleRequest(request, { permission: 'simulate' })
+async function authorize(request: NextRequest, targetStoreId?: number | null): Promise<{ user?: PhoneAuthorizedUser; response?: NextResponse }> {
+  const auth = await authorizePhoneModuleRequest(request, { permission: 'simulate', targetStoreId })
   if (!auth.authorized || !auth.user) {
     return { response: auth.response || jsonError(auth.error || 'No autenticado.', auth.status || 401) }
   }
@@ -147,6 +166,9 @@ export async function POST(request: NextRequest) {
   try {
     const { user, response } = await authorize(request)
     if (!user) return response!
+    if (!checkSessionRateLimit(`post:${user.id}`, 30, 60_000)) {
+      return jsonError('Demasiadas simulaciones guardadas por minuto. Intenta en unos segundos.', 429)
+    }
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonError('Cuerpo JSON inválido.', 400)
     const b = body as Record<string, any>
@@ -291,10 +313,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, response } = await authorize(request)
-    if (!user) return response!
     const params = request.nextUrl.searchParams
     const storeId = parseStoreId(params.get('storeId') ?? params.get('store_id'))
+    const { user, response } = await authorize(request, storeId)
+    if (!user) return response!
+    if (!checkSessionRateLimit(`get:${user.id}`, 60, 60_000)) {
+      return jsonError('Demasiadas consultas por minuto. Intenta en unos segundos.', 429)
+    }
     if (!storeId) return jsonError('storeId inválido (usa stores.id numérico).', 400)
     if (!canAccessStore(user, storeId)) return jsonError('Acceso denegado: no tienes autorización sobre esa sucursal.', 403)
     const rawLimit = Number(params.get('limit') ?? 20)

@@ -8,10 +8,12 @@
  *   - Consulta la misma semana del calendario en años anteriores (no solo 3 meses)
  *   - Confidence: HIGH (3+ años), MEDIUM (2 años), LOW (1 año), NONE (sin datos)
  * @dataFlow meat_consumption_history → RPC get_seasonal_avg_gallons → JSON response
+ * @notes Protegido con `verifyStaffAuth` para personal interno autenticado.
  */
 
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
+import { verifyStaffAuth } from '@/lib/auth-server';
 
 function getIsoWeek(date: Date) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -22,6 +24,10 @@ function getIsoWeek(date: Date) {
 }
 
 export async function GET(request: Request) {
+  const auth = await verifyStaffAuth(request);
+  if (!auth.authorized) {
+    return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 });
+  }
   const { searchParams } = new URL(request.url);
   const storeId = searchParams.get('storeId');
 

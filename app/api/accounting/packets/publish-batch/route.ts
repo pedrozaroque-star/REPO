@@ -20,7 +20,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
   if (!auth.authorized) return auth.response!
 
   try {

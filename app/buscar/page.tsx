@@ -4,19 +4,18 @@
  * @module app/buscar/page
  * @description Buscador global unificado de Tacos Gavilan (sucursales, usuarios, inspecciones, feedbacks y checklists).
  * @businessRules
- * - Filtra resultados por coincidencia parcial en tiendas, usuarios e historial operativo.
- * - Excluye columnas sensibles (password, google_refresh_token) al consultar la tabla users desde el cliente.
+ * - Filtra resultados por coincidencia parcial en tiendas, usuarios e historial operativo usando `fetchWithAuth` (`teg_token`).
+ * - Excluye columnas sensibles (`password`, `google_refresh_token`, PII de contacto) al consultar `users` y `customer_feedback`.
  * @dataFlow
- * - Query param (?q=) -> Supabase REST API (stores, users, supervisor_inspections, customer_feedback, assistant_checklists) -> UI.
+ * - Query param (?q=) -> `fetchWithAuth` hacia Supabase PostgREST (`stores`, `users`, `supervisor_inspections`, `customer_feedback`, `assistant_checklists`) -> UI.
  * @notes
- * - Endurecido con proyección explícita de columnas seguras en /rest/v1/users.
+ * - Endurecido con `fetchWithAuth` y proyección explícita de columnas seguras en `/rest/v1/users` y `/rest/v1/customer_feedback`.
  */
 
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-
 import Link from 'next/link'
-import { formatStoreName } from '@/lib/supabase'
+import { fetchWithAuth, formatStoreName } from '@/lib/supabase'
 
 export default function BuscarPage() {
   const searchParams = useSearchParams()
@@ -49,40 +48,35 @@ export default function BuscarPage() {
 
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const safeQ = encodeURIComponent(query.trim().replace(/[(),*]/g, ''))
 
       // Buscar en tiendas
-      const storesRes = await fetch(
-        `${url}/rest/v1/stores?or=(name.ilike.*${query}*,city.ilike.*${query}*,code.ilike.*${query}*)&limit=10`,
-        { headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` } }
+      const storesRes = await fetchWithAuth(
+        `${url}/rest/v1/stores?or=(name.ilike.*${safeQ}*,city.ilike.*${safeQ}*,code.ilike.*${safeQ}*)&limit=10`
       )
       const stores = await storesRes.json()
 
-      // Buscar en usuarios
-      const usersRes = await fetch(
-        `${url}/rest/v1/users?select=id,full_name,email,role,store_id,is_active&or=(full_name.ilike.*${query}*,email.ilike.*${query}*)&limit=10`,
-        { headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` } }
+      // Buscar en usuarios (columnas explícitas seguras)
+      const usersRes = await fetchWithAuth(
+        `${url}/rest/v1/users?select=id,full_name,email,role,store_id,store_scope,is_active,created_at&or=(full_name.ilike.*${safeQ}*,email.ilike.*${safeQ}*)&limit=10`
       )
       const users = await usersRes.json()
 
       // Buscar en inspecciones
-      const inspRes = await fetch(
-        `${url}/rest/v1/supervisor_inspections?select=*,stores(name),users(full_name)&limit=10`,
-        { headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` } }
+      const inspRes = await fetchWithAuth(
+        `${url}/rest/v1/supervisor_inspections?select=*,stores(name),users(full_name)&limit=10`
       )
       const inspections = await inspRes.json()
 
-      // Buscar en feedbacks
-      const feedbacksRes = await fetch(
-        `${url}/rest/v1/customer_feedback?select=*,stores(name)&limit=10`,
-        { headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` } }
+      // Buscar en feedbacks (columnas no sensibles)
+      const feedbacksRes = await fetchWithAuth(
+        `${url}/rest/v1/customer_feedback?select=id,store_id,submission_date,customer_name,service_rating,speed_rating,food_quality_rating,cleanliness_rating,nps_score,nps_category,comments,stores(name)&limit=10`
       )
       const feedbacks = await feedbacksRes.json()
 
       // Buscar en checklists
-      const checklistsRes = await fetch(
-        `${url}/rest/v1/assistant_checklists?select=*,stores(name)&limit=10`,
-        { headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` } }
+      const checklistsRes = await fetchWithAuth(
+        `${url}/rest/v1/assistant_checklists?select=*,stores(name)&limit=10`
       )
       const checklists = await checklistsRes.json()
 

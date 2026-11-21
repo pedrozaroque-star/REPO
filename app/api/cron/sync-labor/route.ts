@@ -11,10 +11,12 @@
  * 
  * @notes
  * - La duración máxima de la función está configurada a 300 segundos (`maxDuration = 300`), que es el límite de Vercel Pro.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 import { NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { syncToastPunches, syncToastEmployees, syncToastJobs } from '@/lib/toast-labor'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic' // No caching
 export const maxDuration = 300 // 5 minutes max (Vercel Pro)
@@ -33,9 +35,9 @@ function getLaMinutesOfDay(refDate = new Date()): { hour: number; minute: number
 }
 
 export async function GET(request: Request) {
-    const authHeader = request.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
     }
 
     const url = new URL(request.url)

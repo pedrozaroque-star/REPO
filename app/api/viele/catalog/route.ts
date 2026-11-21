@@ -16,6 +16,7 @@
  * @notes
  * - StoreId inválido se rechaza; una membresía vacía o fallida nunca expone el catálogo global.
  * - [2026-09-21] Si se especifica `storeId`, se filtra exclusivamente a los productos que pertenecen al Order Guide de esa sucursal en `viele_store_sort_orders`, garantizando que tiendas con catálogos extendidos (ej. Bell con 88 items) o estándar (87 items) vean exactamente sus productos.
+ * - Sanitiza el parámetro `query` eliminando metacaracteres de filtro de PostgREST (`[,()*%\\"]`) antes de interpolarlo en `.or(...)` para impedir inyección de filtros.
  */
 
 import { NextResponse } from 'next/server';
@@ -55,7 +56,14 @@ export async function GET(req: Request) {
     }
 
     if (query) {
-      dbQuery = dbQuery.or(`item_code.ilike.%${query}%,description.ilike.%${query}%`);
+      const sanitizedQuery = query
+        .replace(/[,()*%\\"]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 100);
+      if (sanitizedQuery) {
+        dbQuery = dbQuery.or(`item_code.ilike.%${sanitizedQuery}%,description.ilike.%${sanitizedQuery}%`);
+      }
     }
 
     const { data: rawItems, error } = await dbQuery;

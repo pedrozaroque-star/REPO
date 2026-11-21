@@ -1,7 +1,24 @@
+/**
+ * @module next.config
+ * @description Configuración global de Next.js 16 para Tacos Gavilan: compilador React, exclusiones de trazado para paquetes serverless,
+ * límite de Server Actions y cabeceras HTTP de seguridad global en todas las respuestas.
+ *
+ * @businessRules
+ * - Suprime `X-Powered-By` (`poweredByHeader: false`).
+ * - Inyecta HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: SAMEORIGIN`,
+ *   `Permissions-Policy` acotada a `(self)` y `Content-Security-Policy` base (`frame-ancestors 'self'; object-src 'none'; base-uri 'self'`).
+ *
+ * @dataFlow
+ * - Next.js Edge / Server Router -> `headers()` sobre `/:path*` -> Browser / API Client.
+ *
+ * @notes
+ * - Hardened 2026-11-21: Cabeceras globales de seguridad HTTP habilitadas sin afectar WebRTC/cámara propia (`(self)`).
+ */
+
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  poweredByHeader: false,
   reactCompiler: true,
   outputFileTracingExcludes: {
     "/**": [
@@ -35,6 +52,39 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '15mb',
     },
+  },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(self), microphone=(self), geolocation=(self), payment=(self)',
+          },
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
+          },
+        ],
+      },
+    ];
   },
 };
 

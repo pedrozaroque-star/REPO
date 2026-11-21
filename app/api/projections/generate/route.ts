@@ -1,15 +1,26 @@
 /**
  * @module api/projections/generate
  * @description Genera y congela proyecciones de venta mediante Intelligence V3.
- * @businessRules Solo usuarios autenticados de operaciones pueden generar; managers se limitan a su tienda; máximo 31 días por solicitud.
- * @dataFlow Cliente autenticado -> validación de tienda/fecha -> intelligence.ts -> sales_projections_cache -> respuesta JSON.
- * @notes La caché guarda `hourly_data` como mapa hora->venta para mantener compatibilidad con Ventas.
+ * @businessRules Solo usuarios autenticados (`admin`, `supervisor`, `manager`, `planificador` o `CRON_SECRET`) pueden generar; managers se limitan estrictamente a su tienda vía `authorizeStoreScope`; máximo 31 días por solicitud.
+ * @dataFlow Cliente autenticado -> `verifyStaffAuth` + `authorizeStoreScope` -> intelligence.ts -> sales_projections_cache -> respuesta JSON.
+ * @notes La caché guarda `hourly_data` como mapa hora->venta para mantener compatibilidad con Ventas. `GET` exige `verifyStaffAuth` antes de devolver `405`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateSmartForecast } from '@/lib/intelligence'
 import { addDays, format } from 'date-fns'
-import { verifyAuthToken } from '@/lib/auth-server'
+import { verifyStaffAuth, getServerUser, authorizeStoreScope } from '@/lib/auth-server'
+
+const PROJECTION_POST_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'gerente',
+    'general_manager',
+    'asistente',
+    'assistant',
+    'planificador',
+]
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -39,15 +50,9 @@ function formatHourlyArray(hourlyData: any): Array<{ hour: number; projected_sal
 
 export async function POST(request: NextRequest) {
     try {
-        const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
-            || request.cookies.get('teg_token')?.value
-        const user = token ? verifyAuthToken(token) : null
-        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        
-        const roleLower = String(user.user_role || '').toLowerCase().trim()
-        const isAllowedRole = ['admin', 'administrador', 'supervisor', 'manager', 'gerente', 'store_leader'].includes(roleLower)
-        if (!isAllowedRole) {
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        const auth = await verifyStaffAuth(request, { allowedRoles: PROJECTION_POST_ROLES, allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const body = await request.json()
@@ -97,19 +102,46 @@ export async function POST(request: NextRequest) {
         const { data: requestedStore, error: storeError } = await storeQuery.maybeSingle()
         if (storeError || !requestedStore) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
-        const assignedStore = user.user_metadata?.store_id ?? (user as any).store_id
-        const storeScope = user.user_metadata?.store_scope ?? (user as any).store_scope
-        const allowedStores = [
-            assignedStore,
-            ...(Array.isArray(storeScope) ? storeScope : [])
-        ].filter(Boolean).map(String)
+        if (auth.user) {
+            const rawServerUser = await getServerUser(request)
+            let effectiveRole = (rawServerUser?.role || auth.user.role || auth.user.user_role || '').toLowerCase()
+            let effectiveStoreId = rawServerUser?.store_id ?? auth.user.user_metadata?.store_id ?? (auth.user as any)?.store_id
+            let effectiveScope = rawServerUser?.store_scope ?? auth.user.user_metadata?.store_scope
 
-        if (['manager', 'gerente'].includes(roleLower) && allowedStores.length > 0) {
-            const matchesAssigned = allowedStores.some(val =>
-                String(val) === String(requestedStore.id) || String(val) === String(requestedStore.external_id)
-            )
-            if (!matchesAssigned) {
-                return NextResponse.json({ error: 'Manager is not assigned to this store' }, { status: 403 })
+            if (!effectiveStoreId && auth.user.email && !['admin', 'administrador', 'supervisor'].includes(effectiveRole)) {
+                const { data: userProfile } = await supabase
+                    .from('users')
+                    .select('role, store_id, store_scope')
+                    .ilike('email', auth.user.email)
+                    .maybeSingle()
+                if (userProfile) {
+                    if (userProfile.role) effectiveRole = String(userProfile.role).trim().toLowerCase()
+                    if (userProfile.store_id !== null && userProfile.store_id !== undefined) effectiveStoreId = userProfile.store_id
+                    if (userProfile.store_scope) effectiveScope = userProfile.store_scope
+                }
+            }
+
+            const isGlobalOrUnscopedPlanner =
+                ['admin', 'administrador', 'supervisor'].includes(effectiveRole) ||
+                (effectiveRole === 'planificador' && !effectiveStoreId)
+
+            if (!isGlobalOrUnscopedPlanner) {
+                const serverUser = {
+                    id: rawServerUser?.id || auth.user.id,
+                    email: rawServerUser?.email || auth.user.email,
+                    name: rawServerUser?.name || auth.user.user_metadata?.full_name || auth.user.email,
+                    role: effectiveRole,
+                    store_id: effectiveStoreId,
+                    store_ids: rawServerUser?.store_ids ?? auth.user.user_metadata?.store_ids,
+                    store_scope: effectiveScope,
+                }
+
+                const scopeCheck = await authorizeStoreScope(serverUser, requestedStore.id, supabase, {
+                    action: 'publish_schedule',
+                })
+                if (!scopeCheck.authorized) {
+                    return NextResponse.json({ error: scopeCheck.error }, { status: scopeCheck.status })
+                }
             }
         }
 
@@ -227,6 +259,10 @@ export async function POST(request: NextRequest) {
     }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
     return NextResponse.json({ error: 'Use authenticated POST to generate projections' }, { status: 405 })
 }

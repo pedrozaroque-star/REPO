@@ -29,9 +29,20 @@ export default async function TvViewerPage({
     "SA": "SANTA ANA", "SL": "SLAUSON", "SG": "SOUTH GATE", "WC": "WEST COVINA"
   }
 
-  const rawStore = typeof resolvedParams.store === 'string' ? resolvedParams.store.toUpperCase() : 'ALL'
-  const storeParam = STORE_CODES[rawStore] || rawStore
-  const screenParam = parseInt(typeof resolvedParams.screen === 'string' ? resolvedParams.screen : '1', 10) || 1
+  const rawStoreInput = typeof resolvedParams.store === 'string' ? resolvedParams.store.trim().toUpperCase() : 'ALL'
+  const knownStoreNames = new Set(Object.values(STORE_CODES))
+  const sanitizedStoreToken = knownStoreNames.has(rawStoreInput)
+    ? rawStoreInput
+    : /^[A-Z0-9_-]{1,36}$/.test(rawStoreInput)
+      ? rawStoreInput
+      : 'ALL'
+  const storeParam = STORE_CODES[sanitizedStoreToken] || sanitizedStoreToken
+  const safeStoreQuery = encodeURIComponent(storeParam).replace(/'/g, '%27')
+
+  const rawScreenInput = typeof resolvedParams.screen === 'string' ? resolvedParams.screen.trim() : '1'
+  const screenParam = /^[0-9]{1,2}$/.test(rawScreenInput)
+    ? Math.min(Math.max(parseInt(rawScreenInput, 10) || 1, 1), 20)
+    : 1
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   // Usamos el SERVICE_KEY para brincarnos cualquier regla estructural en el Server Component y asegurar la lectura
@@ -138,7 +149,7 @@ export default async function TvViewerPage({
                     window.tvSilentUpdateStarted = true;
                     setInterval(function() {
                         try {
-                            fetch("/api/tv-update?screen=" + ${screenParam} + "&store=${encodeURIComponent(storeParam)}", { cache: "no-cache", keepalive: true })
+                            fetch("/api/tv-update?screen=" + ${screenParam} + "&store=${safeStoreQuery}", { cache: "no-cache", keepalive: true })
                                 .then(function(res) { return res.json(); })
                                 .then(function(data) {
                                     if (data && data.url) {

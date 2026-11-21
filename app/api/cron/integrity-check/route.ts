@@ -8,22 +8,23 @@
  * - Heals discrepancies with complete granular payload (sales, labor, hourly curves, EBT).
  * @dataFlow
  * - Vercel Cron -> GET /api/cron/integrity-check -> Toast API (Full Precision) -> Compare sales_daily_cache -> Auto-Heal Batch Upsert -> Response.
+ * @notes
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const maxDuration = 300 // 5 minutes timeout (Vercel Pro)
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
     try {
-        const authHeader = req.headers.get('authorization')
-        if (process.env.CRON_SECRET) {
-            if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
+        const auth = await verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         // Calcular Fechas en LA Time para evitar errores UTC

@@ -2,48 +2,51 @@
  * @module api/support-chat/conversations/predictive-suggestions
  * @description API endpoint to predict personalized, context-aware operational questions for the current user based on their historical queries, store, and role.
  * @businessRules
- * - Analyzes recent conversation history in assistant_conversations.
+ * - Requires staff authentication (`verifyStaffAuth(req, { allowCron: false })`) and derives user identity strictly from `auth.user.email` / `auth.user.id` (never trusting client `user_email` / `user_id` query parameters).
+ * - Analyzes recent conversation history in `assistant_conversations` using parameterized `.eq()`.
  * - Extracts operational topics of interest (Sales, Food Cost, Breaks, Meat Prep, Safe Counts, Schedules).
- * - Generates 3 to 4 hyper-relevant suggested questions for the user's active session.
  * - Returns localized suggestions in Spanish and English based on user preferences.
  * @dataFlow
- * - Client (SupportChatWidget) -> GET /api/support-chat/conversations/predictive-suggestions?user_email=...&store_id=...&language=... -> Analyzes past topics -> Returns suggested questions.
- * @notes Pure non-blocking fallback mechanism ensuring instant load time.
+ * - Client (SupportChatWidget) -> GET `/api/support-chat/conversations/predictive-suggestions?language=...` -> `verifyStaffAuth` -> Analyzes past topics -> Returns suggested questions.
+ * @notes
+ * - Pure non-blocking fallback mechanism ensuring instant load time.
+ * - Blindaje anti-IDOR y anti-inyección PostgREST (2026-11-21): autenticación obligatoria y eliminación de `.or(...)` interpolado.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowCron: false })
+  if (!auth.authorized || !auth.user) return auth.response!
+
   try {
     const { searchParams } = new URL(req.url)
-    const userEmail = searchParams.get('user_email')
-    const userId = searchParams.get('user_id')
-    const storeId = searchParams.get('store_id')
     const lang = searchParams.get('language') === 'en' ? 'en' : 'es'
 
+    const authEmail = String(auth.user.email || '').trim()
+    const authUserId = String(auth.user.id || '').trim()
     let pastTitles: string[] = []
 
-    if (userEmail || userId) {
+    if (authEmail || authUserId) {
       let q = supabaseAdmin
         .from('assistant_conversations')
         .select('title, updated_at')
         .order('updated_at', { ascending: false })
         .limit(10)
 
-      if (userEmail && userId) {
-        q = q.or(`user_email.eq.${userEmail},user_id.eq.${userId}`)
-      } else if (userEmail) {
-        q = q.eq('user_email', userEmail)
-      } else if (userId) {
-        q = q.eq('user_id', userId)
+      if (authEmail) {
+        q = q.eq('user_email', authEmail)
+      } else {
+        q = q.eq('user_id', authUserId)
       }
 
       const { data } = await q
       if (data && data.length > 0) {
-        pastTitles = data.map(d => d.title.toLowerCase())
+        pastTitles = data.map(d => String(d.title || '').toLowerCase())
       }
     }
 
@@ -79,7 +82,6 @@ export async function GET(req: NextRequest) {
         suggestions.push('¿Cómo funcionan los pedidos diarios a La Bodega?')
       }
 
-      // Default smart fallbacks if no history or fewer than 3
       if (suggestions.length < 3) {
         const defaults = [
           '¿Cómo van las ventas hoy en mi tienda?',
@@ -113,7 +115,6 @@ export async function GET(req: NextRequest) {
         suggestions.push('How do daily warehouse supply orders work?')
       }
 
-      // Default smart fallbacks
       if (suggestions.length < 3) {
         const defaults = [
           "How are today's sales in my store?",

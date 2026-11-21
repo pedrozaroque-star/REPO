@@ -20,7 +20,13 @@
  *      submitted the case/order/comment.
  *
  * @dataFlow
+ * - `canonicalizeBasecampEmail(rawEmail)` -> maps SM TEG login aliases (`roque@`, `alejandro@`, `ap@`) to real Basecamp mailboxes (`carlos@`, `alex@`, `yasmin@`).
  * - `resolveOrCreateTegPerson(supabase, user)` -> `{ id: string, bc_id: number | null, name: string, email: string }`
+ *
+ * @notes
+ * - `roque@tacosgavilan.com` (`name: "Roque"`, `users.id = 47`) is an admin login alias without a real mailbox;
+ *   it always canonicalizes to `Carlos Roque Velazquez` (`bc_id = 43166202`, `carlos@tacosgavilan.com`) so Pass 4
+ *   never creates a synthetic `"Roque"` duplicate and Basecamp 3 API never stamps fake `👤 Roque:` banners.
  */
 
 export interface ResolvedBcPerson {
@@ -28,6 +34,40 @@ export interface ResolvedBcPerson {
   bc_id: number | null
   name: string
   email: string
+}
+
+const BASECAMP_EMAIL_ALIAS_MAP: Record<string, string> = {
+  'roque@tacosgavilan.com': 'carlos@tacosgavilan.com',
+  'alejandro@tacosgavilan.com': 'alex@tacosgavilan.com',
+  'ap@tacosgavilan.com': 'yasmin@tacosgavilan.com',
+}
+
+/**
+ * Canonicalizes SM TEG login alias emails to their real Basecamp / corporate mailbox.
+ */
+export function canonicalizeBasecampEmail(rawEmail?: string | null): string {
+  const clean = (rawEmail || '').trim().toLowerCase()
+  if (!clean) return ''
+  return BASECAMP_EMAIL_ALIAS_MAP[clean] || clean
+}
+
+/**
+ * Canonicalizes short admin login aliases (e.g. `"Roque"`) to the real Basecamp full name
+ * (`"Carlos Roque Velazquez"`), preserving all other display names intact.
+ */
+export function canonicalizeBasecampDisplayName(
+  rawName?: string | null,
+  rawEmail?: string | null
+): string {
+  const cleanName = (rawName || '').trim()
+  const norm = normalizePersonName(cleanName)
+  if (norm === 'roque') {
+    return 'Carlos Roque Velazquez'
+  }
+  if (!cleanName && canonicalizeBasecampEmail(rawEmail) === 'carlos@tacosgavilan.com') {
+    return 'Carlos Roque Velazquez'
+  }
+  return cleanName
 }
 
 /**
@@ -84,10 +124,15 @@ export function findPersonInListByFuzzyName<
 >(people: T[], targetName?: string | null, targetEmail?: string | null): T | null {
   if (!Array.isArray(people) || people.length === 0) return null
 
-  const cleanEmail = (targetEmail || '').trim().toLowerCase()
+  const ordered = [
+    ...people.filter((p) => (p as any)?.is_active !== false),
+    ...people.filter((p) => (p as any)?.is_active === false),
+  ]
+
+  const cleanEmail = canonicalizeBasecampEmail(targetEmail)
   if (cleanEmail && !isMaskedOrEmptyEmail(cleanEmail)) {
-    const byEmail = people.find(
-      (p) => !isMaskedOrEmptyEmail(p.email) && String(p.email).trim().toLowerCase() === cleanEmail
+    const byEmail = ordered.find(
+      (p) => !isMaskedOrEmptyEmail(p.email) && canonicalizeBasecampEmail(p.email) === cleanEmail
     )
     if (byEmail) return byEmail
   }
@@ -95,8 +140,24 @@ export function findPersonInListByFuzzyName<
   const normTarget = normalizePersonName(targetName)
   if (!normTarget) return null
 
+  // Explicit canonical alias: "Roque" / "Carlos Roque" -> Carlos Roque Velazquez
+  if (
+    normTarget === 'roque' ||
+    normTarget === 'carlos roque' ||
+    normTarget === 'carlos roque velasquez'
+  ) {
+    const carlosMatch = ordered.find((p) => {
+      if (!isMaskedOrEmptyEmail(p.email) && canonicalizeBasecampEmail(p.email) === 'carlos@tacosgavilan.com') {
+        return true
+      }
+      const normP = normalizePersonName(p.name)
+      return normP === 'carlos roque velasquez' || normP === 'carlos roque'
+    })
+    if (carlosMatch) return carlosMatch
+  }
+
   // Pass 2: Exact normalized full-name match
-  const exactMatch = people.find((p) => normalizePersonName(p.name) === normTarget)
+  const exactMatch = ordered.find((p) => normalizePersonName(p.name) === normTarget)
   if (exactMatch) return exactMatch
 
   // Pass 3: Unambiguous first-name or first-name + last-initial match
@@ -106,27 +167,34 @@ export function findPersonInListByFuzzyName<
   const targetFirst = targetTokens[0]
   const targetLast = targetTokens.length > 1 ? targetTokens[targetTokens.length - 1] : ''
 
-  const candidates = people.filter((p) => {
-    const normP = normalizePersonName(p.name)
-    const pTokens = normP.split(' ').filter(Boolean)
-    if (pTokens.length === 0) return false
+  const matchCandidates = (pool: T[]) =>
+    pool.filter((p) => {
+      const normP = normalizePersonName(p.name)
+      const pTokens = normP.split(' ').filter(Boolean)
+      if (pTokens.length === 0) return false
 
-    // Special single-token containment (e.g. "Bell" <-> "Teg Bell")
-    if (targetTokens.length === 1 && pTokens.includes(targetFirst)) return true
+      // Special single-token containment (e.g. "Bell" <-> "Teg Bell")
+      if (targetTokens.length === 1 && pTokens.includes(targetFirst)) return true
 
-    const pFirst = pTokens[0]
-    if (pFirst !== targetFirst) return false
+      const pFirst = pTokens[0]
+      if (pFirst !== targetFirst) return false
 
-    if (pTokens.length === 1 || targetTokens.length === 1) return true
+      if (pTokens.length === 1 || targetTokens.length === 1) return true
 
-    const pLast = pTokens[pTokens.length - 1]
-    if (pLast.length === 1 && targetLast.startsWith(pLast)) return true
-    if (targetLast.length === 1 && pLast.startsWith(targetLast)) return true
+      const pLast = pTokens[pTokens.length - 1]
+      if (pLast.length === 1 && targetLast.startsWith(pLast)) return true
+      if (targetLast.length === 1 && pLast.startsWith(targetLast)) return true
 
-    return false
-  })
+      return false
+    })
 
-  return candidates.length === 1 ? candidates[0] : null
+  const activePool = ordered.filter((p) => (p as any)?.is_active !== false)
+  const activeCandidates = matchCandidates(activePool)
+  if (activeCandidates.length === 1) return activeCandidates[0]
+  if (activeCandidates.length > 1) return null
+
+  const allCandidates = matchCandidates(ordered)
+  return allCandidates.length === 1 ? allCandidates[0] : null
 }
 
 /**
@@ -141,8 +209,9 @@ export async function resolveOrCreateTegPerson(
   supabase: any,
   user: { email?: string | null; name?: string | null; role?: string | null }
 ): Promise<ResolvedBcPerson | null> {
-  const userEmail = (user.email || '').trim().toLowerCase()
-  const userName = (user.name || '').trim()
+  const userEmail = canonicalizeBasecampEmail(user.email)
+  const rawUserName = (user.name || '').trim()
+  const userName = canonicalizeBasecampDisplayName(rawUserName, userEmail)
 
   if (!userEmail && !userName) return null
 
@@ -156,24 +225,28 @@ export async function resolveOrCreateTegPerson(
   }
 
   const people: any[] = allPeople || []
+  const orderedPeople = [
+    ...people.filter((p) => p?.is_active !== false),
+    ...people.filter((p) => p?.is_active === false),
+  ]
 
-  // Pass 1: Exact email match
+  // Pass 1: Exact canonicalized email match
   if (userEmail) {
-    const byEmail = people.find(
-      (p) => !isMaskedOrEmptyEmail(p.email) && String(p.email).trim().toLowerCase() === userEmail
+    const byEmail = orderedPeople.find(
+      (p) => !isMaskedOrEmptyEmail(p.email) && canonicalizeBasecampEmail(p.email) === userEmail
     )
     if (byEmail) {
       return {
         id: byEmail.id,
         bc_id: byEmail.bc_id ? Number(byEmail.bc_id) : null,
-        name: userName || byEmail.name,
-        email: userEmail,
+        name: String(byEmail.name || '').trim() || userName,
+        email: canonicalizeBasecampEmail(byEmail.email) || userEmail,
       }
     }
   }
 
   // Pass 2 + Pass 3: Normalized full-name & unambiguous first-name / last-initial match
-  const matchedPerson = findPersonInListByFuzzyName(people, userName)
+  const matchedPerson = findPersonInListByFuzzyName(orderedPeople, rawUserName || userName, userEmail)
 
   if (matchedPerson) {
     // Auto-heal masked email in bc_people so future queries match in Pass 1
@@ -184,11 +257,15 @@ export async function resolveOrCreateTegPerson(
         .eq('id', matchedPerson.id)
     }
 
+    const resolvedEmail =
+      userEmail ||
+      (!isMaskedOrEmptyEmail(matchedPerson.email) ? canonicalizeBasecampEmail(matchedPerson.email) : '')
+
     return {
       id: matchedPerson.id,
       bc_id: matchedPerson.bc_id ? Number(matchedPerson.bc_id) : null,
-      name: userName || matchedPerson.name,
-      email: userEmail || matchedPerson.email || '',
+      name: String(matchedPerson.name || '').trim() || userName,
+      email: resolvedEmail,
     }
   }
 
@@ -229,10 +306,9 @@ export async function resolveOrCreateTegPerson(
  * Returns true if the given user is the owner of the shared Basecamp OAuth token (Carlos).
  */
 export function isBasecampOAuthOwner(email?: string | null, name?: string | null): boolean {
-  const e = (email || '').trim().toLowerCase()
-  if (e === 'carlos@tacosgavilan.com') return true
+  if (canonicalizeBasecampEmail(email) === 'carlos@tacosgavilan.com') return true
   const norm = normalizePersonName(name)
-  return norm === 'carlos roque velasquez' || norm === 'carlos roque'
+  return norm === 'carlos roque velasquez' || norm === 'carlos roque' || norm === 'roque'
 }
 
 /**

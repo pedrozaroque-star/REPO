@@ -49,6 +49,13 @@
  * - Proyecto exclusivo de base de datos: `teg-tacos-gavilan` (`ywwwdcvgfculqmcfkihq`).
  * - Auditoría Aprendizaje Continuo 2026-11-19: usa `generateGeminiLearningJson` con rotación multi-llave/multi-modelo
  *   (evita fallo 429 en `keys[0]`) y amplía detector de fricciones/repeticiones telefónicas (`me pregunta fue...`).
+ * - Calibración Anti-TV / YouTube y Turnos Mixtos 2026-11-21 (sesión `9026505b`): `insight:vad_bg_noise` usa
+ *   `isLikelyBackgroundMediaSpeech` + `extractDirectCustomerIntentFromNoisyTurn` y documenta el `KoreNoiseGate` adaptativo
+ *   de campo cercano + extracción directa de voz del cliente / respuesta a `"¿Me escuchas?"` sin repetir `"ruido de fondo"`.
+ * - Calibración Fase 21 (`2026-11-21`, sesión `99d29f93`): agrega detectores deterministas `rule:kore_drive_thru_manager_window`
+ *   (prohibido pedir teléfono de 10 dígitos en Drive-Thru al pedir hablar con el manager), `rule:kore_super_mulita_addon_math`
+ *   (aritmética exacta `Mulita Regular + Guacamole` vs `Super Mulita`) y `rule:kore_no_cancel_on_olvidalo` (bloqueo de `cancel_order`
+ *   ante `"Olvídalo entonces."`).
  */
 
 import { createHash } from 'node:crypto'
@@ -57,6 +64,11 @@ import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-name
 import { generateGeminiLearningJson } from '@/lib/order-ready-tts'
 import { invalidateStorePhoneContextCache } from '@/lib/phone-agent'
 import { invalidateKoreKnowledgeCache } from '@/lib/drive-thru-kore'
+import {
+  extractDirectCustomerIntentFromNoisyTurn,
+  isExplicitWholeOrderCancelIntent,
+  isLikelyBackgroundMediaSpeech
+} from '@/lib/kore-shared-speech'
 
 export type KoreLearningItemKind = 'doubt_for_owner' | 'learned_rule' | 'synonym_fix' | 'latency_insight'
 export type KoreLearningItemStatus = 'needs_owner_input' | 'auto_applied' | 'approved' | 'dismissed'
@@ -197,6 +209,9 @@ export function inferAppliesToChannels(
     dedupe === 'phone_friction:manager_request_without_wrong_order_ticket_gate'
   ) {
     return 'phone_only'
+  }
+  if (dedupe === 'rule:kore_drive_thru_manager_window' || dedupe === 'rule:kore_no_cancel_on_olvidalo') {
+    return 'drive_thru_only'
   }
 
   const combined = [
@@ -1100,7 +1115,7 @@ export async function buildBilingualRuleFromOwnerInstruction(params: {
 const FOOD_OR_DT_WORDS_RE =
   /\b(tacos?|burritos?|quesadillas?|mulitas?|sopes?|tortas?|nachos?|platos?|horchata|jamaica|pi[nñ]a|tamarindo|coca|coke|sprite|fanta|agua|limonada|lemonade|champurrado|caf[eé]|coffee|flan|cheesecake|asada|pastor|pollo|cabeza|lengua|buche|chorizo|carnitas|huevo|salsa|lim[oó]n|cebolla|cilantro|guacamole|crema|queso|frijol|arroz|orden|pedido|cu[aá]nto|precio|gracias|hola|buenos|buenas|ventana|doordash|uber|grubhub|repartidor|driver|pickup|regular|s[uú]per|grande|median[oa])\b/i
 
-function extractDeterministicSessionFindings(
+export function extractDeterministicSessionFindings(
   session: any,
   sourceType: KoreLearningSourceType
 ): CandidateFinding[] {
@@ -1145,20 +1160,27 @@ function extractDeterministicSessionFindings(
     })
   }
 
-  // 2) Interferencia de TV/radio/conversación ajena de fondo o corte a mitad de frase
+  // 2) Interferencia de TV/YouTube/radio de fondo, turnos mezclados o corte a mitad de frase
   const bgNoiseTurn = turns.find((t) => {
     if (t.role !== 'customer') return false
-    const words = String(t.text || '').trim().split(/\s+/).filter(Boolean)
-    if (words.length >= 22 && !FOOD_OR_DT_WORDS_RE.test(t.text)) return true
-    if (words.length >= 7 && !FOOD_OR_DT_WORDS_RE.test(t.text) && turns.some((k) => k.role === 'kore' && !/[.!?¡¿]$/.test(k.text.trim()))) {
+    const txt = String(t.text || '').trim()
+    if (!txt) return false
+    if (isLikelyBackgroundMediaSpeech(txt)) return true
+    const noisyAnalysis = extractDirectCustomerIntentFromNoisyTurn(txt)
+    if (noisyAnalysis.hasMixedBackgroundNoise) return true
+    const words = txt.split(/\s+/).filter(Boolean)
+    if (words.length >= 7 && !FOOD_OR_DT_WORDS_RE.test(txt) && turns.some((k) => k.role === 'kore' && !/[.!?¡¿]$/.test(k.text.trim()))) {
       return true
     }
     return false
   })
+  const repeatedBgApologyCount = turns.filter(
+    (t) => t.role === 'kore' && /se\s+escuch[oó]\s+ruido\s+de\s+fondo|background\s+(?:noise|audio)/i.test(String(t.text || ''))
+  ).length
   const cutOffKoreTurn = turns.find(
     (t) => t.role === 'kore' && t.text.trim().length > 4 && !/[.!?…"]$/.test(t.text.trim())
   )
-  if (bgNoiseTurn || bargeIns >= 3 || (avgLat !== null && avgLat > 2400)) {
+  if (bgNoiseTurn || repeatedBgApologyCount >= 2 || bargeIns >= 3 || (avgLat !== null && avgLat > 2400)) {
     findings.push({
       storeId,
       sourceSessionId: sessionId,
@@ -1170,13 +1192,177 @@ function extractDeterministicSessionFindings(
       questionOrTrigger:
         avgLat !== null && avgLat > 2400
           ? `Latencia promedio elevada (${avgLat} ms) o interrupciones de audio (${bargeIns})`
-          : 'Audio de fondo (TV/radio/conversación externa) mantuvo abierto el micrófono e interrumpió a Kore',
+          : 'Audio de fondo (TV/YouTube/conversación externa) mezclado con voz del cliente o interrumpiendo a Kore',
       customerQuote: bgNoiseTurn ? sanitizeRuleText(bgNoiseTurn.text, 260) : null,
       koreQuote: cutOffKoreTurn ? sanitizeRuleText(cutOffKoreTurn.text, 220) : null,
       proposedRuleEs:
-        'VAD ajustado (START_SENSITIVITY_LOW + END_SENSITIVITY_HIGH, silenceDurationMs=320 ms) + filtro Noise Gate / Push-to-Talk e instrucción de ignorar audio de TV o radio que no sea orden directa.',
+        'VAD silenceDurationMs=1150 ms + Barge-In 128 ms (4 bloques, pre-ataque 192 ms, continuación suave 64 ms @ 0.024) + KoreCustomerHoldController (45 s) + isNonLatinNoiseTranscript ("जी के") + endsWithDanglingClauseConnector ("...no crema es", "...hablar con el") + isExplicitWholeOrderCancelIntent ("Olvídalo entonces" jamás cancela la orden).',
       proposedRuleEn:
-        'Tuned VAD (START_SENSITIVITY_LOW + END_SENSITIVITY_HIGH, silenceDurationMs=320 ms) + Noise Gate / Push-to-Talk and rule to ignore background TV/radio speech not addressed to the speaker.',
+        'VAD silenceDurationMs=1150 ms + Barge-In 128 ms (4 chunks, 192 ms pre-onset, 64 ms @ 0.024 continuation grace) + KoreCustomerHoldController (45 s) + isNonLatinNoiseTranscript ("जी के") + endsWithDanglingClauseConnector ("...no crema es", "...hablar con el") + isExplicitWholeOrderCancelIntent ("Olvídalo entonces" never cancels the order).',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2d) Manager en Drive-Thru: prohibido pedir nombre o teléfono de 10 dígitos en bocina (enviar directo a ventanilla)
+  const custManagerTurn = turns.find(
+    (t) => t.role === 'customer' && /\b(manager|gerente|encargad[oa]|supervisor)\b/i.test(t.text)
+  )
+  const korePhoneDemandTurn = turns.find(
+    (t) =>
+      t.role === 'kore' &&
+      /\b(?:diez\s+d[ií]gitos|10\s+d[ií]gitos|n[uú]mero\s+de\s+tel[eé]fono|phone\s+number|10[\s-]*digit|devolver(?:le)?\s+la\s+llamada|call\s+you\s+back)\b/i.test(
+        t.text
+      )
+  )
+  if (custManagerTurn && korePhoneDemandTurn) {
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_drive_thru_manager_window',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'drive_thru_only',
+      questionOrTrigger: 'Cliente pide hablar con el manager en la bocina del Drive-Thru ("¿Puedo hablar con el manager?")',
+      customerQuote: sanitizeRuleText(custManagerTurn.text, 240),
+      koreQuote: sanitizeRuleText(korePhoneDemandTurn.text, 240),
+      proposedRuleEs:
+        'En la bocina del Drive-Thru está PROHIBIDO pedir nombre, teléfono de 10 dígitos, ticket o devolución de llamada cuando el cliente pide hablar con el manager/gerente; invítalo en 1 frase corta a pasar directo a la ventanilla donde el manager en turno lo atiende en persona, conservando su orden lista.',
+      proposedRuleEn:
+        'At the Drive-Thru speaker it is STRICTLY FORBIDDEN to ask for a name, 10-digit phone number, ticket, or callback when a customer asks to speak with the manager; kindly invite them in 1 short sentence to pull forward to the window where the manager on duty will assist in person, keeping their order intact.',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2e) Aritmética falsa en Mulita sin crema vs Mulita Regular + Guacamole
+  const custCheaperMulitaTurn = turns.find(
+    (t) =>
+      t.role === 'customer' &&
+      /\b(?:m[aá]s\s+barat[oa]|cheaper|conviene|sale\s+mejor)\b/i.test(t.text) &&
+      turns.some((u) => /\bmulitas?\b/i.test(u.text))
+  )
+  const koreFalseSuperCheaperTurn = turns.find(
+    (t) =>
+      t.role === 'kore' &&
+      /\b(?:s[uú]per\s+mulitas?\b[^.!?]{0,80}\b(?:m[aá]s\s+barat[oa]|m[aá]s\s+econ[oó]mic[oa]|ahorra)|sale\s+m[aá]s\s+barat[oa]\s+pedir(?:las?|los?)?\s+s[uú]per|super\s+mulitas?\b[^.!?]{0,80}\b(?:cheaper|saves))\b/i.test(
+        t.text
+      )
+  )
+  if (custCheaperMulitaTurn && koreFalseSuperCheaperTurn) {
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_super_mulita_addon_math',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'both',
+      questionOrTrigger: 'Cliente pregunta qué sale más barato: Super Mulita sin crema vs Mulita Regular con guacamole',
+      customerQuote: sanitizeRuleText(custCheaperMulitaTurn.text, 240),
+      koreQuote: sanitizeRuleText(koreFalseSuperCheaperTurn.text, 240),
+      proposedRuleEs:
+        'La Mulita y Quesadilla Regular YA incluyen queso Monterey Jack derretido: al quitar la crema de una Super Mulita ($5.99), la Mulita Regular ($4.79) + Guacamole ($0.99) = $5.78 SÍ es más barata ($0.21 menos c/u), mientras que en Super Burrito sin crema ($11.69 vs $13.17) y Super Quesadilla sin crema ($10.59 vs $11.18) el Super sí ahorra. Informar siempre la suma exacta del POS.',
+      proposedRuleEn:
+        'Regular Mulitas and Quesadillas ALREADY include melted Monterey Jack cheese: when removing sour cream from a Super Mulita ($5.99), Regular Mulita ($4.79) + Guacamole ($0.99) = $5.78 IS cheaper (saves $0.21 each), whereas Super Burrito without sour cream ($11.69 vs $13.17) and Super Quesadilla without sour cream ($10.59 vs $11.18) save money. Always state exact POS arithmetic.',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2f) Cancelación errónea de toda la orden ante frase ambigua ("Olvídalo entonces" / "Never mind")
+  const hadCancelAction =
+    String(session.outcome || '') === 'cancelled' ||
+    turns.some(
+      (t) =>
+        ((t.role === 'system' || t.role === 'tool') &&
+          /\b(?:cancel_order|cancel[oó]\s+la\s+orden|cancelled\s+the\s+order)\b/i.test(t.text)) ||
+        (t.role === 'kore' &&
+          /\b(?:he\s+cancelado\s+su\s+orden|su\s+orden\s+(?:ha\s+sido|qued[oó])\s+cancelada|cancelled\s+your\s+order|canceled\s+your\s+order)\b/i.test(
+            t.text
+          ))
+    )
+  const hadExplicitOrderCancel = turns.some((t) => t.role === 'customer' && isExplicitWholeOrderCancelIntent(t.text))
+  const ambiguousCancelTurn = turns.find(
+    (t) =>
+      t.role === 'customer' &&
+      /\b(?:olv[ií]dalo(?:\s+entonces)?|mejor\s+no|no\s+importa|d[eé]jalo\s+as[ií]|ya\s+d[eé]jalo|never\s*mind|forget\s+it|la\s+orden\s+s[ií]\s+la\s+quiero)\b/i.test(
+        t.text
+      )
+  )
+  if (hadCancelAction && !hadExplicitOrderCancel && ambiguousCancelTurn) {
+    const cancelKoreTurn = turns.find((t) => t.role === 'kore' && /\bcancelad[oa]|cancelled|canceled\b/i.test(t.text))
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_no_cancel_on_olvidalo',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'drive_thru_only',
+      questionOrTrigger: 'Frase ambigua de subtema ("Olvídalo entonces" / "Never mind") NO debe cancelar una orden activa',
+      customerQuote: sanitizeRuleText(ambiguousCancelTurn.text, 240),
+      koreQuote: cancelKoreTurn ? sanitizeRuleText(cancelKoreTurn.text, 240) : null,
+      proposedRuleEs:
+        'PROHIBIDO ejecutar cancel_order ante descartes ambiguos como "Olvídalo", "Olvídalo entonces", "Mejor no", "Never mind" o al cancelar hablar con el manager; mantener el ticket intacto y solo cancelar si el cliente pide explícitamente cancelar toda su orden o pasa al comedor por EBT.',
+      proposedRuleEn:
+        'STRICTLY FORBIDDEN to call cancel_order on ambiguous dismissals like "Olvídalo", "Olvídalo entonces", "Mejor no", "Never mind", or when canceling speaking to the manager; keep the food order intact unless the customer explicitly asks to cancel their entire order or goes inside for EBT.',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2c) Concordancia gramatical femenina de Kore en español (evitar "aquí sigo listo" / "estoy listo")
+  const koreMasculineSelfTurn = turns.find(
+    (t) => t.role === 'kore' && /\b(?:aqu[ií]\s+sigo\s+listo|estoy\s+listo|quedo\s+atento)\b/i.test(t.text)
+  )
+  if (koreMasculineSelfTurn) {
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_spanish_feminine_agreement',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'both',
+      questionOrTrigger: 'Concordancia gramatical femenina de Kore en español ("lista" / "atenta", nunca "listo")',
+      customerQuote: sanitizeRuleText(
+        turns.find((t) => t.role === 'customer' && /\b(?:voz\s+de\s+mujer|listo)\b/i.test(t.text))?.text || 'Ahi voy, espérame, estoy pensando.',
+        240
+      ),
+      koreQuote: sanitizeRuleText(koreMasculineSelfTurn.text, 240),
+      proposedRuleEs:
+        'Kore tiene voz e identidad femenina: al referirse a sí misma en español debe usar SIEMPRE adjetivos femeninos ("aquí quedo lista", "estoy lista", "atenta", "segura"; jamás "listo" ni "atento") y fórmulas neutras para el cliente ("tómese su tiempo", "cuando guste").',
+      proposedRuleEn:
+        'Kore has a female voice and identity: when referring to herself in Spanish she must ALWAYS use feminine adjectives ("aquí quedo lista", "estoy lista", "atenta", "segura"; never masculine "listo" or "atento") and polite neutral phrasing for the customer ("tómese su tiempo", "cuando guste").',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2b) Error real de ingredientes: decir que el Sope lleva lechuga / lettuce
+  const koreSopeLettuceTurn = turns.find(
+    (t) =>
+      t.role === 'kore' &&
+      /\b(lechuga|lettuce)\b/i.test(t.text) &&
+      !/\b(?:no\s+lleva|sin\s+lechuga|no\s+lettuce|without\s+lettuce|tortas?)\b/i.test(t.text) &&
+      turns.some((u) => /\bsopes?\b/i.test(u.text))
+  )
+  if (koreSopeLettuceTurn) {
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:sope_official_recipe_no_lettuce',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'both',
+      questionOrTrigger: 'Cliente pregunta qué lleva el Sope (ingredientes oficiales sin lechuga)',
+      customerQuote: sanitizeRuleText(
+        turns.find((t) => t.role === 'customer' && /\bsopes?\b/i.test(t.text))?.text || '¿Qué lleva el sope?',
+        240
+      ),
+      koreQuote: sanitizeRuleText(koreSopeLettuceTurn.text, 240),
+      proposedRuleEs:
+        'En Tacos Gavilan el Sope es una tortilla gruesa de maíz con frijoles refritos, crema (sour cream), queso Cotija desmoronado y la carne a elegir (el Sope de Queso lleva Queso Fresco y Cotija); JAMÁS lleva lechuga ni tomate.',
+      proposedRuleEn:
+        'At Tacos Gavilan, a Sope is a thick corn tortilla topped with refried beans, sour cream, crumbled Cotija cheese, and choice of meat (Cheese Sope uses Queso Fresco and Cotija); it NEVER comes with lettuce or tomato.',
       avgLatencyMs: avgLat
     })
   }
@@ -1527,7 +1713,14 @@ async function extractLlmSessionDoubts(
     for (const it of arr) {
       const trigger = sanitizeRuleText(it?.questionOrTrigger, 180)
       if (trigger.length < 10) continue
-      if (!cashierFallback && /tamañ|size|red bull|verstappen|checo|dos nada/i.test(trigger)) continue
+      if (
+        !cashierFallback &&
+        /tamañ|size|red bull|verstappen|checo|dos nada|gta|xbox|modders|youtube|capturadora|30 fps|ruido de fondo|background noise|me escuchas|can you hear me|sope.*lechuga|lechuga.*sope|voz de mujer|sigo listo|no me apresures|estoy pensando|olvidalo|never mind|hablar con el manager.*ventanilla/i.test(
+          trigger
+        )
+      ) {
+        continue
+      }
       const rawKind = it?.itemKind === 'learned_rule' ? 'learned_rule' : cashierFallback?.itemKind || 'doubt_for_owner'
       const rawKoreQuote = sanitizeRuleText(it?.koreQuote, 240)
       const finalKoreQuote =
@@ -1614,6 +1807,17 @@ async function upsertCandidateFinding(f: CandidateFinding): Promise<'inserted' |
       updated_at: new Date().toISOString()
     }
     if (promoteGlobal) updateFields.store_id = null
+    if (
+      existing.item_kind === 'latency_insight' &&
+      existing.status === 'auto_applied' &&
+      !existing.owner_instruction
+    ) {
+      updateFields.question_or_trigger = f.questionOrTrigger
+      updateFields.proposed_rule_es = f.proposedRuleEs
+      updateFields.proposed_rule_en = f.proposedRuleEn
+      if (f.customerQuote) updateFields.customer_quote = f.customerQuote
+      if (f.koreQuote) updateFields.kore_quote = f.koreQuote
+    }
 
     const { data: updExisting } = await supabaseAdmin
       .from('dt_kore_learning_items')

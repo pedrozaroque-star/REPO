@@ -32,6 +32,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { sanitizeBasecampHtml as sanitizeBasecampHtmlShared } from '@/lib/basecamp-html'
 
 // ============================================================================
 // CONFIGURATION
@@ -131,6 +132,7 @@ export interface BasecampTodoList {
   description: string
   completed: boolean
   completed_ratio: string
+  color?: string | null
   name: string
   todos_url: string
   groups_url: string
@@ -185,6 +187,16 @@ export interface BasecampTodo {
   assignees: BasecampPersonRef[]
   completion_subscribers: BasecampPersonRef[]
   completor: BasecampPersonRef | null
+  boosts_count?: number
+  boosts_url?: string
+}
+
+export interface BasecampBoost {
+  id: number
+  content: string
+  created_at: string
+  booster?: BasecampPersonRef
+  recording?: { id: number; title?: string; type: string; url?: string }
 }
 
 export interface BasecampMessage {
@@ -207,7 +219,16 @@ export interface BasecampMessage {
   creator: BasecampPersonRef
   content: string
   subject: string
-  category: { id: number; title: string; name: string; color: string } | null
+  pinned?: boolean
+  category: { id: number; title?: string; name: string; icon?: string; color?: string } | null
+}
+
+export interface BasecampMessageCategory {
+  id: number
+  name: string
+  icon?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface BasecampCampfireLine {
@@ -361,11 +382,22 @@ export interface CreateTodoData {
   starts_on?: string
 }
 
+export interface UpdateTodoData {
+  content: string
+  description?: string
+  assignee_ids?: number[]
+  completion_subscriber_ids?: number[]
+  starts_on?: string | null
+  due_on?: string | null
+  notify?: boolean
+}
+
 export interface CreateMessageData {
   subject: string
   content?: string
   status?: string
   category_id?: number
+  subscriptions?: number[]
 }
 
 // ============================================================================
@@ -762,66 +794,9 @@ export function assertSafeBasecampApiUrl(rawUrl: string, accountId: string = BAS
   return parsed.toString()
 }
 
-export const sanitizeBasecampHtml = (html: string): string => {
-    if (!html || typeof html !== 'string') return ''
-    let clean = html.replace(/<!--[\s\S]*?-->/g, '')
+export const sanitizeBasecampHtml = (html: string): string => sanitizeBasecampHtmlShared(html)
 
-    let prev = ''
-    while (clean !== prev) {
-        prev = clean
-        clean = clean
-            .replace(/<\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-            .replace(/<\s*\/?\s*(script|iframe|object|embed|form|applet|meta|link|style|base|svg|math|template|input|button|textarea|select)\b[^>]*\/?>/gi, '')
-            .replace(/(<[^>]*?)(?:[\s/]+)(on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*))/gi, '$1')
-            .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*)/gi, '')
-    }
-
-    clean = clean.replace(
-        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)(["'])([\s\S]*?)\2/gi,
-        (full, attrPrefix, quote, rawVal) => {
-            const decoded = String(rawVal)
-                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-                .replace(/[\u0000-\u0020]+/g, '')
-                .toLowerCase()
-
-            if (
-                decoded.startsWith('javascript:') ||
-                decoded.startsWith('vbscript:') ||
-                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
-            ) {
-                const safeFallback = /href/i.test(attrPrefix) ? '#' : ''
-                return `${attrPrefix}${quote}${safeFallback}${quote}`
-            }
-            return full
-        }
-    )
-
-    clean = clean.replace(
-        /(\s+(?:href|src|xlink:href|action|formaction)\s*=\s*)([^\s>"']+)/gi,
-        (full, attrPrefix, rawVal) => {
-            const decoded = String(rawVal)
-                .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-                .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-                .replace(/[\u0000-\u0020]+/g, '')
-                .toLowerCase()
-
-            if (
-                decoded.startsWith('javascript:') ||
-                decoded.startsWith('vbscript:') ||
-                (decoded.startsWith('data:') && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/i.test(decoded))
-            ) {
-                const safeFallback = /href/i.test(attrPrefix) ? '"#"' : '""'
-                return `${attrPrefix}${safeFallback}`
-            }
-            return full
-        }
-    )
-
-    return clean
-}
-
-const sanitizeAttachmentHref = (rawUrl?: string): string => {
+export const sanitizeAttachmentHref = (rawUrl?: string): string => {
     if (!rawUrl || typeof rawUrl !== 'string') return '#'
     const trimmed = rawUrl.trim()
     if (trimmed.startsWith('/api/basecamp/attachment?')) return trimmed
@@ -833,7 +808,9 @@ const sanitizeAttachmentHref = (rawUrl?: string): string => {
         if (
             host === '3.basecampapi.com' ||
             host === 'preview.app.basecamp.com' ||
-            host === 'storage.app.basecamp.com'
+            host === 'storage.app.basecamp.com' ||
+            host === 'preview.3.basecamp.com' ||
+            host === 'storage.3.basecamp.com'
         ) {
             return `/api/basecamp/attachment?url=${encodeURIComponent(parsed.toString())}`
         }
@@ -1119,6 +1096,110 @@ export async function uncompleteTodo(projectId: number, todoId: number): Promise
   })
 }
 
+/**
+ * Actualiza un to-do existente en Basecamp 3 (`PUT /buckets/{projectId}/todos/{todoId}.json`).
+ * IMPORTANTE: Basecamp 3 limpia cualquier campo omitido en PUT, por lo que SIEMPRE se envían todos los campos.
+ */
+export async function updateTodo(
+  projectId: number,
+  todoId: number,
+  payload: UpdateTodoData
+): Promise<BasecampTodo> {
+  const fullPayload = {
+    content: payload.content,
+    description: payload.description ?? '',
+    assignee_ids: Array.isArray(payload.assignee_ids) ? payload.assignee_ids : [],
+    completion_subscriber_ids: Array.isArray(payload.completion_subscriber_ids)
+      ? payload.completion_subscriber_ids
+      : [],
+    starts_on: payload.starts_on ?? null,
+    due_on: payload.due_on ?? null,
+    notify: payload.notify ?? false,
+  }
+  return basecampFetch<BasecampTodo>(`/buckets/${projectId}/todos/${todoId}.json`, {
+    method: 'PUT',
+    body: JSON.stringify(fullPayload),
+    noPaginate: true,
+  })
+}
+
+/** Reordena o mueve un to-do a otra lista o grupo dentro del mismo proyecto (`parent_id` opcional) */
+export async function repositionTodo(
+  projectId: number,
+  todoId: number,
+  position: number,
+  parentBcId?: number
+): Promise<void> {
+  const safePos = Math.max(1, Math.floor(Number(position) || 1))
+  await basecampFetch(`/buckets/${projectId}/todos/${todoId}/position.json`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      position: safePos,
+      ...(parentBcId && Number(parentBcId) > 0 ? { parent_id: Number(parentBcId) } : {}),
+    }),
+    noPaginate: true,
+  })
+}
+
+/** Crea una nueva lista de tareas (Todolist) en un Todoset de Basecamp 3 */
+export async function createTodolistRemote(
+  projectId: number,
+  todosetId: number,
+  name: string,
+  description?: string
+): Promise<BasecampTodoList> {
+  return basecampFetch<BasecampTodoList>(`/buckets/${projectId}/todosets/${todosetId}/todolists.json`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      ...(description !== undefined ? { description } : {}),
+    }),
+    noPaginate: true,
+  })
+}
+
+/** Actualiza el nombre y descripción de una lista de tareas (o grupo) en Basecamp 3 */
+export async function updateTodolistRemote(
+  projectId: number,
+  todolistId: number,
+  name: string,
+  description?: string
+): Promise<BasecampTodoList> {
+  return basecampFetch<BasecampTodoList>(`/buckets/${projectId}/todolists/${todolistId}.json`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      name,
+      description: description ?? '',
+    }),
+    noPaginate: true,
+  })
+}
+
+/** Obtiene los grupos hijos (Todolist Groups) de una lista de tareas */
+export async function fetchTodolistGroups(
+  projectId: number,
+  todolistId: number
+): Promise<BasecampTodoList[]> {
+  return basecampFetch<BasecampTodoList[]>(`/buckets/${projectId}/todolists/${todolistId}/groups.json`)
+}
+
+/** Crea un nuevo grupo dentro de una lista de tareas en Basecamp 3 */
+export async function createTodolistGroupRemote(
+  projectId: number,
+  todolistId: number,
+  name: string,
+  color?: string
+): Promise<BasecampTodoList> {
+  return basecampFetch<BasecampTodoList>(`/buckets/${projectId}/todolists/${todolistId}/groups.json`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      ...(color ? { color } : {}),
+    }),
+    noPaginate: true,
+  })
+}
+
 /** Crea un nuevo mensaje en un message board */
 export async function createMessage(
   projectId: number,
@@ -1167,6 +1248,93 @@ export async function createComment(
 /** Obtiene los comentarios de cualquier recording (message, todo, etc.) */
 export async function fetchComments(projectId: number, recordingId: number): Promise<any[]> {
   return basecampFetch<any[]>(`/buckets/${projectId}/recordings/${recordingId}/comments.json`)
+}
+
+/** Actualiza el contenido HTML de un comentario existente en Basecamp 3 */
+export async function updateCommentRemote(
+  projectId: number,
+  commentId: number,
+  content: string
+): Promise<any> {
+  return basecampFetch(`/buckets/${projectId}/comments/${commentId}.json`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+    noPaginate: true,
+  })
+}
+
+/** Obtiene las categorías de mensajes (Message Types) configuradas en un proyecto de Basecamp 3 */
+export async function fetchMessageCategories(projectId: number): Promise<BasecampMessageCategory[]> {
+  return basecampFetch<BasecampMessageCategory[]>(`/buckets/${projectId}/categories.json`)
+}
+
+/** Actualiza el asunto, contenido y categoría opcional de un mensaje existente en Basecamp 3 */
+export async function updateMessageRemote(
+  projectId: number,
+  messageId: number,
+  subject: string,
+  content: string,
+  categoryId?: number
+): Promise<BasecampMessage> {
+  return basecampFetch<BasecampMessage>(`/buckets/${projectId}/messages/${messageId}.json`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      subject,
+      content: content ?? '',
+      ...(categoryId ? { category_id: categoryId } : {}),
+    }),
+    noPaginate: true,
+  })
+}
+
+/** Fija (Pin) un recording (ej. Message) arriba del tablero en Basecamp 3 */
+export async function pinRecordingRemote(projectId: number, recordingId: number): Promise<void> {
+  await basecampFetch(`/buckets/${projectId}/recordings/${recordingId}/pin.json`, {
+    method: 'PUT',
+    noPaginate: true,
+  })
+}
+
+/** Desfija (Unpin) un recording en Basecamp 3 */
+export async function unpinRecordingRemote(projectId: number, recordingId: number): Promise<void> {
+  await basecampFetch(`/buckets/${projectId}/recordings/${recordingId}/pin.json`, {
+    method: 'DELETE',
+    noPaginate: true,
+  })
+}
+
+/** Envía cualquier recording (Todo, Comment, Message, Document, Todolist, etc.) a la papelera de Basecamp 3 */
+export async function trashRecording(projectId: number, recordingId: number): Promise<void> {
+  await basecampFetch(`/buckets/${projectId}/recordings/${recordingId}/status/trashed.json`, {
+    method: 'PUT',
+    noPaginate: true,
+  })
+}
+
+/** Obtiene los boosts (reacciones cortas) de cualquier recording en Basecamp 3 */
+export async function fetchBoosts(projectId: number, recordingId: number): Promise<BasecampBoost[]> {
+  return basecampFetch<BasecampBoost[]>(`/buckets/${projectId}/recordings/${recordingId}/boosts.json`)
+}
+
+/** Crea un boost (reacción corta de hasta 16 caracteres) sobre cualquier recording en Basecamp 3 */
+export async function createBoostRemote(
+  projectId: number,
+  recordingId: number,
+  content: string
+): Promise<BasecampBoost> {
+  return basecampFetch<BasecampBoost>(`/buckets/${projectId}/recordings/${recordingId}/boosts.json`, {
+    method: 'POST',
+    body: JSON.stringify({ content: String(content || '').slice(0, 16) }),
+    noPaginate: true,
+  })
+}
+
+/** Elimina un boost en Basecamp 3 */
+export async function deleteBoostRemote(projectId: number, boostId: number): Promise<void> {
+  await basecampFetch(`/buckets/${projectId}/boosts/${boostId}.json`, {
+    method: 'DELETE',
+    noPaginate: true,
+  })
 }
 
 /** Crea una respuesta a una pregunta de check-in */
@@ -1301,18 +1469,14 @@ export async function fetchProjectWebhooks(projectId: number): Promise<BasecampW
  * Asegura que exista un webhook activo apuntando a nuestro endpoint en el proyecto de Basecamp.
  * Basecamp exige HTTPS en `payload_url`.
  */
+let boostWebhookTypeRejected = false
+
 export async function ensureProjectWebhook(projectId: number, payloadUrl: string): Promise<BasecampWebhook | null> {
   if (!payloadUrl.startsWith('https://')) {
     return null
   }
 
   try {
-    const existing = await fetchProjectWebhooks(projectId)
-    const match = existing.find((w) => w.payload_url === payloadUrl)
-    if (match && match.active) {
-      return match
-    }
-
     const desiredTypes = [
       'Todo',
       'Todolist',
@@ -1323,28 +1487,57 @@ export async function ensureProjectWebhook(projectId: number, payloadUrl: string
       'Campfire::Line',
       'Question::Answer',
       'Schedule::Entry',
+      'Boost',
     ]
+    const effectiveTypes = boostWebhookTypeRejected
+      ? desiredTypes.filter((t) => t !== 'Boost')
+      : desiredTypes
 
-    if (match && !match.active) {
-      return await basecampFetch<BasecampWebhook>(`/buckets/${projectId}/webhooks/${match.id}.json`, {
-        method: 'PUT',
+    const existing = await fetchProjectWebhooks(projectId)
+    const match = existing.find((w) => w.payload_url === payloadUrl)
+    const hasAllEffectiveTypes = Boolean(
+      match && Array.isArray(match.types) && effectiveTypes.every((dt) => match.types.includes(dt))
+    )
+    if (match && match.active && hasAllEffectiveTypes) {
+      return match
+    }
+
+    const upsertWebhook = async (typesList: string[]): Promise<BasecampWebhook> => {
+      if (match) {
+        const mergedTypes = Array.from(new Set([...(Array.isArray(match.types) ? match.types : []), ...typesList]))
+        return basecampFetch<BasecampWebhook>(`/buckets/${projectId}/webhooks/${match.id}.json`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            payload_url: payloadUrl,
+            types: mergedTypes,
+            active: true,
+          }),
+          noPaginate: true,
+        })
+      }
+      return basecampFetch<BasecampWebhook>(`/buckets/${projectId}/webhooks.json`, {
+        method: 'POST',
         body: JSON.stringify({
           payload_url: payloadUrl,
-          types: desiredTypes,
-          active: true,
+          types: typesList,
         }),
         noPaginate: true,
       })
     }
 
-    return await basecampFetch<BasecampWebhook>(`/buckets/${projectId}/webhooks.json`, {
-      method: 'POST',
-      body: JSON.stringify({
-        payload_url: payloadUrl,
-        types: desiredTypes,
-      }),
-      noPaginate: true,
-    })
+    try {
+      return await upsertWebhook(effectiveTypes)
+    } catch (innerErr: any) {
+      if (String(innerErr?.message || '').includes('must be eligible') && effectiveTypes.includes('Boost')) {
+        boostWebhookTypeRejected = true
+        const coreTypes = desiredTypes.filter((t) => t !== 'Boost')
+        if (match && match.active && Array.isArray(match.types) && coreTypes.every((dt) => match.types.includes(dt))) {
+          return match
+        }
+        return await upsertWebhook(coreTypes)
+      }
+      throw innerErr
+    }
   } catch (err: any) {
     console.warn(`⚠️ [Basecamp Webhook] Could not register webhook for project ${projectId}:`, err.message)
     return null
@@ -1573,6 +1766,28 @@ export async function syncTodolistCounts(supabase: any, todolistDbId?: string | 
         updated_at: new Date().toISOString(),
       })
       .eq('id', todolistDbId)
+  }
+}
+
+export async function syncTodolistGroupCounts(supabase: any, groupDbId?: string | null): Promise<void> {
+  if (!groupDbId) return
+  const [{ count: totalCount, error: totalErr }, { count: completedCount, error: compErr }] = await Promise.all([
+    supabase.from('bc_todos').select('*', { count: 'exact', head: true }).eq('group_id', groupDbId),
+    supabase
+      .from('bc_todos')
+      .select('*', { count: 'exact', head: true })
+      .eq('group_id', groupDbId)
+      .eq('is_completed', true),
+  ])
+  if (!totalErr && !compErr) {
+    await supabase
+      .from('bc_todolist_groups')
+      .update({
+        total_count: totalCount ?? 0,
+        completed_count: completedCount ?? 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', groupDbId)
   }
 }
 

@@ -15,12 +15,76 @@
  * @notes No se usan mocks, todo interactúa con la base de datos real.
  */
 
+import { cookies, headers } from 'next/headers';
+import { verifyAuthToken, getCronSecret, type DecodedToken } from '@/lib/auth-server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { getBusinessDate, getDefaultMinStock, parseUniformCategoryAndSize, type UniformCategory, type UniformSize, type UniformsSafeBalance } from './utils';
 
+async function requireUniformsStaffAuth(explicitToken?: string): Promise<DecodedToken | { id: string; email: string; role: string }> {
+  const cronSecret = getCronSecret();
+
+  let headerAuth: string | null = null;
+  let headerCron: string | null = null;
+  let headerCookie = '';
+  try {
+    const hdrs = await headers();
+    headerAuth = hdrs.get('authorization') || hdrs.get('Authorization');
+    headerCron = hdrs.get('x-cron-auth') || headerAuth;
+    headerCookie = hdrs.get('cookie') || hdrs.get('Cookie') || '';
+  } catch {
+    // Outside Next.js request store
+  }
+
+  if (cronSecret && headerCron && (headerCron === `Bearer ${cronSecret}` || headerCron === cronSecret)) {
+    return { id: 'cron', email: 'cron@tacosgavilan.com', role: 'admin' };
+  }
+
+  const candidates: string[] = [];
+  if (explicitToken && typeof explicitToken === 'string' && explicitToken.trim()) {
+    const clean = explicitToken.startsWith('Bearer ') ? explicitToken.slice(7).trim() : explicitToken.trim();
+    if (clean) candidates.push(clean);
+  }
+  if (headerAuth?.startsWith('Bearer ')) {
+    const bearer = headerAuth.slice(7).trim();
+    if (bearer && !candidates.includes(bearer)) candidates.push(bearer);
+  }
+  try {
+    const cookieStore = await cookies();
+    const cookieToken = cookieStore.get('teg_token')?.value?.trim();
+    if (cookieToken && !candidates.includes(cookieToken)) candidates.push(cookieToken);
+  } catch {
+    // Outside Next.js request store
+  }
+  if (headerCookie) {
+    const match = headerCookie.match(/(?:^|;\s*)teg_token=([^;]+)/);
+    if (match?.[1]) {
+      const parsed = decodeURIComponent(match[1].trim());
+      if (parsed && !candidates.includes(parsed)) candidates.push(parsed);
+    }
+  }
+
+  for (const token of candidates) {
+    if (cronSecret && token === cronSecret) {
+      return { id: 'cron', email: 'cron@tacosgavilan.com', role: 'admin' };
+    }
+    const user = verifyAuthToken(token);
+    if (user) {
+      const role = (user.role || user.user_role || '').toLowerCase();
+      if (user.user_type === 'employee' || role === 'employee' || role === 'planificador') {
+        throw new Error('No autorizado: Credenciales sin acceso al módulo de uniformes');
+      }
+      return user;
+    }
+  }
+
+  throw new Error('No autorizado: Sesión de personal requerida');
+}
+
 export async function fetchStoresForUser(userRole: string, userStoreIds: string[]): Promise<{id: number, name: string}[]> {
+  const authed = await requireUniformsStaffAuth();
+  const effectiveRole = (authed.role || '').toLowerCase();
   const supabase = await getSupabaseAdminClient();
-  if (userRole === 'admin' || userRole === 'supervisor') {
+  if (effectiveRole === 'admin' || effectiveRole === 'administrador' || effectiveRole === 'supervisor') {
     const { data, error } = await supabase
       .from('stores')
       .select('id, name')
@@ -47,6 +111,7 @@ export async function fetchStoresForUser(userRole: string, userStoreIds: string[
 }
 
 export async function fetchUniformsPricing(): Promise<any[]> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const { data, error } = await supabase
     .from('uniforms_pricing')
@@ -61,6 +126,7 @@ export async function updateUniformPricing(
   updates: { sale_price?: number, provider_name?: string, provider_cost?: number, notes?: string }, 
   userEmail: string
 ): Promise<void> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const sanitizedUpdates: Record<string, any> = { ...updates };
   if (updates.sale_price !== undefined) sanitizedUpdates.sale_price = Math.max(0, Number(updates.sale_price) || 0);
@@ -78,6 +144,7 @@ export async function updateUniformPricing(
 }
 
 export async function fetchUniformsStock(storeId: number): Promise<any[]> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const { data: stock, error: sErr } = await supabase
     .from('uniforms_inventory_stock')
@@ -110,6 +177,7 @@ export async function saveInitialCount(
   counts: Array<{item_category: string, size: string, quantity: number}>, 
   userEmail: string
 ): Promise<{success: boolean}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const businessDate = getBusinessDate();
   
@@ -166,6 +234,7 @@ export async function saveInitialCount(
 }
 
 export async function resetInitialCount(storeId: number, userEmail: string): Promise<{success: boolean}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const businessDate = getBusinessDate();
 
@@ -204,6 +273,7 @@ export async function saveManualAudit(
   adjustments: Array<{item_category: string, size: string, newQty: number, reason: string}>, 
   userEmail: string
 ): Promise<{success: boolean}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const businessDate = getBusinessDate();
 
@@ -269,6 +339,7 @@ export async function updateSingleUniformStock(payload: {
   reason: string,
   userEmail: string
 }): Promise<{success: boolean}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const businessDate = getBusinessDate();
 
@@ -338,6 +409,7 @@ export async function recordUniformSale(payload: {
   businessDate?: string, 
   userEmail: string 
 }): Promise<{success: boolean, processedQty: number, warning?: string}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
   let txType = payload.transactionType || 'employee_sale';
@@ -448,6 +520,7 @@ export async function recordNewHirePackage(payload: {
   businessDate?: string, 
   userEmail: string 
 }): Promise<{results: Array<{item: string, requested: number, delivered: number, warning?: string}>}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
   const packageItems: Array<{ item: UniformCategory, size: UniformSize, requested: number }> = payload.items 
@@ -544,6 +617,7 @@ export async function recordDamageExchange(payload: {
   businessDate?: string, 
   userEmail: string 
 }): Promise<{success: boolean, warning?: string}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const bDate = payload.businessDate || getBusinessDate();
   const qtyToDeduct = Math.max(1, Number(payload.quantity) || 1);
@@ -614,6 +688,7 @@ export async function confirmOrderReception(payload: {
   notes?: string, 
   userEmail: string 
 }): Promise<{success: boolean}> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const businessDate = getBusinessDate();
 
@@ -699,6 +774,7 @@ export async function fetchTransactionHistory(
   storeId: number, 
   filters?: { startDate?: string, endDate?: string, type?: string }
 ): Promise<any[]> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   let query = supabase
     .from('uniforms_transactions')
@@ -722,6 +798,7 @@ export async function fetchTransactionHistory(
 }
 
 export async function fetchEmployeeKardex(searchQuery: string): Promise<any[]> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const clean = searchQuery.trim().replace(/[%'(),]/g, '');
   if (!clean) return [];
@@ -739,6 +816,7 @@ export async function fetchExecutiveDashboard(): Promise<{
   stores: Array<{id: number, name: string, totalItems: number, totalValue: number, hasInitialCount: boolean, lastAuditDate: string | null}>, 
   globalMetrics: {totalStock: number, totalSalesAmount: number, damageExchanges: number, pendingReceptions: number}
 }> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   
   const { data: stores, error: sErr } = await supabase.from('stores').select('id, name').eq('is_active', true);
@@ -815,7 +893,8 @@ export async function fetchExecutiveDashboard(): Promise<{
  * Calcula el saldo acumulativo exacto de dinero de uniformes en la Caja Fuerte para una tienda:
  * totalInSafe = último conteo en safe_counts.uniforms_amount + ventas activas (employee_sale / customer_sale) posteriores a safe_counts.counted_at.
  */
-export async function fetchUniformsSafeBalance(storeId: number, businessDate?: string): Promise<UniformsSafeBalance> {
+export async function fetchUniformsSafeBalance(storeId: number, businessDate?: string, authToken?: string): Promise<UniformsSafeBalance> {
+  await requireUniformsStaffAuth(authToken);
   const supabase = await getSupabaseAdminClient();
   const targetBusinessDate = businessDate || getBusinessDate();
 
@@ -910,8 +989,9 @@ export async function fetchUniformsSafeBalance(storeId: number, businessDate?: s
   };
 }
 
-export async function fetchDailySalesTotal(storeId: number, businessDate: string): Promise<number> {
-  const balance = await fetchUniformsSafeBalance(storeId, businessDate);
+export async function fetchDailySalesTotal(storeId: number, businessDate: string, authToken?: string): Promise<number> {
+  await requireUniformsStaffAuth(authToken);
+  const balance = await fetchUniformsSafeBalance(storeId, businessDate, authToken);
   return balance.totalInSafe;
 }
 
@@ -933,6 +1013,7 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
   }>,
   message?: string
 }> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const trimmed = searchEstimate.trim();
 
@@ -1040,6 +1121,7 @@ export async function fetchRecentStoreEstimates(storeId: number): Promise<Array<
   created_at: string,
   status: string
 }>> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
   const { data: orders, error } = await supabase
     .from('inventory_orders')
@@ -1066,6 +1148,7 @@ export async function fetchEmployeesForStore(storeId?: number): Promise<Array<{
   toast_guid: string,
   job_title?: string
 }>> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
 
   let targetToastGuid: string | null = null;
@@ -1153,6 +1236,7 @@ export async function updateUniformTransactionDetails(payload: {
   reason?: string,
   userEmail: string
 }): Promise<{ success: boolean }> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
 
   const { data: existingTx, error: fetchErr } = await supabase
@@ -1193,6 +1277,7 @@ export async function voidUniformTransaction(payload: {
   reason: string,
   userEmail: string
 }): Promise<{ success: boolean, warning?: string }> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
 
   const { data: tx, error: fetchErr } = await supabase
@@ -1289,6 +1374,7 @@ export async function updateUniformMinStock(
   updates: Array<{ item_category: UniformCategory, size: UniformSize, min_stock: number }>,
   userEmail: string
 ): Promise<{ success: boolean }> {
+  await requireUniformsStaffAuth();
   const supabase = await getSupabaseAdminClient();
 
   // Fetch all active stores so min stock configuration applies globally across all locations

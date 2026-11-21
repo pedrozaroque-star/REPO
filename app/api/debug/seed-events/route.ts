@@ -1,10 +1,30 @@
-import { NextResponse } from 'next/server'
-import { verifyAdminAuth } from '@/lib/auth-server'
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
-export async function GET(request: Request) {
-    const auth = await verifyAdminAuth(request)
+export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
     if (!auth.authorized) return auth.response!
+
+    return NextResponse.json(
+        {
+            error: 'Operación destructiva bloqueada en GET. Use POST con { "confirm": "SEED_EVENTS_2026" } autenticado como admin.'
+        },
+        { status: 405 }
+    )
+}
+
+export async function POST(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
+    if (!auth.authorized) return auth.response!
+
+    const body = await request.json().catch(() => ({}))
+    if (body?.confirm !== 'SEED_EVENTS_2026') {
+        return NextResponse.json(
+            { error: 'Confirmación explícita requerida: { "confirm": "SEED_EVENTS_2026" }' },
+            { status: 400 }
+        )
+    }
 
     try {
         const supabase = await getSupabaseAdminClient()

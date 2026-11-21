@@ -17,11 +17,13 @@
  * - El proyecto ya usa este patrón en support-chat/route.ts
  * - Google Search Grounding permite buscar eventos en tiempo real
  * - Blindaje Paid Tier 1 (2026-11-20): modelos GA/3.x unificados (`gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3-flash-preview`), header `x-goog-api-key`, salto inmediato ante `quota_limit_value: 0` y filtrado `!p?.thought`.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): previene el bug `"Bearer undefined"` exigiendo `CRON_SECRET` configurado o sesión `admin`/`supervisor`.
  */
 
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getGeminiKeyPoolWithRemote } from '@/lib/order-ready-tts'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -31,10 +33,9 @@ const MODERN_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-fl
 const LEGACY_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview']
 
 export async function GET(request: Request) {
-    // Verify cron secret
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
     }
 
     try {

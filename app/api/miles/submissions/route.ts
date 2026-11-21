@@ -8,9 +8,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
+  const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+  const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
+  if (!isAdminOrCron) {
+    return NextResponse.json({ success: true, submissions: [] })
+  }
+
   try {
     const supabase = await getSupabaseAdminClient()
 

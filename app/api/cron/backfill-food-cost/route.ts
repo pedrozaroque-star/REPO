@@ -1,32 +1,28 @@
+/**
+ * @module api/cron/backfill-food-cost
+ * @description Rellena días históricos faltantes en `food_cost_daily_cache` para un rango de fechas especificado (`startDate` a `endDate`).
+ *
+ * @businessRules
+ * - Salta automáticamente los días que ya tienen caché salvo que se indique `?force=true`.
+ * - Procesa secuencialmente con pausa de 1s entre días y freno automático tras 5 errores consecutivos para proteger los límites de Toast API (429).
+ *
+ * @dataFlow
+ * - Admin / Vercel Cron -> `GET /api/cron/backfill-food-cost` -> `food_cost_daily_cache` -> `/api/inventory/food-cost` -> respuesta JSON.
+ *
+ * @notes
+ * - Autenticación Fail-Closed mediante `verifyStaffAuth` (`CRON_SECRET` o rol `admin`/`supervisor`).
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { buildInternalCronAuthHeaders, verifyStaffAuth } from '@/lib/auth-server'
 
 export const maxDuration = 300 // 5 min max (Vercel Pro)
 
-/**
- * BACKFILL: food-cost-daily-cache
- * 
- * Rellena días faltantes en food_cost_daily_cache para un rango de fechas.
- * Salta automáticamente los días que ya tienen cache.
- * 
- * Params:
- *   - startDate: YYYY-MM-DD (inicio del rango)
- *   - endDate: YYYY-MM-DD (fin del rango)
- *   - force: "true" para recalcular incluso si ya existe cache
- * 
- * Ejemplo:
- *   /api/cron/backfill-food-cost?startDate=2026-01-01&endDate=2026-04-26
- */
 export async function GET(request: NextRequest) {
     try {
-        // Validación opcional de Vercel Cron Secret
-        const authHeader = request.headers.get('authorization')
-        if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            // Allow without secret for manual runs (localhost)
-            const isLocal = request.nextUrl.hostname === 'localhost' || request.nextUrl.hostname === '127.0.0.1'
-            if (!isLocal) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const searchParams = request.nextUrl.searchParams
@@ -111,9 +107,7 @@ export async function GET(request: NextRequest) {
                 const res = await fetch(apiUrl, {
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-cron-auth': process.env.CRON_SECRET || '',
-                        authorization: request.headers.get('authorization') || '',
-                        cookie: request.headers.get('cookie') || ''
+                        ...buildInternalCronAuthHeaders(request)
                     },
                     signal: AbortSignal.timeout(60000) // 60s timeout per day
                 })

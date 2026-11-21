@@ -1,12 +1,10 @@
 /**
  * @module api/cron/sync-food-cost
- *
- * MODULE:
- * Vercel Cron Job que pre-calcula y cachea los datos de Food Cost para el mes
+ * @description Vercel Cron Job que pre-calcula y cachea los datos de Food Cost para el mes
  * actual completo. Garantiza que el dashboard de Food Cost siempre tenga datos
  * listos sin requerir visita manual de ningún usuario.
  *
- * BUSINESS RULES:
+ * @businessRules
  * - SCHEDULE: Se ejecuta después de sync-sales (UTC 19:00 = 11:00 AM PT).
  *   Esto asegura que las ventas del día anterior ya estén sincronizadas
  *   cuando se calculan los costos.
@@ -20,61 +18,33 @@
  * - CACHE STALE: Si el cache tiene más de 12h, se borra y se recalcula
  *   para capturar ajustes de gerentes (ej: recetas editadas, precios
  *   corregidos durante el día).
- * - PATRÓN DELETE-THEN-RECALCULATE: Igual que sync-sales, se borra
- *   explícitamente la entrada del día antes de recalcular para evitar
- *   datos duplicados o corruptos.
  *
- * DATA FLOW:
+ * @dataFlow
  * 1. Determina rango [1er día del mes → ayer] en timezone America/Los_Angeles
  * 2. Para cada día en el rango:
  *    a. Consulta `food_cost_daily_cache` → ¿existe? ¿es fresco (<12h)?
  *    b. Si es fresco → skip
- *    c. Si es stale o no existe → DELETE del cache viejo
- *    d. Llama a `/api/inventory/food-cost?storeId=all&startDate=X&endDate=X`
- *       (misma API que usa el dashboard, con write-through al cache)
+ *    c. Si es stale o no existe → llama a `/api/inventory/food-cost?storeId=all&startDate=X&endDate=X`
  * 3. Retorna resumen de días procesados, cacheados, saltados y errores
  *
- * Dependencias:
- * - `/api/inventory/food-cost` → API interna que calcula food cost + escribe cache
- * - `@/lib/supabase` → `getSupabaseAdminClient` (acceso admin)
- * - Tabla `food_cost_daily_cache` → cache de resultados por business_date
- * - Variable `CRON_SECRET` → autenticación de Vercel Cron
- * - Variable `VERCEL_URL` → para construir la URL interna del API call
- *
- * NOTES:
- * - `maxDuration = 300` (5 min) es el máximo de Vercel Pro. Si hay muchos
- *   días sin cache (ej: inicio de mes) puede acercarse al límite.
- * - La llamada interna a `/api/inventory/food-cost` no requiere auth header
- *   porque es una API pública interna.
+ * @notes
+ * - `maxDuration = 300` (5 min) es el máximo de Vercel Pro.
  * - En desarrollo local usa `http://localhost:3000` como baseUrl.
- * - [2026-07-27] CAPA B: Agregada detección automática de anomalías.
- *   Después de calcular cada día, escanea items con FC > 100% y los reporta
- *   en logs. Previene bugs tipo Milaneza (FC 560% sin detectar por 5 meses).
+ * - [2026-07-27] CAPA B: Agregada detección automática de anomalías (items con FC > 100%).
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { buildInternalCronAuthHeaders, verifyStaffAuth } from '@/lib/auth-server'
 import { syncDailyInventoryUsage } from '@/lib/inventory/usage-sync'
 
 export const maxDuration = 300 // 5 minutos máximo en Vercel (Pro)
 
-/**
- * CRON: sync-food-cost
- * 
- * Pre-calcula y cachea los datos de Food Cost desde el día 1 del mes actual
- * hasta ayer (días finalizados). Garantiza que el dashboard siempre muestre
- * el Food Cost del mes completo sin visita manual.
- * 
- * Réplica exacta del patrón de sync-sales: llama a la API existente de food-cost
- * que ya hace el cálculo completo + write-through al cache.
- * 
- * Schedule: Después de sync-sales (UTC 19:00 = 11:00 AM PT)
- */
 export async function GET(request: Request) {
     try {
-        // Validación de Vercel Cron Secret
-        const authHeader = request.headers.get('authorization')
-        if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const supabase = await getSupabaseAdminClient()
@@ -158,9 +128,7 @@ export async function GET(request: Request) {
                 const res = await fetch(apiUrl, {
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-cron-auth': process.env.CRON_SECRET || '',
-                        authorization: request.headers.get('authorization') || '',
-                        cookie: request.headers.get('cookie') || ''
+                        ...buildInternalCronAuthHeaders(request)
                     }
                 })
 

@@ -7,17 +7,18 @@
  * - Acepta correo electrónico (`email` / `identifier` / `phone` con `@`) y envía al instante un código real de 6 dígitos
  *   mediante el transporte SMTP oficial de Tacos Gavilan (`lib/mobile-auth-email.ts`), guardando el hash HMAC-SHA256
  *   con vigencia de 10 minutos en `public.app_mobile_otp_challenges` sin crear cuentas fantasma previas en `auth.users`.
- * - Aplica rate limiting y bloqueo progresivo por correo e IP; si el envío SMTP falla, revoca el challenge recién emitido.
+ * - Aplica rate limiting en memoria acotado por IP (`x-vercel-forwarded-for` / `x-real-ip`) tanto para correo como para teléfono,
+ *   además de `checkEmailOtpRateLimit` en base de datos; si el envío SMTP falla, revoca el challenge recién emitido.
  * - Soporta cuentas restringidas de Apple/Google App Review (`APP_REVIEW_ALLOWED_PHONES`, default `2135550199`,
- *   y `reviewer@tacosgavilan.com` cuando `ENABLE_APP_REVIEW_TEST_ACCOUNTS !== 'false'`).
+ *   cuando `ENABLE_APP_REVIEW_TEST_ACCOUNTS !== 'false'`).
  *
  * @dataFlow
- * - App Móvil POST `/api/mobile/auth/send-otp` -> `checkEmailOtpRateLimit` + `issueEmailOtpChallenge` + `sendMobileOtpEmail` -> Buzón del comensal.
+ * - App Móvil POST `/api/mobile/auth/send-otp` -> Rate Limit IP (`x-vercel-forwarded-for`) -> `checkEmailOtpRateLimit` + `issueEmailOtpChallenge` + `sendMobileOtpEmail` -> Buzón del comensal.
  *
  * @notes
  * - Usa `corsHeaders()` y `corsResponse()` de `@/app/api/mobile/_helpers` para soportar preflight `OPTIONS` (`HTTP 204`).
  * - Responde en inglés o español según la cabecera `Accept-Language`.
- * - Nov 2026: Endurecido con tabla `app_mobile_otp_challenges`, rate limit/lockout 429, revocación en fallo SMTP y whitelist estricta de App Review.
+ * - Blindaje de Seguridad (2026-11-21): rate limit acotado por IP (`x-vercel-forwarded-for` / `x-real-ip`) cubriendo tanto Email OTP como SMS OTP, y candado de producción en teléfonos de App Review.
  */
 
 import { NextResponse } from 'next/server'
@@ -39,8 +40,54 @@ const APP_REVIEW_ALLOWED_PHONES = new Set(
     .filter(Boolean)
 )
 
+const MAX_SEND_OTP_BUCKETS = 2000
+const IP_SEND_OTP_LIMIT = 12
+const IDENTIFIER_SEND_OTP_LIMIT = 4
+const SEND_OTP_WINDOW_MS = 10 * 60_000
+const sendOtpBuckets = new Map<string, number[]>()
+
+function extractTrustedClientIp(headers: Headers): string {
+  const vercelFwd = headers.get('x-vercel-forwarded-for') || ''
+  const firstVercel = vercelFwd.split(',')[0]?.trim()
+  if (firstVercel) return firstVercel.slice(0, 64)
+  const realIp = headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp.slice(0, 64)
+  const fwd = headers.get('x-forwarded-for') || ''
+  return fwd.split(',')[0]?.trim().slice(0, 64) || 'unknown'
+}
+
+function checkBoundedSendOtpLimit(key: string, limit: number, windowMs = SEND_OTP_WINDOW_MS): {
+  allowed: boolean
+  retryAfterSec: number
+} {
+  const now = Date.now()
+  if (sendOtpBuckets.size >= MAX_SEND_OTP_BUCKETS && !sendOtpBuckets.has(key)) {
+    for (const [k, arr] of sendOtpBuckets) {
+      const valid = arr.filter((t) => now - t < windowMs)
+      if (valid.length === 0) sendOtpBuckets.delete(k)
+      else sendOtpBuckets.set(k, valid)
+    }
+    if (sendOtpBuckets.size >= MAX_SEND_OTP_BUCKETS) {
+      const oldest = sendOtpBuckets.keys().next().value
+      if (oldest) sendOtpBuckets.delete(oldest)
+    }
+  }
+  const hits = (sendOtpBuckets.get(key) || []).filter((t) => now - t < windowMs)
+  if (hits.length >= limit) {
+    sendOtpBuckets.set(key, hits)
+    const retryAfterSec = Math.max(1, Math.ceil((windowMs - (now - hits[0])) / 1000))
+    return { allowed: false, retryAfterSec }
+  }
+  hits.push(now)
+  sendOtpBuckets.set(key, hits)
+  return { allowed: true, retryAfterSec: 0 }
+}
+
 function isAllowedAppReviewPhone(phone10: string): boolean {
   if (process.env.ENABLE_APP_REVIEW_TEST_ACCOUNTS === 'false') return false
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_REVIEWER_TEST_OTP !== 'true') {
+    return false
+  }
   return APP_REVIEW_ALLOWED_PHONES.has(phone10)
 }
 
@@ -61,6 +108,25 @@ export async function POST(request: Request): Promise<NextResponse> {
   const headers = corsHeaders()
   const isEn = (request.headers.get('Accept-Language') || '').toLowerCase().startsWith('en')
   try {
+    const trustedIp = extractTrustedClientIp(request.headers)
+    const clientIp = trustedIp === 'unknown' ? null : trustedIp
+    const ipRl = checkBoundedSendOtpLimit(`ip:${trustedIp}`, IP_SEND_OTP_LIMIT)
+    if (!ipRl.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'RATE_LIMITED',
+          error: isEn
+            ? `Too many OTP requests. Please wait ${ipRl.retryAfterSec}s before trying again.`
+            : `Demasiadas solicitudes de código. Espera ${ipRl.retryAfterSec}s antes de intentar de nuevo.`,
+        },
+        {
+          status: 429,
+          headers: { ...headers, 'Retry-After': String(ipRl.retryAfterSec) },
+        }
+      )
+    }
+
     let body: { email?: string; phone?: string; identifier?: string }
     try {
       body = (await request.json()) as { email?: string; phone?: string; identifier?: string }
@@ -94,9 +160,6 @@ export async function POST(request: Request): Promise<NextResponse> {
           { status: 400, headers }
         )
       }
-
-      const forwardedFor = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || ''
-      const clientIp = forwardedFor.split(',')[0]?.trim().slice(0, 64) || null
 
       const rl = await checkEmailOtpRateLimit(cleanEmail, clientIp)
       if (!rl.allowed) {
@@ -158,7 +221,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     // -------------------------------------------------------------------------
-    // CASO B: Número Telefónico (Soporte de Revisión Apple/Google 213-555-0199)
+    // CASO B: Número Telefónico (Soporte de Revisión Apple/Google + Rate Limit)
     // -------------------------------------------------------------------------
     const phone = normalizeUsPhone10(rawEmailCandidate)
 
@@ -189,7 +252,23 @@ export async function POST(request: Request): Promise<NextResponse> {
       )
     }
 
-    // Soporte determinístico para cuentas de revisión de Apple App Store / Google Play (rango reservado 555-01XX)
+    const phoneRl = checkBoundedSendOtpLimit(`phone:${phone}`, IDENTIFIER_SEND_OTP_LIMIT)
+    if (!phoneRl.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'RATE_LIMITED',
+          error: isEn
+            ? `Please wait ${phoneRl.retryAfterSec}s before requesting another code.`
+            : `Espera ${phoneRl.retryAfterSec}s antes de solicitar otro código.`,
+        },
+        {
+          status: 429,
+          headers: { ...headers, 'Retry-After': String(phoneRl.retryAfterSec) },
+        }
+      )
+    }
+
     if (isAllowedAppReviewPhone(phone)) {
       return NextResponse.json(
         {

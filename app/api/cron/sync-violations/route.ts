@@ -24,6 +24,7 @@
  *   cruce numérico `users.store_id = store.id` con `is_active = true` (antes UUID contra BIGINT error 22P02),
  *   separación estricta entre remitente (`noreply@tacosgavilan.com`) y destinatario real del Manager (`managerEmails`),
  *   y sanitización de correos placeholder de Toast POS (`@toasttab.com`, `@example.com`, `@tryotter.com`).
+ * - Blindaje de seguridad Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor` incluso en `?dry_run=true`.
  */
 
 import { NextResponse } from 'next/server'
@@ -36,7 +37,7 @@ import {
     validateEmployeeViolationEmail,
 } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
-import { getServerUser } from '@/lib/auth-server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -107,23 +108,16 @@ export async function POST(req: Request) {
 }
 
 async function handleSyncViolations(req: Request) {
+    const auth = await verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const startTime = Date.now()
     const url = new URL(req.url)
     const isDryRun = url.searchParams.get('dry_run') === 'true'
     const forceRun = url.searchParams.get('force') === 'true'
     const testTo = url.searchParams.get('test_to')?.trim() || null
-
-    const authHeader = req.headers.get('authorization')
-    const validCronBearer =
-        Boolean(process.env.CRON_SECRET) && authHeader === `Bearer ${process.env.CRON_SECRET}`
-
-    if (process.env.CRON_SECRET && !validCronBearer && !isDryRun) {
-        const authUser = await getServerUser(req)
-        const role = (authUser?.role || '').toLowerCase()
-        if (!authUser || (!role.includes('admin') && !role.includes('supervisor'))) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
-    }
 
     const { yesterdayIso, hour: laHour, minute: laMinute, totalMinutes: laTotalMinutes } =
         getCaliforniaNowParts()

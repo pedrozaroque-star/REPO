@@ -1,16 +1,19 @@
 /**
  * @module SyncToastStores
- * @description Sincroniza información de tiendas desde la API de Toast hacia la base de datos (Supabase).
+ * @description Sincroniza información de tiendas desde la API de Toast hacia la base de datos (`public.stores` en Supabase).
  * @businessRules
+ * - Exige rol estricto `'admin'` vía `verifyStaffAuth`.
  * - Procesa GUIDs de Toast y los limpia de prefijos corporativos.
- * - Mapea a las columnas correctas de la tabla 'stores' (external_id para GUID y zip_code para código postal).
- * - Mantiene fallbacks para direcciones y coordenadas si la API de Toast no las provee.
+ * - Mapea a las columnas correctas de la tabla `stores` (`external_id` para GUID y `zip_code` para código postal).
+ * - JAMÁS sobrescribe `stores.weekly_hours` con arreglos vacíos `[]` ni pisa direcciones reales con direcciones falsas hardcodeadas.
  * @dataFlow
  * - Toast API (Partners API) -> sync-toast API -> stores Table (Supabase)
+ * @notes
+ * - [2026-11-20] FIX CRÍTICO: Eliminado `FALLBACK_ADDRESSES` con direcciones falsas y bloqueado el borrado de `weekly_hours` a `[]`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyAuthToken } from '@/lib/auth-server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
 
@@ -35,38 +38,15 @@ const GUID_TO_CLEAN_NAME: Record<string, string> = {
     "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02": "West Covina"
 }
 
-// FALLBACK ADDRESS MAP (If Toast fails)
-const FALLBACK_ADDRESSES: Record<string, any> = {
-    "Rialto": { address: "240 W Baseline Rd", city: "Rialto", state: "CA", zip: "92376", phone: "(909) 873-9888" },
-    "Azusa": { address: "122 N Azusa Ave", city: "Azusa", state: "CA", zip: "91702", phone: "(626) 334-3100" },
-    "Santa Ana": { address: "801 W 17th St", city: "Santa Ana", state: "CA", zip: "92706", phone: "(714) 543-3000" },
-    "West Covina": { address: "2330 S Azusa Ave", city: "West Covina", state: "CA", zip: "91792", phone: "(626) 965-0200" },
-    "Hollywood": { address: "7083 Sunset Blvd", city: "Los Angeles", state: "CA", zip: "90028", phone: "(323) 465-0300" },
-    "LA Broadway": { address: "4363 S Broadway", city: "Los Angeles", state: "CA", zip: "90037", phone: "(323) 232-0500" },
-    "Slauson": { address: "200 W Slauson Ave", city: "Los Angeles", state: "CA", zip: "90003", phone: "(323) 234-0100" },
-    "LA Central": { address: "4801 S Central Ave", city: "Los Angeles", state: "CA", zip: "90011", phone: "(323) 231-0100" },
-    "Huntington Park": { address: "2652 Florence Ave", city: "Huntington Park", state: "CA", zip: "90255", phone: "(323) 585-0200" },
-    "South Gate": { address: "8940 Garfield Ave", city: "South Gate", state: "CA", zip: "90280", phone: "(562) 927-0400" },
-    "Downey": { address: "12051 Paramount Blvd", city: "Downey", state: "CA", zip: "90242", phone: "(562) 869-0400" },
-    "Lynwood": { address: "3740 E Imperial Hwy", city: "Lynwood", state: "CA", zip: "90262", phone: "(310) 639-0200" },
-    "Norwalk": { address: "12539 Rosecrans Ave", city: "Norwalk", state: "CA", zip: "90650", phone: "(562) 864-0100" },
-    "La Puente": { address: "15225 Valley Blvd", city: "City of Industry", state: "CA", zip: "91746", phone: "(626) 333-0100" },
-    "Bell": { address: "4370 Gage Ave", city: "Bell", state: "CA", zip: "90201", phone: "(323) 773-0300" }
-}
-
 export async function POST(request: NextRequest) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
+    if (!auth.authorized) return auth.response!
+
     try {
-        const authHeader = request.headers.get('Authorization')
-        if (!authHeader) return NextResponse.json({ error: 'Missing Authorization' }, { status: 401 })
-
-        const token = authHeader.replace('Bearer ', '')
-        const user = verifyAuthToken(token)
-        if (!user || user.user_role !== 'admin') return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-
         const toastToken = await getAuthToken()
         if (!toastToken) throw new Error('Failed to auth with Toast')
 
-        console.log('🔄 Syncing Deep Details (Master Fallback V5 Dynamic)...')
+        console.log('🔄 Syncing Deep Details from Toast Partners API...')
 
         const rawRes = await fetch(`${process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'}/partners/v1/restaurants`, {
             headers: { 'Authorization': `Bearer ${toastToken}` }
@@ -91,7 +71,7 @@ export async function POST(request: NextRequest) {
                 } else if (rawName.includes('(')) {
                     cleanName = rawName.match(/\(([^)]+)\)/)?.[1].trim() || rawName
                 } else {
-                    // Remove corporate prefixes dynamically (e.g. "Tacos El Gavilan Ontario" -> "Ontario")
+                    // Remove corporate prefixes dynamically
                     cleanName = rawName
                         .replace(/tacos\s+(el\s+)?gavilan\s*/gi, '')
                         .trim()
@@ -109,32 +89,18 @@ export async function POST(request: NextRequest) {
                 if (detailRes.ok) detail = await detailRes.json()
             } catch (e) { }
 
-            // Extract Data (or fallback to empty)
-            let addr1 = detail.address?.address1 || detail.address?.street1 || ''
-            let city = detail.address?.city || ''
-            let state = detail.address?.state || ''
-            let zip = detail.address?.zipCode || detail.address?.zip || ''
-            let phone = detail.phoneNumber || detail.phone || ''
-
-            // 🚨 MASTER FALLBACK: If Toast gives empty address, use our Map
-            if (!addr1 && FALLBACK_ADDRESSES[cleanName]) {
-                const fb = FALLBACK_ADDRESSES[cleanName]
-                addr1 = fb.address
-                city = fb.city
-                state = fb.state
-                zip = fb.zip
-                phone = fb.phone // Ensuring phone is populated too
-            }
+            // Extract Data strictly from Toast response (never inject fake hardcoded addresses)
+            const addr1 = (detail.address?.address1 || detail.address?.street1 || '').trim()
+            const city = (detail.address?.city || '').trim()
+            const state = (detail.address?.state || '').trim()
+            const zip = (detail.address?.zipCode || detail.address?.zip || '').trim()
+            const phone = (detail.phoneNumber || detail.phone || '').trim()
 
             const lat = detail.latitude || detail.address?.latitude || null
             const lng = detail.longitude || detail.address?.longitude || null
 
-            // Hours Extraction placeholder
-            let derivedHours: any[] = []
-            let derivedOpen = '09:00'
-            let derivedClose = '01:00'
-            const schedules = detail.schedules || detail.hours
-            const hoursFound = !!schedules
+            const derivedOpen = '09:00'
+            const derivedClose = '01:00'
 
             // DB Operations
             let existing: any = null
@@ -152,28 +118,30 @@ export async function POST(request: NextRequest) {
             const dbId = existing?.id
 
             if (dbId) {
-                // UPDATE (Safe Mode)
+                // UPDATE (Safe Mode: preserve existing canonical address & NEVER overwrite weekly_hours with [])
                 const updatePayload: any = {
                     external_id: toastId,
                     name: cleanName,
-                    ...(addr1 ? { address: addr1 } : {}),
-                    ...(city ? { city: city } : {}),
-                    ...(state ? { state: state } : {}),
-                    ...(zip ? { zip_code: zip } : {}),
+                    ...(!existing.address && addr1 ? { address: addr1 } : {}),
+                    ...(!existing.city && city ? { city: city } : {}),
+                    ...(!existing.state && state ? { state: state } : {}),
+                    ...(!existing.zip_code && zip ? { zip_code: zip } : {}),
                     ...(phone ? { phone: phone } : {}),
-                    ...(hoursFound ? { weekly_hours: derivedHours } : {})
                 }
-                if (lat && lng) { updatePayload.latitude = lat; updatePayload.longitude = lng }
+                if (!existing.latitude && !existing.longitude && lat && lng) {
+                    updatePayload.latitude = lat
+                    updatePayload.longitude = lng
+                }
 
                 const { error: updErr } = await supabaseAdmin.from('stores').update(updatePayload).eq('id', dbId)
 
                 if (updErr) {
-                    // Safe Fallback (No risky columns)
+                    // Safe Fallback (No risky columns; preserve existing canonical address)
                     const safePayload: any = {
                         name: cleanName,
-                        ...(addr1 ? { address: addr1 } : {}), // Force update valid address
-                        ...(city ? { city: city } : {}),
-                        ...(state ? { state: state } : {}),
+                        ...(!existing.address && addr1 ? { address: addr1 } : {}),
+                        ...(!existing.city && city ? { city: city } : {}),
+                        ...(!existing.state && state ? { state: state } : {}),
                         ...(phone ? { phone: phone } : {}) // Try phone in safe mode
                     }
                     const { error: retryErr } = await supabaseAdmin.from('stores').update(safePayload).eq('id', dbId)

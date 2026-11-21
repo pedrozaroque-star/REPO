@@ -34,7 +34,9 @@ import {
   fetchPeople,
   fetchProjectPeople,
   fetchTodoLists,
+  fetchTodolistGroups,
   fetchAllTodos,
+  fetchBoosts,
   fetchMessages,
   fetchCampfireLines,
   fetchDocuments,
@@ -56,6 +58,7 @@ import {
   assertSafeBasecampApiUrl,
   resolveHtmlAttachmentsFromCache,
   syncTodolistCounts,
+  syncTodolistGroupCounts,
   formatQuestionScheduleText,
   type BasecampProject,
 } from '@/lib/basecamp-api'
@@ -345,6 +348,7 @@ async function resolveOrCreatePerson(
         avatar_url: creator.avatar_url || '',
         role: creator.employee ? 'employee' : creator.client ? 'client' : 'user',
         title: creator.title || '',
+        attachable_sgid: creator.attachable_sgid || null,
         is_active: true,
       })
       .select('id, bc_id, name, email')
@@ -594,7 +598,7 @@ export async function POST(request: Request) {
         fetchPeople(),
         supabase
           .from('bc_people')
-          .select('id, bc_id, name, email, avatar_url, role, title, is_active')
+          .select('id, bc_id, name, email, avatar_url, role, title, is_active, attachable_sgid')
           .limit(10000),
       ])
       console.log(`   Found ${people.length} people`)
@@ -610,6 +614,7 @@ export async function POST(request: Request) {
           role?: string | null
           title?: string | null
           is_active?: boolean | null
+          attachable_sgid?: string | null
         }
       >()
       if (existingPeople) {
@@ -638,6 +643,7 @@ export async function POST(request: Request) {
               avatar_url: p.avatar_url || '',
               role: p.employee ? 'employee' : p.client ? 'client' : 'user',
               title: p.title || '',
+              attachable_sgid: p.attachable_sgid || prev?.attachable_sgid || null,
               is_active:
                 prev?.is_active === false || /^\s*test\b/i.test(p.name || '')
                   ? false
@@ -655,6 +661,7 @@ export async function POST(request: Request) {
               (prev.avatar_url || '') !== (row.avatar_url || '') ||
               (prev.role || '') !== (row.role || '') ||
               (prev.title || '') !== (row.title || '') ||
+              (prev.attachable_sgid || null) !== (row.attachable_sgid || null) ||
               Boolean(prev.is_active) !== Boolean(row.is_active)
             )
           })
@@ -720,7 +727,7 @@ export async function POST(request: Request) {
         fetchProjects(),
         supabase
           .from('bc_projects')
-          .select('id, bc_id, name, description, color, is_pinned, is_archived, member_count')
+          .select('id, bc_id, name, description, color, is_pinned, is_archived, member_count, enabled_tools')
           .limit(10000),
       ])
       projects = fetchedProjects
@@ -742,6 +749,7 @@ export async function POST(request: Request) {
           is_pinned?: boolean | null
           is_archived?: boolean | null
           member_count?: number | null
+          enabled_tools?: string[] | null
         }
       >()
       if (existingProjects) {
@@ -761,6 +769,10 @@ export async function POST(request: Request) {
             const existingColor = prev?.color || 'white'
             const existingPin = prev ? Boolean(prev.is_pinned) : Boolean(p.bookmarked)
 
+            const enabledTools = Array.from(
+              new Set((p.dock || []).filter((d) => d.enabled).map((d) => d.name))
+            )
+
             return {
               bc_id: p.id,
               name: p.name,
@@ -769,6 +781,7 @@ export async function POST(request: Request) {
               is_pinned: existingPin,
               is_archived: p.status === 'archived',
               member_count: prev ? Number(prev.member_count || 0) : 0,
+              enabled_tools: enabledTools,
               updated_at: nowIso,
             }
           })
@@ -781,7 +794,8 @@ export async function POST(request: Request) {
               (prev.description || '') !== (row.description || '') ||
               (prev.color || 'white') !== (row.color || 'white') ||
               Boolean(prev.is_pinned) !== Boolean(row.is_pinned) ||
-              Boolean(prev.is_archived) !== Boolean(row.is_archived)
+              Boolean(prev.is_archived) !== Boolean(row.is_archived) ||
+              JSON.stringify(prev.enabled_tools || null) !== JSON.stringify(row.enabled_tools || [])
             )
           })
 
@@ -1113,13 +1127,13 @@ export async function POST(request: Request) {
       ] = await Promise.all([
         supabase
           .from('bc_todos')
-          .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
+          .select('id, bc_id, is_completed, comments_count, title, starts_on, due_date, group_id, boosts_count, completion_subscriber_ids, created_by_person_id')
           .eq('project_id', projectUuid)
           .eq('is_completed', false)
           .limit(1000),
         supabase
           .from('bc_todos')
-          .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
+          .select('id, bc_id, is_completed, comments_count, title, starts_on, due_date, group_id, boosts_count, completion_subscriber_ids, created_by_person_id')
           .eq('project_id', projectUuid)
           .eq('is_completed', true)
           .order('updated_at', { ascending: false })
@@ -1184,9 +1198,9 @@ export async function POST(request: Request) {
         console.warn(`   ⚠️ Memberships sync skipped for project ${project.id}:`, err.message)
       }
 
-      // ---- TODOSET → TODOLISTS → TODOS ----
-      const todosetDock = findDock(project, 'todoset')
-      if (todosetDock) {
+      // ---- TODOSET(S) → TODOLISTS → GROUPS → TODOS ----
+      const todosetDocks = (project.dock || []).filter((d) => d.name === 'todoset' && d.enabled)
+      for (const todosetDock of todosetDocks) {
         try {
           const todosetId = extractDockId(todosetDock.url)
           
@@ -1210,10 +1224,10 @@ export async function POST(request: Request) {
           counters.todosets++
 
           const todolists = await fetchTodoLists(project.id, todosetId)
-          console.log(`   📋 Found ${todolists.length} todo lists`)
+          console.log(`   📋 Found ${todolists.length} todo lists in "${todosetDock.title || 'Todoset'}"`)
 
           for (const list of todolists) {
-            // Upsert the todolist
+            // Upsert the todolist (preserving color & bc_completed_ratio from Basecamp 3)
             const processedListDesc = await processHtmlContent(list.description || '', token, 'todolists', list.id, supabase, urlCache)
             const { data: dbList, error: listErr } = await supabase
               .from('bc_todolists')
@@ -1224,6 +1238,8 @@ export async function POST(request: Request) {
                   todoset_id: todosetUuid,
                   name: list.title || list.name,
                   description: processedListDesc,
+                  color: list.color || null,
+                  bc_completed_ratio: list.completed_ratio || null,
                   position: list.position,
                   completed_count: parseInt(list.completed_ratio?.split('/')[0] || '0', 10),
                   total_count: parseInt(list.completed_ratio?.split('/')[1] || '0', 10),
@@ -1244,19 +1260,87 @@ export async function POST(request: Request) {
             todolistsMap[list.id] = todolistUuid
             counters.todolists++
 
-            // Fetch todos within this list
+            // Sync Todolist Groups + Todos (both root ungrouped todos AND grouped todos!)
             try {
-              const todos = await fetchAllTodos(project.id, list.id, !forceFullSync)
+              const remoteGroups = await fetchTodolistGroups(project.id, list.id).catch((grpErr: any) => {
+                console.warn(`      ⚠️ groups fetch warning for list ${list.id}:`, grpErr.message)
+                return []
+              })
+
+              const syncedGroupUuids: string[] = []
+              const remoteGroupBcIds = new Set<number>()
+              const groupUuidByBcId = new Map<number, string>()
+
+              for (const g of remoteGroups) {
+                remoteGroupBcIds.add(Number(g.id))
+                const { data: dbGroup, error: grpUpsertErr } = await supabase
+                  .from('bc_todolist_groups')
+                  .upsert(
+                    {
+                      bc_id: g.id,
+                      project_id: projectUuid,
+                      todolist_id: todolistUuid,
+                      name: g.title || g.name || 'Group',
+                      color: g.color || null,
+                      position: g.position ?? 1,
+                      completed_count: parseInt(g.completed_ratio?.split('/')[0] || '0', 10),
+                      total_count: parseInt(g.completed_ratio?.split('/')[1] || '0', 10),
+                      created_at: g.created_at || new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    },
+                    { onConflict: 'bc_id' }
+                  )
+                  .select('id')
+                  .single()
+
+                if (!grpUpsertErr && dbGroup?.id) {
+                  groupUuidByBcId.set(Number(g.id), dbGroup.id)
+                  syncedGroupUuids.push(dbGroup.id)
+                }
+              }
+
+              // Clean stale remote groups removed in Basecamp (leaving synthetic local groups >= 1e11 intact)
+              {
+                const { data: localGroups } = await supabase
+                  .from('bc_todolist_groups')
+                  .select('id, bc_id')
+                  .eq('todolist_id', todolistUuid)
+                for (const lg of localGroups || []) {
+                  const lgBcId = Number(lg.bc_id)
+                  if (isRealBasecampId(lgBcId) && !remoteGroupBcIds.has(lgBcId)) {
+                    await supabase.from('bc_todolist_groups').delete().eq('id', lg.id)
+                  }
+                }
+              }
+
+              const rootTodos = await fetchAllTodos(project.id, list.id, !forceFullSync)
+              const taggedTodos: Array<{ todo: any; groupUuid: string | null }> = rootTodos.map((t) => ({
+                todo: t,
+                groupUuid: null,
+              }))
+
+              for (const g of remoteGroups) {
+                const grpUuid = groupUuidByBcId.get(Number(g.id)) || null
+                if (!grpUuid) continue
+                try {
+                  const grpTodos = await fetchAllTodos(project.id, g.id, !forceFullSync)
+                  for (const gt of grpTodos) {
+                    taggedTodos.push({ todo: gt, groupUuid: grpUuid })
+                  }
+                } catch (grpTodoErr: any) {
+                  console.warn(`      ⚠️ group todos fetch warning for group ${g.id}:`, grpTodoErr.message)
+                }
+              }
 
               // Hydrate any older completed todos in this batch that weren't in the top-1,000 recent preload
-              const uncachedTodoBcIds = todos
-                .map((t) => Number(t.id))
+              const uncachedTodoBcIds = taggedTodos
+                .map(({ todo }) => Number(todo.id))
                 .filter((bcId) => !existingTodoByBcId.has(bcId))
               if (uncachedTodoBcIds.length > 0) {
                 for (const chunk of chunkArray(uncachedTodoBcIds)) {
                   const { data: extraTodos } = await supabase
                     .from('bc_todos')
-                    .select('id, bc_id, is_completed, comments_count, title, due_date, created_by_person_id')
+                    .select('id, bc_id, is_completed, comments_count, title, starts_on, due_date, group_id, boosts_count, completion_subscriber_ids, created_by_person_id')
                     .in('bc_id', chunk)
                   for (const et of extraTodos || []) {
                     existingTodoByBcId.set(Number(et.bc_id), et)
@@ -1264,20 +1348,29 @@ export async function POST(request: Request) {
                 }
               }
 
-              // Separate active and completed todos
-              const activeTodos = todos.filter((t) => !t.completed)
-              const activeBcIds = activeTodos.map((t) => Number(t.id))
+              // Include active todos from BOTH root list AND all groups so Self-Healing NEVER falsely completes grouped todos!
+              const activeBcIds = taggedTodos
+                .filter(({ todo }) => !todo.completed)
+                .map(({ todo }) => Number(todo.id))
 
-              for (const t of todos) {
+              for (const { todo: t, groupUuid } of taggedTodos) {
                 const todoUpdatedAt = t.updated_at || t.created_at
                 const todoUpdatedMs = todoUpdatedAt ? new Date(todoUpdatedAt).getTime() : Infinity
                 const existingTodo = existingTodoByBcId.get(Number(t.id))
+                const remoteBoostsCount = Number(t.boosts_count || 0)
                 const hasMetadataDelta =
                   !existingTodo ||
                   Boolean(existingTodo.is_completed) !== Boolean(t.completed) ||
                   Number(existingTodo.comments_count || 0) !== Number(t.comments_count || 0) ||
                   (existingTodo.title || '') !== (t.content || t.title || '') ||
-                  (existingTodo.due_date || null) !== (t.due_on || null)
+                  (existingTodo.starts_on || null) !== (t.starts_on || null) ||
+                  (existingTodo.due_date || null) !== (t.due_on || null) ||
+                  (existingTodo.group_id || null) !== (groupUuid || null) ||
+                  Number(existingTodo.boosts_count || 0) !== remoteBoostsCount ||
+                  (Array.isArray(t.completion_subscribers) &&
+                    t.completion_subscribers.length > 0 &&
+                    (!Array.isArray(existingTodo.completion_subscriber_ids) ||
+                      existingTodo.completion_subscriber_ids.length === 0))
 
                 const isUnchanged =
                   !forceFullSync &&
@@ -1309,6 +1402,19 @@ export async function POST(request: Request) {
                   peopleMap,
                 })
 
+                // Resolve completion_subscribers ("When done") preserving any local synthetic UUIDs
+                const mergedCompSubIds = new Set<string>()
+                if (Array.isArray(existingTodo?.completion_subscriber_ids)) {
+                  for (const uid of existingTodo.completion_subscriber_ids) {
+                    if (uid && syntheticPersonIds.has(uid)) mergedCompSubIds.add(uid)
+                  }
+                }
+                for (const cs of t.completion_subscribers || []) {
+                  const csUuid =
+                    peopleMap[cs.id] || (await resolveOrCreatePerson(cs, supabase, peopleMap, allKnownPeopleList))
+                  if (csUuid) mergedCompSubIds.add(csUuid)
+                }
+
                 const { data: dbTodo, error: todoErr } = await supabase
                   .from('bc_todos')
                   .upsert(
@@ -1316,11 +1422,15 @@ export async function POST(request: Request) {
                       bc_id: t.id,
                       project_id: projectUuid,
                       todolist_id: todolistUuid,
+                      group_id: groupUuid,
                       title: t.content || t.title,
                       description: processedTodoDesc,
                       is_completed: t.completed || false,
                       completed_at: t.completed ? t.updated_at || new Date().toISOString() : null,
+                      starts_on: t.starts_on || null,
                       due_date: t.due_on || null,
+                      completion_subscriber_ids: Array.from(mergedCompSubIds),
+                      boosts_count: remoteBoostsCount,
                       position: t.position,
                       comments_count: t.comments_count || 0,
                       created_by_person_id: finalTodoAuthorUuid,
@@ -1341,6 +1451,34 @@ export async function POST(request: Request) {
                 todosMap[t.id] = todoUuid
                 counters.todos++
                 hasContentMutations = true
+
+                // Hydrate remote boosts when boosts_count > 0
+                if (remoteBoostsCount > 0) {
+                  try {
+                    const remoteBoosts = await fetchBoosts(project.id, t.id)
+                    if (Array.isArray(remoteBoosts) && remoteBoosts.length > 0) {
+                      const boostRows = []
+                      for (const b of remoteBoosts) {
+                        const boosterUuid = b.booster?.id
+                          ? peopleMap[b.booster.id] ||
+                            (await resolveOrCreatePerson(b.booster, supabase, peopleMap, allKnownPeopleList))
+                          : null
+                        boostRows.push({
+                          bc_id: b.id,
+                          project_id: projectUuid,
+                          recording_type: 'todo',
+                          recording_id: todoUuid,
+                          booster_person_id: boosterUuid,
+                          content: String(b.content || '👍').slice(0, 16),
+                          created_at: b.created_at || new Date().toISOString(),
+                        })
+                      }
+                      await supabase.from('bc_boosts').upsert(boostRows, { onConflict: 'bc_id' })
+                    }
+                  } catch (boostErr: any) {
+                    console.warn(`      ⚠️ boosts fetch warning for todo ${t.id}:`, boostErr.message)
+                  }
+                }
 
                 // Todo Assignees (N:N) — Preserve local synthetic TEG assignees (bc_id >= SYNTHETIC_BC_ID_THRESHOLD)
                 const { data: existingAssignees } = await supabase
@@ -1422,7 +1560,9 @@ export async function POST(request: Request) {
                         parent_id: todoUuid,
                         content: processedCommentContent,
                         author_person_id: finalCommentAuthorUuid,
+                        boosts_count: Number(c.boosts_count || 0),
                         created_at: c.created_at || new Date().toISOString(),
+                        updated_at: c.updated_at || c.created_at || new Date().toISOString(),
                       })
                     }
 
@@ -1509,8 +1649,11 @@ export async function POST(request: Request) {
                   }
                 }
 
-                // Keep bc_todolists completed_count & total_count 100% aligned with exact DB counts
+                // Keep bc_todolists & bc_todolist_groups counts 100% aligned with exact DB counts
                 await syncTodolistCounts(supabase, todolistUuid)
+                for (const grpUuid of syncedGroupUuids) {
+                  await syncTodolistGroupCounts(supabase, grpUuid)
+                }
               }
             } catch (todosErr: any) {
               counters.errors.push(`Todos fetch for list ${list.id}: ${todosErr.message}`)
@@ -1521,9 +1664,9 @@ export async function POST(request: Request) {
         }
       }
 
-      // ---- MESSAGE BOARD → MESSAGES ----
-      const messageBoardDock = findDock(project, 'message_board')
-      if (messageBoardDock) {
+      // ---- MESSAGE BOARD(S) → MESSAGES ----
+      const messageBoardDocks = (project.dock || []).filter((d) => d.name === 'message_board' && d.enabled)
+      for (const messageBoardDock of messageBoardDocks) {
         try {
           const boardId = extractDockId(messageBoardDock.url)
           
@@ -1594,8 +1737,9 @@ export async function POST(request: Request) {
                   category: m.category?.name || 'General',
                   author_person_id: finalMsgAuthorUuid,
                   comments_count: m.comments_count || 0,
+                  boosts_count: Number((m as any).boosts_count || 0),
                   created_at: m.created_at || new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
+                  updated_at: m.updated_at || new Date().toISOString(),
                 },
                 { onConflict: 'bc_id' }
               )
@@ -1653,7 +1797,9 @@ export async function POST(request: Request) {
                     parent_id: messageUuid,
                     content: processedCommentContent,
                     author_person_id: finalCommentAuthorUuid,
+                    boosts_count: Number(c.boosts_count || 0),
                     created_at: c.created_at || new Date().toISOString(),
+                    updated_at: c.updated_at || c.created_at || new Date().toISOString(),
                   })
                 }
 
@@ -1678,9 +1824,9 @@ export async function POST(request: Request) {
         }
       }
 
-      // ---- CAMPFIRE (CHAT) → LINES ----
-      const campfireDock = findDock(project, 'chat')
-      if (campfireDock) {
+      // ---- CAMPFIRE(S) (CHAT) → LINES ----
+      const campfireDocks = (project.dock || []).filter((d) => d.name === 'chat' && d.enabled)
+      for (const campfireDock of campfireDocks) {
         try {
           const campfireId = extractDockId(campfireDock.url)
           
@@ -2067,14 +2213,18 @@ export async function POST(request: Request) {
 
     if (hasProjectOrContentChanges || hourlySweepDue) {
       lastBgDownloaderRunAt = Date.now()
-      after(async () => {
-        try {
-          await triggerBackgroundAttachmentDownloader(supabase, token)
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          console.error('⚠️ [Basecamp Sync] Background downloader error:', message)
-        }
-      })
+      try {
+        after(async () => {
+          try {
+            await triggerBackgroundAttachmentDownloader(supabase, token)
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.error('⚠️ [Basecamp Sync] Background downloader error:', message)
+          }
+        })
+      } catch {
+        // Called outside Next.js request scope (e.g. standalone CLI verification)
+      }
     } else {
       console.log('⏭️ [Basecamp Sync] Skipping background attachment ILIKE scans (no changes & hourly sweep not due)')
     }

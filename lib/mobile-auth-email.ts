@@ -210,7 +210,7 @@ export async function checkEmailOtpRateLimit(
     }
   }
 
-  if (clientIp && !isReviewer) {
+  if (clientIp && (!isReviewer || process.env.NODE_ENV === 'production')) {
     const { count } = await supabaseAdmin
       .from('app_mobile_otp_challenges')
       .select('id', { count: 'exact', head: true })
@@ -385,17 +385,35 @@ export async function verifyEmailOtpAndSignIn(
   }
 }
 
+const EXPLICIT_REVIEWER_EMAIL_ALLOWLIST = new Set(
+  (
+    process.env.APP_REVIEW_TEST_EMAILS ||
+    'reviewer@tacosgavilan.com,apple@tacosgavilan.com,google@tacosgavilan.com'
+  )
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+)
+
 export function isAppReviewTestEmail(email: string): boolean {
   if (process.env.ENABLE_APP_REVIEW_TEST_ACCOUNTS === 'false') {
     return false
   }
   const clean = email.trim().toLowerCase()
-  return (
-    clean === 'reviewer@tacosgavilan.com' ||
-    clean === 'apple@tacosgavilan.com' ||
-    clean === 'google@tacosgavilan.com' ||
-    clean.endsWith('@tacosgavilan.test')
-  )
+  if (!clean) return false
+
+  if (process.env.NODE_ENV === 'production') {
+    if (process.env.ALLOW_REVIEWER_TEST_OTP !== 'true') {
+      return false
+    }
+    // Never allow wildcard *@tacosgavilan.test in production
+    if (clean.endsWith('@tacosgavilan.test')) {
+      return false
+    }
+    return EXPLICIT_REVIEWER_EMAIL_ALLOWLIST.has(clean)
+  }
+
+  return EXPLICIT_REVIEWER_EMAIL_ALLOWLIST.has(clean) || clean.endsWith('@tacosgavilan.test')
 }
 
 export function generateEmailOtpCode(email: string): string {

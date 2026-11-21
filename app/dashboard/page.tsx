@@ -190,10 +190,6 @@ function DashboardContent() {
             const token = localStorage.getItem('teg_token')
             const supabase = await getSupabaseClient()
 
-            if (token) {
-                await supabase.auth.setSession({ access_token: token, refresh_token: '' })
-            }
-
             // 1. Inspecciones Query
             let queryInspections = supabase
                 .from('supervisor_inspections')

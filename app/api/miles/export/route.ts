@@ -8,10 +8,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getCaliforniaDate } from '@/lib/business-date'
 
 export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = await getSupabaseAdminClient()
     const { searchParams } = new URL(req.url)
@@ -21,12 +25,15 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get('end_date')
     const status = searchParams.get('status')
 
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
+
     let query = supabase
       .from('supervisor_mileage_trips')
       .select('*')
       .order('trip_date', { ascending: false })
 
-    if (supervisorId) {
+    if (isAdminOrCron && supervisorId) {
       query = query.eq('supervisor_id', supervisorId)
     }
     if (startDate) {
@@ -39,7 +46,25 @@ export async function GET(req: NextRequest) {
       query = query.eq('status', status)
     }
 
-    const { data: trips } = await query
+    const { data: rawTrips } = await query
+    let trips = rawTrips || []
+    if (!isAdminOrCron && auth.user) {
+      const uid = String(auth.user.id || '').trim()
+      let uEmail = String(auth.user.email || '').trim().toLowerCase()
+      let uName = String(auth.user.user_metadata?.full_name || '').trim().toLowerCase()
+      const numericUid = Number(uid)
+      if (!uName && Number.isFinite(numericUid) && numericUid > 0) {
+        const { data: uRow } = await supabase.from('users').select('full_name, email').eq('id', numericUid).maybeSingle()
+        if (uRow?.full_name) uName = String(uRow.full_name).trim().toLowerCase()
+        if (!uEmail && uRow?.email) uEmail = String(uRow.email).trim().toLowerCase()
+      }
+      trips = trips.filter((t: any) => {
+        const sId = String(t.supervisor_id || '').trim()
+        const sEmail = String(t.supervisor_email || '').trim().toLowerCase()
+        const sName = String(t.supervisor_name || '').trim().toLowerCase()
+        return (uid && sId === uid) || (uEmail && sEmail === uEmail) || (uName && (sName === uName || sId.toLowerCase() === uName))
+      })
+    }
 
     const rows = (trips || []).map(t => {
       const miles = Number(t.distance_miles) || 0

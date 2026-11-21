@@ -1,15 +1,27 @@
+/**
+ * @module api/cron/sync-menu
+ * @description Cron job y endpoint administrativo que sincroniza el catálogo de menú y modificadores desde Toast POS hacia Supabase (`toast_menu_items`).
+ *
+ * @businessRules
+ * - Solo ejecutable por Vercel Cron (`CRON_SECRET`) o personal directivo autenticado (`admin`, `supervisor`).
+ *
+ * @dataFlow
+ * - Vercel Cron / Admin -> `GET /api/cron/sync-menu` -> `syncMenuFromToast()` -> `toast_menu_items` (Supabase).
+ *
+ * @notes
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): eliminada omisión comentada de autenticación.
+ */
 import { NextResponse } from 'next/server'
 import { syncMenuFromToast } from '@/lib/inventory/toast-sync'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
-// CRON JOB ENDPOINT
-// Can be called via Vercel Cron or Manually
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: Request) {
     try {
-        // Optional: Check for Cron Secret if needed
-        const authHeader = request.headers.get('authorization')
-        if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            // return new NextResponse('Unauthorized', { status: 401 })
-            // For dev/testing, we might allow it.
+        const auth = verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const result = await syncMenuFromToast()

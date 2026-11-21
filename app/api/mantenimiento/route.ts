@@ -1149,9 +1149,14 @@ export async function POST(request: NextRequest) {
       ? String(service_type)
       : 'corrective'
 
-    // Sanitizar y asegurar que cost_estimate sea numérico válido o null (0 automático para garantías)
+    // Sanitizar y asegurar que cost_estimate sea numérico válido o null (0 bloqueado para garantías)
     let numericCost: number | null = validServiceType === 'warranty' ? 0 : null
-    if (cost_estimate !== null && cost_estimate !== undefined && String(cost_estimate).trim() !== '') {
+    if (
+      validServiceType !== 'warranty' &&
+      cost_estimate !== null &&
+      cost_estimate !== undefined &&
+      String(cost_estimate).trim() !== ''
+    ) {
       const cleaned = parseFloat(String(cost_estimate).replace(/[^0-9.]/g, ''))
       if (!isNaN(cleaned) && isFinite(cleaned) && cleaned >= 0) {
         numericCost = Math.round(cleaned * 100) / 100
@@ -1325,7 +1330,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (cost_estimate !== undefined) {
-      if (cost_estimate === null || String(cost_estimate).trim() === '') {
+      const { data: existingLog } = await supabase
+        .from('maintenance_service_logs')
+        .select('service_type')
+        .eq('id', id.trim())
+        .maybeSingle()
+
+      if (existingLog?.service_type === 'warranty' || body?.service_type === 'warranty') {
+        updatePayload.cost_estimate = 0
+      } else if (cost_estimate === null || String(cost_estimate).trim() === '') {
         updatePayload.cost_estimate = null
       } else {
         const cleaned = parseFloat(String(cost_estimate).replace(/[^0-9.]/g, ''))

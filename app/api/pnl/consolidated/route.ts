@@ -33,10 +33,13 @@
  * @notes
  * - Solves the QuickBooks delay and multi-store visibility gap identified by Erick Velazquez.
  * - Saves ~$60,000+ USD/year by replacing Restaurant365's accounting and reporting module.
+ * - Uses deterministic pagination (`toast_id` / `id` + `.range()`) to prevent PostgREST 1,000-row silent truncation on monthly `punches` (~7,700+ rows/month) and multi-month caches.
+ * - Enforces store-level RBAC scoping: `admin` and `supervisor` view all 15 stores, while single-store `manager`/`asistente` is strictly scoped to their assigned `store_id`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyStaffAuth } from '@/lib/auth-server'
+import { verifyStaffAuth, resolveCachedStore } from '@/lib/auth-server'
+import { getCaliforniaBusinessDate } from '@/lib/business-date'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -108,7 +111,9 @@ function round2(val: number): number {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor', 'manager'] })
+  const auth = verifyStaffAuth(request, {
+    allowedRoles: ['admin', 'supervisor', 'manager', 'asistente', 'assistant']
+  })
   if (!auth.authorized) return auth.response!
 
   try {
@@ -118,10 +123,11 @@ export async function GET(request: NextRequest) {
     )
 
     const { searchParams } = new URL(request.url)
-    const startDate = searchParams.get('startDate') || new Date().toISOString().split('T')[0]
+    const startDate = searchParams.get('startDate') || getCaliforniaBusinessDate()
     const endDate = searchParams.get('endDate') || startDate
     const period = searchParams.get('period') || 'custom'
     const bodegaMode = (searchParams.get('bodegaMode') === 'corporate' ? 'corporate' : 'store') as 'store' | 'corporate'
+    const requestedStoreParam = (searchParams.get('store_id') || searchParams.get('storeId') || '').trim()
 
     if (startDate > endDate) {
       return NextResponse.json({ error: 'startDate must be before or equal to endDate' }, { status: 400 })
@@ -145,37 +151,160 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No active stores found' }, { status: 404 })
     }
 
-    // 2. Fetch sales from sales_daily_cache
-    const { data: salesRows, error: salesErr } = await supabase
-      .from('sales_daily_cache')
-      .select('store_id, net_sales, gross_sales, discounts, business_date')
-      .gte('business_date', startDate)
-      .lte('business_date', endDate)
+    // Enforce store-level RBAC scoping: admin/supervisor/cron see all 15 stores; manager/asistente strictly scoped to assigned store_id
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase().trim()
+    let isGlobalScope = !auth.user || userRole === 'admin' || userRole === 'administrador' || userRole === 'supervisor'
+    let scopedStoreKeys: string[] = []
+    let targetStores = stores
 
-    if (salesErr) console.warn('Warning: sales_daily_cache query error:', salesErr)
+    if (!isGlobalScope && auth.user) {
+      let rawStoreId: string | number | null =
+        auth.user.user_metadata?.store_id ?? (auth.user as any)?.store_id ?? null
+      let rawScope = String(auth.user.user_metadata?.store_scope || '').toLowerCase().trim()
 
-    // 3. Fetch labor from punches
-    const { data: punchRows, error: punchErr } = await supabase
-      .from('punches')
-      .select('store_id, regular_hours, overtime_hours, hourly_wage, business_date')
-      .gte('business_date', startDate)
-      .lte('business_date', endDate)
+      const numericUid = Number(auth.user.id)
+      if (Number.isFinite(numericUid) && numericUid > 0) {
+        const { data: dbUser } = await supabase
+          .from('users')
+          .select('store_id, store_scope, is_active')
+          .eq('id', numericUid)
+          .maybeSingle()
+        if (dbUser) {
+          if (dbUser.is_active === false) {
+            return NextResponse.json({ error: 'Acceso denegado: Usuario inactivo.' }, { status: 403 })
+          }
+          if (dbUser.store_id !== null && dbUser.store_id !== undefined) {
+            rawStoreId = dbUser.store_id
+          }
+          if (dbUser.store_scope) {
+            rawScope = String(dbUser.store_scope).toLowerCase().trim()
+          }
+        }
+      }
 
-    if (punchErr) console.warn('Warning: punches query error:', punchErr)
+      if (rawScope === 'all' && userRole === 'general_manager') {
+        isGlobalScope = true
+      } else {
+        const cachedAssigned = await resolveCachedStore(rawStoreId, supabase)
+        const cleanRaw = rawStoreId !== null && rawStoreId !== undefined ? String(rawStoreId).trim() : ''
+        const assignedStore = stores.find(
+          (s) =>
+            (cachedAssigned && String(s.id) === String(cachedAssigned.id)) ||
+            (cleanRaw && (String(s.id) === cleanRaw || s.external_id === cleanRaw))
+        )
 
-    // 4. Fetch food cost from food_cost_daily_cache
-    const { data: foodCostRows, error: fcErr } = await supabase
-      .from('food_cost_daily_cache')
-      .select('store_id, store_name, total_cost, net_sales, business_date')
-      .gte('business_date', startDate)
-      .lte('business_date', endDate)
+        if (!assignedStore) {
+          return NextResponse.json(
+            { error: 'Acceso denegado: Tu cuenta no tiene una sucursal asignada para consultar el P&L.' },
+            { status: 403 }
+          )
+        }
 
-    if (fcErr) console.warn('Warning: food_cost_daily_cache query error:', fcErr)
+        if (
+          requestedStoreParam &&
+          requestedStoreParam.toUpperCase() !== 'ALL' &&
+          requestedStoreParam !== String(assignedStore.id) &&
+          requestedStoreParam !== assignedStore.external_id
+        ) {
+          return NextResponse.json(
+            { error: 'Acceso denegado: No tienes autorización para consultar el P&L de otra sucursal.' },
+            { status: 403 }
+          )
+        }
+
+        targetStores = [assignedStore]
+        scopedStoreKeys = [String(assignedStore.id), assignedStore.external_id].filter(Boolean) as string[]
+      }
+    } else if (requestedStoreParam && requestedStoreParam.toUpperCase() !== 'ALL') {
+      const requestedMatch = stores.find(
+        (s) => String(s.id) === requestedStoreParam || s.external_id === requestedStoreParam
+      )
+      if (requestedMatch) {
+        targetStores = [requestedMatch]
+      }
+    }
+
+    const PAGE_SIZE = 1000
+    const MAX_PAGES = 60
+
+    // 2. Fetch sales from sales_daily_cache (paginated by id)
+    const salesRows: any[] = []
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE
+      let sQuery = supabase
+        .from('sales_daily_cache')
+        .select('id, store_id, net_sales, gross_sales, discounts, business_date')
+        .gte('business_date', startDate)
+        .lte('business_date', endDate)
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (!isGlobalScope && scopedStoreKeys.length > 0) {
+        sQuery = sQuery.in('store_id', scopedStoreKeys)
+      }
+      const { data: batch, error: salesErr } = await sQuery
+      if (salesErr) {
+        console.warn('Warning: sales_daily_cache query error:', salesErr)
+        break
+      }
+      if (!batch || batch.length === 0) break
+      salesRows.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
+
+    // 3. Fetch 100% of labor from punches using deterministic pagination on primary key toast_id
+    const punchRows: any[] = []
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE
+      let pQuery = supabase
+        .from('punches')
+        .select('toast_id, store_id, regular_hours, overtime_hours, hourly_wage, business_date')
+        .gte('business_date', startDate)
+        .lte('business_date', endDate)
+        .order('toast_id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (!isGlobalScope && scopedStoreKeys.length > 0) {
+        pQuery = pQuery.in('store_id', scopedStoreKeys)
+      }
+      const { data: batch, error: punchErr } = await pQuery
+      if (punchErr) {
+        console.warn('Warning: punches query error:', punchErr)
+        break
+      }
+      if (!batch || batch.length === 0) break
+      punchRows.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
+
+    // 4. Fetch food cost from food_cost_daily_cache (paginated by id)
+    const foodCostRows: any[] = []
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE
+      let fcQuery = supabase
+        .from('food_cost_daily_cache')
+        .select('id, store_id, store_name, total_cost, net_sales, business_date')
+        .gte('business_date', startDate)
+        .lte('business_date', endDate)
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (!isGlobalScope && scopedStoreKeys.length > 0) {
+        fcQuery = fcQuery.in('store_id', scopedStoreKeys)
+      }
+      const { data: batch, error: fcErr } = await fcQuery
+      if (fcErr) {
+        console.warn('Warning: food_cost_daily_cache query error:', fcErr)
+        break
+      }
+      if (!batch || batch.length === 0) break
+      foodCostRows.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
 
     // 5. Fetch store operating expenses
-    const { data: opExpenses, error: opErr } = await supabase
-      .from('store_operating_expenses')
-      .select('*')
+    let opExpQuery = supabase.from('store_operating_expenses').select('*')
+    if (!isGlobalScope && scopedStoreKeys.length > 0) {
+      opExpQuery = opExpQuery.in('store_id', scopedStoreKeys)
+    }
+    const { data: opExpenses, error: opErr } = await opExpQuery
 
     if (opErr) console.warn('Warning: store_operating_expenses query error:', opErr)
 
@@ -224,7 +353,11 @@ export async function GET(request: NextRequest) {
     for (const exp of opExpenses || []) {
       const k = exp.store_id
       const existing = opExpMap.get(k)
-      if (!existing || exp.month_year === targetMonth) {
+      if (
+        exp.month_year === targetMonth ||
+        (exp.month_year === 'DEFAULT' && existing?.month_year !== targetMonth) ||
+        !existing
+      ) {
         opExpMap.set(k, exp)
       }
     }
@@ -255,15 +388,15 @@ export async function GET(request: NextRequest) {
       const expenseProportion = expTotalDays > 0 ? (overlapDays / expTotalDays) : 0
       const proratedAmount = amount * expenseProportion
 
-      for (const s of stores) {
+      for (const s of targetStores) {
         const key = s.external_id || String(s.id)
         const sales = salesMap.get(key)?.net || 0
         let storeShare = 0
         
-        if (sh.allocation_method === 'even_split') {
+        if (sh.allocation_method === 'even_split' || !isGlobalScope) {
           storeShare = proratedAmount / stores.length
         } else {
-          // default to sales_weighted
+          // default to sales_weighted across all 15 stores
           const salesRatio = chainTotalNetSales > 0 ? (sales / chainTotalNetSales) : (1 / stores.length)
           storeShare = proratedAmount * salesRatio
         }
@@ -275,7 +408,7 @@ export async function GET(request: NextRequest) {
     // Build per-store summaries
     const storeSummaries: StoreSummary[] = []
 
-    for (const s of stores) {
+    for (const s of targetStores) {
       const key = s.external_id || String(s.id)
       const sales = salesMap.get(key) || { net: 0, gross: 0, discounts: 0 }
       const labor = laborMap.get(key) || { regularPay: 0, otPay: 0, totalWages: 0 }
@@ -429,7 +562,7 @@ export async function GET(request: NextRequest) {
       bodegaMode,
       stores: storeSummaries,
       consolidated,
-      sharedExpenses: sharedExpenses || []
+      sharedExpenses: isGlobalScope ? (sharedExpenses || []) : []
     }
 
     return NextResponse.json(responsePayload)

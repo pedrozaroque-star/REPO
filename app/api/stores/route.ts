@@ -2,21 +2,25 @@
  * @module api/stores/route
  * @description API endpoint para consultar y administrar las sucursales de Tacos Gavilan.
  * @businessRules
- * - GET devuelve únicamente tiendas activas (`is_active = true`) ordenadas por nombre (uso público / mapas).
- * - POST y PUT requieren JWT corporativo TEG válido (`getServerUser`) con rol `admin` o `supervisor`.
- * - Las escrituras en `public.stores` pasan exclusivamente por servidor (`supabaseAdmin`), eliminando políticas RLS públicas de escritura.
+ * - `GET` sin sesión autenticada devuelve únicamente columnas públicas de tiendas activas (`id, code, name, address, phone, external_id, has_drive_thru, opening_time, closing_time, is_active, latitude, longitude`).
+ * - `GET` con sesión autenticada (`getServerUser(request)`) devuelve las columnas completas del registro con `Cache-Control: private, no-store`.
+ * - `POST` y `PUT` requieren JWT corporativo TEG válido (`getServerUser`) con rol `admin` o `supervisor`.
  * @dataFlow Client -> GET/POST/PUT `/api/stores` -> `getServerUser` -> `supabaseAdmin` ('stores') -> JSON Response.
  * @notes
  * - [2026-11-12] Agregados métodos POST y PUT autenticados para soportar `/tiendas` tras el cierre de `teg_rls_access_stores`.
- * - [2026-11-19] Agregado `Cache-Control: public, s-maxage=300, stale-while-revalidate=600` en GET (catálogo público e idéntico para todos los usuarios sin datos de sesión) e invalidación inmediata de cachés RAM (`invalidateStoreLookupCache`, `clearOrderReadyStoresCache`) tras POST/PUT.
+ * - [2026-11-19] Invalidación inmediata de cachés RAM (`invalidateStoreLookupCache`, `clearOrderReadyStoresCache`) tras POST/PUT.
+ * - [2026-11-21] Separación estricta de columnas públicas vs columnas internas según autenticación (`getServerUser(request)`) + `Vary: Authorization, Cookie`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerUser, invalidateStoreLookupCache } from '@/lib/auth-server'
 import { clearOrderReadyStoresCache } from '@/lib/order-ready-access'
-import { getSupabaseClient, supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase'
 
 const STORE_MANAGE_ROLES = new Set(['admin', 'administrador', 'supervisor'])
+
+const PUBLIC_STORE_SELECT_COLUMNS =
+  'id, code, name, address, phone, external_id, has_drive_thru, opening_time, closing_time, is_active, latitude, longitude'
 
 function pickStorePayload(body: Record<string, any>) {
   return {
@@ -45,12 +49,31 @@ function pickStorePayload(body: Record<string, any>) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await getSupabaseClient()
-    const { data, error } = await supabase
+    const user = await getServerUser(request)
+    const isAuthenticatedStaff = Boolean(user && String(user.role || '').toLowerCase() !== 'employee')
+
+    if (isAuthenticatedStaff) {
+      const { data, error } = await supabaseAdmin
+        .from('stores')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+
+      if (error) throw error
+
+      return NextResponse.json(data, {
+        headers: {
+          'Cache-Control': 'private, no-store',
+          Vary: 'Authorization, Cookie',
+        },
+      })
+    }
+
+    const { data, error } = await supabaseAdmin
       .from('stores')
-      .select('id, name, address, city, state, zip_code, latitude, longitude, external_id, has_drive_thru')
+      .select(PUBLIC_STORE_SELECT_COLUMNS)
       .eq('is_active', true)
       .order('name')
 
@@ -58,8 +81,9 @@ export async function GET() {
 
     return NextResponse.json(data, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
-      }
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        Vary: 'Authorization, Cookie',
+      },
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })

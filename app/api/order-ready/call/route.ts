@@ -26,11 +26,13 @@
  *   3. Marca de tiempo `announced_at` monotónica (`getMonotonicIsoTimestamp`) para garantizar que dos llamadas rápidas en el mismo milisegundo persistan ambas actualizaciones sin ser suprimidas como no-op.
  * - SMART AUTO-TIMER GUARD (2026-11-10):
  *   Candado atómico PostgreSQL (`status = 'IN_PROGRESS' AND announced_at IS NULL`) + verificación de modo `'smart'` por tienda en servidor.
+ * - BLINDAJE DE SEGURIDAD (2026-11-21): Exige sesión autenticada (`getOrderReadyAccess` + `canAccessStore`) con rechazo `401`/`403` para proteger las bocinas del restaurante contra llamados no autorizados.
  */
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
+import { getOrderReadyAccess, canAccessStore } from '@/lib/order-ready-access'
 import { STORE_GUID_BY_CODE, syncStoreFromToast } from '@/lib/order-ready-sync'
 import {
   DEFAULT_AUTO_CALL_TIMER_CONFIG,
@@ -67,6 +69,11 @@ interface CallOrderPayload {
 
 export async function POST(request: Request) {
   try {
+    const access = await getOrderReadyAccess(request)
+    if (!access) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    }
+
     const body: CallOrderPayload = await request.json()
     const {
       orderId,
@@ -85,7 +92,14 @@ export async function POST(request: Request) {
       )
     }
 
-    const normalizedStoreCode = storeCode.toUpperCase()
+    const normalizedStoreCode = String(storeCode).trim().toUpperCase()
+    const isIsolatedTestStore =
+      process.env.ALLOW_ORDER_READY_TEST_DB === 'true' &&
+      normalizedStoreCode.startsWith('CODEX_ORDER_READY_TEST')
+    if (!canAccessStore(access, normalizedStoreCode) && !isIsolatedTestStore) {
+      return NextResponse.json({ error: 'Sin acceso a esta tienda' }, { status: 403 })
+    }
+
     const nowIso = getMonotonicIsoTimestamp(calledAt)
     const channelTopic = `order-ready-realtime:${normalizedStoreCode}`
     const storeTopic = `realtime:order-ready-realtime:${normalizedStoreCode}`

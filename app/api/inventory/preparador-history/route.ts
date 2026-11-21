@@ -6,14 +6,20 @@
  *   - Day of Week (DOW): 1=Lunes, 2=Martes ... 7=Domingo (ISO DOW).
  *   - Utiliza RPC get_meat_history_avg para cálculo en base de datos.
  * @dataFlow meat_consumption_history -> RPC get_meat_history_avg -> JSON response.
+ * @notes Protegido con `verifyStaffAuth` para personal interno autenticado.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
     try {
+        const auth = await verifyStaffAuth(request)
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
         const searchParams = request.nextUrl.searchParams
         const storeId = searchParams.get('storeId')
         const dow = searchParams.get('dow') // 1 (Monday) to 7 (Sunday)

@@ -34,7 +34,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 export async function GET(request: NextRequest) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'] })
   if (!auth.authorized) return auth.response!
 
   try {
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'] })
   if (!auth.authorized) return auth.response!
 
   try {

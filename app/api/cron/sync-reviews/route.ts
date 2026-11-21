@@ -1,6 +1,20 @@
-
+/**
+ * @module api/cron/sync-reviews
+ * @description Cron job diario que sincroniza reseñas verificadas de Google Business Profile hacia `customer_feedback` en Supabase para las sucursales de Tacos Gavilan.
+ *
+ * @businessRules
+ * - Vincula ubicaciones de Google Business con `stores` mediante `google_place_id`, dirección normalizada o nombre de ciudad/tienda.
+ * - Limita la paginación a 200 reseñas recientes por sucursal e inserta únicamente reseñas nuevas (`onConflict: 'external_id'`).
+ *
+ * @dataFlow
+ * - Vercel Cron -> `GET /api/cron/sync-reviews` -> Google Business APIs (OAuth2) -> `stores` & `customer_feedback` (Supabase).
+ *
+ * @notes
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
+ */
 import { NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutes max
@@ -125,9 +139,9 @@ interface Store {
 }
 
 export async function GET(request: Request) {
-    const authHeader = request.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
     }
     console.log('[CRON] Starting Strict Google Reviews Sync...')
 

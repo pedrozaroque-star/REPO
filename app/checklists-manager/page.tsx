@@ -57,11 +57,15 @@ function ManagerChecklistsContent() {
           // Si no está, buscar individualmente
           try {
             const supabase = await getSupabaseClient()
-            const { data, error } = await supabase
+            const roleLower = user?.role?.toLowerCase()
+            let singleQuery = supabase
               .from('manager_checklists')
               .select('*, stores(name, code), users(full_name)')
               .eq('id', id)
-              .single()
+            if ((roleLower === 'manager' || roleLower === 'gerente') && user?.store_id) {
+              singleQuery = singleQuery.eq('store_id', user.store_id)
+            }
+            const { data } = await singleQuery.maybeSingle()
 
             if (data) {
               const formatted = {
@@ -93,12 +97,16 @@ function ManagerChecklistsContent() {
       setLoading(true)
 
       const supabaseClient = await getSupabaseClient()
-      const { data: storesList } = await supabaseClient.from('stores').select('*')
-      setStores(Array.isArray(storesList) ? storesList : [])
+      const roleLower = user?.role?.toLowerCase()
+      const isSingleStoreManager = (roleLower === 'manager' || roleLower === 'gerente') && Boolean(user?.store_id)
 
-      // Aseguramos sesión síncrona
-      const token = localStorage.getItem('teg_token')
-      if (token) await supabaseClient.auth.setSession({ access_token: token, refresh_token: '' })
+      const { data: storesList } = await supabaseClient.from('stores').select('*')
+      const allStores = Array.isArray(storesList) ? storesList : []
+      setStores(
+        isSingleStoreManager
+          ? allStores.filter(s => String(s.id) === String(user?.store_id))
+          : allStores
+      )
 
       let query = supabaseClient.from('manager_checklists').select(`
           *,
@@ -109,8 +117,10 @@ function ManagerChecklistsContent() {
         .order('created_at', { ascending: false })
         .limit(100)
 
-      // Filtros seguros
-      if (storeFilter !== 'all') {
+      // Aislamiento estricto por sucursal para rol manager antes de aplicar storeFilter
+      if (isSingleStoreManager) {
+        query = query.eq('store_id', user!.store_id)
+      } else if (storeFilter !== 'all') {
         query = query.eq('store_id', storeFilter)
       }
 
@@ -143,25 +153,26 @@ function ManagerChecklistsContent() {
       })) : []
 
       if (statusFilter !== 'all') {
-        const role = user?.role?.toLowerCase()
-        const reviewLevel = role === 'admin' ? 'admin' : role === 'supervisor' ? 'supervisor' : null
-
-        if (reviewLevel) {
-          formattedData = formattedData.filter(item => {
-            const status = item[`estatus_${reviewLevel}`] || 'pendiente'
-            return status === statusFilter
-          })
-        }
+        const reviewLevel = roleLower === 'admin' ? 'admin' : 'supervisor'
+        formattedData = formattedData.filter(item => {
+          const status = item[`estatus_${reviewLevel}`] || 'pendiente'
+          return status === statusFilter
+        })
       }
 
       setChecklists(formattedData)
 
       // Stats
-      const { data: allChecks } = await supabaseClient.from('manager_checklists').select('estatus_supervisor,estatus_admin')
+      let statsQuery = supabaseClient.from('manager_checklists').select('estatus_supervisor,estatus_admin')
+      if (isSingleStoreManager) {
+        statsQuery = statsQuery.eq('store_id', user!.store_id)
+      } else if (storeFilter !== 'all') {
+        statsQuery = statsQuery.eq('store_id', storeFilter)
+      }
+      const { data: allChecks } = await statsQuery
       const allChecksArray = Array.isArray(allChecks) ? allChecks : []
 
-      const role = user?.role?.toLowerCase()
-      const statusField = role === 'admin' ? 'estatus_admin' : role === 'supervisor' ? 'estatus_supervisor' : 'estatus_supervisor'
+      const statusField = roleLower === 'admin' ? 'estatus_admin' : 'estatus_supervisor'
 
       setStats({
         total: allChecksArray.length,

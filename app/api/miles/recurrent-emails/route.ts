@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
 function normalizeMilesMailbox(email: string): string {
@@ -17,7 +18,10 @@ function normalizeMilesMailbox(email: string): string {
   return clean === 'roque@tacosgavilan.com' ? 'carlos@tacosgavilan.com' : clean
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = await getSupabaseAdminClient()
 
@@ -76,6 +80,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await req.json()
     const { email, label = 'Recursos Humanos / Nómina', created_by = null } = body

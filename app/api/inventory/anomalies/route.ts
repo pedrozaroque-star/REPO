@@ -16,8 +16,23 @@
  */
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
-export async function GET() {
+const ANOMALY_WRITE_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'asistente',
+    'assistant',
+    'general_manager',
+    'accounting',
+    'contador',
+]
+
+export async function GET(request: Request) {
+    const auth = verifyStaffAuth(request, { allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     const supabase = await getSupabaseAdminClient()
 
     const { data, error } = await supabase
@@ -36,6 +51,9 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+    const auth = verifyStaffAuth(request, { allowedRoles: ANOMALY_WRITE_ROLES, allowCron: false })
+    if (!auth.authorized) return auth.response!
+
     const supabase = await getSupabaseAdminClient()
     const { id } = await request.json()
 
@@ -48,7 +66,7 @@ export async function PATCH(request: Request) {
         .update({
             resolved: true,
             resolved_at: new Date().toISOString(),
-            resolved_by: 'manual'
+            resolved_by: auth.user?.email || 'manual'
         })
         .eq('id', id)
 

@@ -7,12 +7,12 @@
  *   - Filtro anti-fantasmas: descarta reglas canceladas o reemplazadas en POS antes de guardar.
  *   - Mapeo dinámico de Dining Options y Nombres de Empleados.
  * @dataFlow Toast POS API /ordersBulk -> Transform & Filter -> Supabase sales_discounts_log
- * @notes Maneja autenticación machine-to-machine de Toast y previene inserciones infladas.
+ * @notes Maneja autenticación machine-to-machine de Toast, previene inserciones infladas y exige `verifyStaffAuth` Fail-Closed (`CRON_SECRET` o rol `admin`/`supervisor`) en GET y POST.
  */
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyAuthToken } from '@/lib/auth-server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -75,12 +75,9 @@ async function getDiningOptionsMap(token: string, storeId: string): Promise<Reco
 // ═══════════════════════════════════════════════════════════════════
 export async function GET(request: Request) {
     try {
-        // 1. Verify Vercel Cron secret (skip in dev)
-        const authHeader = request.headers.get('authorization')
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            if (process.env.CRON_SECRET) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
+        const auth = verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         // 2. Calculate yesterday's business date (LA timezone, 6 AM rule)
@@ -116,22 +113,9 @@ export async function GET(request: Request) {
 // ═══════════════════════════════════════════════════════════════════
 export async function POST(request: Request) {
     try {
-        // Dual Gate: CRON_SECRET or authenticated user session
-        const authHeader = request.headers.get('authorization')
-        const isCron = process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`
-        if (!isCron) {
-            const cookieHeader = request.headers.get('cookie') || ''
-            const cookieMatch = cookieHeader.match(/teg_token=([^;]+)/)
-            const cookieToken = cookieMatch ? cookieMatch[1] : null
-            const bearerToken = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : null
-            const token = cookieToken || bearerToken
-            if (!token) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
-            const user = verifyAuthToken(token)
-            if (!user) {
-                return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
-            }
+        const auth = verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
         const body = await request.json();
         const dateStr = body.date;

@@ -35,30 +35,48 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { authClient } from '@/lib/quickbooks'
 import QuickBooks from 'node-quickbooks'
 import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
-import { verifyAuthToken } from '@/lib/auth-server'
+import { verifyStaffAuth, getServerUser, authorizeStoreScope } from '@/lib/auth-server'
 import { isInventoryAutomationPilotStore } from '@/lib/inventory/automation-pilot'
+
+const SEND_TO_QB_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'gerente',
+    'general_manager',
+    'asistente',
+    'assistant',
+]
 
 export async function POST(request: NextRequest) {
     try {
-        const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
-        const token = bearer || request.cookies.get('teg_token')?.value
-        const authenticatedUser = token ? verifyAuthToken(token) : null
-        if (!authenticatedUser) {
-            return NextResponse.json({ error: 'Sesión no válida' }, { status: 401 })
+        const auth = await verifyStaffAuth(request, { allowedRoles: SEND_TO_QB_ROLES, allowCron: false })
+        if (!auth.authorized || !auth.user) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Sesión no válida' }, { status: auth.status || 401 })
         }
+        const authenticatedUser = auth.user
 
         const supabase = await getSupabaseAdminClient()
+        const rawServerUser = await getServerUser(request)
 
         const { data: userProfile } = authenticatedUser.email
             ? await supabase
                 .from('users')
                 .select('role, store_id, store_scope')
-                .eq('email', authenticatedUser.email)
+                .ilike('email', authenticatedUser.email)
                 .maybeSingle()
             : { data: null }
 
-        const role = String(userProfile?.role || authenticatedUser.user_role || authenticatedUser.user_metadata?.role || '').trim().toLowerCase()
-        if (!['admin', 'supervisor', 'manager', 'gerente', 'asistente', 'assistant'].includes(role)) {
+        const role = String(
+            userProfile?.role ||
+            rawServerUser?.role ||
+            authenticatedUser.user_role ||
+            authenticatedUser.role ||
+            authenticatedUser.user_metadata?.role ||
+            ''
+        ).trim().toLowerCase()
+
+        if (!SEND_TO_QB_ROLES.includes(role) && role !== 'administrador') {
             return NextResponse.json({ error: 'No tienes permiso para enviar pedidos a QuickBooks' }, { status: 403 })
         }
 
@@ -80,20 +98,25 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
         }
 
-        if (!['admin', 'supervisor'].includes(role)) {
-            const metadata = authenticatedUser.user_metadata || {}
-            const profileScope = Array.isArray(userProfile?.store_scope) ? userProfile.store_scope : []
-            const allowedStoreIds = new Set([
-                userProfile?.store_id,
-                ...profileScope,
-                metadata.store_id,
-                ...(Array.isArray(metadata.store_ids) ? metadata.store_ids : []),
-                ...(Array.isArray(metadata.store_scope) ? metadata.store_scope : []),
-            ].filter(value => value !== null && value !== undefined).map(String))
+        const serverUser = {
+            id: rawServerUser?.id || authenticatedUser.id,
+            email: rawServerUser?.email || authenticatedUser.email,
+            name: rawServerUser?.name || authenticatedUser.user_metadata?.full_name || authenticatedUser.email,
+            role: role === 'administrador' ? 'admin' : role,
+            store_id: userProfile?.store_id ?? rawServerUser?.store_id ?? authenticatedUser.user_metadata?.store_id,
+            store_ids: rawServerUser?.store_ids ?? authenticatedUser.user_metadata?.store_ids,
+            store_scope: userProfile?.store_scope ?? rawServerUser?.store_scope ?? authenticatedUser.user_metadata?.store_scope,
+        }
 
-            if (!allowedStoreIds.has(String(order.store_id))) {
-                return NextResponse.json({ error: 'No tienes permiso para enviar pedidos de esta tienda' }, { status: 403 })
-            }
+        const scopeCheck = await authorizeStoreScope(serverUser, order.store_id, supabase, {
+            requireWrite: true,
+            allowedRoles: SEND_TO_QB_ROLES,
+        })
+        if (!scopeCheck.authorized) {
+            return NextResponse.json(
+                { error: scopeCheck.error || 'No tienes permiso para enviar pedidos de esta tienda' },
+                { status: scopeCheck.status }
+            )
         }
 
         if (order.order_type === 'daily') {

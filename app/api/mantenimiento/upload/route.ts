@@ -96,7 +96,15 @@ export async function POST(request: NextRequest) {
       const finalContentType = isPdf
         ? 'application/pdf'
         : isAllowedMime
-        ? mime
+        ? (mime === 'image/jpg' ? 'image/jpeg' : mime)
+        : extension === 'heic'
+        ? 'image/heic'
+        : extension === 'heif'
+        ? 'image/heif'
+        : extension === 'png'
+        ? 'image/png'
+        : extension === 'webp'
+        ? 'image/webp'
         : 'image/jpeg'
 
       const buffer = Buffer.from(await file.arrayBuffer())

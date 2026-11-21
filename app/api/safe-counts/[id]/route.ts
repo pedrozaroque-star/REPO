@@ -22,8 +22,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await verifyStaffAuth(request)
-  if (!auth.authorized) return auth.response!
+  const auth = await verifyStaffAuth(request, { allowCron: false })
+  if (!auth.authorized || !auth.user) return auth.response!
 
   const supabase = await getSupabaseAdminClient()
   const { id } = await params
@@ -35,7 +35,7 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  // Fetch existing record to check ownership and time
+  // Fetch existing record to check ownership, store scope, and 24h window
   const { data: existing, error: fetchError } = await supabase
     .from('safe_counts')
     .select('*')
@@ -44,6 +44,57 @@ export async function PUT(
 
   if (fetchError || !existing) {
     return NextResponse.json({ error: 'Count not found' }, { status: 404 })
+  }
+
+  const userRole = String(auth.user.role || auth.user.user_role || '').toLowerCase()
+  const isPrivileged = userRole === 'admin' || userRole === 'administrador' || userRole === 'supervisor'
+
+  if (!isPrivileged) {
+    let callerStoreId: any =
+      (auth.user as any).store_id ??
+      auth.user.user_metadata?.store_id ??
+      null
+    let callerStoreScope: any =
+      (auth.user as any).store_scope ??
+      auth.user.user_metadata?.store_scope ??
+      null
+
+    if (callerStoreId === null || callerStoreId === undefined) {
+      const { data: dbUser } = await supabase
+        .from('users')
+        .select('store_id, store_scope')
+        .eq('id', auth.user.id)
+        .maybeSingle()
+      callerStoreId = dbUser?.store_id ?? null
+      callerStoreScope = dbUser?.store_scope ?? callerStoreScope
+    }
+
+    const existingStoreStr = String(existing.store_id)
+    const matchesStore =
+      (callerStoreId !== null && callerStoreId !== undefined && String(callerStoreId) === existingStoreStr) ||
+      (Array.isArray(callerStoreScope) && callerStoreScope.map(String).includes(existingStoreStr))
+
+    if (!matchesStore) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: Solo puedes editar conteos de tu propia sucursal.' },
+        { status: 403 }
+      )
+    }
+
+    if (body.store_id !== undefined && String(body.store_id) !== existingStoreStr) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: No puedes reasignar un conteo a otra sucursal.' },
+        { status: 403 }
+      )
+    }
+
+    const countedAtMs = new Date(existing.counted_at || existing.created_at).getTime()
+    if (!Number.isFinite(countedAtMs) || Date.now() - countedAtMs > 24 * 60 * 60 * 1000) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: Solo Admin o Supervisor pueden editar conteos después de 24 horas.' },
+        { status: 403 }
+      )
+    }
   }
 
   // Build update object (only include fields that are provided)

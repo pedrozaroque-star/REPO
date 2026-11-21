@@ -3,38 +3,129 @@
  * @description API route para gestionar conteos de caja fuerte (Cash Safe).
  * GET lista conteos con diferencias calculadas, POST crea nuevos conteos.
  * @businessRules
- * - GET calcula la diferencia entre cada conteo y el anterior de la misma tienda.
- * - POST requiere store_id, business_date y al menos un campo de conteo.
- * - Los totales (bills_total, coins_total, etc.) son GENERATED en Supabase — no se envían.
+ * - `GET` exige `authorizeStoreScope` (`store_id=all` permitido ÚNICAMENTE para `admin`/`supervisor`; roles de sucursal quedan restringidos estrictamente a su `store_id` asignada).
+ * - `GET` calcula la diferencia entre cada conteo y el anterior de la misma tienda.
+ * - `POST` valida el alcance de sucursal (`authorizeStoreScope`) y establece `counted_by` estrictamente en servidor desde el usuario autenticado (`public.users.id`), rechazando cualquier suplantación del cliente y devolviendo `counted_by_name` desde `user.full_name || auth.user.name || auth.user.email`.
+ * - Los totales (`bills_total`, `coins_total`, `drawers_total`, `grand_total`) son `GENERATED` en Supabase — jamás se envían.
  * @dataFlow
- * - GET: Supabase safe_counts + joins a stores/users → calcula diferencias → responde array.
- * - POST: Valida body → inserta en safe_counts → Supabase calcula GENERATED → responde registro.
+ * - GET: `verifyStaffAuth` + `authorizeStoreScope` -> Supabase `safe_counts` + joins a `stores`/`users` -> calcula diferencias -> responde array.
+ * - POST: `verifyStaffAuth` + `authorizeStoreScope` + resolución autoritativa de `counted_by` -> inserta en `safe_counts` -> responde registro.
  * @notes
- * - Usa getSupabaseAdminClient() para bypass RLS ya que la tabla no tiene políticas configuradas.
+ * - Usa `getSupabaseAdminClient()` para bypass RLS con control de acceso estricto en servidor.
+ * - Blindaje de Seguridad (2026-11-21): bloqueo de `store_id=all` para roles no globales y eliminación de confianza en `body.counted_by`.
  */
 
 import { NextResponse } from 'next/server'
-import { verifyStaffAuth } from '@/lib/auth-server'
+import { authorizeStoreScope, getServerUser, verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { fetchUniformsSafeBalance } from '@/app/inventory/uniforms/actions'
 import type { UniformsSafeBalance } from '@/app/inventory/uniforms/utils'
+
+async function resolveAuthenticatedSafeUser(request: Request, supabase: any, tokenUser: any) {
+  const base = (await getServerUser(request)) || {
+    id: String(tokenUser.id || tokenUser.sub || ''),
+    email: String(tokenUser.email || ''),
+    name: String(tokenUser.user_metadata?.full_name || tokenUser.email || ''),
+    role: String(tokenUser.role || tokenUser.user_role || '').toLowerCase(),
+    store_id: tokenUser.user_metadata?.store_id,
+    store_ids: tokenUser.user_metadata?.store_ids,
+    store_scope: tokenUser.user_metadata?.store_scope,
+  }
+
+  let dbUserRow: any = null
+  const numId = Number(base.id)
+  if (Number.isFinite(numId) && numId > 0) {
+    const { data } = await supabase
+      .from('users')
+      .select('id, email, full_name, role, store_id, store_scope, is_active')
+      .eq('id', numId)
+      .maybeSingle()
+    dbUserRow = data
+  }
+  if (!dbUserRow && base.email) {
+    const safeEmail = String(base.email).trim().replace(/[\\%_]/g, '\\$&')
+    const { data } = await supabase
+      .from('users')
+      .select('id, email, full_name, role, store_id, store_scope, is_active')
+      .ilike('email', safeEmail)
+      .maybeSingle()
+    dbUserRow = data
+  }
+
+  if (dbUserRow) {
+    base.id = String(dbUserRow.id)
+    base.name = String(dbUserRow.full_name || base.name || base.email)
+    if (dbUserRow.role) base.role = String(dbUserRow.role).toLowerCase()
+    if (dbUserRow.store_id !== null && dbUserRow.store_id !== undefined) base.store_id = dbUserRow.store_id
+    if (dbUserRow.store_scope !== undefined) base.store_scope = dbUserRow.store_scope
+  }
+
+  const authoritativeUserId = Number(dbUserRow?.id ?? numId)
+  const displayName = String(dbUserRow?.full_name || base.name || base.email || 'Staff')
+
+  return {
+    serverUser: base,
+    authoritativeUserId: Number.isFinite(authoritativeUserId) && authoritativeUserId > 0 ? authoritativeUserId : null,
+    displayName,
+    isActive: dbUserRow ? dbUserRow.is_active !== false : true,
+  }
+}
 
 // ============================================================================
 // GET — Listar conteos con diferencias y sincronización en vivo con Uniformes
 // ============================================================================
 export async function GET(request: Request) {
-  const auth = await verifyStaffAuth(request)
-  if (!auth.authorized) return auth.response!
+  const auth = verifyStaffAuth(request, { allowCron: false })
+  if (!auth.authorized || !auth.user) return auth.response!
 
   const supabase = await getSupabaseAdminClient()
-  const { searchParams } = new URL(request.url)
+  const { serverUser, isActive } = await resolveAuthenticatedSafeUser(request, supabase, auth.user)
+  if (!isActive) {
+    return NextResponse.json({ error: 'Usuario inactivo.' }, { status: 403 })
+  }
 
-  const storeId = searchParams.get('store_id')
+  const { searchParams } = new URL(request.url)
+  const storeIdParam = searchParams.get('store_id')
   const from = searchParams.get('from')
   const to = searchParams.get('to')
-  const limit = parseInt(searchParams.get('limit') || '500')
+  const parsedLimit = parseInt(searchParams.get('limit') || '500', 10)
+  const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 1000) : 500
 
-  // Build query — order by counted_at DESC, created_at DESC to match fetchUniformsSafeBalance
+  let effectiveStoreId: number | string | null = null
+
+  if (storeIdParam && storeIdParam.trim().toLowerCase() === 'all') {
+    // store_id=all permitido EXCLUSIVAMENTE para admin / supervisor
+    const allScope = await authorizeStoreScope(serverUser, 'ALL', supabase, {
+      action: 'view',
+      allowComparativeAll: false,
+    })
+    if (!allScope.authorized) {
+      return NextResponse.json({ error: allScope.error || 'Acceso denegado a todas las sucursales.' }, { status: allScope.status || 403 })
+    }
+  } else if (storeIdParam && storeIdParam.trim() !== '') {
+    const targetScope = await authorizeStoreScope(serverUser, storeIdParam, supabase, {
+      action: 'view',
+    })
+    if (!targetScope.authorized) {
+      return NextResponse.json({ error: targetScope.error || 'Acceso denegado a esta sucursal.' }, { status: targetScope.status || 403 })
+    }
+    effectiveStoreId = targetScope.resolvedStoreId ?? storeIdParam
+  } else {
+    // Sin store_id explícito: admin/supervisor ven todas; gerentes/asistentes/shift_leaders quedan restringidos a su tienda
+    const roleLower = String(serverUser.role || '').toLowerCase()
+    const isGlobal = roleLower === 'admin' || roleLower === 'administrador' || roleLower === 'supervisor'
+    if (!isGlobal) {
+      const ownScope = await authorizeStoreScope(serverUser, serverUser.store_id, supabase, { action: 'view' })
+      if (!ownScope.authorized || !ownScope.resolvedStoreId) {
+        return NextResponse.json(
+          { error: ownScope.error || 'Tu cuenta no tiene una sucursal autorizada.' },
+          { status: ownScope.status || 403 }
+        )
+      }
+      effectiveStoreId = ownScope.resolvedStoreId
+    }
+  }
+
   let query = supabase
     .from('safe_counts')
     .select(`
@@ -46,8 +137,8 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  if (storeId && storeId !== 'all') {
-    query = query.eq('store_id', storeId)
+  if (effectiveStoreId !== null) {
+    query = query.eq('store_id', effectiveStoreId)
   }
   if (from) {
     query = query.gte('business_date', from)
@@ -63,7 +154,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Fetch cumulative uniform balance for all unique stores in the result set
   const uniqueStoreIds = Array.from(
     new Set((counts || []).map((c: any) => Number(c.store_id)).filter((id: number) => !isNaN(id)))
   )
@@ -79,9 +169,7 @@ export async function GET(request: Request) {
   )
   const storeBalanceMap = new Map<number, UniformsSafeBalance | null>(balanceEntries)
 
-  // Calculate differences between consecutive counts per store
   const countsWithDiff = await Promise.all((counts || []).map(async (count: any, index: number, arr: any[]) => {
-    // Find the next (older) count for the same store
     let previousTotal: number | null = null
     for (let i = index + 1; i < arr.length; i++) {
       if (String(arr[i].store_id) === String(count.store_id)) {
@@ -91,7 +179,6 @@ export async function GET(request: Request) {
     }
 
     if (previousTotal === null && count.counted_at) {
-      // Lookup previous count strictly older than count.counted_at (handles same-day multiple counts & limit/from cutoffs)
       const { data: prevRecord } = await supabase
         .from('safe_counts')
         .select('grand_total')
@@ -136,13 +223,28 @@ export async function GET(request: Request) {
 }
 
 // ============================================================================
-// POST — Crear nuevo conteo
+// POST — Crear nuevo conteo (con alcance por sucursal y counted_by autoritativo)
 // ============================================================================
 export async function POST(request: Request) {
-  const auth = await verifyStaffAuth(request)
-  if (!auth.authorized) return auth.response!
+  const auth = verifyStaffAuth(request, { allowCron: false })
+  if (!auth.authorized || !auth.user) return auth.response!
 
   const supabase = await getSupabaseAdminClient()
+  const { serverUser, authoritativeUserId, displayName, isActive } = await resolveAuthenticatedSafeUser(
+    request,
+    supabase,
+    auth.user
+  )
+
+  if (!isActive) {
+    return NextResponse.json({ error: 'Usuario inactivo.' }, { status: 403 })
+  }
+  if (!authoritativeUserId) {
+    return NextResponse.json(
+      { error: 'No se pudo resolver el identificador numérico del usuario autenticado (counted_by).' },
+      { status: 403 }
+    )
+  }
 
   let body: any
   try {
@@ -151,21 +253,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  // Validate required fields
   if (!body.store_id) {
     return NextResponse.json({ error: 'store_id is required' }, { status: 400 })
   }
   if (!body.business_date) {
     return NextResponse.json({ error: 'business_date is required' }, { status: 400 })
   }
-  if (!body.counted_by) {
-    return NextResponse.json({ error: 'counted_by is required' }, { status: 400 })
+
+  const scopeCheck = await authorizeStoreScope(serverUser, body.store_id, supabase, {
+    action: 'complete_checklist',
+  })
+  if (!scopeCheck.authorized) {
+    return NextResponse.json(
+      { error: scopeCheck.error || 'No tienes permiso para registrar conteos en otra sucursal.' },
+      { status: scopeCheck.status || 403 }
+    )
   }
 
-  // Prepare insert data (only writable fields, GENERATED columns are excluded)
+  const resolvedStoreId = scopeCheck.resolvedStoreId ?? Number(body.store_id)
+  if (!Number.isFinite(resolvedStoreId) || resolvedStoreId <= 0) {
+    return NextResponse.json({ error: 'store_id inválido.' }, { status: 400 })
+  }
+
+  // Prepare insert data (only writable fields; GENERATED columns excluded; counted_by derived strictly from server auth)
   const insertData = {
-    store_id: body.store_id,
-    counted_by: parseInt(body.counted_by) || body.counted_by,
+    store_id: resolvedStoreId,
+    counted_by: authoritativeUserId,
     business_date: body.business_date,
     counted_at: new Date().toISOString(),
 
@@ -197,7 +310,7 @@ export async function POST(request: Request) {
     uniforms_amount: Math.max(0, parseFloat(body.uniforms_amount) || 0),
 
     // Notes
-    notes: body.notes || null,
+    notes: body.notes ? String(body.notes).slice(0, 1000) : null,
   }
 
   const { data, error } = await supabase
@@ -215,5 +328,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json(data, { status: 201 })
+  return NextResponse.json(
+    {
+      ...data,
+      counted_by_name: data?.user?.full_name || displayName,
+    },
+    { status: 201 }
+  )
 }

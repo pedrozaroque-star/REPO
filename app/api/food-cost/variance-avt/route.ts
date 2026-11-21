@@ -1,28 +1,24 @@
 /**
  * @module api/food-cost/variance-avt
  * @description Generates the Actual vs. Theoretical (AvT) food variance analysis,
- * ranking ingredients by financial loss in dollars ($ Loss).
- * Replicates the Monterey Jack Cheese audit screen shown in Restaurant365 (frame_061.jpg).
- * 
+ * ranking ingredients by real measured financial loss in dollars ($ Loss).
+ *
  * @businessRules
- * - Theoretical Usage (Theo): Calculated from Toast POS product mix (PMIX) * standardized recipe portions.
- * - Actual Usage (Actl): Starting inventory + deliveries from La Bodega - ending inventory counts.
- * - Variance (Var): Actl - Theo. Positive variance represents overconsumption/waste/theft.
- * - Dollar Loss ($ Loss): Var * Unit Purchase Cost.
- * - Sorted primarily by Dollar Loss descending to identify the largest money leaks first.
- * 
+ * - Requires authenticated staff session via `verifyStaffAuth`.
+ * - Theoretical Usage (Theo): Calculated from Toast POS product mix (PMIX) * standardized recipe portions (`food_cost_daily_cache`), falling back to calibrated sales-volume benchmarks only for theoretical projection.
+ * - Actual Usage (Actl): Computed ONLY from real physical inventory counts (`starting_count + deliveries - ending_count`) when at least two physical counts exist for the period.
+ * - **Zero Synthetic Variance**: When no complete physical count exists for an item, `actual_qty`, `variance_qty`, and `dollar_loss` are reported honestly as `0` with `status: 'unmeasured'` and `dataSource: 'unmeasured'` — NEVER fabricated via character hashes.
+ *
  * @dataFlow
- * - `inventory_items` (master ingredients, purchase unit cost, unit measure)
- * - `food_cost_daily_cache` & PMIX (theoretical depletion)
- * - `inventory_counts` & `inventory_order_lines` (physical usage)
- * -> Ranked AvT Matrix -> /admin/food-cost/varianza
- * 
+ * - `verifyStaffAuth` -> `inventory_items`, `sales_daily_cache`, `food_cost_daily_cache`, `inventory_counts`, `inventory_orders` + `inventory_order_lines` -> Ranked AvT Matrix -> `/admin/food-cost/varianza`
+ *
  * @notes
- * - Direct replication of R365's End Inventory AvT report.
+ * - Hardened 2026-11-20: Added `verifyStaffAuth` and eradicated synthetic ASCII-hash variance (`hash % 25 - 8`).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,8 +37,8 @@ interface AvTItem {
   actual_dollar: number
   theoretical_dollar: number
   dollar_loss: number
-  status: 'critical' | 'warning' | 'normal' | 'efficient'
-  dataSource?: 'real' | 'estimated' | 'benchmark'
+  status: 'critical' | 'warning' | 'normal' | 'efficient' | 'unmeasured'
+  dataSource?: 'real' | 'benchmark' | 'unmeasured'
   hasRealInventoryData?: boolean
 }
 
@@ -51,6 +47,11 @@ function round2(val: number): number {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = verifyStaffAuth(request)
+  if (!auth.authorized) {
+    return auth.response!
+  }
+
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -63,6 +64,29 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate') || startDate
     const categoryFilter = searchParams.get('category') || 'all'
 
+    // Resolve numeric store ID alongside Toast GUID if a single store was requested
+    let targetNumericStoreId: number | null = null
+    let targetStoreGuid: string | null = null
+    if (storeId !== 'all') {
+      if (/^\d+$/.test(storeId)) {
+        targetNumericStoreId = Number(storeId)
+        const { data: st } = await supabase
+          .from('stores')
+          .select('id, external_id')
+          .eq('id', targetNumericStoreId)
+          .maybeSingle()
+        targetStoreGuid = st?.external_id || null
+      } else {
+        targetStoreGuid = storeId
+        const { data: st } = await supabase
+          .from('stores')
+          .select('id, external_id')
+          .eq('external_id', storeId)
+          .maybeSingle()
+        targetNumericStoreId = typeof st?.id === 'number' ? st.id : null
+      }
+    }
+
     // 1. Fetch inventory items
     const { data: rawItems, error: itemsErr } = await supabase
       .from('inventory_items')
@@ -71,7 +95,7 @@ export async function GET(request: NextRequest) {
 
     if (itemsErr) throw itemsErr
 
-    // 2. Fetch sales summary for the period to calculate scale
+    // 2. Fetch sales summary for the period
     let salesQuery = supabase
       .from('sales_daily_cache')
       .select('net_sales, store_id')
@@ -79,7 +103,7 @@ export async function GET(request: NextRequest) {
       .lte('business_date', endDate)
 
     if (storeId !== 'all') {
-      salesQuery = salesQuery.eq('store_id', storeId)
+      salesQuery = salesQuery.eq('store_id', targetStoreGuid || storeId)
     }
 
     const { data: salesRows } = await salesQuery
@@ -87,36 +111,92 @@ export async function GET(request: NextRequest) {
 
     if (totalNetSales === 0) {
       return NextResponse.json({
-        storeId, startDate, endDate,
+        storeId,
+        startDate,
+        endDate,
         totalNetSales: 0,
         totalTheoreticalDollar: 0,
         totalActualDollar: 0,
         totalDollarLoss: 0,
-        overallEfficiencyPct: 100,
+        overallEfficiencyPct: 0,
         itemsCount: 0,
         items: [],
-        dataQuality: 'estimated',
+        dataQuality: 'unmeasured',
         message: 'No sales data found for the given period. Cannot calculate theoretical consumption.'
       })
     }
 
-    // 3. Fetch physical leftover counts if available
+    // 3. Fetch real physical inventory counts ordered chronologically
     let countsQuery = supabase
       .from('inventory_counts')
       .select('inventory_item_id, quantity_on_hand, count_date, store_id')
       .gte('count_date', startDate)
       .lte('count_date', endDate)
+      .order('count_date', { ascending: true })
 
     if (storeId !== 'all') {
-      countsQuery = countsQuery.eq('store_id', storeId)
+      const possibleStoreIds = [storeId, targetStoreGuid, targetNumericStoreId ? String(targetNumericStoreId) : null]
+        .filter((v): v is string => Boolean(v))
+      countsQuery = countsQuery.in('store_id', Array.from(new Set(possibleStoreIds)))
     }
 
     const { data: countsRows } = await countsQuery
 
-    const countsMap = new Map<string, number>()
+    // Group counts by (store_id, inventory_item_id) to measure real starting vs ending stock when >= 2 counts exist
+    const countsByStoreAndItem = new Map<string, Array<{ date: string; qty: number }>>()
     for (const c of countsRows || []) {
-      const k = String(c.inventory_item_id)
-      countsMap.set(k, (countsMap.get(k) || 0) + Number(c.quantity_on_hand || 0))
+      const key = `${c.store_id}::${c.inventory_item_id}`
+      const arr = countsByStoreAndItem.get(key) || []
+      arr.push({ date: String(c.count_date), qty: Number(c.quantity_on_hand || 0) })
+      countsByStoreAndItem.set(key, arr)
+    }
+
+    // Fetch real warehouse deliveries in the period (inventory_orders + inventory_order_lines)
+    let ordersQuery = supabase
+      .from('inventory_orders')
+      .select('id, store_id, order_date')
+      .gte('order_date', startDate)
+      .lte('order_date', endDate)
+
+    if (storeId !== 'all' && targetNumericStoreId !== null) {
+      ordersQuery = ordersQuery.eq('store_id', targetNumericStoreId)
+    }
+
+    const { data: invOrders } = await ordersQuery
+    const orderIds = (invOrders || []).map(o => o.id)
+    const deliveredByItem = new Map<string, number>()
+
+    if (orderIds.length > 0) {
+      const { data: orderLines } = await supabase
+        .from('inventory_order_lines')
+        .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty')
+        .in('order_id', orderIds)
+
+      for (const ln of orderLines || []) {
+        const itemIdStr = String(ln.inventory_item_id)
+        const qty = Number(ln.final_qty ?? ln.adjusted_qty ?? ln.calculated_qty ?? 0)
+        if (Number.isFinite(qty) && qty > 0) {
+          deliveredByItem.set(itemIdStr, (deliveredByItem.get(itemIdStr) || 0) + qty)
+        }
+      }
+    }
+
+    // Aggregate measured actual usage across stores where starting + ending counts exist
+    const measuredActualByItem = new Map<string, number>()
+    for (const [compositeKey, snapshots] of countsByStoreAndItem.entries()) {
+      const [, itemIdStr] = compositeKey.split('::')
+      // Deduplicate by count_date
+      const byDate = new Map<string, number>()
+      for (const snap of snapshots) {
+        byDate.set(snap.date, snap.qty)
+      }
+      const orderedDates = Array.from(byDate.keys()).sort()
+      if (orderedDates.length >= 2) {
+        const startingQty = byDate.get(orderedDates[0]) || 0
+        const endingQty = byDate.get(orderedDates[orderedDates.length - 1]) || 0
+        const prev = measuredActualByItem.get(itemIdStr) || 0
+        measuredActualByItem.set(itemIdStr, prev + (startingQty - endingQty))
+      }
     }
 
     // 4. Fetch real theoretical usage from PMIX via food_cost_daily_cache
@@ -127,7 +207,7 @@ export async function GET(request: NextRequest) {
       .lte('business_date', endDate)
 
     if (storeId !== 'all') {
-      fcQuery = fcQuery.eq('store_id', storeId)
+      fcQuery = fcQuery.eq('store_id', targetStoreGuid || storeId)
     }
     const { data: fcRows } = await fcQuery
 
@@ -143,21 +223,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Key ingredient benchmarks for Tacos Gavilan:
-    // Scale theoretical usage based on actual sales volume
-    // In Tacos Gavilan, every $1,000 in net sales typically corresponds to:
-    // - Carne Asada: ~42.5 lbs raw
-    // - Carne al Pastor: ~38.0 lbs raw
-    // - Pollo: ~24.5 lbs raw
-    // - Carnitas: ~14.0 lbs raw
-    // - Cabeza: ~8.5 lbs raw
-    // - Lengua: ~6.0 lbs raw
-    // - Queso Monterey / Oaxaca: ~18.5 lbs
-    // - Frijol Pinto: ~16.0 lbs dried
-    // - Arroz: ~14.0 lbs
-    // - Tortilla Maíz: ~85.0 packs/lbs
     const salesK = Math.max(1, totalNetSales / 1000)
-
     const avtList: AvTItem[] = []
 
     for (const item of rawItems || []) {
@@ -211,7 +277,6 @@ export async function GET(request: NextRequest) {
         theoPer1k = 12.0
         if (unitCost === 0) unitCost = 1.60
       } else {
-        // Skip non-tracked items in AvT to keep focus on key cost drivers
         if (!item.is_bodega && !nameLower.includes('carne')) continue
         theoPer1k = 5.0
         if (unitCost === 0) unitCost = 2.00
@@ -221,90 +286,100 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      let theoreticalQty = realTheoMap.get(String(item.id)) || 0
-      let dataSource: AvTItem['dataSource'] = 'real'
-      
+      const itemIdStr = String(item.id)
+      let theoreticalQty = realTheoMap.get(itemIdStr) || 0
+      let theoSource: 'real' | 'benchmark' = 'real'
+
       if (theoreticalQty <= 0) {
         theoreticalQty = round2(theoPer1k * salesK)
-        dataSource = 'benchmark'
+        theoSource = 'benchmark'
       }
 
       if (theoreticalQty <= 0) continue
 
-      const countVal = countsMap.get(String(item.id))
-      const hash = item.name.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0)
-      const varianceFactor = 1 + (((hash % 25) - 8) / 100) // ranges from -8% to +16% variance
-
-      let actualQty = 0
-      let hasRealInventoryData = false
-
-      if (countVal !== undefined) {
-        // If we have counts, we need starting inventory and deliveries to calculate actual usage correctly.
-        // actualUsage = starting + deliveries - ending (countVal).
-        // Since we don't have starting/deliveries fetched yet, we avoid the bug of treating ending stock as consumption.
-        // We will estimate the consumption for now, but mark that we had inventory counts.
-        hasRealInventoryData = true
-        actualQty = round2(theoreticalQty * varianceFactor)
-      } else {
-        dataSource = 'estimated'
-        hasRealInventoryData = false
-        actualQty = round2(theoreticalQty * varianceFactor)
-      }
-
-      const varianceQty = round2(actualQty - theoreticalQty)
-      const wasteQty = 0.00
-      const unexplainedVar = round2(Math.max(0, varianceQty))
-      const efficiencyPct = actualQty > 0 ? round2((theoreticalQty / actualQty) * 100) : 100.0
-
-      const actualDollar = round2(actualQty * unitCost)
       const theoreticalDollar = round2(theoreticalQty * unitCost)
-      const dollarLoss = round2(varianceQty * unitCost)
+      const hasMeasuredCountDelta = measuredActualByItem.has(itemIdStr)
 
-      let status: AvTItem['status'] = 'normal'
-      if (dollarLoss > 150 || efficiencyPct < 85) {
-        status = 'critical'
-      } else if (dollarLoss > 50 || efficiencyPct < 92) {
-        status = 'warning'
-      } else if (efficiencyPct >= 98 && efficiencyPct <= 102) {
-        status = 'efficient'
+      if (hasMeasuredCountDelta) {
+        const netStockReduction = measuredActualByItem.get(itemIdStr) || 0
+        const deliveredQty = deliveredByItem.get(itemIdStr) || 0
+        const actualQty = round2(Math.max(0, netStockReduction + deliveredQty))
+        const varianceQty = round2(actualQty - theoreticalQty)
+        const unexplainedVar = round2(Math.max(0, varianceQty))
+        const efficiencyPct = actualQty > 0 ? round2((theoreticalQty / actualQty) * 100) : 0
+        const actualDollar = round2(actualQty * unitCost)
+        const dollarLoss = round2(varianceQty * unitCost)
+
+        let status: AvTItem['status'] = 'normal'
+        if (dollarLoss > 150 || (actualQty > 0 && efficiencyPct < 85)) {
+          status = 'critical'
+        } else if (dollarLoss > 50 || (actualQty > 0 && efficiencyPct < 92)) {
+          status = 'warning'
+        } else if (efficiencyPct >= 98 && efficiencyPct <= 102) {
+          status = 'efficient'
+        }
+
+        avtList.push({
+          id: itemIdStr,
+          name: item.name,
+          category,
+          unit_measure: item.unit_measure || item.unit_type || 'LB',
+          unit_cost: unitCost,
+          actual_qty: actualQty,
+          theoretical_qty: theoreticalQty,
+          variance_qty: varianceQty,
+          waste_qty: 0,
+          unexplained_variance: unexplainedVar,
+          efficiency_pct: efficiencyPct,
+          actual_dollar: actualDollar,
+          theoretical_dollar: theoreticalDollar,
+          dollar_loss: dollarLoss,
+          status,
+          dataSource: theoSource,
+          hasRealInventoryData: true
+        })
+      } else {
+        // Honest unmeasured state — zero fabricated variance
+        avtList.push({
+          id: itemIdStr,
+          name: item.name,
+          category,
+          unit_measure: item.unit_measure || item.unit_type || 'LB',
+          unit_cost: unitCost,
+          actual_qty: 0,
+          theoretical_qty: theoreticalQty,
+          variance_qty: 0,
+          waste_qty: 0,
+          unexplained_variance: 0,
+          efficiency_pct: 0,
+          actual_dollar: 0,
+          theoretical_dollar: theoreticalDollar,
+          dollar_loss: 0,
+          status: 'unmeasured',
+          dataSource: 'unmeasured',
+          hasRealInventoryData: false
+        })
       }
-
-      avtList.push({
-        id: String(item.id),
-        name: item.name,
-        category,
-        unit_measure: item.unit_measure || item.unit_type || 'LB',
-        unit_cost: unitCost,
-        actual_qty: actualQty,
-        theoretical_qty: theoreticalQty,
-        variance_qty: varianceQty,
-        waste_qty: wasteQty,
-        unexplained_variance: unexplainedVar,
-        efficiency_pct: efficiencyPct,
-        actual_dollar: actualDollar,
-        theoretical_dollar: theoreticalDollar,
-        dollar_loss: dollarLoss,
-        status,
-        dataSource,
-        hasRealInventoryData
-      })
     }
 
-    // Sort descending by dollar loss (largest loss at top)
-    avtList.sort((a, b) => b.dollar_loss - a.dollar_loss)
+    avtList.sort((a, b) => {
+      if (b.dollar_loss !== a.dollar_loss) return b.dollar_loss - a.dollar_loss
+      return b.theoretical_dollar - a.theoretical_dollar
+    })
 
+    const measuredItems = avtList.filter(i => i.hasRealInventoryData)
     const totalTheoreticalDollar = round2(avtList.reduce((sum, i) => sum + i.theoretical_dollar, 0))
-    const totalActualDollar = round2(avtList.reduce((sum, i) => sum + i.actual_dollar, 0))
-    const totalDollarLoss = round2(avtList.reduce((sum, i) => sum + (i.dollar_loss > 0 ? i.dollar_loss : 0), 0))
-    const overallEfficiencyPct = totalActualDollar > 0 ? round2((totalTheoreticalDollar / totalActualDollar) * 100) : 100
+    const totalActualDollar = round2(measuredItems.reduce((sum, i) => sum + i.actual_dollar, 0))
+    const totalDollarLoss = round2(measuredItems.reduce((sum, i) => sum + (i.dollar_loss > 0 ? i.dollar_loss : 0), 0))
+    const measuredTheoDollar = round2(measuredItems.reduce((sum, i) => sum + i.theoretical_dollar, 0))
+    const overallEfficiencyPct = totalActualDollar > 0 ? round2((measuredTheoDollar / totalActualDollar) * 100) : 0
 
-    let hasReal = false
-    let hasEstimated = false
-    for (const item of avtList) {
-      if (item.dataSource === 'real' || item.hasRealInventoryData) hasReal = true
-      if (item.dataSource === 'estimated' || item.dataSource === 'benchmark') hasEstimated = true
-    }
-    const dataQuality = hasReal && hasEstimated ? 'mixed' : (hasReal ? 'real' : 'estimated')
+    const dataQuality =
+      measuredItems.length === 0
+        ? 'unmeasured'
+        : measuredItems.length === avtList.length
+          ? 'real'
+          : 'mixed'
 
     return NextResponse.json({
       storeId,
@@ -316,6 +391,7 @@ export async function GET(request: NextRequest) {
       totalDollarLoss,
       overallEfficiencyPct,
       itemsCount: avtList.length,
+      measuredItemsCount: measuredItems.length,
       items: avtList,
       dataQuality
     })

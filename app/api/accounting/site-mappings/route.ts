@@ -24,7 +24,7 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export async function GET(request: NextRequest) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request)
   if (!auth.authorized) return auth.response!
 
   try {
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
   if (!auth.authorized) return auth.response!
 
   try {
@@ -127,6 +127,9 @@ export async function PUT(request: NextRequest) {
 export const PATCH = PUT
 
 export async function POST(request: NextRequest) {
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await request.json()
     const { action, store_id } = body as { action: string; store_id?: number }

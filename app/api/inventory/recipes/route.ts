@@ -36,7 +36,21 @@ import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
 
+const RECIPE_WRITE_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'asistente',
+    'assistant',
+    'general_manager',
+    'accounting',
+    'contador',
+]
+
 export async function GET(request: Request) {
+    const auth = verifyStaffAuth(request, { allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     const { searchParams } = new URL(request.url)
     const guid = searchParams.get('guid')
 
@@ -95,6 +109,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+    const auth = verifyStaffAuth(request, { allowedRoles: RECIPE_WRITE_ROLES, allowCron: true })
+    if (!auth.authorized) return auth.response!
+
     const body = await request.json()
     const { toast_guid, ingredients, recipe_na } = body
 

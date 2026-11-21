@@ -10,22 +10,22 @@
  * - Vercel Cron -> GET /api/cron/sync-sales-today -> Toast API -> sales_daily_cache (Supabase) -> Response.
  * @notes
  * - 2026-11-19 (Paquete 2A): Conservado salto de ventana muerta `4:15–6:59 AM LA` y agregado throttle de 30 min en madrugada (`1:00–4:14 AM LA`, `laMinute % 30 < 10`, conservando barrida final 4:00 AM) con soporte `?force=1`.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 
 
 export async function GET(request: Request) {
     try {
-        const authHeader = request.headers.get('authorization')
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            if (process.env.CRON_SECRET) {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-            }
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const { searchParams } = new URL(request.url)

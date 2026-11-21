@@ -5,37 +5,24 @@
  * - Checks past closed dates (e.g. Yesterday) against live Toast POS API ignoring cache.
  * - Auto-heals discrepancies exceeding $5.00 in Net Sales or Labor.
  * - Preserves complete granular hourly sales, tickets, labor curves, and EBT amounts during healing.
- * - Requires authenticated user with admin, supervisor, or manager role.
+ * - Requires authenticated user with admin or supervisor role (or CRON_SECRET).
  * @dataFlow
  * - Client -> POST /api/integrity/verify-day -> Toast API (skipCache) -> Compare Supabase -> Auto-Heal Upsert -> Response.
- * @notes Protected by Supabase Admin Client for safe database write operations.
+ * @notes Protected by `verifyStaffAuth` (`admin`, `supervisor` or `CRON_SECRET`) and Supabase Admin Client for safe database write operations.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api'
-import { verifyAuthToken } from '@/lib/auth-server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
     try {
-        // Authenticate request
-        const authHeader = req.headers.get('Authorization')
-        const cookieToken = req.cookies.get('teg_token')?.value
-        const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : cookieToken
-
-        if (!token) {
-            return NextResponse.json({ error: 'Missing Authentication Token' }, { status: 401 })
-        }
-
-        const user = verifyAuthToken(token)
-        if (!user) {
-            return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
-        }
-
-        if (user.user_role !== 'admin' && user.user_role !== 'supervisor' && user.user_role !== 'manager') {
-            return NextResponse.json({ error: 'Forbidden: Admins, Supervisors & Managers Only' }, { status: 403 })
+        const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const body = await req.json()

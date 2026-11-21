@@ -1,20 +1,71 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabase'
-import { syncToastEmployees, syncToastJobs, syncToastPunches } from '@/lib/toast-labor'
-
 /**
- * SMART SCHEDULE GENERATOR API
- * 1. Syncs recent data from Toast (High Precision)
- * 2. Predicts schedules based on 6 months history
- * 3. Replaces existing drafts
+ * @module app/api/scheduler/generate-smart/route
+ * @description Generador inteligente de horarios semanales basado en patrones históricos de ponchadas
+ *   de los últimos 90 días en Toast POS, reglas de día de descanso obligatorio y festivos.
+ *
+ * @businessRules
+ *   - Requiere sesión autenticada de personal autorizado (`verifyStaffAuth`) y alcance de sucursal (`authorizeStoreScope`).
+ *   - Reemplaza únicamente turnos en estado `'draft'` dentro de la semana solicitada (`startDate`..`endDate`).
+ *
+ * @dataFlow
+ *   `/planificador` -> `POST /api/scheduler/generate-smart` -> `punches` + `toast_employees` -> `shifts` (`status: 'draft'`).
+ *
+ * @notes
+ *   - [2026-11-20] FIX CRÍTICO: Agregada validación obligatoria `verifyStaffAuth` + aislamiento `authorizeStoreScope`.
  */
 
+import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseClient, getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth, getServerUser, authorizeStoreScope } from '@/lib/auth-server'
+import { syncToastEmployees, syncToastJobs, syncToastPunches } from '@/lib/toast-labor'
+
+const SCHEDULER_WRITE_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'gerente',
+    'asistente',
+    'assistant',
+    'general_manager',
+    'planificador',
+]
+
 export async function POST(req: NextRequest) {
+    const auth = verifyStaffAuth(req, { allowedRoles: SCHEDULER_WRITE_ROLES, allowCron: false })
+    if (!auth.authorized) return auth.response!
+
     try {
         const { storeId, startDate, endDate } = await req.json()
 
         if (!storeId || !startDate || !endDate) {
             return NextResponse.json({ error: 'Faltan parámetros (storeId, startDate, endDate)' }, { status: 400 })
+        }
+
+        const supabaseAdmin = await getSupabaseAdminClient()
+        const userRole = (auth.user?.role || auth.user?.user_role || '').toLowerCase()
+        const rawServerUser = await getServerUser(req)
+        const serverUser = rawServerUser || {
+            id: auth.user!.id,
+            email: auth.user!.email,
+            name: auth.user!.user_metadata?.full_name || auth.user!.email,
+            role: userRole,
+            store_id: auth.user!.user_metadata?.store_id,
+            store_ids: auth.user!.user_metadata?.store_ids,
+            store_scope: auth.user!.user_metadata?.store_scope,
+        }
+        const hasAssignedStore = Boolean(
+            serverUser.store_id ||
+            (Array.isArray(serverUser.store_ids) && serverUser.store_ids.length > 0) ||
+            serverUser.store_scope
+        )
+        if (userRole !== 'planificador' || hasAssignedStore) {
+            const scopeCheck = await authorizeStoreScope(serverUser, storeId, supabaseAdmin, {
+                requireWrite: true,
+                action: 'publish_schedule',
+            })
+            if (!scopeCheck.authorized) {
+                return NextResponse.json({ error: scopeCheck.error }, { status: scopeCheck.status })
+            }
         }
 
         const supabase = await getSupabaseClient()
@@ -49,6 +100,7 @@ export async function POST(req: NextRequest) {
                 .select('business_date, employee_toast_guid, clock_in, clock_out') // Optimized SELECT
                 .eq('store_id', storeId)
                 .gte('business_date', historyLimitStr)
+                .order('toast_id', { ascending: true })
                 .range(page * pageSize, (page + 1) * pageSize - 1)
 
             if (error) throw error

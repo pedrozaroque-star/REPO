@@ -9,10 +9,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const { searchParams } = new URL(req.url)
     const origin = searchParams.get('origin')
@@ -96,10 +100,13 @@ export async function GET(req: NextRequest) {
     const destInfo = findInfo(normDest) || findInfo(destination)
 
     // 1. Consultar primero store_distances para devolver la distancia oficial calibrada de carretera
+    const candidateOrigins = Array.from(new Set([normOrig, origin].map(s => s.trim()).filter(Boolean)))
+    const candidateDests = Array.from(new Set([normDest, destination].map(s => s.trim()).filter(Boolean)))
     const { data: dbDist } = await supabase
       .from('store_distances')
       .select('distance_miles, notes')
-      .or(`and(origin_name.eq."${normOrig}",destination_name.eq."${normDest}"),and(origin_name.eq."${origin}",destination_name.eq."${destination}")`)
+      .in('origin_name', candidateOrigins)
+      .in('destination_name', candidateDests)
       .limit(1)
 
     if (dbDist && dbDist.length > 0 && Number(dbDist[0].distance_miles) > 0) {

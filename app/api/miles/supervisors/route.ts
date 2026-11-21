@@ -8,18 +8,33 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = await getSupabaseAdminClient()
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
 
-    const { data: users, error } = await supabase
+    let query = supabase
       .from('users')
       .select('id, full_name, email, role, store_id, is_active')
       .or('role.ilike.supervisor,role.ilike.admin')
       .eq('is_active', true)
       .order('full_name')
+
+    if (!isAdminOrCron && auth.user?.id) {
+      const numericUid = Number(auth.user.id)
+      if (Number.isFinite(numericUid) && numericUid > 0) {
+        query = query.eq('id', numericUid)
+      }
+    }
+
+    const { data: users, error } = await query
 
     if (error) {
       console.warn('Warning fetching supervisors from users table:', error.message)

@@ -1,11 +1,22 @@
 'use client'
 
+/**
+ * @module app/admin/plantillas/[id]/page
+ * @description Editor interactivo de secciones y reactivos para plantillas dinámicas de checklists e inspecciones de Tacos Gavilan.
+ * @businessRules
+ * - Todas las lecturas y escrituras a `templates`, `template_sections` y `template_questions` viajan autenticadas con `teg_token` (`fetchWithAuth` y `getSupabaseClient()`).
+ * @dataFlow
+ * - `fetchWithAuth` (`templates`, `template_sections`, `template_questions`) -> Drag & Drop (`Reorder`) -> `getSupabaseClient()` mutaciones.
+ * @notes
+ * - Hardened 2026-11-21: Reemplazadas lecturas `anon` crudas por `fetchWithAuth` compatible con RLS `authenticated`.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, Reorder } from 'framer-motion'
 import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft, Sparkles, ClipboardList } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, fetchWithAuth } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 
@@ -78,18 +89,13 @@ export default function TemplateEditorPage() {
     const fetchTemplateData = async () => {
         try {
             const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-            const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-            const resT = await fetch(`${url}/rest/v1/templates?id=eq.${templateId}&select=*`, {
-                headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-            })
+            const resT = await fetchWithAuth(`${url}/rest/v1/templates?id=eq.${encodeURIComponent(templateId)}&select=*`)
             const dataT = await resT.json()
             if (!dataT || dataT.length === 0) throw new Error(t('plantillas.editor.errors.not_found'))
             setTemplate(dataT[0])
 
-            const resDeep = await fetch(`${url}/rest/v1/template_sections?template_id=eq.${templateId}&select=*,questions:template_questions(*)&order=order_index.asc`, {
-                headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-            })
+            const resDeep = await fetchWithAuth(`${url}/rest/v1/template_sections?template_id=eq.${encodeURIComponent(templateId)}&select=*,questions:template_questions(*)&order=order_index.asc`)
             const dataDeep = await resDeep.json()
 
             const sortedSections = dataDeep.map((sec: any) => ({

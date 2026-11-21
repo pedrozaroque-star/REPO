@@ -15,18 +15,30 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
 
 export async function POST(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor', 'manager'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const body = await req.json().catch(() => ({}))
     const supabase = await getSupabaseAdminClient()
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
 
     const targetDate = body.date || getCaliforniaBusinessDate()
-    const supervisorId = body.supervisor_id
-    const supervisorName = body.supervisor_name
+    let supervisorId = body.supervisor_id
+    let supervisorName = body.supervisor_name
+    if (!isAdminOrCron && auth.user) {
+      supervisorId = String(auth.user.id)
+      if (!supervisorName && auth.user.user_metadata?.full_name) {
+        supervisorName = String(auth.user.user_metadata.full_name)
+      }
+    }
     const targetStoreId = body.target_store_id
 
     // 1. Get current official rate per mile

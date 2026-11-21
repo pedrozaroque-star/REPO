@@ -47,12 +47,15 @@
                 allowMkt = true; allowAna = true;
             } else if (raw && raw.charAt(0) === '{') {
                 var parsed = JSON.parse(raw);
-                if (parsed.doNotSell || gpc) {
+                if (gpc) {
                     allowMkt = false;
-                    allowAna = !!parsed.analytics;
+                    allowAna = false;
+                } else if (parsed.doNotSell) {
+                    allowMkt = false;
+                    allowAna = parsed.analytics === true;
                 } else {
-                    allowMkt = !!parsed.marketing;
-                    allowAna = !!parsed.analytics;
+                    allowMkt = parsed.marketing === true;
+                    allowAna = parsed.analytics === true;
                 }
             }
         } catch (e) {}
@@ -66,9 +69,8 @@
             'security_storage': 'granted',
             'wait_for_update': 500
         });
-        window.__tgLoadGTMIfConsented = function(anaGranted, mktGranted) {
-            if (!anaGranted && !mktGranted) return;
-            if (window.__tgGtmLoaded) return;
+        window.__tgLoadGTMIfConsented = function(ana, mkt) {
+            if (gpc || (!ana && !mkt) || window.__tgGtmLoaded) return;
             window.__tgGtmLoaded = true;
             (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
             new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],

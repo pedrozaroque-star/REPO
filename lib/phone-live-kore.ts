@@ -36,6 +36,9 @@
  * @notes
  * - Reutiliza 100% los cargadores y validadores de `lib/phone-agent.ts` y `createKoreEphemeralToken` de `lib/drive-thru-kore.ts`.
  * - Ningún payload de mutación incluye columnas generadas (`GENERATED ALWAYS AS`).
+ * - VAD calibrado (`START_SENSITIVITY_HIGH`, `END_SENSITIVITY_LOW`, `prefixPaddingMs: 40`, `silenceDurationMs: 1150`)
+ *   para no cortar inicios de frase ni pausas naturales de pensamiento (~0.9–1.15 s), con identidad gramatical femenina
+ *   estricta en español (`"lista"`, `"atenta"`, `"segura"`; prohibido decirse `"listo"` o `"atento"`).
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -410,7 +413,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
   const systemText = [
     baseLangAnchor,
     '',
-    `Eres Kore, la recepcionista telefónica en vivo de **Tacos Gavilan** en **${customerBranchSpoken}** (Sucursal #${store.id}${customerBranchCrossStreets ? `, esquina oficial: ${customerBranchCrossStreets}` : ''}), California, EE. UU.`,
+    `Eres Kore, la recepcionista telefónica en vivo de **Tacos Gavilan** en **${customerBranchSpoken}** (Sucursal #${store.id}${customerBranchCrossStreets ? `, esquina oficial: ${customerBranchCrossStreets}` : ''}), California, EE. UU. CONCORDANCIA DE GÉNERO FEMENINO EN ESPAÑOL: Tienes voz e identidad femenina; al referirte a ti misma en español usa SIEMPRE adjetivos femeninos ("aquí sigo lista", "estoy lista", "quedo atenta", "segura"; PROHIBIDO decirte "listo" o "atento" en masculino), y para el cliente usa fórmulas corteses neutras sin repetir palabras ("cuando guste", "tómese su tiempo", jamás "lista para cuando esté listo").`,
     `REGLAS INQUEBRANTABLES DE IDENTIDAD, VOZ Y NEGOCIO:`,
     `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO INMEDIATO EN TU PRIMERA ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos, armamos ni procesamos órdenes nuevas de comida por teléfono. Si el cliente dice frases de intención de compra como 'quiero dos tacos y dos burritos', 'voy a querer...', 'dame...', 'me das...', 'puedo pedir...', 'me tomas la orden', 'I want two tacos...', 'can I order...':\n   - EN TU PRIMERA ORACIÓN dile con amabilidad que **no tomamos órdenes por teléfono** e invítalo a ordenar fácilmente en **tacosgavilan.com** para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}.\n   - ESTRICTAMENTE PROHIBIDO actuar como cajera o preguntar '¿Regular o Super?', '¿qué carne?', '¿con todo?' o '¿algo más de tu orden?'.\n   - Si mencionan platillos, solo si aporta utilidad informativa da sus precios unitarios directos en USD (y para burrito/quesadilla/mulita sin especificar Super, informa ambos precios Regular y Super sin preguntar cuál prefiere ni decir "tamaño"), cerrando sin tomar pedido. Excepción única: reclamos o condimentos de un pedido YA realizado (Regla #8).\n   - PROHIBIDO usar las palabras "política", "políticas", "reglamentos" o "policy".`,
     `1. MARCA Y MONEDA: El nombre oficial es estrictamente **Tacos Gavilan** (JAMÁS digas "Tacos El Gavilan"). Todos los precios son exclusivamente en **dólares y centavos estadounidenses (USD)** (ej. "dos dólares con veintinueve centavos" / "$2.29 dollars"; PROHIBIDO decir "pesos" o "MXN").`,
@@ -426,7 +429,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - EBT CalFresh aquí: ${config.accepts_ebt ? 'SÍ aceptamos EBT CalFresh ÚNICAMENTE pasando adentro a la caja del mostrador del comedor; JAMÁS se procesa EBT por la ventanilla del Drive-Thru.' : 'NO aceptamos EBT CalFresh en esta sucursal (Rialto y Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple Pay/Google Pay.'}`,
     `7. MENÚ, REGULAR VS SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
     `   - Si piden varios platillos, cotiza TODOS con su precio unitario exacto del catálogo y la suma subtotal ("más impuestos" / "plus tax"), o usa \`search_menu_item_price\` si quieres verificar el cálculo.`,
-    `   - PROHIBIDO decir "tamaño" o "size" en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; "Supreme/Supremo" = Super).`,
+    `   - PROHIBIDO decir "tamaño" o "size" en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; "Supreme/Supremo" = Super). Diferencia exacta: Burrito Regular = carne, arroz y frijol (Super suma queso Monterey Jack, guacamole y crema); **Mulita y Quesadilla Regular YA incluyen queso Monterey Jack derretido** (Super solo suma guacamole y crema). Si preguntan qué sale más barato al quitar un ingrediente de un Super (ej. Mulita sin crema), calcula con exactitud los precios del catálogo en vivo antes de responder (nunca afirmes sin sumar que Super siempre es más barato).`,
     `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas). PROHIBIDO decir "chica", "pequeña" o "small".`,
     `   - Postres: **SOLO Flan y Cheesecake individuales**. NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni cerveza/alcohol.`,
     `   - Charolas Fiesta Platter: se ordenan exclusivamente en **tacosgavilan.com** con mínimo 1 hora de anticipación. Cuando pregunten precio o combinación por cantidad de personas (especialmente +40 invitados), INVOCA SIEMPRE \`get_fiesta_platter_packages\` para calcular la combinación más económica exacta.`,
@@ -481,10 +484,10 @@ export function buildPhoneKoreLiveSetup(systemText: string): KoreLiveSetup {
     },
     realtimeInputConfig: {
       automaticActivityDetection: {
-        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-        endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+        startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
         prefixPaddingMs: 40,
-        silenceDurationMs: 320
+        silenceDurationMs: 1150
       }
     },
     systemInstruction: { parts: [{ text: systemText }] },

@@ -43,6 +43,7 @@
  *   3. `syncStoreFromToast` utiliza un lease distribuido atómico en PostgreSQL (`try_acquire_order_ready_sync_lease` / `release_order_ready_sync_lease`) con expiración automática (TTL) junto con deduplicación en memoria para evitar tormentas de sincronización entre instancias serverless.
  * - FIX (2026-11-07, South Gate #315): `evaluateToastOrder` y `extractOrderItemsSummary` delegan en `isToastGiftCardOrNonFoodSelection` para excluir ventas y recargas de Gift Card (`TOAST_CARD_RELOAD` / `Add Value ($)` / `TOAST_CARD_SELL` / `toastGiftCard`) que nunca van al KDS.
  * - FIX (2026-11-09, Paridad 1:1 de Secuencia FIFO con Toast KDS): `evaluateToastOrder` calcula `sentAt` usando la hora real de disparo a cocina (`min(sel.sentDate || sel.createdDate)` de los platillos de cocina, o `order.createdDate`), eliminando la sobrescritura con `order.openedDate` (que en kioskos y segundas cajas registradoras refleja la apertura de pantalla en blanco varios minutos antes de enviar al KDS e invertía el orden de las comandas). Además, `syncStoreFromToast` reconcilia `created_at` en registros existentes cuando difiere >1 s de `ev.sentAt` autoritativo, preservando también la posición original al hacer RECALL en KDS.
+ * - FIX (2026-11-20, Reconciliación de Órdenes Huérfanas >25 min — La Puente #228): `ordersBulk` solo devuelve órdenes modificadas en los últimos 25 min (`WINDOW_MINUTES = 25`), mientras que `/inventory/preparador` muestra comandas `IN_PROGRESS` de hasta 90 min. Si la tableta estuvo inactiva >25 min o un webhook tardío revirtió una orden a `IN_PROGRESS`, quedaba fuera de `ordersBulk` hasta cumplir 90 min. Ahora `syncStoreFromToast` cruza las órdenes `IN_PROGRESS` activas en BD (ventana de 95 min del mismo `business_date`, excluyendo bebidas/postres con `isDrinkOrDessertOnlyOrder`) que no vinieron en `ordersBulk` y consulta su estado puntual en `GET /orders/v2/orders/{guid}` (con cooldown de 30 s por GUID y tope de 8 por ciclo), cerrándolas de inmediato cuando Toast ya las tiene `READY` o `COMPLETED`.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -181,8 +182,53 @@ export function areOrderItemsSummariesEqual(
   }
 }
 
-import { isDrinkOrDessertItem, isNonFoodMarkerItem, isToastGiftCardOrNonFoodSelection } from '@/lib/order-ready-filter'
+import {
+  isDrinkOrDessertItem,
+  isDrinkOrDessertOnlyOrder,
+  isNonFoodMarkerItem,
+  isToastGiftCardOrNonFoodSelection
+} from '@/lib/order-ready-filter'
 export * from '@/lib/order-ready-filter'
+
+/**
+ * Extrae el mayor timestamp real del snapshot de una orden de Toast POS
+ * (`modifiedDate`, `closedDate`, `paidDate`, `sentDate`, `createdDate` en orden, checks y selections).
+ * Permite detectar webhooks `order_updated` atrasados/reintentados cuyo snapshot es anterior a un bump de KDS (`ready_at`).
+ */
+export function getLatestToastOrderSnapshotMs(orderObj: any): number {
+  if (!orderObj || typeof orderObj !== 'object') return NaN
+  let latestMs = -Infinity
+  const track = (raw: any) => {
+    if (!raw) return
+    const ms = Date.parse(String(raw))
+    if (Number.isFinite(ms) && ms > latestMs) latestMs = ms
+  }
+
+  track(orderObj.modifiedDate)
+  track(orderObj.closedDate)
+  track(orderObj.paidDate)
+
+  const checks = Array.isArray(orderObj.checks)
+    ? orderObj.checks
+    : Array.isArray(orderObj.selections)
+      ? [{ selections: orderObj.selections }]
+      : []
+
+  for (const chk of checks) {
+    if (!chk || chk.voided || chk.deleted) continue
+    track(chk.modifiedDate)
+    track(chk.closedDate)
+    track(chk.paidDate)
+    for (const sel of chk.selections || []) {
+      if (!sel || sel.voided || sel.deleted) continue
+      track(sel.modifiedDate)
+      track(sel.sentDate)
+      track(sel.createdDate)
+    }
+  }
+
+  return latestMs > -Infinity ? latestMs : NaN
+}
 
 export interface ToastOrderEvaluation {
   status: OrderReadyStatus
@@ -235,7 +281,13 @@ export function evaluateToastOrder(order: any): ToastOrderEvaluation {
   let earliestAnySentMs = Infinity
   let earliestModifiedMs = Infinity
 
-  for (const check of order.checks || []) {
+  const checks = Array.isArray(order.checks)
+    ? order.checks
+    : Array.isArray(order.selections)
+      ? [{ selections: order.selections }]
+      : []
+
+  for (const check of checks) {
     if (check?.voided || check?.deleted) continue
     for (const sel of check.selections || []) {
       if (!sel || sel.voided || sel.deleted) continue
@@ -438,8 +490,12 @@ export async function getDiningMap(token: string, restaurantGuid: string): Promi
 // ── Throttle por tienda: varias tablets abiertas o instancias serverless no multiplican las llamadas a Toast ──
 const lastRun = new Map<string, number>()
 const inflight = new Map<string, Promise<void>>()
+const orphanRecheckAt = new Map<string, number>()
 const THROTTLE_MS = 5000
 const WINDOW_MINUTES = 25
+const ORPHAN_LOOKBACK_MINUTES = 95
+const ORPHAN_RECHECK_COOLDOWN_MS = 30_000
+const MAX_ORPHAN_RECHECKS_PER_CYCLE = 8
 const SILENT_AFTER_MS = 2 * 60 * 1000
 const INSTANCE_HOLDER_ID = `node-${process.pid}-${Math.random().toString(36).slice(2, 10)}`
 
@@ -447,6 +503,7 @@ export function resetOrderReadySyncLocalCache(): void {
   lastRun.clear()
   inflight.clear()
   diningCache.clear()
+  orphanRecheckAt.clear()
 }
 
 function toastDate(d: Date): string {
@@ -533,6 +590,77 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
         orders.push(...batch)
         if (batch.length < 100) break
       }
+
+      // 2. Reconciliación de órdenes huérfanas (>25 min en IN_PROGRESS dentro de los 95 min visibles por la tableta):
+      //    ordersBulk solo devuelve órdenes modificadas en los últimos 25 min. Si la tableta estuvo inactiva >25 min
+      //    o un webhook tardío dejó una orden de comida en IN_PROGRESS cuando el KDS ya la cerró (ej. La Puente #228),
+      //    consultamos puntualmente GET /orders/v2/orders/{guid} para reconciliar su estado real sin dejarla colgada.
+      const seenBulkGuids = new Set<string>(orders.map((o: any) => o?.guid).filter(Boolean))
+      const currentBusinessDate = getCaliforniaBusinessDate(end)
+      const orphanCutoffIso = new Date(
+        Math.max(end.getTime() - ORPHAN_LOOKBACK_MINUTES * 60 * 1000, bDayStartMs)
+      ).toISOString()
+
+      const { data: openInProgressRows } = await supabaseAdmin
+        .from('order_ready_announcements')
+        .select('id, status, order_guid, order_number, dining_option, items_summary, ready_at, created_at, business_date')
+        .eq('store_code', storeCode)
+        .eq('business_date', currentBusinessDate)
+        .eq('status', 'IN_PROGRESS')
+        .in('dining_option', ['FOR_HERE', 'TOGO'])
+        .gte('created_at', orphanCutoffIso)
+        .order('created_at', { ascending: true })
+        .limit(50)
+
+      if (Array.isArray(openInProgressRows) && openInProgressRows.length > 0) {
+        const nowCheckMs = Date.now()
+        if (orphanRecheckAt.size > 200) {
+          for (const [g, ts] of orphanRecheckAt.entries()) {
+            if (nowCheckMs - ts > 10 * 60 * 1000) orphanRecheckAt.delete(g)
+          }
+        }
+
+        const orphanCandidates = openInProgressRows.filter((r: any) => {
+          if (!r?.order_guid || seenBulkGuids.has(r.order_guid)) return false
+          // Excluir órdenes compuestas solo por bebidas o postres (no van al KDS y ya se filtran en UI)
+          if (r.items_summary && isDrinkOrDessertOnlyOrder(r.items_summary)) return false
+          const lastChecked = orphanRecheckAt.get(r.order_guid) || 0
+          return force || nowCheckMs - lastChecked >= ORPHAN_RECHECK_COOLDOWN_MS
+        })
+
+        for (const orphanRow of orphanCandidates.slice(0, MAX_ORPHAN_RECHECKS_PER_CYCLE)) {
+          orphanRecheckAt.set(orphanRow.order_guid, Date.now())
+          try {
+            const singleRes = await fetch(
+              `${apiHost}/orders/v2/orders/${encodeURIComponent(orphanRow.order_guid)}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Toast-Restaurant-External-ID': restaurantGuid
+                },
+                signal: AbortSignal.timeout(5000)
+              }
+            )
+            if (singleRes.status === 404) {
+              await supabaseAdmin
+                .from('order_ready_announcements')
+                .update({ status: 'COMPLETED' })
+                .eq('id', orphanRow.id)
+              continue
+            }
+            if (singleRes.ok) {
+              const singleOrder = await singleRes.json()
+              if (singleOrder?.guid) {
+                orders.push(singleOrder)
+                seenBulkGuids.add(singleOrder.guid)
+              }
+            }
+          } catch {
+            /* si falla un lookup puntual, se reintenta tras el cooldown de 30s */
+          }
+        }
+      }
+
       if (orders.length === 0) return
 
       const guids = orders.map(o => o.guid).filter(Boolean)

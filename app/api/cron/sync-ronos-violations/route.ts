@@ -39,7 +39,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { authorizeStoreScope, getServerUser } from '@/lib/auth-server'
+import { authorizeStoreScope, getCronSecret, getServerUser, verifyStaffAuth } from '@/lib/auth-server'
 import {
   getPacificBusinessDate,
   getRonosAuthToken,
@@ -110,6 +110,28 @@ async function handleSyncRonosViolations(req: Request) {
   const startTime = Date.now()
   const url = new URL(req.url)
 
+  // 1. Pre-check autenticación ANTES de procesar dry_run o leer datos sensibles
+  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization')
+  const cronSecret = getCronSecret()
+  const cronHeader = req.headers.get('x-cron-auth') || authHeader
+  const validCronBearer =
+    Boolean(cronSecret) && (cronHeader === `Bearer ${cronSecret}` || cronHeader === cronSecret)
+
+  let authUser: Awaited<ReturnType<typeof getServerUser>> = null
+  if (!validCronBearer) {
+    const staffAuth = verifyStaffAuth(req, {
+      allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager'],
+      allowCron: false,
+    })
+    if (!staffAuth.authorized) {
+      return staffAuth.response!
+    }
+    authUser = await getServerUser(req)
+    if (!authUser) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   let body: Record<string, any> = {}
   if (req.method === 'POST') {
     body = await req.json().catch(() => ({}))
@@ -163,16 +185,13 @@ async function handleSyncRonosViolations(req: Request) {
       ?.toString()
       .trim() || null
 
-  // 1. Autenticación (Cron Secret o sesión autorizada admin/supervisor/manager por tienda)
-  const authHeader = req.headers.get('authorization') || req.headers.get('Authorization')
-  const validCronBearer =
-    Boolean(process.env.CRON_SECRET) && authHeader === `Bearer ${process.env.CRON_SECRET}`
-
-  let authUser: Awaited<ReturnType<typeof getServerUser>> = null
-  if (!validCronBearer && !isDryRun) {
-    authUser = await getServerUser(req)
-    if (!authUser) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  // 1b. Autorización de alcance por rol/sucursal (incluso en dry_run!) y restricción de test_to
+  if (!validCronBearer && authUser) {
+    if (testTo && !testTo.toLowerCase().endsWith('@tacosgavilan.com')) {
+      return NextResponse.json(
+        { success: false, error: 'test_to debe ser un correo corporativo @tacosgavilan.com' },
+        { status: 403 }
+      )
     }
     const role = (authUser.role || '').toLowerCase()
     const isGlobalStaff = role.includes('admin') || role.includes('supervisor')
@@ -195,8 +214,8 @@ async function handleSyncRonosViolations(req: Request) {
           )
         }
         const scopeCheck = await authorizeStoreScope(authUser, resolvedScopeTarget, supabaseAdmin, {
-          requireWrite: true,
-          allowedRoles: ['admin', 'supervisor', 'manager'],
+          requireWrite: !isDryRun,
+          allowedRoles: ['admin', 'supervisor', 'manager', 'gerente', 'general_manager'],
         })
         if (!scopeCheck.authorized) {
           return NextResponse.json(

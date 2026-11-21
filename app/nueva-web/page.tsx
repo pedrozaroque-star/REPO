@@ -26,6 +26,7 @@
  *   1. Encabezado no intrusivo en móvil (`relative lg:sticky lg:top-16`) con barra superior compacta y selector de 3 pestañas (`grid-cols-3 sm:flex`) sin desbordamiento horizontal.
  *   2. Tarjetas móviles nativas (`md:hidden`) para la Bitácora de Órdenes Completadas y la Tabla de 15 Sucursales, manteniendo las tablas completas en escritorio (`hidden md:block`).
  *   3. Escalado dinámico por `ResizeObserver` (`stageWidth`) en el visor en vivo (`live_site`), iniciando en vista móvil nativa en teléfonos y escalando proporcionalmente los marcos de Tablet (`768px`) y Escritorio (`1280px`) para evitar cortes laterales.
+ * - **Endurecimiento de Seguridad (2026-11)**: Sanitización estricta de enlaces `mailto:` y `tel:` en el buzón de feedback y atributo `sandbox` explícito en el `<iframe>` de previsualización.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
@@ -1482,18 +1483,18 @@ export default function NuevaWebPage() {
                                     </div>
 
                                     <div className="flex flex-wrap gap-2.5 sm:gap-3 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                                        {item.customer_email && (
+                                        {item.customer_email && String(item.customer_email || '').split('?')[0].trim() && (
                                             <a
-                                                href={`mailto:${item.customer_email}`}
+                                                href={`mailto:${String(item.customer_email || '').split('?')[0].trim()}`}
                                                 className="inline-flex items-center gap-1 text-red-600 dark:text-amber-400 hover:underline break-all"
                                             >
                                                 <Mail className="w-3.5 h-3.5 shrink-0" />
                                                 <span>{item.customer_email}</span>
                                             </a>
                                         )}
-                                        {item.customer_phone && (
+                                        {item.customer_phone && String(item.customer_phone || '').replace(/[^+\d]/g, '') && (
                                             <a
-                                                href={`tel:${item.customer_phone}`}
+                                                href={`tel:${String(item.customer_phone || '').replace(/[^+\d]/g, '')}`}
                                                 className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 hover:underline"
                                             >
                                                 <Phone className="w-3.5 h-3.5 shrink-0" />
@@ -1787,6 +1788,7 @@ export default function NuevaWebPage() {
                                             ref={iframeRef}
                                             src={previewUrl}
                                             title="Tacos Gavilan Official Website"
+                                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                                             className="w-full flex-1 border-0 bg-slate-950"
                                             onLoad={() => setIframeLoading(false)}
                                         />

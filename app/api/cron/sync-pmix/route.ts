@@ -13,19 +13,20 @@
  * @notes
  * - La caché autosanable invalidará estos registros en futuras consultas si la fecha de actualización `updated_at` es anterior a la fecha operativa.
  * - [2026-09-09] OPTIMIZATION: Removido el segundo upsert redundante a pmix_daily_cache ya que getProductMix persiste la data automáticamente con await.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 import { NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const maxDuration = 300 // Permitir hasta 5 minutos de ejecución en Vercel
 
 export async function GET(request: Request) {
     try {
-        // Validación de Vercel Cron Secret
-        const authHeader = request.headers.get('authorization')
-        if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
         const supabase = await getSupabaseAdminClient()

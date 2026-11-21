@@ -196,8 +196,16 @@ export async function PATCH(request: Request) {
                 existingRow.overrides && typeof existingRow.overrides === 'object'
                     ? { ...existingRow.overrides }
                     : {};
-            const incomingOverrides =
+            const incomingOverrides: Record<string, any> =
                 overrides && typeof overrides === 'object' ? { ...overrides } : {};
+
+            const isAdminCaller = user.role === 'admin' || user.role === 'administrador';
+            if (!isAdminCaller) {
+                delete incomingOverrides.safety_approved;
+                delete incomingOverrides.needs_manager_safety_review;
+                delete incomingOverrides.safety_approved_by;
+                delete incomingOverrides.safety_approved_at;
+            }
 
             const mergedStores = {
                 ...(prevOverrides.stores && typeof prevOverrides.stores === 'object'
@@ -216,7 +224,7 @@ export async function PATCH(request: Request) {
                 baseOverrides.stores = mergedStores;
             }
 
-            if (safety_approved === true && user.role === 'admin') {
+            if (safety_approved === true && isAdminCaller) {
                 baseOverrides.needs_manager_safety_review = false;
                 baseOverrides.safety_approved_by = user.name || user.email;
                 baseOverrides.safety_approved_at = new Date().toISOString();
@@ -319,8 +327,13 @@ export async function POST(request: Request) {
         }
 
         const parsedDuration = Number(duration_minutes);
+        const sanitizedPostOverrides: Record<string, unknown> =
+            overrides && typeof overrides === 'object' ? { ...overrides } : {};
+        delete sanitizedPostOverrides.safety_approved;
+        delete sanitizedPostOverrides.safety_approved_by;
+        delete sanitizedPostOverrides.safety_approved_at;
         const preparedOverrides = {
-            ...(overrides && typeof overrides === 'object' ? overrides : {}),
+            ...sanitizedPostOverrides,
             needs_manager_safety_review: true,
         };
 

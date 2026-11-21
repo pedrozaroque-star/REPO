@@ -24,6 +24,7 @@
  * - Semi-automated mode (Option A): Packets are pre-calculated, audited and left in 'ready' status.
  *   Raquel enters at 8:00 AM, verifies green indicators, and publishes all with 1 click.
  * - 2026-11-19 (Paquete 2A): Auditoría post-publicación en pólizas `published` (`dayIdx <= 2`) acotada a `laHour === 6 || laHour === 11` (2×/día en lugar de 7×/día; `?force=1` permite forzarla manualmente). Pólizas no publicadas/borradores se siguen sincronizando en cada corrida.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 
 import { NextResponse } from 'next/server'
@@ -31,20 +32,22 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { fetchToastAccountingData } from '@/lib/toast-accounting'
 import { generateJournalLines, calculateExpectedCash, formatDocNumber } from '@/lib/accounting-journal'
 import type { SalesPacketData, SiteMappingConfig } from '@/lib/accounting-journal'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const maxDuration = 300
 
 export async function GET(request: Request) {
+  const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) {
+    return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+  }
+
   const startTime = Date.now()
   console.log('═══════════════════════════════════════════════════════════════════════')
   console.log('⏰ [sync-accounting] INICIANDO CENTINELA AUTOMÁTICO DE CONCILIACIÓN 6:30 AM (7 DÍAS)')
   console.log('═══════════════════════════════════════════════════════════════════════')
 
   try {
-    const authHeader = request.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
     const { searchParams } = new URL(request.url)
     const forcePostPublishAudit = searchParams.get('force') === '1' || searchParams.get('force') === 'true'
     // 1. Calculate business dates in Los Angeles timezone using exact Intl parts

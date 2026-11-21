@@ -61,6 +61,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
+  if (!auth.authorized) return auth.response!
+
   const { id } = await params
   let body: { performed_by?: string } = {}
 

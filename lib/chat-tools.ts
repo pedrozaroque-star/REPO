@@ -43,7 +43,8 @@
  * - Sitio Web Oficial Tacos Gavilan (tacosgavilan-web): Toast es el procesador transaccional exclusivo (order.online/business/-137616); Slauson Store ID es estrictamente 23989119 (sin colisión con LA Broadway 260769); West Covina canónico 725035; formulario de contacto persiste a customer_feedback con source='website_contact' y mapeo a las 15 tiendas activas. Centro de mando integral en /nueva-web (Diseño & Simulador responsive, Buzón & Leads de Supabase, Dominio & Vercel DNS en vivo, Historia / Origen / Futuro, y Biblioteca de Recursos de marca con 199.9 MB de respaldo de producción) servido por /api/web-preview.
  * - Tacos Gavilan App (/app, v2.1.0): Laboratorio protegido detrás de login TEG (/app, /app/v1, /app/v2, /ordenar) con rutas legales públicas (/app/privacy|terms|support|delete-account, /app/index.html, /clientes, /api/mobile/*); paridad operativa V1 (`/app/v1`, bundle Expo en `public/app/`) y V2 (`components/CustomerAppV2Pro.tsx` modularizado en `components/customer-app-v2/*` con menú en vivo `/api/mobile/menu`, modificadores, bolsa `/api/mobile/cart`, autocompletado `/api/mobile/address/autocomplete`, cotización `/api/mobile/order/quote`, rastreo `/api/mobile/order/status`, Google Maps + GPS Haversine en memoria, 23 platillos incluyendo `taco-buche` y Demo #12 aislado); 15 sucursales (IDs 1, 3..16), Email & SMS OTP 6 dígitos (TTL 10 min en app_mobile_otp_challenges, O(1) lookup, bloqueo 5 intentos), Camino 1 DoorDash Storefront (/api/mobile/doordash/checkout-session), y respaldo order.online Pickup/Delivery dentro de WebView endurecido.
  * - Gavilan POS Cashier Register (/gavilan-pos -> Caja POS, /api/gavilan-pos/register-catalog, /api/gavilan-pos/manager-approval): Diseñado sobre 13.48M unidades reales de pmix_daily_cache (349 días × 15 tiendas), con orden fijo y codificación por color de proteínas por memoria muscular (Asada rojo, Pastor naranja, Pollo ámbar, Cabeza vino, Lengua morado, Carnitas cobre, Buche turquesa, Chorizo carmesí, Vegetariano/Queso esmeralda, Bebidas Large 32oz azul rey / Medium 22oz azul cielo), Estación de Bebidas Drive-Thru & Mostrador (groupBeveragesByFlavor + findCounterpartBeverageSize: 3 secciones operativas Aguas Frescas -> Sodas -> Calientes/Botella, tarjetas pareadas por sabor con botones MED 22oz y LARGE 32oz lado a lado, barra de filtro por tamaño y cambio de tamaño en 1 toque ⇄ L 32oz / M 22oz en el ticket), Riel de Categorías en 2 Columnas Cero-Scroll (224px), Matriz Rápida Proteína × Familia, Franja de Complementos y Bebidas Frecuentes de 1 Toque, 414 modificadores activos en gavilan_pos_register_modifiers organizados en 5 Cubetas Semánticas Conversacionales (NO rojo coral, EXTRA verde esmeralda, PREP azul pizarra, HALF morado, NOTE índigo), validación de grupos obligatorios, encabezados interactivos de Plato/Bolsa (+ Agregando aquí) y botón × para quitar modificadores individuales en 1 toque, buscador instantáneo + teclado numérico de cantidad personalizada (×#), autorización con PIN de gerente (scrypt + salt en gavilan_pos_manager_pins y bitácora gavilan_pos_discount_approvals) para Empleado (50%), Policía (50%/100%) y Void Order, Franja de Cobro Rápido en 1 Toque (Fast Cash con denominaciones inteligentes smartCashDenominations, banner de Cambio a Entregar, Tarjeta y EBT 0% Tax), y Motor Universal de Pago Dividido y Multi-Tender en 4 Modos (BY_AMOUNT por monto libre/multi-método, BY_EQUAL partes iguales ÷2..÷6 con ajuste del centavo impar, BY_PLATE por Plato/Bolsa, y BY_ITEM por artículos individuales P1..P4) con exención parcial de impuestos EBT conforme a CDTFA Reg. 1603 / R&TC §6373 (0% tax en tramos EBT_FOOD, Sales Tax solo sobre el remanente no-EBT) y conteo multi-swipe de tarjetas (cardSwipeCount).
- * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling explícito a Toast (syncToast=true) protegido por lease distribuido PostgreSQL (order_ready_sync_leases) y canales Realtime aislados por tienda (order-ready-realtime:{storeCode}). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, la Telemetría de Bocina AI y Tabletas de Cocina (/api/order-ready/telemetry, tablas order_ready_device_status y order_ready_voice_playbacks, RPC get_order_ready_telemetry_summary), el Triple Blindaje Anti-Duplicación en Tableta y Bocina (triggerGestureSafeTap + client_called_at clock-skew reconciliation + localStorage cross-tab speaker lock), y el Motor Táctil Multi-Toque 15.6" para MESWAO B3 (Web Audio tick sintetizado + vibración háptica 0ms, tarjetas gigantes adaptativas para 1-4 órdenes, radar 40px con changedTouches sin reflows, overscroll-y-contain y desacople multi-puntero con TabletTouchBooster).
+ * - Suite Multimodal Gemini 3.8 & Interactions API (`lib/gemini-interactions.ts`, 2026-11-20): TEG Assistant opera sobre `gemini-3.8-flash` aceptando imágenes/PDFs adjuntos y dictado inteligente `gemini-3.5-transcribe` (`/api/support-chat/transcribe`), complementado por el escáner estructurado de recibos/facturas (`/api/ai/scan-receipt` en `/miles` y `/mantenimiento`) y diagnóstico visual de equipos (`/api/mantenimiento/ai-diagnose`).
+ * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling unificado sin auto-colisión a Toast (5s lectura / 10s syncToast=true con cola pendingToastSyncRef) protegido por lease distribuido PostgreSQL (order_ready_sync_leases), canales Realtime aislados por tienda (order-ready-realtime:{storeCode}), reconciliación puntual de órdenes huérfanas >25 min (hasta 95 min vía GET /orders/v2/orders/{guid} con cooldown de 30s) y escudo anti-falso-recall ante webhooks tardíos previos al bump de KDS (getLatestToastOrderSnapshotMs <= ready_at). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, la Telemetría de Bocina AI y Tabletas de Cocina (/api/order-ready/telemetry, tablas order_ready_device_status y order_ready_voice_playbacks, RPC get_order_ready_telemetry_summary), el Triple Blindaje Anti-Duplicación en Tableta y Bocina (triggerGestureSafeTap + client_called_at clock-skew reconciliation + localStorage cross-tab speaker lock), y el Motor Táctil Multi-Toque 15.6" para MESWAO B3 (Web Audio tick sintetizado + vibración háptica 0ms, tarjetas gigantes adaptativas para 1-4 órdenes, radar 40px con changedTouches sin reflows, overscroll-y-contain y desacople multi-puntero con TabletTouchBooster).
  * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal usando fuente única de verdad contable (`computePayoutAccountingAmounts`), rastrea recuperaciones en cortes posteriores diferenciando abiertas, verificadas y pérdidas cerradas (`ACCEPTED_LOSS`/`REJECTED`), excluye ajustes `$0.00`, mantiene `CONCILIATED_NEXT_PAYOUT` en tránsito fuera de `4. Listos`, y automatiza Settlement Journal Entries en QuickBooks Online (100XX Banco, 62145/62146/62147 Fees, 12050/12053/12054 Receivables, 40061/40062/40063 Refunds/Error Charges + línea 5 Cuenta 24001 para Sales Tax en reembolsos DoorDash/Grubhub) con estado explícito `PUBLISH_FAILED`.
  * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports, /api/cron/sync-external-accounting): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional cada 15 min y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit, acceso global exclusivo validado por ID y email con expiración estricta JWT (ignoreExpiration: false) para Raquel (45), Roberto (46) y Roque (47), aislamiento Zero-Trust service_role en las 24 tablas external_accounting_*, RPCs y Storage, OAuth QBO con HMAC-SHA256 + nonce cookie y lock distribuido fn_acquire_ext_acct_token_refresh_lock, updates QBO con sparse: true y worker FOR UPDATE SKIP LOCKED (fn_claim_ext_acct_outbox_batch), cobertura ACID PostgreSQL total, protección de transacciones Reconciled (permitiendo reclasificar cuenta de gasto/ingreso pero bloqueando monto/banco/fecha/VOID/DELETE) y conciliación 1:1 para Bancos y Tarjetas de Crédito (PayDownCreditCard, Expense, CreditCardCredit y reversión de cargos/intereses al reabrir/eliminar), paginación determinista fetchAllTableRows sin tope de 1,000 filas, subida directa firmada hasta 15 MB hacia Supabase Storage (create_attachment_upload_url + finalize_attachment_upload con validación MIME/SHA-256), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts), guardas AbortController contra condiciones de carrera al cambiar de empresa, y motor de reportes CPA con paridad $0.00 en Accrual y Cash Basis sobre balance_sheet, trial_balance, pnl y kpi_scorecard más controles comparePeriod, only1099, hideZeroRows y showCents (.xlsx / .pdf).
  * - Auditoría Semanal Automática de Correos de Empleados Activos (/api/cron/audit-employee-emails, lib/employee-email-auditor.ts, scripts/run-weekly-email-audit.ts): ejecutada todos los sábados por la tarde hora LA California (0 22 * * 6 UTC = 2:00 PM PST / 3:00 PM PDT, con pre-escaneo local puerto 25 a la 1:30 PM), sincroniza las 15 sucursales desde Toast POS (syncToastEmployees), audita todos los correos activos (placeholders @example.com, typos de dominio, reglas de proveedor, Microsoft GetCredentialType, SMTP RCPT TO puerto 25 y caché persistente en integrations employee_email_audit_state) y notifica automáticamente desde el Sistema de Monitoreo (noreply@tacosgavilan.com) a cada Store Manager involucrado (CC Supervisor) más resumen ejecutivo interno.
@@ -674,6 +675,9 @@ export const TOOL_DECLARATIONS = [
 // ── Tool Executor ──
 export async function executeTool(name: string, rawArgs: any, viewerUser?: any): Promise<string> {
   try {
+    if (viewerUser?.role === 'planificador' || viewerUser?.role === 'employee') {
+      return 'Access denied for this role.'
+    }
     const args: any = { ...(rawArgs || {}) }
     if (args.date_from && !args.start_date) args.start_date = args.date_from
     if (args.date_to && !args.end_date) args.end_date = args.date_to
@@ -728,7 +732,7 @@ export async function executeTool(name: string, rawArgs: any, viewerUser?: any):
       case 'query_prep_pace': return await queryPrepPace(args)
       case 'query_inventory_orders': return await queryInventoryOrders(args)
       case 'query_inventory_pilot_status': return await queryInventoryPilotStatus(args)
-      case 'execute_custom_sql': return await executeCustomSql(args)
+      case 'execute_custom_sql': return await executeCustomSql(args, viewerUser)
       case 'query_uniforms_stock': return await queryUniformsStock(args)
       case 'query_executive_uniforms_dashboard': return await queryExecutiveUniformsDashboard(args)
       case 'query_user_chat_history': return await queryUserChatHistory(args)
@@ -950,6 +954,7 @@ async function querySales(args: any): Promise<string> {
       .gte('business_date', args.start_date)
       .lte('business_date', args.end_date)
       .order('business_date', { ascending: true })
+      .order('id', { ascending: true })
       .range(offset, offset + pageSize - 1)
 
     if (args.store_name) {
@@ -2303,14 +2308,57 @@ function sanitizeSqlStoreJoins(sql: string): string {
   return out
 }
 
-async function executeCustomSql(args: any): Promise<string> {
+const BLOCKED_SQL_TABLES_OR_IDENTIFIERS_RE =
+  /\b(external_accounting_[a-z0-9_]*|integrations|bc_oauth_tokens|gavilan_pos_manager_pins|phone_call_status_tombstones|app_mobile_otp_challenges|users|pg_shadow|pg_authid|information_schema|pg_catalog)\b/i
+
+const BLOCKED_SQL_SENSITIVE_COLS_RE =
+  /\b(password|password_hash|google_refresh_token|refresh_token|access_token|pin_hash)\b/i
+
+const BLOCKED_SQL_MUTATION_RE =
+  /\b(insert|update|delete|drop|alter|truncate|grant|revoke|create|copy|execute|call|do)\b/i
+
+const BLOCKED_SQL_DANGEROUS_FUNCS_RE =
+  /\b(query_to_xml|query_to_xmlschema|query_to_xml_and_xmlschema|table_to_xml|table_to_xmlschema|table_to_xml_and_xmlschema|cursor_to_xml|schema_to_xml|database_to_xml|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_file|dblink|dblink_exec|dblink_connect|lo_import|lo_export)\b/i
+
+async function executeCustomSql(args: any, viewerUser?: any): Promise<string> {
+  const viewerRole = String(viewerUser?.role || '').trim().toLowerCase()
+  if (viewerRole !== 'admin' && viewerRole !== 'supervisor') {
+    return 'Access Denied (INTERNAL ONLY): execute_custom_sql is strictly restricted to admin and supervisor roles. Use the dedicated structured tools (query_sales, query_schedules, query_employees, query_inventory, etc.) instead.'
+  }
+
   const { query_text } = args
   if (!query_text) return 'Error: query_text parameter is required.'
 
   // Trim trailing semicolon to prevent PostgreSQL subquery syntax errors inside '(' || query_text || ')'
-  let sqlQuery = query_text.trim()
+  let sqlQuery = String(query_text).trim()
   if (sqlQuery.endsWith(';')) {
     sqlQuery = sqlQuery.slice(0, -1).trim()
+  }
+
+  // Strip SQL comments and identifier quotes before validating read-only & sensitive-table blocklist
+  const normalizedForAudit = sqlQuery
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\r\n]*/g, ' ')
+    .replace(/["`]/g, '')
+    .trim()
+
+  if (
+    !/^(select|with)\b/i.test(normalizedForAudit) ||
+    sqlQuery.includes(';') ||
+    sqlQuery.includes('\\') ||
+    /\bu&\s*["']/i.test(sqlQuery) ||
+    /\buescape\b/i.test(normalizedForAudit) ||
+    BLOCKED_SQL_MUTATION_RE.test(normalizedForAudit) ||
+    BLOCKED_SQL_DANGEROUS_FUNCS_RE.test(normalizedForAudit)
+  ) {
+    return 'Security Policy Block (INTERNAL ONLY): Only single read-only SELECT / WITH queries without dynamic XML/escape functions are allowed in execute_custom_sql.'
+  }
+
+  if (
+    BLOCKED_SQL_TABLES_OR_IDENTIFIERS_RE.test(normalizedForAudit) ||
+    BLOCKED_SQL_SENSITIVE_COLS_RE.test(normalizedForAudit)
+  ) {
+    return 'Security Policy Block (INTERNAL ONLY): Direct SQL access to restricted accounting, credential, integration, OTP, or users tables is prohibited. Use dedicated authorized tools (e.g. query_employees, query_stores) when appropriate.'
   }
 
   // Pre-sanitize common store_id = stores.id join mismatches

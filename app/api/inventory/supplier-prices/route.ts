@@ -17,11 +17,13 @@
  *
  * @notes
  *   - Protocolo bilingüe (ES/EN) para descripciones y metadatos.
+ *   - Protegido con `verifyStaffAuth` restringido a `admin` y `supervisor`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
-import { parseSupplierInput, ParsedSupplierItem } from '@/lib/supplier-price-parser'
+import { parseSupplierInput } from '@/lib/supplier-price-parser'
 import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +48,11 @@ export interface ItemComparisonResult {
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: false })
+    if (!auth.authorized) {
+      return auth.response || NextResponse.json({ success: false, error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const supabase = await getSupabaseAdminClient()
 
     // 1. Obtener lista de proveedores
@@ -127,6 +134,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: false })
+    if (!auth.authorized) {
+      return auth.response || NextResponse.json({ success: false, error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const body = await request.json()
     const { rawText, supplierId, fileName } = body
 

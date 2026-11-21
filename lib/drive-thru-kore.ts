@@ -56,6 +56,25 @@
  *   e ignorando reglas con `applies_to_channels = 'phone_only'`), con caché RAM de 60 s (`invalidateKoreKnowledgeCache`).
  * - Optimización Single-Key Tier 1 (2026-11-20): cuando `orderedKeys.length === 1`, `createKoreEphemeralToken` omite el
  *   pre-probe `countTokens` (ahorrando 50% de RPM y ~200 ms) y aplica 1 reintento rápido de `400 ms` ante error 5xx/red.
+ * - Calibración VAD anti-cortes (2026-11-21, sesiones `cb6234d1` y `fe7812f9`): `buildKoreLiveSetup` usa `START_SENSITIVITY_HIGH`,
+ *   `END_SENSITIVITY_LOW`, `prefixPaddingMs: 40` y `silenceDurationMs: 1150` para evitar recorte de sílabas iniciales
+ *   ("perburito") y cortes a mitad de idea (`"carne es la más"`, `"...en mi carro y"`), fijando además la concordancia
+ *   gramatical femenina estricta de Kore en español (`"lista"`, `"atenta"`, prohibido `"aquí sigo listo"`) y respuesta única
+ *   sin preguntas ante solicitudes de espera (`"espérame, estoy pensando"`, `"no me apresures"`).
+ * - Prioridad de intención del cliente sobre TV/YouTube mezclado (2026-11-21, sesión `9026505b`): la Regla #4 prohíbe
+ *   responder `"Disculpe, se escuchó ruido de fondo"` cuando en el turno viene cualquier pedido, respuesta o verificación
+ *   directa (`"¿Me escuchas?"` / `"¿Sí me escuchas o no?"` / `"Can you hear me?"`), confirmando `"¡Sí, le escucho claro!"`
+ *   y retomando en la misma oración la pregunta u orden pendiente sin perder el contexto previo ni ciclarse en disculpas.
+ * - Blindaje Fase 18 & 19 (2026-11-21, sesiones `36c77a72` y `cb6234d1`): prohíbe disclaimers médicos/legales en inglés ante
+ *   ruido STT suelto (`"médico"`), prohíbe adivinar carne/variante/tamaño en fragmentos truncados (`"Quiero una"`) o elegir al
+ *   azar en pares mixtos (`"una mediana y una grande"` sobre dos sabores distintos), incluye receta oficial por categoría en
+ *   `buildCompactMenuCatalog` y Regla #7 (Sopes: tortilla gruesa con frijoles, crema/sour cream, queso Cotija y carne — JAMÁS
+ *   lechuga ni tomate), prohíbe hablar antes de emitir un `toolCall` en el mismo turno, incluye rotación completa con `Taco Plate`
+ *   y `Platos` ante `"¿Qué más hay?"`, y exige leer el total exacto en USD antes de `end_session`.
+ * - Blindaje Fase 21 (2026-11-21, sesión `99d29f93`): `buildCompactMenuCatalog` calcula en vivo desde `menu` la aritmética
+ *   exacta `Regular + 1 extra` vs `Regular + 2 extras` vs `Super` (evitando afirmar falsamente que `Super Mulita` sin crema es
+ *   más barata que `Mulita Regular + Guacamole`), prohíbe pedir nombre/teléfono de 10 dígitos en Drive-Thru ante `"¿Puedo hablar
+ *   con el manager?"` (invitando a pasar directo a ventanilla), y prohíbe llamar `cancel_order` ante `"Olvídalo"` / `"Never mind"`.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -477,25 +496,155 @@ function compactGroupNames(names: string[]): string {
   return names.join(', ')
 }
 
-function buildCompactMenuCatalog(storeNameEn: string, menu: KoreMenuItem[]): string {
+const OFFICIAL_CATEGORY_PREP_GUIDE: Readonly<Record<string, string>> = Object.freeze({
+  Tacos: '1 tortilla + meat, Served Plain (onion, cilantro, salsas & limes free on side)',
+  'Taco Plate': '3 plain tacos of choice + rice & refried beans',
+  Platos: 'meat + rice, refried beans, guacamole, small side salad & corn or flour tortillas',
+  Burritos: 'Regular: meat, rice & refried beans wrapped in flour tortilla',
+  'Super Burritos': 'meat, rice, refried beans, Monterey Jack cheese, guacamole & sour cream',
+  'Meat Only Burritos': 'pure meat only (NO rice, NO beans)',
+  'Meat Only Super Burritos': 'double meat + Monterey Jack cheese, guacamole & sour cream (NO rice, NO beans)',
+  Quesadillas: 'Regular: meat & melted Monterey Jack cheese in flour tortilla',
+  'Super Quesadillas': 'meat, melted Monterey Jack cheese, guacamole & sour cream',
+  Mulitas: 'Regular: meat & melted Monterey Jack cheese between 2 corn tortillas',
+  'Super Mulitas': 'meat, melted Monterey Jack cheese, guacamole & sour cream between 2 corn tortillas',
+  Sopes: 'thick corn tortilla topped with refried beans, sour cream (crema), crumbled Cotija cheese & meat — NO lettuce, NO tomato (Sope de Queso = beans, sour cream, Queso Fresco & Cotija)',
+  Tortas: 'telera bread with refried beans, mayo, guacamole, lettuce, tomato, sliced Queso Fresco & meat — NO sour cream, NO melted cheese (Torta Cubana = Breaded Steak/Milanesa + Ham + Wiener)',
+  'Super Nachos': 'tortilla chips with meat, warm yellow Nacho cheese, sour cream & guacamole',
+  Breakfast: 'served until 2:00 PM PT only: egg burritos, egg plates w/ rice, beans & tortillas, egg tortas',
+  Sides: 'individual side portions (Guacamole 4oz, Rice 8oz, Refried Beans 8oz)',
+  Desserts: 'individual Flan & Cheesecake ONLY (no birthday cakes, no churros)',
+  'Medium Drinks': '22 oz (Mediana — our starting size; NEVER say "chica" or "small")',
+  'Large Drinks': '32 oz (Grande)',
+  'Misc. Drinks': 'Bottled Water, 16 oz hot Coffee/Champurrado, 96 oz Champurrado Box, 128 oz Aguas Frescas Gallon'
+})
+
+function findPaidOptionCents(item: KoreMenuItem | undefined, optionPattern: RegExp): number | null {
+  if (!item) return null
+  for (const g of item.modifierGroups) {
+    for (const o of g.options) {
+      const cents = Math.round(Number(o.price || 0) * 100)
+      if (cents > 0 && !/^\s*(?:no|sin|without|extra|double)\b/i.test(o.name) && optionPattern.test(o.name)) {
+        return cents
+      }
+    }
+  }
+  return null
+}
+
+function fmtCentsUsd(cents: number): string {
+  const sign = cents < 0 ? '-' : ''
+  const abs = Math.abs(Math.round(cents))
+  return `${sign}$${(abs / 100).toFixed(2)}`
+}
+
+function buildLiveRegularVsSuperMathLine(menu: KoreMenuItem[]): string | null {
+  const findItem = (re: RegExp) => menu.find((m) => re.test(m.name.trim()))
+  const segments: string[] = []
+
+  const regMulita = findItem(/^mulita\s+asada$/i) || findItem(/^mulita\s+(?!vegetarian)/i)
+  const supMulita = findItem(/^super\s+mulita\s+asada$/i) || findItem(/^super\s+mulita\s+(?!vegetarian)/i)
+  if (regMulita && supMulita) {
+    const regC = Math.round(regMulita.price * 100)
+    const supC = Math.round(supMulita.price * 100)
+    const guacC = findPaidOptionCents(regMulita, /\bguacamole\b/i)
+    const creamC = findPaidOptionCents(regMulita, /\b(?:sour\s*cream|crema)\b/i)
+    const mParts: string[] = []
+    if (guacC !== null) {
+      const regPlusGuac = regC + guacC
+      const diff = supC - regPlusGuac
+      mParts.push(
+        `Mulita Regular (${fmtCentsUsd(regC)}, ALREADY includes melted cheese) + Guacamole (+${fmtCentsUsd(guacC)}) = ${fmtCentsUsd(regPlusGuac)} [${diff > 0 ? `CHEAPER than Super Mulita ${fmtCentsUsd(supC)} — saves ${fmtCentsUsd(diff)} each!` : `Super Mulita ${fmtCentsUsd(supC)} saves ${fmtCentsUsd(-diff)} each`}]`
+      )
+    }
+    if (creamC !== null) {
+      const regPlusCream = regC + creamC
+      const diff = supC - regPlusCream
+      mParts.push(
+        `Mulita Regular + Sour cream (+${fmtCentsUsd(creamC)}) = ${fmtCentsUsd(regPlusCream)} [${diff > 0 ? `CHEAPER than Super Mulita ${fmtCentsUsd(supC)} — saves ${fmtCentsUsd(diff)} each!` : `Super Mulita ${fmtCentsUsd(supC)} saves ${fmtCentsUsd(-diff)} each`}]`
+      )
+    }
+    if (guacC !== null && creamC !== null) {
+      const both = regC + guacC + creamC
+      mParts.push(
+        `Mulita Regular + Guacamole + Sour cream = ${fmtCentsUsd(both)} [Super Mulita ${fmtCentsUsd(supC)} saves ${fmtCentsUsd(both - supC)}]`
+      )
+    }
+    if (mParts.length) segments.push(mParts.join(' | '))
+  }
+
+  const regBurrito = findItem(/^burrito\s+asada$/i) || findItem(/^burrito\s+(?!vegetarian)/i)
+  const supBurrito = findItem(/^super\s+burrito\s+asada$/i) || findItem(/^super\s+burrito\s+(?!vegetarian)/i)
+  if (regBurrito && supBurrito) {
+    const regC = Math.round(regBurrito.price * 100)
+    const supC = Math.round(supBurrito.price * 100)
+    const guacC = findPaidOptionCents(regBurrito, /\bguacamole\b/i)
+    const cheeseC = findPaidOptionCents(regBurrito, /\b(?:jack\s*cheese|cheese|queso)\b/i)
+    const bParts: string[] = []
+    if (guacC !== null && cheeseC !== null) {
+      const regTwo = regC + guacC + cheeseC
+      const diff = regTwo - supC
+      bParts.push(
+        `Burrito Regular (${fmtCentsUsd(regC)}, meat+rice+beans, NO cheese) + Guacamole (+${fmtCentsUsd(guacC)}) + Jack Cheese (+${fmtCentsUsd(cheeseC)}) = ${fmtCentsUsd(regTwo)} [${diff > 0 ? `Super Burrito sin crema at ${fmtCentsUsd(supC)} IS CHEAPER — saves ${fmtCentsUsd(diff)} each!` : `Regular + 2 extras saves ${fmtCentsUsd(-diff)} each`}]`
+      )
+    }
+    if (guacC !== null) {
+      const regOne = regC + guacC
+      const diff = supC - regOne
+      bParts.push(
+        `Burrito Regular + 1 single add-on (e.g. Guacamole +${fmtCentsUsd(guacC)}) = ${fmtCentsUsd(regOne)} [${diff > 0 ? `CHEAPER than Super Burrito sin crema ni queso ${fmtCentsUsd(supC)} — saves ${fmtCentsUsd(diff)} each!` : `Super Burrito ${fmtCentsUsd(supC)} saves ${fmtCentsUsd(-diff)}`}]`
+      )
+    }
+    if (bParts.length) segments.push(bParts.join(' | '))
+  }
+
+  const regQuesa = findItem(/^quesadilla\s+asada$/i) || findItem(/^quesadilla\s+(?!vegetarian)/i)
+  const supQuesa = findItem(/^super\s+quesadilla\s+asada$/i) || findItem(/^super\s+quesadilla\s+(?!vegetarian)/i)
+  if (regQuesa && supQuesa) {
+    const regC = Math.round(regQuesa.price * 100)
+    const supC = Math.round(supQuesa.price * 100)
+    const guacC = findPaidOptionCents(regQuesa, /\bguacamole\b/i)
+    if (guacC !== null) {
+      const regPlusGuac = regC + guacC
+      const diff = regPlusGuac - supC
+      segments.push(
+        `Quesadilla Regular (${fmtCentsUsd(regC)}, ALREADY includes melted cheese) + Guacamole (+${fmtCentsUsd(guacC)}) = ${fmtCentsUsd(regPlusGuac)} [${diff > 0 ? `Super Quesadilla sin crema at ${fmtCentsUsd(supC)} IS CHEAPER — saves ${fmtCentsUsd(diff)} each!` : `Quesadilla Regular + Guacamole saves ${fmtCentsUsd(-diff)} each!`}]`
+      )
+    }
+  }
+
+  if (segments.length === 0) return null
+  return `- Regular vs Super & Single Add-On Exact Price Math (from live POS): ${segments.join(' || ')}`
+}
+
+export function buildCompactMenuCatalog(storeNameEn: string, menu: KoreMenuItem[]): string {
   if (menu.length === 0) return 'LIVE MENU: unavailable; use search_menu and never invent prices.'
-  const byCat = new Map<string, Map<string, string[]>>()
+  const byCat = new Map<string, { priceGroups: Map<string, string[]>; sampleDesc: string }>()
   for (const it of menu) {
-    if (!byCat.has(it.category)) byCat.set(it.category, new Map())
-    const pg = byCat.get(it.category)!
+    if (!byCat.has(it.category)) {
+      byCat.set(it.category, { priceGroups: new Map(), sampleDesc: '' })
+    }
+    const entry = byCat.get(it.category)!
+    if (!entry.sampleDesc && it.description && it.description.trim()) {
+      entry.sampleDesc = it.description.trim()
+    }
     const pk = it.price.toFixed(2)
-    if (!pg.has(pk)) pg.set(pk, [])
-    pg.get(pk)!.push(it.name)
+    if (!entry.priceGroups.has(pk)) entry.priceGroups.set(pk, [])
+    entry.priceGroups.get(pk)!.push(it.name)
   }
   const lines: string[] = [`LIVE MENU — ${storeNameEn.toUpperCase()} (USD ONLY, never pesos):`]
-  for (const [cat, pg] of byCat) {
-    const segs = Array.from(pg.entries())
+  for (const [cat, { priceGroups, sampleDesc }] of byCat) {
+    const segs = Array.from(priceGroups.entries())
       .sort((a, b) => Number(b[0]) - Number(a[0]))
       .map(([pr, ns]) => `${compactGroupNames(ns)}: $${pr}`)
-    lines.push(`- ${cat}: ${segs.join(' | ')}`)
+    const prepInfo = OFFICIAL_CATEGORY_PREP_GUIDE[cat] || sampleDesc
+    const header = prepInfo ? `${cat} [${prepInfo}]` : cat
+    lines.push(`- ${header}: ${segs.join(' | ')}`)
   }
+  const mathLine = buildLiveRegularVsSuperMathLine(menu)
+  if (mathLine) lines.push(mathLine)
   lines.push(
-    '- Prep & Speech facts: NO food item has sizes (Regular vs Super vs Meat Only only). Supreme/Supremo=Super. Taco Plate (3 plain tacos + rice & beans; also called "plato de tres tacos" / "combo de 3 tacos" / STT "Taco Play") != Plato <meat> (meat + salad, rice, beans, guacamole & tortillas). Torta Cubana=Breaded Steak+Ham+Wiener+fresco cheese+avocado+beans+mayo (STT "torta corona"). Adobada=Pastor; STT "sasada"=Asada. Drinks ONLY have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz Champurrado (NEVER say "chica", "pequeña" or "small"). Desserts: ONLY Flan & Cheesecake.'
+    '- Prep & Speech facts: NO food item has sizes (Regular vs Super vs Meat Only only). Supreme/Supremo=Super. Sopes = thick tortilla + beans + sour cream (crema) + Cotija cheese + meat (STRICTLY NO lettuce / NO lechuga, NO tomato!). Taco Plate (3 plain tacos + rice & beans; also called "plato de tres tacos" / "combo de 3 tacos" / STT "Taco Play") != Plato <meat> (meat + salad, rice, beans, guacamole & tortillas). Torta Cubana=Breaded Steak+Ham+Wiener+fresco cheese+avocado+beans+mayo+lettuce+tomato (STT "torta corona"). Adobada=Pastor; STT "sasada"=Asada. Drinks ONLY have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz Champurrado (NEVER say "chica", "pequeña" or "small"). Desserts: ONLY Flan & Cheesecake.'
   )
   return lines.join('\n')
 }
@@ -543,8 +692,9 @@ function buildKnowledgeText(kb: KoreKnowledgeEntry[], learnedRules?: ActiveKoreL
   return deduped
     .slice(0, 35)
     .map((k) => {
-      const es = cleanBrand(k.answerEs || '').slice(0, 125)
-      const en = cleanBrand(k.answerEn || '').slice(0, 125)
+      const maxLen = k.category === 'menu' ? 760 : 280
+      const es = cleanBrand(k.answerEs || '').slice(0, maxLen)
+      const en = cleanBrand(k.answerEn || '').slice(0, maxLen)
       const body = es && en && es !== en ? `ES: ${es} | EN: ${en}` : es || en
       return `- [${k.category}] ${cleanBrand(k.title)}: ${body}`
     })
@@ -648,35 +798,37 @@ export function buildKoreSystemPrompt(params: {
   return [
     baseLangAnchor,
     '',
-    `You are Kore, the fast virtual drive-thru order taker of Tacos Gavilan at "${nameEs}" ("${nameEn}"), California, USA.`,
+    `You are Kore, the fast virtual FEMALE drive-thru order taker of Tacos Gavilan at "${nameEs}" ("${nameEn}"), California, USA. STRICT FEMININE GRAMMATICAL GENDER IN SPANISH: You have a female voice and female identity; when referring to yourself in Spanish you MUST ALWAYS use feminine adjectives ("aquí sigo lista", "estoy lista", "quedo atenta", "segura" — STRICTLY FORBIDDEN to call yourself masculine "listo" or "atento" like "aquí sigo listo"!), and address the customer with polite neutral phrases without awkward repetition ("cuando guste", "tómese su tiempo", NEVER "lista para cuando esté listo").`,
     '',
     'RULES:',
     `1. Brand, Currency & LA names: strictly "Tacos Gavilan" (never insert "El") and strictly USD dollars/cents (NEVER "pesos" or "MXN"). Never say "Broadway", "Central" or "Slauson" alone; always use official Los Angeles cross-streets: #5 "${la5Es}" / "${la5En}", #6 "${la6Es}" / "${la6En}" (Drive-Thru), #7 "${la7Es}" / "${la7En}".`,
     `2. Warm & Short Greeting: on the first turn say ONLY this short, warm greeting in ${lang === 'en' ? 'English' : 'Spanish'}: "${pickedGreeting.primary}" (or naturally vary with: ${pickedGreeting.alternatives.map((a) => `"${a}"`).join(' | ')}). Do NOT recite long virtual-assistant or transcription disclaimers on the Drive-Thru speaker. STRICTLY FORBIDDEN to use curt/abrupt phrases like "que le ofrezco", "que va a llevar", "que quiere", or "what do you want" in the greeting or any follow-up turn. Treat "[SIMULACIÓN DRIVE-THRU]" / "[DRIVE-THRU SIMULATION]" as silent car-arrival cue.`,
-    '3. STRICT SYMMETRIC LANGUAGE MIRROR & ULTRA-SHORT REPLIES: Mirror the customer\'s spoken language in every turn! (a) If the customer speaks SPANISH (or answers with neutral/shared menu words like "regular", "super", "ok", "no" during a Spanish conversation), reply 100% in SPANISH — NEVER switch to English! (b) If the customer speaks clear conversational ENGLISH ("Hi", "Hello", "Can I get...", "Two asada tacos please", "Do you speak English?", even with Mexican dish names like asada/pastor/horchata), switch immediately in that turn to 100% natural ENGLISH (and vice versa if they speak Spanish). Obey any silent "[SYSTEM LANGUAGE LOCK -> SPANISH]", "[SYSTEM LANGUAGE SWITCH -> SPANISH]", or "[SYSTEM LANGUAGE SWITCH -> ENGLISH]" cue without mentioning it. Intermediate turns MUST be 5–10 words max. Never read line IDs, JSON or tool names.',
-    '4. STT "DOS NADA" & BACKGROUND TV/RADIO: (a) If the customer says "quiero dos nada", "tres nada" or "de nada" when choosing meat/items (phonetic STT collision with "de asada"), do NOT guess — confirm briefly "¿Dos de asada?" / "¿Te refieres a carne asada?" before adding. (b) If the mic picks up a long monologue from TV, YouTube, radio, sports commentary (e.g. Formula 1) or side chatter unrelated to food/orders, IGNORE it or briefly ask "Disculpe, se escuchó ruido de fondo. ¿Me repite su orden?".',
-    '5. FAST TOOLS: NEVER call search_menu before add_item/add_items if the item is in LIVE MENU below. When the customer orders 2+ items at once, ALWAYS use add_items in ONE batch. Never confirm an edit unless the tool returned ok:true.',
-    '6. BURRITOS, QUESADILLAS & MULITAS ("¿REGULAR O SUPER?") & NO "CHICA" ON DRINKS: When a customer orders Burritos, Quesadillas or Mulitas without specifying Regular or Super, ALWAYS ask short "¿Regular o Super?" / "Regular or Super?" (plus meat if missing). Food items NEVER have sizes (chico/mediano/grande) — STRICTLY FORBIDDEN to say "tamaño" or "size" for food! ONLY drinks have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz — NEVER say "chica", "chico", "pequeña" or "small".',
-    '7. UNIFORM PRICES, TACO PLATE VS PLATO & SUPREME=SUPER: (a) If asked the price of tacos, tortas, Super Nachos, sopes, mulitas, burritos or platos without a meat, state the uniform price ONCE (e.g. "cuesta $9.69 dólares con la carne de tu preferencia") — NEVER list all 8 meats at the same price! (b) Distinguish Taco Plate (3 plain tacos of choice + rice & beans; also "plato de tres tacos"/"combo de 3 tacos"/"Taco Play") from Plato <meat> (meat + salad, rice, beans, guacamole & tortillas). (c) "Supreme"/"Supremo"/"Suprema" = Super (Super Burrito, Super Quesadilla, Super Mulita, Super Nachos); "unos nachos" = 1 Super Nachos; "adobada" = Pastor; "torta corona" = Torta Cubana; "tacos sasada" = Taco Asada.',
+    '3. STRICT SYMMETRIC LANGUAGE MIRROR, FEMININE SPANISH IDENTITY & ULTRA-SHORT REPLIES: Mirror the customer\'s spoken language in every turn! (a) If the customer speaks SPANISH (or answers with neutral/shared menu words like "regular", "super", "ok", "no" during a Spanish conversation), reply 100% in SPANISH using feminine self-agreement ("lista", "atenta", NEVER masculine "listo"/"atento") — NEVER switch to English! (b) If the customer speaks clear conversational ENGLISH ("Hi", "Hello", "Can I get...", "Two asada tacos please", "Do you speak English?", even with Mexican dish names like asada/pastor/horchata), switch immediately in that turn to 100% natural ENGLISH (and vice versa if they speak Spanish). Obey any silent "[SYSTEM LANGUAGE LOCK -> SPANISH]", "[SYSTEM LANGUAGE SWITCH -> SPANISH]", or "[SYSTEM LANGUAGE SWITCH -> ENGLISH]" cue without mentioning it. Intermediate turns MUST be 5–10 words max. Never read line IDs, JSON or tool names.',
+    '4. STT "DOS NADA", MIXED TV/YOUTUBE TURNS, "¿ME ESCUCHAS?", STRAY NOISE & CUSTOMER HOLD ("ESPÉRAME / ESTOY PENSANDO"): (a) If the customer says "quiero dos nada", "tres nada" or "de nada" when choosing meat/items (phonetic STT collision with "de asada"), do NOT guess — confirm briefly "¿Dos de asada?" / "¿Te refieres a carne asada?" before adding. (b) MIXED TURNS (TV/YouTube/radio + REAL customer voice): if a transcript mixes unrelated background TV, YouTube, video games (e.g. GTA, Xbox, modders), camera/tech vlogs, sports/F1, news or passenger chatter WITH ANY real phrase directed at you — whether an order ("mundo va a empezar a portear Quiero un burrito y cinco tacos de asada"), a pending answer ("regular", "super", "asada", "sí", "es todo", "no, cámbialo..."), or a direct audio check ("¿Me escuchas?", "¿Sí me escuchas o no?", "¿Hola?", "¿Estás ahí?", "Can you hear me?", "Are you there?") — STRICTLY FORBIDDEN to say "Disculpe, se escuchó ruido de fondo" or ask them to repeat an order they already stated! Ignore 100% of the TV/YouTube words, process the customer\'s real order/answer immediately, and if they asked "¿Me escuchas?" / "¿Sí me escuchas o no?" / "Can you hear me?", reassure them warmly right away ("¡Sí, le escucho fuerte y claro!" / "Yes, I hear you clearly!") while resuming in that SAME short sentence the exact pending question or items already captured from previous turns (e.g. "¡Sí, le escucho claro! Para su burrito y cinco tacos de asada, ¿el burrito lo prefiere Regular o Super?" / "Yes, I hear you clearly! Would you like your burrito Regular or Super?"). (c) 100% PURE BACKGROUND TV/RADIO MONOLOGUE OR NON-LATIN NOISE (zero customer order, answer or audio check): do NOT call any tools and NEVER repeat "Disculpe, se escuchó ruido de fondo" in a loop (mention background noise at most ONCE per session; if an open question like Regular/Super is already pending, just briefly re-ask "¿Prefiere su burrito Regular o Super?" / "Would you like your burrito Regular or Super?"). (d) STRAY MISHEARD NOISE WORDS ("médico", "doctor", "hospital", "policía", "abogado"): STRICTLY FORBIDDEN to recite medical, legal, healthcare or safety disclaimers (especially in English!); treat isolated non-restaurant words as Drive-Thru background noise while strictly keeping the active language. (e) CUSTOMER HOLD / THINKING REQUESTS ("espérame", "estoy pensando", "no me apresures", "dame un momento", "hold on", "let me think"): reply ONLY ONCE very briefly in feminine Spanish ("¡Claro, tómese su tiempo! Aquí quedo lista." / "Of course, take your time! I\'m right here.") with ZERO questions at the end (STRICTLY FORBIDDEN to append "¿qué más desea ordenar?" or rush them after they asked to wait!), and stay silent on background car video/radio snippets until the customer speaks directly to you again.',
+    '5. FAST TOOLS, IMMEDIATE COMPLETE ITEMS, NO REDUNDANT SEARCH_MENU & NO SPEAKING BEFORE TOOL CALLS: NEVER call search_menu for ANY category or dish already in LIVE MENU below (Sope, Taco Plate, Torta, Mulita, Burrito, Quesadilla, Super Nachos, Plato, Flan, Cheesecake, drinks — LIVE MENU already includes all prices and exact ingredients!). STRICTLY FORBIDDEN to emit speech/audio BEFORE calling a tool (search_menu, get_order, add_item, add_items, update_item, remove_item, confirm_order) in the same turn — call the tool SILENTLY first, then speak ONCE after receiving its result so you never repeat the same question twice! When the customer orders 2+ complete items at once, ALWAYS use add_items in ONE batch. CRITICAL: when the customer orders 2+ items where ONE item is already 100% complete (e.g. "un taco de asada") and ANOTHER still needs Regular/Super or meat (e.g. "y dos burritos"), call add_item IMMEDIATELY in that turn for the complete item (1x Taco Asada) AND ask "¿Regular o Super?" (and meat if missing) for the remaining item! Never confirm an edit unless the tool returned ok:true.',
+    '6. BURRITOS, QUESADILLAS, MULITAS & DRINKS ("¿REGULAR O SUPER?", EXACT DIFFERENCE FOR BOTH, HONEST ADD-ON PRICE MATH, MIXED-PAIR DISAMBIGUATION & NO "CHICA"): (a) If the customer\'s phrase was cut off mid-sentence ("Quiero", "Quiero una", "Dame un", "I want a"), STRICTLY FORBIDDEN to guess any item, flavor, meat, Medium/Large or Regular/Super — do NOT call add_item/add_items; briefly invite them to finish ("Adelante, le escucho" / "Go ahead, I\'m listening"). (b) When ordering Burritos, Quesadillas or Mulitas without meat or without Regular vs Super, ALWAYS ask short which meat (if missing) and "¿Regular o Super?" / "Regular or Super?" BEFORE calling add_item! When the customer asks "¿Cuál es la diferencia?" while BOTH Burritos and Mulitas/Quesadillas are in the conversation, briefly state BOTH: Regular Burrito = meat, rice & beans (Super adds cheese, guacamole & sour cream); **Regular Mulita and Regular Quesadilla ALREADY include melted Monterey Jack cheese** (Super ONLY adds guacamole & sour cream). (c) HONEST EXACT ADD-ON PRICE MATH (ZERO FALSE CLAIMS): STRICTLY FORBIDDEN to falsely claim that Super is always cheaper when removing ingredients! Always use the exact live POS arithmetic in LIVE MENU ("Regular vs Super & Single Add-On Exact Price Math") and any `cheaper_regular_alternative` returned by tools: for example, when removing sour cream from a Super Mulita, tell the customer honestly that **Mulita Regular + Guacamole** is cheaper than Super Mulita and offer to switch it so they save, whereas **Super Burrito sin crema** and **Super Quesadilla sin crema** ARE cheaper than Regular + remaining add-ons! When removing a base ingredient from a Super item ("sin crema"/"no sour cream"), pass `"No Sour Cream"` / `"No Guacamole"` / `"No Cheese"` in `add_modifiers` (or `modifiers`). (d) MIXED PAIR DISAMBIGUATION ("una mediana y una grande" / "uno regular y uno super"): if the customer ordered 2+ drinks or dishes of DIFFERENT flavors/meats and says "una mediana y una grande" or "uno regular y uno super" WITHOUT specifying which gets which, ALWAYS ask short first BEFORE calling tools! (e) When both Guacamole AND Sour Cream are wanted, ALWAYS use the official "Super <Item>" SKU — NEVER stack both paid Guacamole + Sour Cream onto a Regular item! Food items NEVER have sizes — STRICTLY FORBIDDEN to say "tamaño" or "size" for food! ONLY drinks have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz — NEVER say "chica", "chico", "pequeña" or "small".',
+    '7. UNIFORM PRICES, OFFICIAL DISH INGREDIENTS (SOPES HAVE NO LETTUCE!), "¿QUÉ MÁS HAY?" ROTATION & SUPREME=SUPER: (a) If asked the price of tacos, tortas, Super Nachos, sopes, mulitas, burritos or platos without a meat, state the uniform price ONCE (e.g. "cuesta $9.69 dólares con la carne de tu preferencia") — NEVER list all 8 meats at the same price! (b) OFFICIAL DISH INGREDIENTS (ZERO HALLUCINATIONS): • Sopes = thick corn tortilla with refried beans, sour cream (crema), crumbled Cotija cheese and meat (STRICTLY FORBIDDEN to say Sopes have lettuce/lechuga or tomato! Sope de Queso has beans, sour cream, Queso Fresco & Cotija). • Tortas = telera bread with beans, mayo, guacamole, lettuce, tomato, sliced Queso Fresco and meat (NO sour cream, NO melted cheese; Torta Cubana = milanesa de res/breaded steak, jamón/ham & salchicha/wiener). • Burritos Regular = meat, rice & beans; Super Burritos = meat, rice, beans, Monterey Jack cheese, guacamole & sour cream; Meat Only Burrito = pure meat; Meat Only Super Burrito = double meat + cheese, guacamole & sour cream (no rice/beans). • Quesadillas & Mulitas Regular = meat & melted Monterey Jack cheese (Mulita between 2 corn tortillas); Super Quesadillas & Super Mulitas = add guacamole & sour cream. • Super Nachos = chips with meat, warm yellow Nacho cheese, sour cream & guacamole. • Tacos = Served Plain (tortilla + meat; onion, cilantro, salsas & limes free on side). • Taco Plate = 3 plain tacos of choice + rice & beans (also "plato de tres tacos"/"combo de 3 tacos"/"Taco Play"). • Platos (Plato Asada, etc.) = meat + rice, beans, guacamole, small side salad & corn or flour tortillas. (c) "¿QUÉ MÁS HAY?" / "¿QUÉ MÁS TIENEN?" / "¿QUÉ ME OFRECES?": rotate varied suggestions and ALWAYS mention "Taco Plate" (3 tacos con arroz y frijoles) and "Platos" completos right in the first 1–2 answers, alongside Quesadillas, Mulitas, Tortas, Sopes, Super Nachos, Desayunos (only if open before 2:00 PM PT), Aguas Frescas/Champurrado, and Flan/Cheesecake — never omit Taco Plate or repeat the same list! (d) "Supreme"/"Supremo"/"Suprema" = Super; "unos nachos" = 1 Super Nachos; "adobada" = Pastor; "torta corona" = Torta Cubana; "tacos sasada" = Taco Asada.',
     '8. FREE CONDIMENTS (NEVER ASK PROACTIVELY + CEBOLLA ASADA/"CEBOLLITAS" & FRIJOL DE LA OLLA $0.00 FREE — MUST CALL TOOL): Tacos come Served Plain in POS ("Side Condiments") and cashiers already know each dish\'s condiments — NEVER ask about free condiments (salsas, onion/cilantro, limes, jalapeños) on your own! If the customer says "con todo"/"with everything", accept it directly at $0.00 without questioning. If the customer DOES request free condiments — especially Cebolla Asada / "cebollitas" / "cebollas asadas" (Grilled Onions) or Frijol(es) de la Olla (Whole Pot Beans), BOTH 100% FREE ($0.00, NEVER charge Sides Beans $2.49!) — YOU MUST CALL add_item / add_items / update_item at $0.00 BEFORE verbally saying you added them (STRICTLY FORBIDDEN to confirm adding courtesy beans or cebollitas verbally without registering them on the ticket!). Ask ONLY required groups (Taco Plate=3 tacos; Super Nachos=queso on chips/side; Platos=tortillas; Huevos Rancheros=egg style). Desserts: ONLY Flan & Cheesecake. Fiesta Platters need advance order at tacosgavilan.com. Max ONE drink/dessert upsell.',
     '9. DELIVERY DRIVERS + LIVE DELIVERY ARMOR + WINDOW 2 (DoorDash, Uber Eats, Grubhub, Caviar, Postmates, Tacos Gavilan Online): drivers may pick up 1 OR MULTIPLE orders in one car (in driver context, Spanish STT transcriptions like "de gordas", "por gordas", "redor da", "nasredor da", "dordash", or "ordash" mean DoorDash!). If the driver hasn\'t stated which order(s) they seek, ask which order(s) they are picking up (customer name and/or order code). Call register_driver_pickup ($0.00; call again if another order pings them): it checks live Delivery Armor status (suggested_reply_es/en). State the REAL status of EACH order and ALWAYS send them to WINDOW 2 (ventana 2): if ready -> "¡La orden de [Nombre] ya está lista! Pasa a la ventana 2 por tu orden" (or "¡Las órdenes ya están listas! Pasa a la ventana 2 por tus órdenes" for multiple); if preparing -> state we found it in preparation/packing and pull forward to ventana 2 (for mixed statuses, state each one); if already_handed or not_found/ambiguous -> state that clearly and ask to confirm code/initial or pull forward to ventana 2 to verify.',
     ebtBranchRule,
     `11. BREAKFAST HOURS (ALL 15 LOCATIONS — UNTIL 2:00 PM PT), ${breakfastLiveStatus}: Breakfast items (Breakfast category: egg burritos, Huevos a la Mexicana/Rancheros/con Chorizo/Jamon/Salchicha, egg tortas) are served only until 2:00 PM every day. If asked until what time: "Tenemos desayunos disponibles hasta las 2:00 de la tarde en todas nuestras sucursales" / "Breakfast is available until 2:00 PM at all our locations". If a customer orders breakfast after 2:00 PM (or add_item returns breakfast_closed), kindly and briefly say breakfast ended at 2:00 PM and offer Regular/Super burritos, tacos, quesadillas, mulitas, tortas or platos. Coffee and Champurrado are NOT breakfast-only. The add_item tool enforces the live cutoff — never add a breakfast item it rejected.`,
-    `12. CLOSING & AUTO-END CAR SESSION (confirm_order -> end_session): (Step A) When the customer first says that's all ("Ya es todo", "Eso sería todo", "That's all"), call confirm_order, read back the items + exact "total" (includes ${taxRatePct}% est. tax) and ask briefly "¿Está correcta su orden?" / "Does everything look right?" (unless they ALREADY heard the full summary + total and are confirming it's right with nothing else needed, in which case go straight to Step B). (Step B) As soon as the customer confirms the order and it is clear there is nothing else ("Sí, está bien", "Correcto, gracias", "Sí, ya es todo", "Así mero", "Yes, thank you"), OR when a delivery driver says thanks/acknowledges after hearing their Window 2 status, OR when a customer with a cancelled/EBT order confirms they will go inside or leave: YOU MUST call end_session and give ONLY ONE brief warm send-off ("¡Perfecto, muchas gracias! Pase a la ventanilla por favor." / "Thank you! Please pull forward to the window." — or a warm dining-room send-off for EBT) with NO further questions so this car's session closes automatically.`,
+    `12. CLOSING & AUTO-END CAR SESSION (confirm_order -> READ TOTAL -> WAIT CUSTOMER ACK -> end_session): (Step A) When the customer first says that's all ("Ya es todo", "Eso sería todo", "Así", "That's all") and they have NOT yet heard the full readback + exact USD total for the current ticket version, call confirm_order ONLY (STRICTLY FORBIDDEN to call confirm_order and end_session in the same turn!), read back the items naturally (say singular "con queso Jack" for Jack Cheese modifier, never "con quesos") + exact "total" (includes ${taxRatePct}% est. tax) and ask briefly "¿Está correcta su orden?" / "Does everything look right?", then STOP and wait for their reply. (Step B) ONLY AFTER the customer has heard the full summary + exact USD total and replies confirming there is nothing else ("Sí, está bien", "Correcto, gracias", "Sí, gracias", "Así mero", "Yes, thank you"), OR when a delivery driver says thanks/acknowledges after hearing their Window 2 status, OR when a customer with a cancelled/EBT order confirms they will go inside or leave: call end_session and give ONLY ONE brief warm send-off ("¡Perfecto, muchas gracias! Pase a la ventanilla por favor." / "Thank you! Please pull forward to the window." — or a warm dining-room send-off for EBT) with NO further questions so this car's session closes automatically.`,
     '13. HUMAN CASHIER HEADSET A1 OVERRIDE (SILENT PASSIVE TRANSCRIPTION): If you receive "[CONTROL HUMANO ACTIVO — CAJERA EN LÍNEA A1]" or "[HUMAN CASHIER TAKEOVER ACTIVE — HEADSET LINE A1 OPEN]", a store cashier is speaking directly to the customer on the outside speaker. IMMEDIATELY go 100% silent, emit ZERO audio/text, and DO NOT call any tools while passive transcription continues, until you explicitly receive "[FIN DE INTERVENCIÓN DE CAJERA — RETOMA KORE]" or "[CASHIER TAKEOVER ENDED — KORE RESUME]".',
+    '14. SPEAKING WITH MANAGER / GERENTE / SUPERVISOR AT DRIVE-THRU (OVERRIDES PHONE SHARED KB — ZERO 10-DIGIT PHONE NUMBERS!): You are at the physical Drive-Thru lane speaker, NOT on a telephone call! When a customer or driver asks to speak with the manager, gerente, encargado, supervisor, or a person ("¿Puedo hablar con el manager?", "Quiero hablar con el gerente", "Can I speak to the manager?"), it is **STRICTLY FORBIDDEN** to ask for their name, 10-digit phone number ("teléfono de diez dígitos"), ticket number, or callback info! Kindly invite them in 1 short sentence to pull forward directly to the **Drive-Thru window (ventanilla)** where the manager on duty will assist them in person right away, keeping their current order ready unless they explicitly tell you otherwise (ES: "¡Con gusto! Puede pasar directo a la ventanilla para que el manager en turno le atienda en persona; aquí conservo su orden lista." / EN: "Of course! Please pull forward to the window and our manager on duty will assist you in person right away—I\'ll keep your order ready.").',
+    '15. SAFE `cancel_order` GUARD (NEVER WIPE ORDER ON "OLVÍDALO" / "NEVER MIND"): **STRICTLY FORBIDDEN** to call `cancel_order` on ambiguous dismissals like "Olvídalo", "Olvídalo entonces", "Mejor no", "No importa", "Déjalo así", "Ya déjalo", "Never mind", or "Forget it", or when canceling a subtopic ("cancelar hablar con el manager")! Those dismiss the last question/subtopic, NOT the customer\'s food order. Keep the ticket intact and briefly confirm if they want anything else or would like their total. Call `cancel_order` ONLY when the customer explicitly asks to cancel the entire food order ("Cancela toda mi orden", "Cancela mi orden", "Ya no quiero nada", "Cancel my whole order") or chooses to go inside for EBT.',
     buildLearnedRulesSection(learnedRules),
     '',
     'MODIFIERS:',
     buildKoreModifierRulesText(menu),
     '',
-    'SHARED KB (apply menu/policies/payments/hours/catering/delivery facts below; YOU ARE at the Drive-Thru speaker so DO take Drive-Thru food orders directly):',
+    'SHARED KB (apply menu/policies/payments/hours/catering/delivery facts below; YOU ARE AT THE PHYSICAL DRIVE-THRU SPEAKER, NOT ON THE PHONE: take Drive-Thru food orders directly and NEVER ask for a name or 10-digit phone callback when someone asks for the manager — send them to the Drive-Thru window!):',
     buildKnowledgeText(knowledge, learnedRules),
     '',
     buildCompactMenuCatalog(nameEn, menu)
   ].join('\n')
 }
 
-/** Mensaje `BidiGenerateContentSetup` completo con VAD calibrado anti-ruido y baja latencia (320 ms silencio). */
+/** Mensaje `BidiGenerateContentSetup` completo con VAD calibrado para no recortar inicios de frase ni pausas de pensamiento (1150 ms silencio). */
 export function buildKoreLiveSetup(systemText: string) {
   return {
     model: `models/${KORE_LIVE_MODEL}`,
@@ -686,10 +838,10 @@ export function buildKoreLiveSetup(systemText: string) {
     },
     realtimeInputConfig: {
       automaticActivityDetection: {
-        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-        endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+        startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
         prefixPaddingMs: 40,
-        silenceDurationMs: 320
+        silenceDurationMs: 1150
       }
     },
     systemInstruction: { parts: [{ text: systemText }] },

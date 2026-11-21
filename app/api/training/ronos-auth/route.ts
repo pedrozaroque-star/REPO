@@ -8,18 +8,71 @@
  *   sincronizada en vivo contra RONOS API y `ronos_employee_timecards_cache`.
  * - Candado Anti-Suplantación (PIN Ownership Check): si el usuario eligió un colaborador específico en la lista,
  *   valida que el titular real del PIN en RONOS coincida con la persona seleccionada (evitando cruces de expediente).
- * - Crea o recupera el expediente oficial en `public.training_enrollments` usando exclusivamente las columnas
- *   reales de la tabla (`access_code`, `employee_name`, `position_key`, `day1_completed`..`day4_completed`, `expires_at`).
+ * - Antigüedad / Auto-Certificación Autoritativa de Servidor: JAMÁS confía en `body.autoCertified` del cliente;
+ *   calcula la antigüedad (`>= 14 días`) exclusivamente en servidor contra `toast_employees` y `ronos_employee_timecards_cache`.
+ * - Límite de tasa estricto por IP y por PIN (`máx 8 intentos / 10 min`, `429 Retry-After`).
  *
  * @dataFlow
- * - `POST /api/training/ronos-auth` -> `verifyRonosPin(storeId, pin)` -> `public.training_enrollments` -> `{ ok: true, ronosEmployee, enrollment }`
+ * - `POST /api/training/ronos-auth` -> Rate Limit -> `verifyRonosPin(storeId, pin)` -> Antigüedad Servidor -> `public.training_enrollments` -> `{ ok: true, ronosEmployee, enrollment }`
+ *
+ * @notes
+ * - Blindaje de Seguridad (2026-11-21): eliminado `body.autoCertified` de entrada del cliente, agregado rate limit acotado por IP+PIN y cookie `HttpOnly` firmada (`teg_trainee_pass`) para progreso del aprendiz.
  */
 
+import { createHash, createHmac } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyRonosPin } from '@/lib/delivery-armor';
+import { getJwtSecret } from '@/lib/auth-server';
 import { formatStoreName, supabaseAdmin } from '@/lib/supabase';
 import { normalizeText } from '@/lib/actividades-resolution';
 import { STATION_POSITIONS_CATALOG } from '@/lib/training-sop-catalog';
+
+const MAX_RATE_BUCKETS = 2000;
+const PIN_RATE_LIMIT = 8;
+const PIN_RATE_WINDOW_MS = 10 * 60_000;
+const ronosAuthRateBuckets = new Map<string, number[]>();
+
+function extractTrustedIp(headers: Headers): string {
+  const vercelFwd = headers.get('x-vercel-forwarded-for') || '';
+  const firstVercel = vercelFwd.split(',')[0]?.trim();
+  if (firstVercel) return firstVercel.slice(0, 64);
+  const realIp = headers.get('x-real-ip')?.trim();
+  if (realIp) return realIp.slice(0, 64);
+  const fwd = headers.get('x-forwarded-for') || '';
+  return fwd.split(',')[0]?.trim().slice(0, 64) || 'unknown';
+}
+
+function checkBoundedRateLimit(key: string, limit: number, windowMs: number, now = Date.now()): { allowed: boolean; retryAfterSec: number } {
+  if (ronosAuthRateBuckets.size >= MAX_RATE_BUCKETS && !ronosAuthRateBuckets.has(key)) {
+    for (const [k, arr] of ronosAuthRateBuckets) {
+      const valid = arr.filter((t) => now - t < windowMs);
+      if (valid.length === 0) ronosAuthRateBuckets.delete(k);
+      else ronosAuthRateBuckets.set(k, valid);
+    }
+    if (ronosAuthRateBuckets.size >= MAX_RATE_BUCKETS) {
+      const oldest = ronosAuthRateBuckets.keys().next().value;
+      if (oldest) ronosAuthRateBuckets.delete(oldest);
+    }
+  }
+  const hits = (ronosAuthRateBuckets.get(key) || []).filter((t) => now - t < windowMs);
+  if (hits.length >= limit) {
+    ronosAuthRateBuckets.set(key, hits);
+    const retryAfterSec = Math.max(1, Math.ceil((windowMs - (now - hits[0])) / 1000));
+    return { allowed: false, retryAfterSec };
+  }
+  hits.push(now);
+  ronosAuthRateBuckets.set(key, hits);
+  return { allowed: true, retryAfterSec: 0 };
+}
+
+function buildSignedTraineeCookieValue(enrollmentId: string, accessCode: string): string | null {
+  const secret = getJwtSecret() || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!secret.trim()) return null;
+  const cleanId = String(enrollmentId).trim();
+  const cleanCode = String(accessCode).trim().toUpperCase();
+  const sig = createHmac('sha256', secret.trim()).update(`trainee:${cleanId}:${cleanCode}`).digest('hex');
+  return `${cleanId}.${cleanCode}.${sig}`;
+}
 
 function generateTemporaryCode(): string {
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -48,9 +101,83 @@ function namesMatchOwner(ronosFullName: string, selectedName: string): boolean {
   return matches.length >= minRequired;
 }
 
+/**
+ * Calcula de forma autoritativa en servidor si el colaborador cumple la antigüedad oficial (>= 14 días / 2+ semanas)
+ * usando `toast_employees` y `ronos_employee_timecards_cache`, ignorando por completo cualquier bandera del cliente.
+ */
+async function resolveAuthoritativeServerTenureCertification(params: {
+  ronosEmployeeUserId: number;
+  verifiedFullName: string;
+  numericEmployeeId: number | null;
+}): Promise<boolean> {
+  const TENURE_CERT_MS = 14 * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+
+  // 1. Verificar fecha de alta en toast_employees validando coincidencia de nombre con el titular del PIN
+  if (params.numericEmployeeId) {
+    const { data: empById } = await supabaseAdmin
+      .from('toast_employees')
+      .select('id, first_name, last_name, created_date, created_at, deleted')
+      .eq('id', params.numericEmployeeId)
+      .maybeSingle();
+
+    if (empById && empById.deleted !== true) {
+      const candidateFull = `${empById.first_name || ''} ${empById.last_name || ''}`.replace(/\s+/g, ' ').trim();
+      if (namesMatchOwner(params.verifiedFullName, candidateFull)) {
+        const dtRaw = empById.created_date || empById.created_at;
+        const dtMs = dtRaw ? Date.parse(String(dtRaw)) : NaN;
+        if (Number.isFinite(dtMs) && nowMs - dtMs >= TENURE_CERT_MS) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 2. Respaldo autoritativo en ronos_employee_timecards_cache: >= 2 semanas de diferencia entre primera y última semana registrada
+  const { data: weekRows } = await supabaseAdmin
+    .from('ronos_employee_timecards_cache')
+    .select('week_id')
+    .eq('employee_user_id', params.ronosEmployeeUserId)
+    .order('week_id', { ascending: true })
+    .limit(50);
+
+  if (Array.isArray(weekRows) && weekRows.length >= 2) {
+    const weeks = weekRows.map((r: any) => Number(r.week_id || 0)).filter((w) => Number.isFinite(w) && w > 0);
+    if (weeks.length >= 2) {
+      const minWeek = Math.min(...weeks);
+      const maxWeek = Math.max(...weeks);
+      if (maxWeek - minWeek >= 2) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const clientIp = extractTrustedIp(req.headers);
+    const ipLimit = checkBoundedRateLimit(`ronos-ip:${clientIp}`, PIN_RATE_LIMIT, PIN_RATE_WINDOW_MS);
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'RATE_LIMITED',
+          error: `Demasiados intentos de PIN. Espera ${ipLimit.retryAfterSec}s antes de intentar nuevamente.`,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(ipLimit.retryAfterSec) },
+        }
+      );
+    }
+
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ ok: false, error: 'Solicitud JSON inválida.' }, { status: 400 });
+    }
+
     const {
       storeId,
       storeName,
@@ -62,13 +189,12 @@ export async function POST(req: NextRequest) {
       positionKey,
       stationKey,
       trainerName,
-      autoCertified,
-    } = body || {};
+    } = body as Record<string, any>;
 
     const numericStoreId = Number(storeId || 0);
     const cleanPin = String(pin || '').trim();
 
-    if (!numericStoreId || numericStoreId <= 0) {
+    if (!numericStoreId || numericStoreId <= 0 || !Number.isInteger(numericStoreId)) {
       return NextResponse.json(
         { ok: false, error: 'Selecciona una sucursal válida.' },
         { status: 400 }
@@ -79,6 +205,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { ok: false, error: 'La clave de RONOS debe tener exactamente 4 dígitos numéricos.' },
         { status: 400 }
+      );
+    }
+
+    const pinDigest = createHash('sha256').update(`${numericStoreId}:${cleanPin}`).digest('hex').slice(0, 24);
+    const pinLimit = checkBoundedRateLimit(`ronos-pin:${pinDigest}`, PIN_RATE_LIMIT, PIN_RATE_WINDOW_MS);
+    if (!pinLimit.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'RATE_LIMITED',
+          error: `Demasiados intentos sobre esta clave. Espera ${pinLimit.retryAfterSec}s.`,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(pinLimit.retryAfterSec) },
+        }
       );
     }
 
@@ -127,12 +269,20 @@ export async function POST(req: NextRequest) {
     const numericEmployeeId =
       employeeId && Number.isInteger(parsedEmpId) && parsedEmpId > 0 ? parsedEmpId : null;
 
+    // Antigüedad autoritativa calculada en servidor (jamás confiar en body.autoCertified del cliente)
+    const serverAutoCertified = await resolveAuthoritativeServerTenureCertification({
+      ronosEmployeeUserId: verified.employeeUserId,
+      verifiedFullName: verified.fullName,
+      numericEmployeeId,
+    });
+
     // Buscar si ya tiene expediente en public.training_enrollments usando columnas reales
+    const safeIlikeName = effectiveName.replace(/[\\%_]/g, '\\$&');
     const { data: existingList, error: fetchErr } = await supabaseAdmin
       .from('training_enrollments')
       .select('*')
       .eq('store_id', numericStoreId)
-      .ilike('employee_name', effectiveName)
+      .ilike('employee_name', safeIlikeName)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -154,7 +304,7 @@ export async function POST(req: NextRequest) {
         patch.expires_at = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
         patch.status = 'IN_PROGRESS';
       }
-      if (autoCertified && !enrollment.day4_completed) {
+      if (serverAutoCertified && !enrollment.day4_completed) {
         patch.status = 'CERTIFIED';
         patch.current_day = 4;
         patch.day1_completed = true;
@@ -194,18 +344,18 @@ export async function POST(req: NextRequest) {
         accessCode = generateTemporaryCode();
       }
 
-      const isAlreadyCertified = Boolean(autoCertified);
+      const isAlreadyCertified = serverAutoCertified;
       const expiresAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
 
       const insertPayload = {
         access_code: accessCode,
         employee_name: effectiveName,
         employee_id: numericEmployeeId,
-        employee_phone: employeePhone ? String(employeePhone).trim() : null,
+        employee_phone: employeePhone ? String(employeePhone).trim().slice(0, 30) : null,
         store_id: numericStoreId,
         store_name: cleanStoreName,
         position_key: resolvedPositionKey,
-        trainer_name: String(trainerName || 'Manager de Turno').trim(),
+        trainer_name: String(trainerName || 'Manager de Turno').trim().slice(0, 120),
         current_day: isAlreadyCertified ? 4 : 1,
         status: isAlreadyCertified ? 'CERTIFIED' : 'IN_PROGRESS',
         day1_completed: isAlreadyCertified,
@@ -242,7 +392,7 @@ export async function POST(req: NextRequest) {
       enrollment = created;
     }
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       ok: true,
       ronosEmployee: {
         employeeUserId: verified.employeeUserId,
@@ -250,9 +400,24 @@ export async function POST(req: NextRequest) {
         jobTitle: verified.jobTitle || 'Colaborador',
         ronosCode,
       },
-      employeeId: employeeId || null,
+      employeeId: numericEmployeeId,
       enrollment,
     });
+
+    if (enrollment?.id && enrollment?.access_code) {
+      const signedPass = buildSignedTraineeCookieValue(enrollment.id, enrollment.access_code);
+      if (signedPass) {
+        res.cookies.set('teg_trainee_pass', signedPass, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          path: '/api/training',
+          maxAge: 4 * 24 * 60 * 60,
+        });
+      }
+    }
+
+    return res;
   } catch (err: any) {
     console.error('[POST /api/training/ronos-auth] Error:', err);
     return NextResponse.json(

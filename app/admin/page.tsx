@@ -1,9 +1,26 @@
+/**
+ * @module app/admin/page
+ * @description Panel ejecutivo de ranking en tiempo real e historial de satisfacción de clientes por sucursal para Tacos Gavilan.
+ *
+ * @businessRules
+ * - Acceso exclusivo para administradores mediante `<ProtectedRoute allowedRoles={['admin']}>` (sin contraseñas estáticas en cliente).
+ * - Promedios de calificación (`avg_rating`) y NPS (`avg_nps`) omiten valores `null`/`undefined` para evitar propagación de `NaN` cuando faltan calificaciones parciales (`speed_rating`, `nps_score`, etc.).
+ *
+ * @dataFlow
+ * - `<ProtectedRoute allowedRoles={['admin']}>` -> Supabase (`stores`, `customer_feedback` columnas no sensibles acotadas) -> Ranking e historial en vivo.
+ *
+ * @notes
+ * - Endurecido 2026-11-20: eliminada compuerta de contraseña estática en cliente, restringido a rol `'admin'`, excluidas columnas PII y corregido cálculo `NaN`.
+ */
+
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Lock as LockIcon, ShieldCheck, Trophy, ClipboardList, LogOut, RefreshCw, Store as StoreIcon, Star, Heart, Filter, Search } from 'lucide-react'
+import { ShieldCheck, Trophy, ClipboardList, LogOut, Store as StoreIcon, Star, Heart, Filter, Search } from 'lucide-react'
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { formatDateLA } from '@/lib/checklistPermissions'
+import { fetchWithAuth } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 interface Feedback {
@@ -12,12 +29,12 @@ interface Feedback {
   store_name?: string
   submission_date: string
   customer_name: string | null
-  service_rating: number
-  speed_rating: number
-  food_quality_rating: number
-  cleanliness_rating: number
-  nps_score: number
-  nps_category: string
+  service_rating: number | null
+  speed_rating: number | null
+  food_quality_rating: number | null
+  cleanliness_rating: number | null
+  nps_score: number | null
+  nps_category: string | null
   comments: string | null
 }
 
@@ -26,14 +43,15 @@ interface StoreStats {
   store_name: string
   avg_rating: number
   avg_nps: number
+  rating_count: number
+  nps_count: number
   count: number
   rank: number
   previous_rank?: number
 }
 
-export default function AdminPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [password, setPassword] = useState('')
+function AdminPanelContent() {
+  const { logout } = useAuth()
   const [view, setView] = useState<'leaderboard' | 'historial'>('leaderboard')
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
   const [leaderboard, setLeaderboard] = useState<StoreStats[]>([])
@@ -43,40 +61,23 @@ export default function AdminPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const previousRanks = useRef<Map<string, number>>(new Map())
 
-  // Admin password
-  const ADMIN_PASSWORD = 'admin123'
-
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchStores()
-      fetchData()
+    fetchStores()
+    fetchData()
 
-      if (autoRefresh) {
-        const interval = setInterval(() => {
-          fetchData()
-        }, 60000) // Refresh cada 60 segundos
-        return () => clearInterval(interval)
-      }
+    if (autoRefresh) {
+      const interval = setInterval(() => {
+        fetchData()
+      }, 60000)
+      return () => clearInterval(interval)
     }
-  }, [isAuthenticated, autoRefresh])
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true)
-    } else {
-      alert('Contraseña incorrecta')
-    }
-  }
+  }, [autoRefresh])
 
   const fetchStores = async () => {
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      const res = await fetch(`${url}/rest/v1/stores?select=*&order=name.asc`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
+      const res = await fetchWithAuth(`${url}/rest/v1/stores?select=id,name&order=name.asc`)
       const data = await res.json()
       setStores(Array.isArray(data) ? data : [])
     } catch (err) {
@@ -88,34 +89,28 @@ export default function AdminPage() {
     setLoading(true)
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      // Fetch feedbacks
-      const res = await fetch(`${url}/rest/v1/customer_feedback?select=*&order=submission_date.desc`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const data = await res.json()
+      const res = await fetchWithAuth(
+        `${url}/rest/v1/customer_feedback?select=id,store_id,submission_date,customer_name,service_rating,speed_rating,food_quality_rating,cleanliness_rating,nps_score,nps_category,comments&order=submission_date.desc&limit=500`
+      )
+      const rawData = await res.json()
+      const data = Array.isArray(rawData) ? rawData : []
 
-      // Fetch store names
-      const storesRes = await fetch(`${url}/rest/v1/stores?select=id,name`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const storesData = await storesRes.json()
+      const storesRes = await fetchWithAuth(`${url}/rest/v1/stores?select=id,name`)
+      const rawStores = await storesRes.json()
+      const storesData = Array.isArray(rawStores) ? rawStores : []
       const storeMap = new Map<string, string>(
         storesData.map((s: any) => [String(s.id), String(s.name)])
       )
 
-      // Merge store names
-      const feedbacksWithNames = data.map((f: any) => ({
+      const feedbacksWithNames: Feedback[] = data.map((f: any) => ({
         ...f,
-        store_name: storeMap.get(f.store_id) || 'Unknown'
+        store_id: String(f.store_id),
+        store_name: storeMap.get(String(f.store_id)) || 'Unknown'
       }))
 
       setFeedbacks(feedbacksWithNames)
-
-      // Calculate leaderboard
       calculateLeaderboard(feedbacksWithNames, storeMap)
-
     } catch (err) {
       console.error('Error:', err)
     }
@@ -123,30 +118,50 @@ export default function AdminPage() {
   }
 
   const calculateLeaderboard = (data: Feedback[], storeMap: Map<string, string>) => {
-    const statsMap = new Map<string, { sum: number; npsSum: number; count: number }>()
+    const statsMap = new Map<
+      string,
+      { ratingSum: number; ratingCount: number; npsSum: number; npsCount: number; count: number }
+    >()
 
     data.forEach(f => {
-      if (!statsMap.has(f.store_id)) {
-        statsMap.set(f.store_id, { sum: 0, npsSum: 0, count: 0 })
+      const sid = String(f.store_id)
+      if (!statsMap.has(sid)) {
+        statsMap.set(sid, { ratingSum: 0, ratingCount: 0, npsSum: 0, npsCount: 0, count: 0 })
       }
-      const stats = statsMap.get(f.store_id)!
-      const avg = (f.service_rating + f.speed_rating + f.food_quality_rating + f.cleanliness_rating) / 4
-      stats.sum += avg
-      stats.npsSum += f.nps_score
+      const stats = statsMap.get(sid)!
+      const validRatings = [
+        f.service_rating,
+        f.speed_rating,
+        f.food_quality_rating,
+        f.cleanliness_rating
+      ].filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0)
+
+      if (validRatings.length > 0) {
+        const avg = validRatings.reduce((acc, v) => acc + v, 0) / validRatings.length
+        stats.ratingSum += avg
+        stats.ratingCount += 1
+      }
+
+      if (typeof f.nps_score === 'number' && Number.isFinite(f.nps_score)) {
+        stats.npsSum += f.nps_score
+        stats.npsCount += 1
+      }
+
       stats.count += 1
     })
 
     const leaderboardData: StoreStats[] = Array.from(statsMap.entries()).map(([store_id, stats]) => ({
       store_id,
       store_name: storeMap.get(store_id) || 'Unknown',
-      avg_rating: stats.sum / stats.count,
-      avg_nps: stats.npsSum / stats.count,
+      avg_rating: stats.ratingCount > 0 ? stats.ratingSum / stats.ratingCount : 0,
+      avg_nps: stats.npsCount > 0 ? stats.npsSum / stats.npsCount : 0,
+      rating_count: stats.ratingCount,
+      nps_count: stats.npsCount,
       count: stats.count,
       rank: 0,
       previous_rank: previousRanks.current.get(store_id)
     }))
 
-    // Sort and assign ranks
     leaderboardData.sort((a, b) => {
       if (b.avg_rating !== a.avg_rating) return b.avg_rating - a.avg_rating
       return b.count - a.count
@@ -160,17 +175,7 @@ export default function AdminPage() {
     setLeaderboard(leaderboardData)
   }
 
-  const StarDisplay = ({ rating }: { rating: number }) => (
-    <div className="flex gap-0.5">
-      {[1, 2, 3, 4, 5].map(i => (
-        <svg key={i} viewBox="0 0 24 24" className={`w-5 h-5 ${i <= Math.round(rating) ? 'fill-yellow-400' : 'fill-gray-300'}`}>
-          <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-        </svg>
-      ))}
-    </div>
-  )
-
-  const getNPSColor = (category: string) => {
+  const getNPSColor = (category: string | null) => {
     switch (category) {
       case 'promoter': return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border-green-200 dark:border-green-900/50'
       case 'passive': return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-900/50'
@@ -186,55 +191,6 @@ export default function AdminPage() {
     return change
   }
 
-  // --- DISEÑO ACTUALIZADO ADMIN DASHBOARD ---
-
-  // Login screen
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 w-full max-w-md border border-gray-100 dark:border-slate-800 relative z-10"
-        >
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 dark:text-red-400">
-              <LockIcon size={40} />
-            </div>
-            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">Admin Panel</h1>
-            <p className="text-gray-500 dark:text-slate-400 font-medium tracking-tight">Acceso Restringido</p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label htmlFor="password" className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-3">
-                Contraseña
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-2xl text-gray-900 dark:text-white font-bold focus:ring-4 focus:ring-red-500/10 focus:border-red-500 outline-none transition-all"
-                placeholder="••••••••"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full bg-gray-900 dark:bg-slate-100 dark:text-slate-900 text-white font-black py-4 rounded-2xl transition-all active:scale-[0.98] shadow-xl shadow-gray-200 dark:shadow-none uppercase tracking-widest"
-            >
-              INGRESAR
-            </button>
-          </form>
-        </motion.div>
-      </div>
-    )
-  }
-
   return (
     <div className="bg-transparent dark:bg-neutral-900 h-screen overflow-hidden font-sans pt-20 lg:pt-0 relative">
       <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
@@ -242,7 +198,6 @@ export default function AdminPage() {
       {/* STICKY HEADER - Mobile & Desktop */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0 transition-all">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Title Area */}
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
               <ShieldCheck size={18} />
@@ -253,21 +208,18 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-3">
             <div className="flex bg-gray-100 dark:bg-slate-800 rounded-full p-1">
               <button
                 onClick={() => setView('leaderboard')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'leaderboard' ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-500'
-                  }`}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'leaderboard' ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-500'}`}
               >
                 <Trophy size={14} className="inline mr-1 -mt-0.5" />
                 RANKING
               </button>
               <button
                 onClick={() => setView('historial')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'historial' ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-500'
-                  }`}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'historial' ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-500'}`}
               >
                 <ClipboardList size={14} className="inline mr-1 -mt-0.5" />
                 HISTORIAL
@@ -287,7 +239,7 @@ export default function AdminPage() {
             </label>
 
             <button
-              onClick={() => setIsAuthenticated(false)}
+              onClick={logout}
               className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400 flex items-center justify-center transition-colors border border-transparent dark:border-slate-700"
               title="Cerrar Sesión"
             >
@@ -306,7 +258,6 @@ export default function AdminPage() {
 
         {!loading && view === 'leaderboard' && (
           <div className="animate-in fade-in zoom-in duration-300">
-            {/* Stats overview */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-8 text-center md:text-left">
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
                 <div className="flex items-center justify-center md:justify-start gap-2 mb-2 text-gray-400 dark:text-slate-500">
@@ -330,7 +281,10 @@ export default function AdminPage() {
                   <span className="text-[10px] uppercase font-black tracking-widest text-gray-400 dark:text-slate-500">Promedio Gral.</span>
                 </div>
                 <div className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">
-                  {leaderboard.length > 0 ? (leaderboard.reduce((sum, s) => sum + s.avg_rating, 0) / leaderboard.length).toFixed(2) : '0'}
+                  {(() => {
+                    const rated = leaderboard.filter(s => s.rating_count > 0 && Number.isFinite(s.avg_rating))
+                    return rated.length > 0 ? (rated.reduce((sum, s) => sum + s.avg_rating, 0) / rated.length).toFixed(2) : '0'
+                  })()}
                 </div>
               </div>
 
@@ -340,12 +294,14 @@ export default function AdminPage() {
                   <span className="text-[10px] uppercase font-black tracking-widest text-gray-400 dark:text-slate-500">NPS Promedio</span>
                 </div>
                 <div className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">
-                  {leaderboard.length > 0 ? (leaderboard.reduce((sum, s) => sum + s.avg_nps, 0) / leaderboard.length).toFixed(1) : '0'}
+                  {(() => {
+                    const npsRated = leaderboard.filter(s => s.nps_count > 0 && Number.isFinite(s.avg_nps))
+                    return npsRated.length > 0 ? (npsRated.reduce((sum, s) => sum + s.avg_nps, 0) / npsRated.length).toFixed(1) : '0'
+                  })()}
                 </div>
               </div>
             </div>
 
-            {/* Leaderboard Heading */}
             <div className="text-center mb-8">
               <span className="inline-block px-4 py-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 border border-yellow-200 dark:border-yellow-900/50">
                 Real Time
@@ -366,13 +322,12 @@ export default function AdminPage() {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
-                      transition={{ duration: 0.4, type: "spring" }}
+                      transition={{ duration: 0.4, type: 'spring' }}
                       className={`relative flex items-center gap-4 p-5 rounded-3xl shadow-sm border transition-all group ${isTop3
                         ? `bg-gradient-to-br from-white/90 to-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-50/90 dark:from-slate-900/90 dark:to-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-900/40 backdrop-blur-sm border-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-200 dark:border-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-900/50 shadow-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-100 dark:shadow-none`
                         : 'bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm border-gray-100 dark:border-slate-800 hover:border-gray-200 dark:hover:border-slate-700'
                         }`}
                     >
-                      {/* Rank Medal */}
                       <div className={`relative w-16 h-16 shrink-0 rounded-2xl flex items-center justify-center font-black text-2xl shadow-inner ${index === 0 ? 'bg-yellow-400 text-yellow-900' :
                         index === 1 ? 'bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200' :
                           index === 2 ? 'bg-orange-400 text-white' :
@@ -382,7 +337,6 @@ export default function AdminPage() {
                         {isTop3 && <Trophy size={16} className={`absolute -top-2 -right-2 drop-shadow-md ${index === 0 ? 'text-yellow-600' : index === 1 ? 'text-slate-500' : 'text-orange-600'}`} fill="currentColor" />}
                       </div>
 
-                      {/* Store Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="text-lg font-black text-gray-900 dark:text-white truncate tracking-tight">{item.store_name}</h3>
@@ -424,7 +378,6 @@ export default function AdminPage() {
         {!loading && view === 'historial' && (
           <div className="animate-in slide-in-from-bottom-4 duration-500 overflow-y-auto max-h-[calc(100vh-280px)] md:max-h-[calc(100vh-220px)] pb-32 no-scrollbar">
             <div className="max-w-4xl mx-auto px-4">
-              {/* Filters */}
               <div className="sticky top-0 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-2 rounded-2xl shadow-lg shadow-gray-200/50 dark:shadow-none mb-6 border border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <div className="bg-gray-100 dark:bg-slate-800 p-2 rounded-xl">
@@ -439,7 +392,7 @@ export default function AdminPage() {
                     >
                       <option value="all" className="dark:bg-slate-900">Todas las tiendas</option>
                       {stores.map(store => (
-                        <option key={store.id} value={store.id} className="dark:bg-slate-900">{store.name}</option>
+                        <option key={store.id} value={String(store.id)} className="dark:bg-slate-900">{store.name}</option>
                       ))}
                     </select>
                   </div>
@@ -451,10 +404,9 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Historial list */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {feedbacks
-                  .filter(f => selectedStore === 'all' || f.store_id === selectedStore)
+                  .filter(f => selectedStore === 'all' || String(f.store_id) === String(selectedStore))
                   .map(feedback => (
                     <div key={feedback.id} className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm hover:shadow-md transition-all p-5 border border-gray-100 dark:border-slate-800 flex flex-col h-full group">
                       <div className="flex justify-between items-start mb-4">
@@ -465,32 +417,32 @@ export default function AdminPage() {
                           </p>
                         </div>
                         <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase border shrink-0 ${getNPSColor(feedback.nps_category)}`}>
-                          NPS {feedback.nps_score}
+                          NPS {feedback.nps_score ?? '—'}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-4 gap-2 mb-4 bg-gray-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-gray-100 dark:border-slate-800/50">
                         <div className="text-center">
                           <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Serv</div>
-                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.service_rating}</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.service_rating ?? '—'}</div>
                         </div>
                         <div className="text-center border-l border-gray-200 dark:border-slate-800">
                           <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Rap</div>
-                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.speed_rating}</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.speed_rating ?? '—'}</div>
                         </div>
                         <div className="text-center border-l border-gray-200 dark:border-slate-800">
                           <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Cal</div>
-                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.food_quality_rating}</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.food_quality_rating ?? '—'}</div>
                         </div>
                         <div className="text-center border-l border-gray-200 dark:border-slate-800">
                           <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Lim</div>
-                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.cleanliness_rating}</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.cleanliness_rating ?? '—'}</div>
                         </div>
                       </div>
 
                       {feedback.comments ? (
                         <div className="flex-1 bg-gray-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-gray-100 dark:border-slate-800">
-                          <p className="text-xs text-gray-600 dark:text-slate-400 font-medium italic leading-relaxed">"{feedback.comments}"</p>
+                          <p className="text-xs text-gray-600 dark:text-slate-400 font-medium italic leading-relaxed">&ldquo;{feedback.comments}&rdquo;</p>
                         </div>
                       ) : (
                         <div className="flex-1 flex items-center justify-center text-gray-300 dark:text-slate-700 text-[10px] font-bold uppercase tracking-widest italic">
@@ -501,7 +453,7 @@ export default function AdminPage() {
                   ))}
               </div>
 
-              {feedbacks.filter(f => selectedStore === 'all' || f.store_id === selectedStore).length === 0 && (
+              {feedbacks.filter(f => selectedStore === 'all' || String(f.store_id) === String(selectedStore)).length === 0 && (
                 <div className="text-center py-20 opacity-50">
                   <div className="bg-gray-100 dark:bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400 dark:text-slate-600">
                     <Search size={24} />
@@ -512,7 +464,15 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-      </div >
-    </div >
+      </div>
+    </div>
+  )
+}
+
+export default function AdminPage() {
+  return (
+    <ProtectedRoute allowedRoles={['admin']}>
+      <AdminPanelContent />
+    </ProtectedRoute>
   )
 }

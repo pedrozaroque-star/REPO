@@ -1268,7 +1268,8 @@ async function saveStoreOrdersL2Cache(storeId: number, modeKey: string, orders: 
     await supabaseAdmin.from('order_ready_settings').upsert(
       {
         id: rowId,
-        voice_name: 'Kore',
+        voice: 'Kore',
+        voice_language: 'bilingual',
         updated_at: new Date().toISOString(),
         updated_by: JSON.stringify({ at: Date.now(), orders: snapshot })
       },

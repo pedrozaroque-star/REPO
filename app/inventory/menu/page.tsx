@@ -1,7 +1,25 @@
 'use client'
 
+/**
+ * @module app/inventory/menu/page
+ * @description Catálogo de productos y modificadores del menú de Toast POS con cálculo en vivo
+ *   de Food Cost, COGS de empaque por canal (Dine-In, Takeout, Delivery) y margen teórico.
+ *
+ * @businessRules
+ *   - Los ingredientes con `type` `'food'`, `'raw'` y `'cooked'` pertenecen todos a Food Cost.
+ *   - Los ingredientes `'cogs_dine_in'`, `'cogs_takeout'` y `'cogs_delivery'` pertenecen a empaque/COGS.
+ *   - Los Party Trays generan sus ingredientes virtuales mediante `buildPartyTrayVirtualIngredients`.
+ *
+ * @dataFlow
+ *   `toast_menu_items` + `recipes` + `inventory_items` -> `calculateIngredientCost()` -> tabla ordenable + `RecipeModal`.
+ *
+ * @notes
+ *   - [2026-11-20] FIX: Incluido `'raw'` y `'cooked'` junto a `'food'` y pasado `r.type` a `calculateIngredientCost()`
+ *     para paridad exacta con `lib/inventory/costs.ts`.
+ */
+
 import { useState, useEffect } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase'
 import { RecipeModal } from './components/RecipeModal'
 import { ArrowUpDown, ArrowUp, ArrowDown, Info, X } from 'lucide-react'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
@@ -18,12 +36,6 @@ export default function MenuCatalogPage() {
     const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'foodCostPercent', direction: 'desc' })
 
     const { t } = useLanguage()
-
-    const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-
 
     useEffect(() => {
         fetchLocalMenu()
@@ -82,10 +94,10 @@ export default function MenuCatalogPage() {
             
             const inv = r.inventory_items
             if (inv) {
-                const ingredientCost = calculateIngredientCost(r.quantity, r.unit, inv)
                 const type = r.type || 'food'
+                const ingredientCost = calculateIngredientCost(r.quantity, r.unit, inv, type)
 
-                if (type === 'food') {
+                if (type === 'food' || type === 'raw' || type === 'cooked') {
                     ingredientCounts[guid] = (ingredientCounts[guid] || 0) + 1
                     itemCosts[guid] = (itemCosts[guid] || 0) + ingredientCost
                 } else if (type === 'cogs_dine_in') {

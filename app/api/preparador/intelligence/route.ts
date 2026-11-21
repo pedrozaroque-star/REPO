@@ -11,17 +11,19 @@
  * @notes
  *   - Horas de madrugada (0:00 a 5:59 AM) se mapean como horas 24 a 29 en la curva proyectada de 30h.
  *   - Optimización 2026-11-19 (Paquete 2B):
- *     1) `Cache-Control: public, s-maxage=300, stale-while-revalidate=300` en respuestas exitosas.
+ *     1) `Cache-Control: private, max-age=300, stale-while-revalidate=300` en respuestas exitosas autenticadas.
  *     2) Caché en RAM de 15 minutos para `stores.external_id`.
  *     3) Salvaguarda Caveat D para Ritmo Intraday: valida `sales_daily_cache.updated_at` antes de llamar a Toast;
  *        si la fila de hoy existe, tiene `net_sales > 0` y su `updated_at` tiene `<= 20 min`, lee directamente
  *        del caché en DB (sin llamada a Toast ni doble auth/query vía `fetchToastData`, que omitiría hoy por dirty window);
  *        si falta o tiene `> 20 min`, cae automáticamente a `fetchToastData(..., { skipCache: true })`.
+ *   - Protegido con `verifyStaffAuth`.
  */
 import { NextResponse } from 'next/server'
 import { generateSmartForecast } from '@/lib/intelligence'
 import { fetchToastData } from '@/lib/toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,6 +59,11 @@ async function getStoreExternalIdCached(
 }
 
 export async function GET(request: Request) {
+    const auth = await verifyStaffAuth(request)
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const storeId = searchParams.get('store_id')
 
@@ -195,7 +202,7 @@ export async function GET(request: Request) {
             },
             {
                 headers: {
-                    'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=300'
+                    'Cache-Control': 'private, max-age=300, stale-while-revalidate=300'
                 }
             }
         )

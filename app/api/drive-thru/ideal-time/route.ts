@@ -20,14 +20,18 @@
  *
  * @notes
  * - storeId es opcional — si no se provee, calcula para todas las tiendas DT.
- * - No requiere autenticación CRON_SECRET (es endpoint público interno).
+ * - Requiere sesión autenticada de personal vía `verifyStaffAuth` (con soporte `CRON_SECRET`).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getIdealTime } from '@/lib/drive-thru-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+    const auth = verifyStaffAuth(request)
+    if (!auth.authorized) return auth.response!
+
     try {
         const searchParams = request.nextUrl.searchParams
 

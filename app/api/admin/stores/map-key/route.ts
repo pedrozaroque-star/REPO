@@ -8,8 +8,12 @@
  */
 
 import { NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = verifyStaffAuth(request, { allowCron: false })
+  if (!auth.authorized) return auth.response!
+
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || ''
   
   if (!apiKey) {

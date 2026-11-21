@@ -436,14 +436,9 @@ function ScheduleManager() {
     const searchParams = useSearchParams()
     const canEdit = ['admin', 'supervisor'].some(role => user?.role?.toLowerCase().includes(role));
 
-    // 🔄 FUNCIÓN PARA OBTENER CLIENTE CON TOKEN ACTUAL (igual que dashboard)
+    // 🔄 FUNCIÓN PARA OBTENER CLIENTE CON TOKEN ACTUAL (inyectado dinámicamente vía browserAuthFetch)
     const getSupabase = async () => {
-        const token = localStorage.getItem('teg_token')
-        const supabase = await getSupabaseClient()
-        if (token) {
-            await supabase.auth.setSession({ access_token: token, refresh_token: '' })
-        }
-        return supabase
+        return getSupabaseClient()
     }
 
     const [viewMode, setViewMode] = useState<'dashboard' | 'editor'>('dashboard');

@@ -23,9 +23,14 @@
  *     se resuelven directamente a `"de asada"`.
  *   * En Drive-Thru (`detectAmbiguousMeatNadaCollision`), `"Quiero dos nada"`, `"tres nada"`, `"dame dos de nada"` o
  *     `"de nada"` disparan confirmación breve (`"¿Dos de asada?"`) antes de agregar al carrito.
- * - **Filtro de Audio de Fondo (`isLikelyBackgroundMediaSpeech`)**:
- *   * Detecta monólogos largos (`>= 18` palabras, ej. narraciones de TV/YouTube de Fórmula 1, noticias o radio) que no
- *     contienen ningún término de restaurante, comida, bebida, orden, tienda, horario, saludo, teléfono o recado.
+ * - **Filtro de Audio de Fondo e Intención Directa en Turnos Mixtos (`isLikelyBackgroundMediaSpeech` + `extractDirectCustomerIntentFromNoisyTurn`)**:
+ *   * `hasDirectCustomerAudioCheck` detecta interpelaciones directas de verificación de audio (`"¿me escuchas?"`, `"¿sí me escuchas o no?"`,
+ *     `"can you hear me"`, `"are you there"`, `"¿estás ahí?"`).
+ *   * `isLikelyBackgroundMediaSpeech` devuelve `false` siempre que el turno contenga cualquier interpelación directa o término claro de orden/restaurante
+ *     de Tacos Gavilan (jamás descarta turnos mixtos TV + cliente), y devuelve `true` tanto en monólogos puros de TV/YouTube/radio (`>= 12` palabras sin
+ *     dominio de restaurante/teléfono/audio-check) como en frases cortas con marcadores explícitos de YouTube/streaming/videojuegos (`"dejen su like"`,
+ *     `"GTA 6"`, `"DLSS"`, `"neural rendering"`, `"Xbox"`, `"modders"`, etc.) sin intención del cliente.
+ *   * `extractDirectCustomerIntentFromNoisyTurn` separa cláusulas ajenas de TV/YouTube (ej. GTA VI / Xbox / modders) del segmento real hablado por el cliente.
  * - **Ventana Oficial de Desayunos (`isKoreBreakfastOpen`, 15 Sucursales)**:
  *   * En las 15 sucursales de Tacos Gavilan los desayunos (`Breakfast`: burritos de huevo, platos de huevos y tortas de huevo)
  *     están disponibles desde la apertura (`>= 06:00 AM` día laboral) hasta antes de las `2:00 PM` (`14:00` en `America/Los_Angeles`).
@@ -33,11 +38,17 @@
  *
  * @dataFlow
  * - Entrada cruda de usuario/herramienta -> `normalizeKoreCustomerSpeech` / `detectAmbiguousMeatNadaCollision` /
- *   `isLikelyBackgroundMediaSpeech` -> `lib/drive-thru-kore-order.ts` y `lib/phone-agent.ts`.
+ *   `hasDirectCustomerAudioCheck` / `extractDirectCustomerIntentFromNoisyTurn` / `isLikelyBackgroundMediaSpeech` ->
+ *   `lib/drive-thru-kore-order.ts`, `lib/drive-thru-kore-learning.ts` y `lib/phone-agent.ts`.
  *
  * @notes
  * - Creado en sincronización bidireccional 2026-11-19 a partir de hallazgos forenses reales en `phone_calls` (146 llamadas)
  *   y `dt_kore_sim_sessions` (colisión `"Quiero dos nada"` y captura de YouTube/TV Fórmula 1 Checo Pérez).
+ * - Calibrado 2026-11-21 con sesión forense `9026505b-9896-4635-82d0-45a580ac88e8` (`#14 Lynwood`, YouTube GTA VI/Xbox de fondo +
+ *   cliente preguntando `"¿Sí me escuchas o no?"` y ordenando `"Quiero un burrito y cinco tacos de asada"`).
+ * - Calibrado Fase 21 (`2026-11-21`, sesión forense `99d29f93-7ad2-478d-99f7-015f9c7f2c82` en `#14 Lynwood`):
+ *   marcadores de capturadoras/30 FPS (`30 fps`, `capado a`, `capturadora`, `me patrocinó`), verbos copulativos colgantes (`es|son|sea`)
+ *   y candado determinista `isExplicitWholeOrderCancelIntent` / `shouldBlockUnconfirmedCancelOrder` contra `cancel_order` ante `"Olvídalo entonces."`.
  */
 
 export type KoreSpeechChannelMode = 'phone' | 'drive_thru'
@@ -273,15 +284,90 @@ const RESTAURANT_OR_CALL_DOMAIN_RE =
   /\b(tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|plates?|combos?|flan(?:es)?|cheesecakes?|postres?|desserts?|pastel(?:es)?|cakes?|churros?|charolas?|platters?|trays?|catering|taquizas?|desayunos?|breakfasts?|huevos?|eggs?|rancheros?|menudo|birria|pozole|suadero|tripas?|asada|pastor|adobada|pollo|chicken|steak|beef|cabeza|lengua|tongue|buche|chorizo|carnitas|milanesa|cuban[oa]s?|vegetarian[oa]s?|veggie|carne|meat|frijol(?:es)?|beans?|arroz|rice|queso|cheese|crema|guacamole|aguacate|avocado|cebollas?|onions?|cilantro|salsas?|limon(?:es)?|limes?|jalapenos?|tortillas?|maiz|corn|harina|flour|chips|totopos|horchatas?|jamaicas?|tamarindos?|pinas?|pineapples?|limonadas?|lemonades?|champurrados?|cafes?|coffees?|cocas?|cokes?|sprites?|fantas?|sodas?|refrescos?|aguas?|waters?|bebidas?|drinks?|galon(?:es)?|gallons?|onzas?|orden(?:es)?|ordenar|orders?|ordering|pedidos?|pedir|precios?|prices?|cuanto|cuesta|cuestan|costs?|subtotal|cobran|cobro|cobraron|pagar|pago|efectivo|cash|tarjetas?|cards?|ebt|calfresh|reembolsos?|refunds?|tickets?|recibos?|receipts?|menu|comida|food|comer|cenar|desayunar|almorzar|llevar|takeout|pickup|recoger|ventanilla|drive|thru|bocina|altavoz|speaker|comedor|restaurantes?|taquerias?|mostrador|caja|gavilan|sucursal(?:es)?|tiendas?|stores?|locations?|abiert[oa]s?|abren|cerrad[oa]s?|cierran|open|closed|close|horarios?|hours?|direccion(?:es)?|domicilio|ubicad[oa]s?|ubicacion|address|estacionamiento|parking|banos?|restrooms?|lynwood|downey|south\s+gate|norwalk|huntington|slauson|broadway|vernon|central|washington|hollywood|covina|azusa|la\s+puente|santa\s+ana|rialto|hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|disculp[ae]|senorita|oiga|hello|good\s+morning|good\s+afternoon|good\s+evening|excuse\s+me|por\s+favor|please|gracias|thank\s+you|thanks|llamad[oa]s?|llamar|llamando|llame|telefonos?|celulares?|phones?|calling|callback|recados?|mensajes?|messages?|gerentes?|managers?|supervisor(?:es)?|encargad[oa]s?|emplead[oa]s?|employees?|turnos?|shifts?|empleo|vacantes?|contratando|hiring|solicitud|repartidor(?:es)?|doordash|uber|grubhub|postmates|caviar|quejas?|complaints?|equivocad[oa]s?|incomplet[oa]s?|falto|faltaron|missing|olvide|perdi|deje\s+mi|cartera|wallet|bolsa|llaves|keys|proveedor(?:es)?|vendors?|tecnicos?|technicians?|mantenimiento|google\s+listing|seo|paneles\s+solares|solar\s+panels|prestamo\s+comercial|merchant\s+cash)\b/i
 
 /**
- * Detecta si un texto transcrito corresponde probablemente a TV, YouTube, radio, narración deportiva
- * (ej. Fórmula 1 / noticias) o conversación externa captada por el micrófono:
- * - Requiere al menos 18 palabras reales (`>= 18`).
- * - Sin secuencia de teléfono de 7–10 dígitos.
- * - CERO términos de comida, bebida, menú, orden, sucursal, horario, saludo, llamada o recado.
+ * Interpelación directa del cliente para confirmar si la asistente/bocina lo escucha
+ * (ej. `"¿Me escuchas?"`, `"¿Sí me escuchas o no?"`, `"Can you hear me?"`, `"Are you there?"`).
+ */
+const DIRECT_CUSTOMER_AUDIO_CHECK_RE =
+  /\b(?:(?:si\s+)?me\s+(?:escuchas?|oyes?|estan?\s+escuchando|entiendes?)|me\s+(?:puedes?|pueden)\s+(?:escuchar|oir)|(?:por\s*que\s+)?no\s+me\s+contestas?|me\s+contestas?|(?:por\s*que\s+)?me\s+(?:cortas?|callas?|interrumpes?|apresuras?)|te\s+estoy\s+hablando|estaba\s+hablando|tengo\s+un\s+video\s+en\s+mi\s+carro|(?:estas?|sigues?|sigue|estan)\s+ahi|hay\s+alguien(?:\s+ahi)?|(?:can|do|could)\s+you\s+hear\s+me|you\s+hear\s+me(?:\s+or\s+not)?|why\s+(?:arent|are\s+not|dont|do\s+not)\s+you\s+answering|why\s+(?:do|did)\s+you\s+cut\s+me\s+off|are\s+you\s+(?:still\s+)?there|still\s+there|anyone\s+there|anybody\s+there|is\s+this\s+thing\s+on)\b/i
+
+/**
+ * Respuestas o cierres directos típicos de orden en Drive-Thru que no deben descartarse cuando se mezclan con ruido.
+ */
+const DIRECT_ORDER_PROGRESSION_RE =
+  /\b(?:ya\s+es\s+todo|eso\s+(?:es|seria)\s+todo|es\s+todo|nada\s+mas|seria\s+todo|asi\s+esta\s+bien|correcto|that\s*s\s+all|thats\s+all|(?:lo\s+quiero|la\s+quiero|lo\s+queria|la\s+queria|hazlo|hazla|ponlo|ponla|el\s+burrito|la\s+quesadilla|la\s+mulita)\s+(?:regular|super)|regular\s+o\s+super|regular\s+or\s+super)\b/i
+
+/**
+ * Marcadores inequívocos de videos de YouTube, reseñas tecnológicas/cámaras, streaming o videojuegos
+ * (permite bloquear también fragmentos cortos como `"dejen su like y"` o `"es esta cámara"` cuando NO contienen
+ * ninguna palabra de comida, orden ni interpelación del cliente).
+ */
+export const EXPLICIT_BACKGROUND_MEDIA_MARKER_RE =
+  /\b(?:dejen\s+(?:su\s+)?like|dale\s+like|denle\s+like|suscrib(?:anse|ete|irse)|activar?\s+la\s+campanita|en\s+este\s+video|ver\s+todo\s+el\s+video|imaginate\s+que|es\s+esta\s+camara|el\s+sensor|camara\s+de|gta\s*(?:v|vi|5|6|cinco|seis)|grand\s+theft\s+auto|dlss|neural\s+rendering|ray\s+tracing|pc\s+gamers?|pc\s+master\s+race|computadora\s+gamers?|playstation|xbox|modders?|portear|porteo|(?:30|60|120)\s*fps|fps|capad[oa]\s+a|capturadoras?|me\s+patrocin[oó]|patrocinad[oa]\s+por|streamers?|youtubers?|videojuegos?)\b/i
+
+export const KORE_BG_MEDIA_MIN_WORDS = 12
+
+/**
+ * Retorna `true` cuando el texto tiene caracteres alfabéticos/escritura visible pero **CERO letras latinas**
+ * (`A-Z` / vocales acentuadas / `ñ`) y **CERO dígitos ASCII** (`0-9`), p. ej. alucinaciones STT de ruido de fondo
+ * en escrituras Devanagari, Hiragana/Katakana, CJK, árabe o cirílico (`"जी के"`, `"だいたい"`, `"担当者の責任"`).
+ */
+export function isNonLatinNoiseTranscript(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) return false
+  if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]/.test(raw)) return false
+  return /\p{L}|\p{Script=Devanagari}|\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|\p{Script=Arabic}|\p{Script=Cyrillic}|\p{Script=Thai}/u.test(
+    raw
+  )
+}
+
+export interface NoisyTurnCustomerIntent {
+  isPureBackgroundMedia: boolean
+  hasAudioCheck: boolean
+  hasOrderOrDomainIntent: boolean
+  hasMixedBackgroundNoise: boolean
+  extractedCustomerSegment: string | null
+}
+
+/**
+ * Devuelve `true` si el texto contiene una pregunta/verificación directa de audio hacia Kore o la línea
+ * (`"¿me escuchas?"`, `"¿sí me escuchas o no?"`, `"can you hear me?"`, `"are you there?"`).
+ */
+export function hasDirectCustomerAudioCheck(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) return false
+  const norm = stripDiacriticsLower(raw)
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return Boolean(norm && DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm))
+}
+
+/**
+ * Devuelve `true` si el texto contiene marcadores explícitos de YouTube, streaming o videojuegos.
+ */
+export function hasExplicitBackgroundMediaMarkers(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) return false
+  const norm = stripDiacriticsLower(raw)
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return Boolean(norm && EXPLICIT_BACKGROUND_MEDIA_MARKER_RE.test(norm))
+}
+
+/**
+ * Detecta si un texto transcrito corresponde probablemente a un monólogo o fragmento 100% ajeno de TV, YouTube,
+ * videojuegos, radio o narración deportiva captado por el micrófono:
+ * - Devuelve `false` si dicta teléfono (7+ dígitos) o contiene CUALQUIER interpelación directa (`"¿me escuchas?"`,
+ *   `"can you hear me?"`) o término de comida, bebida, menú, orden, sucursal, horario, saludo, llamada o recado.
+ * - Devuelve `true` si tiene `>= 12` palabras sin dominio de restaurante/audio-check, O si contiene marcadores
+ *   inequívocos de YouTube/streaming/videojuegos (`"dejen su like"`, `"GTA 6"`, `"DLSS"`, `"Xbox"`, `"modders"`, etc.).
+ * Nunca descarta turnos mixtos donde la TV suena de fondo pero el cliente también habló o preguntó.
  */
 export function isLikelyBackgroundMediaSpeech(rawText: string): boolean {
   const raw = String(rawText ?? '').trim()
   if (!raw) return false
+  if (isNonLatinNoiseTranscript(raw)) return true
 
   const norm = stripDiacriticsLower(
     normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' })
@@ -292,18 +378,405 @@ export function isLikelyBackgroundMediaSpeech(rawText: string): boolean {
 
   if (!norm) return false
 
-  const words = norm.split(' ').filter((w) => w.length > 0)
-  if (words.length < 18) return false
-
   // Si dicta un número telefónico de 7-10 dígitos, nunca clasificar como TV/radio
   const digitsOnly = raw.replace(/\D/g, '')
   if (digitsOnly.length >= 7) return false
 
-  if (RESTAURANT_OR_CALL_DOMAIN_RE.test(norm)) {
+  if (
+    DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm) ||
+    RESTAURANT_OR_CALL_DOMAIN_RE.test(norm) ||
+    DIRECT_ORDER_PROGRESSION_RE.test(norm)
+  ) {
     return false
   }
 
-  return true
+  if (EXPLICIT_BACKGROUND_MEDIA_MARKER_RE.test(norm)) {
+    return true
+  }
+
+  const words = norm.split(' ').filter((w) => w.length > 0)
+  return words.length >= KORE_BG_MEDIA_MIN_WORDS
+}
+
+/**
+ * Analiza un turno ruidoso o mezclado (ej. YouTube/TV de fondo + voz cercana del cliente) y extrae
+ * el segmento real dirigido a Kore (pedido, respuesta o `"¿Sí me escuchas o no?"`), distinguiéndolo
+ * de un monólogo 100% ajeno de TV/radio.
+ */
+export function extractDirectCustomerIntentFromNoisyTurn(rawText: string): NoisyTurnCustomerIntent {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) {
+    return {
+      isPureBackgroundMedia: false,
+      hasAudioCheck: false,
+      hasOrderOrDomainIntent: false,
+      hasMixedBackgroundNoise: false,
+      extractedCustomerSegment: null
+    }
+  }
+
+  const normalized = normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' })
+  const norm = stripDiacriticsLower(normalized)
+    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const hasAudioCheck = DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm)
+  const hasOrderOrDomainIntent =
+    RESTAURANT_OR_CALL_DOMAIN_RE.test(norm) ||
+    DIRECT_ORDER_PROGRESSION_RE.test(norm) ||
+    /^(?:regular|super|si|no|ok|okay)$/i.test(norm)
+
+  if (isLikelyBackgroundMediaSpeech(raw)) {
+    return {
+      isPureBackgroundMedia: true,
+      hasAudioCheck: false,
+      hasOrderOrDomainIntent: false,
+      hasMixedBackgroundNoise: false,
+      extractedCustomerSegment: null
+    }
+  }
+
+  if (!hasAudioCheck && !hasOrderOrDomainIntent) {
+    return {
+      isPureBackgroundMedia: false,
+      hasAudioCheck: false,
+      hasOrderOrDomainIntent: false,
+      hasMixedBackgroundNoise: false,
+      extractedCustomerSegment: null
+    }
+  }
+
+  // Segmentar por puntuación o por anclas claras de inicio de habla del cliente a mitad de un monólogo de TV
+  const withMidTurnDelims = raw
+    .replace(/([.!?]+)\s+/g, '$1\n')
+    .replace(/\s+(?=[¿¡])/g, '\n')
+    .replace(
+      /\s+(?=(?:hola|buenos\s+d[ií]as|buenas\s+(?:tardes|noches)|disculp[ae]|quiero|quisiera|dame|deme|me\s+das?|ponme|agr[eé]game|(?:s[ií]\s+)?me\s+(?:escuchas?|oyes?)|est[aá]s?\s+ah[ií]|sigues?\s+ah[ií]|ya\s+es\s+todo|es\s+todo|hi|hello|excuse\s+me|i\s+want|i'?d\s+like|can\s+i\s+(?:get|have)|(?:can|do|could)\s+you\s+hear\s+me|are\s+you\s+(?:still\s+)?there)\b)/gi,
+      '\n'
+    )
+
+  const rawClauses = withMidTurnDelims
+    .split('\n')
+    .map((c) => c.trim())
+    .filter(Boolean)
+
+  const customerClauses: string[] = []
+  let noiseWordCount = 0
+
+  for (const clause of rawClauses) {
+    const cNorm = stripDiacriticsLower(normalizeKoreCustomerSpeech(clause, { mode: 'drive_thru' }))
+      .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!cNorm) continue
+    const isCustClause =
+      DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(cNorm) ||
+      RESTAURANT_OR_CALL_DOMAIN_RE.test(cNorm) ||
+      DIRECT_ORDER_PROGRESSION_RE.test(cNorm) ||
+      /^(?:regular|super|si|no|ok|okay)$/i.test(cNorm)
+    if (isCustClause) {
+      customerClauses.push(clause)
+    } else {
+      noiseWordCount += cNorm.split(' ').filter(Boolean).length
+    }
+  }
+
+  return {
+    isPureBackgroundMedia: false,
+    hasAudioCheck,
+    hasOrderOrDomainIntent,
+    hasMixedBackgroundNoise: noiseWordCount >= 4 && customerClauses.length > 0,
+    extractedCustomerSegment: customerClauses.length > 0 ? customerClauses.join(' ').trim() : raw
+  }
+}
+
+/**
+ * Vocabulario que JAMÁS puede ser un fragmento colgante truncado (respuestas válidas de 1–3 palabras:
+ * sí/no, carnes, sabores, tamaños, variantes Regular/Super, números cardinales completos como `"uno"`/`"dos"`,
+ * platillos, bebidas, cierres, saludos o formas de pago).
+ */
+const VALID_STANDALONE_ANSWER_VETO_RE =
+  /\b(?:si|yes|yep|yeah|no|nope|asi|ok|okay|sale|va|claro|correcto|exacto|perfecto|listo|gracias|thanks|thank|hola|hello|hi|bueno|adelante|regular|super|supreme|supremo|suprema|mediana|mediano|medianas|medianos|grande|grandes|medium|large|galon|gallon|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+|todo|todos|nada|mas|all|mejor|cambio|cambiar|quitar|quita|cancelar|efectivo|cash|tarjeta|card|ebt|calfresh|doordash|uber|grubhub|maiz|corn|harina|flour|roja|verde)\b/i
+
+/**
+ * Arranques truncados a mitad de oración cuando el cliente hace una pausa pensando qué pedir
+ * (ej. `"Quiero"`, `"Quiero una"`, `"Dame un"`, `"Me das"`, `"Este"`, `"Eh"`, `"Un"`, `"Una"`, `"I want"`, `"Can I get"`).
+ */
+const DANGLING_INCOMPLETE_ORDER_FRAGMENT_RE =
+  /^(?:(?:y|o|pero|pues|este|eh+|em+|um+|uh+|ah+|mm+|hmm+|entonces|tambien|ademas|oye|oiga)\s+)*(?:(?:yo\s+)?(?:quiero|quisiera|querria|estoy\s+queriendo|dame|deme|me\s+(?:das?|da|pones?|pone|traes?|regalas?|agregas?)|ponme|ponle|agregame|agrega|seria|serian)(?:\s+(?:un|una|unos|unas|el|la|los|las|otro|otra|otros|otras))?|(?:un|una|unos|unas)|(?:este|eh+|em+|um+|uh+|ah+|mm+|hmm+)|(?:(?:and|also|um+|uh+|well)\s+)*(?:i\s+(?:want|would\s+like)|id\s+like|(?:can|could|may)\s+i(?:\s+(?:get|have))?|give\s+me|lemme\s+get|let\s+me\s+(?:get|have))(?:\s+(?:a|an|the|another|some))?|(?:a|an))$/i
+
+/**
+ * Retorna `true` únicamente cuando todo el texto del turno es un arranque truncado sin platillo,
+ * carne, sabor, tamaño, cantidad completa (`"uno"`/`"dos"`) ni respuesta válida (`"Sí"`, `"No"`, `"Jamaica"`, `"carnitas"`, `"regular"`).
+ */
+export function isDanglingIncompleteOrderFragment(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) return false
+
+  const norm = stripDiacriticsLower(raw)
+    .replace(/['’`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return false
+
+  const words = norm.split(' ').filter(Boolean)
+  if (words.length === 0 || words.length > 4) return false
+
+  if (
+    VALID_STANDALONE_ANSWER_VETO_RE.test(norm) ||
+    RESTAURANT_OR_CALL_DOMAIN_RE.test(norm) ||
+    DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm) ||
+    DIRECT_ORDER_PROGRESSION_RE.test(norm)
+  ) {
+    return false
+  }
+
+  return DANGLING_INCOMPLETE_ORDER_FRAGMENT_RE.test(norm)
+}
+
+const COMPOUND_ITEM_HEAD_FAMILY_MAP: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b__item_taco_plate__\b/, 'taco_plate'],
+  [/\b__item_brc_burrito__\b/, 'burrito'],
+  [/\b__item_nachos__\b/, 'nachos'],
+  [/\b__item_courtesy_beans__\b/, 'courtesy_beans'],
+  [/\b__item_courtesy_onions__\b/, 'courtesy_onions'],
+  [/\btacos?\b/, 'taco'],
+  [/\bburritos?\b/, 'burrito'],
+  [/\bquesadillas?\b/, 'quesadilla'],
+  [/\bmulitas?\b/, 'mulita'],
+  [/\btortas?\b/, 'torta'],
+  [/\bsopes?\b/, 'sope'],
+  [/\bnachos?\b/, 'nachos'],
+  [/\b(?:platos?|plates?)\b/, 'plato'],
+  [/\bhuevos?\b/, 'breakfast_eggs'],
+  [/\b(?:horchatas?|jamaicas?|tamarindos?|pinas?|limonadas?|lemonades?|champurrados?|cafes?|coffees?|cocas?|cokes?|sprites?|fantas?|sodas?|refrescos?|aguas?|waters?)\b/, 'drink'],
+  [/\b(?:flan(?:es)?|cheesecakes?|postres?|desserts?)\b/, 'dessert']
+]
+
+/**
+ * Retorna `true` cuando el turno del cliente pidió más artículos/familias distintas de comida o bebida
+ * de los que se agregaron realmente en esa llamada a herramienta (ej. `"Quiero un taco de asada y dos burritos."`
+ * con `addedItemsCount === 1`, porque los burritos aún requieren aclarar `Regular o Super`), evitando que un
+ * fast-clip parcial (`ack_1_taco_asada`) silencie la pregunta de Kore sobre los artículos restantes.
+ */
+export function hasUnresolvedCompoundOrderItems(customerTurnText: string, addedItemsCount: number): boolean {
+  const safeAdded = Number.isFinite(addedItemsCount) ? Math.max(0, Math.trunc(addedItemsCount)) : 0
+  if (safeAdded <= 0) return false
+  const raw = String(customerTurnText ?? '').trim()
+  if (!raw) return false
+
+  const noisy = extractDirectCustomerIntentFromNoisyTurn(raw)
+  const targetText = noisy.extractedCustomerSegment || raw
+
+  let norm = stripDiacriticsLower(normalizeKoreCustomerSpeech(targetText, { mode: 'drive_thru' }))
+    .replace(/[^\p{L}\p{N}\s,;/-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return false
+
+  // Si es una corrección/reemplazo ("cambiar X por Y", "en vez de X"), no tratar el platillo viejo como item faltante
+  if (/\b(?:cambiar|cambia|cambialo|cambiame|en\s+vez\s+de|en\s+lugar\s+de|instead\s+of|change|swap|replace)\b/.test(norm)) {
+    return false
+  }
+
+  // Colapsar platillos compuestos de 1 solo SKU antes de contar cláusulas
+  norm = norm
+    .replace(/\b(?:taco\s+plates?|platos?\s+de\s+(?:tres|3)\s+tacos?|combos?\s+de\s+(?:tres|3)\s+tacos?)\b/g, ' __item_taco_plate__ ')
+    .replace(/\b(?:super\s+)?burritos?\s+(?:de\s+)?(?:frijol(?:es)?|arroz|queso)(?:[\s,y/]+(?:frijol(?:es)?|arroz|queso))*\b/g, ' __item_brc_burrito__ ')
+    .replace(/\b(?:beans?|rice|cheese)(?:[\s,/]+(?:and\s+)?(?:beans?|rice|cheese))+\s+burritos?\b/g, ' __item_brc_burrito__ ')
+    .replace(/\bsuper\s+nachos?\b/g, ' __item_nachos__ ')
+    .replace(/\b(?:con|with)\s+(?:cebollas?\s+asadas?|cebollitas?(?:\s+asadas?)?|frijol(?:es)?\s+de\s+la\s+olla)\b/g, ' ')
+    .replace(/\bfrijol(?:es)?\s+de\s+la\s+olla\b/g, ' __item_courtesy_beans__ ')
+    .replace(/\b(?:cebollas?\s+asadas?|cebollitas?(?:\s+asadas?)?)\b/g, ' __item_courtesy_onions__ ')
+    .replace(/\b(?:sin|without|no)\s+[a-z]+(?:\s+(?:y|ni|and|or)\s+[a-z]+)?\b/g, ' ')
+
+  const clauses = norm
+    .split(/\s+(?:y|e|tambien|ademas|mas|and|plus|also)\s+|[,;]+/)
+    .map((c) => c.trim())
+    .filter(Boolean)
+
+  let specificItemClauses = 0
+  let genericUmbrellaDrinkClauses = 0
+  const distinctFamilies = new Set<string>()
+
+  for (const clause of clauses) {
+    let matchedSpecificInClause = false
+    for (const [re, fam] of COMPOUND_ITEM_HEAD_FAMILY_MAP) {
+      if (re.test(clause)) {
+        matchedSpecificInClause = true
+        distinctFamilies.add(fam)
+      }
+    }
+    if (matchedSpecificInClause) {
+      specificItemClauses++
+    } else if (/\b(?:bebidas?|drinks?)\b/.test(clause)) {
+      genericUmbrellaDrinkClauses++
+    }
+  }
+
+  const totalMentionedItems =
+    specificItemClauses > 0
+      ? Math.max(specificItemClauses, distinctFamilies.size)
+      : genericUmbrellaDrinkClauses
+
+  return totalMentionedItems > safeAdded
+}
+
+const CUSTOMER_HOLD_REQUEST_RE =
+  /\b(?:espera(?:me|te)?|espere(?:me)?|estoy\s+pensando|deja(?:me)?\s+(?:pensar|ver|checar)|deme\s+un\s+(?:momento|segundo|minuto)|dame\s+(?:un\s+(?:momento|momentito|segundo|segundito|minuto)|tantito|chance)|un\s+(?:momento|momentito|segundo|segundito)|aguanta(?:me)?|permite(?:me)?|no\s+me\s+apresures?|ahi\s+voy|hold\s+on|wait(?:\s+a\s+(?:second|sec|moment|minute))?|give\s+me\s+a\s+(?:second|sec|moment|minute)|one\s+(?:second|sec|moment)|just\s+a\s+(?:second|sec|moment)|let\s+me\s+(?:think|see|check)|dont\s+rush\s+me|do\s+not\s+rush\s+me)\b/i
+
+const CONCRETE_ORDER_OR_CLOSING_IN_HOLD_RE =
+  /\b(?:tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|plates?|combos?|flan(?:es)?|cheesecakes?|postres?|desserts?|charolas?|platters?|trays?|desayunos?|breakfasts?|huevos?|eggs?|asada|pastor|adobada|pollo|chicken|steak|cabeza|lengua|buche|chorizo|carnitas|milanesa|cuban[oa]s?|vegetarian[oa]s?|veggie|horchatas?|jamaicas?|tamarindos?|pinas?|limonadas?|lemonades?|champurrados?|cafes?|coffees?|cocas?|cokes?|sprites?|fantas?|sodas?|refrescos?|aguas?|waters?|bebidas?|drinks?|regular|super|supreme|mediana|mediano|grande|medium|large|galon|gallon|es\s+todo|ya\s+es\s+todo|nada\s+mas|that\s*s\s+all|thats\s+all|cambiar|cambia|cambialo|quitar|quita|cancelar|cuanto\s+cuesta|precio|subtotal|ebt|calfresh|doordash|uber|grubhub)\b/i
+
+/**
+ * Retorna `true` cuando el cliente pide tiempo para pensar o que no lo apresuren
+ * (`"Ahi voy, espérame, estoy pensando"`, `"Espera, a mí no me apresures"`, `"Hold on, let me think"`),
+ * siempre que en esa misma frase NO venga ya un pedido concreto (ej. `"espera, mejor dame un flan"` -> `false`).
+ */
+export function detectKoreCustomerHoldRequest(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw || isNonLatinNoiseTranscript(raw)) return false
+
+  const norm = stripDiacriticsLower(normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' }))
+    .replace(/['’`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return false
+  if (CONCRETE_ORDER_OR_CLOSING_IN_HOLD_RE.test(norm)) return false
+  return CUSTOMER_HOLD_REQUEST_RE.test(norm)
+}
+
+const CUSTOMER_RESUME_FROM_HOLD_INTENT_RE =
+  /\b(?:ya\s+estoy\s+list[oa]|estoy\s+list[oa]|ya\s+list[oa]|list[oa]s?|ready|im\s+ready|i\s+am\s+ready|ahora\s+si|ya\s+se|ya\s+decidi|quiero|quisiera|querria|dame|deme|me\s+(?:das?|da|pones?|pone|traes?|regalas?)|ponme|ponle|agregame|agrega|i\s+want|id\s+like|i\s+would\s+like|can\s+i\s+(?:get|have)|give\s+me|que\s+mas\s+(?:tienes?|tienen|hay|me\s+ofreces?)|que\s+me\s+recomiendas?|cual\s+es|cuanto\s+es|oye|oiga|senorita|disculp[ae]|hola|hello|hi|excuse\s+me|eres\s+voz)\b/i
+
+/**
+ * Mientras `holdActive` está vigente (tras `"espérame, estoy pensando"`), retorna `true` ÚNICAMENTE cuando
+ * el nuevo turno contiene intención real del cliente dirigida a Kore (platillo/bebida/menú, cierre `"es todo"`,
+ * `"ya estoy listo"`, `"quiero..."`, `"¿qué más tienes?"`, `"¿me escuchas?"`, `"sí"/"no"` o nueva petición de espera),
+ * y retorna `false` ante ruido/video del carro (`"de repente me di"`, `"es esta cámara"`, `"जी के"`,
+ * `"pues ahora imagínate que es de noche... el sensor le"`).
+ */
+export function isCustomerResumingFromHold(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw) return false
+  if (isNonLatinNoiseTranscript(raw)) return false
+
+  const norm = stripDiacriticsLower(normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' }))
+    .replace(/['’`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return false
+
+  if (detectKoreCustomerHoldRequest(raw)) return true
+
+  if (
+    DIRECT_CUSTOMER_AUDIO_CHECK_RE.test(norm) ||
+    CONCRETE_ORDER_OR_CLOSING_IN_HOLD_RE.test(norm) ||
+    DIRECT_ORDER_PROGRESSION_RE.test(norm) ||
+    CUSTOMER_RESUME_FROM_HOLD_INTENT_RE.test(norm) ||
+    RESTAURANT_OR_CALL_DOMAIN_RE.test(norm) ||
+    /^(?:si|yes|yep|yeah|no|nope|ok|okay|asi|uno|dos|tres|cuatro|cinco|one|two|three|\d+)$/i.test(norm)
+  ) {
+    return true
+  }
+
+  return false
+}
+
+const DANGLING_CLAUSE_CONNECTOR_TAIL_RE =
+  /(?:^|\s)(?:y|e|o|u|pero|aunque|porque|que|de|del|con|sin|para|por|en|a|al|el|la|los|las|un|una|unos|unas|es|son|sea|(?:es\s+)?(?:la|el|los|las)\s+mas|cual\s+es\s+(?:la|el)|estoy|estas|voy\s+a|quiero|quisiera|dame|deme|me\s+das?|ponme|and|or|but|because|with|without|for|to|of|in|the|a|an|(?:is\s+)?the\s+most|i\s+want|can\s+i(?:\s+get)?|give\s+me)$/i
+
+/**
+ * Retorna `true` para frases de cualquier longitud (incluso si contienen términos de comida) que terminaron
+ * claramente cortadas a mitad de idea en un conector, preposición, artículo, verbo copulativo o comparativo colgante
+ * (ej. `"carne es la más"`, `"híbrida y el Super Burrito no crema es"`, `"No. Me refería a hablar con el"`),
+ * permitiendo activar la ventana de continuación suave sin bloquear frases completas (`"Sí, gracias"`, `"Así es"`).
+ */
+export function endsWithDanglingClauseConnector(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw || isNonLatinNoiseTranscript(raw)) return false
+
+  const norm = stripDiacriticsLower(raw)
+    .replace(/['’`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return false
+  if (/^(?:si|yes|no|ok|okay|asi|gracias|thanks|hola|hello|bueno|es\s+todo|nada\s+mas|ya\s+es\s+todo)$/i.test(norm)) {
+    return false
+  }
+  if (/(?:^|\s)(?:asi\s+es|eso\s+es|ya\s+estuvo)$/i.test(norm)) {
+    return false
+  }
+  return DANGLING_CLAUSE_CONNECTOR_TAIL_RE.test(norm)
+}
+
+const KORE_EBT_CANCEL_REASON_RE =
+  /\b(?:ebt|calfresh|cal\s*fresh|food\s*stamps?|estampillas?(?:\s+de\s+comida)?|cupones?\s+de\s+comida|snap)\b/i
+
+const KORE_KEEP_ORDER_VETO_RE =
+  /\b(?:(?:la|mi)\s+orden\s+si\s+la\s+quiero|si\s+quiero\s+(?:la|mi)\s+orden|no\s+canceles\s+(?:la|mi)\s+orden|sin\s+cancelar\s+(?:la|mi)\s+orden|(?:dont|do\s+not)\s+cancel\s+(?:my|the)\s+order|keep\s+(?:my|the)\s+order|i\s+still\s+want\s+(?:my|the)\s+order)\b/i
+
+const KORE_SUBTOPIC_CANCEL_VETO_RE =
+  /\bcancel(?:a|ar|e|en|ing|ed)?\s+(?:lo\s+(?:de|del)\s+)?(?:hablar|platicar|el\s+manager|al\s+manager|el\s+gerente|al\s+gerente|el\s+encargado|al\s+encargado|la\s+pregunta|eso\s+del\s+manager|speaking|talking|asking|the\s+manager|the\s+question)\b/i
+
+const KORE_EXPLICIT_WHOLE_ORDER_CANCEL_ES_RE =
+  /\b(?:cancel(?:a|ar|ame|eme|en|e|alo|ala)\s+(?:por\s+favor\s+)?(?:toda\s+|todo\s+)?(?:mi\s+|la\s+|el\s+|nuestra\s+|nuestro\s+)?(?:orden|pedido|compra|cuenta|ticket|todo)|(?:toda\s+|mi\s+|la\s+)(?:orden|compra|cuenta)\s+cancelad[oa]|ya\s+no\s+(?:quiero|voy\s+a\s+(?:querer|llevar|pedir|ordenar)|llevo)\s+(?:nada|la\s+orden|mi\s+orden|el\s+pedido|todo)|no\s+voy\s+a\s+(?:llevar|querer|pedir|ordenar)\s+(?:nada|la\s+orden|mi\s+orden|el\s+pedido)|no\s+quiero\s+(?:la\s+orden|mi\s+orden|el\s+pedido|nada(?:\s+de\s+nada)?)|me\s+voy\s+sin\s+nada)\b/i
+
+const KORE_EXPLICIT_WHOLE_ORDER_CANCEL_EN_RE =
+  /\b(?:cancel\s+(?:please\s+)?(?:my\s+|the\s+|our\s+)?(?:whole\s+|entire\s+|full\s+)?(?:order|everything|it\s+all)|(?:i|we)\s+(?:dont|do\s+not)\s+want\s+(?:anything(?:\s+at\s+all|\s+anymore)?|(?:my|the|our)\s+(?:whole\s+|entire\s+)?order(?:\s+anymore)?)|(?:i|we)\s+(?:wont|will\s+not|am\s+not\s+going\s+to|are\s+not\s+going\s+to)\s+(?:take|get|order)\s+anything)\b/i
+
+/**
+ * Retorna `true` ÚNICAMENTE cuando el cliente pide explícitamente cancelar **toda la orden / el pedido / la compra**
+ * o irse sin llevar nada, o menciona EBT/CalFresh/Food Stamps.
+ * Retorna `false` ante descartes ambiguos de subtema (`"Olvídalo entonces."`, `"Mejor no"`, `"Never mind"`, `"Forget it"`)
+ * y cuando `"cancelar"` aplica a otro subtema (`"Entiende, me refería a cancelar hablar con el manager la orden si la quiero"`).
+ */
+export function isExplicitWholeOrderCancelIntent(rawText: string): boolean {
+  const raw = String(rawText ?? '').trim()
+  if (!raw || isNonLatinNoiseTranscript(raw)) return false
+
+  const norm = stripDiacriticsLower(raw)
+    .replace(/['’`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return false
+  if (KORE_KEEP_ORDER_VETO_RE.test(norm)) return false
+  if (KORE_SUBTOPIC_CANCEL_VETO_RE.test(norm)) return false
+  if (KORE_EBT_CANCEL_REASON_RE.test(norm)) return true
+
+  return KORE_EXPLICIT_WHOLE_ORDER_CANCEL_ES_RE.test(norm) || KORE_EXPLICIT_WHOLE_ORDER_CANCEL_EN_RE.test(norm)
+}
+
+/**
+ * Determina si una invocación de `cancel_order` sobre una orden activa debe bloquearse por falta de confirmación
+ * explícita del cliente: permite EBT en `cancelReason` o intención explícita en `customerTurnText`; bloquea todo lo demás.
+ */
+export function shouldBlockUnconfirmedCancelOrder(
+  customerTurnText: string,
+  cancelReason?: string | null
+): boolean {
+  const reasonNorm = stripDiacriticsLower(String(cancelReason ?? ''))
+    .replace(/['’`]+/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (reasonNorm && KORE_EBT_CANCEL_REASON_RE.test(reasonNorm)) {
+    return false
+  }
+  return !isExplicitWholeOrderCancelIntent(customerTurnText)
 }
 
 /** Corte oficial de desayunos (regla del dueño, 15 sucursales): disponibles desde las 06:00 hasta antes de las 14:00 PT. */

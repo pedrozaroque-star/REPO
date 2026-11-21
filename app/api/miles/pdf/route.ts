@@ -11,10 +11,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { generateSupervisorMileagePdf } from '@/lib/miles-pdf'
 
 export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const { searchParams } = new URL(req.url)
     const supervisorId = searchParams.get('supervisor_id')
@@ -30,6 +34,8 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = await getSupabaseAdminClient()
+    const userRole = String(auth.user?.role || auth.user?.user_role || '').toLowerCase()
+    const isAdminOrCron = !auth.user || userRole === 'admin' || userRole === 'administrador'
 
     // 1. Obtener tarifa vigente
     const { data: settings } = await supabase
@@ -45,17 +51,38 @@ export async function GET(req: NextRequest) {
       .gte('trip_date', startDate)
       .lte('trip_date', endDate)
 
-    if (supervisorId) {
-      query = query.eq('supervisor_id', supervisorId)
-    } else if (supervisorName) {
-      query = query.ilike('supervisor_name', `%${supervisorName}%`)
+    if (isAdminOrCron) {
+      if (supervisorId) {
+        query = query.eq('supervisor_id', supervisorId)
+      } else if (supervisorName) {
+        query = query.ilike('supervisor_name', `%${supervisorName}%`)
+      }
     }
 
-    const { data: trips, error } = await query.order('trip_date', { ascending: true })
+    const { data: rawTrips, error } = await query.order('trip_date', { ascending: true })
 
     if (error) {
       console.error('Error fetching trips for PDF:', error.message)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    let trips = rawTrips || []
+    if (!isAdminOrCron && auth.user) {
+      const uid = String(auth.user.id || '').trim()
+      let uEmail = String(auth.user.email || '').trim().toLowerCase()
+      let uName = String(auth.user.user_metadata?.full_name || '').trim().toLowerCase()
+      const numericUid = Number(uid)
+      if (!uName && Number.isFinite(numericUid) && numericUid > 0) {
+        const { data: uRow } = await supabase.from('users').select('full_name, email').eq('id', numericUid).maybeSingle()
+        if (uRow?.full_name) uName = String(uRow.full_name).trim().toLowerCase()
+        if (!uEmail && uRow?.email) uEmail = String(uRow.email).trim().toLowerCase()
+      }
+      trips = trips.filter((t: any) => {
+        const sId = String(t.supervisor_id || '').trim()
+        const sEmail = String(t.supervisor_email || '').trim().toLowerCase()
+        const sName = String(t.supervisor_name || '').trim().toLowerCase()
+        return (uid && sId === uid) || (uEmail && sEmail === uEmail) || (uName && (sName === uName || sId.toLowerCase() === uName))
+      })
     }
 
     if (!trips || trips.length === 0) {

@@ -65,6 +65,17 @@ import { useActualStats } from './hooks/useActualStats' // NEW
 import { WeatherIcon } from './components/WeatherIcon'
 import { User as UserIcon } from 'lucide-react'
 
+function getPlannerAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (typeof window !== 'undefined') {
+        const token = window.localStorage.getItem('teg_token')
+        if (token && token !== 'null' && token !== 'undefined') {
+            headers.Authorization = `Bearer ${token}`
+        }
+    }
+    return headers
+}
+
 // --- LOADER COMPONENT ---
 function SurpriseLoader({ loadingText, syncingText }: { loadingText: string, syncingText: string }) {
     return (
@@ -418,50 +429,26 @@ export default function SchedulePlanner() {
             setLoading(true)
             const supabase = await getSupabaseClient()
 
-            // 1. Check OAuth Callback in URL
+            // 1. Check OAuth Callback in URL (tokens saved strictly server-side in /api/auth/google/callback)
             if (typeof window !== 'undefined') {
                 const params = new URLSearchParams(window.location.search)
-                const rt = params.get('rt')
                 const ge = params.get('ge')
+                const oauthErr = params.get('error')
+                const oauthSuccess = params.get('success')
 
                 if (ge) {
-                    // SECURITY ENFORCEMENT: System Login Email must match Google Auth Email
-                    if (user?.email && ge.toLowerCase() !== user.email.toLowerCase()) {
-                        // Alert User
-                        // We use a timeout to ensure the toast is seen after redirect (though replace happens fast)
-                        // Actually, just show it and return.
-                        console.error(`Security Mismatch: System(${user.email}) != Google(${ge})`)
-                        toast.error(`⚠️ ACCESO DENEGADO: Debes conectar TU cuenta corporativa (${user.email}).\nNo se permite usar ${ge}.`)
-
-                        // Clear URL and Stop
+                    if (oauthErr === 'email_mismatch' || (user?.email && ge.toLowerCase() !== user.email.toLowerCase())) {
+                        console.error(`Security Mismatch: System(${user?.email}) != Google(${ge})`)
+                        toast.error(`⚠️ ACCESO DENEGADO: Debes conectar TU cuenta corporativa (${user?.email}).\nNo se permite usar ${ge}.`)
                         router.replace('/planificador')
                         return
                     }
 
-                    // Update User Profile with new Creds
-                    // Note: We only get RT on first consent or re-consent. 
-                    // If we have RT, save it. If not, maybe we just got the email (re-login without offline access)
-                    const updates: any = { google_email_connected: ge }
-                    if (rt) {
-
-                        updates.google_refresh_token = rt
-                    } else {
-
-                    }
-
-
-                    const { error } = await supabase.from('users').update(updates).eq('id', user?.id)
-
-                    if (!error) {
-
+                    if (oauthSuccess === 'true') {
                         toast.success(`Gmail conectado: ${ge}`)
                         setGoogleConnected(true)
                         setGoogleEmail(ge)
-                        // Clean URL
                         router.replace('/planificador')
-                    } else {
-                        console.error('❌ Database Update Failed:', error)
-                        toast.error('Error saving DB credentials: ' + error.message)
                     }
                 }
             }
@@ -887,7 +874,8 @@ export default function SchedulePlanner() {
                 try {
                     const res = await fetch('/api/scheduler/generate-smart', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        headers: getPlannerAuthHeaders(),
                         body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
                     })
                     const data = await res.json()
@@ -1190,7 +1178,8 @@ export default function SchedulePlanner() {
                     // The clear-week API is safer.
                     const clearRes = await fetch('/api/scheduler/clear-week', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        headers: getPlannerAuthHeaders(),
                         body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
                     })
                     if (!clearRes.ok) throw new Error('Failed to clear existing shifts')
@@ -1313,7 +1302,8 @@ export default function SchedulePlanner() {
             if (overwrite) {
                 const clearRes = await fetch('/api/scheduler/clear-week', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    headers: getPlannerAuthHeaders(),
                     body: JSON.stringify({ storeId: storeGuid, startDate: targetStartStr, endDate: targetEndStr })
                 })
                 if (!clearRes.ok) throw new Error('Failed to clear current week shifts')
@@ -1449,7 +1439,8 @@ export default function SchedulePlanner() {
                     // NUCLEAR OPTION VIA API: Force clear everything
                     const res = await fetch('/api/scheduler/clear-week', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        headers: getPlannerAuthHeaders(),
                         body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
                     })
 
@@ -1512,7 +1503,19 @@ export default function SchedulePlanner() {
 
             if (!notifyRes.ok) {
                 if (notifyData.error && notifyData.error.includes('GMAIL_AUTH_FAILED')) {
-                    // Update state to disconnected and force modal
+                    if (user?.id) {
+                        fetch('/api/admin/update-user', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...(token ? { Authorization: `Bearer ${token}` } : {})
+                            },
+                            body: JSON.stringify({
+                                userId: user.id,
+                                userData: { google_email_connected: false, google_refresh_token: null }
+                            })
+                        }).catch(() => {})
+                    }
                     setGoogleConnected(false)
                     setGoogleEmail('')
                     setIsGmailModalOpen(true)
@@ -1642,6 +1645,19 @@ export default function SchedulePlanner() {
             const data = await res.json().catch(() => ({}))
             if (!res.ok || !data?.success) {
                 if (data?.error && String(data.error).includes('GMAIL_AUTH_FAILED')) {
+                    if (user?.id) {
+                        fetch('/api/admin/update-user', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...(token ? { Authorization: `Bearer ${token}` } : {})
+                            },
+                            body: JSON.stringify({
+                                userId: user.id,
+                                userData: { google_email_connected: false, google_refresh_token: null }
+                            })
+                        }).catch(() => {})
+                    }
                     setGoogleConnected(false)
                     setGoogleEmail('')
                     setIsGmailModalOpen(true)

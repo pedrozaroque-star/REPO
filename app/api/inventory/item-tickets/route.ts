@@ -1,10 +1,31 @@
+/**
+ * @module app/api/inventory/item-tickets
+ * @description Consulta los tickets individuales de Toast POS (`ordersBulk`) donde se vendió un platillo específico (`guid`), filtrando por variante de modificadores/descuento de empleado y canal (`diningOption`).
+ *
+ * @businessRules
+ * - Traduce dinámicamente los GUIDs de `diningOptions` por tienda (`config/v2/diningOptions`).
+ * - Acota estrictamente la ventana de consulta a `endDate - startDate <= 35` días (`400 Bad Request` si se excede) y un tope de 250 tickets para prevenir denegación de servicio (DoS) contra Toast `ordersBulk`.
+ *
+ * @dataFlow
+ * - Modal Detalle Food Cost / PMIX -> `GET /api/inventory/item-tickets` -> Toast API `diningOptions` + `ordersBulk` -> lista de tickets JSON.
+ *
+ * @notes
+ * - Protegido con `verifyStaffAuth` y validación estricta de fechas ISO `YYYY-MM-DD`.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthToken } from '@/lib/toast-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+const MAX_DATE_RANGE_DAYS = 35
 
 export async function GET(request: NextRequest) {
     try {
+        const auth = await verifyStaffAuth(request)
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
+
         const searchParams = request.nextUrl.searchParams
         const storeId = searchParams.get('storeId')
         const startDate = searchParams.get('startDate')
@@ -15,6 +36,24 @@ export async function GET(request: NextRequest) {
 
         if (!storeId || !startDate || !endDate || !targetGuid) {
             return NextResponse.json({ error: 'Missing parameters' }, { status: 400 })
+        }
+
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+            return NextResponse.json({ error: 'Invalid date format (expected YYYY-MM-DD)' }, { status: 400 })
+        }
+
+        const startMs = Date.parse(`${startDate}T00:00:00Z`)
+        const endMs = Date.parse(`${endDate}T00:00:00Z`)
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+            return NextResponse.json({ error: 'Invalid date range: endDate must be >= startDate' }, { status: 400 })
+        }
+
+        const diffDays = Math.round((endMs - startMs) / (1000 * 60 * 60 * 24))
+        if (diffDays > MAX_DATE_RANGE_DAYS) {
+            return NextResponse.json(
+                { error: `Date range exceeds maximum allowed window of ${MAX_DATE_RANGE_DAYS} days` },
+                { status: 400 }
+            )
         }
 
         const token = await getAuthToken()
@@ -45,12 +84,12 @@ export async function GET(request: NextRequest) {
         const tickets: any[] = []
 
         let datesToFetch: string[] = []
-        const curDateObj = new Date(startDate)
-        const lastDateObj = new Date(endDate)
+        const curDateObj = new Date(`${startDate}T12:00:00Z`)
+        const lastDateObj = new Date(`${endDate}T12:00:00Z`)
 
         while (curDateObj <= lastDateObj) {
             datesToFetch.push(curDateObj.toISOString().split('T')[0])
-            curDateObj.setDate(curDateObj.getDate() + 1)
+            curDateObj.setUTCDate(curDateObj.getUTCDate() + 1)
         }
 
         // Fetch all dates concurrently in parallel for maximum speed

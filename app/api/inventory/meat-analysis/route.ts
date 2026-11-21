@@ -1,12 +1,31 @@
+/**
+ * @module app/api/inventory/meat-analysis
+ * @description Analiza el consumo real y teórico de un insumo/proteína específico cruzando el Product Mix (PMIX) de Toast POS con las recetas y rendimientos (`yield_percent`).
+ *
+ * @businessRules
+ * - Convierte porciones cocidas (`oz`, `lb`, `g`, `kg`) a libras crudas (`rawLbs = lbsAmount / yieldRatio`).
+ * - Calcula costo y utilidad bruta por platillo vendido en una tienda específica o en las 15 sucursales (`storeId=all`).
+ *
+ * @dataFlow
+ * - UI Inventario -> `GET /api/inventory/meat-analysis` -> `getProductMix` + `recipes` + `inventory_items` -> desglose JSON.
+ *
+ * @notes
+ * - Protegido con `verifyStaffAuth` para personal interno autenticado.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseClient } from '@/lib/supabase'
 import { InventoryItem } from '@/types/inventory'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
     try {
+        const auth = await verifyStaffAuth(request)
+        if (!auth.authorized) {
+            return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+        }
         const searchParams = request.nextUrl.searchParams
         const storeId = searchParams.get('storeId')
         const startDate = searchParams.get('startDate')

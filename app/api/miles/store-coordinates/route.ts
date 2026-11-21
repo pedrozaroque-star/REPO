@@ -9,11 +9,15 @@
  * @dataFlow Client GET → Supabase stores → merge con fallback → JSON response
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { CANONICAL_STORE_COORDINATES } from '@/lib/store-coordinates'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+  if (!auth.authorized) return auth.response!
+
   try {
     const supabase = await getSupabaseAdminClient()
 

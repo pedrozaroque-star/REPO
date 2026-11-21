@@ -1,6 +1,28 @@
+/**
+ * @module app/api/notifications/inspection-comments/route
+ * @description Endpoint autenticado para enviar por correo y campana interna las observaciones detalladas de una inspección de supervisor.
+ * @businessRules
+ * - Requiere sesión autenticada de personal interno (`verifyStaffAuth`) para bloquear uso como SMTP relay abierto.
+ * - Escapa estrictamente texto HTML de preguntas, comentarios y metadatos antes de construir el correo.
+ * - Usa exclusivamente la marca oficial Tacos Gavilan.
+ * @dataFlow
+ * - InspectionForm POST { inspection_id } -> verifyStaffAuth -> Supabase (`supervisor_inspections`, `users`) -> `sendSystemEmail` + `notifications`.
+ * @notes Fix de seguridad: autenticación obligatoria, escape anti-HTML injection y marca Tacos Gavilan.
+ */
+
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { verifyStaffAuth } from '@/lib/auth-server'
+
+function escapeHtml(raw: unknown): string {
+    return String(raw ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+}
 
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
@@ -8,6 +30,11 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PU
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function POST(req: Request) {
+    const auth = verifyStaffAuth(req, { allowCron: false })
+    if (!auth.authorized) {
+        return auth.response!
+    }
+
     try {
         const body = await req.json()
         const { inspection_id } = body
@@ -79,20 +106,25 @@ export async function POST(req: Request) {
         }
 
         // 4. Build HTML Email
-        const storeName = inspection.store?.name || 'Tienda Gavilán'
+        const storeName = inspection.store?.name || 'Tacos Gavilan'
         const inspectorName = inspection.inspector?.full_name || inspection.supervisor_name || 'Supervisor'
-        const score = inspection.overall_score || 0
+        const score = Number(inspection.overall_score) || 0
         const inspectionDate = new Date(inspection.inspection_date || inspection.created_at).toLocaleDateString('es-MX', {
             day: 'numeric', month: 'long', year: 'numeric'
         })
+        const safeStoreName = escapeHtml(storeName)
+        const safeInspectorName = escapeHtml(inspectorName)
+        const safeInspectionDate = escapeHtml(inspectionDate)
+        const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://tacosgavilan.com').replace(/\/+$/, '')
+        const safeInspectionLink = `${appBaseUrl}/inspecciones?id=${encodeURIComponent(String(inspection_id))}`
 
         const commentRows = comments.map(c => `
             <tr>
                 <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #374151; font-weight: bold;">
-                    ${c.question}
+                    ${escapeHtml(c.question)}
                 </td>
                 <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #1f2937; background: #fdf2f2; border-left: 4px solid #ef4444;">
-                    "${c.comment}"
+                    &quot;${escapeHtml(c.comment)}&quot;
                 </td>
             </tr>
         `).join('')
@@ -109,7 +141,7 @@ export async function POST(req: Request) {
                     <tr>
                         <td style="background: #1e293b; padding: 30px; text-align: center;">
                             <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 800;">📝 Comentarios de Supervisión</h1>
-                            <p style="margin: 10px 0 0 0; color: #94a3b8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.1em;">${storeName}</p>
+                            <p style="margin: 10px 0 0 0; color: #94a3b8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.1em;">${safeStoreName}</p>
                         </td>
                     </tr>
                     <tr>
@@ -121,8 +153,8 @@ export async function POST(req: Request) {
                                         <td style="font-size: 13px; color: #64748b; font-weight: bold; text-align: right;">FECHA</td>
                                     </tr>
                                     <tr>
-                                        <td style="font-size: 16px; color: #1e293b; font-weight: 800;">${inspectorName}</td>
-                                        <td style="font-size: 16px; color: #1e293b; font-weight: 800; text-align: right;">${inspectionDate}</td>
+                                        <td style="font-size: 16px; color: #1e293b; font-weight: 800;">${safeInspectorName}</td>
+                                        <td style="font-size: 16px; color: #1e293b; font-weight: 800; text-align: right;">${safeInspectionDate}</td>
                                     </tr>
                                     <tr>
                                         <td colspan="2" style="padding-top: 15px;">
@@ -150,9 +182,9 @@ export async function POST(req: Request) {
                     </tr>
                     <tr>
                         <td style="padding: 30px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
-                            <p style="margin: 0; color: #94a3b8; font-size: 12px;">Este es un mensaje automático generado por el Sistema de Monitoreo.</p>
+                            <p style="margin: 0; color: #94a3b8; font-size: 12px;">Este es un mensaje automático generado por el Sistema de Monitoreo de Tacos Gavilan.</p>
                             <div style="margin-top: 15px;">
-                                <a href="https://tacosgavilan.vercel.app/inspecciones?id=${inspection_id}" style="display: inline-block; background: #4f46e5; color: #ffffff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Ver Inspección Completa</a>
+                                <a href="${safeInspectionLink}" style="display: inline-block; background: #4f46e5; color: #ffffff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Ver Inspección Completa</a>
                             </div>
                         </td>
                     </tr>

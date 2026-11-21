@@ -101,7 +101,7 @@ interface QBQueryResponse {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
   if (!auth.authorized) return auth.response!
 
   try {
@@ -175,9 +175,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Log the sync
+    const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val))
     await supabaseAdmin.from('accounting_sync_logs').insert({
       action: 'generate',
-      performed_by: body.performed_by || null,
+      performed_by: isUuid(body.performed_by) ? body.performed_by : null,
       details: {
         type: 'gl_accounts_sync',
         total_from_qb: qbAccounts.length,

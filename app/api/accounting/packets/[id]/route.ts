@@ -47,7 +47,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'] })
   if (!auth.authorized) return auth.response!
 
   try {
@@ -87,7 +87,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: false })
   if (!auth.authorized) return auth.response!
 
   try {

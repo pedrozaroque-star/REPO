@@ -14,14 +14,40 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { verifyStaffAuth } from '@/lib/auth-server'
+import { touchActiveStorePinSession } from '@/lib/delivery-armor'
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData()
+    const staffAuth = verifyStaffAuth(req, { allowCron: false })
+
+    const formData = await req.formData().catch(() => null)
+    if (!formData) {
+      if (!staffAuth.authorized) {
+        return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 401 })
+      }
+      return NextResponse.json({ ok: false, error: 'Formato multipart/form-data inválido.' }, { status: 400 })
+    }
     const file = formData.get('file') as File | null
     const type = (formData.get('type') as string) || 'sealed'
     const orderGuid = String(formData.get('orderGuid') || '')
     const storeId = String(formData.get('storeId') || '')
+    const sessionToken = String(
+      formData.get('sessionToken') ||
+      formData.get('session_token') ||
+      req.headers.get('x-packer-session') ||
+      ''
+    ).trim()
+
+    if (!staffAuth.authorized) {
+      if (!/^\d+$/.test(storeId) || !sessionToken) {
+        return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 401 })
+      }
+      const packerCheck = await touchActiveStorePinSession(parseInt(storeId, 10), sessionToken)
+      if (!packerCheck.valid) {
+        return NextResponse.json({ ok: false, error: 'Sesión de empacador inválida o expirada' }, { status: 401 })
+      }
+    }
 
     if (!file) {
       return NextResponse.json({ ok: false, error: 'No se envió ningún archivo de imagen.' }, { status: 400 })

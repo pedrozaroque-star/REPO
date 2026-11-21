@@ -25,6 +25,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffAuth } from '@/lib/auth-server';
 import { supabaseAdmin } from '@/lib/supabase';
 import {
     fetchVieleWholesailInvoicesWithBillStatus,
@@ -72,10 +73,8 @@ function getLosAngelesDateTimeParts(date = new Date()): {
 }
 
 async function handleCronSync(request: NextRequest) {
-    const authHeader = request.headers.get('authorization');
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = verifyStaffAuth(request, { allowedRoles: ['admin'], allowCron: true });
+    if (!auth.authorized) return auth.response!;
 
     const startTime = Date.now();
     const { searchParams } = new URL(request.url);
@@ -200,32 +199,41 @@ async function handleCronSync(request: NextRequest) {
 
         // 4. Guardar instantánea de última sincronización en `integrations` (`crear_bills_last_sync`)
         try {
+            const fallbackExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
             const { data: existingSyncRow } = await supabaseAdmin
                 .from('integrations')
-                .select('id')
+                .select('id, expires_at')
                 .eq('service_name', 'crear_bills_last_sync')
                 .maybeSingle();
 
             if (existingSyncRow?.id) {
-                await supabaseAdmin
+                const { error: updErr } = await supabaseAdmin
                     .from('integrations')
                     .update({
                         realm_id: 'daily_4pm_la_sync',
                         access_token: JSON.stringify(syncSummary),
                         refresh_token: laDateFormatted,
                         token_type: 'CRON_4PM_LA',
+                        expires_at: existingSyncRow.expires_at || fallbackExpiresAt,
                         updated_at: executedAtIso
                     })
                     .eq('id', existingSyncRow.id);
+                if (updErr) {
+                    console.warn('[Cron:SyncCrearBills 4PM LA] ⚠️ Error actualizando crear_bills_last_sync:', updErr.message);
+                }
             } else {
-                await supabaseAdmin.from('integrations').insert({
+                const { error: insErr } = await supabaseAdmin.from('integrations').insert({
                     service_name: 'crear_bills_last_sync',
                     realm_id: 'daily_4pm_la_sync',
                     access_token: JSON.stringify(syncSummary),
                     refresh_token: laDateFormatted,
                     token_type: 'CRON_4PM_LA',
+                    expires_at: fallbackExpiresAt,
                     updated_at: executedAtIso
                 });
+                if (insErr) {
+                    console.warn('[Cron:SyncCrearBills 4PM LA] ⚠️ Error insertando crear_bills_last_sync:', insErr.message);
+                }
             }
         } catch (cacheErr) {
             console.warn('[Cron:SyncCrearBills 4PM LA] ⚠️ No se pudo actualizar crear_bills_last_sync:', cacheErr);

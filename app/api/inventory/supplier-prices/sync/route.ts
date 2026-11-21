@@ -17,17 +17,24 @@
  * @notes
  *   - Tiempo promedio de ejecución: 1.2 a 1.8 segundos.
  *   - No requiere copiar ni pegar ningún texto o archivo.
+ *   - Protegido con `verifyStaffAuth` (`allowedRoles: ['admin', 'supervisor']`, `allowCron: true`).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncVielePortalDirect } from '@/lib/vendor-scraper'
 import { ItemComparisonResult } from '../route'
 import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants/supplier-volumes'
+import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+    if (!auth.authorized) {
+      return auth.response || NextResponse.json({ success: false, error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
+    }
+
     const body = await request.json().catch(() => ({}))
     const { supplierCode = 'VIELE' } = body
 

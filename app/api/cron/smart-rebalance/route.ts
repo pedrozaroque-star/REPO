@@ -13,11 +13,13 @@
  * - Eliminada columna inexistente `updated_at` en `UPDATE shifts` que bloqueaba silenciosamente la persistencia en PostgreSQL.
  * - Aislado el rebalanceo exclusivamente a los `varianceShiftIds` detectados.
  * - 2026-11-19 (Paquete 2A): Agregado salto de ventana muerta `4:15–6:59 AM LA` (`?force=1` override), corregido bucle de re-cálculo cada 20 min estampando el marcador retrocompatible `rebalanced_punch_sig` en cada `BreakBlock` de `breaks_schedule` (y caché RAM para turnos de 0 breaks sin alterar formato de arreglo ni UI), y procesado de sucursales en lotes concurrentes de 3.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor` en todos los entornos.
  */
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAuthToken, getToastRestaurants } from '@/lib/toast-api'
+import { verifyStaffAuth } from '@/lib/auth-server'
 import {
     scheduleBreaksWithDemand,
     LearnedPreference,
@@ -82,10 +84,9 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 export const maxDuration = 300
 
 export async function GET(req: Request) {
-    // 🔒 Security check (Vercel Cron header or token)
-    const authHeader = req.headers.get('authorization')
-    if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
+    if (!auth.authorized) {
+        return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
     }
 
     const { searchParams } = new URL(req.url)
