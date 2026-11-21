@@ -8,11 +8,12 @@
  *   - Permite filtrar notificaciones y colaboradores en tiempo real (insensible a acentos/mayúsculas).
  *   - Permite marcar todas las notificaciones como leídas con un solo click.
  * @dataFlow
- *   - Entrada: Props `isOpen`, `onClose`, `navigateTo`.
- *   - Fetch: Resuelve al usuario mediante `resolveOrCreateTegPerson` y consulta actividad y colaboradores en Supabase.
- *   - Escritura: Actualiza `bc_notifications.is_read = true` al marcar como leídas.
+ *   - Entrada: Props `isOpen`, `onClose`, `onMarkAllRead`, `onReadOne`, `navigateTo`.
+ *   - Fetch: Resuelve al usuario mediante `resolveOrCreateTegPerson` y consulta `bc_notifications` (`type`, `recording_type`, `recording_id`), actividad y colaboradores en Supabase.
+ *   - Escritura: Actualiza `bc_notifications.is_read = true` tanto individualmente al abrir una notificación como masivamente al marcar todas como leídas.
  * @notes
  *   - Soporte bilingüe completo (ES/EN) con `useLanguage()` y zona horaria `America/Los_Angeles`.
+ *   - `cleanFeedSnippet` transforma menciones Basecamp (`application/vnd.basecamp.mention`) y TEG (`data-teg-mention-person-id`) a texto `@Nombre` antes de limpiar etiquetas HTML.
  *   - Sin consultas `.single()` frágiles que arrojen errores HTTP 406.
  */
 
@@ -24,19 +25,24 @@ import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import {
     resolveOrCreateTegPerson,
+    canonicalizeBasecampEmail,
+    canonicalizeBasecampDisplayName,
+    isBasecampOAuthOwner,
+    isMaskedOrEmptyEmail,
     normalizePersonName,
     stripTegAuthorBanner,
 } from '@/lib/basecamp-person-resolver'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-    Plus, Bell, CheckCircle2, MessageSquare, FileText, Calendar,
-    Search, X, Loader2, VolumeX, BellOff
+    Plus, Bell, CheckSquare, MessageSquare, FileText, Calendar,
+    Search, X, Loader2, VolumeX, BellOff, AtSign
 } from 'lucide-react'
 
 interface NewForYouDrawerProps {
     isOpen: boolean
     onClose: () => void
     onMarkAllRead?: () => void
+    onReadOne?: () => void
     navigateTo: (params: {
         project?: string
         tool?: string
@@ -48,11 +54,51 @@ interface NewForYouDrawerProps {
     }) => void
 }
 
-function cleanFeedSnippet(raw?: string | null): string {
+export function cleanFeedSnippet(raw?: string | null): string {
     if (!raw) return ''
     const { cleanHtml } = stripTegAuthorBanner(raw)
-    return cleanHtml
-        .replace(/<bc-attachment[\s\S]*?<\/bc-attachment>/gi, '')
+    const withMentions = cleanHtml
+        .replace(/<bc-attachment\b([^>]*)>([\s\S]*?)<\/bc-attachment>/gi, (_m, attrs: string, inner: string) => {
+            if (
+                !/content-type=["']application\/vnd\.basecamp\.mention["']/i.test(attrs) &&
+                !/data-teg-mention-person-id=/i.test(attrs)
+            ) {
+                return ' '
+            }
+            const figMatch = inner.match(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/i)
+            const altMatch = inner.match(/\balt=["']([^"']+)["']/i)
+            const contentAttr = attrs.match(/\bcontent=["']([^"']+)["']/i)
+            let name = ''
+            if (figMatch?.[1]) {
+                name = figMatch[1].replace(/<[^>]*>/g, '').trim()
+            } else if (altMatch?.[1]) {
+                name = altMatch[1].trim()
+            } else if (contentAttr?.[1]) {
+                name = contentAttr[1]
+                    .replace(/&lt;/gi, '<')
+                    .replace(/&gt;/gi, '>')
+                    .replace(/&quot;/gi, '"')
+                    .replace(/&amp;/gi, '&')
+                    .replace(/<[^>]*>/g, '')
+                    .trim()
+            } else {
+                name = inner.replace(/<[^>]*>/g, '').trim()
+            }
+            const cleanName = name.replace(/^@+/, '').trim()
+            return cleanName ? ` @${cleanName} ` : ' '
+        })
+        .replace(/<span\b[^>]*\bdata-teg-mention-person-id=["'][^"']+["'][^>]*>([\s\S]*?)<\/span>/gi, (_m, inner: string) => {
+            const cleanName = inner.replace(/<[^>]*>/g, '').replace(/^@+/, '').trim()
+            return cleanName ? ` @${cleanName} ` : ' '
+        })
+        .replace(/<span\b[^>]*\bdata-bc-mention=["']true["'][^>]*>([\s\S]*?)<\/span>/gi, (_m, inner: string) => {
+            const cleanName = inner.replace(/<[^>]*>/g, '').replace(/^@+/, '').trim()
+            return cleanName ? ` @${cleanName} ` : ' '
+        })
+
+    return withMentions
+        .replace(/<bc-attachment[\s\S]*?<\/bc-attachment>/gi, ' ')
+        .replace(/<bc-attachment\b[^>]*\/>/gi, ' ')
         .replace(/<[^>]*>/g, ' ')
         .replace(/&nbsp;/gi, ' ')
         .replace(/&amp;/gi, '&')
@@ -69,7 +115,7 @@ function stripAccentsLower(s?: string | null): string {
     return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
-export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, navigateTo }: NewForYouDrawerProps) {
+export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onReadOne, navigateTo }: NewForYouDrawerProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t, language } = useLanguage()
     const locale = language === 'es' ? 'es-MX' : 'en-US'
@@ -85,15 +131,15 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
     const [showPingSelect, setShowPingSelect] = useState(false)
 
     const getLastSeenStorageKey = (pid: string | null) =>
-        `teg_bc_new_for_you_last_seen_${pid || authUser?.email || 'anon'}`
+        `teg_bc_new_for_you_last_seen_${pid || canonicalizeBasecampEmail(authUser?.email) || 'anon'}`
 
     const loadDrawerData = useCallback(async () => {
         if (!authUser) return
         setLoading(true)
         try {
             const person = await resolveOrCreateTegPerson(supabase, {
-                email: authUser.email,
-                name: authUser.name,
+                email: canonicalizeBasecampEmail(authUser.email),
+                name: canonicalizeBasecampDisplayName(authUser.name, authUser.email),
                 role: (authUser as any)?.role,
             })
 
@@ -115,9 +161,9 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                     `).eq('person_id', personId).limit(20),
                     supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true }).limit(5000),
                     supabase.from('bc_notifications').select(`
-                        id, title, description, recording_type, recording_id, is_read, created_at,
+                        id, type, title, description, recording_type, recording_id, is_read, created_at,
                         project:bc_projects(bc_id, name)
-                    `).eq('person_id', personId).order('created_at', { ascending: false }).limit(20),
+                    `).eq('person_id', personId).order('created_at', { ascending: false }).limit(30),
                     supabase.from('bc_pings').select(`
                         id, content, created_at,
                         sender:bc_people!bc_pings_sender_person_id_fkey(id, name)
@@ -133,9 +179,10 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                         feedItems.push({
                             id: `notif-${n.id}`,
                             dbNotifId: n.id,
-                            type: n.recording_type || 'notification',
+                            type: (n as any).type || n.recording_type || 'notification',
+                            recording_type: n.recording_type || null,
                             recordingId: n.recording_id,
-                            title: n.title,
+                            title: cleanFeedSnippet(n.title) || n.title,
                             description: cleanFeedSnippet(n.description),
                             project: proj,
                             created_at: n.created_at,
@@ -151,9 +198,10 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                         feedItems.push({
                             id: `ping-${p.id}`,
                             type: 'ping',
+                            recording_type: 'ping',
                             pingPartner: senderName,
                             title: `💬 ${senderName}`,
-                            description: cleanFeedSnippet(p.content).slice(0, 90),
+                            description: cleanFeedSnippet(p.content).slice(0, 110),
                             project: null,
                             created_at: p.created_at,
                             is_read: false,
@@ -169,7 +217,8 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                         const proj = Array.isArray(todo.project) ? todo.project[0] : todo.project
                         feedItems.push({
                             id: `todo-${todo.id}`,
-                            type: 'todo',
+                            type: todo.is_completed ? 'completed' : 'assigned',
+                            recording_type: 'todo',
                             recordingId: todo.id,
                             title: todo.title,
                             description: todo.is_completed
@@ -203,10 +252,13 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                                 (Array.isArray(c.author) ? (c.author as any)[0]?.name : (c.author as any)?.name) ||
                                 t('basecamp.unknown_user')
                             const proj = Array.isArray(c.project) ? c.project[0] : c.project
-                            const plainText = cleanFeedSnippet(c.content).slice(0, 90)
+                            const plainText = cleanFeedSnippet(c.content).slice(0, 110)
+                            const resolvedParentType =
+                                c.parent_type === 'message' ? 'message' : c.parent_type === 'document' ? 'document' : 'todo'
                             feedItems.push({
                                 id: `comment-${c.id}`,
-                                type: c.parent_type === 'message' ? 'message' : c.parent_type === 'document' ? 'document' : 'todo',
+                                type: 'comment',
+                                recording_type: resolvedParentType,
                                 recordingId: c.parent_id,
                                 title: `💬 ${authorName}`,
                                 description: plainText || t('basecamp.new_comment_notif'),
@@ -227,6 +279,7 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                             feedItems.push({
                                 id: `msg-${m.id}`,
                                 type: 'message',
+                                recording_type: 'message',
                                 recordingId: m.id,
                                 title: m.title || t('basecamp.new_msg_notif'),
                                 description: `📢 ${authorName}${m.comments_count ? ` · ${m.comments_count} 💬` : ''}`,
@@ -261,7 +314,7 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                 .filter((item, idx, arr) => arr.findIndex((i) => i.id === item.id) === idx)
                 .slice(0, 40)
                 .map((item) => {
-                    if (item.is_read) return item
+                    if (item.is_read || item.dbNotifId) return item
                     const itemMs = item.created_at ? new Date(item.created_at).getTime() : 0
                     if (lastSeenMs > 0 && itemMs > 0 && itemMs <= lastSeenMs) {
                         return { ...item, is_read: true }
@@ -317,18 +370,32 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
         }
     }
 
-    const getIcon = (type: string | null) => {
-        const norm = (type || '').toLowerCase()
-        if (norm.includes('todo') || norm.includes('list')) {
-            return <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+    const getIcon = (type: string | null, recordingType?: string | null) => {
+        const norm = (type || '').toLowerCase().trim()
+        const recNorm = (recordingType || '').toLowerCase().trim()
+        if (norm === 'mention' || norm.includes('mention')) {
+            return <AtSign size={16} className="text-blue-600 dark:text-blue-400 shrink-0" />
         }
-        if (norm.includes('message') || norm.includes('campfire') || norm.includes('ping') || norm.includes('chat')) {
+        if (norm === 'assigned') {
+            return <CheckSquare size={16} className="text-amber-500 shrink-0" />
+        }
+        if (norm === 'completed') {
+            return <CheckSquare size={16} className="text-emerald-600 shrink-0" />
+        }
+        if (norm === 'comment' || norm.includes('comment')) {
             return <MessageSquare size={16} className="text-blue-500 shrink-0" />
         }
-        if (norm.includes('doc') || norm.includes('file') || norm.includes('upload')) {
-            return <FileText size={16} className="text-green-600 shrink-0" />
+        const combined = recNorm || norm
+        if (combined.includes('todo') || combined.includes('list')) {
+            return <CheckSquare size={16} className="text-emerald-500 shrink-0" />
         }
-        if (norm.includes('schedule') || norm.includes('event') || norm.includes('calendar')) {
+        if (combined.includes('message') || combined.includes('campfire') || combined.includes('ping') || combined.includes('chat')) {
+            return <MessageSquare size={16} className="text-blue-500 shrink-0" />
+        }
+        if (combined.includes('doc') || combined.includes('file') || combined.includes('upload') || combined.includes('vault')) {
+            return <FileText size={16} className="text-emerald-600 shrink-0" />
+        }
+        if (combined.includes('schedule') || combined.includes('event') || combined.includes('calendar')) {
             return <Calendar size={16} className="text-red-500 shrink-0" />
         }
         return <Bell size={16} className="text-slate-400 shrink-0" />
@@ -336,22 +403,28 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
 
     const getToolName = (type: string | null) => {
         if (!type) return undefined
-        const rt = type.toLowerCase()
-        if (rt.includes('todo') || rt.includes('list')) return 'todos'
+        const rt = type.toLowerCase().trim()
+        if (rt.includes('todo') || rt.includes('list') || rt === 'assigned' || rt === 'completed') return 'todos'
         if (rt.includes('message') || rt.includes('board')) return 'messages'
         if (rt.includes('chat') || rt.includes('campfire')) return 'campfire'
-        if (rt.includes('document') || rt.includes('doc') || rt.includes('file') || rt.includes('upload')) return 'docs'
+        if (rt.includes('document') || rt.includes('doc') || rt.includes('file') || rt.includes('upload') || rt.includes('vault')) return 'docs'
         if (rt.includes('schedule') || rt.includes('event') || rt.includes('calendar')) return 'schedule'
         if (rt.includes('checkin') || rt.includes('question') || rt.includes('answer')) return 'checkins'
         return undefined
     }
 
     const otherCollaborators = useMemo(() => {
-        const selfNorm = normalizePersonName(authUser?.name)
-        const selfEmail = (authUser?.email || '').trim().toLowerCase()
+        const selfEmail = canonicalizeBasecampEmail(authUser?.email)
+        const selfNorm = normalizePersonName(
+            canonicalizeBasecampDisplayName(authUser?.name, authUser?.email)
+        )
+        const selfIsOwner = isBasecampOAuthOwner(authUser?.email, authUser?.name)
         return collaborators.filter((c) => {
             if (resolvedPersonId && c.id === resolvedPersonId) return false
-            if (selfEmail && c.email && String(c.email).trim().toLowerCase() === selfEmail) return false
+            if (selfEmail && !isMaskedOrEmptyEmail(c.email) && canonicalizeBasecampEmail(c.email) === selfEmail) {
+                return false
+            }
+            if (selfIsOwner && isBasecampOAuthOwner(c.email, c.name)) return false
             if (selfNorm && normalizePersonName(c.name) === selfNorm) return false
             return true
         })
@@ -510,13 +583,30 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                                 <div className="space-y-3">
                                     {filteredNotifications.map((n) => {
                                         const isRead = Boolean(n.is_read || locallyReadIds.has(n.id))
-                                        const tool = getToolName(n.type)
+                                        const tool = getToolName(n.recording_type || n.type)
                                         const projectBcId = n.project?.bc_id ? String(n.project.bc_id) : undefined
 
                                         return (
                                             <div
                                                 key={n.id}
                                                 onClick={() => {
+                                                    if (!isRead) {
+                                                        setLocallyReadIds((prev) => {
+                                                            const next = new Set(prev)
+                                                            next.add(n.id)
+                                                            return next
+                                                        })
+                                                        setNotifications((prev) =>
+                                                            prev.map((item) => (item.id === n.id ? { ...item, is_read: true } : item))
+                                                        )
+                                                        if (n.dbNotifId) {
+                                                            onReadOne?.()
+                                                            void supabase
+                                                                .from('bc_notifications')
+                                                                .update({ is_read: true })
+                                                                .eq('id', n.dbNotifId)
+                                                        }
+                                                    }
                                                     if (n.type === 'ping' && n.pingPartner) {
                                                         navigateTo({ section: 'pings', ping: n.pingPartner })
                                                         onClose()
@@ -550,7 +640,7 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, naviga
                                                 )}
 
                                                 <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center shadow-inner shrink-0 border border-slate-200/40 dark:border-slate-700/50">
-                                                    {getIcon(n.type)}
+                                                    {getIcon(n.type, n.recording_type)}
                                                 </div>
 
                                                 <div className="flex-1 min-w-0 text-xs">

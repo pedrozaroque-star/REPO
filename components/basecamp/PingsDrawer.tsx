@@ -27,6 +27,10 @@ import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import {
     resolveOrCreateTegPerson,
+    canonicalizeBasecampEmail,
+    canonicalizeBasecampDisplayName,
+    findPersonInListByFuzzyName,
+    isBasecampOAuthOwner,
     normalizePersonName,
     isMaskedOrEmptyEmail,
 } from '@/lib/basecamp-person-resolver'
@@ -75,10 +79,16 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
         const loadInitialData = async () => {
             setLoading(true)
             try {
+                const canonicalSelfEmail = canonicalizeBasecampEmail(authUser.email)
+                const canonicalSelfName = canonicalizeBasecampDisplayName(
+                    authUser.name || currentUserName,
+                    authUser.email
+                )
+
                 const [resolvedSelf, peopleRes] = await Promise.all([
                     resolveOrCreateTegPerson(supabase, {
-                        email: authUser.email,
-                        name: authUser.name || currentUserName,
+                        email: canonicalSelfEmail,
+                        name: canonicalSelfName,
                         role: (authUser as any)?.role,
                     }),
                     supabase
@@ -95,16 +105,11 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                 if (resolvedSelf) {
                     setCurrentPerson(resolvedSelf)
                 } else {
-                    const userEmail = (authUser.email || '').trim().toLowerCase()
-                    const normSelf = normalizePersonName(authUser.name || currentUserName)
-                    const fallbackSelf =
-                        peopleList.find(
-                            (p: any) =>
-                                !isMaskedOrEmptyEmail(p.email) &&
-                                String(p.email).trim().toLowerCase() === userEmail
-                        ) ||
-                        peopleList.find((p: any) => normSelf && normalizePersonName(p.name) === normSelf) ||
-                        null
+                    const fallbackSelf = findPersonInListByFuzzyName(
+                        peopleList,
+                        canonicalSelfName,
+                        canonicalSelfEmail
+                    )
                     setCurrentPerson(fallbackSelf)
                 }
 
@@ -123,32 +128,10 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
         if (!activeUser) return undefined
         const rawTarget = activeUser.trim()
         if (!rawTarget) return undefined
-        const lowerTarget = rawTarget.toLowerCase()
-        const normTarget = normalizePersonName(rawTarget)
-        const targetTokens = normTarget.split(' ').filter(Boolean)
-
-        const exactOrNorm =
-            collaborators.find((c) => c.id === rawTarget || c.name === rawTarget) ||
-            collaborators.find(
-                (c) =>
-                    !isMaskedOrEmptyEmail(c.email) &&
-                    String(c.email).trim().toLowerCase() === lowerTarget
-            ) ||
-            collaborators.find((c) => normTarget && normalizePersonName(c.name) === normTarget)
-
-        if (exactOrNorm) return exactOrNorm
-        if (targetTokens.length === 0) return undefined
-
-        const targetFirst = targetTokens[0]
-        const targetLast = targetTokens.length > 1 ? targetTokens[targetTokens.length - 1] : ''
-        const fuzzyCandidates = collaborators.filter((c) => {
-            const pTokens = normalizePersonName(c.name).split(' ').filter(Boolean)
-            if (pTokens.length === 0 || pTokens[0] !== targetFirst) return false
-            if (pTokens.length === 1 || targetTokens.length === 1) return true
-            const pLast = pTokens[pTokens.length - 1]
-            return (pLast.length === 1 && targetLast.startsWith(pLast)) || (targetLast.length === 1 && pLast.startsWith(targetLast))
-        })
-        return fuzzyCandidates.length === 1 ? fuzzyCandidates[0] : undefined
+        const directMatch = collaborators.find((c) => c.id === rawTarget || c.name === rawTarget)
+        if (directMatch) return directMatch
+        const targetEmail = rawTarget.includes('@') ? canonicalizeBasecampEmail(rawTarget) : undefined
+        return findPersonInListByFuzzyName(collaborators, rawTarget, targetEmail) || undefined
     }, [collaborators, activeUser])
 
     // 2. Fetch conversation history when partner changes
@@ -295,7 +278,17 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
 
     // Filter chat partners list (exclude current user + accent-insensitive search)
     const chatPartners = useMemo(() => {
-        const selfNorm = normalizePersonName(currentPerson?.name || authUser?.name || currentUserName)
+        const selfEmail = canonicalizeBasecampEmail(currentPerson?.email || authUser?.email)
+        const selfNorm = normalizePersonName(
+            canonicalizeBasecampDisplayName(
+                currentPerson?.name || authUser?.name || currentUserName,
+                currentPerson?.email || authUser?.email
+            )
+        )
+        const selfIsOwner = isBasecampOAuthOwner(
+            currentPerson?.email || authUser?.email,
+            currentPerson?.name || authUser?.name || currentUserName
+        )
         const qNorm = partnerFilter
             .trim()
             .normalize('NFD')
@@ -305,7 +298,11 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
 
         return collaborators.filter((c) => {
             if (currentPerson?.id && c.id === currentPerson.id) return false
-            if (!currentPerson?.id && selfNorm && normalizePersonName(c.name) === selfNorm) return false
+            if (selfEmail && !isMaskedOrEmptyEmail(c.email) && canonicalizeBasecampEmail(c.email) === selfEmail) {
+                return false
+            }
+            if (selfIsOwner && isBasecampOAuthOwner(c.email, c.name)) return false
+            if (selfNorm && normalizePersonName(c.name) === selfNorm) return false
             if (!qNorm) return true
             const cNorm = String(c.name || '')
                 .normalize('NFD')

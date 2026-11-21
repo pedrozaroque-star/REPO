@@ -21,7 +21,11 @@ import { useLanguage } from '@/lib/i18n'
 import { ClipboardList, Calendar, History, FileText, CheckCircle2, Loader2 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
-import { resolveOrCreateTegPerson } from '@/lib/basecamp-person-resolver'
+import {
+    resolveOrCreateTegPerson,
+    canonicalizeBasecampEmail,
+    canonicalizeBasecampDisplayName,
+} from '@/lib/basecamp-person-resolver'
 
 interface MyStuffPageProps {
     navigateTo: (params: {
@@ -61,8 +65,8 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
         if (!opts?.silent) setLoading(true)
         try {
             const person = await resolveOrCreateTegPerson(supabase, {
-                email: user.email,
-                name: user.name || currentUserName,
+                email: canonicalizeBasecampEmail(user.email),
+                name: canonicalizeBasecampDisplayName(user.name || currentUserName, user.email),
                 role: (user as any)?.role,
             })
 

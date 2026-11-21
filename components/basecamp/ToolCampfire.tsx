@@ -27,7 +27,15 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { Send, MessageSquare, Loader2, Paperclip, AlertCircle, X } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
-import { normalizePersonName, stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
+import { useAuth } from '@/components/ProtectedRoute'
+import {
+    canonicalizeBasecampEmail,
+    canonicalizeBasecampDisplayName,
+    isBasecampOAuthOwner,
+    isMaskedOrEmptyEmail,
+    normalizePersonName,
+    stripTegAuthorBanner,
+} from '@/lib/basecamp-person-resolver'
 import {
     rewriteBasecampHtmlUrls,
     proxyBasecampUrl,
@@ -48,9 +56,25 @@ function extractAuthorObj(rel: any): { name?: string; email?: string; avatar_url
     return Array.isArray(rel) ? rel[0] || null : rel
 }
 
-function isSameTegPerson(authorName?: string | null, currentUserName?: string | null): boolean {
-    const normA = normalizePersonName(authorName)
-    const normB = normalizePersonName(currentUserName)
+export function isSameTegPerson(
+    authorName?: string | null,
+    currentUserName?: string | null,
+    authorEmail?: string | null,
+    currentUserEmail?: string | null
+): boolean {
+    const emailA = isMaskedOrEmptyEmail(authorEmail) ? '' : canonicalizeBasecampEmail(authorEmail)
+    const emailB = isMaskedOrEmptyEmail(currentUserEmail) ? '' : canonicalizeBasecampEmail(currentUserEmail)
+    if (emailA && emailB && emailA === emailB) return true
+
+    if (
+        isBasecampOAuthOwner(authorEmail, authorName) &&
+        isBasecampOAuthOwner(currentUserEmail, currentUserName)
+    ) {
+        return true
+    }
+
+    const normA = normalizePersonName(canonicalizeBasecampDisplayName(authorName, authorEmail))
+    const normB = normalizePersonName(canonicalizeBasecampDisplayName(currentUserName, currentUserEmail))
     if (!normA || !normB) return false
     if (normA === normB) return true
 
@@ -184,7 +208,18 @@ async function parseActionError(res: Response, fallback: string): Promise<string
 export default function ToolCampfire({ project, currentUserName }: ToolCampfireProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t, language } = useLanguage()
+    const { user: authUser } = useAuth()
     const locale = language === 'es' ? 'es-MX' : 'en-US'
+    const effectiveUserEmail = useMemo(
+        () => canonicalizeBasecampEmail(authUser?.email),
+        [authUser?.email]
+    )
+    const effectiveUserName = useMemo(
+        () =>
+            canonicalizeBasecampDisplayName(currentUserName || authUser?.name, authUser?.email) ||
+            currentUserName,
+        [currentUserName, authUser?.name, authUser?.email]
+    )
 
     const [campfire, setCampfire] = useState<{ id: string; bc_id: number } | null>(null)
     const [messages, setMessages] = useState<any[]>([])
@@ -437,7 +472,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             id: tempId,
             content: textToSend,
             created_at: new Date().toISOString(),
-            author: { name: currentUserName },
+            author: { name: effectiveUserName, email: effectiveUserEmail },
         }
         setMessages((prev) => [...prev, optimisticLine])
         setInputText('')
@@ -545,7 +580,12 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                         const authorName =
                             (authorObj?.name && String(authorObj.name).trim()) ||
                             t('basecamp.anonymous_user')
-                        const isMe = isSameTegPerson(authorName, currentUserName)
+                        const isMe = isSameTegPerson(
+                            authorName,
+                            effectiveUserName,
+                            authorObj?.email,
+                            effectiveUserEmail
+                        )
                         const rendered = renderCampfireLineHtml(m.content)
 
                         return (

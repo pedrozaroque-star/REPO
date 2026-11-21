@@ -7,13 +7,15 @@
  *   - Persistencia de datos real en Supabase con sincronización bidireccional API y suscripciones Realtime.
  *   - Integración resiliente con la sesión de usuario de Tacos Gavilan (`resolveOrCreateTegPerson`).
  * @dataFlow
- *   - Lee `project`, `tool`, `ping`, `section`, `todoId`, `messageId` y `docId` desde `useSearchParams`.
- *   - Consulta proyectos activos (`is_archived = false`), membresías y notificaciones no leídas desde Supabase.
+ *   - Lee `project`, `tool`, `ping`, `section`, `todoId`, `replicateTodoId`, `messageId`, `replicateMessageId` y `docId` desde `useSearchParams`.
+ *   - Consulta proyectos activos (`is_archived = false`, incluyendo `enabled_tools`), membresías (`attachable_sgid`, `email`, `title`) y notificaciones no leídas desde Supabase.
  *   - Proporciona las herramientas principales (Campfire, To-dos, Message Board, Docs, Schedule, Check-ins) y cajón `NewForYouDrawer`.
  * @notes
  *   - Protege los atajos `Shift + J` y `h` contra elementos editables (`INPUT`, `TEXTAREA`, `SELECT`, `contentEditable`).
  *   - Búsqueda global insensible a acentos (`NFD`) con protección de secuencias asíncronas (`searchReqSeqRef`) y proxy de URLs Basecamp.
  *   - `onCloseDetail` actualiza la URL únicamente cuando un parámetro deep-link estaba activo, evitando contaminación de historial.
+ *   - Fix 2026-11-21: reubicados `handleConsumeReplicateTodo` y `handleConsumeReplicateMessage` (`useCallback`) antes de los retornos tempranos (`if (loading)` / `if (isAuthorized === false)`) para cumplir estrictamente las Reglas de Hooks de React en todos los renders.
+ *   - Fix 2026-11-21 (Cold-Load Deep-Link): hidratación resiliente de `project`, `tool`, `todoId`, `messageId` y `docId` desde `useSearchParams` + `window.location.search` en carga fría, soporte de `project` por `bc_id` o `UUID` (incluyendo proyectos archivados) e inferencia automática de herramienta cuando viene `todoId`/`messageId`/`docId`.
  */
 
 'use client'
@@ -41,11 +43,52 @@ import {
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import {
     resolveOrCreateTegPerson,
+    canonicalizeBasecampEmail,
+    canonicalizeBasecampDisplayName,
+    findPersonInListByFuzzyName,
     normalizePersonName,
     isMaskedOrEmptyEmail,
     stripTegAuthorBanner,
 } from '@/lib/basecamp-person-resolver'
-import { proxyBasecampUrl } from '@/lib/basecamp-html'
+import { proxyBasecampUrl, isVideoMimeOrFilename } from '@/lib/basecamp-html'
+
+const stripLeadingCatEmoji = (label: string): string =>
+    String(label || '')
+        .replace(/^(?:📢|ℹ️|✨|❤️|❤|💡|👋|❓|💬|📋|⚠️|⚠)\uFE0F?\s*/u, '')
+        .trim()
+
+const getSearchMessageCategoryBadge = (rawCat: string | null | undefined, t: (key: string) => string): string => {
+    const norm = String(rawCat || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+    if (norm.includes('anuncio') || norm.includes('announcement')) {
+        return `📢 ${stripLeadingCatEmoji(t('basecamp.cat_announcement'))}`
+    }
+    if (norm === 'fyi' || norm.includes('fyi') || norm.includes('informacion') || norm.includes('aviso')) {
+        return `✨ ${stripLeadingCatEmoji(t('basecamp.cat_fyi'))}`
+    }
+    if (norm.includes('heartbeat') || norm.includes('pulso')) {
+        return `❤️ ${stripLeadingCatEmoji(t('basecamp.cat_heartbeat'))}`
+    }
+    if (norm.includes('pitch') || norm.includes('propuesta') || norm.includes('idea')) {
+        return `💡 ${stripLeadingCatEmoji(t('basecamp.cat_pitch'))}`
+    }
+    if (norm.includes('question') || norm.includes('pregunta')) {
+        return `👋 ${stripLeadingCatEmoji(t('basecamp.cat_question'))}`
+    }
+    if (norm.includes('procedimiento') || norm.includes('procedure') || norm.includes('guide')) {
+        return t('basecamp.cat_guide')
+    }
+    if (norm.includes('alerta') || norm.includes('alert') || norm.includes('urgent')) {
+        return t('basecamp.cat_alert')
+    }
+    if (!norm || norm === 'general') {
+        return `💬 ${stripLeadingCatEmoji(t('basecamp.cat_general'))}`
+    }
+    return `💬 ${rawCat}`
+}
 
 const formatSearchDateTime = (dateStr: string, language: string) => {
     if (!dateStr) return ''
@@ -78,6 +121,27 @@ const stripAccentsLower = (s?: string | null): string => {
     return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
+const SEARCH_TODOLIST_COLOR_HEX: Record<string, string> = {
+    blue: '#1D7DB5',
+    orange: '#EA580C',
+    green: '#16A34A',
+    red: '#DC2626',
+    purple: '#8E44AD',
+    pink: '#DB2777',
+    yellow: '#D97706',
+    turquoise: '#0D9488',
+    teal: '#0D9488',
+    brown: '#92400E',
+    gray: '#64748B',
+    grey: '#64748B',
+    white: '#94A3B8',
+}
+
+const resolveSearchTodolistHex = (color?: string | null): string => {
+    if (!color) return '#1D7DB5'
+    return SEARCH_TODOLIST_COLOR_HEX[String(color).toLowerCase().trim()] || '#1D7DB5'
+}
+
 export interface NavigateParams {
     project?: string
     tool?: string
@@ -85,7 +149,9 @@ export interface NavigateParams {
     ping?: string
     tab?: string
     todoId?: string
+    replicateTodoId?: string
     messageId?: string
+    replicateMessageId?: string
     docId?: string
 }
 
@@ -96,10 +162,22 @@ function BasecampWorkspace() {
     const { user } = useAuth()
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
 
-    const projectId = searchParams.get('project')
-    const toolId = searchParams.get('tool')
-    const section = searchParams.get('section') // 'pings' | 'hey' | 'mystuff'
-    const pingUser = searchParams.get('ping')
+    const readUrlParam = useCallback(
+        (key: string): string | null => {
+            const fromHook = searchParams.get(key)
+            if (fromHook !== null) return fromHook
+            if (searchParams.toString() === '' && typeof window !== 'undefined' && window.location.search) {
+                return new URLSearchParams(window.location.search).get(key)
+            }
+            return null
+        },
+        [searchParams]
+    )
+
+    const projectId = readUrlParam('project')
+    const toolId = readUrlParam('tool')
+    const section = readUrlParam('section') // 'pings' | 'hey' | 'mystuff'
+    const pingUser = readUrlParam('ping')
 
     const [projects, setProjects] = useState<any[]>([])
     const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
@@ -116,19 +194,35 @@ function BasecampWorkspace() {
     const searchReqSeqRef = useRef(0)
     const [unreadHeyCount, setUnreadHeyCount] = useState(0)
     const [resolvedPersonId, setResolvedPersonId] = useState<string | null>(null)
+    const [resolvedPersonName, setResolvedPersonName] = useState<string | null>(null)
     const [heyDrawerOpen, setHeyDrawerOpen] = useState(false)
 
-    const [currentTodoId, setCurrentTodoId] = useState<string | null>(searchParams.get('todoId'))
-    const [currentMessageId, setCurrentMessageId] = useState<string | null>(searchParams.get('messageId'))
-    const [currentDocId, setCurrentDocId] = useState<string | null>(searchParams.get('docId'))
+    const [currentTodoId, setCurrentTodoId] = useState<string | null>(() => readUrlParam('todoId'))
+    const [currentReplicateTodoId, setCurrentReplicateTodoId] = useState<string | null>(() => readUrlParam('replicateTodoId'))
+    const [currentMessageId, setCurrentMessageId] = useState<string | null>(() => readUrlParam('messageId'))
+    const [currentReplicateMessageId, setCurrentReplicateMessageId] = useState<string | null>(() => readUrlParam('replicateMessageId'))
+    const [currentDocId, setCurrentDocId] = useState<string | null>(() => readUrlParam('docId'))
 
     useEffect(() => {
-        setCurrentTodoId(searchParams.get('todoId'))
-        setCurrentMessageId(searchParams.get('messageId'))
-        setCurrentDocId(searchParams.get('docId'))
-    }, [searchParams])
+        setCurrentTodoId(readUrlParam('todoId'))
+        setCurrentReplicateTodoId(readUrlParam('replicateTodoId'))
+        setCurrentMessageId(readUrlParam('messageId'))
+        setCurrentReplicateMessageId(readUrlParam('replicateMessageId'))
+        setCurrentDocId(readUrlParam('docId'))
+    }, [readUrlParam])
 
-    const currentUserName = user?.name || 'Sistema de Monitoreo'
+    const currentUserEmail = useMemo(() => canonicalizeBasecampEmail(user?.email), [user?.email])
+    const currentUserName = useMemo(() => {
+        if (resolvedPersonName) return resolvedPersonName
+        const canonicalInputName = canonicalizeBasecampDisplayName(user?.name, currentUserEmail)
+        for (const p of projects) {
+            if (Array.isArray(p?.people) && p.people.length > 0) {
+                const match = findPersonInListByFuzzyName(p.people, canonicalInputName, currentUserEmail)
+                if (match?.name) return String(match.name).trim()
+            }
+        }
+        return canonicalInputName || 'Sistema de Monitoreo'
+    }, [resolvedPersonName, user?.name, currentUserEmail, projects])
 
     // 1. Fetch authorization status and projects
     const checkAuthAndLoadProjects = useCallback(async (opts?: { silent?: boolean }) => {
@@ -147,10 +241,18 @@ function BasecampWorkspace() {
                 const { data: dbProjects, error } = await supabase
                     .from('bc_projects')
                     .select(`
-                        *,
+                        id,
+                        bc_id,
+                        name,
+                        description,
+                        color,
+                        is_pinned,
+                        is_archived,
+                        member_count,
+                        enabled_tools,
                         bc_memberships(
                             role,
-                            person:bc_people(id, name, email, avatar_url, role, is_active)
+                            person:bc_people(id, bc_id, name, email, title, attachable_sgid, avatar_url, role, is_active)
                         )
                     `)
                     .eq('is_archived', false)
@@ -159,22 +261,84 @@ function BasecampWorkspace() {
                 if (error) {
                     console.error('Error loading projects:', error.message)
                 } else if (dbProjects) {
-                    const formatted = dbProjects.map((p: any) => {
-                        const seenMemberKeys = new Set<string>()
+                    let projectRows: any[] = [...dbProjects]
+                    const urlProjectParam =
+                        typeof window !== 'undefined'
+                            ? new URLSearchParams(window.location.search).get('project')?.trim() || ''
+                            : ''
+                    if (
+                        urlProjectParam &&
+                        !projectRows.some((p: any) => String(p.bc_id) === urlProjectParam || p.id === urlProjectParam)
+                    ) {
+                        const isUuidProj = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlProjectParam)
+                        const isNumProj = /^\d+$/.test(urlProjectParam)
+                        if (isUuidProj || isNumProj) {
+                            const extraQuery = supabase
+                                .from('bc_projects')
+                                .select(`
+                                    id,
+                                    bc_id,
+                                    name,
+                                    description,
+                                    color,
+                                    is_pinned,
+                                    is_archived,
+                                    member_count,
+                                    enabled_tools,
+                                    bc_memberships(
+                                        role,
+                                        person:bc_people(id, bc_id, name, email, title, attachable_sgid, avatar_url, role, is_active)
+                                    )
+                                `)
+                            const { data: extraProj } = await (isUuidProj
+                                ? extraQuery.eq('id', urlProjectParam).maybeSingle()
+                                : extraQuery.eq('bc_id', Number(urlProjectParam)).maybeSingle())
+                            if (extraProj) {
+                                projectRows = [...projectRows, extraProj]
+                            }
+                        }
+                    }
+
+                    const formatted = projectRows.map((p: any) => {
+                        const memberByKey = new Map<string, any>()
                         const members: any[] = []
                         ;(p.bc_memberships || []).forEach((m: any) => {
                             const personObj = Array.isArray(m.person) ? m.person[0] : m.person
                             if (!personObj || personObj.is_active === false) return
                             const mKey = normalizePersonName(personObj.name) || personObj.id
-                            if (mKey && seenMemberKeys.has(mKey)) return
-                            if (mKey) seenMemberKeys.add(mKey)
-                            members.push({
+                            const cleanEmail = isMaskedOrEmptyEmail(personObj.email)
+                                ? ''
+                                : canonicalizeBasecampEmail(personObj.email)
+                            if (mKey && memberByKey.has(mKey)) {
+                                const existing = memberByKey.get(mKey)
+                                if (!existing.attachable_sgid && personObj.attachable_sgid) {
+                                    existing.attachable_sgid = personObj.attachable_sgid
+                                }
+                                if (!existing.email && cleanEmail) {
+                                    existing.email = cleanEmail
+                                }
+                                if (!existing.title && personObj.title) {
+                                    existing.title = personObj.title
+                                }
+                                if (!existing.avatar && personObj.avatar_url) {
+                                    existing.avatar = personObj.avatar_url
+                                    existing.avatar_url = personObj.avatar_url
+                                }
+                                return
+                            }
+                            const memberEntry = {
                                 id: personObj.id,
+                                bc_id: personObj.bc_id ? Number(personObj.bc_id) : null,
                                 name: personObj.name || '',
-                                email: isMaskedOrEmptyEmail(personObj.email) ? '' : personObj.email,
+                                email: cleanEmail,
+                                title: personObj.title || '',
+                                attachable_sgid: personObj.attachable_sgid || null,
                                 role: m.role || personObj.role || 'user',
                                 avatar: personObj.avatar_url || '',
-                            })
+                                avatar_url: personObj.avatar_url || '',
+                            }
+                            if (mKey) memberByKey.set(mKey, memberEntry)
+                            members.push(memberEntry)
                         })
 
                         return {
@@ -184,6 +348,7 @@ function BasecampWorkspace() {
                             description: p.description,
                             color: p.color || 'white',
                             is_pinned: Boolean(p.is_pinned),
+                            enabled_tools: Array.isArray(p.enabled_tools) ? p.enabled_tools : null,
                             peopleCount: members.length || Number(p.member_count) || 0,
                             people: members,
                         }
@@ -191,15 +356,18 @@ function BasecampWorkspace() {
                     setProjects(formatted)
                 }
 
-                // Resolve current user resiliently (Pass 1+2+3+4, zero 406 errors) for unread notifications count
+                // Resolve current user resiliently (canonicalizing alias emails like roque@ -> carlos@)
                 if (user?.email || user?.name) {
                     const person = await resolveOrCreateTegPerson(supabase, {
-                        email: user?.email,
-                        name: user?.name,
+                        email: canonicalizeBasecampEmail(user?.email),
+                        name: canonicalizeBasecampDisplayName(user?.name, user?.email),
                         role: (user as any)?.role,
                     })
                     if (person?.id) {
                         setResolvedPersonId(person.id)
+                        if (person.name) {
+                            setResolvedPersonName(person.name)
+                        }
                         const { count } = await supabase
                             .from('bc_notifications')
                             .select('*', { count: 'exact', head: true })
@@ -386,11 +554,28 @@ function BasecampWorkspace() {
             setCurrentTodoId(null)
         }
 
+        if (params.replicateTodoId) {
+            query.set('replicateTodoId', params.replicateTodoId)
+            setCurrentReplicateTodoId(params.replicateTodoId)
+        } else {
+            setCurrentReplicateTodoId(null)
+        }
+
         if (params.messageId) {
             query.set('messageId', params.messageId)
             setCurrentMessageId(params.messageId)
         } else {
             setCurrentMessageId(null)
+        }
+
+        if (params.replicateMessageId) {
+            if (!params.tool && params.project) {
+                query.set('tool', 'messages')
+            }
+            query.set('replicateMessageId', params.replicateMessageId)
+            setCurrentReplicateMessageId(params.replicateMessageId)
+        } else {
+            setCurrentReplicateMessageId(null)
         }
 
         if (params.docId) {
@@ -404,14 +589,44 @@ function BasecampWorkspace() {
         router.push(qs ? `/basecamp?${qs}` : '/basecamp')
     }, [router])
 
-    const currentProject = projects.find((p) => p.id === projectId)
+    const currentProject = projects.find((p) => p.id === projectId || p.db_id === projectId)
 
-    // Strip TEG author banner, <bc-attachment>, HTML tags, and decode entities for search snippets
+    // Strip TEG author banner, preserve @mentions, strip <bc-attachment>, HTML tags, and decode entities for search snippets
     const stripHtml = (html?: string | null) => {
         if (!html) return ''
         const { cleanHtml } = stripTegAuthorBanner(html)
-        return cleanHtml
+        const withMentions = cleanHtml
+            .replace(/<bc-attachment\b([^>]*)>([\s\S]*?)<\/bc-attachment>/gi, (_m, attrs: string, inner: string) => {
+                if (!/content-type=["']application\/vnd\.basecamp\.mention["']/i.test(attrs) && !/data-teg-mention-person-id=/i.test(attrs)) {
+                    return ' '
+                }
+                const figMatch = inner.match(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/i)
+                const altMatch = inner.match(/\balt=["']([^"']+)["']/i)
+                const contentAttr = attrs.match(/\bcontent=["']([^"']+)["']/i)
+                let name = ''
+                if (figMatch?.[1]) name = figMatch[1].replace(/<[^>]*>/g, '').trim()
+                else if (altMatch?.[1]) name = altMatch[1].trim()
+                else if (contentAttr?.[1]) {
+                    name = contentAttr[1]
+                        .replace(/&lt;/gi, '<')
+                        .replace(/&gt;/gi, '>')
+                        .replace(/&quot;/gi, '"')
+                        .replace(/&amp;/gi, '&')
+                        .replace(/<[^>]*>/g, '')
+                        .trim()
+                } else {
+                    name = inner.replace(/<[^>]*>/g, '').trim()
+                }
+                const cleanName = name.replace(/^@+/, '').trim()
+                return cleanName ? ` @${cleanName} ` : ' '
+            })
+            .replace(/<span\b[^>]*\bdata-teg-mention-person-id=["'][^"']+["'][^>]*>([\s\S]*?)<\/span>/gi, (_m, inner: string) => {
+                const cleanName = inner.replace(/<[^>]*>/g, '').replace(/^@+/, '').trim()
+                return cleanName ? ` @${cleanName} ` : ' '
+            })
+        return withMentions
             .replace(/<bc-attachment[\s\S]*?<\/bc-attachment>/gi, ' ')
+            .replace(/<bc-attachment\b[^>]*\/>/gi, ' ')
             .replace(/<[^>]*>/g, ' ')
             .replace(/&nbsp;/gi, ' ')
             .replace(/&amp;/gi, '&')
@@ -423,21 +638,64 @@ function BasecampWorkspace() {
             .trim()
     }
 
-    // Extract image and video URLs from HTML content and proxy raw Basecamp URLs
+    // Extract image and video URLs from HTML content and proxy raw Basecamp URLs (excluding mention mini-avatars)
     const extractMediaUrls = (html?: string | null) => {
         const media: { type: 'image' | 'video'; url: string }[] = []
         if (!html) return media
 
         const seen = new Set<string>()
-        const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi
-        let match
+        const bcAttRegex = /<bc-attachment\b([^>]*?)(?:\/>|>([\s\S]*?)<\/bc-attachment>)/gi
+        let match: RegExpExecArray | null
+        while ((match = bcAttRegex.exec(html)) !== null) {
+            const attrs = match[1] || ''
+            if (
+                /content-type=["']application\/vnd\.basecamp\.mention["']/i.test(attrs) ||
+                /\bdata-teg-mention-person-id=/i.test(attrs)
+            ) {
+                continue
+            }
+            const ct = (attrs.match(/\bcontent-type=["']([^"']+)["']/i)?.[1] || '').trim()
+            const fn = (attrs.match(/\bfilename=["']([^"']+)["']/i)?.[1] || '').trim()
+            const rawUrl = (
+                attrs.match(/\burl=["']([^"']+)["']/i)?.[1] ||
+                attrs.match(/\bhref=["']([^"']+)["']/i)?.[1] ||
+                ''
+            ).trim()
+            if (!rawUrl) continue
+            const proxied = proxyBasecampUrl(rawUrl)
+            if (!proxied || seen.has(proxied)) continue
+            if (isVideoMimeOrFilename(ct, fn, rawUrl)) {
+                seen.add(proxied)
+                media.push({ type: 'video', url: proxied })
+            } else if (
+                ct.toLowerCase().startsWith('image/') ||
+                /\.(?:jpe?g|png|gif|webp|bmp|svg|heic|heif|avif)(?:$|[?#])/i.test(fn || rawUrl)
+            ) {
+                seen.add(proxied)
+                media.push({ type: 'image', url: proxied })
+            }
+        }
+
+        const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
         while ((match = imgRegex.exec(html)) !== null) {
+            const fullTag = match[0]
+            if (
+                /\bclass=["'][^"']*\bavatar\b/i.test(fullTag) ||
+                /\bdata-avatar-for-person-id=/i.test(fullTag) ||
+                /\bdata-bc-avatar=/i.test(fullTag)
+            ) {
+                continue
+            }
             const rawUrl = match[1]
             if (!rawUrl || rawUrl.includes('attachment-icon')) continue
+            const altVal = fullTag.match(/\balt=["']([^"']+)["']/i)?.[1] || ''
             const proxied = proxyBasecampUrl(rawUrl)
             if (proxied && !seen.has(proxied)) {
                 seen.add(proxied)
-                media.push({ type: 'image', url: proxied })
+                media.push({
+                    type: isVideoMimeOrFilename('', altVal, rawUrl) ? 'video' : 'image',
+                    url: proxied,
+                })
             }
         }
 
@@ -501,16 +759,16 @@ function BasecampWorkspace() {
             const [todosRes, messagesRes, docsRes, peopleRes] = await Promise.all([
                 supabase
                     .from('bc_todos')
-                    .select('id, title, description, created_at, project_id')
+                    .select('id, bc_id, title, description, is_completed, created_at, completed_at, project_id, todolist_id, project:bc_projects(bc_id, name), todolist:bc_todolists(id, name, color)')
                     .or(buildDualOrFilter('title', 'description'))
                     .order('created_at', { ascending: false })
                     .limit(25),
                 supabase
                     .from('bc_messages')
-                    .select('id, title, content, created_at, project_id')
+                    .select('id, bc_id, title, content, category, is_pinned, created_at, project_id, project:bc_projects(bc_id, name)')
                     .or(buildDualOrFilter('title', 'content'))
                     .order('created_at', { ascending: false })
-                    .limit(25),
+                    .limit(20),
                 supabase
                     .from('bc_documents')
                     .select('id, title, content, created_at, project_id')
@@ -519,7 +777,7 @@ function BasecampWorkspace() {
                     .limit(25),
                 supabase
                     .from('bc_people')
-                    .select('id, name, email, title, role')
+                    .select('id, bc_id, name, email, title, role, attachable_sgid')
                     .eq('is_active', true)
                     .limit(500),
             ])
@@ -536,23 +794,44 @@ function BasecampWorkspace() {
                     results.push({ type: 'project', id: p.id, label: p.name, projectId: p.id })
                 })
 
-            // 2. Todos (verify accent-insensitive match in JS to eliminate SQL '_' false positives)
+            // 2. Todos — open & historical completed across all lists (verify accent-insensitive match in JS)
             if (todosRes.data) {
                 todosRes.data
-                    .filter((row: any) => stripAccentsLower(`${row.title || ''} ${stripHtml(row.description)}`).includes(normQuery))
-                    .slice(0, 10)
+                    .filter((row: any) => {
+                        const plainText = stripAccentsLower(`${row.title || ''} ${stripHtml(row.description)}`)
+                        if (plainText.includes(normQuery)) return true
+                        return stripAccentsLower(row.description || '').includes(normQuery)
+                    })
+                    .slice(0, 25)
                     .forEach((row: any) => {
+                        const relProj = Array.isArray(row.project) ? row.project[0] : row.project
+                        const relList = Array.isArray(row.todolist) ? row.todolist[0] : row.todolist
                         const proj = projects.find((p) => p.db_id === row.project_id)
-                        if (proj) {
+                        const resolvedProjBcId = proj?.id || (relProj?.bc_id ? String(relProj.bc_id) : '')
+                        const resolvedProjName = proj?.name || relProj?.name || ''
+                        if (resolvedProjBcId && (proj || relProj)) {
+                            const media = extractMediaUrls(row.description)
+                            const imageCount = media.filter((m) => m.type === 'image').length
+                            const hasPhotos =
+                                imageCount > 0 ||
+                                /<bc-attachment\b[^>]*content-type=["']image\//i.test(row.description || '')
                             results.push({
                                 type: 'todo',
                                 id: row.id,
+                                bcId: row.bc_id,
                                 label: row.title,
-                                projectId: proj.id,
-                                projectName: proj.name,
+                                isCompleted: Boolean(row.is_completed),
+                                completedAt: row.completed_at || null,
+                                projectId: resolvedProjBcId,
+                                projectName: resolvedProjName,
+                                todolistId: row.todolist_id || relList?.id || null,
+                                todolistName: relList?.name || '',
+                                todolistColor: relList?.color || null,
                                 createdAt: row.created_at,
                                 description: row.description,
-                                media: extractMediaUrls(row.description),
+                                media,
+                                hasPhotos,
+                                imageCount,
                             })
                         }
                     })
@@ -561,20 +840,43 @@ function BasecampWorkspace() {
             // 3. Messages
             if (messagesRes.data) {
                 messagesRes.data
-                    .filter((row: any) => stripAccentsLower(`${row.title || ''} ${stripHtml(row.content)}`).includes(normQuery))
-                    .slice(0, 10)
+                    .filter((row: any) => {
+                        const plainText = stripAccentsLower(`${row.title || ''} ${stripHtml(row.content)}`)
+                        if (plainText.includes(normQuery)) return true
+                        return stripAccentsLower(row.content || '').includes(normQuery)
+                    })
+                    .slice(0, 20)
                     .forEach((row: any) => {
+                        const relProj = Array.isArray(row.project) ? row.project[0] : row.project
                         const proj = projects.find((p) => p.db_id === row.project_id)
-                        if (proj) {
+                        const resolvedProjBcId = proj?.id || (relProj?.bc_id ? String(relProj.bc_id) : '')
+                        const resolvedProjName = proj?.name || relProj?.name || ''
+                        if (resolvedProjBcId && (proj || relProj)) {
+                            const media = extractMediaUrls(row.content)
+                            const imageCount = media.filter((m) => m.type === 'image').length
+                            const videoCount = media.filter((m) => m.type === 'video').length
+                            const hasPhotos =
+                                imageCount > 0 ||
+                                /<bc-attachment\b[^>]*content-type=["']image\//i.test(row.content || '')
+                            const hasVideos =
+                                videoCount > 0 ||
+                                /<bc-attachment\b[^>]*content-type=["']video\//i.test(row.content || '')
                             results.push({
                                 type: 'message',
                                 id: row.id,
+                                bcId: row.bc_id,
                                 label: row.title,
-                                projectId: proj.id,
-                                projectName: proj.name,
+                                category: row.category || null,
+                                isPinned: Boolean(row.is_pinned),
+                                projectId: resolvedProjBcId,
+                                projectName: resolvedProjName,
                                 createdAt: row.created_at,
                                 description: row.content,
-                                media: extractMediaUrls(row.content),
+                                media,
+                                hasPhotos,
+                                imageCount,
+                                hasVideos,
+                                videoCount,
                             })
                         }
                     })
@@ -606,7 +908,7 @@ function BasecampWorkspace() {
             if (peopleRes.data) {
                 peopleRes.data
                     .filter((row: any) => {
-                        const cleanEmail = isMaskedOrEmptyEmail(row.email) ? '' : String(row.email)
+                        const cleanEmail = isMaskedOrEmptyEmail(row.email) ? '' : canonicalizeBasecampEmail(row.email)
                         return (
                             stripAccentsLower(row.name).includes(normQuery) ||
                             stripAccentsLower(cleanEmail).includes(normQuery) ||
@@ -619,7 +921,7 @@ function BasecampWorkspace() {
                             type: 'person',
                             id: row.id,
                             label: row.name,
-                            email: isMaskedOrEmptyEmail(row.email) ? '' : row.email,
+                            email: isMaskedOrEmptyEmail(row.email) ? '' : canonicalizeBasecampEmail(row.email),
                         })
                     })
             }
@@ -690,6 +992,37 @@ function BasecampWorkspace() {
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [showSearchModal, heyDrawerOpen, navigateTo])
+
+    const handleConsumeReplicateTodo = useCallback(() => {
+        setCurrentReplicateTodoId(null)
+        if (typeof window !== 'undefined') {
+            const query = new URLSearchParams(window.location.search)
+            if (query.has('replicateTodoId')) {
+                query.delete('replicateTodoId')
+                const qs = query.toString()
+                window.history.replaceState(null, '', qs ? `/basecamp?${qs}` : '/basecamp')
+            }
+        }
+    }, [])
+
+    const handleConsumeReplicateMessage = useCallback(() => {
+        setCurrentReplicateMessageId(null)
+        if (typeof window !== 'undefined') {
+            const query = new URLSearchParams(window.location.search)
+            const needsMessagesTool = !query.get('tool') && Boolean(query.get('project'))
+            if (query.has('replicateMessageId') || needsMessagesTool) {
+                query.delete('replicateMessageId')
+                if (needsMessagesTool) {
+                    query.set('tool', 'messages')
+                    const qs = query.toString()
+                    router.replace(qs ? `/basecamp?${qs}` : '/basecamp', { scroll: false })
+                    return
+                }
+                const qs = query.toString()
+                window.history.replaceState(null, '', qs ? `/basecamp?${qs}` : '/basecamp')
+            }
+        }
+    }, [router])
 
     const closeSearchModal = () => {
         searchReqSeqRef.current++
@@ -896,7 +1229,9 @@ function BasecampWorkspace() {
         if (wasActive && query.has(paramName)) {
             query.delete(paramName)
             const qs = query.toString()
-            router.replace(qs ? `/basecamp?${qs}` : '/basecamp', { scroll: false })
+            const nextHref = qs ? `/basecamp?${qs}` : '/basecamp'
+            window.history.replaceState(null, '', nextHref)
+            router.replace(nextHref, { scroll: false })
         }
     }
 
@@ -912,8 +1247,18 @@ function BasecampWorkspace() {
         }
 
         if (projectId && currentProject) {
-            if (toolId) {
-                const normTool = toolId.toLowerCase()
+            const effectiveToolId =
+                toolId ||
+                (currentTodoId || currentReplicateTodoId
+                    ? 'todos'
+                    : currentMessageId || currentReplicateMessageId
+                    ? 'messages'
+                    : currentDocId
+                    ? 'docs'
+                    : null)
+
+            if (effectiveToolId) {
+                const normTool = effectiveToolId.toLowerCase()
                 switch (normTool) {
                     case 'campfire':
                     case 'chat':
@@ -928,7 +1273,9 @@ function BasecampWorkspace() {
                                 project={currentProject}
                                 currentUserName={currentUserName}
                                 selectedTodoId={currentTodoId || undefined}
+                                replicateTodoId={currentReplicateTodoId || undefined}
                                 onCloseDetail={() => clearDeepLinkParamIfActive('todoId', currentTodoId, () => setCurrentTodoId(null))}
+                                onConsumeReplicateTodo={handleConsumeReplicateTodo}
                                 navigateTo={navigateTo}
                             />
                         )
@@ -941,7 +1288,9 @@ function BasecampWorkspace() {
                                 project={currentProject}
                                 currentUserName={currentUserName}
                                 selectedMessageId={currentMessageId || undefined}
+                                replicateMessageId={currentReplicateMessageId || undefined}
                                 onCloseDetail={() => clearDeepLinkParamIfActive('messageId', currentMessageId, () => setCurrentMessageId(null))}
+                                onConsumeReplicateMessage={handleConsumeReplicateMessage}
                             />
                         )
                     case 'docs':
@@ -980,6 +1329,11 @@ function BasecampWorkspace() {
                                 saveProjects={saveProjects}
                                 projects={projects}
                                 currentUserName={currentUserName}
+                                selectedTodoId={currentTodoId || undefined}
+                                selectedMessageId={currentMessageId || undefined}
+                                replicateMessageId={currentReplicateMessageId || undefined}
+                                onCloseDetail={() => clearDeepLinkParamIfActive('messageId', currentMessageId, () => setCurrentMessageId(null))}
+                                onConsumeReplicateMessage={handleConsumeReplicateMessage}
                                 onOpenSearch={() => setShowSearchModal(true)}
                             />
                         )
@@ -992,6 +1346,11 @@ function BasecampWorkspace() {
                     saveProjects={saveProjects}
                     projects={projects}
                     currentUserName={currentUserName}
+                    selectedTodoId={currentTodoId || undefined}
+                    selectedMessageId={currentMessageId || undefined}
+                    replicateMessageId={currentReplicateMessageId || undefined}
+                    onCloseDetail={() => clearDeepLinkParamIfActive('messageId', currentMessageId, () => setCurrentMessageId(null))}
+                    onConsumeReplicateMessage={handleConsumeReplicateMessage}
                     onOpenSearch={() => setShowSearchModal(true)}
                 />
             )
@@ -1064,6 +1423,7 @@ function BasecampWorkspace() {
                 isOpen={heyDrawerOpen}
                 onClose={() => setHeyDrawerOpen(false)}
                 onMarkAllRead={() => setUnreadHeyCount(0)}
+                onReadOne={() => setUnreadHeyCount((prev) => Math.max(0, prev - 1))}
                 navigateTo={navigateTo}
             />
 
@@ -1073,7 +1433,7 @@ function BasecampWorkspace() {
                     className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
                     onClick={(e) => { if (e.target === e.currentTarget) closeSearchModal() }}
                 >
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
                             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                                 <Search size={20} className="text-[#1D7DB5]" />
@@ -1152,27 +1512,92 @@ function BasecampWorkspace() {
                                                     .map((r) => {
                                                         const cleanSnippet = stripHtml(r.description)
                                                         return (
-                                                            <button
+                                                            <div
                                                                 key={`todo-${r.id}`}
+                                                                role="button"
+                                                                tabIndex={0}
                                                                 onClick={() => { navigateTo({ project: r.projectId, tool: 'todos', todoId: r.id }); closeSearchModal() }}
-                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm"
+                                                                onKeyDown={(ev) => {
+                                                                    if (ev.key === 'Enter' || ev.key === ' ') {
+                                                                        ev.preventDefault()
+                                                                        navigateTo({ project: r.projectId, tool: 'todos', todoId: r.id })
+                                                                        closeSearchModal()
+                                                                    }
+                                                                }}
+                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm cursor-pointer"
                                                             >
-                                                                <div className="flex items-center gap-2 w-full">
-                                                                    <CheckSquare size={16} className="text-green-600 flex-shrink-0" />
-                                                                    <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex-1 truncate">
-                                                                        {r.label}
-                                                                    </span>
+                                                                <div className="flex items-start justify-between gap-2.5 w-full">
+                                                                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+                                                                        <CheckSquare
+                                                                            size={16}
+                                                                            className={r.isCompleted ? 'text-emerald-600 flex-shrink-0' : 'text-[#1D7DB5] flex-shrink-0'}
+                                                                        />
+                                                                        <span
+                                                                            className={`text-sm font-extrabold truncate max-w-[280px] sm:max-w-[340px] ${
+                                                                                r.isCompleted
+                                                                                    ? 'text-slate-600 dark:text-slate-300 line-through decoration-slate-400/70'
+                                                                                    : 'text-slate-800 dark:text-slate-100'
+                                                                            }`}
+                                                                        >
+                                                                            {r.label}
+                                                                        </span>
+                                                                        <span
+                                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border shrink-0 ${
+                                                                                r.isCompleted
+                                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                                                                    : 'bg-blue-50 text-[#1D7DB5] border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                                                            }`}
+                                                                        >
+                                                                            {r.isCompleted ? t('basecamp.status_completed_badge') : t('basecamp.status_open_badge')}
+                                                                        </span>
+                                                                        {r.hasPhotos && (
+                                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                                                                                <span>📷</span>
+                                                                                {r.imageCount > 1 && <span>{r.imageCount}</span>}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            closeSearchModal()
+                                                                            navigateTo({
+                                                                                project: r.projectId,
+                                                                                tool: 'todos',
+                                                                                replicateTodoId: r.id,
+                                                                            })
+                                                                        }}
+                                                                        title={t('basecamp.replicate_task_tooltip')}
+                                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] active:bg-[#0E4A6E] text-white text-[11px] font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
+                                                                    >
+                                                                        <span>📋</span>
+                                                                        <span>{t('basecamp.replicate_task')}</span>
+                                                                    </button>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold min-w-0 flex-wrap">
+                                                                        <span className="bg-blue-50 dark:bg-blue-950/30 text-[#1D7DB5] dark:text-blue-300 px-1.5 py-0.5 rounded truncate max-w-[180px]">
+                                                                            {r.projectName}
+                                                                        </span>
+                                                                        {r.todolistName && (
+                                                                            <>
+                                                                                <span className="text-slate-400 font-black">›</span>
+                                                                                <span className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md text-slate-700 dark:text-slate-200 truncate max-w-[260px]">
+                                                                                    <span
+                                                                                        className="w-2 h-2 rounded-full shrink-0"
+                                                                                        style={{ backgroundColor: resolveSearchTodolistHex(r.todolistColor) }}
+                                                                                    />
+                                                                                    <span className="truncate">{r.todolistName}</span>
+                                                                                </span>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
                                                                     {r.createdAt && (
                                                                         <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex-shrink-0">
                                                                             {formatSearchDateTime(r.createdAt, language)}
                                                                         </span>
                                                                     )}
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1D7DB5] uppercase tracking-wider">
-                                                                    <span>{t('basecamp.search_in_project')}:</span>
-                                                                    <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded">
-                                                                        {r.projectName}
-                                                                    </span>
                                                                 </div>
                                                                 {cleanSnippet && (
                                                                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
@@ -1180,7 +1605,7 @@ function BasecampWorkspace() {
                                                                     </p>
                                                                 )}
                                                                 {renderMediaStrip(r.media)}
-                                                            </button>
+                                                            </div>
                                                         )
                                                     })}
                                             </div>
@@ -1198,27 +1623,82 @@ function BasecampWorkspace() {
                                                     .map((r) => {
                                                         const cleanSnippet = stripHtml(r.description)
                                                         return (
-                                                            <button
+                                                            <div
                                                                 key={`msg-${r.id}`}
+                                                                role="button"
+                                                                tabIndex={0}
                                                                 onClick={() => { navigateTo({ project: r.projectId, tool: 'messages', messageId: r.id }); closeSearchModal() }}
-                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm"
+                                                                onKeyDown={(ev) => {
+                                                                    if (ev.key === 'Enter' || ev.key === ' ') {
+                                                                        ev.preventDefault()
+                                                                        navigateTo({ project: r.projectId, tool: 'messages', messageId: r.id })
+                                                                        closeSearchModal()
+                                                                    }
+                                                                }}
+                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm cursor-pointer"
                                                             >
-                                                                <div className="flex items-center gap-2 w-full">
-                                                                    <Mail size={16} className="text-amber-500 flex-shrink-0" />
-                                                                    <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex-1 truncate">
-                                                                        {r.label}
-                                                                    </span>
+                                                                <div className="flex items-start justify-between gap-2.5 w-full">
+                                                                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+                                                                        <Mail size={16} className="text-amber-500 flex-shrink-0" />
+                                                                        <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100 truncate max-w-[280px] sm:max-w-[340px]">
+                                                                            {r.label}
+                                                                        </span>
+                                                                        {r.isPinned && (
+                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[10px] font-extrabold text-amber-700 dark:text-amber-300 shrink-0">
+                                                                                <span>📌</span>
+                                                                                <span>{t('basecamp.pinned_badge')}</span>
+                                                                            </span>
+                                                                        )}
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-extrabold text-slate-700 dark:text-slate-200 shrink-0">
+                                                                            {getSearchMessageCategoryBadge(r.category, t)}
+                                                                        </span>
+                                                                        {r.hasPhotos && (
+                                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                                                                                <span>📷</span>
+                                                                                {r.imageCount > 1 && <span>{r.imageCount}</span>}
+                                                                            </span>
+                                                                        )}
+                                                                        {r.hasVideos && (
+                                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-[10px] font-bold text-purple-700 dark:text-purple-300 shrink-0">
+                                                                                <span>🎬</span>
+                                                                                {r.videoCount > 1 && <span>{r.videoCount}</span>}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            closeSearchModal()
+                                                                            navigateTo({
+                                                                                project: r.projectId,
+                                                                                tool: 'messages',
+                                                                                replicateMessageId: r.id,
+                                                                            })
+                                                                        }}
+                                                                        title={t('basecamp.replicate_message_tooltip')}
+                                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] active:bg-[#0E4A6E] text-white text-[11px] font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
+                                                                    >
+                                                                        <span>📋</span>
+                                                                        <span>{t('basecamp.replicate_message')}</span>
+                                                                    </button>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold min-w-0 flex-wrap">
+                                                                        <span className="bg-blue-50 dark:bg-blue-950/30 text-[#1D7DB5] dark:text-blue-300 px-1.5 py-0.5 rounded truncate max-w-[200px]">
+                                                                            {r.projectName}
+                                                                        </span>
+                                                                        <span className="text-slate-400 font-black">›</span>
+                                                                        <span className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md text-slate-700 dark:text-slate-200 truncate max-w-[240px]">
+                                                                            <Mail size={11} className="text-amber-500 shrink-0" />
+                                                                            <span className="truncate">{t('basecamp.message_board')}</span>
+                                                                        </span>
+                                                                    </div>
                                                                     {r.createdAt && (
                                                                         <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex-shrink-0">
                                                                             {formatSearchDateTime(r.createdAt, language)}
                                                                         </span>
                                                                     )}
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1D7DB5] uppercase tracking-wider">
-                                                                    <span>{t('basecamp.search_in_project')}:</span>
-                                                                    <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded">
-                                                                        {r.projectName}
-                                                                    </span>
                                                                 </div>
                                                                 {cleanSnippet && (
                                                                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
@@ -1226,7 +1706,7 @@ function BasecampWorkspace() {
                                                                     </p>
                                                                 )}
                                                                 {renderMediaStrip(r.media)}
-                                                            </button>
+                                                            </div>
                                                         )
                                                     })}
                                             </div>
