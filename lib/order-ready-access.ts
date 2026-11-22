@@ -130,6 +130,9 @@ export async function resolveOrderReadyAccess(userId: string | number, tokenRole
         }
       }
       value = { all: false, codes: Array.from(codes) }
+      if (codes.size === 0 && active.length === 0) {
+        return value
+      }
     }
   }
 

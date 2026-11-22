@@ -67,6 +67,12 @@
  *     Unifica el polling de `fetchReadyOrders` en un solo temporizador de 5s alternando lectura rápida (`syncToast=false` en ticks impares)
  *     con sincronización explícita a Toast KDS (`syncToast=true` en ticks pares), y agrega `pendingToastSyncRef` para encolar `syncToast=true`
  *     si coincide con un refresco Realtime en vuelo, evitando que la tableta pierda sincronización KDS cuando `/order-ready-board` está cerrado.
+ *   - BLINDAJE ANTI-CONGELAMIENTO EN FULLSCREEN Y CUADRÍCULA 5-12 ÓRDENES DESLIZABLE (2026-11-21, Rialto):
+ *     1) `AbortController` (6.5s en Supabase directo y 7.5s en `/api/order-ready/orders`) + Watchdog de 8.5s sobre `fetchingReadyOrdersRef`
+ *        para destrabar automáticamente sockets TCP semi-abiertos por micro-cortes de Wi-Fi en Fullscreen sin obligar a recargar Chrome.
+ *     2) Reconexión preventiva de Realtime si transcurren >60s sin refresco exitoso y botón Refrescar siempre activo (aborta peticiones colgadas).
+ *     3) Cuadrícula compacta automática de 3-4 columnas a partir de 5 órdenes (caben hasta 9-12 sin scroll) y desbloqueo automático de `pan-y` /
+ *        toque compatible con scroll cuando el contenedor de órdenes realmente desborda verticalmente.
  *     3) Tarjetas adaptativas gigantes cuando hay 1-4 órdenes activas, `overscroll-y-contain` anti Pull-to-Refresh y pausa de re-renders durante contacto activo.
  *   - OPTIMIZACIÓN POLLING Y CACHÉ (2026-11-19, Paquete 2B):
  *     1) `/api/order-ready/orders` envía `&view=prep` (mantiene cadencia 5s/10s de ÓRDENES intacta al 100%).
@@ -101,6 +107,7 @@ import {
     sanitizeAutoCallTimerConfig
 } from '@/lib/order-ready-auto-timer'
 import {
+    ensureFreshTabletAuth,
     purgeTabletStaleCaches,
     safeLocalStorageSet,
     getTabletNoCacheHeaders
@@ -225,6 +232,10 @@ export default function PreparadorPage() {
     const [wakingUpTablet, setWakingUpTablet] = useState(false)
     const fetchReadyOrdersRef = useRef<((isManual?: boolean, syncToastExplicit?: boolean) => Promise<void>) | null>(null)
     const fetchingReadyOrdersRef = useRef<boolean>(false)
+    const fetchingReadyOrdersStartedAtRef = useRef<number>(0)
+    const activeOrdersFetchAbortRef = useRef<AbortController | null>(null)
+    const lastOrdersSyncSuccessAtRef = useRef<number>(Date.now())
+    const ordersScrollContainerRef = useRef<HTMLDivElement | null>(null)
     const pendingToastSyncRef = useRef<boolean>(false)
     const pendingToastSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fetchHistoryRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
@@ -807,15 +818,27 @@ export default function PreparadorPage() {
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
-        // Guardia in-flight para evitar solapamiento de peticiones automáticas,
-        // encolando cualquier solicitud explícita de syncToast=true para que jamás se descarte por colisión.
-        if (fetchingReadyOrdersRef.current && !isManual) {
-            if (syncToastExplicit) {
-                pendingToastSyncRef.current = true
+        // Watchdog anti-congelamiento (8.5s): si un micro-corte Wi-Fi dejó un socket TCP semi-abierto en Fullscreen,
+        // abortar el controlador anterior y destrabar fetchingReadyOrdersRef automáticamente.
+        const nowStartMs = Date.now()
+        if (fetchingReadyOrdersRef.current) {
+            const stuckElapsedMs = nowStartMs - fetchingReadyOrdersStartedAtRef.current
+            if (!isManual && stuckElapsedMs < 8500) {
+                if (syncToastExplicit) {
+                    pendingToastSyncRef.current = true
+                }
+                return
             }
-            return
+            try {
+                activeOrdersFetchAbortRef.current?.abort()
+            } catch {}
+            fetchingReadyOrdersRef.current = false
         }
+
+        const runController = new AbortController()
+        activeOrdersFetchAbortRef.current = runController
         fetchingReadyOrdersRef.current = true
+        fetchingReadyOrdersStartedAtRef.current = nowStartMs
         if (isManual || syncToastExplicit) {
             pendingToastSyncRef.current = false
         }
@@ -827,48 +850,81 @@ export default function PreparadorPage() {
             purgeTabletStaleCaches({
                 activeStoreId: storeId,
                 activeDate: selectedDate,
-                activeDow: businessDow
+                activeDow: businessDow,
+                forceTokenRefresh: true
             }).catch(() => {})
         }
         try {
             const todayLA = getCaliforniaBusinessDate()
             // @businessRule Tacos Gavilan: Ventana de consulta activa de los últimos 90 minutos (status = IN_PROGRESS).
-            // 1. Consulta directa ultrarrápida a Supabase para respuesta inmediata en UI (0ms)
+            // 1. Consulta directa ultrarrápida a Supabase con timeout estricto de 6.5s para evitar bloqueo por socket colgado
             const cutoffTime = new Date(Date.now() - 90 * 60 * 1000).toISOString()
-            const { data, error } = await supabase
-                .from('order_ready_announcements')
-                .select('*')
-                .eq('store_code', storeCode)
-                .eq('business_date', todayLA)
-                .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
-                .in('dining_option', ['FOR_HERE', 'TOGO']) // Exclusivo Comedor y Para Llevar (jamás Delivery ni Drive-Thru)
-                .gte('created_at', cutoffTime)
-                .order('created_at', { ascending: true }) // FIFO 1:1 con Toast KDS: las disparadas primero a cocina van primero
-                .limit(150)
+            const supaCtrl = new AbortController()
+            const onParentAbortSupa = () => supaCtrl.abort()
+            runController.signal.addEventListener('abort', onParentAbortSupa, { once: true })
+            const supaTimer = setTimeout(() => supaCtrl.abort(), 6500)
+            try {
+                const { data, error } = await supabase
+                    .from('order_ready_announcements')
+                    .select('*')
+                    .eq('store_code', storeCode)
+                    .eq('business_date', todayLA)
+                    .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
+                    .in('dining_option', ['FOR_HERE', 'TOGO']) // Exclusivo Comedor y Para Llevar (jamás Delivery ni Drive-Thru)
+                    .gte('created_at', cutoffTime)
+                    .order('created_at', { ascending: true }) // FIFO 1:1 con Toast KDS: las disparadas primero a cocina van primero
+                    .limit(150)
+                    .abortSignal(supaCtrl.signal)
 
-            if (!error && data) {
-                applyReadyOrdersIfChanged(filterAndDedupePrepOrders(data, storeCode, todayLA))
+                if (!error && data && !runController.signal.aborted) {
+                    applyReadyOrdersIfChanged(filterAndDedupePrepOrders(data, storeCode, todayLA))
+                    lastOrdersSyncSuccessAtRef.current = Date.now()
+                }
+            } catch {
+                // Si la lectura directa a PostgREST expira por red, continuar de inmediato con el endpoint /api/order-ready/orders
+            } finally {
+                clearTimeout(supaTimer)
+                runController.signal.removeEventListener('abort', onParentAbortSupa)
             }
 
-            // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador:
-            // Solo envía syncToast=true en sincronización explícita o manual; en Realtime y polling visual envía syncToast=false
-            const syncRes = await fetch(
-                `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&view=prep&syncToast=${shouldSyncToast ? 'true' : 'false'}&forceToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
-                {
-                    cache: 'no-store',
-                    headers: getTabletNoCacheHeaders()
+            if (runController.signal.aborted) return
+
+            // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador y con timeout estricto de 7.5s:
+            const apiCtrl = new AbortController()
+            const onParentAbortApi = () => apiCtrl.abort()
+            runController.signal.addEventListener('abort', onParentAbortApi, { once: true })
+            const apiTimer = setTimeout(() => apiCtrl.abort(), shouldSyncToast ? 8000 : 6500)
+            try {
+                const syncRes = await fetch(
+                    `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&view=prep&syncToast=${shouldSyncToast ? 'true' : 'false'}&forceToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
+                    {
+                        cache: 'no-store',
+                        headers: getTabletNoCacheHeaders(),
+                        signal: apiCtrl.signal
+                    }
+                )
+                if (syncRes.status === 401) {
+                    ensureFreshTabletAuth(true).catch(() => {})
+                } else if (syncRes.ok && !runController.signal.aborted) {
+                    const syncJson = await syncRes.json()
+                    if (Array.isArray(syncJson?.inProgressOrders)) {
+                        applyReadyOrdersIfChanged(filterAndDedupePrepOrders(syncJson.inProgressOrders, storeCode, todayLA))
+                        lastOrdersSyncSuccessAtRef.current = Date.now()
+                    }
                 }
-            )
-            if (syncRes.ok) {
-                const syncJson = await syncRes.json()
-                if (Array.isArray(syncJson?.inProgressOrders)) {
-                    applyReadyOrdersIfChanged(filterAndDedupePrepOrders(syncJson.inProgressOrders, storeCode, todayLA))
-                }
+            } finally {
+                clearTimeout(apiTimer)
+                runController.signal.removeEventListener('abort', onParentAbortApi)
             }
-        } catch (err) {
-            console.warn('Error fetching prep orders on preparador tablet:', err)
+        } catch (err: any) {
+            if (err?.name !== 'AbortError') {
+                console.warn('Error fetching prep orders on preparador tablet:', err)
+            }
         } finally {
-            fetchingReadyOrdersRef.current = false
+            if (activeOrdersFetchAbortRef.current === runController) {
+                activeOrdersFetchAbortRef.current = null
+                fetchingReadyOrdersRef.current = false
+            }
             if (isManual) setLoadingReadyOrders(false)
             if (pendingToastSyncRef.current) {
                 pendingToastSyncRef.current = false
@@ -1008,8 +1064,18 @@ export default function PreparadorPage() {
         // - Ticks impares (5s, 15s, 25s...): lectura ligera de BD (syncToast=false)
         // - Ticks pares (10s, 20s, 30s...): detección activa de KDS bump en Toast (syncToast=true cuando pantalla visible)
         let pollTickCount = 0
+        let lastRealtimeRecycleAt = Date.now()
         const pollTimer = setInterval(() => {
             pollTickCount = (pollTickCount + 1) % 1000
+            const nowTickMs = Date.now()
+            // Si tras un micro-corte Wi-Fi pasaron >60s sin refresco exitoso, reciclar preventivamente el canal Realtime
+            if (
+                nowTickMs - lastOrdersSyncSuccessAtRef.current > 60000 &&
+                nowTickMs - lastRealtimeRecycleAt > 60000
+            ) {
+                lastRealtimeRecycleAt = nowTickMs
+                setupRealtimeChannel()
+            }
             const shouldSyncToastOnTick =
                 pollTickCount % 2 === 0 &&
                 (typeof document === 'undefined' || document.visibilityState === 'visible')
@@ -1298,8 +1364,63 @@ export default function PreparadorPage() {
         triggerPrepDedupedAction(key, action, dedupeMs)
     }
 
-    // Disparo ULTRA-SENSIBLE al PRIMER MICROSEGUNDO DE CONTACTO (0.0ms) en TODA el área del cuadro
-    // blindado por gesto completo contra presiones largas (0.4s-8s) y rebotes al soltar.
+    const doesOrdersScrollOverflow = (): boolean => {
+        const scroller = ordersScrollContainerRef.current
+        if (!scroller) return false
+        return scroller.scrollHeight > scroller.clientHeight + 16
+    }
+
+    // Disparo ULTRA-SENSIBLE al PRIMER MICROSEGUNDO DE CONTACTO (0.0ms) cuando todas las órdenes caben en pantalla,
+    // y modo compatible con scroll vertical suave (disparo al soltar <= 42px) cuando hay desborde vertical de tarjetas.
+    const bindOrderCardTap = (key: string, action: () => void, scrollSafe = false) => {
+        if (scrollSafe) {
+            return {
+                onPointerDown: (e: React.PointerEvent) => {
+                    if (e.pointerType === 'mouse' && e.button !== 0) return
+                    if (!doesOrdersScrollOverflow()) {
+                        triggerGestureSafeTap(key, 'down', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
+                        return
+                    }
+                    prepPointerStartRef.current = {
+                        x: e.clientX,
+                        y: e.clientY,
+                        maxDist: 0,
+                        key,
+                        at: Date.now(),
+                        firedOnDown: false
+                    }
+                },
+                onPointerMove: (e: React.PointerEvent) => {
+                    const start = prepPointerStartRef.current
+                    if (!start || start.key !== key) return
+                    const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
+                    if (dist > start.maxDist) start.maxDist = dist
+                },
+                onPointerUp: (e: React.PointerEvent) => {
+                    if (e.pointerType === 'mouse' && e.button !== 0) return
+                    const start = prepPointerStartRef.current
+                    if (start && start.key === key) {
+                        prepPointerStartRef.current = null
+                        const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
+                        const elapsed = Date.now() - start.at
+                        if (!start.firedOnDown && dist <= 42 && start.maxDist <= 42 && elapsed <= 3500) {
+                            triggerGestureSafeTap(key, 'click', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
+                        }
+                    }
+                },
+                onContextMenu: (e: React.MouseEvent) => {
+                    e.preventDefault()
+                },
+                onClick: () => {
+                    if (!doesOrdersScrollOverflow()) {
+                        triggerGestureSafeTap(key, 'click', action, 450, 'unknown')
+                    }
+                }
+            }
+        }
+        return bindOrderCardUltraTap(key, action)
+    }
+
     const bindOrderCardUltraTap = (key: string, action: () => void) => ({
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
@@ -1486,6 +1607,10 @@ export default function PreparadorPage() {
         if (!closestTapId) return false
 
         if (closestTapId.startsWith('ord:')) {
+            // Si la lista de órdenes requiere scroll vertical, no disparar en 'down'/'move' por radar para permitir deslizar hacia abajo
+            if (doesOrdersScrollOverflow()) {
+                return false
+            }
             const ordId = closestTapId.slice(4)
             const foundOrder = readyOrdersList.find((o) => String(o.id) === ordId)
             if (foundOrder) {
@@ -1924,6 +2049,8 @@ export default function PreparadorPage() {
         const onFullscreenChange = () => {
             const doc = document as any;
             setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
+            cardRectsCacheRef.current = null
+            fetchReadyOrdersRef.current?.(false, true)
         }
         document.addEventListener('fullscreenchange', onFullscreenChange)
         document.addEventListener('webkitfullscreenchange', onFullscreenChange)
@@ -3167,9 +3294,8 @@ export default function PreparadorPage() {
                                     <button
                                         type="button"
                                         {...bindPrepInstantTap('ord:refresh', () => fetchReadyOrders(true))}
-                                        disabled={loadingReadyOrders}
                                         title={t('prep.refreshOrdersTooltip')}
-                                        className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer select-none touch-manipulation shadow-sm disabled:opacity-50"
+                                        className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer select-none touch-manipulation shadow-sm"
                                     >
                                         <RefreshCw size={16} className={loadingReadyOrders ? 'animate-spin text-emerald-600' : ''} />
                                     </button>
@@ -3315,6 +3441,7 @@ export default function PreparadorPage() {
 
                             {/* Contenedor con scroll para las tarjetas de órdenes */}
                             <div
+                                ref={ordersScrollContainerRef}
                                 className="flex-1 overflow-y-auto pb-16 lg:pb-2 overscroll-y-contain"
                                 style={{ touchAction: 'pan-y' }}
                                 onScroll={() => {
@@ -3334,21 +3461,22 @@ export default function PreparadorPage() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className={`grid gap-3 sm:gap-4 ${
+                                    <div className={`grid gap-2.5 sm:gap-3.5 ${
                                         readyOrdersList.length === 1
                                             ? 'grid-cols-1'
                                             : readyOrdersList.length <= 4
                                             ? 'grid-cols-1 sm:grid-cols-2'
                                             : hideCookingPanel
-                                            ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'
-                                            : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3'
+                                            ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5'
+                                            : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4'
                                     }`}>
                                         {readyOrdersList.map((order, queueIdx) => {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)
                                             const isAlreadyAnnounced = Boolean(order.announced_at)
                                             const isSingleOrder = readyOrdersList.length === 1
-                                            const shouldUseScrollSafeOrderTouch = readyOrdersList.length > (hideCookingPanel ? 12 : 8)
+                                            const isCompactMultiOrder = readyOrdersList.length >= 5
+                                            const shouldUseScrollSafeOrderTouch = readyOrdersList.length >= 5
                                             const smartPlan = isSmartAutoVoiceStore
                                                 ? computeSmartOrderAutoCallPlan(order, queueIdx, autoCallConfig, smartNowMs)
                                                 : null
@@ -3394,9 +3522,13 @@ export default function PreparadorPage() {
                                                         WebkitTouchCallout: 'none',
                                                         userSelect: 'none'
                                                     }}
-                                                    {...bindOrderCardUltraTap(`ord:${order.id}`, () => handleCallOrderImpulse(order))}
-                                                    className={`group relative rounded-2xl sm:rounded-3xl px-4 sm:px-5 py-3.5 sm:py-4 text-left transition-[transform,border-color,background-color] duration-75 will-change-transform active:scale-[0.97] active:translate-y-[2px] active:bg-emerald-100 dark:active:bg-emerald-950/90 active:border-emerald-500 cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-lg border-2 sm:border-3 border-b-[6px] [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-3 before:rounded-3xl ${
-                                                        isSingleOrder ? 'min-h-[250px] sm:min-h-[295px]' : 'min-h-[185px] sm:min-h-[210px]'
+                                                    {...bindOrderCardTap(`ord:${order.id}`, () => handleCallOrderImpulse(order), shouldUseScrollSafeOrderTouch)}
+                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-3 sm:py-3.5 text-left transition-[transform,border-color,background-color] duration-75 will-change-transform active:scale-[0.97] active:translate-y-[2px] active:bg-emerald-100 dark:active:bg-emerald-950/90 active:border-emerald-500 cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-lg border-2 sm:border-3 border-b-[6px] [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-3 before:rounded-3xl ${
+                                                        isSingleOrder
+                                                            ? 'min-h-[250px] sm:min-h-[295px]'
+                                                            : isCompactMultiOrder
+                                                            ? 'min-h-[136px] sm:min-h-[148px]'
+                                                            : 'min-h-[180px] sm:min-h-[200px]'
                                                     } ${
                                                         shouldUseScrollSafeOrderTouch ? 'touch-pan-y' : 'touch-none'
                                                     } ${
