@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.31.0',
-    versionNumber: '2.31.0',
+    version: 'v2.32.0',
+    versionNumber: '2.32.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.31.0',
-    labelEn: 'November 2026 • SM TEG v2.31.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.32.0',
+    labelEn: 'November 2026 • SM TEG v2.32.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-20'
+    lastUpdated: '2026-11-21'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.32.0',
+        date: '21-Nov-2026',
+        titleEs: 'Blindaje Integral de Seguridad Defense-in-Depth (237 Archivos / 206 RLS), Basecamp Réplica 1:1 & Corte Standalone 100% Independiente, Web Accesibilidad WCAG 2.2 AA con Voz Kore + Ley CA 2026 v3.0, Kore Voice Fase 22 Multilingüe y SDK @google/genai@3.6.1',
+        titleEn: 'Defense-in-Depth Security Hardening (237 Files / 206 RLS), Basecamp 1:1 Replica & 100% Standalone Cutover, WCAG 2.2 AA Web Accessibility with Kore Voice + CA 2026 Law v3.0, Omnichannel Kore Voice Phase 22 & @google/genai@3.6.1 SDK',
+        highlightsEs: [
+            'Blindaje Integral de Seguridad Defense-in-Depth (commit 664a0c16 — 237 archivos, tacosgavilan-web 2ec8ee7/15bd168 y migraciones 20261121192157 / 20261121192319): endurecimiento en vivo de 144+ APIs, Auth/OAuth, cabeceras HSTS/CSP, geolocalización first-party, GPC, 206/206 tablas públicas con RLS activo y revocación de EXECUTE anónimo en funciones trigger con 0 caídas',
+            'Basecamp Réplica 1:1 (commits b6a5489f, e5cb5e6f, b03cc319 y 6fdee9b9) + Corte Definitivo Standalone Independiente: editor Basecamp 4 completo, replicación de tareas y anuncios, @mentions, boosts, correos automáticos, rescate del 100% de archivos/fotos/videos/avatares en Supabase Storage (14,915 tareas y 34,547 comentarios con 0 dependencia externa), rol Solo Basecamp y corrección Rules of Hooks en BasecampWorkspace',
+            'Accesibilidad Web WCAG 2.2 AA con Voz Neuronal Kore y Declaración Legal California 2026 v3.0 (commits 93ce1d94 y e9f271f5 + tacosgavilan-web 5ec7cd6 y 0bac6b8): nuevo panel inteligente con lectura en voz alta Kore (/api/web-a11y/tts) y cumplimiento actualizado Unruh/ADA 2026 en todas las superficies de tacosgavilan.com',
+            'Kore Voice Omnicanal Fase 22 (commit 5bd1b1dd: gate adaptativo anti-TV/ruido, espera de cliente, matemática exacta de add-ons POS, candado de cancelación y bloqueo multilingüe universal), actualización @google/genai@3.6.1 con escaneo IA de recibos/mantenimiento/voz y auditoría forense de 55 módulos, blindaje Preparador orden #228 La Puente y 137.8 horas consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'Comprehensive Defense-in-Depth Security Hardening (commit 664a0c16 — 237 files, tacosgavilan-web 2ec8ee7/15bd168 & migrations 20261121192157 / 20261121192319): zero-downtime lockdown across 144+ APIs, Auth/OAuth, HSTS/CSP edge headers, first-party geo & GPC consent, 206/206 RLS-enabled public tables, and revocation of anonymous trigger EXECUTE privileges',
+            'Basecamp Complete 1:1 Replica (commits b6a5489f, e5cb5e6f, b03cc319 & 6fdee9b9) + 100% Standalone Cutover: full Basecamp 4 rich-text composer, task/announcement replication, @mentions, boosts, automated To-Do emails, 100% media/avatar rescue into Supabase Storage (14,915 tasks & 34,547 comments with 0 external dependency), Basecamp-Only role, and BasecampWorkspace Rules-of-Hooks fix',
+            'WCAG 2.2 AA Web Accessibility Suite with Kore Neural Voice & California 2026 Accessibility Statement v3.0 (commits 93ce1d94 & e9f271f5 + tacosgavilan-web 5ec7cd6 & 0bac6b8): upgraded smart-profile panel with Kore neural read-aloud player (/api/web-a11y/tts) and 2026 California Unruh/ADA compliance across tacosgavilan.com',
+            'Omnichannel Kore Voice Phase 22 (commit 5bd1b1dd: adaptive anti-TV/noise gate, customer hold, exact POS add-on math, safe cancel lock & universal multilingual session lock), @google/genai@3.6.1 upgrade with AI receipt/maintenance/voice scanning & 55-module forensic audit, La Puente Preparador #228 fix, and 137.8 consolidated hours in November 2026'
+        ]
+    },
     {
         version: 'v2.31.0',
         date: '20-Nov-2026',
