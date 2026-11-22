@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.32.0',
-    versionNumber: '2.32.0',
+    version: 'v2.33.0',
+    versionNumber: '2.33.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.32.0',
-    labelEn: 'November 2026 • SM TEG v2.32.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.33.0',
+    labelEn: 'November 2026 • SM TEG v2.33.0',
     brand: 'SM TEG',
     lastUpdated: '2026-11-21'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.33.0',
+        date: '21-Nov-2026',
+        titleEs: 'Telefonía Kore Live v10 (Validador Tickets POS/Delivery HMAC & Retención Anti-Cuelgue), Kore Drive-Thru Fases 24–25 (Audio Full-Duplex & 12 Pruebas en Carro), Cron Semanal Salarios Simplify HR vs Toast POS, Proyecciones Estáticas Sync Ventas + Fechas Especiales y Fix Preparador KDS Rialto',
+        titleEn: 'Kore Live Phone v10 (Live POS/Delivery Ticket Validator HMAC & Retention Lock), Kore Drive-Thru Phases 24–25 (Full-Duplex Audio & 12 Real Car Tests), Weekly Simplify HR vs Toast POS Wage Audit Cron, Static Manual Projection Locks Synced with Sales + Holiday Hours & Rialto Prep KDS Fix',
+        highlightsEs: [
+            'Telefonía Kore Live v10 (commit 4481e37e + Supabase Edge Function phone-live-bridge v10): nuevo validador en vivo de tickets POS/Delivery (lib/toast-ticket-validator.ts + endpoint firmado HMAC /api/phone/verify-order) respetando el día laboral 6:00 AM–5:59 AM PT, guardia estricta ES/EN en runtime contra escritura no latina, candado de retención anti-cuelgue ante frustración, opciones urgentes < 1h para grupos y menú verbal completo',
+            'Kore IA Drive-Thru Fases 24–25 (certificado sobre 4 sesiones de audio y 12 pruebas reales en carro — 33/33 PASS): colchón de red adaptativo Full-Duplex (95 ms / 135 ms), cola acústica de 240 ms y escudo AEC de 650 ms; rastreo de platillos pendientes en órdenes compuestas, ajuste idempotente de complementos gratuitos de café, directivas silenciosas de idioma (turnComplete: false) sin burbujas vacías ni respuestas dobles y deduplicación de clips EBT',
+            'Alerta Semanal Automática de Salarios Simplify HR vs Toast POS (commit b89e43be — /api/cron/audit-employee-wages, 37 crons activos en vercel.json): cruce semanal en vivo en las 15 sucursales (53/53 PASS) notificando discrepancias salariales a Gerentes y Supervisores antes de publicar horarios, junto con calibración interna de cumplimiento en descansos y comidas (tiempos oficiales exactos 10m/30m)',
+            'Proyecciones Estáticas con Candado (🔒) Sincronizadas con Ventas + 7 Fechas Especiales (commit 9cdc2813): bloqueo estático manual vía /api/projections/override sincronizado en tiempo real con Planificador, /ventas y /ventas/reportes, calibración horaria de 7 días festivos y estudio financiero P&L marginal de Thanksgiving en las 15 tiendas',
+            'Preparador KDS Rialto (commit a17b71dd) y Consolidación de 2 Semanas: prevención de cuelgue en pantalla completa mediante timeout de red, desbloqueo de cuadrícula y scroll para 5+ órdenes en #12 Rialto, auditoría integral de 2 semanas (206/206 RLS activos) y 141.9h consolidadas en Noviembre 2026'
+        ],
+        highlightsEn: [
+            'Kore Live Phone v10 (commit 4481e37e + Supabase Edge Function phone-live-bridge v10): new live POS/Delivery ticket validator (lib/toast-ticket-validator.ts + HMAC-signed /api/phone/verify-order) respecting the 6:00 AM–5:59 AM PT business day, strict ES/EN runtime guard blocking non-Latin scripts, caller frustration retention lock, urgent < 1h group options, and full spoken menu recitation',
+            'Kore AI Drive-Thru Phases 24–25 (certified across 4 audio sessions & 12 live car tests — 33/33 PASS): adaptive Full-Duplex jitter buffer (95 ms / 135 ms), 240 ms acoustic tail, and 650 ms AEC shield; compound-order unfulfilled item tracking, idempotent free coffee side clamping, silent language directives (turnComplete: false) eliminating empty bubbles/double replies, and EBT clip deduplication',
+            'Weekly Automated Simplify HR vs Toast POS Wage Audit Cron (commit b89e43be — /api/cron/audit-employee-wages, 37 active crons in vercel.json): live weekly 15-store wage reconciliation (53/53 PASS) alerting Store Managers & Supervisors prior to weekly scheduling, paired with internal break/lunch compliance policy calibration (official exact 10m/30m durations)',
+            'Static Manual Projection Locks (🔒) Synced with Sales + 7 Calibrated Holiday Dates (commit 9cdc2813): manual override locks persisted via /api/projections/override synced live across Planner, /ventas, and /ventas/reportes, special holiday operating hours across 7 dates, and a 15-store Thanksgiving marginal P&L study',
+            'Rialto Prep KDS Fix (commit a17b71dd) & 2-Week Consolidation: prevented fullscreen socket hang via fetch timeout guard, unlocked 5+ order grid/scroll for #12 Rialto, completed full 2-week multi-chat audit (206/206 RLS tables), and consolidated 141.9h in November 2026'
+        ]
+    },
     {
         version: 'v2.32.0',
         date: '21-Nov-2026',
