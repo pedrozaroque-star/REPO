@@ -67,6 +67,9 @@ import {
   detectAmbiguousMeatNadaCollision,
   detectKoreThirdLanguage,
   extractDirectCustomerIntentFromNoisyTurn,
+  extractMentionedOrderCategories,
+  filterStillUnfulfilledCategories,
+  findUnfulfilledSessionOrderCategories,
   hasDirectCustomerAudioCheck,
   hasExplicitBackgroundMediaMarkers,
   hasMeaningfulNonLatinCustomerSpeech,
@@ -75,10 +78,12 @@ import {
   isKoreBreakfastCategory,
   isKoreBreakfastOpen,
   isLikelyBackgroundMediaSpeech,
+  isLikelyKoreSelfEchoTranscript,
   matchesThirdLanguageScript,
   normalizeKoreCustomerSpeech,
   shouldBlockUnconfirmedCancelOrder,
   type KoreBreakfastWindow,
+  type KoreSessionOrderCategory,
   type KoreThirdLanguageCode,
   type KoreThirdLanguageMatch,
   type NoisyTurnCustomerIntent
@@ -94,6 +99,9 @@ export {
   detectAmbiguousMeatNadaCollision,
   detectKoreThirdLanguage,
   extractDirectCustomerIntentFromNoisyTurn,
+  extractMentionedOrderCategories,
+  filterStillUnfulfilledCategories,
+  findUnfulfilledSessionOrderCategories,
   hasDirectCustomerAudioCheck,
   hasExplicitBackgroundMediaMarkers,
   hasMeaningfulNonLatinCustomerSpeech,
@@ -102,10 +110,12 @@ export {
   isKoreBreakfastCategory,
   isKoreBreakfastOpen,
   isLikelyBackgroundMediaSpeech,
+  isLikelyKoreSelfEchoTranscript,
   matchesThirdLanguageScript,
   normalizeKoreCustomerSpeech,
   shouldBlockUnconfirmedCancelOrder,
   type KoreBreakfastWindow,
+  type KoreSessionOrderCategory,
   type KoreThirdLanguageCode,
   type KoreThirdLanguageMatch,
   type NoisyTurnCustomerIntent
@@ -327,6 +337,10 @@ export interface KoreToolOptions {
   includeTicketCheaperAlternatives?: boolean
   /** 3.er idioma activo detectado del cliente (ej. Coreano, Chino, Japonés, Portugués, Francés) sin alterar `lang: 'es' | 'en'`. */
   thirdLanguage?: KoreThirdLanguageMatch | null
+  /** Categorías pedidas antes en la sesión para alertar si sigue faltando alguna tras `add_item` / `add_items`. */
+  unfulfilledSessionCategories?: string[]
+  /** Historial opcional de turnos del cliente en la sesión para calcular automáticamente ítems pendientes. */
+  sessionCustomerTurns?: string[]
 }
 
 /** Platillos exclusivos de desayuno: categoría Toast `Breakfast` (bebidas como Coffee/Champurrado viven en `Misc. Drinks`). */
@@ -1240,12 +1254,19 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
     }
     const { qty, rest } = splitLeadingQuantity(text)
     const times = qty === null ? 1 : qty
-    if (!Number.isInteger(times) || times < 1 || times > 10) {
+    if (!Number.isInteger(times) || times < 1 || times > 25) {
       errors.push(`Invalid repeat count in modifier "${raw}".`)
       continue
     }
+    const quickCourtesyTokens = koreCanonicalTokens(rest)
+    const isPureCourtesyOverride =
+      !quickCourtesyTokens.includes('no') &&
+      (quickCourtesyTokens.includes(COURTESY_FRIJOL_OLLA_TOKEN) ||
+        quickCourtesyTokens.includes(COURTESY_CEBOLLA_ASADA_TOKEN) ||
+        quickCourtesyTokens.includes(CON_TODO_TOKEN))
     const exactRef = scopedRefs.filter((r) => normalizeKoreText(r.option.name) === rest)
-    let ref: OptionRef | null = exactRef.length === 1 ? exactRef[0] : null
+    let ref: OptionRef | null =
+      !isPureCourtesyOverride && exactRef.length === 1 ? exactRef[0] : null
     if (!ref) {
       const rawTokens = koreCanonicalTokens(rest)
       const isNegated = rawTokens.includes('no')
@@ -1811,6 +1832,156 @@ function splitSuperHintFromRawMods(rawMods: string[]): { cleaned: string[]; hadS
   return { cleaned, hadSuperToken }
 }
 
+const SIBLING_MEAT_SWAP_RE =
+  /\b(asada|pastor|adobada|pollo|chicken|steak|carnitas|chorizo|cabeza|lengua|buche|milanesa|cubana|vegetariano|vegetariana|veggie)\b/i
+
+function autoClampOptionalFreeGroupsWithNote(
+  item: KoreMenuItem,
+  inputModifiers: KoreOrderModifier[],
+  existingNotes: string | undefined
+): { modifiers: KoreOrderModifier[]; notes: string | undefined; exactFreeSidesNote: string | null } {
+  const modifiers = inputModifiers.map((m) => ({ ...m }))
+  const noteParts: string[] = []
+  let cleanedNotes = existingNotes ? existingNotes.trim() : ''
+
+  for (const g of item.modifierGroups) {
+    if (g.required || g.minSelections > 0 || g.maxSelections <= 0) continue
+    const selected = modifiers.filter((m) => m.groupGuid === g.guid)
+    if (selected.length === 0 || !selected.every((m) => m.priceCents === 0)) continue
+    const totalQty = selected.reduce((acc, m) => acc + m.quantity, 0)
+    if (totalQty <= g.maxSelections || totalQty > 25) continue
+
+    const exactSummary = selected.map((m) => `${m.quantity}x ${m.name}`).join(', ')
+    noteParts.push(exactSummary)
+
+    // Limpiar resúmenes numéricos previos del mismo grupo en notes para no duplicar tras update_item
+    if (cleanedNotes) {
+      for (const opt of g.options) {
+        const escaped = opt.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        cleanedNotes = cleanedNotes.replace(new RegExp(`\\b\\d+x\\s+${escaped}\\b[,;\\s]*`, 'gi'), '').trim()
+      }
+      cleanedNotes = cleanedNotes.replace(/^[\s—;,-]+|[\s—;,-]+$/g, '').trim()
+    }
+
+    // Escalar proporcionalmente las cantidades para cumplir exactamente g.maxSelections en Toast POS
+    const quotas = selected.map((m) => (m.quantity / totalQty) * g.maxSelections)
+    const minEach = selected.length <= g.maxSelections ? 1 : 0
+    const scaled = quotas.map((q) => Math.max(minEach, Math.floor(q)))
+    let curSum = scaled.reduce((a, b) => a + b, 0)
+
+    const byRemainderDesc = quotas
+      .map((q, idx) => ({ idx, rem: q - Math.floor(q) }))
+      .sort((a, b) => b.rem - a.rem)
+    let cursor = 0
+    while (curSum < g.maxSelections && byRemainderDesc.length > 0) {
+      scaled[byRemainderDesc[cursor % byRemainderDesc.length].idx] += 1
+      curSum += 1
+      cursor += 1
+    }
+    while (curSum > g.maxSelections) {
+      const maxIdx = scaled.reduce((best, val, idx, arr) => (val > arr[best] ? idx : best), 0)
+      if (scaled[maxIdx] <= 0) break
+      scaled[maxIdx] -= 1
+      curSum -= 1
+    }
+
+    selected.forEach((m, idx) => {
+      m.quantity = scaled[idx]
+    })
+  }
+
+  const finalMods = modifiers.filter((m) => m.quantity > 0)
+  if (noteParts.length === 0) {
+    return { modifiers: finalMods, notes: existingNotes, exactFreeSidesNote: null }
+  }
+  const exactFreeSidesNote = noteParts.join('; ')
+  const combined = [exactFreeSidesNote, cleanedNotes].filter(Boolean).join(' — ')
+  return {
+    modifiers: finalMods,
+    notes: sanitizeNotes(combined),
+    exactFreeSidesNote
+  }
+}
+
+function tryExtractSiblingSkuSwapFromModifiers(
+  baseItem: KoreMenuItem,
+  menu: KoreMenuItem[],
+  rawModList: string[]
+): { targetItem: KoreMenuItem; remainingRawMods: string[] } | null {
+  if (
+    normalizeKoreText(baseItem.name) === 'taco plate' ||
+    /^taco\s+plates?$/i.test(baseItem.category || '')
+  ) {
+    return null
+  }
+  for (let i = 0; i < rawModList.length; i++) {
+    const rawEntry = rawModList[i]
+    const asMod = resolveModifiers(baseItem, [rawEntry])
+    if (asMod.errors.length === 0 && asMod.modifiers.length > 0) continue
+
+    const directRes = resolveKoreMenuItem(menu, rawEntry)
+    if (
+      directRes.item &&
+      directRes.item.guid !== baseItem.guid &&
+      directRes.item.category === baseItem.category
+    ) {
+      return {
+        targetItem: directRes.item,
+        remainingRawMods: rawModList.filter((_, idx) => idx !== i)
+      }
+    }
+
+    const meatMatch = SIBLING_MEAT_SWAP_RE.exec(normalizeKoreCustomerSpeech(rawEntry, { mode: 'drive_thru' }))
+    if (meatMatch && SIBLING_MEAT_SWAP_RE.test(baseItem.name)) {
+      const candidateName = baseItem.name.replace(SIBLING_MEAT_SWAP_RE, meatMatch[1])
+      const sibRes = resolveKoreMenuItem(menu, candidateName)
+      if (
+        sibRes.item &&
+        sibRes.item.guid !== baseItem.guid &&
+        sibRes.item.category === baseItem.category
+      ) {
+        return {
+          targetItem: sibRes.item,
+          remainingRawMods: rawModList.filter((_, idx) => idx !== i)
+        }
+      }
+    }
+  }
+  return null
+}
+
+function isPreviousSkuOrMeatRemovalToken(rawRem: string, baseItem: KoreMenuItem): boolean {
+  const remNorm = normalizeKoreText(rawRem)
+  const baseNorm = normalizeKoreText(baseItem.name)
+  if (!remNorm) return false
+  if (remNorm === baseNorm) return true
+  const baseMeat = SIBLING_MEAT_SWAP_RE.exec(baseNorm)?.[1]?.toLowerCase()
+  return Boolean(baseMeat && remNorm === baseMeat)
+}
+
+function computeUnfulfilledSessionExtra(
+  lines: KoreOrderLine[],
+  opts?: KoreToolOptions
+): Record<string, unknown> {
+  const fromTurns = opts?.sessionCustomerTurns?.length
+    ? findUnfulfilledSessionOrderCategories(opts.sessionCustomerTurns, lines)
+    : []
+  const fromExplicit = opts?.unfulfilledSessionCategories?.length
+    ? filterStillUnfulfilledCategories(opts.unfulfilledSessionCategories, lines)
+    : []
+  const pending = Array.from(new Set([...fromTurns, ...fromExplicit]))
+  if (pending.length === 0) return {}
+  const targetLang = opts?.thirdLanguage
+    ? opts.thirdLanguage.nameEn
+    : opts?.lang === 'en'
+      ? 'English'
+      : 'SPANISH (100% ESPAÑOL)'
+  return {
+    unfulfilled_session_items: pending,
+    pending_items_reminder: `IMPORTANT: Earlier in this session the customer ALSO ordered [${pending.join(', ')}], which STILL has 0 lines on the ticket! Do NOT say "¿Algo más?" / "Anything else?" yet — immediately add it (if meat/variant was already stated, e.g. "3x Taco Asada" -> add_item right away!) or briefly ask the missing detail in ${targetLang}!`
+  }
+}
+
 function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<string, any>, opts?: KoreToolOptions): KoreToolOutcome {
   const rawName = String(args.item_name ?? args.itemName ?? args.name ?? '').trim()
   if (!rawName) return fail(state, 'missing_item_name', 'item_name is required.', opts)
@@ -1956,7 +2127,9 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       available_modifier_groups: item.modifierGroups.map((g) => describeGroup(g))
     })
   }
-  const groupErrors = validateGroups(item, modRes.modifiers)
+  const initialRawNotes = sanitizeNotes(args.notes)
+  const clampedFreeAdd = autoClampOptionalFreeGroupsWithNote(item, modRes.modifiers, initialRawNotes)
+  const groupErrors = validateGroups(item, clampedFreeAdd.modifiers)
   if (groupErrors.length > 0) {
     const tacoPlateProactive = buildProactiveTacoPlateGroupError(item, modRes.modifiers, opts)
     const errMsg = tacoPlateProactive
@@ -1989,7 +2162,7 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   const reopen = reopenWarning(state)
   if (reopen) warnings.push(reopen)
   if (res.droppedTokens.some((t) => SIZE_TOKENS.has(t))) warnings.push(`Size does not apply to ${item.name}; added without size.`)
-  const rawNotes = sanitizeNotes(args.notes)
+  const rawNotes = clampedFreeAdd.notes
   const addExplicitSuper =
     parsedModifiersSplit.hadSuperToken ||
     CONTAINS_POSITIVE_SUPER_WORD_RE.test(rawName) ||
@@ -1997,7 +2170,7 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     Boolean(args.variant && CONTAINS_POSITIVE_SUPER_WORD_RE.test(String(args.variant)))
   const promotedAdd = tryPromoteRegularLineToSuper({
     item,
-    modifiers: modRes.modifiers,
+    modifiers: clampedFreeAdd.modifiers,
     menu,
     explicitSuperHint: addExplicitSuper,
     notes: rawNotes
@@ -2026,10 +2199,16 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     nextLineNumber: lineNumber + 1
   })
   const cheaperAlt = findCheaperRegularAlternativeForSuperLine(finalItem, line.modifiers, line.quantity, menu, opts?.lang)
-  return ok(next, 'added', `Added ${formatKoreTicketLine(line)}`, opts, {
+  const pendingExtra = computeUnfulfilledSessionExtra(next.lines, opts)
+  const exactNoteHint = clampedFreeAdd.exactFreeSidesNote
+    ? ` (exact requested quantities recorded in notes: ${clampedFreeAdd.exactFreeSidesNote} — confirm the customer's exact requested numbers warmly, NEVER mention any 7-item system limit!)`
+    : ''
+  return ok(next, 'added', `Added ${formatKoreTicketLine(line)}${exactNoteHint}`, opts, {
     line_id: line.lineId,
     ...(promotedAdd.promoted ? { promoted_to_super: true } : {}),
+    ...(clampedFreeAdd.exactFreeSidesNote ? { exact_free_sides_note: clampedFreeAdd.exactFreeSidesNote } : {}),
     ...(cheaperAlt ? { cheaper_regular_alternative: { line_id: line.lineId, ...cheaperAlt } } : {}),
+    ...pendingExtra,
     ...(warnings.length ? { warnings } : {})
   })
 }
@@ -2051,7 +2230,11 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
       failedItems.push({ item_name: String(rawEntry ?? ''), error_code: 'invalid_entry', message: 'Each entry must be an object with item_name.' })
       continue
     }
-    const sub = toolAddItem(working, menu, rawEntry as Record<string, any>, opts)
+    const sub = toolAddItem(working, menu, rawEntry as Record<string, any>, {
+      ...opts,
+      unfulfilledSessionCategories: undefined,
+      sessionCustomerTurns: undefined
+    })
     if (sub.result.ok === true) {
       working = sub.state
       const last = working.lines[working.lines.length - 1]
@@ -2082,6 +2265,7 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
       menu,
       opts?.lang
     )
+    const pendingBatchExtra = computeUnfulfilledSessionExtra(working.lines, opts)
     return ok(working, 'added_batch', batchMsg, opts, {
       added_count: addedLines.length,
       line_ids: lineIds,
@@ -2090,7 +2274,8 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
             cheaper_regular_alternative: batchAlts[0],
             ...(batchAlts.length > 1 ? { cheaper_regular_alternatives: batchAlts } : {})
           }
-        : {})
+        : {}),
+      ...pendingBatchExtra
     })
   }
   const msg = opts?.thirdLanguage
@@ -2136,6 +2321,30 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
     ? splitSuperHintFromRawMods(parseStringList(args.modifiers))
     : null
   const addSplit = splitSuperHintFromRawMods(parseStringList(args.add_modifiers))
+  let effectiveModCleaned = modSplit ? [...modSplit.cleaned] : null
+  let effectiveAddCleaned = [...addSplit.cleaned]
+  let swappedViaModList = false
+
+  if (!switchedSkuManually) {
+    if (effectiveModCleaned && effectiveModCleaned.length > 0) {
+      const swapFromMods = tryExtractSiblingSkuSwapFromModifiers(baseItem, menu, effectiveModCleaned)
+      if (swapFromMods) {
+        activeItem = swapFromMods.targetItem
+        effectiveModCleaned = swapFromMods.remainingRawMods
+        switchedSkuManually = true
+        swappedViaModList = true
+      }
+    }
+    if (!switchedSkuManually && effectiveAddCleaned.length > 0) {
+      const swapFromAdd = tryExtractSiblingSkuSwapFromModifiers(baseItem, menu, effectiveAddCleaned)
+      if (swapFromAdd) {
+        activeItem = swapFromAdd.targetItem
+        effectiveAddCleaned = swapFromAdd.remainingRawMods
+        switchedSkuManually = true
+        swappedViaModList = true
+      }
+    }
+  }
 
   let modifiers: KoreOrderModifier[] = switchedSkuManually
     ? (() => {
@@ -2158,27 +2367,36 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
     : line.modifiers.map((m) => ({ ...m }))
 
   const errors: string[] = []
-  if (modSplit !== null) {
-    if (modSplit.cleaned.length === 0 && modSplit.hadSuperToken) {
-      // e.g. update_item({ line_id: 'L4', modifiers: ['Super'] }): preserve existing non-paid/negative modifiers
+  if (modSplit !== null && effectiveModCleaned !== null) {
+    if (effectiveModCleaned.length === 0 && (modSplit.hadSuperToken || swappedViaModList)) {
+      // e.g. update_item({ line_id: 'L4', modifiers: ['Super'] }) or modifiers: ['Taco Chorizo']: preserve existing valid modifiers
     } else {
-      const r = resolveModifiers(activeItem, modSplit.cleaned)
+      const r = resolveModifiers(activeItem, effectiveModCleaned)
       errors.push(...r.errors)
       modifiers = r.modifiers
     }
   }
-  if (addSplit.cleaned.length) {
-    const r = resolveModifiers(activeItem, addSplit.cleaned)
+  if (effectiveAddCleaned.length) {
+    const r = resolveModifiers(activeItem, effectiveAddCleaned)
     errors.push(...r.errors)
     for (const m of r.modifiers) {
       const existing = modifiers.find((x) => x.guid === m.guid && x.groupGuid === m.groupGuid)
-      if (existing) existing.quantity += m.quantity
-      else modifiers.push(m)
+      const grp = activeItem.modifierGroups.find((g) => g.guid === m.groupGuid)
+      const isOptionalFreeGroup = Boolean(grp && !grp.required && grp.minSelections === 0 && m.priceCents === 0)
+      if (existing) {
+        if (m.quantity > 1 || isOptionalFreeGroup) existing.quantity = m.quantity
+        else existing.quantity += m.quantity
+      } else {
+        modifiers.push(m)
+      }
     }
   }
   const toRemove = parseStringList(args.remove_modifiers)
   if (toRemove.length) {
     for (const rawRem of toRemove) {
+      if (switchedSkuManually && isPreviousSkuOrMeatRemovalToken(rawRem, baseItem)) {
+        continue
+      }
       const rSingle = resolveModifiers(activeItem, [rawRem])
       const allPresent =
         rSingle.errors.length === 0 &&
@@ -2218,6 +2436,9 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   if (errors.length) {
     return fail(state, 'invalid_modifiers', errors.join(' '), opts, { available_modifier_groups: activeItem.modifierGroups.map((g) => describeGroup(g)) })
   }
+  const initialUpdNotes = args.notes === undefined ? line.notes : sanitizeNotes(args.notes)
+  const clampedFreeUpd = autoClampOptionalFreeGroupsWithNote(activeItem, modifiers, initialUpdNotes)
+  modifiers = clampedFreeUpd.modifiers
   const groupErrors = validateGroups(activeItem, modifiers)
   if (groupErrors.length) {
     const tacoPlateProactive = buildProactiveTacoPlateGroupError(activeItem, modifiers, opts)
@@ -2237,7 +2458,7 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   if (totalPieces(state.lines) - line.quantity + newQty > KORE_MAX_ORDER_ITEMS) {
     return fail(state, 'order_too_large', `A drive-thru order is limited to ${KORE_MAX_ORDER_ITEMS} items.`, opts)
   }
-  const rawNotes = args.notes === undefined ? line.notes : sanitizeNotes(args.notes)
+  const rawNotes = clampedFreeUpd.notes
   const explicitSuperHint =
     Boolean(modSplit?.hadSuperToken) ||
     addSplit.hadSuperToken ||
@@ -2267,8 +2488,12 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   const reopen = reopenWarning(state)
   const next = bump(state, lines, { status: 'building' })
   const cheaperAlt = findCheaperRegularAlternativeForSuperLine(finalItem, updated.modifiers, updated.quantity, menu, opts?.lang)
-  return ok(next, 'updated', `Updated ${formatKoreTicketLine(updated)}`, opts, {
+  const exactNoteHint = clampedFreeUpd.exactFreeSidesNote
+    ? ` (exact requested quantities recorded in notes: ${clampedFreeUpd.exactFreeSidesNote} — confirm the customer's exact requested numbers warmly, NEVER mention any 7-item system limit!)`
+    : ''
+  return ok(next, 'updated', `Updated ${formatKoreTicketLine(updated)}${exactNoteHint}`, opts, {
     ...(promotedUpd.promoted || switchedSkuManually ? { promoted_to_super: /^super\b/i.test(finalItem.name) } : {}),
+    ...(clampedFreeUpd.exactFreeSidesNote ? { exact_free_sides_note: clampedFreeUpd.exactFreeSidesNote } : {}),
     ...(cheaperAlt ? { cheaper_regular_alternative: { line_id: updated.lineId, ...cheaperAlt } } : {}),
     ...(reopen ? { warnings: [reopen] } : {})
   })

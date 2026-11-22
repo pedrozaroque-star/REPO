@@ -1270,26 +1270,65 @@ function matchUpdateItemFastClip(
   return buildMatch('mod_updated_generic', lang)
 }
 
+export interface MatchKoreFastClipParams {
+  toolName: string
+  args: Record<string, unknown>
+  stateBefore?: KoreOrderState
+  stateAfter?: KoreOrderState
+  result: Record<string, unknown>
+  lang: 'es' | 'en'
+  variantSeed?: number
+  customerTurnText?: string
+  alreadyPlayedClipIds?: ReadonlySet<string> | null
+}
+
 /**
  * Empata de forma pura el resultado de una herramienta de Kore Drive-Thru con un clip de voz pregrabado (`Kore 3.8`).
  * Devuelve `null` cuando la respuesta requiere texto dinámico de Gemini (ej. `confirm_order` con total exacto en USD,
  * `search_menu`, `get_order` o errores complejos con múltiples partes).
  */
-export function matchKoreFastClipForToolOutcome(params: {
-  toolName: string
-  args: Record<string, unknown>
-  stateBefore: KoreOrderState
-  stateAfter: KoreOrderState
-  result: Record<string, unknown>
-  lang: 'es' | 'en'
-  variantSeed?: number
-  customerTurnText?: string
-}): KoreFastClipMatch | null {
+export function matchKoreFastClipForToolOutcome(params: MatchKoreFastClipParams): KoreFastClipMatch | null
+export function matchKoreFastClipForToolOutcome(
+  toolName: string,
+  args: Record<string, unknown>,
+  result: Record<string, unknown>,
+  lang?: 'es' | 'en',
+  variantSeed?: number,
+  alreadyPlayedClipIds?: ReadonlySet<string> | null
+): KoreFastClipMatch | null
+export function matchKoreFastClipForToolOutcome(
+  paramsOrToolName: MatchKoreFastClipParams | string,
+  posArgs?: Record<string, unknown>,
+  posResult?: Record<string, unknown>,
+  posLang?: 'es' | 'en',
+  posSeed?: number,
+  posAlreadyPlayed?: ReadonlySet<string> | null
+): KoreFastClipMatch | null {
+  const params: MatchKoreFastClipParams =
+    typeof paramsOrToolName === 'string'
+      ? {
+          toolName: paramsOrToolName,
+          args: posArgs || {},
+          result: posResult || {},
+          lang: posLang === 'en' ? 'en' : 'es',
+          variantSeed: posSeed,
+          alreadyPlayedClipIds: posAlreadyPlayed,
+          stateAfter: {
+            lines: [],
+            status: (posResult?.status as any) || 'building',
+            nextLineNumber: 1,
+            version: 1,
+            cancelReason: typeof posResult?.reason === 'string' ? posResult.reason : undefined
+          }
+        }
+      : paramsOrToolName
+
   const tool = String(params.toolName || '').trim()
   const lang: 'es' | 'en' = params.lang === 'en' ? 'en' : 'es'
   const res = params.result || {}
   const args = params.args || {}
-  const seed = extractSeed(params.variantSeed, params.stateAfter)
+  const seed = extractSeed(params.variantSeed, params.stateAfter || ({ lines: [], status: 'building', nextLineNumber: 1, version: 0 } as KoreOrderState))
+  const alreadyPlayed = params.alreadyPlayedClipIds || null
 
   // NUNCA interceptar confirm_order (debe leer artículos + total dinámico en dólares), get_order ni search_menu.
   if (tool === 'confirm_order' || tool === 'get_order' || tool === 'search_menu') {
@@ -1299,9 +1338,13 @@ export function matchKoreFastClipForToolOutcome(params: {
   // 1) Despedida final (`end_session`)
   if (tool === 'end_session') {
     if (res.ok !== true || res.should_end_session !== true) return null
-    const reasonText = `${params.stateAfter?.cancelReason || ''} ${String(res.reason || '')}`
-    if (params.stateAfter?.status === 'cancelled') {
-      if (/\b(?:ebt|calfresh|food\s*stamps?|estampillas?|snap)\b/i.test(reasonText) && res.ebt_not_accepted_in_city !== true) {
+    const reasonText = `${params.stateAfter?.cancelReason || ''} ${String(res.reason || '')} ${String(args.reason || '')}`
+    const isCancelledStatus = params.stateAfter?.status === 'cancelled' || res.status === 'cancelled'
+    if (isCancelledStatus) {
+      const isEbtCancel =
+        /\b(?:ebt|calfresh|food\s*stamps?|estampillas?|snap)\b/i.test(reasonText) &&
+        res.ebt_not_accepted_in_city !== true
+      if (isEbtCancel && !alreadyPlayed?.has('ebt_cancel_go_inside')) {
         return buildMatch('ebt_cancel_go_inside', lang, true)
       }
       return buildMatch('sendoff_cancelled', lang, true)
@@ -1422,6 +1465,9 @@ export function matchKoreFastClipForToolOutcome(params: {
             ? args.items.length
             : 1
       if (params.customerTurnText && hasUnresolvedCompoundOrderItems(params.customerTurnText, effectiveAddedCount)) {
+        return null
+      }
+      if (Array.isArray(res.unfulfilled_session_items) && res.unfulfilled_session_items.length > 0) {
         return null
       }
 

@@ -210,7 +210,13 @@ export function inferAppliesToChannels(
   ) {
     return 'phone_only'
   }
-  if (dedupe === 'rule:kore_drive_thru_manager_window' || dedupe === 'rule:kore_no_cancel_on_olvidalo') {
+  if (
+    dedupe === 'rule:kore_drive_thru_manager_window' ||
+    dedupe === 'rule:kore_no_cancel_on_olvidalo' ||
+    dedupe === 'rule:kore_no_coffee_sides_limit_rejection' ||
+    dedupe === 'rule:kore_no_double_welcome_or_customer_gender' ||
+    dedupe === 'rule:kore_individual_tacos_never_ask_combine'
+  ) {
     return 'drive_thru_only'
   }
 
@@ -1305,6 +1311,88 @@ export function extractDeterministicSessionFindings(
         'PROHIBIDO ejecutar cancel_order ante descartes ambiguos como "Olvídalo", "Olvídalo entonces", "Mejor no", "Never mind" o al cancelar hablar con el manager; mantener el ticket intacto y solo cancelar si el cliente pide explícitamente cancelar toda su orden o pasa al comedor por EBT.',
       proposedRuleEn:
         'STRICTLY FORBIDDEN to call cancel_order on ambiguous dismissals like "Olvídalo", "Olvídalo entonces", "Mejor no", "Never mind", or when canceling speaking to the manager; keep the food order intact unless the customer explicitly asks to cancel their entire order or goes inside for EBT.',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2g) Café con más de 7 cremas/azúcares gratis: jamás rechazar con "máximo de siete complementos"
+  const koreCoffeeLimitTurn = turns.find(
+    (t) =>
+      (t.role === 'kore' && /\b(?:siete\s+complementos|m[aá]ximo\s+de\s+siete|7\s+condiments?)\b/i.test(t.text)) ||
+      (t.role === 'tool' && /\bCoffee\s+sides\s+allows\s+at\s+most\s+7\b/i.test(t.text))
+  )
+  if (koreCoffeeLimitTurn) {
+    const custCoffeeTurn = turns.find((t) => t.role === 'customer' && /\b(?:cremas?|az[uú]car|creamers?|sugars?)\b/i.test(t.text))
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_no_coffee_sides_limit_rejection',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'drive_thru_only',
+      questionOrTrigger: 'Cliente pide café con más de 7 cremas/azúcares sin cargo ("5 cremas y 5 azúcares")',
+      customerQuote: sanitizeRuleText(custCoffeeTurn?.text || 'Cinco cremas y cinco azúcar', 240),
+      koreQuote: sanitizeRuleText(koreCoffeeLimitTurn.text, 240),
+      proposedRuleEs:
+        'Cuando el cliente pide más de 7 cremas/azúcares sin cargo en su café (ej. 5 cremas y 5 azúcares, adentro o aparte), el motor registra el desglose exacto en notes y ajusta el grupo POS automáticamente: aceptar al 1.er intento y JAMÁS decir que el sistema solo permite 7 complementos.',
+      proposedRuleEn:
+        'When a customer requests more than 7 free creamers/sugars for Coffee (e.g., 5 creamers and 5 sugars, mixed in or on the side), the POS engine records the exact breakdown in notes and auto-scales the modifier group: accept on the 1st try and NEVER claim a 7-item system limit.',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2h) Doble bienvenida o asunción de género del cliente ("Bienvenida a Tacos Gavilan") tras el saludo inicial
+  const koreTurnsOnly = turns.filter((t) => t.role === 'kore')
+  const koreRepeatWelcomeTurn = koreTurnsOnly
+    .slice(1)
+    .find((t) => /\b(?:bienvenid[oa]s?\s+a\s+tacos|bienvenida)\b/i.test(t.text))
+  if (koreRepeatWelcomeTurn) {
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_no_double_welcome_or_customer_gender',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'drive_thru_only',
+      questionOrTrigger: 'Evitar repetir "Bienvenido/Bienvenida a Tacos Gavilan" o asumir género del cliente tras el saludo inicial',
+      customerQuote: sanitizeRuleText(turns.find((t) => t.role === 'customer')?.text || 'Hola, buenas tardes.', 240),
+      koreQuote: sanitizeRuleText(koreRepeatWelcomeTurn.text, 240),
+      proposedRuleEs:
+        'Tras el saludo inicial al llegar el auto, si el cliente dice "Hola, buenas tardes", responder directo ("¡Buenas tardes! ¿Qué le servimos hoy?") sin repetir "Bienvenido/a a Tacos Gavilan" y JAMÁS asumir el género del cliente diciendo "Bienvenida".',
+      proposedRuleEn:
+        'After the initial car-arrival greeting, if the customer says "Hello, good afternoon", reply directly without repeating "Welcome to Tacos Gavilan" and NEVER assume the customer\'s gender in Spanish.',
+      avgLatencyMs: avgLat
+    })
+  }
+
+  // 2i) Preguntar "¿combinarlos con otra carne?" en tacos individuales cuando NO se pidió Taco Plate
+  const orderedTacoPlateInSession = turns.some(
+    (t) => /\b(?:taco\s+plates?|taco\s+play|taco\s+bell|platos?\s+de\s+(?:tres|3)\s+tacos?)\b/i.test(t.text)
+  )
+  const koreIndividualTacosCombineTurn = !orderedTacoPlateInSession
+    ? turns.find((t) => t.role === 'kore' && /\btacos?\b[^.!?]{0,60}\bcombinarlos?\s+con\s+otra\s+carne\b/i.test(t.text))
+    : undefined
+  if (koreIndividualTacosCombineTurn) {
+    findings.push({
+      storeId: null,
+      sourceSessionId: sessionId,
+      dedupeKey: 'rule:kore_individual_tacos_never_ask_combine',
+      sourceType,
+      itemKind: 'learned_rule',
+      status: 'auto_applied',
+      appliesToChannels: 'drive_thru_only',
+      questionOrTrigger: 'Tacos individuales con carne dicha ("tres tacos de asada") se agregan directo sin preguntar combinación',
+      customerQuote: sanitizeRuleText(
+        turns.find((t) => t.role === 'customer' && /\btacos?\s+de\b/i.test(t.text))?.text || 'tres tacos de asada',
+        240
+      ),
+      koreQuote: sanitizeRuleText(koreIndividualTacosCombineTurn.text, 240),
+      proposedRuleEs:
+        'Cuando el cliente pide tacos individuales especificando la carne (ej. "tres tacos de asada", NO Taco Plate), todos son de esa carne: agregarlos de inmediato sin preguntar si desea combinarlos con otra carne (esa pregunta aplica exclusivamente al Taco Plate).',
+      proposedRuleEn:
+        'When a customer orders individual tacos with a specified meat (e.g., "three asada tacos", NOT a Taco Plate), all of them use that meat: add them immediately and NEVER ask whether they want to combine with other meats (that applies only to Taco Plate).',
       avgLatencyMs: avgLat
     })
   }

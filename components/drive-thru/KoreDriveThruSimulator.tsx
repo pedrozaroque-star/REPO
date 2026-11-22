@@ -110,11 +110,13 @@ import {
     detectKoreCustomerHoldRequest,
     detectKoreThirdLanguage,
     endsWithDanglingClauseConnector,
+    findUnfulfilledSessionOrderCategories,
     hasUnresolvedCompoundOrderItems,
     isCustomerResumingFromHold,
     isDanglingIncompleteOrderFragment,
     isExplicitBaseLanguageSwitchRequest,
     isLikelyBackgroundMediaSpeech,
+    isLikelyKoreSelfEchoTranscript,
     isNonLatinNoiseTranscript,
     matchesThirdLanguageScript,
     shouldBlockUnconfirmedCancelOrder,
@@ -198,7 +200,7 @@ export const KORE_POST_SAVE_LEARNING_REFRESH_MS = 3500
 export const KORE_BARGE_IN_MIN_CONSECUTIVE_CHUNKS = 4
 export const KORE_BARGE_IN_THRESHOLD_MULTIPLIER = 1.30
 export const KORE_BARGE_IN_MAX_THRESHOLD_RMS = 0.042
-export const KORE_BARGE_IN_PRE_ONSET_CHUNKS = 6
+export const KORE_BARGE_IN_PRE_ONSET_CHUNKS = 7
 /** Ventana máxima (ms) tras un barge-in local sobre voz viva de Gemini para descartar paquetes modelTurn en vuelo previos a sc.interrupted. */
 export const KORE_LIVE_BARGE_IN_RTT_SHIELD_MS = 480
 /** Cooldown (ms) entre cortes asistidos por transcripción ante monólogos de TV/YouTube en vivo. */
@@ -413,13 +415,46 @@ export function countAddedOrderItemsInToolBatch(
     return count
 }
 
-/** Impide que un fast-clip parcial (ej. ack_1_taco_asada) calle la pregunta viva de Kore cuando faltan platillos compuestos por aclarar. */
+/** Reúne en orden cronológico todos los turnos válidos del cliente en la sesión actual (sin duplicar el turno activo ni incluir basura no latina). */
+export function collectSessionCustomerTurns(
+    transcript: readonly { role: string; text: string }[],
+    activeTurnCustomerText = '',
+    activeThirdLangCode: KoreThirdLanguageCode | null = null
+): string[] {
+    const turns: string[] = []
+    for (const entry of transcript) {
+        if (!entry || entry.role !== 'customer') continue
+        const clean = String(entry.text ?? '').trim()
+        if (!clean || isNonLatinNoiseTranscript(clean, activeThirdLangCode)) continue
+        turns.push(clean)
+    }
+    const activeClean = String(activeTurnCustomerText ?? '').trim()
+    if (
+        activeClean &&
+        !isNonLatinNoiseTranscript(activeClean, activeThirdLangCode) &&
+        turns[turns.length - 1] !== activeClean
+    ) {
+        turns.push(activeClean)
+    }
+    return turns
+}
+
+/** Impide que un fast-clip parcial (ej. ack_1_super_burrito_asada) calle la pregunta/acción viva de Kore cuando faltan platillos compuestos del turno o de la sesión. */
 export function shouldSuppressFastClipForCompoundTurn(params: {
     isTerminalSendoff: boolean
     customerTurnText: string
     addedItemsCount: number
+    unfulfilledSessionCategories?: readonly string[] | null
+    clipCategory?: KoreFastClipCategory | null
 }): boolean {
     if (params.isTerminalSendoff || params.addedItemsCount <= 0) return false
+    if (
+        Array.isArray(params.unfulfilledSessionCategories) &&
+        params.unfulfilledSessionCategories.length > 0 &&
+        (params.clipCategory == null || params.clipCategory === 'item_ack')
+    ) {
+        return true
+    }
     return hasUnresolvedCompoundOrderItems(params.customerTurnText, params.addedItemsCount)
 }
 
@@ -533,19 +568,41 @@ export interface KoreBargeInGuardStep {
  * - Cuando `continuationGraceActive = true` (conector colgante en los últimos `3000 ms`), abre en `2` bloques (`64 ms`)
  *   con umbral `Math.min(bargeInThreshold, 0.024)` para retomar la palabra de inmediato sin dejar pasar eco `0.018`.
  */
+export interface KorePlaybackBargeInGuardOptions {
+    continuationGraceActive?: boolean
+    minConsecutiveChunks?: number
+    thresholdOverrideRms?: number
+    outputRms?: number
+    playbackElapsedMs?: number
+}
+
 export class KorePlaybackBargeInGuard {
     private latched = false
     private consecutiveAbove = 0
     private preOnsetQueue: ArrayBuffer[] = []
     private onsetChunks: ArrayBuffer[] = []
+    private learnedEchoRms = 0
     private silenceCache = new Map<number, ArrayBuffer>()
 
     get isLatched(): boolean {
         return this.latched
     }
 
+    get learnedEchoFloorRms(): number {
+        return this.learnedEchoRms
+    }
+
     get hasPendingState(): boolean {
         return this.latched || this.consecutiveAbove > 0 || this.preOnsetQueue.length > 0
+    }
+
+    /** Calibra hacia arriba el piso de auto-eco aprendido de la bocina en la sesión actual (techo 0.075). */
+    bumpLearnedEchoFloor(rms: number): number {
+        const safe = Number.isFinite(rms) && rms > 0 ? rms : 0
+        if (safe > 0) {
+            this.learnedEchoRms = Math.min(0.075, Math.max(this.learnedEchoRms, safe))
+        }
+        return this.learnedEchoRms
     }
 
     reset(): void {
@@ -553,6 +610,12 @@ export class KorePlaybackBargeInGuard {
         this.consecutiveAbove = 0
         this.preOnsetQueue = []
         this.onsetChunks = []
+    }
+
+    /** Limpieza completa al iniciar o cerrar sesión de un vehículo (borra también learnedEchoRms). */
+    resetSession(): void {
+        this.reset()
+        this.learnedEchoRms = 0
     }
 
     private getSilence(byteLength: number): ArrayBuffer {
@@ -568,30 +631,54 @@ export class KorePlaybackBargeInGuard {
         pcm: ArrayBuffer,
         rms: number,
         effectiveGateThresholdRms: number,
-        opts?: {
-            continuationGraceActive?: boolean
-            minConsecutiveChunks?: number
-            thresholdOverrideRms?: number
-        }
+        opts?: KorePlaybackBargeInGuardOptions
     ): KoreBargeInGuardStep {
         const grace = opts?.continuationGraceActive === true
+        const safeOutputRms =
+            typeof opts?.outputRms === 'number' && Number.isFinite(opts.outputRms) && opts.outputRms > 0
+                ? opts.outputRms
+                : 0
+        const playbackElapsedMs =
+            typeof opts?.playbackElapsedMs === 'number' && Number.isFinite(opts.playbackElapsedMs)
+                ? opts.playbackElapsedMs
+                : 9999
         const baseThreshold = computeKoreBargeInThresholdRms(effectiveGateThresholdRms)
+
+        let autoThreshold: number
+        let autoRequiredChunks: number
+        if (!grace && playbackElapsedMs >= 0 && playbackElapsedMs < 650) {
+            // Régimen 1: ventana inicial de convergencia AEC (0–650 ms del saludo "¡Bienvenido a Tacos Gavilan!")
+            autoThreshold = Math.max(baseThreshold, safeOutputRms * 0.55, 0.085)
+            autoRequiredChunks = 6
+        } else if (!grace && playbackElapsedMs >= 650 && safeOutputRms >= 0.055) {
+            // Régimen 2: sílabas fuertes activas en bocina (outputRms >= 0.055) -> acoplado a energía de salida
+            autoThreshold = Math.min(
+                0.095,
+                Math.max(baseThreshold, safeOutputRms * 0.38, this.learnedEchoRms * 1.30, 0.052)
+            )
+            autoRequiredChunks = 6
+        } else {
+            // Régimen 3: cola de pregunta / pausa entre frases (outputRms < 0.055 o continuación suave) -> preserva "Un flan" @ 0.032
+            autoThreshold = grace
+                ? Math.min(baseThreshold, KORE_CONTINUATION_GRACE_RMS_THRESHOLD)
+                : Math.max(baseThreshold, this.learnedEchoRms * 1.25)
+            autoRequiredChunks = grace
+                ? KORE_CONTINUATION_GRACE_MIN_CHUNKS
+                : KORE_BARGE_IN_MIN_CONSECUTIVE_CHUNKS
+        }
+
         const threshold =
             typeof opts?.thresholdOverrideRms === 'number' &&
             Number.isFinite(opts.thresholdOverrideRms) &&
             opts.thresholdOverrideRms > 0
                 ? opts.thresholdOverrideRms
-                : grace
-                    ? Math.min(baseThreshold, KORE_CONTINUATION_GRACE_RMS_THRESHOLD)
-                    : baseThreshold
+                : autoThreshold
         const requiredChunks =
             typeof opts?.minConsecutiveChunks === 'number' &&
             Number.isInteger(opts.minConsecutiveChunks) &&
             opts.minConsecutiveChunks >= 1
                 ? opts.minConsecutiveChunks
-                : grace
-                    ? KORE_CONTINUATION_GRACE_MIN_CHUNKS
-                    : KORE_BARGE_IN_MIN_CONSECUTIVE_CHUNKS
+                : autoRequiredChunks
         if (this.latched) {
             return {
                 suppressed: false,
@@ -650,11 +737,7 @@ export class KorePlaybackBargeInGuard {
         pcm: ArrayBuffer,
         rms: number,
         effectiveGateThresholdRms: number,
-        opts?: {
-            continuationGraceActive?: boolean
-            minConsecutiveChunks?: number
-            thresholdOverrideRms?: number
-        }
+        opts?: KorePlaybackBargeInGuardOptions
     ): KoreBargeInGuardStep {
         return this.processDuringPlayback(pcm, rms, effectiveGateThresholdRms, opts)
     }
@@ -715,7 +798,50 @@ const NON_LATIN_THIRD_LANG_CODES: ReadonlySet<KoreThirdLanguageCode> = new Set([
 ])
 
 const NEUTRAL_MENU_LOANWORD_ONLY_RE =
-    /^\s*(?:tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|platos?|plates?|taco\s+plates?|super\s+nachos?|nachos?|asada|pastor|adobada|pollo|chicken|steak|beef|pork|cabeza|lengua|buche|chorizo|carnitas|veggie|vegetariano|vegetariana|super|supreme|regular|horchata|jamaica|tamarindo|pina|piña|champurrado|coca|coke|sprite|fanta|jarritos|agua|flan|cheesecake|medium|mediana|large|grande|gallon|galon|corn|maiz|maíz|flour|harina|ok|okay|yes|no|\d+)[\s.,!?]*$/i
+    /^\s*(?:(?:el|la|los|las|un|una)\s+)?(?:tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|platos?|plates?|taco\s+plates?|super\s+nachos?|nachos?|asada|pastor|adobada|pollo|chicken|steak|beef|pork|cabeza|lengua|buche|chorizo|carnitas|veggie|vegetariano|vegetariana|super|súper|supreme|regular|horchata|jamaica|tamarindo|pina|piña|champurrado|coffee|cafe|café|coca|coke|sprite|fanta|jarritos|agua|flan|cheesecake|medium|mediana|large|grande|gallon|galon|corn|maiz|maíz|flour|harina|ok|okay|yes|no|\d+)[\s.,!?]*$/i
+
+/** Evidencia clara de saludo, cortesía, pedido o dominio de restaurante en inglés antes de voltear automáticamente de 'es' a 'en'. */
+const CLEAR_ENGLISH_AUTO_SWITCH_INTENT_RE =
+    /\b(?:hi|hello|hey\s+there|good\s+(?:morning|afternoon|evening)|excuse\s+me|please|thank\s+you|thanks|can\s+i\s+(?:get|have|order|add|do)|could\s+i\s+(?:get|have|order|add)|may\s+i\s+(?:get|have|order)|let\s+me\s+(?:get|have|do)|give\s+me|gimme|i\s+(?:want|would\s+like|need|ordered|will\s+take)|i['’]?d\s+like|i['’]?ll\s+(?:take|have|do|get)|we['’]?ll\s+(?:take|have|get)|we\s+(?:want|would\s+like|need)|make\s+it|add\s+(?:some|extra|a|one|two|three)|take\s+off|remove\s+the|without\s+(?:onion|onions|cilantro|cheese|beans|rice|salsa|cream|sour\s+cream|guacamole)|no\s+(?:onion|onions|cilantro|cheese|beans|rice|salsa|sour\s+cream|guacamole)|that['’]?s\s+(?:all|it|everything|right|correct)|nothing\s+else|all\s+set|hold\s+on|one\s+(?:moment|second|minute)|just\s+a\s+(?:moment|second|minute)|cancel\s+(?:my|the)\s+order|never\s+mind|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|plates?|combos?|flan|cheesecake|desserts?|platters?|trays?|breakfast|eggs?|asada|pastor|adobada|pollo|chicken|steak|beef|pork|cabeza|lengua|tongue|buche|chorizo|carnitas|veggie|vegetarian|meat|meats|beans?|rice|cheese|guacamole|avocado|sour\s+cream|cream|onions?|cilantro|salsa|lime|limes|jalapenos?|tortillas?|corn|flour|chips|horchata|jamaica|tamarindo|pineapple|lemonade|champurrado|coffee|coke|sprite|fanta|jarritos|soda|water|drinks?|beverages?|gallon|medium|large|order|orders|ordering|menu|price|prices|how\s+much|cost|total|cash|card|credit|debit|ebt|calfresh|apple\s+pay|receipt|ticket|window|drive[\s-]*thru|dining\s+room|inside|counter|open|close|closed|hours|location|address|doordash|uber\s*eats|uber|grubhub|postmates|pickup|picking\s+up|delivery|driver|manager|hear\s+me)\b/i
+
+const ANY_NON_LATIN_SCRIPT_CHAR_RE =
+    /[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Devanagari}\p{Script=Armenian}]/u
+
+/** Verifica si una frase en inglés tiene intención real de cliente (saludo, pedido o dominio de restaurante) para evitar falsos giros como "What's the other three?". */
+export function hasClearEnglishCustomerIntentForAutoSwitch(rawText: string): boolean {
+    const clean = String(rawText ?? '').trim()
+    if (!clean) return false
+    return CLEAR_ENGLISH_AUTO_SWITCH_INTENT_RE.test(clean)
+}
+
+/**
+ * Construye un mensaje `clientContent` para inyectar contexto de sistema/idioma en Gemini Live:
+ * - `shouldTriggerModelReply = false` (por defecto): inyecta en silencio (`turnComplete: false`) sin obligar a Kore a hablar.
+ * - `shouldTriggerModelReply = true`: usado únicamente en `ARRIVAL_CUE` y `releaseCue` cuando Kore sí debe tomar la palabra.
+ */
+export function buildSilentContextClientContent(
+    cueText: string,
+    shouldTriggerModelReply = false
+): {
+    clientContent: {
+        turns: [{ role: 'user'; parts: [{ text: string }] }]
+        turnComplete: boolean
+    }
+} {
+    return {
+        clientContent: {
+            turns: [{ role: 'user', parts: [{ text: String(cueText ?? '').trim() }] }],
+            turnComplete: Boolean(shouldTriggerModelReply),
+        },
+    }
+}
+
+/** Retorna `true` si el texto de salida carece de letras y dígitos (ej. `"..."`, `"…"`, `". . ."`, `""`). */
+export function isMeaninglessEllipsisOrPunctuationOutput(text: string): boolean {
+    const trimmed = String(text ?? '').trim()
+    if (!trimmed) return true
+    return !/[\p{L}\p{N}]/u.test(trimmed)
+}
 
 export function buildKoreThirdLangSwitchCue(match: KoreThirdLanguageMatch): string {
     return '[SYSTEM LANGUAGE SWITCH -> ' + match.nameEn.toUpperCase() + ' (' + match.code + ')] Customer is speaking ' + match.nameEn + '. Respond warmly and concisely 100% in natural ' + match.nameEn + ' while keeping Tacos Gavilan menu item names clear, prices strictly in USD dollars ($), and standard POS tool calls.'
@@ -731,6 +857,10 @@ export interface KoreLiveLanguageResolution {
     switchCue: string | null
 }
 
+export interface ResolveKoreLiveLanguageOptions {
+    hadRecentNonLatinNoise?: boolean
+}
+
 /**
  * Resuelve y mantiene bloqueado el session_language del vehículo o llamada actual:
  * - Ignora vacíos y basura STT no latina (isNonLatinNoiseTranscript(clean, activeThirdCode)).
@@ -739,13 +869,14 @@ export interface KoreLiveLanguageResolution {
  *   (ej. "Las dos se quedaron calladas.", "Asada, por favor") JAMÁS rompen currentThirdLang.
  * - Solo cambia desde currentThirdLang si isExplicitBaseLanguageSwitchRequest(clean) pide explícitamente 'es' / 'en'
  *   (ej. "En español por favor", "In English please") o si detectKoreThirdLanguage(clean) detecta otro 3.er idioma.
- * - Si currentThirdLang es de escritura no latina y entra conversación ajena en alfabeto latino sin script del cliente,
- *   reinyecta silenciosamente buildKoreThirdLangLockCue para blindar a Gemini contra cambio accidental de idioma.
+ * - En sesión 'es' (`currentThirdLang === null`), exige intención real de restaurante/saludo (`hasClearEnglishCustomerIntentForAutoSwitch`)
+ *   antes de auto-cambiar a 'en', y re-bloquea 'es' si tras ruido no latino ("저리서" / "哇") entra una palabra neutra del menú ("chorizo").
  */
 export function resolveKoreLiveLanguageState(
     text: string,
     currentBaseLang: 'es' | 'en',
-    currentThirdLang: KoreThirdLanguageMatch | null
+    currentThirdLang: KoreThirdLanguageMatch | null,
+    opts?: ResolveKoreLiveLanguageOptions
 ): KoreLiveLanguageResolution {
     const activeCode = currentThirdLang?.code ?? null
     const clean = String(text ?? '').trim()
@@ -801,10 +932,33 @@ export function resolveKoreLiveLanguageState(
 
     const nextBase = detectKoreSpokenLanguage(clean, currentBaseLang)
     if (nextBase !== currentBaseLang) {
+        if (
+            currentBaseLang === 'es' &&
+            nextBase === 'en' &&
+            !hasClearEnglishCustomerIntentForAutoSwitch(clean)
+        ) {
+            return {
+                baseLang: 'es',
+                thirdLang: null,
+                switchCue: opts?.hadRecentNonLatinNoise ? KORE_SYSTEM_LANG_SWITCH_CUE.es : null,
+            }
+        }
         return {
             baseLang: nextBase,
             thirdLang: null,
             switchCue: KORE_SYSTEM_LANG_SWITCH_CUE[nextBase],
+        }
+    }
+
+    if (
+        currentBaseLang === 'es' &&
+        opts?.hadRecentNonLatinNoise === true &&
+        NEUTRAL_MENU_LOANWORD_ONLY_RE.test(clean)
+    ) {
+        return {
+            baseLang: 'es',
+            thirdLang: null,
+            switchCue: KORE_SYSTEM_LANG_SWITCH_CUE.es,
         }
     }
     return { baseLang: currentBaseLang, thirdLang: null, switchCue: null }
@@ -1991,7 +2145,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const bargeInGuardRef = useRef<KorePlaybackBargeInGuard>(new KorePlaybackBargeInGuard())
     const customerBargeInActiveRef = useRef(false)
     const pendingLiveBargeInUntilMsRef = useRef(0)
+    const koreModelStreamingRef = useRef(false)
+    const lastModelAudioChunkMsRef = useRef(0)
+    const lastSpokenKoreTextRef = useRef('')
+    const lastSpokenKoreAtMsRef = useRef(0)
     const fastClipSeedRef = useRef(0)
+    const playedFastClipIdsRef = useRef<Set<string>>(new Set())
+    const sawRecentNonLatinNoiseRef = useRef(false)
+    const pendingKorePrefixRef = useRef('')
     const previewCtxRef = useRef<AudioContext | null>(null)
     const previewSourceRef = useRef<AudioBufferSourceNode | null>(null)
     const postSaveLearnTimerRef = useRef<number | null>(null)
@@ -2277,7 +2438,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         pushEntry({ role: 'system', text, final: true, kind, toolName })
     }
 
-    /** Agrega un fragmento (delta) a la entrada abierta del rol, o abre una nueva. */
+    /** Agrega un fragmento (delta) a la entrada abierta del rol, o abre una nueva (descartando "..." vacío en Kore). */
     const appendSpeech = (role: 'customer' | 'kore' | 'cashier', delta: string) => {
         if (!delta) return
         const openId = openEntryRef.current[role]
@@ -2287,22 +2448,44 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             const updated = { ...list[idx], text: list[idx].text + delta }
             transcriptRef.current = [...list.slice(0, idx), updated, ...list.slice(idx + 1)]
         } else {
+            let initialText = delta
+            if (role === 'kore') {
+                const combined = pendingKorePrefixRef.current + delta
+                if (isMeaninglessEllipsisOrPunctuationOutput(combined)) {
+                    pendingKorePrefixRef.current = combined
+                    return
+                }
+                const cleanedPrefix = pendingKorePrefixRef.current.replace(/^[.\u2026\s]+/, '')
+                pendingKorePrefixRef.current = ''
+                initialText = cleanedPrefix + delta
+            }
             if (role === 'cashier') {
                 const updatedMeta = cashierControllerRef.current.recordNewCashierBubble()
                 orderRef.current = { ...orderRef.current, cashierIntervention: updatedMeta }
                 setOrder(orderRef.current)
             }
             const id = newEntryId()
-            transcriptRef.current = [...list, { id, role, text: delta, at: new Date().toISOString(), final: false }]
+            transcriptRef.current = [...list, { id, role, text: initialText, at: new Date().toISOString(), final: false }]
             openEntryRef.current[role] = id
         }
         publishTranscript()
     }
 
     const finalizeSpeech = (role: 'customer' | 'kore' | 'cashier') => {
+        if (role === 'kore') {
+            pendingKorePrefixRef.current = ''
+        }
         const openId = openEntryRef.current[role]
         if (!openId) return
         openEntryRef.current[role] = null
+        if (role === 'kore') {
+            const openEntry = transcriptRef.current.find(e => e.id === openId)
+            if (openEntry && isMeaninglessEllipsisOrPunctuationOutput(openEntry.text)) {
+                transcriptRef.current = transcriptRef.current.filter(e => e.id !== openId)
+                publishTranscript()
+                return
+            }
+        }
         transcriptRef.current = transcriptRef.current.map(e => (e.id === openId ? { ...e, final: true } : e))
         publishTranscript()
     }
@@ -2382,6 +2565,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         sendObserverCue: boolean
     ) => {
         playbackRef.current?.stop()
+        koreModelStreamingRef.current = false
+        lastModelAudioChunkMsRef.current = 0
         localFastClipStartedAtRef.current = 0
         customerSpokeSinceFastClipRef.current = false
         bargeInGuardRef.current.reset()
@@ -2391,6 +2576,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         clearLangCueTimer()
         suppressGeminiTurnAudioRef.current = true
         currentKoreTurnTextRef.current = ''
+        pendingKorePrefixRef.current = ''
         finalizeSpeech('kore')
         setKoreSpeaking(false)
 
@@ -2407,7 +2593,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }),
                 'warning'
             )
-            sendJson({ realtimeInput: { text: KORE_HUMAN_TAKEOVER_OBSERVER_CUE[sessionMetaRef.current.lang] } })
+            sendJson(buildSilentContextClientContent(KORE_HUMAN_TAKEOVER_OBSERVER_CUE[sessionMetaRef.current.lang], false))
         }
     }
 
@@ -2451,6 +2637,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         setInterimText('')
         currentCustomerTurnTextRef.current = ''
         currentKoreTurnTextRef.current = ''
+        pendingKorePrefixRef.current = ''
         const rel = cashierControllerRef.current.releaseToKore(sessionMetaRef.current.lang, transcriptRef.current)
         if (!rel.released) return
         cashierTakeoverActiveRef.current = false
@@ -2461,7 +2648,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         orderRef.current = { ...orderRef.current, cashierIntervention: rel.meta }
         setOrder(orderRef.current)
         pushSystem(tRef.current('drive_thru.kore_cashier_event_released'))
-        sendJson({ realtimeInput: { text: rel.releaseCue } })
+        sendJson(buildSilentContextClientContent(rel.releaseCue, true))
     }
 
     const refreshAudioInputDevices = useCallback(async () => {
@@ -2530,8 +2717,15 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             return
         }
 
-        const pbActive = Boolean(playbackRef.current?.isActive)
-        const useVadBargeInShield = pbActive && micModeRef.current === 'vad' && !cashierTakeoverActiveRef.current
+        const nowMicMs = performance.now()
+        if (koreModelStreamingRef.current && nowMicMs - lastModelAudioChunkMsRef.current >= 600) {
+            koreModelStreamingRef.current = false
+        }
+        const echoWindowActive =
+            Boolean(playbackRef.current?.isEchoShieldActive()) ||
+            (koreModelStreamingRef.current && nowMicMs - lastModelAudioChunkMsRef.current < 450)
+        const pbActive = echoWindowActive
+        const useVadBargeInShield = echoWindowActive && micModeRef.current === 'vad' && !cashierTakeoverActiveRef.current
 
         if (!useVadBargeInShield && !customerBargeInActiveRef.current && bargeInGuardRef.current.hasPendingState) {
             bargeInGuardRef.current.reset()
@@ -2542,14 +2736,22 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 currentCustomerTurnTextRef.current.trim() || lastCompletedCustomerTurnTextRef.current.trim()
             const continuationGraceActive = isKoreContinuationGraceActive(
                 lastTurnTxt,
-                performance.now(),
+                nowMicMs,
                 lastCustomerSpeechTimestampMsRef.current
             )
+            const currentOutputRms = playbackRef.current?.getRecentOutputRms() ?? 0
+            const currentElapsedMs = playbackRef.current?.isEchoShieldActive()
+                ? playbackRef.current.getPlaybackElapsedMs()
+                : 9999
             const bgStep = bargeInGuardRef.current.processDuringPlayback(
                 data.pcm,
                 data.rms,
                 noiseGateRef.current.effectiveThresholdRms,
-                { continuationGraceActive }
+                {
+                    continuationGraceActive,
+                    outputRms: currentOutputRms,
+                    playbackElapsedMs: currentElapsedMs,
+                }
             )
             customerBargeInActiveRef.current = bgStep.bargeInLatched
 
@@ -2604,6 +2806,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 customerSpokeSinceFastClipRef.current = true
                 clearAutoEnd(true)
                 localFastClipStartedAtRef.current = 0
+                koreModelStreamingRef.current = false
+                lastModelAudioChunkMsRef.current = 0
                 playbackRef.current?.clear()
                 finalizeSpeech('kore')
                 if (!koreTurnInterruptedRef.current) {
@@ -2735,7 +2939,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         suppressGeminiTurnAudioRef.current = false
         localFastClipStartedAtRef.current = 0
         customerSpokeSinceFastClipRef.current = false
-        bargeInGuardRef.current.reset()
+        koreModelStreamingRef.current = false
+        lastModelAudioChunkMsRef.current = 0
+        lastSpokenKoreTextRef.current = ''
+        lastSpokenKoreAtMsRef.current = 0
+        playedFastClipIdsRef.current.clear()
+        sawRecentNonLatinNoiseRef.current = false
+        pendingKorePrefixRef.current = ''
+        bargeInGuardRef.current.resetSession()
         customerBargeInActiveRef.current = false
         pendingLiveBargeInUntilMsRef.current = 0
         confirmedOrderInCurrentTurnRef.current = false
@@ -2840,7 +3051,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     text: e.text.trim().slice(0, 2000),
                     at: e.at,
                 }))
-                .filter(e => e.text.length > 0)
+                .filter(e => e.text.length > 0 && !(e.role === 'kore' && isMeaninglessEllipsisOrPunctuationOutput(e.text)))
                 .slice(-400),
             order: finalOrder,
             ...(cashierMeta.triggered ? { cashierIntervention: cashierMeta } : {}),
@@ -2977,9 +3188,12 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         const greetClip = decodeKoreFastClipVariant(sessionRef.current?.initialGreetingClips?.[activeLang])
         if (greetClip) {
             initialGreetingPendingRef.current = false
-            localFastClipStartedAtRef.current = performance.now()
+            const nowGreetMs = performance.now()
+            localFastClipStartedAtRef.current = nowGreetMs
             customerSpokeSinceFastClipRef.current = false
-            playbackRef.current?.enqueue(greetClip.samples, greetClip.sampleRate)
+            lastSpokenKoreTextRef.current = greetClip.text
+            lastSpokenKoreAtMsRef.current = nowGreetMs
+            playbackRef.current?.enqueue(greetClip.samples, greetClip.sampleRate, { localCompleteClip: true })
             appendSpeech('kore', greetClip.text)
             finalizeSpeech('kore')
             sendJson({
@@ -2992,13 +3206,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 },
             })
         } else {
-            sendJson({ realtimeInput: { text: ARRIVAL_CUE[activeLang] } })
+            sendJson(buildSilentContextClientContent(ARRIVAL_CUE[activeLang], true))
         }
     }
 
     /**
-     * Envía en silencio una directiva `[SYSTEM LANGUAGE SWITCH -> ...]` únicamente cuando Kore NO está
-     * reproduciendo audio (`!playbackRef.current?.isActive && remainingMs === 0`), jamás a mitad de voz.
+     * Envía en silencio (`turnComplete: false`) una directiva `[SYSTEM LANGUAGE SWITCH/LOCK -> ...]` únicamente
+     * cuando Kore NO está reproduciendo audio (`!playbackRef.current?.isActive && remainingMs === 0`), sin provocar
+     * un turno hablado adicional de Gemini Live.
      */
     const scheduleSilentCueTextWhenIdle = (cueText: string, expectedLangKey: string, gen: number) => {
         clearLangCueTimer()
@@ -3013,7 +3228,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 langCueTimerRef.current = window.setTimeout(waitIdle, 90)
                 return
             }
-            sendJson({ realtimeInput: { text: cueText } })
+            sendJson(buildSilentContextClientContent(cueText, false))
         }
         waitIdle()
     }
@@ -3052,6 +3267,9 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         if (nextThirdCode !== prevThirdCode && resolved.thirdLang && liveRef.current) {
             pushSystem(`Idioma espejo activo: ${resolved.thirdLang.nameEs} (${resolved.thirdLang.code})`)
         }
+        if (nextThirdCode !== null || resolved.baseLang !== 'es' || resolved.switchCue !== null) {
+            sawRecentNonLatinNoiseRef.current = false
+        }
         if (resolved.switchCue && liveRef.current) {
             scheduleSilentCueTextWhenIdle(resolved.switchCue, nextThirdCode ?? resolved.baseLang, gen)
         }
@@ -3060,6 +3278,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const handleManualLanguageSelect = (code: KoreLang) => {
         langTouchedRef.current = true
         activeThirdLangRef.current = null
+        sawRecentNonLatinNoiseRef.current = false
         if (liveRef.current) {
             currentCustomerTurnTextRef.current = ''
             applyLiveLanguageSwitch(code, { sendCueWhenIdle: true, gen: genRef.current })
@@ -3081,11 +3300,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             const shouldClearPlayback = (!localClipActive || customerSpokeSinceFastClipRef.current) && !vadProtectedPlayback
             clearLangCueTimer()
             currentKoreTurnTextRef.current = ''
+            pendingKorePrefixRef.current = ''
             koreTurnFirstAudioRecordedRef.current = false
             if (shouldClearPlayback) {
                 clearAutoEnd(true)
                 localFastClipStartedAtRef.current = 0
                 customerSpokeSinceFastClipRef.current = false
+                koreModelStreamingRef.current = false
+                lastModelAudioChunkMsRef.current = 0
                 playbackRef.current?.clear()
                 finalizeSpeech('kore')
                 if (!koreTurnInterruptedRef.current) {
@@ -3115,6 +3337,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 const mime = typeof inline.mimeType === 'string' ? inline.mimeType : ''
                 if (typeof inline.data !== 'string' || (mime && !mime.toLowerCase().startsWith('audio/pcm'))) continue
                 const samples = decodePcm16ToFloat32(base64ToBytes(inline.data))
+                if (samples.length > 0) {
+                    koreModelStreamingRef.current = true
+                    lastModelAudioChunkMsRef.current = performance.now()
+                }
                 if (samples.length > 0 && !koreTurnFirstAudioRecordedRef.current) {
                     koreTurnFirstAudioRecordedRef.current = true
                     koreTurnInterruptedRef.current = false
@@ -3142,6 +3368,19 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             }
             const nowInMs = performance.now()
             const activeThirdCode = activeThirdLangRef.current?.code ?? null
+            const koreRecentlySpoke =
+                Boolean(playbackRef.current?.isEchoShieldActive()) ||
+                koreModelStreamingRef.current ||
+                (lastSpokenKoreAtMsRef.current > 0 && nowInMs - lastSpokenKoreAtMsRef.current <= 3000)
+            const referenceKoreSpeech = currentKoreTurnTextRef.current.trim() || lastSpokenKoreTextRef.current
+            const isSelfEchoTurn =
+                !cashierTakeoverActiveRef.current &&
+                koreRecentlySpoke &&
+                trimmedTurn.length > 0 &&
+                isLikelyKoreSelfEchoTranscript(trimmedTurn, referenceKoreSpeech)
+            if (isSelfEchoTurn) {
+                bargeInGuardRef.current.bumpLearnedEchoFloor(recentRawMicRmsRef.current)
+            }
             const holdEval = !cashierTakeoverActiveRef.current
                 ? customerHoldRef.current.evaluateTurnText(
                       trimmedTurn,
@@ -3150,25 +3389,37 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                       activeThirdCode
                   )
                 : null
-            if (holdEval) {
-                if (holdEval.suppressGeminiTurn) {
-                    suppressGeminiTurnAudioRef.current = true
-                    holdSuppressedCurrentTurnRef.current = true
-                    if (playbackRef.current?.isActive && localFastClipStartedAtRef.current === 0) {
-                        playbackRef.current.clear()
-                    }
+            if (isSelfEchoTurn || holdEval?.suppressGeminiTurn) {
+                suppressGeminiTurnAudioRef.current = true
+                holdSuppressedCurrentTurnRef.current = true
+                if (!isSelfEchoTurn && playbackRef.current?.isActive && localFastClipStartedAtRef.current === 0) {
+                    koreModelStreamingRef.current = false
+                    lastModelAudioChunkMsRef.current = 0
+                    playbackRef.current.clear()
                     currentKoreTurnTextRef.current = ''
-                } else if (holdSuppressedCurrentTurnRef.current) {
-                    holdSuppressedCurrentTurnRef.current = false
-                    suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
                 }
-                if (holdEval.shouldLockNoiseFloor) {
-                    noiseGateRef.current.lockBackgroundMediaFloor(recentRawMicRmsRef.current)
-                }
+            } else if (holdSuppressedCurrentTurnRef.current) {
+                holdSuppressedCurrentTurnRef.current = false
+                suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
+            }
+            if (holdEval?.shouldLockNoiseFloor) {
+                noiseGateRef.current.lockBackgroundMediaFloor(recentRawMicRmsRef.current)
+            }
+            const chunkNonLatinNoise =
+                trimmedTurn.length > 0 &&
+                (Boolean(holdEval?.nonLatinNoise) ||
+                    isNonLatinNoiseTranscript(trimmedTurn, activeThirdCode) ||
+                    (activeThirdCode === null &&
+                        ANY_NON_LATIN_SCRIPT_CHAR_RE.test(trimmedTurn) &&
+                        !detectKoreThirdLanguage(trimmedTurn)))
+            if (!cashierTakeoverActiveRef.current && chunkNonLatinNoise && activeThirdCode === null && sessionMetaRef.current.lang === 'es') {
+                sawRecentNonLatinNoiseRef.current = true
+                scheduleSilentLangCueWhenIdle('es', gen)
             }
             const isPureTvTurn =
                 trimmedTurn.length > 0 &&
-                (Boolean(holdEval?.nonLatinNoise) ||
+                (isSelfEchoTurn ||
+                    Boolean(holdEval?.nonLatinNoise) ||
                     Boolean(holdEval?.suppressGeminiTurn) ||
                     isNonLatinNoiseTranscript(trimmedTurn, activeThirdCode) ||
                     isLikelyBackgroundMediaSpeech(trimmedTurn, activeThirdCode))
@@ -3226,7 +3477,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 const resolvedLang = resolveKoreLiveLanguageState(
                     currentCustomerTurnTextRef.current,
                     sessionMetaRef.current.lang,
-                    activeThirdLangRef.current
+                    activeThirdLangRef.current,
+                    { hadRecentNonLatinNoise: sawRecentNonLatinNoiseRef.current }
                 )
                 applyLiveLanguageResolution(resolvedLang, gen)
             }
@@ -3327,7 +3579,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     const resolvedLang = resolveKoreLiveLanguageState(
                         combinedPreview,
                         sessionMetaRef.current.lang,
-                        activeThirdLangRef.current
+                        activeThirdLangRef.current,
+                        { hadRecentNonLatinNoise: sawRecentNonLatinNoiseRef.current }
                     )
                     applyLiveLanguageResolution(resolvedLang, gen)
                 }
@@ -3343,6 +3596,11 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 currentCustomerTurnTextRef.current = ''
                 customerTurnFreshRef.current = true
                 currentKoreTurnTextRef.current += sc.outputTranscription.text
+                const trimmedKoreOut = currentKoreTurnTextRef.current.trim()
+                if (trimmedKoreOut && !isMeaninglessEllipsisOrPunctuationOutput(trimmedKoreOut)) {
+                    lastSpokenKoreTextRef.current = trimmedKoreOut
+                    lastSpokenKoreAtMsRef.current = performance.now()
+                }
                 finalizeSpeech('customer')
                 finalizeSpeech('cashier')
                 appendSpeech('kore', sc.outputTranscription.text)
@@ -3358,6 +3616,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
         if (sc.turnComplete === true) {
             pendingLiveBargeInUntilMsRef.current = 0
+            koreModelStreamingRef.current = false
+            playbackRef.current?.resetUnderruns()
             const wasSuppressedTurn = suppressGeminiTurnAudioRef.current
             holdSuppressedCurrentTurnRef.current = false
             suppressGeminiTurnAudioRef.current = cashierTakeoverActiveRef.current
@@ -3374,7 +3634,12 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             finalizeSpeech('cashier')
             finalizeSpeech('kore')
             setInterimText('')
-            const spokenKoreTurn = currentKoreTurnTextRef.current.trim()
+            const rawSpokenKoreTurn = currentKoreTurnTextRef.current.trim()
+            const spokenKoreTurn = isMeaninglessEllipsisOrPunctuationOutput(rawSpokenKoreTurn) ? '' : rawSpokenKoreTurn
+            if (spokenKoreTurn) {
+                lastSpokenKoreTextRef.current = spokenKoreTurn
+                lastSpokenKoreAtMsRef.current = performance.now()
+            }
             currentKoreTurnTextRef.current = ''
             if (cashierTakeoverActiveRef.current || wasSuppressedTurn) return
             const cushionMs = evaluateKoreTurnCompleteAutoEnd({
@@ -3499,6 +3764,11 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             customerTurnFreshRef.current = true
         }
         const activeTurnCustomerText = lastCompletedCustomerTurnTextRef.current
+        const sessionCustomerTurns = collectSessionCustomerTurns(
+            transcriptRef.current,
+            activeTurnCustomerText,
+            activeThirdLangRef.current?.code ?? null
+        )
         const readOnlyBatch = isReadOnlyLookupToolBatch(calls)
         const koreAlreadyAskedQuestion =
             readOnlyBatch && hasKoreAlreadyAskedQuestionInTurn(currentKoreTurnTextRef.current, transcriptRef.current)
@@ -3617,11 +3887,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                         if (id) inFlightToolAbortsRef.current.delete(id)
                     }
                 } else {
+                    const preCallUnfulfilled = findUnfulfilledSessionOrderCategories(sessionCustomerTurns, before.lines)
                     const toolOpts: Parameters<typeof applyKoreTool>[4] & { confirmedInCurrentTurn?: boolean } = {
                         taxRatePct: sessionRef.current?.store.taxRatePct ?? null,
                         lang: activeLang,
                         thirdLanguage: activeThirdLangRef.current,
                         confirmedInCurrentTurn: confirmedOrderInCurrentTurnRef.current,
+                        sessionCustomerTurns,
+                        unfulfilledSessionCategories: preCallUnfulfilled,
                         ...(typeof storeAcceptsEbt === 'boolean' ? { acceptsEbt: storeAcceptsEbt } : {}),
                     }
                     const out = applyKoreTool(before, menuRef.current, name, args, toolOpts)
@@ -3665,6 +3938,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     lang: sessionMetaRef.current.lang,
                     variantSeed: fastClipSeedRef.current,
                     customerTurnText: activeTurnCustomerText,
+                    alreadyPlayedClipIds: playedFastClipIdsRef.current,
                 })
                 if (fastMatch) {
                     candidateMatches.push({ idx: functionResponses.length, match: fastMatch })
@@ -3698,6 +3972,20 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 : failedCallsCount === 1 && candidateMatches.length === 1 && functionResponses[candidateMatches[0].idx]?.response.ok === false
                     ? candidateMatches[0]
                     : undefined)
+        const remainingUnfulfilledAfterBatch = findUnfulfilledSessionOrderCategories(
+            sessionCustomerTurns,
+            orderRef.current.lines
+        )
+        if (remainingUnfulfilledAfterBatch.length === 0) {
+            for (const fnRes of functionResponses) {
+                if ('unfulfilled_session_items' in fnRes.response || 'pending_items_reminder' in fnRes.response) {
+                    const cleaned = { ...fnRes.response }
+                    delete cleaned.unfulfilled_session_items
+                    delete cleaned.pending_items_reminder
+                    fnRes.response = cleaned
+                }
+            }
+        }
         const addedItemsCount = countAddedOrderItemsInToolBatch(executedCallsForCount)
         const suppressForCompoundTurn =
             rawSingleCandidate !== undefined &&
@@ -3705,6 +3993,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 isTerminalSendoff: rawSingleCandidate.match.isTerminalSendoff === true,
                 customerTurnText: activeTurnCustomerText,
                 addedItemsCount,
+                unfulfilledSessionCategories: remainingUnfulfilledAfterBatch,
+                clipCategory: KORE_FAST_CLIP_SPECS.find(sp => sp.clipId === rawSingleCandidate.match.clipId)?.category ?? null,
             })
         const singleCandidate =
             wasHoldSuppressed || suppressForCompoundTurn || activeThirdLangRef.current !== null
@@ -3716,6 +4006,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             : null
 
         if (singleCandidate && chosenClip && chosenClip.samples.length > 0) {
+            playedFastClipIdsRef.current.add(singleCandidate.match.clipId)
             const spokenText = chosenClip.text
             if (lastCustomerVoiceMsRef.current !== null) {
                 const rawDelta = Math.round(performance.now() - lastCustomerVoiceMsRef.current)
@@ -3740,10 +4031,15 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                         }
                     } catch { /* noop */ }
                 }
+                koreModelStreamingRef.current = false
+                lastModelAudioChunkMsRef.current = 0
                 playbackRef.current?.clear()
-                localFastClipStartedAtRef.current = performance.now()
+                const nowTermClipMs = performance.now()
+                localFastClipStartedAtRef.current = nowTermClipMs
                 customerSpokeSinceFastClipRef.current = false
-                playbackRef.current?.enqueue(chosenClip.samples, chosenClip.sampleRate)
+                lastSpokenKoreTextRef.current = spokenText
+                lastSpokenKoreAtMsRef.current = nowTermClipMs
+                playbackRef.current?.enqueue(chosenClip.samples, chosenClip.sampleRate, { localCompleteClip: true })
                 appendSpeech('kore', spokenText)
                 finalizeSpeech('kore')
                 pushSystem(tRef.current('drive_thru.kore_fast_clip_played', { clipId: singleCandidate.match.clipId }))
@@ -3753,11 +4049,16 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             }
 
             // No terminal: reproduce al instante (<10 ms), suprime audio/texto tardío de Gemini hasta turnComplete
+            koreModelStreamingRef.current = false
+            lastModelAudioChunkMsRef.current = 0
             playbackRef.current?.clear()
             suppressGeminiTurnAudioRef.current = true
-            localFastClipStartedAtRef.current = performance.now()
+            const nowClipMs = performance.now()
+            localFastClipStartedAtRef.current = nowClipMs
             customerSpokeSinceFastClipRef.current = false
-            playbackRef.current?.enqueue(chosenClip.samples, chosenClip.sampleRate)
+            lastSpokenKoreTextRef.current = spokenText
+            lastSpokenKoreAtMsRef.current = nowClipMs
+            playbackRef.current?.enqueue(chosenClip.samples, chosenClip.sampleRate, { localCompleteClip: true })
             appendSpeech('kore', spokenText)
             finalizeSpeech('kore')
             pushSystem(tRef.current('drive_thru.kore_fast_clip_played', { clipId: singleCandidate.match.clipId }))
@@ -3888,7 +4189,11 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         suppressGeminiTurnAudioRef.current = false
         localFastClipStartedAtRef.current = 0
         customerSpokeSinceFastClipRef.current = false
-        bargeInGuardRef.current.reset()
+        koreModelStreamingRef.current = false
+        lastModelAudioChunkMsRef.current = 0
+        lastSpokenKoreTextRef.current = ''
+        lastSpokenKoreAtMsRef.current = 0
+        bargeInGuardRef.current.resetSession()
         customerBargeInActiveRef.current = false
         pendingLiveBargeInUntilMsRef.current = 0
         confirmedOrderInCurrentTurnRef.current = false
@@ -3897,6 +4202,9 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         recentRawMicRmsRef.current = 0
         autoEndCancelConsecRef.current = 0
         fastClipSeedRef.current = 0
+        playedFastClipIdsRef.current.clear()
+        sawRecentNonLatinNoiseRef.current = false
+        pendingKorePrefixRef.current = ''
         currentKoreTurnTextRef.current = ''
         currentCustomerTurnTextRef.current = ''
         lastCompletedCustomerTurnTextRef.current = ''
@@ -4006,7 +4314,12 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             out.connect(ctx.destination)
             outNodeRef.current = out
             playbackRef.current = new KorePlaybackQueue(ctx, out, active => {
-                if (!customerBargeInActiveRef.current) {
+                if (
+                    !active &&
+                    !customerBargeInActiveRef.current &&
+                    !playbackRef.current?.isEchoShieldActive() &&
+                    !koreModelStreamingRef.current
+                ) {
                     bargeInGuardRef.current.reset()
                 }
                 if (!active) {
