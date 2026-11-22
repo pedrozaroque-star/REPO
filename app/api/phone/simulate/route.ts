@@ -685,6 +685,8 @@ export async function POST(request: NextRequest) {
             userText,
             source: 'simulator',
             callerNumber: body?.callerNumber || auth.user?.email || 'Simulador Web',
+            callerName: typeof body?.callerName === 'string' ? body.callerName.trim() || null : null,
+            callerNameSource: typeof body?.callerNameSource === 'string' ? body.callerNameSource.trim() || null : null,
             preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
             deferDbFlush: true,
             prefetchedCallRecord: validatedSimCall
@@ -795,6 +797,8 @@ export async function POST(request: NextRequest) {
       userText,
       source: 'simulator',
       callerNumber: body?.callerNumber || auth.user.email || 'Simulador Web',
+      callerName: typeof body?.callerName === 'string' ? body.callerName.trim() || null : null,
+      callerNameSource: typeof body?.callerNameSource === 'string' ? body.callerNameSource.trim() || null : null,
       preferredLang: body?.lang ? (body.lang === 'en' ? 'en' : 'es') : undefined,
       prefetchedCallRecord: validatedSimCall
     })

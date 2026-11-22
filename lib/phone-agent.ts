@@ -253,6 +253,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { getGeminiKeyPoolWithRemote, VoiceId, resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import { PARTY_TRAY_GUIDELINES } from '@/lib/inventory/party-tray-guidelines'
+import { buildMeaningfulCallSummary, formatLast4ForSpeech, normalizeUsPhoneDigits10 } from '@/lib/phone-caller-id'
 import { getOfficialStoreHolidaySchedule, getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
 import { extractPhoneDigits, isFictitiousNanpPhone, normalizeUsPhoneE164 } from '@/lib/phone-agent-access'
 import {
@@ -1640,9 +1641,9 @@ export function recommendFiestaPlatters(
       ? Math.round(rawGuests)
       : NaN
   let recommendationEs =
-    'Se ordenan en línea en tacosgavilan.com con mínimo 1 hora de anticipación para recoger el mismo día. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina a elegir, salsas, verdura y desechables completos.'
+    'Se ordenan en línea en tacosgavilan.com (para recoger o con envío vía order.online) o por plataformas de delivery (Uber Eats, DoorDash, Grubhub) con mínimo 1 hora de anticipación. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina a elegir, salsas, verdura y desechables completos.'
   let recommendationEn =
-    'Order online at tacosgavilan.com with at least 1 hour advance notice for same-day pickup. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas of your choice, salsas, toppings, and utensils.'
+    'Order online at tacosgavilan.com (for pickup or delivery via order.online) or through delivery platforms (Uber Eats, DoorDash, Grubhub) with at least 1 hour advance notice. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas of your choice, salsas, toppings, and utensils.'
 
   if (Number.isFinite(guests) && guests > 0) {
     if (guests <= 20) {
@@ -1743,8 +1744,10 @@ export function recommendFiestaPlatters(
   }
 
   return {
-    advanceNoticeRuleEs: 'Mínimo 1 hora de anticipación ordenando exclusivamente en línea en tacosgavilan.com',
-    advanceNoticeRuleEn: 'Minimum 1 hour advance notice, ordered exclusively online at tacosgavilan.com',
+    advanceNoticeRuleEs:
+      'Mínimo 1 hora de anticipación ordenando en tacosgavilan.com (delivery vía order.online o para recoger) o en plataformas de delivery (Uber Eats, DoorDash, Grubhub)',
+    advanceNoticeRuleEn:
+      'Minimum 1 hour advance notice via tacosgavilan.com (delivery via order.online or pickup) or delivery platforms (Uber Eats, DoorDash, Grubhub)',
     urgentUnderOneHourEs:
       'Si el cliente necesita comida para el grupo en MENOS de 1 hora: ofrece proactivamente (a) pasar directo al mostrador o Drive-Thru para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, O (b) tomar su nombre y teléfono de 10 dígitos con create_manager_callback (urgency: "high") para que el gerente en turno revise de inmediato capacidad de cocina.',
     urgentUnderOneHourEn:
@@ -8045,6 +8048,8 @@ export async function processPhoneAgentTurn(params: {
   userText: string
   source?: 'twilio' | 'simulator'
   callerNumber?: string | null
+  callerName?: string | null
+  callerNameSource?: string | null
   toNumber?: string | null
   forwardedFrom?: string | null
   preferredLang?: PhoneLang
@@ -8074,6 +8079,8 @@ export async function processPhoneAgentTurn(params: {
     userText,
     source = 'simulator',
     callerNumber = null,
+    callerName = null,
+    callerNameSource = null,
     toNumber = null,
     forwardedFrom = null,
     preferredLang,
@@ -8638,7 +8645,7 @@ export async function processPhoneAgentTurn(params: {
      * Después de ejecutar \`create_manager_callback\`, aclara de forma amable y natural que no transferimos llamadas a celulares personales de los gerentes (sin mencionar "políticas" ni "reglamentos") y ${callbackOutcomeInstruction}
      * Si aún NO ha dado su nombre o teléfono real de 10 dígitos, aclara que no transferimos a celulares personales y pídeselos con empatía en una sola frase corta ANTES de intentar registrar el recado.
      * **Dictado pausado de teléfono**: si el cliente pausó a la mitad y solo escuchaste entre 3 y 9 dígitos, **conserva esos dígitos** y pídele amablemente solo los dígitos restantes (ej. \`"Anoté 323-982, ¿me regalas los últimos 4 dígitos?"\`); en cuanto te dé el resto en el siguiente turno, únelos en un solo número de 10 dígitos y ejecuta \`create_manager_callback\` de inmediato.
-     * Si ya enviaste la alerta o nota en esta misma llamada, no la dupliques salvo que agregue datos nuevos: confirma que el equipo o el gerente ya la tienen en su pantalla.`
+     * **PREGUNTA EL DETALLE ANTES DE GUARDAR + ACTUALIZACIÓN OBLIGATORIA**: Antes de invocar \`create_manager_callback\` para editar/ajustar una orden o dejar nota, pregunta qué cambio exacto necesita el cliente. Y si DESPUÉS de crear el recado el cliente agrega cualquier dato nuevo (ej. "sin queso", "para el Taco Plate", código o aclaración), **VUELVE A INVOCAR \`create_manager_callback\`** con el \`reason_summary\` completo en español ANTES de responderle que ya lo agregaste (el sistema actualiza el mismo recado sin duplicarlo).`
     : `5-6. **Incidencias / Recados / Delivery**: Si el cliente menciona una orden ya pagada, objetos olvidados o pide hablar con el gerente, aclara que no transferimos llamadas a celulares personales y pídele nombre y teléfono de 10 dígitos (y ticket y fecha si reporta una orden directa equivocada) antes de usar \`create_manager_callback\`.`
 
   const storesDirectoryBlock =
@@ -8679,7 +8686,22 @@ ${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para
 - Drive-Thru: ${store.has_drive_thru ? 'Esta sucursal SÍ tiene Drive-Thru.' : 'Esta sucursal NO tiene Drive-Thru (solo Comedor y Para Llevar).'} Las únicas 6 sucursales con Drive-Thru son Los Ángeles (esquina de Central y Washington), West Covina, La Puente, Norwalk, Lynwood y South Gate.
 - Pagos / EBT: ${config.accepts_ebt ? (store.has_drive_thru ? 'Aceptamos efectivo, tarjetas y Apple Pay/Google Pay; EBT CalFresh se acepta ÚNICAMENTE adentro en el mostrador del comedor (NO disponible en la ventanilla de Drive-Thru).' : 'Aceptamos EBT CalFresh en el mostrador del comedor, efectivo, tarjetas y Apple Pay/Google Pay.') : 'NO aceptamos EBT CalFresh en esta sucursal; sí efectivo, tarjetas y Apple Pay/Google Pay.'}
 - Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)
-- Privacidad de la llamada: El sistema NO graba audio de las llamadas; únicamente guarda la transcripción escrita de la conversación para atenderte mejor.${source === 'twilio' && callerNumber ? `\n- Caller ID Twilio entrante: ${callerNumber} (solo úsalo si piden marcar a este mismo número)` : ''}
+- Privacidad de la llamada: El sistema NO graba audio de las llamadas; únicamente guarda la transcripción escrita de la conversación para atenderte mejor.${(() => {
+    const resolvedCallerName = String(callerName || existingCallRes.data?.caller_name || '').trim()
+    const resolvedCallerNameSource = String(callerNameSource || existingCallRes.data?.caller_name_source || '').trim()
+    const ownTenSet = new Set([extractPhoneDigits(store.phone).slice(-10), extractPhoneDigits(config.twilio_phone_number).slice(-10)].filter(Boolean))
+    const callerTen10 = source === 'twilio' ? normalizeUsPhoneDigits10(callerNumber) : null
+    const safeE164 = callerTen10 && !ownTenSet.has(callerTen10) ? `+1${callerTen10}` : null
+    const last4Sp = safeE164 ? formatLast4ForSpeech(safeE164) : null
+    if (!safeE164 || !last4Sp) return ''
+    const isHighConf = ['employee', 'store', 'vendor', 'loyalty', 'returning_caller'].includes(resolvedCallerNameSource)
+    const nameHint = resolvedCallerName
+      ? isHighConf
+        ? ` | Nombre detectado (directorio/historial Tacos Gavilan): "${resolvedCallerName}" — confírmalo de forma natural ("¿Hablo con ${resolvedCallerName}?" / "Am I speaking with ${resolvedCallerName}?").`
+        : ` | Nombre en Caller ID CNAM: "${resolvedCallerName}" — confírmalo con tacto ("¿Me confirmas tu nombre? Me aparece ${resolvedCallerName}" / "Could you confirm your name? I see ${resolvedCallerName} on Caller ID") y guarda el nombre que diga la persona.`
+      : ''
+    return `\n- IDENTIFICADOR DE LLAMADAS ACTIVO (Caller ID): Twilio detectó ${safeE164} (terminado en ${last4Sp})${nameHint} PROHIBIDO hacer dictar los 10 dígitos: confirma únicamente si podemos contactarle al mismo número terminado en ${last4Sp} ("¿Te podemos contactar a este mismo número terminado en ${last4Sp}, o prefieres otro?" / "Is this number ending in ${last4Sp} the best one to reach you, or would you prefer another?") y envía caller_phone="CALLER_ID" si acepta.`
+  })()}
 ${parkingNotesBlock}${priorCallbackNote}
 ${storesDirectoryBlock}
 
@@ -8929,12 +8951,23 @@ ${postOrderRulesBlock}
         argPhoneRaw.toUpperCase() === 'CALLER_ID'
           ? { valid: false, normalized: null, tenDigits: null }
           : normalizeUsPhoneE164(expandedArgPhone)
+      const callerDirectParsed =
+        source === 'twilio' && callerNumber ? normalizeUsPhoneE164(callerNumber) : { valid: false, normalized: null, tenDigits: null }
+      const rawArgDigits = argPhoneRaw.replace(/\D/g, '')
+      const normArgDigits = rawArgDigits.length === 11 && rawArgDigits.startsWith('1') ? rawArgDigits.slice(1) : rawArgDigits
+      const argIsCallerFragment = Boolean(
+        callerDirectParsed.tenDigits &&
+          (!normArgDigits ||
+            (normArgDigits.length >= 4 && normArgDigits.length <= 10 && callerDirectParsed.tenDigits.includes(normArgDigits)))
+      )
       const callerAuthorizedSameLine =
         argPhoneRaw.toUpperCase() === 'CALLER_ID' ||
+        !argPhoneRaw ||
+        argIsCallerFragment ||
         hasExplicitSameLineOptIn(transcript.filter((t) => t.role === 'user').map((t) => t.text).join(' | '))
       const parsedCaller =
         source === 'twilio' && callerNumber && callerAuthorizedSameLine
-          ? normalizeUsPhoneE164(callerNumber)
+          ? callerDirectParsed
           : { valid: false, normalized: null, tenDigits: null }
       const argIsClean =
         parsedArg.valid &&
@@ -10280,7 +10313,14 @@ ${postOrderRulesBlock}
         : meta.resolvedByAi,
     duration_seconds: durationSeconds,
     turns_count: Number(finalCallRecord.turns_count || 0) + 1,
-    summary: `${userText.slice(0, 120)} -> ${replyText.slice(0, 140)}`,
+    summary: buildMeaningfulCallSummary({
+      transcript,
+      callbackSummary: callbackCreated?.reason_summary || null,
+      callbackCallerName: callbackCreated?.caller_name || null,
+      callbackTicket: callbackCreated?.ticket_or_order_number || null,
+      primaryIntent: resolvedIntent,
+      unansweredQuestion: unansweredFlagged || finalCallRecord.unanswered_question || null
+    }),
     transcript
   }
 
@@ -10533,9 +10573,9 @@ export function isPromptExpectingPhoneOrDetails(text: string | null | undefined)
     .map((s) => s.trim())
     .filter(Boolean)
   const targetFieldRe =
-    /\b(tu\s+nombre|su\s+nombre|como\s+te\s+llamas|como\s+se\s+llama|tu\s+numero|su\s+numero|tu\s+telefono|su\s+telefono|numero\s+de\s+telefono|telefono\s+de\s+10|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|faltan\s+\d*\s*digitos|a\s+que\s+numero|numero\s+de\s+orden|numero\s+de\s+ticket|tu\s+ticket|su\s+ticket|el\s+ticket|recibo|que\s+fecha|cual\s+fecha|fecha\s+de|que\s+dia\s+fue|cuando\s+(?:compraste|fue|pasaste)|codigo\s+de\s+orden|que\s+condimentos|en\s+(?:que|cual)\s+sucursal|your\s+name|your\s+phone|your\s+number|phone\s+number|callback\s+number|best\s+number|10\s+digits|ten\s+digits|10[\s-]*digit|remaining\s+digits|last\s+\d*\s*digits|rest\s+of\s+(?:the\s+|your\s+)?number|order\s+number|order\s+code|ticket\s+number|your\s+ticket|the\s+ticket|receipt|purchase\s+date|what\s+date|which\s+date|date\s+of|when\s+did\s+you|which\s+condiments|which\s+store|which\s+location)\b/i
+    /\b(tu\s+nombre|su\s+nombre|como\s+te\s+llamas|como\s+se\s+llama|hablo\s+con|tu\s+numero|su\s+numero|mismo\s+numero|numero\s+terminado|terminado\s+en|tu\s+telefono|su\s+telefono|numero\s+de\s+telefono|telefono\s+de\s+10|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|faltan\s+\d*\s*digitos|a\s+que\s+numero|numero\s+de\s+orden|numero\s+de\s+ticket|tu\s+ticket|su\s+ticket|el\s+ticket|recibo|que\s+fecha|cual\s+fecha|fecha\s+de|que\s+dia\s+fue|cuando\s+(?:compraste|fue|pasaste)|codigo\s+de\s+orden|que\s+condimentos|que\s+cambio|en\s+(?:que|cual)\s+sucursal|your\s+name|speaking\s+with|your\s+phone|your\s+number|this\s+number|ending\s+in|phone\s+number|callback\s+number|best\s+number|10\s+digits|ten\s+digits|10[\s-]*digit|remaining\s+digits|last\s+\d*\s*digits|rest\s+of\s+(?:the\s+|your\s+)?number|order\s+number|order\s+code|ticket\s+number|your\s+ticket|the\s+ticket|receipt|purchase\s+date|what\s+date|which\s+date|date\s+of|when\s+did\s+you|which\s+condiments|what\s+change|which\s+store|which\s+location)\b/i
   const askingVerbRe =
-    /\b(dame|me\s+das|me\s+confirmas|me\s+puedes|me\s+podrias|regala(?:me|nos)?|comparte(?:me|nos)?|dime|me\s+dices|indica(?:me|nos)?|necesito|falta(?:n|ron)?|cual\s+es|como\s+te\s+llamas|como\s+se\s+llama|que\s+dia\s+fue|digitos\s+restantes|remaining\s+digits|last\s+\d*\s*digits|rest\s+of|may\s+i\s+have|could\s+you|can\s+you|please\s+(?:give|share|tell|provide|confirm)|what(?:\s+is|s)?|need\s+your|missing)\b/i
+    /\b(dame|me\s+das|me\s+confirmas|me\s+puedes|me\s+podrias|te\s+podemos|podemos\s+contactar|hablo\s+con|prefieres\s+otro|regala(?:me|nos)?|comparte(?:me|nos)?|dime|me\s+dices|indica(?:me|nos)?|necesito|falta(?:n|ron)?|cual\s+es|como\s+te\s+llamas|como\s+se\s+llama|que\s+dia\s+fue|digitos\s+restantes|remaining\s+digits|last\s+\d*\s*digits|rest\s+of|may\s+i\s+have|am\s+i\s+speaking|is\s+this\s+number|would\s+you\s+prefer|could\s+you|can\s+you|please\s+(?:give|share|tell|provide|confirm)|what(?:\s+is|s)?|need\s+your|missing)\b/i
   const completedStatementRe =
     /^(?:listo|gracias|perfecto|all\s+set|thank\s+you|your\s+(?:condiment\s+note|message)|our\s+store\s+phone\s+number|el\s+telefono\s+de\s+esta\s+sucursal|uber\s+eats|this\s+location\s+does\s+not|los\s+repartidores|en\s+esta\s+sucursal\s+no\s+tenemos)\b/i
 

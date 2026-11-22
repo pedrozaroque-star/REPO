@@ -194,6 +194,7 @@ interface KnowledgeRule {
   store_id: number | null
   category: string
   title: string
+  title_en?: string | null
   question_keywords: string | null
   answer_es: string
   answer_en: string
@@ -219,6 +220,8 @@ interface CallRow {
   store_id: number
   source: string
   caller_number: string | null
+  caller_name?: string | null
+  caller_name_source?: string | null
   language: string
   caller_category: string
   primary_intent: string
@@ -268,10 +271,12 @@ interface PhoneLearningItemRow {
   syncedDtItemId: string | null
   kbEntryId: string | null
   questionOrTrigger: string
+  questionOrTriggerEn: string | null
   triggerKeywords: string[]
   customerQuote: string | null
   koreQuote: string | null
   doubtForOwner: string | null
+  doubtForOwnerEn: string | null
   proposedRuleEs: string | null
   proposedRuleEn: string | null
   fastReplyEs: string | null
@@ -284,6 +289,8 @@ interface PhoneLearningItemRow {
   resolvedAt: string | null
   createdAt: string | null
 }
+
+type PhoneLearningItem = PhoneLearningItemRow
 
 interface PhoneLearningStats {
   pendingDoubts: number
@@ -323,6 +330,14 @@ function normalizePhoneLearningItem(raw: Record<string, any>): PhoneLearningItem
   const rawLat = raw.avgLatencyMs !== undefined ? raw.avgLatencyMs : raw.avg_latency_ms
   const category = String(raw.category ?? 'general')
   const questionOrTrigger = String(raw.questionOrTrigger ?? raw.question_or_trigger ?? '')
+  const rawQuestionOrTriggerEn = raw.questionOrTriggerEn ?? raw.question_or_trigger_en ?? null
+  const questionOrTriggerEn =
+    typeof rawQuestionOrTriggerEn === 'string' && rawQuestionOrTriggerEn.trim()
+      ? rawQuestionOrTriggerEn.trim()
+      : null
+  const rawDoubtEn = raw.doubtForOwnerEn ?? raw.doubt_for_owner_en ?? null
+  const doubtForOwnerEn =
+    typeof rawDoubtEn === 'string' && rawDoubtEn.trim() ? rawDoubtEn.trim() : null
   const rawChannel = raw.appliesToChannels ?? raw.applies_to_channels
   const rawSyncedDt = raw.syncedDtItemId ?? raw.synced_dt_item_id ?? null
   const rawKbId = raw.kbEntryId ?? raw.kb_entry_id ?? null
@@ -337,11 +352,12 @@ function normalizePhoneLearningItem(raw: Record<string, any>): PhoneLearningItem
     appliesToChannels: inferDefaultPhoneLearningChannels(
       rawChannel,
       category,
-      `${questionOrTrigger} ${raw.doubtForOwner ?? raw.doubt_for_owner ?? ''} ${raw.proposedRuleEs ?? raw.proposed_rule_es ?? ''}`
+      `${questionOrTrigger} ${questionOrTriggerEn ?? ''} ${raw.doubtForOwner ?? raw.doubt_for_owner ?? ''} ${doubtForOwnerEn ?? ''} ${raw.proposedRuleEs ?? raw.proposed_rule_es ?? ''}`
     ),
     syncedDtItemId: rawSyncedDt ? String(rawSyncedDt) : null,
     kbEntryId: rawKbId ? String(rawKbId) : null,
     questionOrTrigger,
+    questionOrTriggerEn,
     triggerKeywords: Array.isArray(raw.triggerKeywords)
       ? raw.triggerKeywords.map(String)
       : Array.isArray(raw.trigger_keywords)
@@ -350,6 +366,7 @@ function normalizePhoneLearningItem(raw: Record<string, any>): PhoneLearningItem
     customerQuote: raw.customerQuote ?? raw.customer_quote ?? null,
     koreQuote: raw.koreQuote ?? raw.kore_quote ?? null,
     doubtForOwner: raw.doubtForOwner ?? raw.doubt_for_owner ?? null,
+    doubtForOwnerEn,
     proposedRuleEs: raw.proposedRuleEs ?? raw.proposed_rule_es ?? null,
     proposedRuleEn: raw.proposedRuleEn ?? raw.proposed_rule_en ?? null,
     fastReplyEs: raw.fastReplyEs ?? raw.fast_reply_es ?? null,
@@ -363,6 +380,26 @@ function normalizePhoneLearningItem(raw: Record<string, any>): PhoneLearningItem
     resolvedAt: raw.resolvedAt ?? raw.resolved_at ?? null,
     createdAt: raw.createdAt ?? raw.created_at ?? null
   }
+}
+
+function buildPhoneBilingualLines(
+  textEs: string | null | undefined,
+  textEn: string | null | undefined,
+  isEn: boolean,
+  fallbackText?: string | null
+): Array<{ flag: string; code: 'ES' | 'EN'; text: string }> {
+  const cleanEs = String(textEs ?? '').trim()
+  const cleanEn = String(textEn ?? '').trim()
+  const cleanFallback = String(fallbackText ?? '').trim()
+  const esEntry = cleanEs ? { flag: '🇲🇽', code: 'ES' as const, text: cleanEs } : null
+  const enEntry = cleanEn ? { flag: '🇺🇸', code: 'EN' as const, text: cleanEn } : null
+  const ordered = isEn ? [enEntry, esEntry] : [esEntry, enEntry]
+  const nonEmpty = ordered.filter(
+    (entry): entry is { flag: string; code: 'ES' | 'EN'; text: string } => entry !== null
+  )
+  if (nonEmpty.length > 0) return nonEmpty
+  if (!cleanFallback) return []
+  return [isEn ? { flag: '🇺🇸', code: 'EN', text: cleanFallback } : { flag: '🇲🇽', code: 'ES', text: cleanFallback }]
 }
 
 const CLIENT_BLOCKED_NANP_AREA_CODES = new Set([
@@ -598,7 +635,7 @@ function computeAdaptiveSilenceDurationMs(
   const normAssistant = stripDiacriticsLower(lastAssistantText || '')
 
   const assistantAskedDetails =
-    /(?:^|[^a-z0-9])(tu\s+nombre|su\s+nombre|como\s+te\s+llamas|tu\s+numero|su\s+numero|tu\s+telefono|su\s+telefono|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|numero\s+de\s+ticket|numero\s+de\s+orden|recibo|fecha\s+de\s+(?:tu\s+|su\s+)?compra|que\s+dia|your\s+name|whats\s+your\s+name|what'?s\s+your\s+name|your\s+phone|your\s+number|phone\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits|last\s+\d*\s*digits|ticket\s+number|order\s+number|receipt|purchase\s+date)(?:$|[^a-z0-9])/i.test(
+    /(?:^|[^a-z0-9])(tu\s+nombre|su\s+nombre|como\s+te\s+llamas|hablo\s+con|tu\s+numero|su\s+numero|mismo\s+numero|terminado\s+en|tu\s+telefono|su\s+telefono|10\s+digitos|diez\s+digitos|digitos\s+restantes|ultimos\s+\d*\s*digitos|numero\s+de\s+ticket|numero\s+de\s+orden|recibo|fecha\s+de\s+(?:tu\s+|su\s+)?compra|que\s+dia|que\s+cambio|your\s+name|speaking\s+with|whats\s+your\s+name|what'?s\s+your\s+name|your\s+phone|your\s+number|this\s+number|ending\s+in|phone\s+number|10\s+digits|ten\s+digits|10-digit|remaining\s+digits|last\s+\d*\s*digits|ticket\s+number|order\s+number|receipt|purchase\s+date|what\s+change)(?:$|[^a-z0-9])/i.test(
       normAssistant
     )
 
@@ -3405,6 +3442,7 @@ export default function ContestadoraIaPage() {
           store_id: editingRule.store_id ?? null,
           category: editingRule.category || 'general',
           title: editingRule.title.trim(),
+          title_en: editingRule.title_en?.trim() || '',
           question_keywords: editingRule.question_keywords || '',
           answer_es: editingRule.answer_es.trim(),
           answer_en: editingRule.answer_en || '',
@@ -3918,10 +3956,58 @@ export default function ContestadoraIaPage() {
       'menu_prices',
       'location_drivethru',
       'hours',
+      'manager_callback',
       'general'
     ])
     return knownIntents.has(norm) ? t(`phone_agent.intent_${norm}`) : intent
   }
+
+  const getCallerSourceMeta = (src?: string | null): { label: string; cls: string } => {
+    const norm = String(src || '').toLowerCase()
+    if (norm === 'employee') {
+      return {
+        label: t('phone_agent.calls_caller_source_employee'),
+        cls: 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300'
+      }
+    }
+    if (norm === 'store') {
+      return {
+        label: t('phone_agent.calls_caller_source_store'),
+        cls: 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
+      }
+    }
+    if (norm === 'vendor') {
+      return {
+        label: t('phone_agent.calls_caller_source_vendor'),
+        cls: 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300'
+      }
+    }
+    if (norm === 'loyalty') {
+      return {
+        label: t('phone_agent.calls_caller_source_loyalty'),
+        cls: 'bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300'
+      }
+    }
+    if (norm === 'returning_caller') {
+      return {
+        label: t('phone_agent.calls_caller_source_returning'),
+        cls: 'bg-teal-100 dark:bg-teal-950/70 text-teal-700 dark:text-teal-300'
+      }
+    }
+    if (norm === 'spoken') {
+      return {
+        label: t('phone_agent.calls_caller_source_spoken'),
+        cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+      }
+    }
+    return {
+      label: t('phone_agent.calls_caller_source_cnam'),
+      cls: 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300'
+    }
+  }
+
+  const isSimulatorPlaceholderCaller = (val?: string | null) =>
+    !val || val === 'SIMULATOR_WEB' || val === 'SIMULADOR_LIVE_WEB'
 
   const getReasonCategoryLabel = (category: string): string => {
     const norm = String(category || '').toLowerCase()
@@ -4852,6 +4938,7 @@ export default function ContestadoraIaPage() {
                               store_id: null,
                               category: 'general',
                               title: String(uq.question || '').slice(0, 60),
+                              title_en: '',
                               question_keywords: '',
                               answer_es: '',
                               answer_en: '',
@@ -4911,6 +4998,7 @@ export default function ContestadoraIaPage() {
                         store_id: null,
                         category: 'general',
                         title: '',
+                        title_en: '',
                         question_keywords: '',
                         answer_es: '',
                         answer_en: '',
@@ -4932,7 +5020,7 @@ export default function ContestadoraIaPage() {
                   ref={ruleEditorRef}
                   className="rounded-2xl bg-slate-50 dark:bg-slate-800/70 border-2 border-emerald-500 p-4 space-y-3"
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                         {t('phone_agent.kb_scope_label')}
@@ -4975,13 +5063,26 @@ export default function ContestadoraIaPage() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
-                        {t('phone_agent.kb_rule_title')}
+                        {'🇲🇽'} {t('phone_agent.kb_rule_title')}
                       </label>
                       <input
                         type="text"
                         value={editingRule.title || ''}
                         onChange={(e) => setEditingRule({ ...editingRule, title: e.target.value })}
                         placeholder={t('phone_agent.kb_title_placeholder')}
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                        {'🇺🇸'} {t('phone_agent.kb_rule_title_en')}
+                      </label>
+                      <input
+                        type="text"
+                        value={editingRule.title_en || ''}
+                        onChange={(e) => setEditingRule({ ...editingRule, title_en: e.target.value })}
+                        placeholder={t('phone_agent.kb_title_en_placeholder')}
                         className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold"
                       />
                     </div>
@@ -5104,8 +5205,13 @@ export default function ContestadoraIaPage() {
                             </span>
                           </div>
                           <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                            {rule.title}
+                            {isEn ? rule.title_en || rule.title : rule.title}
                           </h4>
+                          {rule.title_en && rule.title_en !== rule.title && (
+                            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                              {isEn ? `🇲🇽 ${rule.title}` : `🇺🇸 ${rule.title_en}`}
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
@@ -5147,14 +5253,14 @@ export default function ContestadoraIaPage() {
                         </div>
                       </div>
 
-                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                        🇲🇽 {rule.answer_es}
-                      </p>
-                      {rule.answer_en && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                          🇺🇸 {rule.answer_en}
+                      {buildPhoneBilingualLines(rule.answer_es, rule.answer_en, isEn).map((ans, idx) => (
+                        <p
+                          key={ans.code}
+                          className={idx === 0 ? 'text-xs text-slate-700 dark:text-slate-300 leading-relaxed' : 'text-xs text-slate-500 dark:text-slate-400 leading-relaxed'}
+                        >
+                          {ans.flag} {ans.text}
                         </p>
-                      )}
+                      ))}
                     </div>
                   )
                 })}
@@ -5632,6 +5738,22 @@ export default function ContestadoraIaPage() {
                           const proposedDraft = isEn
                             ? item.proposedRuleEn || item.proposedRuleEs
                             : item.proposedRuleEs || item.proposedRuleEn
+                          const primaryDoubtTitle = isEn
+                            ? item.questionOrTriggerEn || item.questionOrTrigger
+                            : item.questionOrTrigger
+                          const primaryDoubtText = isEn
+                            ? item.doubtForOwnerEn || item.doubtForOwner
+                            : item.doubtForOwner || item.doubtForOwnerEn
+                          const proposedRuleLines = buildPhoneBilingualLines(
+                            item.proposedRuleEs,
+                            item.proposedRuleEn,
+                            isEn
+                          )
+                          const proposedFastLines = buildPhoneBilingualLines(
+                            item.fastReplyEs,
+                            item.fastReplyEn,
+                            isEn
+                          )
                           const fastExpanded = Boolean(learningExpandedFastIds[item.id])
                           const instructionVal = getLearningInstructionValue(item)
                           const fastEsVal = getLearningFastEsValue(item)
@@ -5662,7 +5784,7 @@ export default function ContestadoraIaPage() {
                               </div>
 
                               <p className="text-sm font-black text-slate-900 dark:text-white break-words">
-                                {item.questionOrTrigger}
+                                {primaryDoubtTitle}
                               </p>
 
                               {(item.customerQuote || item.koreQuote) && (
@@ -5690,34 +5812,61 @@ export default function ContestadoraIaPage() {
                                 </div>
                               )}
 
-                              {item.doubtForOwner && (
+                              {primaryDoubtText && (
                                 <div className="rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-3 py-2 text-xs text-amber-950 dark:text-amber-200 break-words">
                                   <strong className="font-black">
                                     {t('phone_agent.learning_doubt_label')}
                                   </strong>{' '}
-                                  {item.doubtForOwner}
+                                  {primaryDoubtText}
                                 </div>
                               )}
 
-                              {proposedDraft && (
+                              {proposedRuleLines.length > 0 && (
                                 <div className="flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-2.5 py-2 text-xs text-slate-600 dark:text-slate-300">
-                                  <span className="break-words">
-                                    <strong>{t('phone_agent.learning_proposed_hint')}</strong>{' '}
-                                    {proposedDraft}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    disabled={isBusy}
-                                    onClick={() =>
-                                      setLearningDraftInstruction((prev) => ({
-                                        ...prev,
-                                        [item.id]: proposedDraft
-                                      }))
-                                    }
-                                    className="shrink-0 px-2 py-1 rounded-md bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-[11px] font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
-                                  >
-                                    {t('phone_agent.learning_use_proposed_btn')}
-                                  </button>
+                                  <div className="space-y-1 min-w-0">
+                                    <p className="font-bold text-slate-700 dark:text-slate-200">
+                                      {t('phone_agent.learning_proposed_hint')}
+                                    </p>
+                                    {proposedRuleLines.map((line, idx) => (
+                                      <p
+                                        key={line.code}
+                                        className={idx === 0 ? 'text-xs text-slate-800 dark:text-slate-200 leading-relaxed break-words' : 'text-xs text-slate-500 dark:text-slate-400 leading-relaxed break-words'}
+                                      >
+                                        {line.flag} {line.text}
+                                      </p>
+                                    ))}
+                                  </div>
+                                  {proposedDraft && (
+                                    <button
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={() =>
+                                        setLearningDraftInstruction((prev) => ({
+                                          ...prev,
+                                          [item.id]: proposedDraft
+                                        }))
+                                      }
+                                      className="shrink-0 px-2 py-1 rounded-md bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-[11px] font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
+                                    >
+                                      {t('phone_agent.learning_use_proposed_btn')}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {proposedFastLines.length > 0 && (
+                                <div className="rounded-lg bg-sky-50/70 dark:bg-sky-950/30 px-2.5 py-1.5 space-y-1">
+                                  <p className="text-[11px] font-bold text-sky-900 dark:text-sky-300">
+                                    {t('phone_agent.learning_fast_reply_preview')}
+                                  </p>
+                                  {proposedFastLines.map((line, idx) => (
+                                    <p
+                                      key={line.code}
+                                      className={idx === 0 ? 'text-[11px] text-sky-900 dark:text-sky-200 break-words' : 'text-[11px] text-sky-700 dark:text-sky-400 break-words'}
+                                    >
+                                      {line.flag} “{line.text}”
+                                    </p>
+                                  ))}
                                 </div>
                               )}
 
@@ -6032,12 +6181,20 @@ export default function ContestadoraIaPage() {
                       <div className="space-y-2.5 max-h-[720px] overflow-y-auto pr-1">
                         {learningActive.map((rule) => {
                           const isBusy = learningBusyId === rule.id
-                          const ruleBody = isEn
-                            ? rule.proposedRuleEn || rule.ownerInstruction || rule.proposedRuleEs || ''
-                            : rule.proposedRuleEs || rule.ownerInstruction || rule.proposedRuleEn || ''
-                          const fastPreview = isEn
-                            ? rule.fastReplyEn || rule.fastReplyEs
-                            : rule.fastReplyEs || rule.fastReplyEn
+                          const primaryRuleTitle = isEn
+                            ? rule.questionOrTriggerEn || rule.questionOrTrigger
+                            : rule.questionOrTrigger
+                          const activeRuleLines = buildPhoneBilingualLines(
+                            rule.proposedRuleEs,
+                            rule.proposedRuleEn,
+                            isEn,
+                            rule.ownerInstruction
+                          )
+                          const activeFastLines = buildPhoneBilingualLines(
+                            rule.fastReplyEs,
+                            rule.fastReplyEn,
+                            isEn
+                          )
 
                           return (
                             <div
@@ -6089,18 +6246,34 @@ export default function ContestadoraIaPage() {
                               </div>
 
                               <p className="text-xs font-black text-slate-800 dark:text-slate-200 break-words">
-                                {rule.questionOrTrigger}
+                                {primaryRuleTitle}
                               </p>
-                              {ruleBody && (
-                                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 break-words">
-                                  {ruleBody}
-                                </p>
+                              {activeRuleLines.length > 0 && (
+                                <div className="space-y-1">
+                                  {activeRuleLines.map((line, idx) => (
+                                    <p
+                                      key={line.code}
+                                      className={idx === 0 ? 'text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed break-words' : 'text-xs text-slate-500 dark:text-slate-400 leading-relaxed break-words'}
+                                    >
+                                      {line.flag} {line.text}
+                                    </p>
+                                  ))}
+                                </div>
                               )}
-                              {fastPreview && fastPreview !== ruleBody && (
-                                <p className="text-[11px] text-sky-800 dark:text-sky-300 bg-sky-50/70 dark:bg-sky-950/30 rounded-lg px-2.5 py-1 break-words">
-                                  <strong>{t('phone_agent.learning_fast_reply_preview')}</strong>{' '}
-                                  “{fastPreview}”
-                                </p>
+                              {activeFastLines.length > 0 && (
+                                <div className="rounded-lg bg-sky-50/70 dark:bg-sky-950/30 px-2.5 py-1.5 space-y-1">
+                                  <p className="text-[11px] font-bold text-sky-900 dark:text-sky-300">
+                                    {t('phone_agent.learning_fast_reply_preview')}
+                                  </p>
+                                  {activeFastLines.map((line, idx) => (
+                                    <p
+                                      key={line.code}
+                                      className={idx === 0 ? 'text-[11px] text-sky-900 dark:text-sky-200 break-words' : 'text-[11px] text-sky-700 dark:text-sky-400 break-words'}
+                                    >
+                                      {line.flag} “{line.text}”
+                                    </p>
+                                  ))}
+                                </div>
                               )}
                               {rule.resolvedByName && (
                                 <p className="text-[11px] text-slate-400">
@@ -7186,12 +7359,29 @@ export default function ContestadoraIaPage() {
                             <td className="py-2.5 px-3 font-bold whitespace-nowrap">
                               {c.stores?.name || `#${c.store_id}`}
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
-                              {c.caller_number && c.caller_number !== 'SIMULATOR_WEB'
-                                ? c.caller_number
-                                : isSim
-                                  ? t('phone_agent.calls_unknown_caller')
-                                  : t('phone_agent.calls_anonymous_caller')}
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              {c.caller_name && (
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <span
+                                    title={c.caller_name}
+                                    className="font-bold text-xs text-slate-900 dark:text-white max-w-[160px] truncate"
+                                  >
+                                    {c.caller_name}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${getCallerSourceMeta(c.caller_name_source).cls}`}
+                                  >
+                                    {getCallerSourceMeta(c.caller_name_source).label}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                                {!isSimulatorPlaceholderCaller(c.caller_number)
+                                  ? c.caller_number
+                                  : isSim
+                                    ? t('phone_agent.calls_unknown_caller')
+                                    : t('phone_agent.calls_anonymous_caller')}
+                              </div>
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
                               <span
@@ -7265,8 +7455,21 @@ export default function ContestadoraIaPage() {
                         {formatStoreDateTime(selectedCallDetail.started_at, isEn)}
                       </h4>
                       <p className="text-xs text-slate-500 mt-0.5 break-all">
+                        {selectedCallDetail.caller_name && (
+                          <>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {t('phone_agent.calls_modal_caller_name')} {selectedCallDetail.caller_name}
+                            </span>{' '}
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase align-middle ${getCallerSourceMeta(selectedCallDetail.caller_name_source).cls}`}
+                            >
+                              {getCallerSourceMeta(selectedCallDetail.caller_name_source).label}
+                            </span>{' '}
+                            •{' '}
+                          </>
+                        )}
                         {t('phone_agent.calls_modal_caller')}{' '}
-                        {selectedCallDetail.caller_number && selectedCallDetail.caller_number !== 'SIMULATOR_WEB'
+                        {!isSimulatorPlaceholderCaller(selectedCallDetail.caller_number)
                           ? selectedCallDetail.caller_number
                           : selectedCallDetail.source === 'simulator'
                             ? t('phone_agent.calls_unknown_caller')

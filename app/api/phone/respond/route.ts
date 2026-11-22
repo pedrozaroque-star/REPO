@@ -42,6 +42,7 @@ import {
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
 import { SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
+import { resolvePhoneCallerIdentity } from '@/lib/phone-caller-id'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
   getPhoneAgentSpeech,
@@ -342,6 +343,7 @@ export async function POST(request: Request) {
       <Parameter name="storeId" value="${storeId}" />
       <Parameter name="lang" value="${switchedLang}" />
       <Parameter name="callerNumber" value="${escapeXml((params.From || '').trim())}" />
+      <Parameter name="callerName" value="${escapeXml((params.CallerName || '').trim())}" />
       <Parameter name="toNumber" value="${escapeXml((params.To || '').trim())}" />
       <Parameter name="forwardedFrom" value="${escapeXml((params.ForwardedFrom || '').trim())}" />
       <Parameter name="ts" value="${streamTs}" />
@@ -549,12 +551,21 @@ export async function POST(request: Request) {
       )
     }
 
+    const resolvedCaller = params.From
+      ? await resolvePhoneCallerIdentity({
+          phone: params.From,
+          twilioCallerName: params.CallerName || null,
+          allowTwilioLookup: false
+        }).catch(() => null)
+      : null
     const turn = await processPhoneAgentTurn({
       callSid,
       storeId,
       userText,
       source: 'twilio',
       callerNumber: params.From || null,
+      callerName: resolvedCaller?.displayName || null,
+      callerNameSource: resolvedCaller?.source || null,
       toNumber: params.To || null,
       forwardedFrom: params.ForwardedFrom || null,
       preferredLang: currentLang,

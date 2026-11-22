@@ -168,7 +168,7 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
   const mode: KoreSpeechChannelMode = opts?.mode === 'phone' ? 'phone' : 'drive_thru'
 
   const hasDeliveryDriverContext =
-    /\b(uber(?:\s*eats)?|doordash|door\s*dash|grubhub|postmates|caviar|repartidor(?:es)?|asignad[oa]s?|entreg[aoó]|delivery\s+driver)\b/i.test(
+    /\b(uber(?:\s*eats)?|doordash|door\s*dash|dortmund|grubhub|postmates|caviar|repartidor(?:es)?|asignad[oa]s?|entreg[aoó]|delivery\s+driver)\b/i.test(
       input
     )
 
@@ -185,14 +185,34 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
   let out = input
     // Platillos y especialidades con colisión STT
     .replace(/\btorta(?:s)?\s+coronas?\b/gi, (m) => (/^tortas/i.test(m) ? 'tortas cubanas' : 'torta cubana'))
-    .replace(/\ba\s+salad\s+(burritos?)\b/gi, 'asada $1')
-    .replace(/\bsalad\s+(burritos?)\b/gi, 'asada $1')
+    .replace(
+      /\bcrotas?\b(?=\s+(?:cubanas?|de\b|asada|pastor|adobada|milanesa|jam[oó]n|pollo|carnitas|chorizo|cabeza|lengua|buche))/gi,
+      (m) => (/s$/i.test(m) ? 'tortas' : 'torta')
+    )
+    .replace(
+      /\b(cubanas?|asada|steak|beef|pastor|adobada|chicken|pollo|milanesas?|ham|jam[oó]n|carnitas|chorizo|cabeza|lengua|buche|veggie|vegetarian)\s+crota(s?)\b/gi,
+      (_m, meat, pl) => `${meat} torta${pl ? 's' : ''}`
+    )
+    // Colisiones fonéticas de platillos en inglés ("case a dia", "moo lita" / "malita", "so pay" / "soapy")
+    .replace(/\b(?:case\s+(?:a|of)\s+dia|kay\s*sa\s*dilla|queso\s*dilla)(s?)\b/gi, 'quesadilla$1')
+    .replace(/\b(?:moo\s*lita|malita|mullita)(s?)\b/gi, 'mulita$1')
+    .replace(
+      /\b((?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|a|an|un|una|dos|tres|cuatro|asada|steak|beef|pastor|adobada|chicken|pollo|carnitas|chorizo|cabeza|lengua|buche|cheese|queso|veggie|vegetarian)\s+)(?:so\s+pay|soapy)(s?)\b/gi,
+      (_m, pre, pl) => `${pre}sope${pl ? 's' : ''}`
+    )
+    .replace(
+      /\b(?:so\s+pay|soapy)(s?)(?=\s+(?:de|of|with)\s+(?:asada|steak|beef|pastor|adobada|chicken|pollo|carnitas|chorizo|cabeza|lengua|buche|cheese|queso))/gi,
+      (_m, pl) => `sope${pl ? 's' : ''}`
+    )
+    .replace(/\ba\s+salad\s+(burritos?|tacos?|mulitas?|quesadillas?)\b/gi, 'asada $1')
+    .replace(/(?<!\b(?:side|small|green|house|caesar|chicken)\s+)\bsalad\s+(burritos?|tacos?|mulitas?|quesadillas?)\b/gi, 'asada $1')
     .replace(/\bfiesta\s+(?:playas?|platers?|platos?|plaza|planes|plays?)\b/gi, 'fiesta platter')
     .replace(/\b(?:party|pari)\s+(?:play|plays|plate|plates|trey|treys)\b/gi, 'party tray')
     .replace(/\btacos?\s+plays\b/gi, 'taco plates')
     .replace(/\btacos?\s+play\b/gi, 'taco plate')
     .replace(/(?<!\b(?:lado\s+de|enfrente\s+de|cerca\s+de|next\s+to|across\s+from)\s+)\btaco\s+bell\b/gi, 'Taco Plate')
     .replace(/\bfrijol(?:es)?\s+enteros?\b/gi, 'frijoles de la olla')
+    .replace(/\b(?:whole\s+pinto\s+beans?|pot\s+beans?)\b/gi, 'whole beans')
     // Equivalencia Supreme / Supremo / Suprema -> Super junto a burrito, quesadilla, mulita o nachos
     .replace(
       /\b(?:supreme|supremos?|supremas?)\b(?=\s+(?:(?:de|con|of|with|regular|meat|only|all|a|an|el|la|los|las|asada|pastor|adobada|pollo|chicken|steak|cabeza|lengua|buche|chorizo|carnitas|vegetariano|vegetariana|veggie)\s+){0,3}(?:burritos?|quesadillas?|mulitas?|nachos?)\b)/gi,
@@ -204,13 +224,38 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     )
     // Carnes y sinónimos regionales / fonéticos
     .replace(/\b(?:sasadas?|sazadas?|zazadas?)\b/gi, 'asada')
+    // "pasada" -> "asada" en contexto de comida/carne (sin tocar "semana/vez/llamada/noche/hora/orden pasada" ni "voy de pasada por")
+    .replace(/\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|sopes?|platos?|nachos?|carne)(\s+de)?\s+pasada\b/gi, '$1$2 asada')
+    .replace(
+      /(?<!\b(?:voy|vas|va|vamos|van|iba|iban|estoy|est[aá]s?|estamos|ando|andas|anda|ir|pasar|paso)\s+)\b(orden|pedido|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|doce|\d{1,2})\s+de\s+pasada\b(?!\s+por\b)/gi,
+      '$1 de asada'
+    )
+    .replace(/\bpura\s+pasada\b/gi, 'pura asada')
+    .replace(/^\s*(de\s+)?pasada(?=\s*(?:[,.;!?]|por\s+favor|please|gracias|$))/i, (_m, dePrefix: string | undefined) =>
+      `${dePrefix || ''}asada`
+    )
+    // "pasada" / "a sada" / "ah sah dah" / "carne sada" en orden de palabras en inglés ("pasada tacos" -> "asada tacos")
+    .replace(/\bpasada\s+(tacos?|burritos?|mulitas?|quesadillas?|tortas?|sopes?|plates?|nachos?|meat)\b/gi, 'asada $1')
+    .replace(/\bcarne\s+(?:a\s+)?sada\b/gi, 'carne asada')
+    .replace(/\bah\s+sah\s+dah\b/gi, 'asada')
+    .replace(/\ba\s+sada\b/gi, 'asada')
+    // "las hadas" / "de hadas" / "hadas tacos" / "how do you make hadas" -> "asada" (excluyendo "cuento(s) de hadas" / "fairy tale")
+    .replace(/(?<!\bcuentos?\s+)\bde\s+hadas\b/gi, 'de asada')
+    .replace(/\blas\s+hadas\b/gi, 'la asada')
+    .replace(/\bhadas\s+(tacos?|burritos?|mulitas?|quesadillas?|tortas?|sopes?|plates?|nachos?|meat)\b/gi, 'asada $1')
+    .replace(/\b(how\s+(?:do\s+you|is|are)\s+(?:make|made|prepare|season|cook)(?:\s+the)?)\s+hadas\b/gi, '$1 asada')
+    // "al pasture" / "pasture tacos/burrito/..." -> "pastor"
+    .replace(/\bal\s+pasture\b/gi, 'al pastor')
+    .replace(/\bpasture\s+(tacos?|burritos?|mulitas?|quesadillas?|tortas?|sopes?|plates?|nachos?|meat)\b/gi, 'pastor $1')
     .replace(/\badobadas?\b/gi, 'pastor')
     .replace(/\badobados?\b/gi, 'pastor')
     .replace(/\blinguas?\b/gi, (m) => (/s$/i.test(m) ? 'lenguas' : 'lengua'))
-    // Bebidas
+    // Plataformas de delivery con colisión STT ("Dortmund" / "Door Dash" -> "DoorDash")
+    .replace(/\b(?:dortmund|door\s+dash|dordash|ordash)\b/gi, 'DoorDash')
+    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata")
     .replace(/\bch[ao]mpur{1,2}ado(s?)\b/gi, 'champurrado$1')
     .replace(/\b(?:chapurrado|champorado)(s?)\b/gi, 'champurrado$1')
-    .replace(/\borchata(s?)\b/gi, 'horchata$1')
+    .replace(/\b(?:whore\s*chata|or\s+chata|hor\s*chat{1,2}a|orchata)(s?)\b/gi, 'horchata$1')
     // Festivos, urgencias, pagos y servicio Drive-Thru
     .replace(/\b(?:thansgiving|thanks\s+giving)\b/gi, 'thanksgiving')
     .replace(/\bes\s+insurgente\b/gi, 'es urgente')
@@ -220,6 +265,10 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     )
     .replace(
       /\b(tienen?|hay|cuentan?\s+con|con|por\s+el|en\s+el|al|del)\s+(?:raid|ride|drai|dray|dry|drive)\b(?!\s*(?:thru|through|tru|true|-|to\b|in\b|from\b|home\b|away\b|back\b))/gi,
+      '$1 drive-thru'
+    )
+    .replace(
+      /\b(through\s+the|at\s+the|in\s+the|have\s+a|got\s+a|use\s+the)\s+drive\b(?!\s*(?:thru|through|tru|true|-|to\b|in\b|from\b|home\b|away\b|back\b|by\b))/gi,
       '$1 drive-thru'
     )
     .replace(/\b(?:tiquet|tique|tiket|tiquete)(s?)\b/gi, 'ticket$1')
@@ -244,16 +293,20 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     )
   }
 
-  // "un plan" / "el plan" -> "flan" en contexto de comida, postre, orden o precio (excluyendo planes telefónicos/comerciales)
+  // "un plan" / "el plan" / "a plan" / "one plan" / "another plan" -> "flan" en contexto de comida/postre/orden (excluyendo planes telefónicos/comerciales)
   const hasTelecomOrBusinessPlanContext =
-    /\b(datos|celular|telef[oó]nico|m[oó]vil|internet|pago\s+mensual|negocio|marketing|seguro)\b/i.test(out)
-  const hasFoodDessertOrOrderContext =
-    /\b(?:cheesecakes?|postres?|desserts?|dulces?|falt[oó]|faltaron|pusieron|ped[ií]|cu[aá]nto|cuesta|cuestan|precio|precios|venden|quiero|dame|deme|me\s+da(?:s)?|agr[eé]ga(?:le|me)?|pon(?:le|me)?|orden(?:ar)?|tacos?|burritos?|tortas?|quesadillas?|mulitas?|sopes?|platos?|nachos?|horchatas?|jamaicas?|aguas?|champurrados?|caf[eé]s?|sodas?|refrescos?|para\s+llevar)\b/i.test(
+    /\b(datos|celular|telef[oó]nico|m[oó]vil|internet|pago\s+mensual|negocio|marketing|seguro|data\s+plan|phone\s+plan|cell\s+plan|mobile\s+plan|payment\s+plan|business\s+plan|insurance\s+plan|health\s+plan|floor\s+plan|meal\s+plan)\b/i.test(
       out
-    ) || (mode === 'drive_thru' && /^\s*(?:un|el|otro)\s+plan\s*[.!?]*\s*$/i.test(out))
+    )
+  const hasFoodDessertOrOrderContext =
+    /\b(?:cheesecakes?|postres?|desserts?|dulces?|falt[oó]|faltaron|pusieron|ped[ií]|cu[aá]nto|cuesta|cuestan|precio|precios|how\s+much|prices?|costs?|venden|quiero|dame|deme|me\s+da(?:s)?|agr[eé]ga(?:le|me)?|pon(?:le|me)?|orden(?:ar)?|orders?|want|would\s+like|give\s+me|tacos?|burritos?|tortas?|quesadillas?|mulitas?|sopes?|platos?|plates?|nachos?|horchatas?|jamaicas?|aguas?|waters?|drinks?|champurrados?|caf[eé]s?|coffees?|sodas?|refrescos?|para\s+llevar|for\s+dessert|to\s+go)\b/i.test(
+      out
+    ) ||
+    (mode === 'drive_thru' &&
+      /^\s*(?:un|el|otro|a|one|another)\s+plan(?:\s*,?\s*(?:please|por\s+favor))?\s*[.!?]*\s*$/i.test(out))
 
   if (!hasTelecomOrBusinessPlanContext && hasFoodDessertOrOrderContext) {
-    out = out.replace(/\b(un|el|mi|del|otro)\s+plan\b/gi, '$1 flan')
+    out = out.replace(/\b(un|el|mi|del|otro|a|one|another|the|my)\s+plan\b/gi, '$1 flan')
   }
 
   // En modo teléfono (cotización informativa de precios): "tacos/burritos/... de nada" y "quiero dos nada" -> "de asada"
@@ -1364,18 +1417,18 @@ export function extractMentionedOrderCategories(rawText: string): string[] {
     )
     .replace(/(?:タコス?プレート)/gu, ' __cat_taco_plate__ ')
     .replace(/\b(?:fiesta\s+platters?|party\s+trays?)\b/gi, ' ')
-    // Retirar el origen X en "cambiar X por Y" / "en vez de X"
+    // Retirar el origen X en "cambiar X por Y" / "change/swap/switch X to/for Y" / "en vez de X" / "instead of X"
     .replace(
-      /\b(?:cambiar|cambia|cambialo|cambiame)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|cafes?|coffees?|champurrados?)(?:\s+de\s+\w+)?\s+por\b/gi,
+      /\b(?:cambiar|cambia|cambialo|cambiame|change|swap|switch)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|the\s+|my\s+|our\s+|a\s+|an\s+)?(?:(?:asada|steak|pastor|chicken|pollo|carnitas|chorizo|cabeza|lengua|buche|regular|super)\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|plates?|cafes?|coffees?|champurrados?)(?:\s+(?:de|of)\s+\w+)?\s+(?:por|to|for)\b/gi,
       ' quiero '
     )
     .replace(
-      /\b(?:en\s+vez\s+de|en\s+lugar\s+de|instead\s+of)\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|cafes?|coffees?|champurrados?)(?:\s+de\s+\w+)?\b/gi,
+      /\b(?:en\s+vez\s+de|en\s+lugar\s+de|instead\s+of)\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+|the\s+|my\s+|our\s+|a\s+|an\s+)?(?:(?:asada|steak|pastor|chicken|pollo|carnitas|chorizo|cabeza|lengua|buche|regular|super)\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|plates?|cafes?|coffees?|champurrados?)(?:\s+(?:de|of)\s+\w+)?\b/gi,
       ' '
     )
-    // Retirar negaciones directas sobre categorías ("no quiero tacos", "quita el burrito", "sin flan")
+    // Retirar negaciones directas sobre categorías ("no quiero tacos", "quita el burrito", "sin flan", "forget the tacos", "don't want the tacos", "never mind the tacos", "skip the drink", "cancel the burrito")
     .replace(
-      /\b(?:no\s+quiero|ya\s+no\s+quiero|quita(?:r|me|le)?|elimina(?:r)?|cancela(?:r)?|sin|without|remove)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|un\s+|una\s+|unos\s+|unas\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|cafes?|coffees?|champurrados?|horchatas?|jamaicas?|sodas?|refrescos?|flan(?:es)?|cheesecakes?)\b/gi,
+      /\b(?:no\s+quiero|ya\s+no\s+quiero|quita(?:r|me|le)?|elimina(?:r)?|cancela(?:r)?|sin|without|remove|cancel|forget(?:\s+about)?|never\s*mind(?:\s+about)?|skip|drop|delete|take\s+off|(?:don\s*['’`]?\s*t|do\s+not)\s+want)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|un\s+|una\s+|unos\s+|unas\s+|the\s+|my\s+|our\s+|any\s+|those\s+|these\s+|a\s+|an\s+)?(?:(?:asada|steak|pastor|chicken|pollo|carnitas|chorizo|cabeza|lengua|buche|regular|super)\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|plates?|cafes?|coffees?|champurrados?|horchatas?|jamaicas?|lemonades?|waters?|drinks?|sodas?|refrescos?|flan(?:es)?|cheesecakes?|desserts?)\b/gi,
       ' '
     )
 
@@ -1428,17 +1481,23 @@ function classifyOrderLineToSessionCategories(line: { name: string; category: st
   return out
 }
 
+const REMOVAL_VERB_ARTICLES_PREFIX =
+  '(?:quita(?:r|me|le)?|elimina(?:r)?|cancela(?:r)?|ya\\s+no\\s+quiero|no\\s+quiero|remove|cancel|forget(?:\\s+about)?|never\\s*mind(?:\\s+about)?|skip|drop|delete|take\\s+off|(?:don\\s*[\'’`]?\\s*t|do\\s+not)\\s+want)\\s+(?:el\\s+|la\\s+|los\\s+|las\\s+|mi\\s+|mis\\s+|un\\s+|una\\s+|the\\s+|my\\s+|our\\s+|any\\s+|those\\s+|these\\s+|a\\s+|an\\s+)?(?:(?:asada|steak|pastor|chicken|pollo|carnitas|chorizo|cabeza|lengua|buche|regular|super)\\s+)?'
+
 const EXPLICIT_CATEGORY_REMOVAL_PATTERNS: ReadonlyArray<readonly [RegExp, KoreSessionOrderCategory]> = [
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?taco\s+plates?\b/i, 'taco_plate'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?tacos?\b/i, 'tacos'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?burritos?\b/i, 'burritos'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?quesadillas?\b/i, 'quesadillas'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?mulitas?\b/i, 'mulitas'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?tortas?\b/i, 'tortas'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?sopes?\b/i, 'sopes'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(?:cafes?|coffees?)\b/i, 'coffee'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?champurrados?\b/i, 'champurrado'],
-  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(?:flan(?:es)?|cheesecakes?)\b/i, 'desserts']
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}taco\\s+plates?\\b`, 'i'), 'taco_plate'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}tacos?\\b`, 'i'), 'tacos'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}burritos?\\b`, 'i'), 'burritos'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}quesadillas?\\b`, 'i'), 'quesadillas'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}mulitas?\\b`, 'i'), 'mulitas'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}tortas?\\b`, 'i'), 'tortas'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}sopes?\\b`, 'i'), 'sopes'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}nachos?\\b`, 'i'), 'nachos'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}(?:platos?|plates?)\\b`, 'i'), 'platos'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}(?:cafes?|coffees?)\\b`, 'i'), 'coffee'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}champurrados?\\b`, 'i'), 'champurrado'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}(?:drinks?|sodas?|refrescos?|horchatas?|jamaicas?|lemonades?|waters?|aguas?)\\b`, 'i'), 'drinks'],
+  [new RegExp(`\\b${REMOVAL_VERB_ARTICLES_PREFIX}(?:flan(?:es)?|cheesecakes?|desserts?|postres?)\\b`, 'i'), 'desserts']
 ]
 
 /**
@@ -1564,4 +1623,213 @@ export function isShortEnglishExclamationOnly(rawText: string | null | undefined
   return /^(?:oh\s+my\s+god|no\s+my\s+god|my\s+god|ok|okay|bye|yes|yeah|no|oh|um|uh|un|hello|hi|sorry|wait|please)$/.test(
     norm
   )
+}
+
+export interface KoreCandidateQualityInput {
+  dedupeKey?: string | null
+  dedupe_key?: string | null
+  sourceType?: string | null
+  source_type?: string | null
+  itemKind?: string | null
+  item_kind?: string | null
+  status?: string | null
+  appliesToChannels?: string | null
+  applies_to_channels?: string | null
+  storeId?: number | null
+  store_id?: number | null
+  questionOrTrigger?: string | null
+  question_or_trigger?: string | null
+  customerQuote?: string | null
+  customer_quote?: string | null
+  koreQuote?: string | null
+  kore_quote?: string | null
+  doubtForOwner?: string | null
+  doubt_for_owner?: string | null
+  proposedRuleEs?: string | null
+  proposed_rule_es?: string | null
+  proposedRuleEn?: string | null
+  proposed_rule_en?: string | null
+}
+
+/**
+ * Filtro determinista de calidad y coherencia canónica (Fase 26) para candidatos automáticos de aprendizaje
+ * en Drive-Thru (`dt_kore_learning_items`) y Contestadora Telefónica (`phone_learning_items`).
+ * Retorna `true` cuando el candidato es ruido 1-off, charla trivial, placeholder vacío, duplicado de una regla
+ * ya blindada en código o una propuesta LLM que contradice políticas oficiales de Tacos Gavilan.
+ */
+export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQualityInput | null | undefined): boolean {
+  if (!candidate) return true
+
+  const dedupeKey = String(candidate.dedupeKey ?? candidate.dedupe_key ?? '').trim()
+  const sourceType = String(candidate.sourceType ?? candidate.source_type ?? '').trim()
+  const itemKind = String(candidate.itemKind ?? candidate.item_kind ?? '').trim()
+  const status = String(candidate.status ?? '').trim()
+  const channels = String(candidate.appliesToChannels ?? candidate.applies_to_channels ?? 'both').trim()
+  const storeId =
+    candidate.storeId !== undefined
+      ? candidate.storeId
+      : candidate.store_id !== undefined
+        ? candidate.store_id
+        : null
+
+  if (sourceType === 'manual_owner' || sourceType === 'manual') return false
+  if (itemKind === 'latency_insight' || itemKind === 'audio_prewarm') return false
+
+  const rawTrigger = String(candidate.questionOrTrigger ?? candidate.question_or_trigger ?? '')
+  const rawRuleEs = String(candidate.proposedRuleEs ?? candidate.proposed_rule_es ?? '')
+  const rawRuleEn = String(candidate.proposedRuleEn ?? candidate.proposed_rule_en ?? '')
+  const rawDoubt = String(candidate.doubtForOwner ?? candidate.doubt_for_owner ?? '')
+  const rawCustomer = String(candidate.customerQuote ?? candidate.customer_quote ?? '')
+  const rawAll = `${dedupeKey} ${rawTrigger} ${rawRuleEs} ${rawRuleEn} ${rawDoubt} ${rawCustomer}`
+
+  if (/\bTEST_SMOKE_/i.test(rawAll)) return false
+
+  if (
+    status === 'auto_applied' &&
+    /^rule:(?:kore_|sope_|regular_vs_super|no_size_on_burrito|no_foreign_script|no_fake_order|owner_|breakfast_|ebt_dining_room|warm_varied|auto_end_car|instant_english)/.test(
+      dedupeKey
+    )
+  ) {
+    return false
+  }
+
+  const normTrigger = stripDiacriticsLower(rawTrigger).replace(/\s+/g, ' ').trim()
+  const normRule = stripDiacriticsLower(`${rawRuleEs} ${rawRuleEn}`).replace(/\s+/g, ' ').trim()
+  const normAll = stripDiacriticsLower(rawAll).replace(/\s+/g, ' ').trim()
+
+  // (a) Ruido 1-off / charla trivial / placeholders vacíos
+  if (
+    /\b(?:filosofic[oa]s?|philosophical|frases?\s+incoherentes?|preguntas?\s+incoherentes?|comentarios?\s+incoherentes?|declaracion\s+incoherente|incoherentes?|incoherent|divagando|fuera\s+de\s+contexto|off[\s-]*topic)\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+  if (
+    /\b(?:quien\s+eres|pregunta\s+['"]?quien\b|who\s+are\s+you|identidad\s+del\s+interlocutor)\b/.test(normAll) ||
+    /^[¿?]?\s*quien\s*[?]?$/.test(normTrigger)
+  ) {
+    return true
+  }
+  if (
+    /\b(?:comentarios?\s+de\s+cortesia|conversacion\s+casual|polite\s+or\s+non[\s-]*order[\s-]*related\s+comments?)\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+  if (/\bpromover\b/.test(normAll) && /\bsuper\b/.test(normAll)) {
+    return true
+  }
+  if (
+    /\brevisar\s+la\s+respuesta\s+anterior\s+y\s+definir\s+el\s+criterio\b/.test(normRule) ||
+    /\breview\s+the\s+prior\s+response\s+and\s+define\b/.test(normRule)
+  ) {
+    return true
+  }
+  if (/^doubt:unofficial_admission:/.test(dedupeKey) && !normRule) {
+    return true
+  }
+  if (/^doubt:tool_rejection:/.test(dedupeKey) && /\bdefinir\s+que\s+alternativa\s+oficial\s+del\s+menu\b/.test(normRule)) {
+    return true
+  }
+
+  // (b) Propuestas que contradicen políticas oficiales de Tacos Gavilan
+  // b.1 EBT global que dice "solo en mostrador del comedor" omitiendo #1 Rialto y #9 Santa Ana
+  if (
+    (storeId === null || storeId === undefined) &&
+    /\b(?:ebt|calfresh)\b/.test(normAll) &&
+    /\b(?:solo\s+se\s+acepta\s+en\s+(?:el\s+)?mostrador|mostrador\s+del\s+comedor|only\s+accepted\s+(?:inside|at\s+the\s+(?:dining\s+room\s+)?counter)|counter\s+payment\s+policy|politica\s+de\s+pago\s+en\s+mostrador)\b/.test(
+      normRule
+    ) &&
+    (!/\brialto\b/.test(normRule) || !/\bsanta\s+ana\b/.test(normRule))
+  ) {
+    return true
+  }
+
+  // b.2 Prohibir anotar salsa / condimentos gratis en una orden existente abierta
+  if (
+    /\b(?:salsas?|condimentos?|chiles?|limon(?:es)?|servilletas?)\b/.test(normAll) &&
+    /\b(?:no\s+(?:es\s+posible|se\s+puede[n]?|podemos)\s+(?:realizar|hacer|aceptar|anotar|agregar)\s+(?:cambios?|modificaciones?|articulos?|salsas?|condimentos?)|phone\s+modifications?\s+are\s+not\s+possible|cannot\s+(?:modify|add\s+salsa|make\s+changes))\b/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.3 Decir que el menú es muy extenso para leerlo por teléfono o mandar link para ver el menú
+  if (
+    /\b(?:muy\s+extenso|demasiado\s+(?:extenso|largo|amplio))\s+para\s+leer|\btoo\s+(?:long|extensive)\s+to\s+read\b|\benviar\s+(?:el\s+|un\s+)?enlace\s+(?:directo\s+)?(?:a\s+la\s+seccion\s+de\s+|del\s+)?menu\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+
+  // b.4 Restringir el asistente a "solo español o inglés" o "nunca responder en un idioma no solicitado"
+  if (
+    /\b(?:(?:solo|unicamente|solamente)\s+(?:en\s+|hablar\s+|responder\s+en\s+)?espanol\s+(?:o|e|y)\s+ingles|only\s+(?:in\s+|speak\s+)?spanish\s+(?:or|and)\s+english|repita\s+(?:la\s+pregunta\s+|su\s+orden\s+)?en\s+espanol\s+o\s+ingles|repeat\s+(?:the\s+question\s+)?in\s+spanish\s+or\s+english|nunca\s+responder\s+en\s+un\s+idioma\s+no\s+solicitado|never\s+respond\s+in\s+an\s+unsolicited\s+language)\b/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.5 Relajar los 4 datos obligatorios de quejas de orden o SIN TICKET
+  if (
+    /\b(?:fecha\s+desconocida|date\s+unknown|fecha\s+aproximada|approximate\s+date|quejas?\s+(?:de\s+calidad\s+)?sin\s+(?:fecha\s+de\s+)?ticket|escalar\s+el\s+reporte\s+a\s+un\s+supervisor|escalate\s+the\s+report\s+to\s+a\s+supervisor|se\s+presente\s+en\s+la\s+sucursal\s+con\s+el\s+producto|visit\s+the\s+branch\s+with\s+the\s+product)\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+
+  // b.6 Pedir datos/teléfono para callback de gerente cuando aplica a Drive-Thru (`applies_to_channels !== 'phone_only'`)
+  if (
+    channels !== 'phone_only' &&
+    /\b(?:tomar\s+(?:sus|tus)\s+datos\s+para\s+que\s+el\s+gerente\s+se\s+comunique|take\s+your\s+(?:information|details)\s+so\s+the\s+manager\s+can\s+(?:contact|call)|pedir\s+(?:su\s+)?(?:nombre\s+y\s+)?(?:numero\s+de\s+)?telefono[^.!?]{0,60}(?:gerente|manager|devolver\s+la\s+llamada|callback)|callback\s+en\s+(?:el\s+)?drive[\s-]*thru)\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+
+  // b.7 Negar alternativas en pedidos grupales urgentes < 1h
+  if (
+    /\b(?:sin\s+sugerir\s+que\s+el\s+drive[\s-]*thru|without\s+suggesting\s+the\s+drive[\s-]*thru)\b/.test(normRule) ||
+    (/\bno\s+es\s+posible\s+procesar\s+volumenes\s+grandes\b/.test(normRule) &&
+      !/\b(?:ordenes\s+individuales|create_manager_callback|gerente\s+en\s+turno)\b/.test(normRule))
+  ) {
+    return true
+  }
+
+  // b.8 Duplicados de reglas ya blindadas determinísticamente en código
+  if (
+    dedupeKey === 'doubt:synonym_supreme_burrito_to_super' ||
+    dedupeKey === 'cashier_takeover:25998fa69960' ||
+    /^doubt:stt_collision_dos_nada:/.test(dedupeKey) ||
+    /\b(?:supreme\s+burrito|burrito\s+supremo)\b[\s\S]{0,90}\bsuper\s+burrito\b/.test(normAll) ||
+    /\b(?:dos|tres)\s+nada\b[\s\S]{0,90}\b(?:dos|tres)\s+de\s+asada\b/.test(normAll) ||
+    ((itemKind === 'synonym_fix' || itemKind === 'stt_synonym') && /\b(?:ibt|ebete|ibiti)\b[\s\S]{0,60}\bebt\b/.test(normAll)) ||
+    ((itemKind === 'synonym_fix' || itemKind === 'stt_synonym') && /\bpiedra\b[\s\S]{0,60}\b(?:pedido|order)\b/.test(normAll)) ||
+    (/\bsolicita\s+hablar\s+con\s+un\s+trabajador\b/.test(normTrigger) &&
+      /\bno\s+puede\s+transferir\s+llamadas\s+telefonicas\b/.test(normRule)) ||
+    /\bvalidacion\s+de\s+ticket\s+sin\s+datos\s+personales\b|\bcuestiona\s+por\s+que\s+se\s+piden\s+datos\s+personales\s+para\s+validar\s+un\s+ticket\b/.test(
+      normAll
+    ) ||
+    /\bbucle\s+de\s+alucinacion\s+sobre\s+el\s+dia\s+de\s+la\s+semana\b|\bcuestiona\s+el\s+dia\s+de\s+la\s+semana\b/.test(
+      normAll
+    ) ||
+    (/\bllamadas?\s+cortadas?\b/.test(normTrigger) && /\b(?:sistema\s+es\s+automatizado|fallas?\s+tecnicas?)\b/.test(normRule)) ||
+    (/\b(?:cliente\s+solicita\s+delivery\s+telefonico|por\s+que\s+no\s+tomas?\s+ordenes\s+por\s+telefono)\b/.test(
+      normTrigger
+    ) &&
+      /\b(?:no\s+toma\s+ordenes\s+por\s+telefono|exclusivamente\s+para\s+informacion)\b/.test(normRule)) ||
+    (/\botras\s+sucursales\s+con\s+drive[\s-]*thru\b/.test(normTrigger) &&
+      /\bprocedimiento\s+de\s+cancelacion\b/.test(normTrigger))
+  ) {
+    return true
+  }
+
+  return false
 }

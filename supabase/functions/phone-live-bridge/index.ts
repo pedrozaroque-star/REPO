@@ -24,6 +24,13 @@
  * - v10 (2026-11-21): cobertura `dt_orders` (Drive-Thru), `delivery_packing_audits` (estatus + customer_name),
  *   `app_orders`, rango real de tickets del día (`observedRange`), fallback firmado HMAC a `/api/phone/verify-order`,
  *   bloqueo estricto ES/EN con intercepción de salida no latina en runtime (`suppressForeignOutputTurn`) y salida `SIN TICKET` sin bucles.
+ * - v11 (2026-11-21, Fase 26): correcciones fonéticas reales `'pasada'/'hadas'='asada'` y `'Dortmund'/'Door Dash'='DoorDash'`
+ *   y tope de 35 reglas aprendidas activas ordenadas `approved` -> `auto_applied`.
+ * - v12 (2026-11-22): Identificador de Llamadas real en 3 niveles (directorio interno Tacos Gavilan vía RPC
+ *   `resolve_phone_caller_directory`, Twilio CNAM `CallerName` y respaldo Lookup v2 con caché 30 días en
+ *   `phone_caller_id_cache`), confirmación rápida por últimos 4 dígitos del Caller ID sin hacer dictar los 10 dígitos,
+ *   regla obligatoria de detalle previo y re-invocación de `create_manager_callback` + PATCH con fusión segura sin pérdida,
+ *   red de seguridad automática post-recado (traduce y anexa detalles dichos tras el recado) y resúmenes reales en `phone_calls.summary`.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -675,6 +682,517 @@ async function fetchMulawPromptClip(
   return null
 }
 
+
+interface BridgeCallerIdentity {
+  phoneDigits10: string | null
+  phoneE164: string | null
+  last4: string | null
+  last4Spoken: string | null
+  displayName: string | null
+  rawCnam: string | null
+  source: string | null
+  callerType: string
+  highConfidenceName: boolean
+}
+
+const BRIDGE_US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"
+])
+
+const BRIDGE_CNAM_GARBAGE = new Set([
+  "WIRELESS CALLER", "WIRELESS", "CELL PHONE", "CELLULAR", "CELLULAR CALLER",
+  "MOBILE CALLER", "MOBILE", "UNKNOWN", "UNKNOWN CALLER", "UNAVAILABLE",
+  "ANONYMOUS", "RESTRICTED", "PRIVATE", "PRIVATE CALLER", "PRIVATE NUMBER",
+  "NO CALLER ID", "OUT OF AREA", "TOLL FREE", "TOLL-FREE", "TOLL FREE CALL",
+  "PAYPHONE", "PAY PHONE", "SPAM", "SPAM RISK", "SCAM LIKELY", "POTENTIAL SPAM",
+  "SUSPECTED SPAM", "TELEMARKETER", "ROBOCALL", "CUSTOMER", "CLIENTE", "CALLER",
+  "USER", "USUARIO", "NONE", "N/A", "NA", "NULL", "UNDEFINED", "CALIFORNIA",
+  "LOS ANGELES", "HUNTINGTON PARK", "LYNWOOD", "DOWNEY", "COMPTON", "VERNON",
+  "BELL", "BELL GARDENS", "SOUTH GATE", "RIALTO", "SANTA ANA", "LONG BEACH",
+  "ANAHEIM", "ONTARIO", "FONTANA", "RIVERSIDE", "PASADENA", "INGLEWOOD",
+  "HAWTHORNE", "GARDENA", "CARSON", "TORRANCE", "PARAMOUNT", "NORWALK",
+  "WHITTIER", "MONTEBELLO", "ALHAMBRA", "EL MONTE", "POMONA", "CORONA",
+  "WALNUT PARK", "PICO RIVERA", "MAYWOOD", "CUDAHY", "SAN BERNARDINO",
+  "ORANGE COUNTY", "UNITED STATES"
+])
+
+const BRIDGE_CNAM_GARBAGE_RE =
+  /\b(wireless\s+caller|cell\s+phone|mobile\s+caller|spam\s+risk|scam\s+likely|potential\s+spam|suspected\s+spam|telemarketer|robocall|unavailable|anonymous|restricted|private\s+caller|out\s+of\s+area|toll[\s-]free|no\s+caller\s+id|unknown\s+name)\b/i
+
+const BRIDGE_KEEP_UPPER = new Set(["LLC", "INC", "USA", "US", "TV", "II", "III", "IV"])
+
+function titleCaseBridgeWord(token: string): string {
+  const clean = token.trim()
+  if (!clean) return ""
+  const upper = clean.toUpperCase()
+  if (BRIDGE_KEEP_UPPER.has(upper) || clean.length === 1) return upper
+  if (/^MC[A-Z]{2,}$/.test(upper)) return "Mc" + upper[2] + upper.slice(3).toLowerCase()
+  if (/^O'[A-Z]{2,}$/.test(upper)) return "O'" + upper[2] + upper.slice(3).toLowerCase()
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase()
+}
+
+function titleCaseBridgePhrase(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.split("-").map(titleCaseBridgeWord).join("-"))
+    .join(" ")
+}
+
+function cleanBridgeCnam(rawName: string | null | undefined, callerType?: string | null): string | null {
+  const collapsed = String(rawName || "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim()
+  if (!collapsed) return null
+  if (collapsed.replace(/[^A-Za-zÀ-ÿ]/g, "").length < 2) return null
+  if (collapsed.replace(/\D/g, "").length >= 7) return null
+
+  const upper = collapsed.toUpperCase()
+  if (BRIDGE_CNAM_GARBAGE.has(upper) || BRIDGE_CNAM_GARBAGE_RE.test(collapsed)) return null
+
+  if (!collapsed.includes(",")) {
+    const parts = upper.split(" ").filter(Boolean)
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1]
+      const cityPart = parts.slice(0, -1).join(" ")
+      if (
+        BRIDGE_US_STATE_CODES.has(lastPart) &&
+        (BRIDGE_CNAM_GARBAGE.has(cityPart) ||
+          parts.length >= 3 ||
+          /^(LOS|SAN|SANTA|SOUTH|NORTH|EAST|WEST|NEW|FORT|MOUNT|LAKE|LONG|EL|LA|LAS|BELL|HUNTINGTON|HUNT|DOWNEY|LYNWOOD|COMPTON|VERNON|RIALTO|ONTARIO|FONTANA|CARSON|NORWALK|PASADENA|INGLEWOOD|GARDENA|TORRANCE|WHITTIER|POMONA|CORONA|ANAHEIM|RIVERSIDE)\b/.test(
+            cityPart
+          ))
+      ) {
+        return null
+      }
+    }
+  } else {
+    const commaParts = upper.split(",").map((p) => p.trim())
+    if (commaParts.length === 2 && BRIDGE_US_STATE_CODES.has(commaParts[1]) && BRIDGE_CNAM_GARBAGE.has(commaParts[0])) {
+      return null
+    }
+  }
+
+  const isBusiness = String(callerType || "").toUpperCase() === "BUSINESS"
+  if (!isBusiness) {
+    const m = collapsed.match(/^([A-Za-zÀ-ÿ'-]{2,})\s*,\s*([A-Za-zÀ-ÿ'-]{2,}(?:\s+[A-Za-zÀ-ÿ'.-]{1,})?)$/)
+    if (m) {
+      const combined = `${titleCaseBridgePhrase(m[2])} ${titleCaseBridgePhrase(m[1])}`.replace(/\s+/g, " ").trim()
+      if (BRIDGE_CNAM_GARBAGE.has(combined.toUpperCase())) return null
+      return combined.slice(0, 80)
+    }
+  }
+
+  const isAllUpper = collapsed === collapsed.toUpperCase() && /[A-Z]/.test(collapsed)
+  const isAllLower = collapsed === collapsed.toLowerCase() && /[a-z]/.test(collapsed)
+  const formatted = isAllUpper || isAllLower ? titleCaseBridgePhrase(collapsed) : collapsed
+  if (BRIDGE_CNAM_GARBAGE.has(formatted.toUpperCase())) return null
+  return formatted.slice(0, 80)
+}
+
+function formatBridgeLast4Spoken(phone: string | null | undefined): string | null {
+  const e164 = cleanUsTenPhone(String(phone || ""))
+  if (!e164) return null
+  return e164.slice(-4).split("").join("-")
+}
+
+async function upsertBridgeCallerIdCache(params: {
+  phoneDigits10: string
+  phoneE164: string
+  rawCnam: string | null
+  displayName: string | null
+  callerType: string | null
+  source: "twilio_cnam" | "twilio_lookup"
+}): Promise<void> {
+  const now = Date.now()
+  await fetch(`${SUPABASE_URL}/rest/v1/phone_caller_id_cache?on_conflict=phone_digits`, {
+    method: "POST",
+    headers: dbHeaders({ Prefer: "resolution=merge-duplicates" }),
+    body: JSON.stringify({
+      phone_digits: params.phoneDigits10,
+      phone_e164: params.phoneE164,
+      raw_cnam: params.rawCnam,
+      display_name: params.displayName,
+      caller_type: params.callerType,
+      source: params.source,
+      looked_up_at: new Date(now).toISOString(),
+      expires_at: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString()
+    })
+  }).catch(() => null)
+}
+
+async function lookupBridgeTwilioCnamV2(
+  phoneE164: string,
+  secrets: BridgeSecrets | null,
+  timeoutMs = 700
+): Promise<{ rawCnam: string | null; callerType: string | null } | null> {
+  if (!secrets?.twilioAccountSid || !secrets?.twilioAuthToken) return null
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), Math.max(250, timeoutMs))
+  try {
+    const authBasic = btoa(`${secrets.twilioAccountSid}:${secrets.twilioAuthToken}`)
+    const res = await fetch(
+      `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(phoneE164)}?Fields=caller_name`,
+      { headers: { Authorization: `Basic ${authBasic}` }, signal: ctrl.signal }
+    )
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null)
+    const cn = data?.caller_name
+    if (!cn || typeof cn !== "object") return null
+    return {
+      rawCnam: typeof cn.caller_name === "string" && cn.caller_name.trim() ? cn.caller_name.trim() : null,
+      callerType: typeof cn.caller_type === "string" && cn.caller_type.trim() ? cn.caller_type.trim() : null
+    }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function resolveBridgeCallerIdentity(params: {
+  phone: string
+  rawTwilioCallerName?: string
+  secrets?: BridgeSecrets | null
+  allowTwilioLookup?: boolean
+  blockedTenDigits?: Set<string>
+}): Promise<BridgeCallerIdentity> {
+  const e164 = cleanUsTenPhone(params.phone)
+  const ten = e164 ? e164.slice(2) : null
+  if (!e164 || !ten || (params.blockedTenDigits && params.blockedTenDigits.has(ten))) {
+    return {
+      phoneDigits10: null,
+      phoneE164: null,
+      last4: null,
+      last4Spoken: null,
+      displayName: null,
+      rawCnam: null,
+      source: null,
+      callerType: "customer",
+      highConfidenceName: false
+    }
+  }
+
+  const last4 = ten.slice(-4)
+  const last4Spoken = last4.split("").join("-")
+  const rawWebhookCnam = String(params.rawTwilioCallerName || "").trim() || null
+  const cleanedWebhookCnam = rawWebhookCnam ? cleanBridgeCnam(rawWebhookCnam) : null
+
+  if (rawWebhookCnam) {
+    void upsertBridgeCallerIdCache({
+      phoneDigits10: ten,
+      phoneE164: e164,
+      rawCnam: rawWebhookCnam,
+      displayName: cleanedWebhookCnam,
+      callerType: null,
+      source: "twilio_cnam"
+    })
+  }
+
+  // Nivel 1: Directorio interno Tacos Gavilan + historial recurrente + caché CNAM (1 solo RPC < 15 ms)
+  let dirRow: any = null
+  try {
+    const rpcRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/resolve_phone_caller_directory`, {
+      method: "POST",
+      headers: dbHeaders(),
+      body: JSON.stringify({ p_digits10: ten })
+    })
+    if (rpcRes.ok) {
+      const arr = await rpcRes.json().catch(() => null)
+      if (Array.isArray(arr) && arr.length > 0) dirRow = arr[0]
+    }
+  } catch {
+    dirRow = null
+  }
+
+  if (dirRow && typeof dirRow.display_name === "string" && dirRow.display_name.trim().length >= 2) {
+    const src = String(dirRow.source || "returning_caller")
+    return {
+      phoneDigits10: ten,
+      phoneE164: e164,
+      last4,
+      last4Spoken,
+      displayName: dirRow.display_name.trim(),
+      rawCnam: rawWebhookCnam,
+      source: src,
+      callerType: String(dirRow.caller_type || "customer"),
+      highConfidenceName: ["employee", "store", "vendor", "loyalty", "returning_caller"].includes(src)
+    }
+  }
+
+  // Nivel 2: Twilio Webhook CallerName
+  if (cleanedWebhookCnam) {
+    return {
+      phoneDigits10: ten,
+      phoneE164: e164,
+      last4,
+      last4Spoken,
+      displayName: cleanedWebhookCnam,
+      rawCnam: rawWebhookCnam,
+      source: "twilio_cnam",
+      callerType: "customer",
+      highConfidenceName: false
+    }
+  }
+
+  // Nivel 3: Twilio Lookup v2 fallback (solo cuando no hay caché negativa activa)
+  if (params.allowTwilioLookup && !rawWebhookCnam && params.secrets) {
+    const existingCache = await pgSelect(
+      `phone_caller_id_cache?phone_digits=eq.${encodeURIComponent(ten)}&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=phone_digits&limit=1`
+    )
+    if (existingCache.length === 0) {
+      const looked = await lookupBridgeTwilioCnamV2(e164, params.secrets, 750)
+      if (looked) {
+        const cleanedLookup = cleanBridgeCnam(looked.rawCnam, looked.callerType)
+        await upsertBridgeCallerIdCache({
+          phoneDigits10: ten,
+          phoneE164: e164,
+          rawCnam: looked.rawCnam,
+          displayName: cleanedLookup,
+          callerType: looked.callerType,
+          source: "twilio_lookup"
+        })
+        if (cleanedLookup) {
+          return {
+            phoneDigits10: ten,
+            phoneE164: e164,
+            last4,
+            last4Spoken,
+            displayName: cleanedLookup,
+            rawCnam: looked.rawCnam,
+            source: "twilio_lookup",
+            callerType: String(looked.callerType || "").toUpperCase() === "BUSINESS" ? "vendor" : "customer",
+            highConfidenceName: false
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    phoneDigits10: ten,
+    phoneE164: e164,
+    last4,
+    last4Spoken,
+    displayName: null,
+    rawCnam: rawWebhookCnam,
+    source: null,
+    callerType: "customer",
+    highConfidenceName: false
+  }
+}
+
+function isBridgeTrivialAckOrFarewell(text: string): boolean {
+  const norm = normalizeSearch(text)
+  if (!norm || norm.length <= 2) return true
+  if (
+    /^(ok|okay|okey|si|yes|yeah|yep|yup|no|nope|nah|gracias|muchas gracias|thank you|thanks|thanks a lot|perfecto|perfect|excelente|entendido|claro|listo|esta bien|all good|sounds good|got it|alright|all right|bye|goodbye|good bye|adios|hasta luego|nos vemos|que tenga buen dia|have a good day|have a good night|buenas noches|buenos dias|buenas tardes|hola|hello|hi|hey|eso es todo|es todo|nada mas|thats all|that is all|thats it|nothing else|im good|i am good|no gracias|no thank you|no thanks|ok gracias|okay gracias|ok thanks|okay thanks|okay thank you|ok thank you|si gracias|yes thank you|yes thanks|no eso es todo|no thats all|no nothing else|alright bye|okay bye|ok bye|gracias adios|thanks bye|thank you bye|bye bye)$/.test(
+      norm
+    )
+  ) {
+    return true
+  }
+  const words = norm.split(" ").filter(Boolean)
+  const fillers = new Set([
+    "ok", "okay", "okey", "si", "yes", "yeah", "no", "gracias", "muchas", "thank", "thanks",
+    "you", "bye", "goodbye", "adios", "hasta", "luego", "eso", "es", "todo", "nada", "mas",
+    "that", "thats", "is", "all", "nothing", "else", "perfect", "perfecto", "good", "great",
+    "alright", "right", "fine", "awesome", "cool", "hola", "hello", "hi", "hey", "uh", "um", "ah"
+  ])
+  return words.length <= 6 && words.every((w) => fillers.has(w))
+}
+
+function extractBridgePostCallbackUserTurns(entries: TranscriptEntry[]): string[] {
+  let lastCbIdx = -1
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    if (
+      e.role === "tool" &&
+      e.toolName === "create_manager_callback" &&
+      (e.text.includes('"success":true') || e.text.includes('"success": true'))
+    ) {
+      lastCbIdx = i
+    }
+  }
+  if (lastCbIdx < 0) return []
+  const extras: string[] = []
+  for (let i = lastCbIdx + 1; i < entries.length; i++) {
+    const e = entries[i]
+    if (e.role !== "user") continue
+    const txt = String(e.text || "").replace(/\s+/g, " ").trim()
+    if (!txt || isBridgeTrivialAckOrFarewell(txt)) continue
+    if (txt.replace(/[^A-Za-zÀ-ÿ0-9]/g, "").length < 3) continue
+    extras.push(txt)
+  }
+  return extras
+}
+
+const BRIDGE_INTENT_SUMMARY_ES: Record<string, string> = {
+  hours_location: "Horario / Ubicación",
+  menu_prices: "Menú / Precios",
+  breakfast_hours: "Desayunos",
+  payment_ebt: "Pago / EBT",
+  catering_platter: "Charolas Fiesta Platter",
+  delivery_issue: "Orden Delivery",
+  condiments_note: "Nota de Empaque",
+  complaint_missing_item: "Reclamo de Orden",
+  missing_or_wrong_item: "Reclamo de Orden",
+  wrong_store_order: "Sucursal Equivocada",
+  lost_item: "Objeto Olvidado",
+  employee_callout: "Aviso de Empleado",
+  vendor_arrival: "Proveedor",
+  billing_refund: "Cobro / Reembolso",
+  manager_callback: "Recado al Gerente",
+  unanswered_inquiry: "Consulta Pendiente"
+}
+
+function buildBridgeMeaningfulSummary(params: {
+  transcript: TranscriptEntry[]
+  callbackSummary?: string | null
+  callbackCallerName?: string | null
+  callbackTicket?: string | null
+  primaryIntent?: string | null
+  unansweredQuestion?: string | null
+}): string {
+  const entries = params.transcript
+  const userTurns = entries.filter((t) => t.role === "user" && String(t.text || "").trim().length > 0)
+  if (userTurns.length === 0) {
+    return "Llamada finalizada durante el saludo inicial (Kore 3.8 Live)."
+  }
+
+  const cbSummary = String(params.callbackSummary || "").replace(/\s+/g, " ").trim()
+  if (cbSummary) {
+    const who = String(params.callbackCallerName || "").trim()
+    const tk = String(params.callbackTicket || "").trim()
+    const prefix = who ? `Recado (${who}): ` : "Recado al gerente: "
+    const suffix = tk && !cbSummary.toLowerCase().includes(tk.toLowerCase()) ? ` [${tk}]` : ""
+    return `${prefix}${cbSummary}${suffix}`.slice(0, 320)
+  }
+
+  const unanswered = String(params.unansweredQuestion || "").replace(/\s+/g, " ").trim()
+  if (unanswered) {
+    return `Consulta pendiente: ${unanswered}`.slice(0, 320)
+  }
+
+  const substantive: Array<{ idx: number; text: string }> = []
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    if (e.role !== "user") continue
+    const txt = String(e.text || "").replace(/\s+/g, " ").trim()
+    if (!txt || isBridgeTrivialAckOrFarewell(txt)) continue
+    if (/^[\d\s.]{1,12}$/.test(normalizeSearch(txt))) continue
+    substantive.push({ idx: i, text: txt })
+  }
+
+  const intentKey = String(params.primaryIntent || "").trim().toLowerCase()
+  const intentPrefix = BRIDGE_INTENT_SUMMARY_ES[intentKey] ? `${BRIDGE_INTENT_SUMMARY_ES[intentKey]}: ` : ""
+
+  if (substantive.length === 0) {
+    const firstU = userTurns[0].text.replace(/\s+/g, " ").trim()
+    const assistantTurns = entries.filter((t) => t.role === "assistant" && String(t.text || "").trim().length > 0)
+    const lastA = assistantTurns[assistantTurns.length - 1]?.text?.replace(/\s+/g, " ").trim() || ""
+    return `${intentPrefix}${firstU.slice(0, 120)}${lastA ? ` -> ${lastA.slice(0, 140)}` : ""}`.slice(0, 320)
+  }
+
+  const primary = substantive[0]
+  let topic = primary.text
+  if (substantive.length > 1 && topic.length < 90) {
+    const extras: string[] = []
+    for (const s of substantive.slice(1)) {
+      if (s.text.length < 4 || topic.toLowerCase().includes(s.text.toLowerCase())) continue
+      extras.push(s.text)
+      if (extras.length >= 2) break
+    }
+    if (extras.length > 0) topic = `${topic} / ${extras.join(" / ")}`
+  }
+
+  let matchedReply = ""
+  for (let j = primary.idx + 1; j < entries.length; j++) {
+    if (entries[j].role === "assistant" && String(entries[j].text || "").trim()) {
+      matchedReply = String(entries[j].text).replace(/\s+/g, " ").trim()
+      break
+    }
+    if (entries[j].role === "user") break
+  }
+
+  return `${intentPrefix}${topic.slice(0, 145)}${matchedReply ? ` -> ${matchedReply.slice(0, 150)}` : ""}`.slice(0, 320)
+}
+
+function mergeBridgeCallbackSummaries(prevSummary: string, nextSummary: string): string {
+  const prev = String(prevSummary || "").replace(/\s+/g, " ").trim()
+  const next = String(nextSummary || "").replace(/\s+/g, " ").trim()
+  if (!prev) return next.slice(0, 2000)
+  if (!next) return prev.slice(0, 2000)
+  const normPrev = normalizeSearch(prev)
+  const normNext = normalizeSearch(next)
+  if (normNext.includes(normPrev)) return next.slice(0, 2000)
+  if (normPrev.includes(normNext)) return prev.slice(0, 2000)
+  return `${prev} | ${next}`.slice(0, 2000)
+}
+
+function isPhoneFragmentOfCallerId(rawArg: string, callerIdE164: string): boolean {
+  const argDigits = String(rawArg || "").replace(/\D/g, "")
+  if (!argDigits) return true
+  const caller10 = callerIdE164.replace(/\D/g, "").slice(-10)
+  if (caller10.length !== 10) return false
+  if (argDigits.length >= 4 && argDigits.length <= 11) {
+    const normArg = argDigits.length === 11 && argDigits.startsWith("1") ? argDigits.slice(1) : argDigits
+    if (caller10.includes(normArg)) return true
+  }
+  return false
+}
+
+async function translatePostCallbackNoteToSpanish(
+  extraTurns: string[],
+  existingSummary: string,
+  geminiKeys: string[] | undefined
+): Promise<string> {
+  const joined = extraTurns.join(" / ").replace(/\s+/g, " ").trim()
+  const fallback = `Nota adicional del cliente: ${joined}`.slice(0, 400)
+  if (!geminiKeys || geminiKeys.length === 0) return fallback
+
+  const prompt = `Resume y traduce al ESPAÑOL claro y breve (máximo 1 oración corta para la pantalla del gerente de un restaurante) estos detalles adicionales que dijo el cliente DESPUÉS de crear su recado. No repitas lo que ya dice el recado actual. Responde SOLO la nota en español sin comillas ni prefijos.\nRecado actual: ${existingSummary}\nDetalles nuevos del cliente: ${joined}`
+  const models = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite-preview"]
+  for (const model of models) {
+    const key = geminiKeys[0]
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 2200)
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 120 }
+          })
+        }
+      )
+      if (res.ok) {
+        const json = await res.json().catch(() => null)
+        const text = String(json?.candidates?.[0]?.content?.parts?.[0]?.text || "")
+          .replace(/[\r\n]+/g, " ")
+          .replace(/\s+/g, " ")
+          .replace(/^["']|["']$/g, "")
+          .trim()
+        if (text.length >= 4) {
+          clearTimeout(timer)
+          return `Nota adicional del cliente: ${text}`.slice(0, 420)
+        }
+      }
+    } catch {
+      // continuar con fallback
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return fallback
+}
+
 async function handleTwilioHttpPost(req: Request): Promise<Response> {
   const secrets = await loadSecrets()
   const formData = await req.formData().catch(() => null)
@@ -693,6 +1211,7 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
   const reqUrl = new URL(req.url)
   const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
   const fromNumber = (params.From || "").trim()
+  const rawCallerName = (params.CallerName || "").trim()
   const toNumber = (params.To || "").trim()
   const forwardedFrom = (params.ForwardedFrom || "").trim()
   const digits = (params.Digits || "").trim()
@@ -748,6 +1267,14 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
   const schedEval = evaluateStoreSchedule(store, specialHours, pt)
   const baseLang: PhoneLang = config.default_language === "en" ? "en" : "es"
   const activeLang: PhoneLang = isPreconsentSwitch ? (baseLang === "en" ? "es" : "en") : baseLang
+  const blockedCallerTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
+  const callerIdentity = await resolveBridgeCallerIdentity({
+    phone: fromNumber,
+    rawTwilioCallerName: rawCallerName,
+    secrets,
+    allowTwilioLookup: false,
+    blockedTenDigits: blockedCallerTen
+  })
 
   if (!config.is_enabled) {
     const target = customerGreetingTarget(store, activeLang)
@@ -790,6 +1317,8 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
             store_id: store.id,
             source: "twilio",
             caller_number: fromNumber || null,
+            caller_name: callerIdentity.displayName || null,
+            caller_name_source: callerIdentity.source || null,
             to_number: toNumber || null,
             forwarded_from: forwardedFrom || null,
             language: activeLang,
@@ -822,10 +1351,34 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
           }).catch(() => null)
         }
       }
+      // Si ni directorio interno ni webhook CNAM tenían nombre, resolver Twilio Lookup v2 durante los ~8s del aviso CIPA (0 ms extra al contestar)
+      let effectiveCallerName = callerIdentity.displayName || ""
+      let effectiveCallerSource = callerIdentity.source || ""
+      if (!effectiveCallerName && callerIdentity.phoneE164 && !rawCallerName) {
+        const lookedUp = await resolveBridgeCallerIdentity({
+          phone: fromNumber,
+          rawTwilioCallerName: "",
+          secrets,
+          allowTwilioLookup: true,
+          blockedTenDigits: blockedCallerTen
+        }).catch(() => null)
+        if (lookedUp?.displayName) {
+          effectiveCallerName = lookedUp.displayName
+          effectiveCallerSource = lookedUp.source || "twilio_lookup"
+          await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+            method: "PATCH",
+            headers: dbHeaders(),
+            body: JSON.stringify({
+              caller_name: effectiveCallerName,
+              caller_name_source: effectiveCallerSource
+            })
+          }).catch(() => null)
+        }
+      }
       // Pre-calentar en RAM el clip μ-law de "¿En qué te ayudo hoy?" y el contexto de tienda mientras suena el aviso CIPA (~10 s)
       await Promise.all([
         fetchMulawPromptClip(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.questionOnly, activeLang),
-        buildBridgeSystemPromptAndData(store.id, activeLang, fromNumber).catch(() => null)
+        buildBridgeSystemPromptAndData(store.id, activeLang, fromNumber, effectiveCallerName, effectiveCallerSource).catch(() => null)
       ])
     })()
   )
@@ -854,6 +1407,8 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
       <Parameter name="storeId" value="${store.id}" />
       <Parameter name="lang" value="${activeLang}" />
       <Parameter name="callerNumber" value="${escapeXml(fromNumber)}" />
+      <Parameter name="callerName" value="${escapeXml(callerIdentity.displayName || "")}" />
+      <Parameter name="callerNameSource" value="${escapeXml(callerIdentity.source || "")}" />
       <Parameter name="toNumber" value="${escapeXml(toNumber)}" />
       <Parameter name="forwardedFrom" value="${escapeXml(forwardedFrom)}" />
       <Parameter name="ts" value="${streamTs}" />
@@ -927,21 +1482,21 @@ const LIVE_TOOL_DECLARATIONS = [
         purchase_date: { type: "STRING", description: "Fecha o momento de compra dicho por el cliente (ej. 'hoy', 'el día de hoy', 'ayer', '2026-11-21')." },
         target_store_id: { type: "INTEGER", description: "ID de sucursal (1, 3..16) si el cliente indicó que compró en otra tienda distinta." }
       },
-      required: ["ticket_or_order_number"]
+      required: []
     }
   },
   {
     name: "create_manager_callback",
     behavior: "BLOCKING",
     description:
-      "Registra un Recado Prioritario para el Gerente o Nota de Empaque en la pantalla de la sucursal. Úsalo ÚNICAMENTE cuando ya tengas nombre real y teléfono real de 10 dígitos (y en reclamos de orden equivocada/incompleta en tienda o Drive-Thru también número de ticket VALIDADO con validate_order_ticket o confirmación explícita de SIN TICKET + fecha de compra).",
+      "Registra o ACTUALIZA un Recado Prioritario para el Gerente o Nota de Empaque en la pantalla de la sucursal. Antes de llamarlo, conoce el detalle/cambio concreto del cliente, confirma su nombre y confirma si usamos el número del que llama ('CALLER_ID') u otro de 10 dígitos (en reclamos en tienda/Drive-Thru también ticket VALIDADO con validate_order_ticket o SIN TICKET + fecha). OBLIGATORIO: si después de crear el recado el cliente agrega cualquier detalle nuevo (ej. 'sin queso', 'Taco Plate', código o aclaración), VUELVE A INVOCAR esta herramienta con el reason_summary completo en español ANTES de decirle que ya lo agregaste.",
     parameters: {
       type: "OBJECT",
       properties: {
         caller_name: { type: "STRING", description: "Nombre real de la persona." },
         caller_phone: {
           type: "STRING",
-          description: "Teléfono real de 10 dígitos o 'CALLER_ID' si autorizó explícitamente usar el mismo número del que llama."
+          description: "Envía 'CALLER_ID' si confirmó usar el mismo número del que llama (preferido cuando Twilio entregó Caller ID), o el teléfono alternativo real de 10 dígitos."
         },
         caller_type: { type: "STRING", description: "'customer', 'employee', 'vendor', 'delivery_driver', o 'corporate'." },
         urgency: { type: "STRING", description: "'high', 'critical', o 'normal' (siempre 'normal' para 'condiments_note')." },
@@ -1002,17 +1557,29 @@ type BridgePromptData = {
 
 const prewarmedBridgeCache = new Map<string, { at: number; data: BridgePromptData }>()
 
-async function getPrewarmedOrBuildBridgeData(storeId: number, lang: PhoneLang, callerNumber: string): Promise<BridgePromptData> {
-  const key = `${storeId}|${lang}|${callerNumber || ""}`
+async function getPrewarmedOrBuildBridgeData(
+  storeId: number,
+  lang: PhoneLang,
+  callerNumber: string,
+  callerName = "",
+  callerNameSource = ""
+): Promise<BridgePromptData> {
+  const key = `${storeId}|${lang}|${callerNumber || ""}|${callerName || ""}`
   const hit = prewarmedBridgeCache.get(key)
   if (hit && Date.now() - hit.at < 45_000) {
     prewarmedBridgeCache.delete(key)
     return hit.data
   }
-  return buildBridgeSystemPromptAndData(storeId, lang, callerNumber)
+  return buildBridgeSystemPromptAndData(storeId, lang, callerNumber, callerName, callerNameSource)
 }
 
-async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, callerNumber: string): Promise<BridgePromptData> {
+async function buildBridgeSystemPromptAndData(
+  storeId: number,
+  lang: PhoneLang,
+  callerNumber: string,
+  callerName = "",
+  callerNameSource = ""
+): Promise<BridgePromptData> {
   const [stores, configs, specialHours, menuItems, kbEntries, learnedItems] = await Promise.all([
     pgSelect("stores?is_active=eq.true&select=id,name,code,external_id,address,phone,has_drive_thru,weekly_hours&order=id.asc"),
     pgSelect("phone_agent_config?select=*"),
@@ -1021,10 +1588,10 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
       `app_menu_cache?store_id=eq.${storeId}&is_available=eq.true&select=category_name,name,description,price&order=category_name.asc,name.asc`
     ),
     pgSelect(
-      `phone_knowledge_base?is_active=eq.true&or=(store_id.is.null,store_id.eq.${storeId})&select=id,category,title,answer_es,answer_en,priority&order=priority.desc`
+      `phone_knowledge_base?is_active=eq.true&or=(store_id.is.null,store_id.eq.${storeId})&select=id,category,title,title_en,answer_es,answer_en,priority&order=priority.desc`
     ),
     pgSelect(
-      `phone_learning_items?status=in.(approved,auto_applied)&applies_to_channels=in.(both,phone_only)&item_kind=in.(doubt_for_owner,learned_rule,fast_reply_macro,stt_synonym)&or=(store_id.is.null,store_id.eq.${storeId})&select=item_kind,status,applies_to_channels,category,question_or_trigger,proposed_rule_es,proposed_rule_en,store_id&order=status.asc,evidence_count.desc,updated_at.desc&limit=40`
+      `phone_learning_items?status=in.(approved,auto_applied)&applies_to_channels=in.(both,phone_only)&item_kind=in.(doubt_for_owner,learned_rule,fast_reply_macro,stt_synonym)&or=(store_id.is.null,store_id.eq.${storeId})&select=item_kind,status,applies_to_channels,category,question_or_trigger,question_or_trigger_en,proposed_rule_es,proposed_rule_en,store_id&order=status.asc,evidence_count.desc,updated_at.desc&limit=40`
     )
   ])
 
@@ -1086,7 +1653,7 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
       return true
     })
     .slice(0, 60)
-    .map((k) => `- [${k.category}] ${k.title}: ${lang === "en" ? k.answer_en || k.answer_es : k.answer_es || k.answer_en}`)
+    .map((k) => `- [${k.category}] ${lang === "en" ? k.title_en || k.title : k.title || k.title_en}: ${lang === "en" ? k.answer_en || k.answer_es : k.answer_es || k.answer_en}`)
     .join("\n")
 
   const learnedLines = (Array.isArray(learnedItems) ? learnedItems : [])
@@ -1104,12 +1671,13 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
       const bStore = Number(b.store_id) === storeId ? 0 : 1
       return aStore - bStore
     })
-    .slice(0, 30)
+    .slice(0, 35)
     .map((r, i) => {
       const kindTag = r.item_kind === "stt_synonym" ? "STT" : String(r.category || "general").toUpperCase()
       const scopeTag = Number(r.store_id) === storeId ? `SOLO ${dispName}` : "GLOBAL"
       const txt = lang === "en" ? r.proposed_rule_en || r.proposed_rule_es : r.proposed_rule_es || r.proposed_rule_en
-      return `${i + 1}. [${kindTag} - ${scopeTag}] (${r.question_or_trigger || ""}): ${txt}`
+      const trig = lang === "en" ? r.question_or_trigger_en || r.question_or_trigger || "" : r.question_or_trigger || r.question_or_trigger_en || ""
+      return `${i + 1}. [${kindTag} - ${scopeTag}] (${trig}): ${txt}`
     })
     .join("\n")
 
@@ -1122,6 +1690,16 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     ? "confírmale con calidez que el gerente en turno ya recibió la alerta prioritaria en su pantalla y se comunicará en cuanto sea posible / as soon as possible (PROHIBIDO prometer 'enseguida', 'de inmediato', 'ahorita', 'right away' o 'immediately')."
     : "aclárale con transparencia que como la sucursal está cerrada ahora, su recado prioritario quedó registrado en la pantalla de la tienda para que el gerente se comunique en cuanto abramos."
 
+  const ownPromptTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
+  const validCallerE164 = cleanUsTenPhone(callerNumber)
+  const safeCallerE164 = validCallerE164 && !ownPromptTen.has(normalizeDigits10(validCallerE164)) ? validCallerE164 : null
+  const callerLast4Spoken = safeCallerE164 ? formatBridgeLast4Spoken(safeCallerE164) : null
+  const cleanPromptCallerName = String(callerName || "").trim()
+  const isHighConfCallerName = ["employee", "store", "vendor", "loyalty", "returning_caller"].includes(String(callerNameSource || ""))
+  const callerIdGuidanceLine = safeCallerE164 && callerLast4Spoken
+    ? `   - **IDENTIFICADOR DE LLAMADAS ACTIVO (Caller ID — CERO DICTADO INNECESARIO DE 10 DÍGITOS)**: Twilio ya detectó el teléfono real del llamante (${safeCallerE164}, terminado en ${callerLast4Spoken})${cleanPromptCallerName ? ` y el identificador muestra el nombre "${cleanPromptCallerName}" (${isHighConfCallerName ? "directorio/historial Tacos Gavilan" : "Caller ID CNAM — puede ser nombre legal o de familiar"})` : ""}. **PROHIBIDO hacer que el cliente dicte los 10 dígitos de su teléfono**: cuando necesites teléfono para cualquier recado o nota de empaque, SOLO confirma en la misma pregunta si podemos contactarle al mismo número terminado en ${callerLast4Spoken} (ES: "¿Te podemos contactar a este mismo número terminado en ${callerLast4Spoken}, o prefieres otro?" / EN: "Is this number ending in ${callerLast4Spoken} the best one to reach you, or would you prefer another?"). Si responde que sí o no da otro, envía \`caller_phone: "CALLER_ID"\`. Solo pide otro número de 10 dígitos si el cliente indica que prefiere uno distinto.${cleanPromptCallerName ? (isHighConfCallerName ? ` Para el nombre, confírmalo de forma natural en la misma pregunta (ES: "¿Hablo con ${cleanPromptCallerName}?" / EN: "Am I speaking with ${cleanPromptCallerName}?") y guarda siempre el nombre que confirme.` : ` Para el nombre, confírmalo con tacto (ES: "¿Me confirmas tu nombre? Me aparece ${cleanPromptCallerName}" / EN: "Could you confirm your name? I see ${cleanPromptCallerName} on Caller ID") y guarda SIEMPRE el nombre que te indique la persona.`) : ""}`
+    : `   - **Sin Caller ID visible**: solicita amablemente nombre real y teléfono de 10 dígitos con código de área.`
+
   const systemText = [
     baseLangAnchor,
     "",
@@ -1130,7 +1708,7 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO INMEDIATO EN TU PRIMERA ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos, armamos ni procesamos órdenes nuevas de comida por teléfono. Si el cliente dice frases de intención de compra como 'quiero dos tacos y dos burritos', 'voy a querer...', 'dame...', 'me das...', 'puedo pedir...', 'me tomas la orden', 'I want two tacos...', 'can I order...':`,
     `   - EN TU PRIMERA ORACIÓN dile con amabilidad que **no tomamos órdenes por teléfono** e invítalo a ordenar fácilmente en **tacosgavilan.com** para recoger${store.has_drive_thru ? " o directamente en caja o por el Drive-Thru" : " o directamente en caja"}.`,
     `   - ESTRICTAMENTE PROHIBIDO actuar como cajera o preguntar '¿Regular o Super?', '¿qué carne?', '¿con todo?' o '¿algo más de tu orden?'.`,
-    `   - Si mencionan platillos, solo si aporta utilidad informativa da sus precios unitarios directos en USD (y para burrito/quesadilla/mulita sin especificar Super, informa ambos precios Regular y Super sin preguntar cuál prefiere ni decir 'tamaño'), cerrando sin tomar pedido. Excepción única: reclamos o condimentos de un pedido YA realizado (Regla #8).`,
+    `   - Si mencionan platillos, solo si aporta utilidad informativa da sus precios unitarios directos en USD (y para burrito/quesadilla/mulita sin especificar Super, informa ambos precios Regular y Super sin preguntar cuál prefiere ni decir 'tamaño'), cerrando sin tomar pedido. Excepción única: reclamos o condimentos de un pedido YA realizado (Regla #7).`,
     `   - PROHIBIDO decir las palabras 'política', 'políticas', 'reglamentos' o 'policy'.`,
     `1. MARCA Y MONEDA: El nombre oficial es estrictamente **Tacos Gavilan** (JAMÁS digas 'Tacos El Gavilan'). Todos los precios son exclusivamente en **dólares y centavos estadounidenses (USD)** (PROHIBIDO decir 'pesos' o 'MXN').`,
     `2. ESTILO DE VOZ EN VIVO (ÁGIL Y HUMANO): Tono cálido, amable, natural y directo. CERO muletillas iniciales (NO empieces con '¡Sí!', '¡Claro que sí!', '¡Por supuesto!' ni '¡Hola!'). Respuestas cortas y fluidas de **1 a 2 oraciones (8 a 20 palabras)**; solo usa hasta 50-60 palabras cuando coticen múltiples platillos o Fiesta Platters. Ya saludaste al contestar: NO vuelvas a saludar. Si preguntan si grabamos su voz o si es legal, responde cálido y directo en 1 frase sin sonar robótico: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto en el momento para atenderte y por eso escuchaste el aviso al inicio.'`,
@@ -1149,15 +1727,17 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     `   - Jamás digas 'tamaño'/'size' en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (Burrito Regular = carne, arroz y frijol; Super añade queso, guacamole y crema; Mulita y Quesadilla Regular ya incluyen queso y Super añade guacamole y crema; Supreme/Supremo = Super).`,
     `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas); **Champurrado 16 oz y Caja 96 oz, Café 16 oz**. PROHIBIDO decir 'chica', 'pequeña' o 'small'.`,
     `   - Postres: **SOLO Flan y Cheesecake individuales** (NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni alcohol).`,
-    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se ordenan en **tacosgavilan.com** con mínimo 1 hora de anticipación (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. 'ya los quiero para ahorita en media hora', '¿qué hago?'), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para no perder su evento: **(a)** pasar directo al mostrador${store.has_drive_thru ? " o al Drive-Thru" : ""} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y teléfono de 10 dígitos con \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
-    `   - Correcciones fonéticas naturales: 'torta corona'='torta cubana', 'sasada'/'salad burrito'='asada', 'adobada'='pastor', 'muleta'='mulita', 'ibt'/'evt'/'tarjetas abc'='EBT', 'dritro'='Drive-Thru'.`,
+    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se ordenan en **tacosgavilan.com** con mínimo 1 hora de anticipación (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. 'ya los quiero para ahorita en media hora', '¿qué hago?'), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para no perder su evento: **(a)** pasar directo al mostrador${store.has_drive_thru ? " o al Drive-Thru" : ""} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y confirmar su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken}` : "teléfono de 10 dígitos"}) con \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
+    `   - Correcciones fonéticas naturales (ES + EN): 'torta corona'/'cubana crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'moo lita'/'malita'='mulita', 'case a dia'='quesadilla', 'so pay'/'soapy'='sope', 'or chata'='horchata', 'a plan'='flan' (en comida/postre), 'whole beans'/'whole pinto beans'/'pot beans'='frijol de la olla ($0.00)', 'Dortmund'/'Door Dash'='DoorDash', 'ibt'/'evt'/'tarjetas abc'='EBT', 'dritro'/'through the drive'='Drive-Thru'.`,
     `7. RECADOS AL GERENTE Y RECLAMOS CON VALIDACIÓN REAL DE TICKET (CERO TRANSFERENCIAS TELEFÓNICAS):`,
     `   - Nunca transferimos llamadas a celulares personales. Usa \`create_manager_callback\` para alertas prioritarias en la pantalla de tienda y escribe \`reason_summary\` **SIEMPRE EN ESPAÑOL** claro para el gerente.`,
-    `   - **Condimentos gratis en orden existente vs productos pagados**: para salsas, chiles, limones, cebollas o servilletas gratis en orden YA hecha (sin costo), pide nombre, número/código de orden, condimentos y teléfono de 10 dígitos -> \`create_manager_callback\` (\`reason_category: 'condiments_note'\`, \`urgency: 'normal'\`), aclarando que aplican sin costo si la orden aún no ha salido (para agregar comida o bebidas con costo diles pedirlas aparte en **tacosgavilan.com** o en caja).`,
-    `   - **Uber Eats / DoorDash / Grubhub y Consulta de Estatus**: si preguntan el estatus real de una orden de delivery o pickup (ej. 'Enrique 012234'), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir 'estoy revisando'. Cambios con costo, dirección, cancelación o reembolso se gestionan en **Ayuda (Help)** de su app; para avisar retraso al gerente, pide nombre, teléfono de 10 dígitos y código (\`reason_category: 'delivery_issue'\`).`,
-    `   - **Sucursal equivocada en tacosgavilan.com**: pregunta en cuál tienda cayó, toma nombre, teléfono de 10 dígitos y orden -> \`create_manager_callback\` con \`target_store_id\` (\`reason_category: 'wrong_store_order'\`).`,
-    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL OBLIGATORIA)**: pide con respeto los **4 datos obligatorios**: **1) número de ticket, 2) fecha de compra, 3) nombre y 4) teléfono real de 10 dígitos**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** ('Without the ticket number, it is unlikely we can verify the mistake'). **REGLA CRÍTICA**: en cuanto el cliente diga un número de ticket u orden (ej. '1600 del día de hoy'), **INVOCA DE INMEDIATO \`validate_order_ticket\`**: si \`found: true\`, confirma con amabilidad que ya localizaste su orden y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (mencionando si el sistema indica el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si confirma que perdió, tiró o no encuentra su ticket, NO repitas el pedido del ticket ni lo atrapes: pasa directo a registrar con \`ticket_or_order_number: 'SIN TICKET'\` (juntando el teléfono si lo dictó en 2 partes ej. '310' + '529 1147') sin prometer reposición. Cuando invoques una herramienta bloqueante espera su respuesta en silencio antes de hablar (nunca repitas dos veces 'Gracias, solo me falta...'). EJECUTA \`create_manager_callback\` ANTES de confirmar, y luego ${callbackOutcome}`,
-    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta pide nombre real, teléfono real de 10 dígitos${callerNumber ? ` (Caller ID entrante: ${callerNumber}; si autoriza explícitamente usar este mismo número envía caller_phone='CALLER_ID')` : ""} y brevemente el motivo (si el cliente ya dio nombre y teléfono sin motivo, igual registra el recado sin frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmar y ${callbackOutcome}`,
+    callerIdGuidanceLine,
+    `   - **PREGUNTA EL CAMBIO / DETALLE EXACTO ANTES DE GUARDAR + ACTUALIZACIÓN OBLIGATORIA POST-RECADO (CERO PROMESAS FALSAS)**: Cuando el cliente quiera editar una orden, pedir condimentos o dejar aviso a cocina/gerente, pregunta SIEMPRE qué cambio o detalle exacto necesita y en qué platillo ANTES de invocar \`create_manager_callback\` (no guardes un recado vago sin saber qué pidió). **Y SI DESPUÉS DE HABER GUARDADO EL RECADO** el cliente agrega CUALQUIER dato nuevo, ingrediente o platillo (ej. 'sin queso', 'para el Taco Plate', 'sin cebolla', código o sucursal), **ESTÁ ESTRICTAMENTE PROHIBIDO** decir 'ya lo agregué / ya lo anoté / ya se lo compartí al gerente' sin **VOLVER A INVOCAR \`create_manager_callback\` PRIMERO** con el \`reason_summary\` completo en español incluyendo todo lo anterior y lo nuevo (el sistema actualiza el mismo recado automáticamente sin duplicarlo).`,
+    `   - **Condimentos gratis en orden existente vs productos pagados**: para salsas, chiles, limones, cebollas o servilletas gratis en orden YA hecha (sin costo), pregunta qué condimentos desea, nombre, número/código de orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` (\`reason_category: 'condiments_note'\`, \`urgency: 'normal'\`), aclarando que aplican sin costo si la orden aún no ha salido (para agregar comida o bebidas con costo diles pedirlas aparte en **tacosgavilan.com** o en caja).`,
+    `   - **Uber Eats / DoorDash / Grubhub (Estatus y Ajustes Sin Costo)**: si preguntan el estatus real de una orden de delivery o pickup por código o nombre (ej. 'Enrique 012234' o 'Asia'), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir 'estoy revisando'. Cambios con costo, agregar comida, dirección, cancelación o reembolso se gestionan en **Ayuda (Help)** de su app. Para un **ajuste menor sin costo** en una orden activa (ej. quitar queso, cebolla o cilantro) o avisar retraso al gerente, pregunta **qué ajuste exacto y en qué platillo**, su nombre, código de orden (si no lo tiene, usa \`'SIN TICKET'\` sin bucle) y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` (\`reason_category: 'delivery_issue'\`), aclarando que aplica solo si cocina aún no ha sellado la orden.`,
+    `   - **Sucursal equivocada en tacosgavilan.com**: pregunta en cuál tienda cayó, nombre, orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` con \`target_store_id\` (\`reason_category: 'wrong_store_order'\`).`,
+    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL OBLIGATORIA)**: pide con respeto los **4 datos obligatorios**: **1) número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : "10 dígitos"})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** ('Without the ticket number, it is unlikely we can verify the mistake'). **REGLA CRÍTICA**: en cuanto el cliente diga un número de ticket u orden (ej. '1600 del día de hoy'), **INVOCA DE INMEDIATO \`validate_order_ticket\`**: si \`found: true\`, confirma con amabilidad que ya localizaste su orden y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (mencionando si el sistema indica el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si confirma que perdió, tiró o no encuentra su ticket, NO repitas el pedido del ticket ni lo atrapes: pasa directo a registrar con \`ticket_or_order_number: 'SIN TICKET'\` sin prometer reposición. Cuando invoques una herramienta bloqueante espera su respuesta en silencio antes de hablar (nunca repitas dos veces 'Gracias, solo me falta...'). EJECUTA \`create_manager_callback\` ANTES de confirmar, y luego ${callbackOutcome}`,
+    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta confirma nombre, teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone='CALLER_ID'` : "real de 10 dígitos"}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmar y ${callbackOutcome}`,
     `8. CERO CUELGUES ANTE FRUSTRACIÓN, RUIDO VIAL Y CIERRE LIMPIO: Ignora ruidos breves de carretera/motor en el carro que suenen como sílabas ajenas sin sentido (jamás interrumpas diciendo 'la llamada no se escucha claramente' por ruido vial). Si el cliente te interrumpe diciendo '¿qué?', 'perdón' o 'repite' mientras enumerabas carnes o platillos, repite la lista COMPLETA desde el principio. **PROHIBIDO COLGAR O INVOCAR \`end_call\`** si el cliente expresa frustración, molestia, queja, '¿qué hago?', **'me voy con la competencia'** o **'¿por qué me colgaste?'** sin despedirse explícitamente ('adiós', 'bye', 'hasta luego', 'eso es todo, gracias'): ante frustración retén al cliente con empatía ofreciendo soluciones reales o avisar urgente al gerente (y si pregunta por qué se cortó una llamada previa, discúlpate con calidez aclarando que nunca colgamos a propósito y atiéndelo al instante). Tampoco invoques \`end_call\` cuando solo diga 'okay, gracias', 'gracias' o 'perfecto' (pregunta primero '¿Te puedo ayudar con algo más?'). Solo cuando confirme explícitamente que ya terminó o se despida ('es todo, gracias', 'no gracias, bye', 'adiós', 'that is all, thank you'), despídete cálidamente en una oración sin preguntas e invoca \`end_call\`.`,
     "",
     `DIRECTORIO EN VIVO DE LAS 15 SUCURSALES:`,
@@ -1185,7 +1765,7 @@ async function buildBridgeSystemPromptAndData(storeId: number, lang: PhoneLang, 
     spokenAddr,
     systemText
   }
-  prewarmedBridgeCache.set(`${storeId}|${lang}|${callerNumber || ""}`, { at: Date.now(), data: built })
+  prewarmedBridgeCache.set(`${storeId}|${lang}|${callerNumber || ""}|${callerName || ""}`, { at: Date.now(), data: built })
   return built
 }
 
@@ -2125,8 +2705,8 @@ async function validateBridgeOrderTicket(params: {
           itemsSummary: hit.itemsSummary,
           matchedSource: hit.source,
           toastNetworkError: false,
-          messageEs: `El ticket #${hit.ticketNumber} del ${businessDate} en ${storeNameEs} SÍ existe en nuestro sistema (${hit.channel}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirma con amabilidad que ya localizaste su orden y pide solo lo que falte (nombre y teléfono de 10 dígitos) para enviar la alerta al gerente.`,
-          messageEn: `Ticket #${hit.ticketNumber} on ${businessDate} at ${storeNameEn} WAS FOUND in our system (${hit.channel}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirm you located their order and ask only for any missing info (name and 10-digit phone number) to send the manager alert.`
+          messageEs: `El ticket #${hit.ticketNumber} del ${businessDate} en ${storeNameEs} SÍ existe en nuestro sistema (${hit.channel}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirma con amabilidad que ya localizaste su orden y pide solo lo que falte (nombre y confirmar su Caller ID o teléfono alterno) para enviar la alerta al gerente.`,
+          messageEn: `Ticket #${hit.ticketNumber} on ${businessDate} at ${storeNameEn} WAS FOUND in our system (${hit.channel}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirm you located their order and ask only for any missing info (name and confirming their Caller ID number or an alternate number) to send the manager alert.`
         }
       }
     }
@@ -2159,7 +2739,7 @@ async function validateBridgeOrderTicket(params: {
       matchedSource: hit.source,
       observedRange,
       toastNetworkError: false,
-      messageEs: `La orden #${hit.ticketNumber}${custSuffix} del ${businessDate} en ${storeNameEs} SÍ existe en nuestro sistema (${hit.channel}${statusSuffix}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirma con claridad este dato real y pide únicamente lo que falte (nombre y teléfono de 10 dígitos si aplica) para el gerente.`,
+      messageEs: `La orden #${hit.ticketNumber}${custSuffix} del ${businessDate} en ${storeNameEs} SÍ existe en nuestro sistema (${hit.channel}${statusSuffix}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirma con claridad este dato real y pide únicamente lo que falte (nombre y confirmar su Caller ID o teléfono alterno si aplica) para el gerente.`,
       messageEn: `Order #${hit.ticketNumber}${hit.customerName ? ` under ${hit.customerName}` : ""} on ${businessDate} at ${storeNameEn} WAS FOUND in our system (${hit.channel}${hit.statusText ? ` — Status: ${hit.statusText}` : ""}${hit.itemsSummary ? `: ${hit.itemsSummary}` : ""}). Confirm these real details clearly and ask only for any missing info.`
     }
   }
@@ -2214,8 +2794,8 @@ async function validateBridgeOrderTicket(params: {
       storeNameEn,
       observedRange: range,
       toastNetworkError: true,
-      messageEs: `La verificación en línea del ticket #${parsed.ticketNumber || cleanCust} no está disponible en este instante${rangeHintEs}; toma el nombre y teléfono de 10 dígitos para que el gerente en ${storeNameEs} lo revise directamente.`,
-      messageEn: `Live verification for ticket #${parsed.ticketNumber || cleanCust} is momentarily unavailable${rangeHintEn}; collect name and 10-digit phone number so the manager at ${storeNameEn} can check it directly.`
+      messageEs: `La verificación en línea del ticket #${parsed.ticketNumber || cleanCust} no está disponible en este instante${rangeHintEs}; confirma su nombre y su número del Caller ID (o uno alterno de 10 dígitos) para que el gerente en ${storeNameEs} lo revise directamente.`,
+      messageEn: `Live verification for ticket #${parsed.ticketNumber || cleanCust} is momentarily unavailable${rangeHintEn}; confirm their name and Caller ID number (or an alternate 10-digit number) so the manager at ${storeNameEn} can check it directly.`
     }
   }
   return {
@@ -2244,9 +2824,15 @@ async function executeLiveTool(params: {
   lang: PhoneLang
   callerNumber: string
   recentUserText: string
+  allUserText?: string
   lastUserText: string
   prevAssistantText: string
-}): Promise<{ response: Record<string, unknown>; shouldEndCall: boolean; hadCallback: boolean }> {
+}): Promise<{
+  response: Record<string, unknown>
+  shouldEndCall: boolean
+  hadCallback: boolean
+  callbackMeta?: { id: string | null; summary: string; callerName: string; ticket: string | null; category: string }
+}> {
   const {
     toolName,
     toolArgs,
@@ -2259,6 +2845,7 @@ async function executeLiveTool(params: {
     lang,
     callerNumber,
     recentUserText,
+    allUserText,
     lastUserText,
     prevAssistantText
   } = params
@@ -2283,7 +2870,7 @@ async function executeLiveTool(params: {
           keepAlive: true,
           reason: "caller_frustration_retention_lock",
           instruction:
-            "PROHIBIDO COLGAR O DESPEDIRTE: el cliente expresó frustración, queja o dijo 'me voy con la competencia' sin despedirse explícitamente. Retén al cliente con total empatía SIN cortar la llamada: ofrécele pasar directo al mostrador o Drive-Thru para preparar al momento órdenes individuales recién hechas (tacos, burritos, mulitas o platos), O tomar su nombre y teléfono de 10 dígitos con create_manager_callback (urgency: 'high') para que el gerente en turno revise capacidad de cocina de inmediato."
+            "PROHIBIDO COLGAR O DESPEDIRTE: el cliente expresó frustración, queja o dijo 'me voy con la competencia' sin despedirse explícitamente. Retén al cliente con total empatía SIN cortar la llamada: ofrécele pasar directo al mostrador o Drive-Thru para preparar al momento órdenes individuales recién hechas (tacos, burritos, mulitas o platos), O confirmar su nombre y número del Caller ID (o uno alterno) con create_manager_callback (urgency: 'high') para que el gerente en turno revise capacidad de cocina de inmediato."
         },
         shouldEndCall: false,
         hadCallback: false
@@ -2484,9 +3071,10 @@ async function executeLiveTool(params: {
     return {
       response: {
         requestedGuests: guests,
-        orderOnlineOnly: "tacosgavilan.com con mínimo 1 hora de anticipación",
-        urgentUnderOneHourSolutionsEs: `Si el cliente necesita comida para el grupo en MENOS de 1 hora, NO cierres la venta: ofrécele (1) pasar directo ${walkInEs} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, O (2) tomar su nombre y teléfono de 10 dígitos con create_manager_callback (urgency: 'high') para que el gerente en turno revise de inmediato la capacidad de cocina.`,
-        urgentUnderOneHourSolutionsEn: `If the caller needs food in LESS than 1 hour, DO NOT turn them away: proactively offer (1) coming straight ${walkInEn} to prepare fresh individual orders of tacos, burritos, mulitas, or plates on the spot, OR (2) taking their name and 10-digit phone number via create_manager_callback (urgency: 'high') so the manager on duty can check kitchen capacity right away.`,
+        orderOnlineOnly:
+          "tacosgavilan.com (delivery vía order.online o pickup) y plataformas de delivery (Uber Eats, DoorDash, Grubhub) con mínimo 1 hora de anticipación",
+        urgentUnderOneHourSolutionsEs: `Si el cliente necesita comida para el grupo en MENOS de 1 hora, NO cierres la venta: ofrécele (1) pasar directo ${walkInEs} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, O (2) confirmar su nombre y su número del Caller ID (o uno alterno) con create_manager_callback (urgency: 'high') para que el gerente en turno revise de inmediato la capacidad de cocina.`,
+        urgentUnderOneHourSolutionsEn: `If the caller needs food in LESS than 1 hour, DO NOT turn them away: proactively offer (1) coming straight ${walkInEn} to prepare fresh individual orders of tacos, burritos, mulitas, or plates on the spot, OR (2) confirming their name and Caller ID phone number (or an alternate number) via create_manager_callback (urgency: 'high') so the manager on duty can check kitchen capacity right away.`,
         recommendationEs,
         recommendationEn,
         packages: packages.map(({ package: pkg, serves, priceUsd, meatLbs, aguasGallons, cornDozens, flourDozens }) => ({
@@ -2550,25 +3138,41 @@ async function executeLiveTool(params: {
   if (toolName === "create_manager_callback") {
     const rawPhone = String(toolArgs?.caller_phone || "").trim()
     const ownTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
-    const candidateE164 =
-      rawPhone.toUpperCase() === "CALLER_ID" ? cleanUsTenPhone(callerNumber) : cleanUsTenPhone(rawPhone)
+    const rawCallerIdE164 = cleanUsTenPhone(callerNumber)
+    const validCallerIdE164 = rawCallerIdE164 && !ownTen.has(normalizeDigits10(rawCallerIdE164)) ? rawCallerIdE164 : null
+    const rawArgE164 = rawPhone && rawPhone.toUpperCase() !== "CALLER_ID" ? cleanUsTenPhone(rawPhone) : null
+    const validArgE164 = rawArgE164 && !ownTen.has(normalizeDigits10(rawArgE164)) ? rawArgE164 : null
+
     const cleanPhone =
-      candidateE164 && !ownTen.has(normalizeDigits10(candidateE164)) ? candidateE164 : null
+      validArgE164 ||
+      (validCallerIdE164 &&
+      (rawPhone.toUpperCase() === "CALLER_ID" || !rawPhone || isPhoneFragmentOfCallerId(rawPhone, validCallerIdE164))
+        ? validCallerIdE164
+        : null)
 
     if (!cleanPhone) {
+      const last4Hint = validCallerIdE164 ? formatBridgeLast4Spoken(validCallerIdE164) : null
       return {
         response: {
           success: false,
           missingCallerPhone: true,
-          message: "Pídele amablemente su número telefónico real de 10 dígitos con código de área antes de guardar el recado."
+          message: last4Hint
+            ? `Confirma si podemos llamarle a este mismo número terminado en ${last4Hint} (enviando caller_phone='CALLER_ID') o pídele el número alterno completo de 10 dígitos.`
+            : "Pídele amablemente su número telefónico real de 10 dígitos con código de área antes de guardar el recado."
         },
         shouldEndCall: false,
         hadCallback: false
       }
     }
 
-    const callerName = String(toolArgs?.caller_name || "").trim()
-    if (!callerName || /^(cliente|customer|caller|unknown|persona)$/i.test(normalizeSearch(callerName))) {
+    const callerName = String(toolArgs?.caller_name || "").replace(/\s+/g, " ").trim()
+    if (
+      !callerName ||
+      callerName.length < 2 ||
+      /^(cliente|customer|caller|unknown|persona|usuario|n\/a|na|none|anonymous|anonimo|desconocido|not provided|driver)$/i.test(
+        normalizeSearch(callerName)
+      )
+    ) {
       return {
         response: {
           success: false,
@@ -2597,13 +3201,23 @@ async function executeLiveTool(params: {
         ? "missing_or_wrong_item"
         : rawCat
     const category = validCats.has(mappedCat) ? mappedCat : "other"
+
+    const validCallerTypes = new Set(["customer", "employee", "vendor", "delivery_driver", "corporate"])
+    const rawCallerType = String(toolArgs?.caller_type || "customer").trim().toLowerCase()
+    const callerType = validCallerTypes.has(rawCallerType) ? rawCallerType : "customer"
+
+    const validUrgencies = new Set(["normal", "medium", "high", "urgent", "critical"])
+    const rawUrgency = String(toolArgs?.urgency || "high").trim().toLowerCase()
+    const urgency = category === "condiments_note" ? "normal" : validUrgencies.has(rawUrgency) ? rawUrgency : "high"
+
+    const fullUserContext = allUserText || recentUserText
     const rawTicketArg = String(toolArgs?.ticket_or_order_number || "").trim()
     const rawTicket =
       rawTicketArg ||
-      (isBridgeTicketNotFoundAdmission(recentUserText) ? "SIN TICKET" : "")
+      (isBridgeTicketNotFoundAdmission(fullUserContext) ? "SIN TICKET" : "")
     const rawOrderDate = String(toolArgs?.order_date || "").trim()
     const isDelivery = /\b(uber|doordash|door dash|grubhub|postmates)\b/i.test(
-      normalizeSearch(`${recentUserText} ${toolArgs?.reason_summary || ""}`)
+      normalizeSearch(`${fullUserContext} ${toolArgs?.reason_summary || ""}`)
     )
     const preTargetId = Number(toolArgs?.target_store_id)
     const preDestStore =
@@ -2666,13 +3280,42 @@ async function executeLiveTool(params: {
       }
     }
 
-    const callRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id&limit=1`)
+    // Garantizar que phone_calls exista para que call_id jamás quede null y la deduplicación siempre funcione
+    let callRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,caller_name&limit=1`)
+    if (!callRows[0]?.id && callSid) {
+      await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?on_conflict=call_sid`, {
+        method: "POST",
+        headers: dbHeaders({ Prefer: "resolution=ignore-duplicates" }),
+        body: JSON.stringify({
+          call_sid: callSid,
+          store_id: store.id,
+          source: "twilio",
+          caller_number: callerNumber || null,
+          caller_name: callerName,
+          caller_name_source: "spoken",
+          language: lang,
+          caller_category: callerType,
+          primary_intent: category,
+          status: "callback_requested",
+          resolved_by_ai: false,
+          turns_count: 1,
+          duration_seconds: 0,
+          transcript: [],
+          business_date: pt.businessDate,
+          shift: pt.shift
+        })
+      }).catch(() => null)
+      callRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,caller_name&limit=1`)
+    }
     const callId = callRows[0]?.id || null
+    const callHasExistingName = Boolean(callRows[0]?.caller_name)
 
     const targetId = Number(toolArgs?.target_store_id)
     const destStore =
       Number.isInteger(targetId) && targetId > 0 ? stores.find((s) => Number(s.id) === targetId) || store : store
     const destDisplay = customerStoreDisplay(destStore, lang)
+    const destSchedEval =
+      Number(destStore.id) === Number(store.id) ? schedEval : evaluateStoreSchedule(destStore, specialHours, pt)
 
     const ticketFormatted =
       rawTicket && rawOrderDate && !normalizeSearch(rawTicket).includes(normalizeSearch(rawOrderDate))
@@ -2687,26 +3330,62 @@ async function executeLiveTool(params: {
         ? `[Llamó a #${store.id} ${dispName} -> Enrutada a #${destStore.id} ${destDisplay}] ${taggedReason}`
         : taggedReason
 
-    const urgency = category === "condiments_note" ? "normal" : String(toolArgs?.urgency || "high")
+    const urgencyRank: Record<string, number> = { normal: 1, medium: 2, high: 3, urgent: 4, critical: 5 }
 
-    // Verificar si ya existe un recado pendiente para esta misma llamada
-    const existingCb = callId
-      ? await pgSelect(`phone_callback_requests?call_id=eq.${callId}&status=eq.pending&select=id&limit=1`)
-      : []
+    const applyPatchExisting = async (existingRow: any): Promise<{ ok: boolean; savedSummary: string; savedTicket: string | null; savedId: string }> => {
+      const mergedSummary = mergeBridgeCallbackSummaries(existingRow.reason_summary || "", finalSummary)
+      const prevTicket = existingRow.ticket_or_order_number ? String(existingRow.ticket_or_order_number) : null
+      const nextTicketIsNoTicket = !ticketFormatted || /^SIN TICKET/i.test(ticketFormatted)
+      const prevTicketIsReal = Boolean(prevTicket && !/^SIN TICKET/i.test(prevTicket))
+      const mergedTicket = prevTicketIsReal && nextTicketIsNoTicket ? prevTicket : ticketFormatted || prevTicket
+      const prevUrg = String(existingRow.urgency || "normal").toLowerCase()
+      const mergedUrgency = (urgencyRank[urgency] || 1) >= (urgencyRank[prevUrg] || 1) ? urgency : prevUrg
+      const prevCat = String(existingRow.reason_category || "other")
+      const mergedCategory = prevCat === "condiments_note" && category !== "condiments_note" ? category : category || prevCat
 
-    if (existingCb.length > 0) {
-      await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests?id=eq.${existingCb[0].id}`, {
+      const patchBody: Record<string, unknown> = {
+        caller_name: callerName,
+        caller_phone: cleanPhone,
+        caller_type: callerType,
+        reason_category: mergedCategory,
+        reason_summary: mergedSummary,
+        ticket_or_order_number: mergedTicket,
+        urgency: mergedUrgency,
+        store_id: Number(destStore.id),
+        origin_store_id: Number(destStore.id) !== Number(store.id) ? Number(store.id) : existingRow.origin_store_id ?? null
+      }
+
+      const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests?id=eq.${existingRow.id}`, {
         method: "PATCH",
         headers: dbHeaders(),
-        body: JSON.stringify({
-          caller_name: callerName,
-          caller_phone: cleanPhone,
-          reason_category: category,
-          reason_summary: finalSummary,
-          ticket_or_order_number: ticketFormatted,
-          urgency
-        })
+        body: JSON.stringify(patchBody)
       }).catch(() => null)
+      return {
+        ok: Boolean(patchRes && patchRes.ok),
+        savedSummary: mergedSummary,
+        savedTicket: mergedTicket,
+        savedId: String(existingRow.id)
+      }
+    }
+
+    // Verificar si ya existe un recado pendiente para esta misma llamada y fusionar sin perder datos previos
+    const existingCb = callId
+      ? await pgSelect(
+          `phone_callback_requests?call_id=eq.${callId}&status=eq.pending&select=id,store_id,origin_store_id,caller_name,caller_phone,caller_type,urgency,reason_category,reason_summary,ticket_or_order_number&limit=1`
+        )
+      : []
+
+    let savedId: string | null = null
+    let savedSummary = finalSummary
+    let savedTicket = ticketFormatted
+    let wasUpdated = false
+
+    if (existingCb.length > 0) {
+      const pRes = await applyPatchExisting(existingCb[0])
+      savedId = pRes.savedId
+      savedSummary = pRes.savedSummary
+      savedTicket = pRes.savedTicket
+      wasUpdated = true
     } else {
       const insertBody: Record<string, unknown> = {
         call_id: callId,
@@ -2714,7 +3393,7 @@ async function executeLiveTool(params: {
         source: "twilio",
         caller_name: callerName,
         caller_phone: cleanPhone,
-        caller_type: String(toolArgs?.caller_type || "customer"),
+        caller_type: callerType,
         urgency,
         reason_category: category,
         reason_summary: finalSummary,
@@ -2725,38 +3404,81 @@ async function executeLiveTool(params: {
       if (Number(destStore.id) !== Number(store.id)) {
         insertBody.origin_store_id = Number(store.id)
       }
-      await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests`, {
+      const postRes = await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests`, {
         method: "POST",
-        headers: dbHeaders(),
+        headers: dbHeaders({ Prefer: "return=representation" }),
         body: JSON.stringify(insertBody)
-      })
+      }).catch(() => null)
+
+      if (postRes && postRes.ok) {
+        const rows = await postRes.json().catch(() => null)
+        if (Array.isArray(rows) && rows[0]?.id) savedId = String(rows[0].id)
+      } else if (postRes && postRes.status === 409 && callId) {
+        // Carrera única idx_phone_callbacks_one_pending_per_call -> fusionar vía PATCH
+        const raceCb = await pgSelect(
+          `phone_callback_requests?call_id=eq.${callId}&status=eq.pending&select=id,store_id,origin_store_id,caller_name,caller_phone,caller_type,urgency,reason_category,reason_summary,ticket_or_order_number&limit=1`
+        )
+        if (raceCb.length > 0) {
+          const pRes = await applyPatchExisting(raceCb[0])
+          savedId = pRes.savedId
+          savedSummary = pRes.savedSummary
+          savedTicket = pRes.savedTicket
+          wasUpdated = true
+        }
+      } else {
+        console.error("[phone-live-bridge] create_manager_callback POST failed:", postRes?.status || "network_error")
+        return {
+          response: {
+            success: false,
+            error: "db_write_failed",
+            message: "No se pudo guardar el recado por un error momentáneo; intenta nuevamente."
+          },
+          shouldEndCall: false,
+          hadCallback: false
+        }
+      }
     }
 
+    const callPatch: Record<string, unknown> = {
+      status: "callback_requested",
+      resolved_by_ai: false,
+      primary_intent: category
+    }
+    if (!callHasExistingName) {
+      callPatch.caller_name = callerName
+      callPatch.caller_name_source = "spoken"
+    }
     await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
       method: "PATCH",
       headers: dbHeaders(),
-      body: JSON.stringify({
-        status: "callback_requested",
-        resolved_by_ai: false,
-        primary_intent: category
-      })
+      body: JSON.stringify(callPatch)
     }).catch(() => null)
 
     return {
       response: {
         success: true,
+        updatedExisting: wasUpdated,
+        callbackId: savedId,
         routedToStoreName: destDisplay,
         reasonCategory: category,
-        storeOpenNow: schedEval.isOpenNow,
-        message:
-          category === "condiments_note"
+        storeOpenNow: destSchedEval.isOpenNow,
+        message: wasUpdated
+          ? `Recado actualizado en vivo en la pantalla de ${destDisplay} con todos los detalles acumulados; confírmalo brevemente al cliente.`
+          : category === "condiments_note"
             ? `Nota de empaque enviada en vivo a ${destDisplay}; recuérdale que se incluirán si la orden aún no ha salido.`
-            : schedEval.isOpenNow
+            : destSchedEval.isOpenNow
               ? `Alerta prioritaria enviada a la pantalla del gerente de ${destDisplay}; confirma que se comunicarán en cuanto sea posible.`
               : `Recado registrado en ${destDisplay}; como está cerrada ahora, el gerente se comunicará en cuanto abran.`
       },
       shouldEndCall: false,
-      hadCallback: true
+      hadCallback: true,
+      callbackMeta: {
+        id: savedId,
+        summary: savedSummary,
+        callerName,
+        ticket: savedTicket,
+        category
+      }
     }
   }
 
@@ -2779,6 +3501,8 @@ function handleTwilioWebSocket(req: Request): Response {
   let storeId = 6
   let activeLang: PhoneLang = "es"
   let callerNumber = ""
+  let callerName = ""
+  let callerNameSource = ""
   let authenticated = false
   let startedAtMs = Date.now()
 
@@ -2786,6 +3510,11 @@ function handleTwilioWebSocket(req: Request): Response {
   let geminiReady = false
   let closed = false
   let hadCallback = false
+  let latestCallbackId = ""
+  let latestCallbackSummary = ""
+  let latestCallbackCallerName = ""
+  let latestCallbackTicket: string | null = null
+  let latestIntent = "general"
   let pendingEndCall = false
   let turnCounter = 0
   let awaitingHangupMark = ""
@@ -2855,29 +3584,35 @@ function handleTwilioWebSocket(req: Request): Response {
     }
   }
 
-  const persistCallSnapshot = async (isFinal: boolean) => {
+  let snapshotChain = Promise.resolve()
+
+  const persistCallSnapshotImpl = async (isFinal: boolean) => {
     if (!authenticated || !callSid) return
+    if (isFinal) {
+      // Esperar cualquier herramienta en vuelo (ej. create_manager_callback) antes de sellar el cierre
+      await toolChain.catch(() => null)
+    }
     flushOpenUserTurn()
     flushOpenAssistantTurn()
 
     const userTurns = transcript.filter((t) => t.role === "user")
-    const assistantTurns = transcript.filter((t) => t.role === "assistant")
     const durationSeconds = Math.min(7200, Math.max(1, Math.round((Date.now() - startedAtMs) / 1000)))
-    const lastU = userTurns[userTurns.length - 1]?.text || ""
-    const lastA = assistantTurns[assistantTurns.length - 1]?.text || ""
-    const summary =
-      userTurns.length === 0
-        ? "Llamada finalizada durante el saludo inicial (Kore 3.8 Live)."
-        : `${lastU.slice(0, 140)} -> ${lastA.slice(0, 180)}`
 
     if (!isFinal) {
+      const interimSummary = buildBridgeMeaningfulSummary({
+        transcript,
+        callbackSummary: latestCallbackSummary || null,
+        callbackCallerName: latestCallbackCallerName || null,
+        callbackTicket: latestCallbackTicket,
+        primaryIntent: latestIntent
+      })
       await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
         method: "PATCH",
         headers: dbHeaders(),
         body: JSON.stringify({
           language: activeLang,
           turns_count: userTurns.length,
-          summary,
+          summary: interimSummary,
           transcript
         })
       }).catch(() => null)
@@ -2885,25 +3620,80 @@ function handleTwilioWebSocket(req: Request): Response {
     }
 
     const existingRows = await pgSelect(
-      `phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,status,unanswered_question,ended_at,duration_seconds&limit=1`
+      `phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,status,primary_intent,unanswered_question,ended_at,duration_seconds,caller_name&limit=1`
     )
     const existing = existingRows[0]
     const effectiveCb = hadCallback || existing?.status === "callback_requested"
+
+    // RED DE SEGURIDAD POST-RECADO: si el cliente dijo detalles sustantivos DESPUÉS de create_manager_callback
+    // (ej. "Just tell them no cheese" / "for the taco plate") y Gemini olvidó re-invocar la herramienta, actualizar el recado ahora
+    if (effectiveCb && existing?.id) {
+      const extraUserTurns = extractBridgePostCallbackUserTurns(transcript)
+      const pendingCbRows = await pgSelect(
+        `phone_callback_requests?call_id=eq.${existing.id}&status=eq.pending&select=id,caller_name,reason_summary,ticket_or_order_number&limit=1`
+      )
+      const pendingCb = pendingCbRows[0]
+      if (pendingCb) {
+        if (!latestCallbackId) latestCallbackId = String(pendingCb.id)
+        if (!latestCallbackSummary) latestCallbackSummary = String(pendingCb.reason_summary || "")
+        if (!latestCallbackCallerName) latestCallbackCallerName = String(pendingCb.caller_name || "")
+        if (!latestCallbackTicket && pendingCb.ticket_or_order_number) {
+          latestCallbackTicket = String(pendingCb.ticket_or_order_number)
+        }
+        if (extraUserTurns.length > 0) {
+          const normExistingCb = normalizeSearch(String(pendingCb.reason_summary || ""))
+          const uncaptured = extraUserTurns.filter((u) => {
+            const tokens = normalizeSearch(u)
+              .split(" ")
+              .filter((w) => w.length >= 4 && !["just", "tell", "them", "this", "that", "with", "solo", "diles", "para", "esto"].includes(w))
+            if (tokens.length === 0) return false
+            return !tokens.every((tok) => normExistingCb.includes(tok))
+          })
+          if (uncaptured.length > 0) {
+            const addendumEs = await translatePostCallbackNoteToSpanish(
+              uncaptured,
+              String(pendingCb.reason_summary || ""),
+              secretsCache?.geminiKeys
+            )
+            const enrichedSummary = mergeBridgeCallbackSummaries(String(pendingCb.reason_summary || ""), addendumEs)
+            await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests?id=eq.${pendingCb.id}`, {
+              method: "PATCH",
+              headers: dbHeaders(),
+              body: JSON.stringify({ reason_summary: enrichedSummary })
+            }).catch(() => null)
+            latestCallbackSummary = enrichedSummary
+          }
+        }
+      }
+    }
+
     const nextStatus = effectiveCb
       ? "callback_requested"
       : existing?.status && !["in_progress", "completed"].includes(existing.status)
         ? existing.status
         : "completed"
     const resolvedByAi = userTurns.length > 0 && nextStatus === "completed" && !effectiveCb && !existing?.unanswered_question
+    const finalSummary = buildBridgeMeaningfulSummary({
+      transcript,
+      callbackSummary: latestCallbackSummary || null,
+      callbackCallerName: latestCallbackCallerName || null,
+      callbackTicket: latestCallbackTicket,
+      primaryIntent: existing?.primary_intent || latestIntent,
+      unansweredQuestion: existing?.unanswered_question || null
+    })
 
     const patch: Record<string, unknown> = {
       language: activeLang,
       status: nextStatus,
       resolved_by_ai: resolvedByAi,
       turns_count: userTurns.length,
-      summary,
+      summary: finalSummary,
       transcript,
       ended_at: existing?.ended_at || new Date().toISOString()
+    }
+    if (!existing?.caller_name && (callerName || latestCallbackCallerName)) {
+      patch.caller_name = callerName || latestCallbackCallerName
+      patch.caller_name_source = callerName ? callerNameSource || "twilio_cnam" : "spoken"
     }
     if (!existing?.ended_at || Number(existing?.duration_seconds || 0) === 0) {
       patch.duration_seconds = durationSeconds
@@ -2920,6 +3710,13 @@ function handleTwilioWebSocket(req: Request): Response {
       headers: dbHeaders(),
       body: JSON.stringify({ p_call_sid: callSid })
     }).catch(() => null)
+
+    bridgeValidatedTicketsPerCall.delete(callSid)
+  }
+
+  const persistCallSnapshot = (isFinal: boolean): Promise<void> => {
+    snapshotChain = snapshotChain.then(() => persistCallSnapshotImpl(isFinal)).catch(() => undefined)
+    return snapshotChain
   }
 
   const hangupTwilioCallCleanly = async () => {
@@ -3157,6 +3954,7 @@ function handleTwilioWebSocket(req: Request): Response {
             .slice(-4)
             .map((t) => t.text)
             .join(" | ")
+          const allUser = userTurnsOnly.map((t) => t.text).join(" | ")
           const toolTurnCtx = getTurnContextBeforeFarewell()
 
           for (const fc of fCalls) {
@@ -3174,10 +3972,20 @@ function handleTwilioWebSocket(req: Request): Response {
               lang: activeLang,
               callerNumber,
               recentUserText: recentUser,
+              allUserText: allUser,
               lastUserText: toolTurnCtx.lastUserText,
               prevAssistantText: toolTurnCtx.prevAssistantText
             })
-            if (execRes.hadCallback) hadCallback = true
+            if (execRes.hadCallback) {
+              hadCallback = true
+              if (execRes.callbackMeta) {
+                if (execRes.callbackMeta.id) latestCallbackId = execRes.callbackMeta.id
+                latestCallbackSummary = execRes.callbackMeta.summary
+                latestCallbackCallerName = execRes.callbackMeta.callerName
+                latestCallbackTicket = execRes.callbackMeta.ticket
+                latestIntent = execRes.callbackMeta.category
+              }
+            }
             if (execRes.shouldEndCall) pendingEndCall = true
 
             transcript.push({
@@ -3296,6 +4104,8 @@ function handleTwilioWebSocket(req: Request): Response {
       storeId = Number(cp.storeId) || 6
       activeLang = cp.lang === "en" ? "en" : "es"
       callerNumber = String(cp.callerNumber || "").trim()
+      callerName = String(cp.callerName || "").trim()
+      callerNameSource = String(cp.callerNameSource || "").trim()
       const ts = Number(cp.ts || 0)
       const sig = String(cp.sig || "").trim()
       startedAtMs = Date.now()
@@ -3315,7 +4125,21 @@ function handleTwilioWebSocket(req: Request): Response {
         }
         authenticated = true
 
-        bridgeData = await getPrewarmedOrBuildBridgeData(storeId, activeLang, callerNumber)
+        // Si el WS abrió sin callerName (ej. Lookup v2 terminó durante el aviso CIPA o vino de /api/phone/incoming), resolver en ~12ms desde RPC/caché
+        if (!callerName && callerNumber) {
+          const wsIdentity = await resolveBridgeCallerIdentity({
+            phone: callerNumber,
+            rawTwilioCallerName: "",
+            secrets: secretsCache,
+            allowTwilioLookup: false
+          }).catch(() => null)
+          if (wsIdentity?.displayName) {
+            callerName = wsIdentity.displayName
+            callerNameSource = wsIdentity.source || "twilio_cnam"
+          }
+        }
+
+        bridgeData = await getPrewarmedOrBuildBridgeData(storeId, activeLang, callerNumber, callerName, callerNameSource)
         transcript.push({
           role: "assistant",
           text: bridgeData.greetings.fullGreeting,
@@ -3531,7 +4355,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v10",
+      version: "v12",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"

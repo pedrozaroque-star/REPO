@@ -171,6 +171,7 @@ export async function POST(request: NextRequest) {
         category: b.category,
         appliesToChannels,
         questionOrTrigger,
+        questionOrTriggerEn: b.questionOrTriggerEn ?? b.question_or_trigger_en,
         ownerInstruction,
         proposedRuleEs: b.proposedRuleEs,
         proposedRuleEn: b.proposedRuleEn,
@@ -277,6 +278,8 @@ export async function PATCH(request: NextRequest) {
     const item = await resolveOwnerPhoneLearningDecision({
       id,
       action,
+      questionOrTriggerEn: b.questionOrTriggerEn ?? b.question_or_trigger_en,
+      doubtForOwnerEn: b.doubtForOwnerEn ?? b.doubt_for_owner_en,
       ownerInstruction: b.ownerInstruction,
       proposedRuleEs: b.proposedRuleEs,
       proposedRuleEn: b.proposedRuleEn,

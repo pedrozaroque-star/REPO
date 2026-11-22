@@ -75,6 +75,8 @@
  *   exacta `Regular + 1 extra` vs `Regular + 2 extras` vs `Super` (evitando afirmar falsamente que `Super Mulita` sin crema es
  *   más barata que `Mulita Regular + Guacamole`), prohíbe pedir nombre/teléfono de 10 dígitos en Drive-Thru ante `"¿Puedo hablar
  *   con el manager?"` (invitando a pasar directo a ventanilla), y prohíbe llamar `cancel_order` ante `"Olvídalo"` / `"Never mind"`.
+ * - Blindaje Fase 26 (2026-11-21): `buildLearnedRulesSection` eleva el tope activo a `KORE_MAX_ACTIVE_LEARNED_RULES = 35`
+ *   (antes `15`) recibiendo reglas priorizadas `approved` -> `auto_applied` y `evidence_count DESC`.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -188,6 +190,7 @@ export interface KoreKnowledgeEntry {
   id?: string
   category: string
   title: string
+  titleEn?: string | null
   answerEs: string
   answerEn: string
 }
@@ -357,7 +360,7 @@ export async function loadKoreKnowledge(
   const [{ data, error }, { data: linkedRows }] = await Promise.all([
     supabaseAdmin
       .from('phone_knowledge_base')
-      .select('id, store_id, category, title, answer_es, answer_en, is_active, priority, updated_at')
+      .select('id, store_id, category, title, title_en, answer_es, answer_en, is_active, priority, updated_at')
       .eq('is_active', true)
       .or(`store_id.is.null,store_id.eq.${safeStoreId}`),
     supabaseAdmin
@@ -403,6 +406,7 @@ export async function loadKoreKnowledge(
       id: r.id ? String(r.id) : undefined,
       category: String(r.category || 'general').trim().toLowerCase(),
       title: String(r.title || ''),
+      titleEn: r.title_en ? String(r.title_en).replace(/\s+/g, ' ').trim() : null,
       answerEs: String(r.answer_es || '').replace(/\s+/g, ' ').trim(),
       answerEn: String(r.answer_en || '').replace(/\s+/g, ' ').trim()
     }))
@@ -696,14 +700,25 @@ function buildKnowledgeText(kb: KoreKnowledgeEntry[], learnedRules?: ActiveKoreL
       const es = cleanBrand(k.answerEs || '').slice(0, maxLen)
       const en = cleanBrand(k.answerEn || '').slice(0, maxLen)
       const body = es && en && es !== en ? `ES: ${es} | EN: ${en}` : es || en
-      return `- [${k.category}] ${cleanBrand(k.title)}: ${body}`
+      const titleDisplay =
+        k.titleEn && k.titleEn !== k.title
+          ? `${cleanBrand(k.title)} / ${cleanBrand(k.titleEn)}`
+          : cleanBrand(k.title)
+      return `- [${k.category}] ${titleDisplay}: ${body}`
     })
     .join('\n')
 }
 
-function buildLearnedRulesSection(rules?: ActiveKoreLearnedRule[]): string {
+export const KORE_MAX_ACTIVE_LEARNED_RULES = 35
+
+export function buildLearnedRulesSection(rules?: ActiveKoreLearnedRule[]): string {
   if (!rules || rules.length === 0) return ''
-  const lines = rules.slice(0, 15).map((r) => `- [${r.trigger}] ES: ${r.ruleEs} | EN: ${r.ruleEn}`)
+  const lines = rules
+    .slice(0, KORE_MAX_ACTIVE_LEARNED_RULES)
+    .map((r) => {
+      const trig = r.triggerEn && r.triggerEn !== r.trigger ? `${r.trigger} / ${r.triggerEn}` : r.trigger
+      return `- [${trig}] ES: ${r.ruleEs} | EN: ${r.ruleEn}`
+    })
   return ['', 'LEARNED OWNER & STORE RULES (HIGHEST PRIORITY):', ...lines].join('\n')
 }
 

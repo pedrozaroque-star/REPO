@@ -45,6 +45,7 @@ import {
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
 import { SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
+import { resolvePhoneCallerIdentity } from '@/lib/phone-caller-id'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -134,6 +135,7 @@ export async function POST(request: Request) {
 
     const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
     const fromNumber = (params.From || '').trim()
+    const rawTwilioCallerName = (params.CallerName || '').trim()
     const toNumber = (params.To || '').trim()
     const forwardedFrom = (params.ForwardedFrom || '').trim()
 
@@ -167,6 +169,15 @@ export async function POST(request: Request) {
     const ctx = await getStorePhoneContext(storeId)
     const { store, config, scheduleEval } = ctx
     const lang: PhoneLang = (config.default_language === 'en' ? 'en' : 'es') as PhoneLang
+    const blockedCallerTen = new Set(
+      [normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter((d) => d.length === 10)
+    )
+    const callerIdentity = await resolvePhoneCallerIdentity({
+      phone: fromNumber,
+      twilioCallerName: rawTwilioCallerName,
+      allowTwilioLookup: false,
+      blockedTenDigits: blockedCallerTen
+    }).catch(() => null)
     const voice = resolvePhoneFemaleVoice(config.voice_id)
 
     // Verificar si `ForwardedFrom` coincide con el teléfono real de esta sucursal para marcar desvío sin frenar el TwiML inicial
@@ -192,6 +203,8 @@ export async function POST(request: Request) {
           store_id: store.id,
           source: 'twilio',
           caller_number: fromNumber || null,
+          caller_name: callerIdentity?.displayName || null,
+          caller_name_source: callerIdentity?.source || null,
           to_number: toNumber || null,
           forwarded_from: forwardedFrom || null,
           language: lang,
@@ -226,6 +239,9 @@ export async function POST(request: Request) {
           store_id: store.id,
           language: lang,
           caller_number: fromNumber || null,
+          ...(callerIdentity?.displayName
+            ? { caller_name: callerIdentity.displayName, caller_name_source: callerIdentity.source || 'twilio_cnam' }
+            : {}),
           to_number: toNumber || null,
           forwarded_from: forwardedFrom || null,
           transcript: opts.initialTranscript
@@ -332,6 +348,27 @@ export async function POST(request: Request) {
     scheduleBackgroundTask(async () => {
       await Promise.all([
         initialCallPersistPromise,
+        !callerIdentity?.displayName && callerIdentity?.phoneE164 && !rawTwilioCallerName
+          ? resolvePhoneCallerIdentity({
+              phone: fromNumber,
+              twilioCallerName: '',
+              allowTwilioLookup: true,
+              lookupTimeoutMs: 750,
+              blockedTenDigits: blockedCallerTen
+            })
+              .then(async (looked) => {
+                if (looked?.displayName) {
+                  await supabaseAdmin
+                    .from('phone_calls')
+                    .update({
+                      caller_name: looked.displayName,
+                      caller_name_source: looked.source || 'twilio_lookup'
+                    })
+                    .eq('call_sid', callSid)
+                }
+              })
+              .catch(() => null)
+          : Promise.resolve(),
         !discRes.playedKore38
           ? getPhoneAgentSpeech(disclosureOnlyText, lang, voice, false, {
               skipSseAttempt: false,
@@ -377,6 +414,8 @@ export async function POST(request: Request) {
       <Parameter name="storeId" value="${store.id}" />
       <Parameter name="lang" value="${lang}" />
       <Parameter name="callerNumber" value="${escapeXml(fromNumber)}" />
+      <Parameter name="callerName" value="${escapeXml(callerIdentity?.displayName || '')}" />
+      <Parameter name="callerNameSource" value="${escapeXml(callerIdentity?.source || '')}" />
       <Parameter name="toNumber" value="${escapeXml(toNumber)}" />
       <Parameter name="forwardedFrom" value="${escapeXml(forwardedFrom)}" />
       <Parameter name="ts" value="${streamTs}" />

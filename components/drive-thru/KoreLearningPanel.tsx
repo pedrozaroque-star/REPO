@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
     Sparkles, HelpCircle, CheckCircle2, Trash2, Plus, RefreshCw, Loader2,
-    AlertTriangle, Gauge, BookOpen, MessageSquareQuote, PhoneCall, X
+    AlertTriangle, Gauge, BookOpen, MessageSquareQuote, PhoneCall, Pencil, X
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 
@@ -55,6 +55,7 @@ export interface KoreLearningItemDto {
     syncedKbId?: string | null
     syncedPhoneItemId?: string | null
     questionOrTrigger: string
+    questionOrTriggerEn?: string | null
     customerQuote: string | null
     koreQuote: string | null
     proposedRuleEs: string | null
@@ -82,8 +83,68 @@ interface KoreLearningPanelProps {
     refreshKey?: number
 }
 
+export type LearningItem = KoreLearningItemDto
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function normalizeKoreLearningDto(raw: Record<string, unknown>): KoreLearningItemDto {
+    const rawStoreId = raw.storeId !== undefined ? raw.storeId : raw.store_id
+    const parsedStoreId =
+        rawStoreId !== null && rawStoreId !== undefined && Number.isFinite(Number(rawStoreId))
+            ? Number(rawStoreId)
+            : null
+    const rawLat = raw.avgLatencyMs !== undefined ? raw.avgLatencyMs : raw.avg_latency_ms
+    const qEs = String(raw.questionOrTrigger ?? raw.question_or_trigger ?? '')
+    const rawQEn = raw.questionOrTriggerEn ?? raw.question_or_trigger_en ?? null
+    const qEn = typeof rawQEn === 'string' && rawQEn.trim() ? rawQEn.trim() : null
+    return {
+        id: (raw.id as string | number) ?? '',
+        storeId: parsedStoreId,
+        sourceSessionId: typeof (raw.sourceSessionId ?? raw.source_session_id) === 'string' ? String(raw.sourceSessionId ?? raw.source_session_id) : null,
+        sourcePhoneCallId: typeof (raw.sourcePhoneCallId ?? raw.source_phone_call_id) === 'string' ? String(raw.sourcePhoneCallId ?? raw.source_phone_call_id) : null,
+        sourceType: typeof (raw.sourceType ?? raw.source_type) === 'string' ? String(raw.sourceType ?? raw.source_type) : null,
+        itemKind: String(raw.itemKind ?? raw.item_kind ?? 'learned_rule'),
+        status: String(raw.status ?? 'needs_owner_input'),
+        appliesToChannels: normalizeKoreChannels(raw.appliesToChannels ?? raw.applies_to_channels),
+        syncedKbId: typeof (raw.syncedKbId ?? raw.synced_kb_id) === 'string' ? String(raw.syncedKbId ?? raw.synced_kb_id) : null,
+        syncedPhoneItemId: typeof (raw.syncedPhoneItemId ?? raw.synced_phone_item_id) === 'string' ? String(raw.syncedPhoneItemId ?? raw.synced_phone_item_id) : null,
+        questionOrTrigger: qEs,
+        questionOrTriggerEn: qEn,
+        customerQuote: typeof (raw.customerQuote ?? raw.customer_quote) === 'string' ? String(raw.customerQuote ?? raw.customer_quote) : null,
+        koreQuote: typeof (raw.koreQuote ?? raw.kore_quote) === 'string' ? String(raw.koreQuote ?? raw.kore_quote) : null,
+        proposedRuleEs: typeof (raw.proposedRuleEs ?? raw.proposed_rule_es) === 'string' ? String(raw.proposedRuleEs ?? raw.proposed_rule_es) : null,
+        proposedRuleEn: typeof (raw.proposedRuleEn ?? raw.proposed_rule_en) === 'string' ? String(raw.proposedRuleEn ?? raw.proposed_rule_en) : null,
+        ownerInstruction: typeof (raw.ownerInstruction ?? raw.owner_instruction) === 'string' ? String(raw.ownerInstruction ?? raw.owner_instruction) : null,
+        evidenceCount: Math.max(1, Number(raw.evidenceCount ?? raw.evidence_count ?? 1) || 1),
+        avgLatencyMs: typeof rawLat === 'number' && Number.isFinite(rawLat) ? Math.round(rawLat) : null,
+        resolvedByName: typeof (raw.resolvedByName ?? raw.resolved_by_name) === 'string' ? String(raw.resolvedByName ?? raw.resolved_by_name) : null,
+        resolvedAt: typeof (raw.resolvedAt ?? raw.resolved_at) === 'string' ? String(raw.resolvedAt ?? raw.resolved_at) : null,
+        createdAt: typeof (raw.createdAt ?? raw.created_at) === 'string' ? String(raw.createdAt ?? raw.created_at) : null,
+    }
+}
+
+export function buildOrderedBilingualLines(
+    textEs: string | null | undefined,
+    textEn: string | null | undefined,
+    lang: 'es' | 'en',
+    fallbackText?: string | null
+): { flag: string; langCode: 'ES' | 'EN'; text: string }[] {
+    const cleanEs = String(textEs ?? '').trim()
+    const cleanEn = String(textEn ?? '').trim()
+    const cleanFallback = String(fallbackText ?? '').trim()
+    const esEntry = cleanEs ? { flag: '🇲🇽', langCode: 'ES' as const, text: cleanEs } : null
+    const enEntry = cleanEn ? { flag: '🇺🇸', langCode: 'EN' as const, text: cleanEn } : null
+    const ordered = lang === 'en' ? [enEntry, esEntry] : [esEntry, enEntry]
+    const nonEmpty = ordered.filter((x): x is { flag: string; langCode: 'ES' | 'EN'; text: string } => x !== null)
+    if (nonEmpty.length > 0) return nonEmpty
+    if (!cleanFallback) return []
+    return [
+        lang === 'en'
+            ? { flag: '🇺🇸', langCode: 'EN', text: cleanFallback }
+            : { flag: '🇲🇽', langCode: 'ES', text: cleanFallback },
+    ]
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -115,6 +176,10 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
     const [draftText, setDraftText] = useState<Record<string, string>>({})
     const [draftGlobal, setDraftGlobal] = useState<Record<string, boolean>>({})
     const [draftChannels, setDraftChannels] = useState<Record<string, KoreAppliesToChannels>>({})
+
+    // Edición inline de reglas activas
+    const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+    const [editingRuleText, setEditingRuleText] = useState('')
 
     // Formulario "Agregar regla manual"
     const [showCreate, setShowCreate] = useState(false)
@@ -150,7 +215,7 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                 throw new Error(msg)
             }
             const rawItems = isPlainObject(data) && Array.isArray(data.items) ? data.items : []
-            const parsedItems = rawItems.filter(isPlainObject) as unknown as KoreLearningItemDto[]
+            const parsedItems = rawItems.filter(isPlainObject).map(normalizeKoreLearningDto)
             const rawStats = isPlainObject(data) && isPlainObject(data.stats) ? data.stats : {}
             setItems(parsedItems)
             setStats({
@@ -294,6 +359,55 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                 const msg = isPlainObject(data) && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
                 throw new Error(msg)
             }
+            await loadLearning(storeId)
+        } catch (e) {
+            if (!mountedRef.current) return
+            setError(t('drive_thru.kore_learn_error', { message: e instanceof Error ? e.message : String(e) }))
+        } finally {
+            if (mountedRef.current) setBusyId(null)
+        }
+    }
+
+    const beginEditRule = (rule: KoreLearningItemDto) => {
+        const preload =
+            language === 'en'
+                ? rule.proposedRuleEn || rule.ownerInstruction || rule.proposedRuleEs || ''
+                : rule.ownerInstruction || rule.proposedRuleEs || rule.proposedRuleEn || ''
+        setEditingRuleId(String(rule.id))
+        setEditingRuleText(preload)
+    }
+
+    const handleSaveEditedRule = async (rule: KoreLearningItemDto) => {
+        if (!isGlobalScope && rule.storeId === null) return
+        const trimmed = editingRuleText.trim()
+        if (!trimmed) {
+            setError(t('drive_thru.kore_learn_validation_err'))
+            return
+        }
+        const key = String(rule.id)
+        setBusyId(key)
+        setError(null)
+        setBanner(null)
+        try {
+            const res = await fetch('/api/drive-thru/kore/learning', {
+                method: 'PATCH',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    id: rule.id,
+                    status: 'approved',
+                    ownerInstruction: trimmed,
+                    appliesToChannels: normalizeKoreChannels(rule.appliesToChannels),
+                }),
+            })
+            const data: unknown = await res.json().catch(() => null)
+            if (!mountedRef.current) return
+            if (!res.ok) {
+                const msg = isPlainObject(data) && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+                throw new Error(msg)
+            }
+            setEditingRuleId(null)
+            setEditingRuleText('')
+            setBanner(t('drive_thru.kore_learn_rule_saved'))
             await loadLearning(storeId)
         } catch (e) {
             if (!mountedRef.current) return
@@ -585,7 +699,17 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                                     const key = String(item.id)
                                     const isRowBusy = busyId === key
                                     const canMutateItem = isGlobalScope || item.storeId !== null
-                                    const proposed = language === 'en' ? item.proposedRuleEn || item.proposedRuleEs : item.proposedRuleEs || item.proposedRuleEn
+                                    const activeUiLang: 'es' | 'en' = language === 'en' ? 'en' : 'es'
+                                    const primaryTitle =
+                                        activeUiLang === 'en'
+                                            ? item.questionOrTriggerEn || item.questionOrTrigger
+                                            : item.questionOrTrigger
+                                    const proposedLines = buildOrderedBilingualLines(
+                                        item.proposedRuleEs,
+                                        item.proposedRuleEn,
+                                        activeUiLang,
+                                        item.ownerInstruction
+                                    )
                                     return (
                                         <div key={key} className="rounded-xl border border-amber-200 dark:border-amber-800/70 bg-white dark:bg-slate-900 p-3.5 space-y-2.5 shadow-sm">
                                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -601,7 +725,7 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                                                 )}
                                             </div>
 
-                                            <p className="text-sm font-bold text-slate-900 dark:text-white break-words">{item.questionOrTrigger}</p>
+                                            <p className="text-sm font-bold text-slate-900 dark:text-white break-words">{primaryTitle}</p>
 
                                             {(item.customerQuote || item.koreQuote) && (
                                                 <div className="rounded-lg bg-slate-50 dark:bg-slate-800/70 p-2.5 space-y-1 text-xs">
@@ -619,10 +743,20 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                                                 </div>
                                             )}
 
-                                            {proposed && (
-                                                <p className="text-xs text-slate-500 dark:text-slate-400 break-words">
-                                                    <strong>{t('drive_thru.kore_learn_proposed_rule')}</strong> {proposed}
-                                                </p>
+                                            {proposedLines.length > 0 && (
+                                                <div className="rounded-lg bg-slate-50/80 dark:bg-slate-800/50 px-2.5 py-2 space-y-1">
+                                                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                                        {t('drive_thru.kore_learn_proposed_rule')}
+                                                    </p>
+                                                    {proposedLines.map((line, idx) => (
+                                                        <p
+                                                            key={line.langCode}
+                                                            className={idx === 0 ? 'text-xs text-slate-800 dark:text-slate-200 leading-relaxed break-words' : 'text-xs text-slate-500 dark:text-slate-400 leading-relaxed break-words'}
+                                                        >
+                                                            {line.flag} {line.text}
+                                                        </p>
+                                                    ))}
+                                                </div>
                                             )}
 
                                             {canMutateItem && (
@@ -797,12 +931,20 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                                 {activeRules.map(rule => {
                                     const key = String(rule.id)
                                     const isRowBusy = busyId === key
+                                    const isEditing = editingRuleId === key
                                     const canMutateRule = isGlobalScope || rule.storeId !== null
                                     const currentChannel = normalizeKoreChannels(rule.appliesToChannels)
-                                    const ruleBody =
-                                        language === 'en'
-                                            ? rule.proposedRuleEn || rule.ownerInstruction || rule.proposedRuleEs || ''
-                                            : rule.proposedRuleEs || rule.ownerInstruction || rule.proposedRuleEn || ''
+                                    const activeUiLang: 'es' | 'en' = language === 'en' ? 'en' : 'es'
+                                    const primaryRuleTitle =
+                                        activeUiLang === 'en'
+                                            ? rule.questionOrTriggerEn || rule.questionOrTrigger
+                                            : rule.questionOrTrigger
+                                    const ruleLines = buildOrderedBilingualLines(
+                                        rule.proposedRuleEs,
+                                        rule.proposedRuleEn,
+                                        activeUiLang,
+                                        rule.ownerInstruction
+                                    )
                                     return (
                                         <div key={key} className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-3 space-y-1.5 shadow-sm">
                                             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -837,20 +979,71 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
                                                     )}
                                                 </div>
                                                 {canMutateRule && (
-                                                    <button
-                                                        type="button"
-                                                        disabled={isRowBusy}
-                                                        onClick={() => void handleDismissItem(rule.id, rule.storeId)}
-                                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-50 cursor-pointer"
-                                                    >
-                                                        {isRowBusy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                                                        <span>{t('drive_thru.kore_learn_dismiss_btn')}</span>
-                                                    </button>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            disabled={isRowBusy}
+                                                            onClick={() => isEditing ? setEditingRuleId(null) : beginEditRule(rule)}
+                                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 disabled:opacity-50 cursor-pointer"
+                                                        >
+                                                            <Pencil size={12} />
+                                                            <span>{isEditing ? t('drive_thru.kore_learn_cancel_btn') : t('drive_thru.kore_learn_edit_btn')}</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isRowBusy}
+                                                            onClick={() => void handleDismissItem(rule.id, rule.storeId)}
+                                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-50 cursor-pointer"
+                                                        >
+                                                            {isRowBusy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                                                            <span>{t('drive_thru.kore_learn_dismiss_btn')}</span>
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
-                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-200 break-words">{rule.questionOrTrigger}</p>
-                                            {ruleBody && (
-                                                <p className="text-xs sm:text-sm text-slate-900 dark:text-slate-100 break-words">{ruleBody}</p>
+                                            <p className="text-xs font-bold text-slate-900 dark:text-white break-words">{primaryRuleTitle}</p>
+                                            {isEditing ? (
+                                                <div className="space-y-2 pt-1">
+                                                    <textarea
+                                                        rows={2}
+                                                        value={editingRuleText}
+                                                        disabled={isRowBusy}
+                                                        onChange={e => setEditingRuleText(e.target.value)}
+                                                        className="w-full px-3 py-1.5 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                    />
+                                                    <div className="flex justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            disabled={isRowBusy}
+                                                            onClick={() => setEditingRuleId(null)}
+                                                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                                                        >
+                                                            {t('drive_thru.kore_learn_cancel_btn')}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isRowBusy}
+                                                            onClick={() => void handleSaveEditedRule(rule)}
+                                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black disabled:opacity-50 cursor-pointer"
+                                                        >
+                                                            {isRowBusy ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                                                            <span>{isRowBusy ? t('drive_thru.kore_learn_saving') : t('drive_thru.kore_learn_save_changes_btn')}</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                ruleLines.length > 0 && (
+                                                    <div className="space-y-1">
+                                                        {ruleLines.map((line, idx) => (
+                                                            <p
+                                                                key={line.langCode}
+                                                                className={idx === 0 ? 'text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed break-words' : 'text-xs text-slate-500 dark:text-slate-400 leading-relaxed break-words'}
+                                                            >
+                                                                {line.flag} {line.text}
+                                                            </p>
+                                                        ))}
+                                                    </div>
+                                                )
                                             )}
                                             {rule.resolvedByName && (
                                                 <p className="text-[11px] text-slate-400">

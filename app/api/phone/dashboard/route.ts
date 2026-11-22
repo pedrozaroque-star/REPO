@@ -570,7 +570,7 @@ export async function GET(request: NextRequest) {
       (() => {
         let q = supabaseAdmin
           .from('phone_calls')
-          .select('id, store_id, unanswered_question, caller_number, started_at, source, stores(id, name)')
+          .select('id, store_id, unanswered_question, caller_number, caller_name, caller_name_source, started_at, source, stores(id, name)')
           .not('unanswered_question', 'is', null)
           .order('started_at', { ascending: false })
           .limit(50)
@@ -784,6 +784,8 @@ export async function GET(request: NextRequest) {
         storeName: cleanPhoneStoreName((c.stores as any)?.name) || `#${c.store_id}`,
         question: c.unanswered_question,
         callerNumber: c.caller_number,
+        callerName: c.caller_name || null,
+        callerNameSource: c.caller_name_source || null,
         source: c.source || 'twilio',
         startedAt: c.started_at
       }))
@@ -876,6 +878,9 @@ export async function POST(request: NextRequest) {
       const storeId = fk.storeId
       const category = String(body?.category || 'general').trim().slice(0, 80) || 'general'
       const title = String(body?.title || '').trim().slice(0, 180)
+      const titleEn = body?.title_en !== undefined && body?.title_en !== null
+        ? String(body.title_en).trim().slice(0, 180) || null
+        : null
       const questionKeywords = body?.question_keywords ? String(body.question_keywords).trim().slice(0, 500) : null
       const answerEs = String(body?.answer_es || '').trim().slice(0, 1500)
       // Si no se captura traducción al inglés, se guarda cadena vacía (Gemini traduce en vivo desde answer_es)
@@ -894,6 +899,7 @@ export async function POST(request: NextRequest) {
           store_id: storeId,
           category,
           title,
+          title_en: titleEn || title,
           question_keywords: questionKeywords,
           answer_es: answerEs,
           answer_en: answerEn,
@@ -1319,6 +1325,9 @@ export async function PATCH(request: NextRequest) {
         const t = String(body.title || '').trim().slice(0, 180)
         if (!t) return NextResponse.json({ error: 'El título de la regla no puede quedar vacío' }, { status: 400 })
         updates.title = t
+      }
+      if (body.title_en !== undefined) {
+        updates.title_en = body.title_en ? String(body.title_en).trim().slice(0, 180) : null
       }
       if (body.question_keywords !== undefined) {
         updates.question_keywords = body.question_keywords ? String(body.question_keywords).trim().slice(0, 500) : null

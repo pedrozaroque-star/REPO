@@ -194,8 +194,9 @@ export async function POST(request: NextRequest) {
         return jsonError('questionOrTrigger y ownerInstruction son obligatorios (mínimo 3 caracteres).', 400)
       }
 
-      const { ruleEs, ruleEn } = await buildBilingualRuleFromOwnerInstruction({
+      const { triggerEn, ruleEs, ruleEn } = await buildBilingualRuleFromOwnerInstruction({
         questionOrTrigger,
+        questionOrTriggerEn: b.questionOrTriggerEn ?? b.question_or_trigger_en,
         ownerInstruction,
         proposedRuleEs: b.proposedRuleEs,
         proposedRuleEn: b.proposedRuleEn
@@ -212,6 +213,7 @@ export async function POST(request: NextRequest) {
           status: 'approved',
           applies_to_channels: appliesToChannels,
           question_or_trigger: questionOrTrigger,
+          question_or_trigger_en: triggerEn,
           proposed_rule_es: ruleEs,
           proposed_rule_en: ruleEn,
           owner_instruction: ownerInstruction,
@@ -315,12 +317,14 @@ export async function PATCH(request: NextRequest) {
       if (ownerInstruction.length < 3) {
         return jsonError('Escribe una instrucción o regla válida para aprobar este criterio.', 400)
       }
-      const { ruleEs, ruleEn } = await buildBilingualRuleFromOwnerInstruction({
+      const { triggerEn, ruleEs, ruleEn } = await buildBilingualRuleFromOwnerInstruction({
         questionOrTrigger: String(existing.question_or_trigger || ''),
+        questionOrTriggerEn: b.questionOrTriggerEn ?? b.question_or_trigger_en ?? existing.question_or_trigger_en,
         ownerInstruction,
         proposedRuleEs: b.proposedRuleEs,
         proposedRuleEn: b.proposedRuleEn
       })
+      updatePayload.question_or_trigger_en = triggerEn || existing.question_or_trigger_en || null
       updatePayload.owner_instruction = ownerInstruction
       updatePayload.proposed_rule_es = ruleEs
       updatePayload.proposed_rule_en = ruleEn

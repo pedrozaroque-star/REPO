@@ -663,7 +663,7 @@ const COURTESY_CONTAINER_TOKENS = new Set([
 const PHRASE_REWRITES: Array<[RegExp, string]> = [
   [/\b(?:ceboll(?:a|as|ita|itas)\s+(?:asad(?:a|as)|toread(?:a|as)|al\s+grill|cambray)|cebollitas?\b|(?:grilled|roasted|charred)\s+onions?)\b/g, ` ${COURTESY_CEBOLLA_ASADA_TOKEN} `],
   [
-    /\b(?:frijol(?:es|itos)?\s+(?:de\s+(?:la\s+)?olla|enteros?|en\s+caldo|caldosos?)|(?:whole(?:\s+pot)?|pot)\s+beans?|beans?\s+(?:from|in)\s+the\s+pot|frijol\s+d\s*l\s*o)\b/g,
+    /\b(?:frijol(?:es|itos)?\s+(?:de\s+(?:la\s+)?olla|enteros?|en\s+caldo|caldosos?)|(?:whole(?:\s+(?:pot|pinto))?|pot)\s+beans?|beans?\s+(?:from|in)\s+the\s+pot|frijol\s+d\s*l\s*o)\b/g,
     ` ${COURTESY_FRIJOL_OLLA_TOKEN} `
   ],
   [/\b(?:con todo|with everything|everything on it|all the way|todo incluido)\b/g, ` ${CON_TODO_TOKEN} `],
@@ -2137,7 +2137,7 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       : opts?.thirdLanguage
         ? `Required choice missing (ask briefly 100% in ${opts.thirdLanguage.nameEn}): ${groupErrors.join(' ')}`
         : opts?.lang === 'en'
-          ? groupErrors.join(' ')
+          ? `Required choice missing (ask briefly 100% in ENGLISH): ${groupErrors.join(' ')}`
           : `Falta elegir opción obligatoria (pregunta brevemente 100% en ESPAÑOL): ${groupErrors.join(' ')}`
     return fail(state, 'modifier_rules', errMsg, opts, {
       item: item.name,
@@ -2257,7 +2257,7 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
     const batchMsg = opts?.thirdLanguage
       ? `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}. Confirm briefly 100% in ${opts.thirdLanguage.nameEn}.`
       : opts?.lang === 'en'
-        ? `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}`
+        ? `Added ${addedLines.length} line(s): ${addedLines.join(' | ')}. Confirm briefly 100% in ENGLISH.`
         : `Agregados (${addedLines.length}): ${addedLines.join(' | ')}. Confirma brevemente 100% en ESPAÑOL.`
     const addedSet = new Set(lineIds)
     const batchAlts = collectTicketCheaperRegularAlternatives(

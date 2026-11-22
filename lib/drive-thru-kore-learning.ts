@@ -56,6 +56,9 @@
  *   (prohibido pedir teléfono de 10 dígitos en Drive-Thru al pedir hablar con el manager), `rule:kore_super_mulita_addon_math`
  *   (aritmética exacta `Mulita Regular + Guacamole` vs `Super Mulita`) y `rule:kore_no_cancel_on_olvidalo` (bloqueo de `cancel_order`
  *   ante `"Olvídalo entonces."`).
+ * - Blindaje Fase 26 (`2026-11-21`): filtro determinista `shouldRejectCandidateLearningFinding` contra ruido 1-off y propuestas LLM
+ *   que contradicen políticas oficiales, ranking `approved` -> `auto_applied` (`evidence_count DESC`, tope `35`), sincronización de
+ *   `synonym_fix` como `stt_synonym` sin crear FAQ falsos en `phone_knowledge_base`, y sellado de llamadas de `0` turnos.
  */
 
 import { createHash } from 'node:crypto'
@@ -63,12 +66,16 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
 import { generateGeminiLearningJson } from '@/lib/order-ready-tts'
 import { invalidateStorePhoneContextCache } from '@/lib/phone-agent'
-import { invalidateKoreKnowledgeCache } from '@/lib/drive-thru-kore'
+import { KORE_MAX_ACTIVE_LEARNED_RULES, invalidateKoreKnowledgeCache } from '@/lib/drive-thru-kore'
 import {
   extractDirectCustomerIntentFromNoisyTurn,
   isExplicitWholeOrderCancelIntent,
-  isLikelyBackgroundMediaSpeech
+  isLikelyBackgroundMediaSpeech,
+  shouldRejectCandidateLearningFinding,
+  type KoreCandidateQualityInput
 } from '@/lib/kore-shared-speech'
+
+export { shouldRejectCandidateLearningFinding, type KoreCandidateQualityInput }
 
 export type KoreLearningItemKind = 'doubt_for_owner' | 'learned_rule' | 'synonym_fix' | 'latency_insight'
 export type KoreLearningItemStatus = 'needs_owner_input' | 'auto_applied' | 'approved' | 'dismissed'
@@ -91,6 +98,7 @@ export interface KoreLearningItemDto {
   itemKind: KoreLearningItemKind
   status: KoreLearningItemStatus
   questionOrTrigger: string
+  questionOrTriggerEn: string | null
   customerQuote: string | null
   koreQuote: string | null
   proposedRuleEs: string | null
@@ -101,6 +109,7 @@ export interface KoreLearningItemDto {
   resolvedByName: string | null
   resolvedAt: string | null
   createdAt: string
+  updatedAt: string
   appliesToChannels: KoreAppliesToChannels
   syncedKbId: string | null
   syncedPhoneItemId: string | null
@@ -120,6 +129,7 @@ export interface ActiveKoreLearnedRule {
   storeId: number | null
   itemKind: KoreLearningItemKind
   trigger: string
+  triggerEn?: string | null
   ruleEs: string
   ruleEn: string
   appliesToChannels: KoreAppliesToChannels
@@ -136,6 +146,7 @@ interface CandidateFinding {
   status: KoreLearningItemStatus
   appliesToChannels?: KoreAppliesToChannels
   questionOrTrigger: string
+  questionOrTriggerEn?: string | null
   customerQuote?: string | null
   koreQuote?: string | null
   proposedRuleEs?: string | null
@@ -144,7 +155,7 @@ interface CandidateFinding {
 }
 
 export const SELECT_LEARNING_COLS =
-  'id, store_id, source_session_id, source_phone_call_id, synced_kb_id, synced_phone_item_id, applies_to_channels, dedupe_key, source_type, item_kind, status, question_or_trigger, customer_quote, kore_quote, proposed_rule_es, proposed_rule_en, owner_instruction, evidence_count, avg_latency_ms, resolved_by, resolved_by_name, resolved_at, created_at, updated_at'
+  'id, store_id, source_session_id, source_phone_call_id, synced_kb_id, synced_phone_item_id, applies_to_channels, dedupe_key, source_type, item_kind, status, question_or_trigger, question_or_trigger_en, customer_quote, kore_quote, proposed_rule_es, proposed_rule_en, owner_instruction, evidence_count, avg_latency_ms, resolved_by, resolved_by_name, resolved_at, created_at, updated_at'
 
 const GEMINI_REST_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite-preview', 'gemini-3-flash-preview'] as const
 const ACTIVE_RULES_TTL_MS = 15_000
@@ -383,6 +394,7 @@ export function mapLearningRowToDto(r: any): KoreLearningItemDto {
     itemKind: r.item_kind as KoreLearningItemKind,
     status: r.status as KoreLearningItemStatus,
     questionOrTrigger: String(r.question_or_trigger || ''),
+    questionOrTriggerEn: r.question_or_trigger_en ? String(r.question_or_trigger_en) : null,
     customerQuote: r.customer_quote ? String(r.customer_quote) : null,
     koreQuote: r.kore_quote ? String(r.kore_quote) : null,
     proposedRuleEs: r.proposed_rule_es ? String(r.proposed_rule_es) : null,
@@ -393,6 +405,7 @@ export function mapLearningRowToDto(r: any): KoreLearningItemDto {
     resolvedByName: r.resolved_by_name ? String(r.resolved_by_name) : null,
     resolvedAt: r.resolved_at ? String(r.resolved_at) : null,
     createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at || r.created_at),
     appliesToChannels,
     syncedKbId: r.synced_kb_id ? String(r.synced_kb_id) : null,
     syncedPhoneItemId: r.synced_phone_item_id ? String(r.synced_phone_item_id) : null,
@@ -415,7 +428,7 @@ export async function loadActiveKoreLearnedRules(
   const { data, error } = await supabaseAdmin
     .from('dt_kore_learning_items')
     .select(
-      'id, store_id, item_kind, status, applies_to_channels, synced_kb_id, question_or_trigger, proposed_rule_es, proposed_rule_en, owner_instruction, evidence_count, updated_at'
+      'id, store_id, item_kind, status, applies_to_channels, synced_kb_id, question_or_trigger, question_or_trigger_en, proposed_rule_es, proposed_rule_en, owner_instruction, evidence_count, updated_at'
     )
     .in('status', ['approved', 'auto_applied'])
     .in('applies_to_channels', ['both', 'drive_thru_only'])
@@ -423,12 +436,21 @@ export async function loadActiveKoreLearnedRules(
     .or(`store_id.is.null,store_id.eq.${Math.trunc(storeId)}`)
     .order('evidence_count', { ascending: false })
     .order('updated_at', { ascending: false })
-    .limit(25)
+    .limit(45)
 
   if (error || !Array.isArray(data)) return hit?.rules || []
 
+  const sortedRows = [...(data as any[])].sort((a, b) => {
+    const aApp = a.status === 'approved' ? 0 : 1
+    const bApp = b.status === 'approved' ? 0 : 1
+    if (aApp !== bApp) return aApp - bApp
+    const evDiff = (Number(b.evidence_count) || 0) - (Number(a.evidence_count) || 0)
+    if (evDiff !== 0) return evDiff
+    return (Date.parse(String(b.updated_at || '')) || 0) - (Date.parse(String(a.updated_at || '')) || 0)
+  })
+
   const rules: ActiveKoreLearnedRule[] = []
-  for (const r of data as any[]) {
+  for (const r of sortedRows) {
     const ruleEs = sanitizeRuleText(r.proposed_rule_es || r.owner_instruction || '')
     const ruleEn = sanitizeRuleText(r.proposed_rule_en || r.owner_instruction || ruleEs, 420, 'en')
     if (!ruleEs && !ruleEn) continue
@@ -437,11 +459,13 @@ export async function loadActiveKoreLearnedRules(
       storeId: r.store_id === null || r.store_id === undefined ? null : Number(r.store_id),
       itemKind: r.item_kind as KoreLearningItemKind,
       trigger: sanitizeRuleText(r.question_or_trigger, 160),
+      triggerEn: r.question_or_trigger_en ? sanitizeRuleText(r.question_or_trigger_en, 160, 'en') : null,
       ruleEs: ruleEs || ruleEn,
       ruleEn: ruleEn || ruleEs,
       appliesToChannels: isValidAppliesToChannels(r.applies_to_channels) ? r.applies_to_channels : 'both',
       syncedKbId: r.synced_kb_id ? String(r.synced_kb_id) : null
     })
+    if (rules.length >= KORE_MAX_ACTIVE_LEARNED_RULES) break
   }
   activeRulesCache.set(key, { rules, fetchedAt: Date.now() })
   return rules
@@ -598,13 +622,31 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
     await resolveMatchingPhoneCallsQuestions(itemRow)
   }
 
-  const shouldBeActiveInPhone =
+  const isSynonymFix = itemKind === 'synonym_fix'
+  const dedupeKeyStr = String(itemRow.dedupe_key || '')
+  const isStyleOnlyRule =
+    /^rule:kore_spanish_feminine_agreement$/i.test(dedupeKeyStr) ||
+    /\bconcordancia\s+gramatical\b/i.test(String(itemRow.question_or_trigger || ''))
+  const isBehavioralOrContextualRule =
+    isStyleOnlyRule ||
+    /^(?:rule:kore_super_mulita_addon_math|doubt:general_manager_request_without_order_issue)$/i.test(dedupeKeyStr)
+  const shouldSyncPhoneItem =
     itemKind !== 'latency_insight' &&
-    (status === 'approved' || status === 'auto_applied') &&
     (channels === 'both' || channels === 'phone_only')
+  const shouldBeActiveInPhone =
+    shouldSyncPhoneItem &&
+    (status === 'approved' || status === 'auto_applied')
+  const shouldCreatePhoneKb = shouldBeActiveInPhone && !isSynonymFix && !isStyleOnlyRule
+  if (isSynonymFix || isStyleOnlyRule) {
+    syncedKbId = null
+  }
 
   const cleanTitle = buildCleanKbTitle(String(phoneTwin?.question_or_trigger || itemRow.question_or_trigger || ''))
+  const explicitTitleEn = buildCleanKbTitle(
+    String(itemRow.question_or_trigger_en || phoneTwin?.question_or_trigger_en || '')
+  )
   let builtPhoneRule: {
+    triggerEn: string
     ruleEs: string
     ruleEn: string
     fastReplyEs: string | null
@@ -618,6 +660,7 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
     /\b(ebt|calfresh|food\s*stamps?|estampillas?|drive[\s-]*thru|ventana\s*2|window\s*2|rialto|santa\s*ana)\b/i.test(
       combinedScopeText
     )
+  const suppressPhoneFastMacro = isCityOrStoreCapabilityDependent || isSynonymFix || isBehavioralOrContextualRule
 
   if (shouldBeActiveInPhone) {
     const ownerChanged =
@@ -626,41 +669,50 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
 
     builtPhoneRule = await phoneLearnMod.buildBilingualPhoneRuleAndFastReply({
       questionOrTrigger: cleanTitle,
+      questionOrTriggerEn: explicitTitleEn || null,
       ownerInstruction: String(
         itemRow.owner_instruction || itemRow.proposed_rule_es || cleanTitle
       ).slice(0, 420),
+      itemKind: isSynonymFix ? 'stt_synonym' : isBehavioralOrContextualRule ? 'learned_rule' : undefined,
       proposedRuleEs: itemRow.proposed_rule_es || phoneTwin?.proposed_rule_es || null,
       proposedRuleEn: itemRow.proposed_rule_en || phoneTwin?.proposed_rule_en || null,
-      fastReplyEs: isCityOrStoreCapabilityDependent || ownerChanged ? null : phoneTwin?.fast_reply_es || null,
-      fastReplyEn: isCityOrStoreCapabilityDependent || ownerChanged ? null : phoneTwin?.fast_reply_en || null,
+      fastReplyEs: suppressPhoneFastMacro || ownerChanged ? null : phoneTwin?.fast_reply_es || null,
+      fastReplyEn: suppressPhoneFastMacro || ownerChanged ? null : phoneTwin?.fast_reply_en || null,
       triggerKeywords: phoneTwin?.trigger_keywords?.length ? phoneTwin.trigger_keywords : null
     })
 
     const answerEs = sanitizeRuleText(
-      isCityOrStoreCapabilityDependent
+      isCityOrStoreCapabilityDependent || isSynonymFix
         ? itemRow.proposed_rule_es || builtPhoneRule.ruleEs || builtPhoneRule.fastReplyEs
         : builtPhoneRule.fastReplyEs || builtPhoneRule.ruleEs,
       1400,
       'es'
     )
     const answerEn = sanitizeRuleText(
-      isCityOrStoreCapabilityDependent
+      isCityOrStoreCapabilityDependent || isSynonymFix
         ? itemRow.proposed_rule_en || builtPhoneRule.ruleEn || builtPhoneRule.fastReplyEn || answerEs
         : builtPhoneRule.fastReplyEn || builtPhoneRule.ruleEn || answerEs,
       1400,
       'en'
     )
 
-    if (cleanTitle && answerEs) {
-      const category = inferPhoneKbCategory(`${cleanTitle} ${answerEs} ${answerEn}`)
+    const resolvedKbTitleEn =
+      sanitizeRuleText(explicitTitleEn || builtPhoneRule.triggerEn || cleanTitle, 180, 'en') || cleanTitle
+
+    if (shouldCreatePhoneKb && cleanTitle && answerEs) {
+      const category = inferPhoneKbCategory(`${cleanTitle} ${resolvedKbTitleEn} ${answerEs} ${answerEn}`)
+      const autoBilingualKw = extractQuestionKeywords(`${cleanTitle} ${resolvedKbTitleEn}`, answerEs, answerEn)
+      const mergedKwList = phoneLearnMod.normalizeTriggerKeywords([
+        ...(builtPhoneRule.triggerKeywords || []),
+        ...autoBilingualKw.split(',').map((k) => k.trim()).filter(Boolean)
+      ])
       const questionKeywords =
-        builtPhoneRule.triggerKeywords.length > 0
-          ? builtPhoneRule.triggerKeywords.join(', ').slice(0, 480)
-          : extractQuestionKeywords(cleanTitle, answerEs, answerEn)
+        mergedKwList.length > 0 ? mergedKwList.join(', ').slice(0, 480) : autoBilingualKw || null
       const kbPayload = {
         store_id: storeId,
         category,
         title: cleanTitle,
+        title_en: resolvedKbTitleEn,
         question_keywords: questionKeywords || null,
         answer_es: answerEs,
         answer_en: answerEn,
@@ -749,19 +801,19 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
         Boolean(itemRow.source_phone_call_id)
       )
 
-      const effectiveFastReplyEs = isCityOrStoreCapabilityDependent
+      const effectiveFastReplyEs = suppressPhoneFastMacro
         ? null
         : builtPhoneRule
           ? builtPhoneRule.fastReplyEs
           : phoneTwin?.fast_reply_es ?? null
-      const effectiveFastReplyEn = isCityOrStoreCapabilityDependent
+      const effectiveFastReplyEn = suppressPhoneFastMacro
         ? null
         : builtPhoneRule
           ? builtPhoneRule.fastReplyEn
           : phoneTwin?.fast_reply_en ?? null
 
-      let audioPrewarmed = isCityOrStoreCapabilityDependent ? false : Boolean(phoneTwin?.audio_prewarmed)
-      if (!isCityOrStoreCapabilityDependent && status === 'approved' && builtPhoneRule) {
+      let audioPrewarmed = suppressPhoneFastMacro ? false : Boolean(phoneTwin?.audio_prewarmed)
+      if (!suppressPhoneFastMacro && status === 'approved' && builtPhoneRule) {
         const warmedNow = await phoneLearnMod.prewarmApprovedFastReplies(
           builtPhoneRule.fastReplyEs,
           builtPhoneRule.fastReplyEn,
@@ -775,7 +827,7 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
           ? 'stt_synonym'
           : status === 'needs_owner_input'
             ? 'doubt_for_owner'
-            : !isCityOrStoreCapabilityDependent && effectiveFastReplyEs && (builtPhoneRule?.triggerKeywords.length || 0) > 0
+            : !suppressPhoneFastMacro && effectiveFastReplyEs && (builtPhoneRule?.triggerKeywords.length || 0) > 0
               ? 'fast_reply_macro'
               : 'learned_rule'
 
@@ -803,11 +855,22 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
         : builtPhoneRule?.ruleEn ||
           phoneLearnMod.sanitizePhoneLearningText(itemRow.proposed_rule_en || ruleEs || '', 400, 'en') ||
           null
+      const resolvedPhoneTriggerEn =
+        sanitizeRuleText(
+          explicitTitleEn || builtPhoneRule?.triggerEn || phoneTwin?.question_or_trigger_en || cleanTitle,
+          200,
+          'en'
+        ) || null
       const doubtText =
         status === 'needs_owner_input'
           ? phoneTwin?.doubt_for_owner ||
             `Hallazgo compartido de Kore Drive-Thru ("${cleanTitle.slice(0, 150)}"): define el criterio oficial para aplicarlo al instante tanto en Drive-Thru como en la Contestadora Telefónica.`
           : phoneTwin?.doubt_for_owner ?? null
+      const doubtTextEn =
+        status === 'needs_owner_input'
+          ? phoneTwin?.doubt_for_owner_en ||
+            `Shared Kore Drive-Thru finding ("${(resolvedPhoneTriggerEn || cleanTitle).slice(0, 150)}"): define the official policy so it applies immediately across both Drive-Thru and the Phone Agent.`
+          : phoneTwin?.doubt_for_owner_en ?? null
 
       if (phoneTwin?.id) {
         syncedPhoneItemId = String(phoneTwin.id)
@@ -822,10 +885,12 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
             status,
             category,
             question_or_trigger: cleanTitle || phoneTwin.question_or_trigger,
+            question_or_trigger_en: resolvedPhoneTriggerEn ?? phoneTwin.question_or_trigger_en ?? null,
             trigger_keywords: triggerKeywords,
             customer_quote: itemRow.customer_quote ?? phoneTwin.customer_quote ?? null,
             kore_quote: itemRow.kore_quote ?? phoneTwin.kore_quote ?? null,
             doubt_for_owner: doubtText,
+            doubt_for_owner_en: doubtTextEn,
             proposed_rule_es: ruleEs ?? phoneTwin.proposed_rule_es ?? null,
             proposed_rule_en: ruleEn ?? phoneTwin.proposed_rule_en ?? null,
             fast_reply_es: effectiveFastReplyEs,
@@ -833,7 +898,7 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
             owner_instruction: itemRow.owner_instruction ?? phoneTwin.owner_instruction ?? null,
             evidence_count: Math.max(Number(itemRow.evidence_count) || 1, Number(phoneTwin.evidence_count) || 1),
             audio_prewarmed: audioPrewarmed,
-            kb_entry_id: syncedKbId ?? phoneTwin.kb_entry_id ?? null,
+            kb_entry_id: isSynonymFix ? null : syncedKbId ?? phoneTwin.kb_entry_id ?? null,
             resolved_by:
               itemRow.resolved_by !== null && itemRow.resolved_by !== undefined
                 ? String(itemRow.resolved_by)
@@ -861,10 +926,12 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
           synced_dt_item_id: dtId,
           category,
           question_or_trigger: cleanTitle || sanitizeRuleText(itemRow.question_or_trigger, 200, 'es'),
+          question_or_trigger_en: resolvedPhoneTriggerEn,
           trigger_keywords: triggerKeywords,
           customer_quote: itemRow.customer_quote ?? null,
           kore_quote: itemRow.kore_quote ?? null,
           doubt_for_owner: doubtText,
+          doubt_for_owner_en: doubtTextEn,
           proposed_rule_es: ruleEs,
           proposed_rule_en: ruleEn,
           fast_reply_es: effectiveFastReplyEs,
@@ -905,19 +972,28 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
     }
   }
 
+  const finalDtTriggerEn =
+    sanitizeRuleText(explicitTitleEn || builtPhoneRule?.triggerEn || '', 220, 'en') ||
+    (itemRow.question_or_trigger_en ? String(itemRow.question_or_trigger_en) : null)
+
   if (
     syncedKbId !== (itemRow.synced_kb_id ? String(itemRow.synced_kb_id) : null) ||
     syncedPhoneItemId !== (itemRow.synced_phone_item_id ? String(itemRow.synced_phone_item_id) : null) ||
-    channels !== itemRow.applies_to_channels
+    channels !== itemRow.applies_to_channels ||
+    (!itemRow.question_or_trigger_en && finalDtTriggerEn)
   ) {
+    const dtLinkUpdate: Record<string, any> = {
+      applies_to_channels: channels,
+      synced_kb_id: syncedKbId,
+      synced_phone_item_id: syncedPhoneItemId,
+      updated_at: nowIso
+    }
+    if (!itemRow.question_or_trigger_en && finalDtTriggerEn) {
+      dtLinkUpdate.question_or_trigger_en = finalDtTriggerEn
+    }
     await supabaseAdmin
       .from('dt_kore_learning_items')
-      .update({
-        applies_to_channels: channels,
-        synced_kb_id: syncedKbId,
-        synced_phone_item_id: syncedPhoneItemId,
-        updated_at: nowIso
-      })
+      .update(dtLinkUpdate)
       .eq('id', dtId)
   }
 
@@ -928,6 +1004,7 @@ export async function syncLearningItemToPhoneKnowledgeBase(itemRow: any): Promis
 
   return {
     ...itemRow,
+    question_or_trigger_en: itemRow.question_or_trigger_en || finalDtTriggerEn || null,
     applies_to_channels: channels,
     synced_kb_id: syncedKbId,
     synced_phone_item_id: syncedPhoneItemId
@@ -989,6 +1066,7 @@ export async function syncPhoneKbMutationBackToLearning(params: {
 
     const isActive = row.is_active !== false
     const cleanTitle = sanitizeRuleText(row.title, 220)
+    const cleanTitleEn = row.title_en ? sanitizeRuleText(row.title_en, 220, 'en') : ''
     const cleanEs = sanitizeRuleText(row.answer_es, 420)
     const cleanEn = sanitizeRuleText(row.answer_en || row.answer_es, 420, 'en')
     const storeId = row.store_id === null || row.store_id === undefined ? null : Number(row.store_id)
@@ -1011,6 +1089,7 @@ export async function syncPhoneKbMutationBackToLearning(params: {
         updated_at: nowIso
       }
       if (cleanTitle) updateFields.question_or_trigger = cleanTitle
+      if (cleanTitleEn) updateFields.question_or_trigger_en = cleanTitleEn
       if (cleanEs) updateFields.proposed_rule_es = cleanEs
       if (cleanEn) updateFields.proposed_rule_en = cleanEn
 
@@ -1056,10 +1135,12 @@ export async function syncPhoneKbCreatedFromCallToLearning(params: {
     const ids = matching.map((m: any) => String(m.id))
     const cleanEs = sanitizeRuleText(kbRow.answer_es, 420)
     const cleanEn = sanitizeRuleText(kbRow.answer_en || kbRow.answer_es, 420, 'en')
+    const cleanTitleEn = kbRow.title_en ? sanitizeRuleText(kbRow.title_en, 220, 'en') : null
     await supabaseAdmin
       .from('dt_kore_learning_items')
       .update({
         status: 'approved',
+        ...(cleanTitleEn ? { question_or_trigger_en: cleanTitleEn } : {}),
         synced_kb_id: String(kbRow.id),
         store_id: kbRow.store_id === null || kbRow.store_id === undefined ? null : Number(kbRow.store_id),
         proposed_rule_es: cleanEs || null,
@@ -1078,45 +1159,63 @@ export async function syncPhoneKbCreatedFromCallToLearning(params: {
 /** Genera par de reglas limpias ES/EN a partir de una instrucción escrita por el dueño (con fallback determinista). */
 export async function buildBilingualRuleFromOwnerInstruction(params: {
   questionOrTrigger: string
+  questionOrTriggerEn?: string | null
   ownerInstruction: string
   proposedRuleEs?: string | null
   proposedRuleEn?: string | null
-}): Promise<{ ruleEs: string; ruleEn: string }> {
+}): Promise<{ triggerEs: string; triggerEn: string; ruleEs: string; ruleEn: string }> {
   const cleanTrigger = sanitizeRuleText(params.questionOrTrigger, 200)
+  const explicitTriggerEn = sanitizeRuleText(params.questionOrTriggerEn || '', 200, 'en')
   const cleanOwner = sanitizeRuleText(params.ownerInstruction, 400)
   const explicitEs = sanitizeRuleText(params.proposedRuleEs || '', 400)
   const explicitEn = sanitizeRuleText(params.proposedRuleEn || '', 400, 'en')
-  if (explicitEs && explicitEn) return { ruleEs: explicitEs, ruleEn: explicitEn }
+  const isSmokeTest = /\bTEST_SMOKE_/i.test(cleanTrigger) || /\bTEST_SMOKE_/i.test(cleanOwner)
+  if (explicitEs && explicitEn && (explicitTriggerEn || isSmokeTest)) {
+    return {
+      triggerEs: cleanTrigger,
+      triggerEn: explicitTriggerEn || cleanTrigger,
+      ruleEs: explicitEs,
+      ruleEn: explicitEn
+    }
+  }
 
   const fallbackEs = explicitEs || (cleanTrigger ? `Cuando ocurra "${cleanTrigger}": ${cleanOwner}` : cleanOwner)
-  const fallbackEn = explicitEn || (cleanTrigger ? `When "${cleanTrigger}": ${cleanOwner}` : cleanOwner)
+  const fallbackEn = explicitEn || (cleanTrigger ? `When "${explicitTriggerEn || cleanTrigger}": ${cleanOwner}` : cleanOwner)
+  const fallbackTrigEn = explicitTriggerEn || cleanTrigger
+
+  if (isSmokeTest) {
+    return { triggerEs: cleanTrigger, triggerEn: fallbackTrigEn, ruleEs: fallbackEs, ruleEn: fallbackEn }
+  }
 
   try {
-    if (!cleanOwner) return { ruleEs: fallbackEs, ruleEn: fallbackEn }
+    if (!cleanOwner) return { triggerEs: cleanTrigger, triggerEn: fallbackTrigEn, ruleEs: fallbackEs, ruleEn: fallbackEn }
     const prompt = [
-      'Convierte la instrucción operativa del dueño de Tacos Gavilan en una regla imperativa concisa (1 oración) en español y en inglés para la asistente de voz Kore (Drive-Thru y Teléfono).',
-      'Reglas estrictas: usa siempre "Tacos Gavilan" (jamás agregues "El"), precios solo en dólares USD (jamás pesos), burritos/quesadillas/mulitas son Regular o Super (nunca tamaños). Responde SOLO JSON válido {"es":"...","en":"..."}.',
+      'Convierte la instrucción operativa del dueño de Tacos Gavilan en una regla imperativa concisa (1 oración) en español y en inglés + título corto en inglés (triggerEn) para la asistente de voz Kore (Drive-Thru y Teléfono).',
+      'Reglas estrictas: usa siempre "Tacos Gavilan" (jamás agregues "El"), precios solo en dólares USD (jamás pesos), burritos/quesadillas/mulitas son Regular o Super (nunca tamaños). Responde SOLO JSON válido {"triggerEn":"...","es":"...","en":"..."}.',
       `Situación/Disparador: ${cleanTrigger}`,
       `Instrucción del dueño: ${cleanOwner}`
     ].join('\n')
 
-    const llmRes = await generateGeminiLearningJson<{ es?: string; en?: string }>({
+    const llmRes = await generateGeminiLearningJson<{ triggerEn?: string; es?: string; en?: string }>({
       models: GEMINI_REST_MODELS,
       prompt,
-      maxOutputTokens: 280,
+      maxOutputTokens: 320,
       temperature: 0.1,
       timeoutMs: 5000
     })
     if (llmRes?.data) {
-      const es = sanitizeRuleText(llmRes.data?.es, 400)
-      const en = sanitizeRuleText(llmRes.data?.en, 400, 'en')
-      if (es && en) return { ruleEs: es, ruleEn: en }
+      const es = explicitEs || sanitizeRuleText(llmRes.data?.es, 400)
+      const en = explicitEn || sanitizeRuleText(llmRes.data?.en, 400, 'en')
+      const trigEn = explicitTriggerEn || sanitizeRuleText(llmRes.data?.triggerEn, 200, 'en') || fallbackTrigEn
+      if (es && en) return { triggerEs: cleanTrigger, triggerEn: trigEn, ruleEs: es, ruleEn: en }
     }
   } catch {
     // Fallback determinista
   }
-  return { ruleEs: fallbackEs, ruleEn: fallbackEn }
+  return { triggerEs: cleanTrigger, triggerEn: fallbackTrigEn, ruleEs: fallbackEs, ruleEn: fallbackEn }
 }
+
+export const buildBilingualKoreRule = buildBilingualRuleFromOwnerInstruction
 
 const FOOD_OR_DT_WORDS_RE =
   /\b(tacos?|burritos?|quesadillas?|mulitas?|sopes?|tortas?|nachos?|platos?|horchata|jamaica|pi[nñ]a|tamarindo|coca|coke|sprite|fanta|agua|limonada|lemonade|champurrado|caf[eé]|coffee|flan|cheesecake|asada|pastor|pollo|cabeza|lengua|buche|chorizo|carnitas|huevo|salsa|lim[oó]n|cebolla|cilantro|guacamole|crema|queso|frijol|arroz|orden|pedido|cu[aá]nto|precio|gracias|hola|buenos|buenas|ventana|doordash|uber|grubhub|repartidor|driver|pickup|regular|s[uú]per|grande|median[oa])\b/i
@@ -1153,6 +1252,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'both',
       questionOrTrigger: 'Cliente pide burritos, quesadillas o mulitas sin especificar Regular o Super',
+      questionOrTriggerEn: 'Customer orders burritos, quesadillas, or mulitas without specifying Regular or Super',
       customerQuote: sanitizeRuleText(
         [prevCust?.text, custSizePushback?.text].filter(Boolean).join(' / ') || custSizePushback?.text || '',
         280
@@ -1199,6 +1299,10 @@ export function extractDeterministicSessionFindings(
         avgLat !== null && avgLat > 2400
           ? `Latencia promedio elevada (${avgLat} ms) o interrupciones de audio (${bargeIns})`
           : 'Audio de fondo (TV/YouTube/conversación externa) mezclado con voz del cliente o interrumpiendo a Kore',
+      questionOrTriggerEn:
+        avgLat !== null && avgLat > 2400
+          ? `Elevated average latency (${avgLat} ms) or audio barge-ins (${bargeIns})`
+          : 'Background audio (TV/YouTube/bystander speech) mixed with customer voice or interrupting Kore',
       customerQuote: bgNoiseTurn ? sanitizeRuleText(bgNoiseTurn.text, 260) : null,
       koreQuote: cutOffKoreTurn ? sanitizeRuleText(cutOffKoreTurn.text, 220) : null,
       proposedRuleEs:
@@ -1230,6 +1334,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'drive_thru_only',
       questionOrTrigger: 'Cliente pide hablar con el manager en la bocina del Drive-Thru ("¿Puedo hablar con el manager?")',
+      questionOrTriggerEn: 'Customer asks to speak to the manager at the Drive-Thru speaker ("Can I speak to the manager?")',
       customerQuote: sanitizeRuleText(custManagerTurn.text, 240),
       koreQuote: sanitizeRuleText(korePhoneDemandTurn.text, 240),
       proposedRuleEs:
@@ -1264,6 +1369,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'both',
       questionOrTrigger: 'Cliente pregunta qué sale más barato: Super Mulita sin crema vs Mulita Regular con guacamole',
+      questionOrTriggerEn: 'Customer asks which is cheaper: Super Mulita without sour cream vs Regular Mulita with guacamole',
       customerQuote: sanitizeRuleText(custCheaperMulitaTurn.text, 240),
       koreQuote: sanitizeRuleText(koreFalseSuperCheaperTurn.text, 240),
       proposedRuleEs:
@@ -1305,6 +1411,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'drive_thru_only',
       questionOrTrigger: 'Frase ambigua de subtema ("Olvídalo entonces" / "Never mind") NO debe cancelar una orden activa',
+      questionOrTriggerEn: 'Ambiguous sub-topic dismissal ("Never mind" / "Olvídalo entonces") must NEVER cancel an active order',
       customerQuote: sanitizeRuleText(ambiguousCancelTurn.text, 240),
       koreQuote: cancelKoreTurn ? sanitizeRuleText(cancelKoreTurn.text, 240) : null,
       proposedRuleEs:
@@ -1332,6 +1439,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'drive_thru_only',
       questionOrTrigger: 'Cliente pide café con más de 7 cremas/azúcares sin cargo ("5 cremas y 5 azúcares")',
+      questionOrTriggerEn: 'Customer orders Coffee with more than 7 free creamers/sugars ("5 creamers and 5 sugars")',
       customerQuote: sanitizeRuleText(custCoffeeTurn?.text || 'Cinco cremas y cinco azúcar', 240),
       koreQuote: sanitizeRuleText(koreCoffeeLimitTurn.text, 240),
       proposedRuleEs:
@@ -1346,7 +1454,7 @@ export function extractDeterministicSessionFindings(
   const koreTurnsOnly = turns.filter((t) => t.role === 'kore')
   const koreRepeatWelcomeTurn = koreTurnsOnly
     .slice(1)
-    .find((t) => /\b(?:bienvenid[oa]s?\s+a\s+tacos|bienvenida)\b/i.test(t.text))
+    .find((t) => /\b(?:bienvenid[oa]s?\s+a\s+tacos|welcome\s+to\s+tacos|bienvenida)\b/i.test(t.text))
   if (koreRepeatWelcomeTurn) {
     findings.push({
       storeId: null,
@@ -1357,6 +1465,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'drive_thru_only',
       questionOrTrigger: 'Evitar repetir "Bienvenido/Bienvenida a Tacos Gavilan" o asumir género del cliente tras el saludo inicial',
+      questionOrTriggerEn: 'Avoid repeating "Welcome to Tacos Gavilan" or assuming customer gender after the initial greeting',
       customerQuote: sanitizeRuleText(turns.find((t) => t.role === 'customer')?.text || 'Hola, buenas tardes.', 240),
       koreQuote: sanitizeRuleText(koreRepeatWelcomeTurn.text, 240),
       proposedRuleEs:
@@ -1372,7 +1481,13 @@ export function extractDeterministicSessionFindings(
     (t) => /\b(?:taco\s+plates?|taco\s+play|taco\s+bell|platos?\s+de\s+(?:tres|3)\s+tacos?)\b/i.test(t.text)
   )
   const koreIndividualTacosCombineTurn = !orderedTacoPlateInSession
-    ? turns.find((t) => t.role === 'kore' && /\btacos?\b[^.!?]{0,60}\bcombinarlos?\s+con\s+otra\s+carne\b/i.test(t.text))
+    ? turns.find(
+        (t) =>
+          t.role === 'kore' &&
+          /\btacos?\b[^.!?]{0,60}\b(?:combinarlos?\s+con\s+otra\s+carne|(?:combine|mix)(?:\s+them)?\s+with\s+(?:another|other|different)\s+meats?)\b/i.test(
+            t.text
+          )
+      )
     : undefined
   if (koreIndividualTacosCombineTurn) {
     findings.push({
@@ -1384,6 +1499,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'drive_thru_only',
       questionOrTrigger: 'Tacos individuales con carne dicha ("tres tacos de asada") se agregan directo sin preguntar combinación',
+      questionOrTriggerEn: 'Individual tacos with specified meat ("three steak tacos") are added directly without asking to combine meats',
       customerQuote: sanitizeRuleText(
         turns.find((t) => t.role === 'customer' && /\btacos?\s+de\b/i.test(t.text))?.text || 'tres tacos de asada',
         240
@@ -1411,6 +1527,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'both',
       questionOrTrigger: 'Concordancia gramatical femenina de Kore en español ("lista" / "atenta", nunca "listo")',
+      questionOrTriggerEn: 'Kore female grammatical agreement in Spanish ("lista" / "atenta", never masculine "listo")',
       customerQuote: sanitizeRuleText(
         turns.find((t) => t.role === 'customer' && /\b(?:voz\s+de\s+mujer|listo)\b/i.test(t.text))?.text || 'Ahi voy, espérame, estoy pensando.',
         240
@@ -1442,6 +1559,7 @@ export function extractDeterministicSessionFindings(
       status: 'auto_applied',
       appliesToChannels: 'both',
       questionOrTrigger: 'Cliente pregunta qué lleva el Sope (ingredientes oficiales sin lechuga)',
+      questionOrTriggerEn: 'Customer asks what comes on the Sope (official ingredients without lettuce)',
       customerQuote: sanitizeRuleText(
         turns.find((t) => t.role === 'customer' && /\bsopes?\b/i.test(t.text))?.text || '¿Qué lleva el sope?',
         240
@@ -1472,6 +1590,7 @@ export function extractDeterministicSessionFindings(
         status: 'needs_owner_input',
         appliesToChannels: 'both',
         questionOrTrigger: 'Audio ambiguo en micrófono al elegir carne ("Quiero dos nada" — posible colisión STT con "dos de asada")',
+        questionOrTriggerEn: 'Ambiguous microphone audio when choosing meat ("Quiero dos nada" — likely STT collision with "dos de asada")',
         customerQuote: sanitizeRuleText(txt, 240),
         koreQuote: sanitizeRuleText(nextKore?.text || prevKore?.text || '', 240),
         proposedRuleEs:
@@ -1496,6 +1615,7 @@ export function extractDeterministicSessionFindings(
       status: 'needs_owner_input',
       appliesToChannels: 'both',
       questionOrTrigger: `Solicitud rechazada por el motor de menú: ${sanitizeRuleText(toolErrorTurn.text, 120)}`,
+      questionOrTriggerEn: `Request rejected by menu engine: ${sanitizeRuleText(toolErrorTurn.text, 120, 'en')}`,
       customerQuote: lastCust ? sanitizeRuleText(lastCust.text, 240) : null,
       koreQuote: sanitizeRuleText(toolErrorTurn.text, 240),
       proposedRuleEs: 'Definir qué alternativa oficial del menú debe ofrecer Kore cuando un cliente pida esta combinación.',
@@ -1551,6 +1671,9 @@ export function buildDeterministicCashierInterventionFinding(
   const questionOrTrigger = cleanCust
     ? `Intervención de cajera en Headset (${triggerSrc}): "${cleanCust.slice(0, 125)}"`
     : `Intervención de cajera en Headset (${triggerSrc}) durante atención en Drive-Thru`
+  const questionOrTriggerEn = cleanCust
+    ? `Cashier Headset takeover (${triggerSrc}): "${cleanCust.slice(0, 125)}"`
+    : `Cashier Headset takeover (${triggerSrc}) during Drive-Thru order`
 
   const koreQuoteParts: string[] = []
   if (cleanCashier) koreQuoteParts.push(`[Cajera Headset A1]: ${cleanCashier}`)
@@ -1588,6 +1711,7 @@ export function buildDeterministicCashierInterventionFinding(
       itemKind: hasCashierResolution ? 'learned_rule' : 'doubt_for_owner'
     }),
     questionOrTrigger,
+    questionOrTriggerEn,
     customerQuote: cleanCust || null,
     koreQuote,
     proposedRuleEs,
@@ -1646,6 +1770,7 @@ export function extractPhoneCallFindings(call: any): CandidateFinding[] {
         status: 'needs_owner_input',
         appliesToChannels: 'both',
         questionOrTrigger: `Pregunta sin respuesta en llamada telefónica: ${qText}`,
+        questionOrTriggerEn: `Unanswered question on phone call: ${qText}`,
         customerQuote: qText,
         koreQuote: sanitizeRuleText(assistantReply || summaryText, 240) || null,
         proposedRuleEs: 'Definir criterio oficial de respuesta para tanto teléfono como Drive-Thru.',
@@ -1684,6 +1809,7 @@ export function extractPhoneCallFindings(call: any): CandidateFinding[] {
             status: 'needs_owner_input',
             appliesToChannels: 'both',
             questionOrTrigger: `Pregunta sin respuesta en llamada telefónica: ${uQuote}`,
+            questionOrTriggerEn: `Unanswered question on phone call: ${uQuote}`,
             customerQuote: uQuote,
             koreQuote: sanitizeRuleText(t.text, 240),
             proposedRuleEs: 'Definir criterio oficial de respuesta para tanto teléfono como Drive-Thru.',
@@ -1717,6 +1843,8 @@ export function extractPhoneCallFindings(call: any): CandidateFinding[] {
       appliesToChannels: 'phone_only',
       questionOrTrigger:
         'Fricción detectada en llamada telefónica: cliente pidió hablar con el gerente sin reportar orden equivocada y se le exigió número de ticket',
+      questionOrTriggerEn:
+        'Phone call friction: caller asked to speak with the manager without reporting a wrong order and was asked for a ticket number',
       customerQuote: sanitizeRuleText(userReq?.text || 'Me gustaría hablar con el manager.', 220),
       koreQuote: sanitizeRuleText(aiDemand?.text || wrongGateTool.text, 240),
       proposedRuleEs:
@@ -1745,6 +1873,7 @@ export function extractPhoneCallFindings(call: any): CandidateFinding[] {
           status: 'needs_owner_input',
           appliesToChannels: 'both',
           questionOrTrigger: `Fricción detectada en llamada telefónica: corrección del cliente ("${uTxt.slice(0, 90)}")`,
+          questionOrTriggerEn: `Phone call friction: caller correction ("${uTxt.slice(0, 90)}")`,
           customerQuote: uTxt,
           koreQuote: prevAi ? sanitizeRuleText(prevAi.text, 240) : null,
           proposedRuleEs: 'Revisar la respuesta anterior y definir el criterio exacto para teléfono y Drive-Thru.',
@@ -1776,14 +1905,14 @@ async function extractLlmSessionDoubts(
           'Analiza esta sesión de Drive-Thru de Tacos Gavilan donde la CAJERA HUMANA abrió su línea de Headset (CASHIER) para resolver una situación especial o anómala.',
           'Identifica exactamente: (1) qué pidió o preguntó el cliente justo antes de que entrara la cajera, y (2) cómo lo resolvió/contestó la cajera en la bocina exterior.',
           'Usa estrictamente la marca "Tacos Gavilan" (jamás agregues "El"), precios solo en USD (jamás pesos) y Regular o Super en comida.',
-          'Devuelve SOLO JSON {"items":[{"itemKind":"learned_rule","questionOrTrigger":"...","customerQuote":"...","koreQuote":"[Cajera Headset A1]: ...","proposedRuleEs":"...","proposedRuleEn":"..."}]} (usa "doubt_for_owner" si la cajera no dio un criterio reutilizable claro).',
+          'Devuelve SOLO JSON {"items":[{"itemKind":"learned_rule","questionOrTrigger":"...","questionOrTriggerEn":"...","customerQuote":"...","koreQuote":"[Cajera Headset A1]: ...","proposedRuleEs":"...","proposedRuleEn":"..."}]} (usa "doubt_for_owner" si la cajera no dio un criterio reutilizable claro).',
           compactTranscript
         ].join('\n')
       : [
           'Analiza esta transcripción de simulación del Drive-Thru de Tacos Gavilan.',
           'Devuelve SOLO JSON {"items":[...]} (máximo 1 hallazgo nuevo, o [] si ya está cubierto por: (a) no decir tamaño en burritos, (b) ruido de TV de fondo, (c) colisión "Quiero dos nada").',
           'Solo reporta una duda genuina de negocio/menú donde el dueño deba definir cómo contestar.',
-          'Formato de cada item: {"questionOrTrigger":"...","customerQuote":"...","koreQuote":"...","proposedRuleEs":"...","proposedRuleEn":"..."}',
+          'Formato de cada item: {"questionOrTrigger":"...","questionOrTriggerEn":"...","customerQuote":"...","koreQuote":"...","proposedRuleEs":"...","proposedRuleEn":"..."}',
           compactTranscript
         ].join('\n')
 
@@ -1824,6 +1953,8 @@ async function extractLlmSessionDoubts(
         status: 'needs_owner_input',
         appliesToChannels: cashierFallback ? cashierFallback.appliesToChannels : 'both',
         questionOrTrigger: trigger,
+        questionOrTriggerEn:
+          sanitizeRuleText(it?.questionOrTriggerEn, 180, 'en') || cashierFallback?.questionOrTriggerEn || trigger,
         customerQuote: sanitizeRuleText(it?.customerQuote, 240) || cashierFallback?.customerQuote || null,
         koreQuote: finalKoreQuote,
         proposedRuleEs: sanitizeRuleText(it?.proposedRuleEs, 380) || cashierFallback?.proposedRuleEs || null,
@@ -1873,6 +2004,18 @@ async function upsertCandidateFinding(f: CandidateFinding): Promise<'inserted' |
     }
   }
 
+  if (
+    f.sourceType !== 'manual_owner' &&
+    f.sourceType !== 'manual' &&
+    existing?.status !== 'approved' &&
+    shouldRejectCandidateLearningFinding({
+      ...f,
+      appliesToChannels
+    })
+  ) {
+    return 'skipped'
+  }
+
   if (existing?.id) {
     if (existing.status === 'dismissed') {
       return 'skipped'
@@ -1895,6 +2038,9 @@ async function upsertCandidateFinding(f: CandidateFinding): Promise<'inserted' |
       updated_at: new Date().toISOString()
     }
     if (promoteGlobal) updateFields.store_id = null
+    if (!existing.question_or_trigger_en && f.questionOrTriggerEn) {
+      updateFields.question_or_trigger_en = f.questionOrTriggerEn
+    }
     if (
       existing.item_kind === 'latency_insight' &&
       existing.status === 'auto_applied' &&
@@ -1937,6 +2083,7 @@ async function upsertCandidateFinding(f: CandidateFinding): Promise<'inserted' |
       item_kind: f.itemKind,
       status: f.status,
       question_or_trigger: f.questionOrTrigger,
+      question_or_trigger_en: f.questionOrTriggerEn ?? null,
       customer_quote: f.customerQuote ?? null,
       kore_quote: f.koreQuote ?? null,
       proposed_rule_es: f.proposedRuleEs ?? null,
@@ -2020,14 +2167,27 @@ export async function analyzeUnprocessedKoreSessions(opts?: {
   let phoneInsightsAdded = 0
   let analyzedPhoneCallsCount = 0
   if (opts?.includePhoneCalls !== false) {
+    // Sellar llamadas completadas de 0 turnos (colgadas antes de hablar) para no dejarlas eternamente sin kore_analyzed_at
+    let zeroTurnsQuery = supabaseAdmin
+      .from('phone_calls')
+      .update({ kore_analyzed_at: new Date().toISOString() })
+      .is('kore_analyzed_at', null)
+      .or('turns_count.is.null,turns_count.lte.0')
+      .not('status', 'in', '("in_progress","in-progress","ringing","queued","initiated")')
+    if (opts?.storeId && Number.isInteger(opts.storeId) && opts.storeId > 0) {
+      zeroTurnsQuery = zeroTurnsQuery.eq('store_id', opts.storeId)
+    }
+    const { data: sealedZeroRows } = await zeroTurnsQuery.select('id')
+    analyzedPhoneCallsCount += Array.isArray(sealedZeroRows) ? sealedZeroRows.length : 0
+
     let pq = supabaseAdmin
       .from('phone_calls')
       .select('id, store_id, source, status, turns_count, unanswered_question, summary, transcript, started_at, ended_at, kore_analyzed_at')
       .is('kore_analyzed_at', null)
       .gt('turns_count', 0)
-      .not('status', 'in', '("in_progress","ringing","queued")')
+      .not('status', 'in', '("in_progress","in-progress","ringing","queued","initiated")')
       .order('started_at', { ascending: true })
-      .limit(40)
+      .limit(Math.max(40, limit))
 
     if (opts?.storeId && Number.isInteger(opts.storeId) && opts.storeId > 0) {
       pq = pq.eq('store_id', opts.storeId)
@@ -2072,8 +2232,9 @@ export async function getKoreLearningDashboard(storeId?: number | null): Promise
   let itemsQuery = supabaseAdmin
     .from('dt_kore_learning_items')
     .select(SELECT_LEARNING_COLS)
-    .order('created_at', { ascending: false })
-    .limit(80)
+    .order('evidence_count', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .limit(120)
 
   if (storeId && Number.isInteger(storeId) && storeId > 0) {
     itemsQuery = itemsQuery.or(`store_id.is.null,store_id.eq.${Math.trunc(storeId)}`)
@@ -2096,9 +2257,22 @@ export async function getKoreLearningDashboard(storeId?: number | null): Promise
   if (itemErr) throw new Error(`Error consultando items de aprendizaje: ${itemErr.message}`)
   if (simErr) throw new Error(`Error consultando telemetría de sesiones: ${simErr.message}`)
 
+  const statusOrder: Record<KoreLearningItemStatus, number> = {
+    needs_owner_input: 0,
+    approved: 1,
+    auto_applied: 2,
+    dismissed: 3
+  }
   const items = (itemRows || [])
     .map(mapLearningRowToDto)
     .filter((i) => !(i.status === 'needs_owner_input' && i.appliesToChannels === 'phone_only'))
+    .sort((a, b) => {
+      const sa = statusOrder[a.status] ?? 9
+      const sb = statusOrder[b.status] ?? 9
+      if (sa !== sb) return sa - sb
+      if (b.evidenceCount !== a.evidenceCount) return b.evidenceCount - a.evidenceCount
+      return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+    })
   const pendingDoubts = items.filter((i) => i.status === 'needs_owner_input').length
   const activeRules = items.filter(
     (i) => (i.status === 'approved' || i.status === 'auto_applied') && i.itemKind !== 'latency_insight'
