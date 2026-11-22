@@ -1,34 +1,69 @@
 /**
  * @module useSmartProjections
- * @description Hook del Planificador que obtiene proyecciones congeladas desde Intelligence y conserva el cálculo legado como contingencia.
- * @businessRules La generación requiere sesión JWT y trabaja por semana/tienda seleccionada.
- * @dataFlow Planificador -> API autenticada de proyecciones -> estado editable de la semana.
- * @notes El token se envía en cada generación para que el backend aplique rol y alcance de tienda.
+ * @description Hook del Planificador que obtiene proyecciones desde Intelligence v3.1, gestiona bloqueos estáticos
+ *   manuales por día (`manual_override`) sincronizados con `sales_projections_cache` y `weekly_budgets`,
+ *   y conserva el cálculo legado únicamente como contingencia sin pisar días bloqueados manualmente.
+ *
+ * @businessRules
+ *   - Día laboral: 6:00 AM a 5:59 AM del siguiente día (`America/Los_Angeles`).
+ *   - Días movidos manualmente por el Manager/Supervisor quedan fijos (`manual: true`) y jamás son sobreescritos
+ *     por recargas, cambios de semana/tienda ni por el botón general de recálculo (`forceRecalc`).
+ *   - Cada día manual conserva `aiBaseSales` para auditoría transparente y restauración de 1 clic (`unlock`).
+ *
+ * @dataFlow
+ *   Planificador -> `/api/projections/generate` & `/api/projections/override` -> `sales_projections_cache` + `weekly_budgets`.
+ *
+ * @notes
+ *   - Limpia las proyecciones al cambiar de tienda o semana para evitar acumular fechas de otras semanas en `weekly_budgets`.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { addDays, formatDateISO } from '../lib/utils'
 import { checkHoliday } from '../lib/holidayEngine'
 
-// Feature flag: Set to false to disable Intelligence and use only Legacy
 const USE_INTELLIGENCE_API = true
+
+export interface ProjectionOverrideMeta {
+    manual: boolean
+    aiBaseSales: number
+    overriddenBy?: string
+    overriddenAt?: string
+}
+
+export interface SaveManualProjectionResult {
+    ok: boolean
+    totalSales?: number
+    aiBaseSales?: number
+    errorCode?: string
+    minAllowed?: number
+    maxAllowed?: number
+    message?: string
+}
 
 export function useSmartProjections(storeGuid: string | undefined, weekStartInput: string | Date) {
     const [projections, setProjections] = useState<Record<string, string>>({})
+    const [projectionOverrides, setProjectionOverrides] = useState<Record<string, ProjectionOverrideMeta>>({})
     const [isGenerating, setIsGenerating] = useState(false)
+    const [savingProjectionDate, setSavingProjectionDate] = useState<string | null>(null)
+    const overridesRef = useRef<Record<string, ProjectionOverrideMeta>>({})
 
-    // Helper: Parse naive date string "YYYY-MM-DD" to Local Midnight Date
+    const updateOverridesState = (next: Record<string, ProjectionOverrideMeta>) => {
+        overridesRef.current = next
+        setProjectionOverrides(next)
+    }
+
     const parseNaiveDate = (dateStr: string) => {
         const [y, m, d] = dateStr.split('-').map(Number)
         return new Date(y, m - 1, d, 0, 0, 0, 0)
     }
 
     // ========== INTELLIGENCE ENGINE (PRIMARY) ==========
-    const generateViaIntelligenceAPI = async (weekStartStr: string, force = false): Promise<Record<string, string> | null> => {
+    const generateViaIntelligenceAPI = async (
+        weekStartStr: string,
+        force = false
+    ): Promise<{ projections: Record<string, string>; overrides: Record<string, ProjectionOverrideMeta> } | null> => {
         try {
-
-
             const response = await fetch('/api/projections/generate', {
                 method: 'POST',
                 headers: {
@@ -52,29 +87,35 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 throw new Error(data.error || 'Invalid API response')
             }
 
-            // Convert numeric projections to strings (for UI compatibility)
             const result: Record<string, string> = {}
             for (const [date, value] of Object.entries(data.projections)) {
                 result[date] = String(Math.round(value as number))
             }
 
+            const overridesMap: Record<string, ProjectionOverrideMeta> = {}
+            if (data.overrides && typeof data.overrides === 'object') {
+                for (const [date, meta] of Object.entries(data.overrides as Record<string, any>)) {
+                    if (meta?.manual) {
+                        overridesMap[date] = {
+                            manual: true,
+                            aiBaseSales: Math.round(Number(meta.aiBaseSales ?? result[date] ?? 0)),
+                            overriddenBy: meta.overriddenBy,
+                            overriddenAt: meta.overriddenAt,
+                        }
+                    }
+                }
+            }
 
-
-            return result
-
-        } catch (error: any) {
-
+            return { projections: result, overrides: overridesMap }
+        } catch {
             return null
         }
     }
 
     // ========== LEGACY ENGINE (FALLBACK) ==========
     const generateViaLegacy = async (): Promise<Record<string, string>> => {
-
-
         const supabase = await getSupabaseClient()
 
-        // 1. Normalize Start Date
         let targetStart: Date
         if (typeof weekStartInput === 'string') {
             targetStart = parseNaiveDate(weekStartInput)
@@ -89,19 +130,16 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
         const weekStartStr = formatDateISO(targetStart)
         const weekEndStr = formatDateISO(targetEndDay)
 
-        // Lookback: Last 56 days (8 weeks)
         const lookbackStart = new Date(targetStart)
         lookbackStart.setDate(targetStart.getDate() - 56)
         const lookbackEnd = new Date(targetStart)
         lookbackEnd.setDate(targetStart.getDate() - 1)
 
-        // Seasonality: Last year (approx 364 days ago)
         const seasonalStart = new Date(targetStart)
         seasonalStart.setDate(targetStart.getDate() - 364)
         const seasonalEnd = new Date(seasonalStart)
         seasonalEnd.setDate(seasonalStart.getDate() + 7)
 
-        // PARALLEL FETCH
         const [historyRes, weatherRes, eventsRes] = await Promise.all([
             supabase
                 .from('sales_daily_cache')
@@ -121,28 +159,21 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
         const history = historyRes.data || []
 
-        // Process Weather
         let weatherData: any[] = []
         if (weatherRes.ok) {
             const wJson = await weatherRes.json()
             weatherData = wJson.data || []
         }
 
-        // Process Events
         const events = eventsRes.data || []
-
-        // 3. Compute Averages per Weekday
         const newProjections: Record<string, string> = {}
 
         for (let i = 0; i < 7; i++) {
             const dayDate = addDays(targetStart, i)
             const dateStr = formatDateISO(dayDate)
-
             const targetDayIndex = dayDate.getDay()
 
-            // --- FACTORS ---
             let weatherFactor = 1.0
-
             const wParams = weatherData.find((w: any) => {
                 const wDate = new Date(w.dt * 1000).toISOString().split('T')[0]
                 return wDate === dateStr
@@ -156,15 +187,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 else if (tempMax > 95) weatherFactor = 0.95
             }
 
-            // Event Factor
-            let eventFactor = 1.0
             const dayEvents = events.filter((e: any) => e.date === dateStr)
-            dayEvents.forEach((e: any) => {
-                const mult = Number(e.impact_multiplier) || 1.0
-                eventFactor *= mult
-            })
-
-            // --- BASE ALGORITHM ---
             const todayStr = formatDateISO(new Date())
             const recentRows = history
                 .filter((h: any) => new Date(h.business_date + 'T00:00:00').getDay() === targetDayIndex)
@@ -180,7 +203,6 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 .filter((h: any) => new Date(h.business_date + 'T00:00:00').getDay() === targetDayIndex)
                 .find((h: any) => h.business_date >= seasonalStart.toISOString().split('T')[0] && h.business_date <= seasonalEnd.toISOString().split('T')[0])
 
-            // Component 1: Recent Weighted
             const weights = [0.40, 0.20, 0.15, 0.10, 0.05, 0.05, 0.03, 0.02]
             let wRecentSales = 0, tWeight = 0
 
@@ -193,11 +215,8 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             })
 
             const finalRecentSales = tWeight > 0 ? wRecentSales / tWeight : 0
-
-            // Component 2: Seasonal
             const sSales = Number(seasonalRow?.net_sales) || 0
 
-            // Component 3: Trend (DAMPENED for stability)
             const firstPeriod = recentRows.slice(0, 2).reduce((a: number, b: any) => a + Number(b.net_sales), 0) / 2
             const secondPeriod = recentRows.slice(2, 6).reduce((a: number, b: any) => a + Number(b.net_sales), 0) / 4
 
@@ -208,7 +227,6 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 trendFactor = Math.max(0.90, Math.min(1.10, trendFactor))
             }
 
-            // Ensemble
             let projSales = 0
             const isSeasonalValid = sSales > 0 && sSales > (finalRecentSales * 0.5)
 
@@ -218,15 +236,12 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 projSales = finalRecentSales * trendFactor
             }
 
-            // --- SAFETY CAP ---
             const baselineMax = Math.max(finalRecentSales, sSales)
             if (baselineMax > 0 && projSales > baselineMax * 1.20) {
                 projSales = baselineMax * 1.20
             }
 
-            // --- HOLIDAY RULES ENGINE ---
             const holidayRule = checkHoliday(new Date(dateStr + 'T12:00:00'))
-
             let finalEventFactor = 1.0
 
             if (dayEvents.length > 0) {
@@ -239,14 +254,12 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 finalEventFactor = holidayRule.factor
             }
 
-            // APPLY FACTORS
             projSales = projSales * weatherFactor * finalEventFactor
 
-            if (projSales > 0) {
+            if (projSales >= 0) {
                 newProjections[dateStr] = Math.round(projSales).toString()
             }
         }
-
 
         return newProjections
     }
@@ -257,7 +270,6 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
         setIsGenerating(true)
         try {
-            // Normalize weekStart to string
             let weekStartStr: string
             if (typeof weekStartInput === 'string') {
                 weekStartStr = weekStartInput
@@ -267,26 +279,149 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             }
 
             let newProjections: Record<string, string> = {}
+            let newOverrides: Record<string, ProjectionOverrideMeta> = {}
+
             if (USE_INTELLIGENCE_API) {
                 const intelligenceResult = await generateViaIntelligenceAPI(weekStartStr, force)
-                if (intelligenceResult && Object.keys(intelligenceResult).length > 0) {
-                    newProjections = intelligenceResult
+                if (intelligenceResult && Object.keys(intelligenceResult.projections).length > 0) {
+                    newProjections = intelligenceResult.projections
+                    newOverrides = intelligenceResult.overrides
                 } else {
                     newProjections = await generateViaLegacy()
+                    newOverrides = overridesRef.current
                 }
             } else {
                 newProjections = await generateViaLegacy()
+                newOverrides = overridesRef.current
             }
 
             if (Object.keys(newProjections).length > 0) {
-                setProjections(prev => ({ ...prev, ...newProjections }))
+                setProjections(newProjections)
+                updateOverridesState(newOverrides)
             }
             return newProjections
         } finally {
             setIsGenerating(false)
         }
-
     }, [storeGuid, weekStartInput])
 
-    return { projections, setProjections, calculateProjections: generateSmartProjections, isGenerating }
+    // ========== MANUAL STATIC OVERRIDE (SET / LOCK) ==========
+    const saveManualProjection = useCallback(async (
+        dateStr: string,
+        rawAmount: string | number
+    ): Promise<SaveManualProjectionResult> => {
+        if (!storeGuid || !dateStr) {
+            return { ok: false, message: 'Missing store or date' }
+        }
+        const cleanNumber = Math.round(Number(String(rawAmount).replace(/[^0-9.]/g, '')))
+        if (!Number.isFinite(cleanNumber) || cleanNumber < 0) {
+            return { ok: false, message: 'Invalid amount' }
+        }
+
+        setSavingProjectionDate(dateStr)
+        try {
+            const res = await fetch('/api/projections/override', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('teg_token') || ''}`
+                },
+                body: JSON.stringify({
+                    storeId: storeGuid,
+                    businessDate: dateStr,
+                    action: 'set',
+                    totalSales: cleanNumber,
+                })
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok || !data.success) {
+                return {
+                    ok: false,
+                    errorCode: data.error,
+                    minAllowed: data.minAllowed,
+                    maxAllowed: data.maxAllowed,
+                    aiBaseSales: data.aiBaseSales,
+                    message: data.message || data.error || 'Error saving manual projection',
+                }
+            }
+
+            const lockedVal = String(Math.round(Number(data.totalSales)))
+            setProjections(prev => ({ ...prev, [dateStr]: lockedVal }))
+            updateOverridesState({
+                ...overridesRef.current,
+                [dateStr]: {
+                    manual: true,
+                    aiBaseSales: Math.round(Number(data.aiBaseSales ?? cleanNumber)),
+                    overriddenBy: data.overriddenBy,
+                    overriddenAt: data.overriddenAt,
+                }
+            })
+
+            return {
+                ok: true,
+                totalSales: Math.round(Number(data.totalSales)),
+                aiBaseSales: Math.round(Number(data.aiBaseSales ?? cleanNumber)),
+            }
+        } catch (err: any) {
+            return { ok: false, message: err?.message || 'Network error' }
+        } finally {
+            setSavingProjectionDate(null)
+        }
+    }, [storeGuid])
+
+    // ========== UNLOCK MANUAL OVERRIDE (RESTORE AI) ==========
+    const unlockManualProjection = useCallback(async (
+        dateStr: string
+    ): Promise<SaveManualProjectionResult> => {
+        if (!storeGuid || !dateStr) {
+            return { ok: false, message: 'Missing store or date' }
+        }
+
+        setSavingProjectionDate(dateStr)
+        try {
+            const res = await fetch('/api/projections/override', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('teg_token') || ''}`
+                },
+                body: JSON.stringify({
+                    storeId: storeGuid,
+                    businessDate: dateStr,
+                    action: 'unlock',
+                })
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok || !data.success) {
+                return { ok: false, message: data.error || 'Error unlocking projection' }
+            }
+
+            const restored = Math.round(Number(data.totalSales) || 0)
+            setProjections(prev => ({ ...prev, [dateStr]: String(restored) }))
+            const nextOverrides = { ...overridesRef.current }
+            delete nextOverrides[dateStr]
+            updateOverridesState(nextOverrides)
+
+            return {
+                ok: true,
+                totalSales: restored,
+                aiBaseSales: restored,
+            }
+        } catch (err: any) {
+            return { ok: false, message: err?.message || 'Network error' }
+        } finally {
+            setSavingProjectionDate(null)
+        }
+    }, [storeGuid])
+
+    return {
+        projections,
+        setProjections,
+        projectionOverrides,
+        savingProjectionDate,
+        saveManualProjection,
+        unlockManualProjection,
+        calculateProjections: generateSmartProjections,
+        isGenerating
+    }
 }

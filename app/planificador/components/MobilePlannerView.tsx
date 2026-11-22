@@ -87,6 +87,10 @@ interface MobilePlannerViewProps {
     shiftStats: Record<string, any>
     laborStats: Record<string, any>
     projections: Record<string, any>
+    projectionOverrides?: Record<string, any>
+    savingProjectionDate?: string | null
+    onSaveManualProjection?: (dateStr: string, amount: string | number) => Promise<any>
+    onUnlockManualProjection?: (dateStr: string) => Promise<any>
     actuals: Record<string, any>
     punches?: any[]
     currentDate?: Date
@@ -162,6 +166,10 @@ export function MobilePlannerView({
     shiftStats,
     laborStats,
     projections,
+    projectionOverrides = {},
+    savingProjectionDate = null,
+    onSaveManualProjection,
+    onUnlockManualProjection,
     actuals,
     punches = [],
     currentDate,
@@ -238,6 +246,34 @@ export function MobilePlannerView({
     const [selectedEmployeeForContact, setSelectedEmployeeForContact] = useState<any | null>(null)
     const [isSendHubOpen, setIsSendHubOpen] = useState(false)
     const [isToolsDrawerOpen, setIsToolsDrawerOpen] = useState(false)
+
+    const [mobileEditingProj, setMobileEditingProj] = useState<string | null>(null)
+
+    const commitMobileProjectionEdit = async () => {
+        if (mobileEditingProj === null) return
+        const raw = mobileEditingProj
+        setMobileEditingProj(null)
+        const cleaned = raw.replace(/[^0-9]/g, '')
+        if (!cleaned || !onSaveManualProjection) return
+        const nextNum = Math.round(Number(cleaned))
+        const currNum = Math.round(Number(projections[dateStr] || 0))
+        if (!Number.isFinite(nextNum) || nextNum === currNum) return
+
+        const res = await onSaveManualProjection(dateStr, nextNum)
+        if (res?.ok) {
+            showToast(t('planner.mobile.projection_locked_saved').replace('${amount}', `$${Number(res.totalSales ?? nextNum).toLocaleString('en-US')}`))
+        } else if (res?.errorCode === 'GUARDRAIL_EXCEEDED') {
+            showToast(
+                t('planner.mobile.projection_guardrail_error')
+                    .replace('${min}', `$${Number(res.minAllowed || 0).toLocaleString('en-US')}`)
+                    .replace('${max}', `$${Number(res.maxAllowed || 0).toLocaleString('en-US')}`)
+                    .replace('${base}', `$${Number(res.aiBaseSales || 0).toLocaleString('en-US')}`),
+                'error'
+            )
+        } else {
+            showToast(res?.message || t('planner.mobile.projection_save_error'), 'error')
+        }
+    }
 
     // Floating Native Mobile Toast Notification
     const [mobileToast, setMobileToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
@@ -895,10 +931,55 @@ export function MobilePlannerView({
                                             </button>
                                         </div>
                                     </div>
-                                    <div className="flex gap-8">
-                                        <span className="font-black text-blue-600 dark:text-blue-400 w-16 text-right">
-                                            ${Math.round(Number(dayProjections)).toLocaleString('en-US')}
-                                        </span>
+                                    <div className="flex gap-6 items-center">
+                                        <div className="flex items-center justify-end gap-1 min-w-[76px]" onClick={(e) => e.stopPropagation()}>
+                                            {savingProjectionDate === dateStr ? (
+                                                <Loader2 size={12} className="animate-spin text-indigo-500 shrink-0" />
+                                            ) : projectionOverrides?.[dateStr]?.manual && canEdit && onUnlockManualProjection ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation()
+                                                        const res = await onUnlockManualProjection(dateStr)
+                                                        if (res?.ok) {
+                                                            showToast(t('planner.mobile.projection_unlocked_restored').replace('${amount}', `$${Number(res.totalSales || 0).toLocaleString('en-US')}`))
+                                                        }
+                                                    }}
+                                                    title={t('planner.mobile.projection_locked_tip').replace('${base}', `$${Math.round(Number(projectionOverrides[dateStr]?.aiBaseSales || 0)).toLocaleString('en-US')}`)}
+                                                    className="p-0.5 rounded text-amber-600 dark:text-amber-400"
+                                                >
+                                                    <Lock size={12} />
+                                                </button>
+                                            ) : projectionOverrides?.[dateStr]?.manual ? (
+                                                <Lock size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                            ) : null}
+
+                                            {canEdit && onSaveManualProjection ? (
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    value={mobileEditingProj !== null ? mobileEditingProj : (dayProjections > 0 ? `$${Math.round(Number(dayProjections)).toLocaleString('en-US')}` : '$0')}
+                                                    onFocus={() => setMobileEditingProj(String(Math.round(Number(dayProjections || 0))))}
+                                                    onChange={(e) => setMobileEditingProj(e.target.value.replace(/[^0-9]/g, ''))}
+                                                    onBlur={commitMobileProjectionEdit}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault()
+                                                            ;(e.currentTarget as HTMLInputElement).blur()
+                                                        }
+                                                    }}
+                                                    className={`w-16 bg-transparent text-right font-black outline-none rounded px-1 ${
+                                                        projectionOverrides?.[dateStr]?.manual
+                                                            ? 'text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/35 ring-1 ring-amber-300/70'
+                                                            : 'text-blue-600 dark:text-blue-400'
+                                                    }`}
+                                                />
+                                            ) : (
+                                                <span className="font-black text-blue-600 dark:text-blue-400 w-16 text-right">
+                                                    ${Math.round(Number(dayProjections)).toLocaleString('en-US')}
+                                                </span>
+                                            )}
+                                        </div>
                                         <span className={`font-black w-16 text-right ${dayActuals > 0 ? (dayActuals < dayProjections ? 'text-amber-500' : 'text-emerald-500') : 'text-gray-300 dark:text-slate-600'}`}>
                                             {dayActuals > 0 ? `$${Math.round(dayActuals).toLocaleString('en-US')}` : '-'}
                                         </span>

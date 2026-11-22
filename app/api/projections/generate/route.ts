@@ -145,54 +145,75 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        let cachedProjections: Record<string, any> = {};
-        if (!forceRecalc) {
-            const { data: cachedData } = await supabase
-                .from('sales_projections_cache')
-                .select('*')
-                .eq('store_id', storeId)
-                .in('business_date', targetDates);
-            
-            if (cachedData && cachedData.length > 0) {
-                cachedData.forEach(row => {
+        const cachedProjections: Record<string, any> = {};
+        const overrides: Record<string, { manual: boolean; aiBaseSales: number; overriddenBy?: string; overriddenAt?: string }> = {};
+
+        const { data: cachedData } = await supabase
+            .from('sales_projections_cache')
+            .select('*')
+            .eq('store_id', requestedStore.external_id)
+            .in('business_date', targetDates);
+
+        if (cachedData && cachedData.length > 0) {
+            cachedData.forEach(row => {
+                const isManualLock = row.meta?.manual_override === true;
+                // Static Manual Locks are NEVER overwritten, even when forceRecalc === true (Brain button)
+                if (!forceRecalc || isManualLock) {
                     cachedProjections[row.business_date] = row;
-                });
-            }
+                }
+                if (isManualLock) {
+                    overrides[row.business_date] = {
+                        manual: true,
+                        aiBaseSales: Math.round(Number(row.meta?.ai_base_sales ?? row.total_sales)),
+                        overriddenBy: row.meta?.overridden_by,
+                        overriddenAt: row.meta?.overridden_at,
+                    };
+                }
+            });
         }
+
+        const effectiveStoreExtId = requestedStore.external_id;
 
         for (const dateStr of targetDates) {
             try {
-                if (cachedProjections[dateStr]) {
-                    // Use cached
+                if (cachedProjections[dateStr] && cachedProjections[dateStr].meta?.model === 'Intelligence v3.1') {
+                    // Use cached (or protected static manual override)
                     const cached = cachedProjections[dateStr];
                     projections[dateStr] = Math.round(Number(cached.total_sales));
                     meta.dailyDetails.push({
                         date: dateStr,
                         total_sales: cached.total_sales,
+                        ai_base_sales: Number(cached.meta?.ai_base_sales ?? cached.total_sales),
+                        manual_override: cached.meta?.manual_override === true,
+                        overridden_by: cached.meta?.overridden_by,
                         growth_factor: cached.meta?.growth_factor || 1.0,
                         weather_adjusted: cached.meta?.weather_adjusted || false,
                         hourly_breakdown: formatHourlyArray(cached.hourly_data),
                         cached: true,
                         updated_at: cached.updated_at
                     });
-                    console.log(`  ✅ ${dateStr}: $${Math.round(cached.total_sales).toLocaleString()} (from CACHE)`)
+                    console.log(`  ✅ ${dateStr}: $${Math.round(cached.total_sales).toLocaleString()} (${cached.meta?.manual_override ? 'LOCKED MANUAL' : 'from CACHE'})`)
                     continue;
                 }
 
                 // Generate new forecast
-                const forecast = await generateSmartForecast(storeId, dateStr, forceRecalc)
+                const forecast = await generateSmartForecast(effectiveStoreExtId, dateStr, forceRecalc)
                 const hourlyMap = Object.fromEntries(forecast.hours.map(hour => [String(hour.hour), hour.projected_sales]))
 
                 // Save to Cache
                 const { error: upsertError } = await supabase
                     .from('sales_projections_cache')
                     .upsert({
-                        store_id: storeId,
+                        store_id: effectiveStoreExtId,
                         business_date: dateStr,
                         total_sales: forecast.total_sales,
                         hourly_data: hourlyMap,
                         meta: {
                             model: 'Intelligence v3.1',
+                            ai_base_sales: forecast.total_sales,
+                            ai_hourly_data: hourlyMap,
+                            manual_override: false,
+                            closed: forecast.total_sales === 0 && forecast.hours.length === 0,
                             growth_factor: forecast.growth_factor_applied,
                             base_sales: forecast.base_sales,
                             base_tickets: forecast.base_tickets,
@@ -247,6 +268,7 @@ export async function POST(request: NextRequest) {
             partial: errors.length > 0,
             errors,
             projections,
+            overrides,
             meta
         }, { status: errors.length > 0 ? 207 : 200 })
 

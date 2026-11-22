@@ -1932,7 +1932,14 @@ export const dictionaries: Record<Language, Dictionary> = {
                 connect_gmail_first: 'Conecta tu Gmail para enviar horarios oficiales por correo',
                 shifts_count: '{n} turnos',
                 hours_short: 'hrs',
-                add_second_shift: 'Agregar otro turno'
+                add_second_shift: 'Agregar otro turno',
+                projection_locked_saved: 'Proyección fijada manualmente en ${amount}',
+                projection_unlocked_restored: 'Proyección restaurada al cálculo automático (${amount})',
+                projection_guardrail_error: 'Rango permitido para ajuste manual: ${min} a ${max} (Base IA: ${base})',
+                projection_save_error: 'No se pudo guardar la proyección manual',
+                projection_locked_tip: 'Fijo manual (IA original: ${base}) • Clic para restaurar automático',
+                projection_manual_badge: 'Manual',
+                projection_edit_prompt: 'Editar venta proyectada'
             },
             modal_shift: {
                 new_title: 'Nuevo Turno',
@@ -11423,7 +11430,14 @@ export const dictionaries: Record<Language, Dictionary> = {
                 connect_gmail_first: 'Connect your Gmail to send official schedule emails',
                 shifts_count: '{n} shifts',
                 hours_short: 'hrs',
-                add_second_shift: 'Add another shift'
+                add_second_shift: 'Add another shift',
+                projection_locked_saved: 'Projection manually locked at ${amount}',
+                projection_unlocked_restored: 'Projection restored to automatic AI (${amount})',
+                projection_guardrail_error: 'Allowed manual adjustment range: ${min} to ${max} (AI Base: ${base})',
+                projection_save_error: 'Could not save manual projection',
+                projection_locked_tip: 'Manual lock (Original AI: ${base}) • Click to restore auto',
+                projection_manual_badge: 'Manual',
+                projection_edit_prompt: 'Edit projected sales'
             },
             modal_shift: {
                 new_title: 'New Shift',

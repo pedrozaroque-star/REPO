@@ -176,7 +176,16 @@ export default function SchedulePlanner() {
 
     // --- HOOKS ---
     const { stats: laborStats, shiftStats } = useWeeklyStats(shifts, employees, jobs)
-    const { projections, setProjections, calculateProjections, isGenerating: isCalcProjections } = useSmartProjections(storeGuid, weekStart)
+    const {
+        projections,
+        setProjections,
+        projectionOverrides,
+        savingProjectionDate,
+        saveManualProjection,
+        unlockManualProjection,
+        calculateProjections,
+        isGenerating: isCalcProjections
+    } = useSmartProjections(storeGuid, weekStart)
     const visibleEmployees: Employee[] = useVisibleEmployees(employees, shifts, jobs)
     const { weather } = useWeather(storeGuid)
     const { actuals, loading: loadingActuals, refetch: refetchActuals, punches } = useActualStats(storeGuid, weekStart) // NEW
@@ -1538,31 +1547,33 @@ export default function SchedulePlanner() {
                 requiredDates.push(formatDateISO(d))
             }
 
-            const missingDates = requiredDates.filter(d => !projections[d] || Number(projections[d]) <= 0)
-            let finalProjections = { ...projections }
+            const missingDates = requiredDates.filter(d => projections[d] === undefined || projections[d] === '')
+            let sourceProjections: Record<string, string> = { ...projections }
 
             if (missingDates.length > 0) {
-
-
-                // Attempt to regenerate missing projections
+                // Attempt to regenerate missing projections while keeping static manual overrides intact
                 try {
                     const freshProjections = await calculateProjections()
                     if (freshProjections && Object.keys(freshProjections).length > 0) {
-                        // Merge: existing overwrites fresh (keep user edits)
-                        finalProjections = { ...freshProjections, ...projections }
-
+                        sourceProjections = { ...freshProjections, ...projections }
                     }
                 } catch (regenError) {
                     console.error('❌ Failed to regenerate projections:', regenError)
                 }
 
-                // Re-check after regeneration
-                const stillMissing = requiredDates.filter(d => !finalProjections[d] || Number(finalProjections[d]) <= 0)
+                const stillMissing = requiredDates.filter(d => sourceProjections[d] === undefined || sourceProjections[d] === '')
                 if (stillMissing.length > 0) {
-
                     toast.info(t('planner.toasts.projections_incomplete') || `Warning: Projections incomplete for ${stillMissing.length} day(s)`)
                 }
             }
+
+            // Persist strictly the 7 dates belonging to this week_start (prevents cross-week date accumulation)
+            const finalProjections: Record<string, string> = {}
+            requiredDates.forEach(d => {
+                if (sourceProjections[d] !== undefined) {
+                    finalProjections[d] = String(Math.round(Number(sourceProjections[d]) || 0))
+                }
+            })
 
 
 
@@ -1909,6 +1920,8 @@ export default function SchedulePlanner() {
                 storeGuid={storeGuid || currentStore?.id || selectedStoreId || ''}
                 date={salesDetailModal.date || ''}
                 storeName={currentStore?.name}
+                projectedValue={salesDetailModal.date ? projections[salesDetailModal.date] : undefined}
+                overrideMeta={salesDetailModal.date ? projectionOverrides[salesDetailModal.date] : undefined}
             />
             <PremiumConfirmModal
                 isOpen={confirmModal.isOpen}
@@ -1983,6 +1996,10 @@ export default function SchedulePlanner() {
                         shiftStats={shiftStats}
                         laborStats={dailyLaborStats}
                         projections={projections}
+                        projectionOverrides={projectionOverrides}
+                        savingProjectionDate={savingProjectionDate}
+                        onSaveManualProjection={saveManualProjection}
+                        onUnlockManualProjection={unlockManualProjection}
                         actuals={actuals}
                         punches={punches}
                         currentDate={currentDate}
@@ -2107,12 +2124,17 @@ export default function SchedulePlanner() {
                                 laborStats={dailyLaborStats}
                                 projections={projections}
                                 setProjections={setProjections}
+                                projectionOverrides={projectionOverrides}
+                                savingProjectionDate={savingProjectionDate}
+                                onSaveManualProjection={saveManualProjection}
+                                onUnlockManualProjection={unlockManualProjection}
                                 actuals={actuals}
                                 storeId={storeGuid}
                                 onRefresh={refetchActuals}
                                 onCalculateProjections={() => calculateProjections(true)}
                                 isExternalLoading={loadingActuals || isCalcProjections}
                                 onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
+                                canEdit={canEdit}
                             />
                         </div>
                     </div>

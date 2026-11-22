@@ -111,8 +111,8 @@ export async function GET(request: Request) {
         const todayStr = dateParam || realTodayStr
         const isToday = todayStr === realTodayStr
 
-        // Invocamos a intelligence.ts (El pronóstico inteligente base de 4 semanas)
-        const forecast = await generateSmartForecast(externalId, todayStr)
+        // Invocamos a intelligence.ts con usePureAiBaseline: true para aislar la parrilla de ajustes manuales de presupuesto en Planificador
+        const forecast = await generateSmartForecast(externalId, todayStr, false, { usePureAiBaseline: true })
 
         let intradayAccelerator = 1.0
         try {

@@ -130,6 +130,10 @@ export async function GET(request: NextRequest) {
                                 hourly_data: hourlyMap,
                                 meta: {
                                     model: 'Intelligence v3.1',
+                                    ai_base_sales: totalSales,
+                                    ai_hourly_data: hourlyMap,
+                                    manual_override: false,
+                                    closed: totalSales === 0 && (!forecast.hours || forecast.hours.length === 0),
                                     growth_factor: forecast.growth_factor_applied,
                                     base_sales: forecast.base_sales,
                                     base_tickets: forecast.base_tickets,
@@ -244,19 +248,24 @@ export async function GET(request: NextRequest) {
                     })
                 })
 
-                // 3. Generate missing in parallel
+                // 3. Generate missing in parallel (including $0 closed holidays like Christmas & Good Friday)
                 const storePromises = missingCombinations.map(async ({ storeId, dateStr }) => {
                     try {
                         const forecast = await generateSmartForecast(storeId, dateStr)
-                        if (forecast && forecast.total_sales > 0) {
+                        if (forecast && forecast.total_sales >= 0) {
                             const hourlyMap: Record<number, number> = {}
                             forecast.hours?.forEach(h => hourlyMap[h.hour] = h.projected_sales)
+                            const isClosedHoliday = forecast.total_sales === 0 && (!forecast.hours || forecast.hours.length === 0)
 
                             projectionCache.set(`${storeId}|${dateStr}`, {
                                 total: forecast.total_sales,
                                 hourly: hourlyMap,
                                 meta: {
                                     model: 'Intelligence v3.1',
+                                    ai_base_sales: forecast.total_sales,
+                                    ai_hourly_data: hourlyMap,
+                                    manual_override: false,
+                                    closed: isClosedHoliday,
                                     growth_factor: forecast.growth_factor_applied,
                                     base_sales: forecast.base_sales,
                                     base_tickets: forecast.base_tickets,
@@ -280,6 +289,10 @@ export async function GET(request: NextRequest) {
                                 hourly_data: hourlyMap,
                                 meta: {
                                     model: 'Intelligence v3.1',
+                                    ai_base_sales: forecast.total_sales,
+                                    ai_hourly_data: hourlyMap,
+                                    manual_override: false,
+                                    closed: isClosedHoliday,
                                     growth_factor: forecast.growth_factor_applied,
                                     base_sales: forecast.base_sales,
                                     base_tickets: forecast.base_tickets,

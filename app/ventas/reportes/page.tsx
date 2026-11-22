@@ -416,7 +416,7 @@ export default function ReportesPage() {
                         p.business_date === dateKey
                     );
 
-                    if (projCacheRow && Number(projCacheRow.total_sales) > 0) {
+                    if (projCacheRow && projCacheRow.total_sales !== null && projCacheRow.total_sales !== undefined && Number(projCacheRow.total_sales) >= 0) {
                         val = Number(projCacheRow.total_sales);
                         foundSrc = 'cache';
                     } else {
@@ -452,8 +452,8 @@ export default function ReportesPage() {
                         } // <-- CLOSE Fallback C
                     } // <-- CLOSE Fallback B
 
-                    // Accumulate
-                    if (val > 0) {
+                    // Accumulate (preserve $0 on closed holidays such as Christmas / Good Friday)
+                    if (val > 0 || foundSrc === 'cache') {
                         const current = parseFloat(finalProjections[dateKey] || '0');
                         finalProjections[dateKey] = String(current + val);
                     }
@@ -466,10 +466,10 @@ export default function ReportesPage() {
             // 1. Flatten found budgets and caches
             let mergedDbProjections: Record<string, string> = {};
             
-            // First try projectionsCache
+            // First try projectionsCache (accepts >= 0 so $0 closed holidays are respected)
             if (projectionsCache && Array.isArray(projectionsCache)) {
                 projectionsCache.forEach((p: any) => {
-                    if (Number(p.total_sales) > 0) {
+                    if (p.total_sales !== null && p.total_sales !== undefined && Number(p.total_sales) >= 0) {
                         mergedDbProjections[p.business_date] = p.total_sales.toString();
                     }
                 });
@@ -480,7 +480,7 @@ export default function ReportesPage() {
                 budgets.forEach((b: any) => {
                     if (b.sales_projections) {
                         Object.keys(b.sales_projections).forEach(key => {
-                            if (!mergedDbProjections[key]) {
+                            if (mergedDbProjections[key] === undefined) {
                                 mergedDbProjections[key] = b.sales_projections[key];
                             }
                         });
@@ -488,7 +488,7 @@ export default function ReportesPage() {
                 });
             }
 
-            const missingKeys = requiredKeys.filter(key => !mergedDbProjections[key] || Number(mergedDbProjections[key]) <= 0);
+            const missingKeys = requiredKeys.filter(key => mergedDbProjections[key] === undefined || mergedDbProjections[key] === '');
             const needsBackfill = missingKeys.length > 0;
             finalProjections = { ...mergedDbProjections };
 

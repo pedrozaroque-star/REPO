@@ -521,6 +521,18 @@ export function getComparativeDates(targetDate: string): string[] | null {
             .sort((a, b) => b.localeCompare(a))
         return peers
     }
+    const dynamicRule = getOfficialStoreHolidaySchedule(targetDate)
+    if (dynamicRule) {
+        const targetYear = Number(targetDate.slice(0, 4))
+        const peers: string[] = []
+        for (let y = targetYear - 1; y >= Math.max(2023, targetYear - 6); y--) {
+            const matchInYear = getOfficialStoreHolidaysForYear(y).find((r) => r.holiday_key === dynamicRule.holiday_key)
+            if (matchInYear && matchInYear.event_date < targetDate) {
+                peers.push(matchInYear.event_date)
+            }
+        }
+        return peers
+    }
     return null
 }
 

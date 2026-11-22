@@ -46,10 +46,11 @@ export const checkHoliday = (d: Date) => {
 
     // --- 2. MOBILE DATES ---
 
-    // Thanksgiving (4th Thu Nov)
+    // Thanksgiving (4th Thu Nov) & Day After Thanksgiving / Black Friday (Abre 11am)
     if (m === 10) {
         const date4thThu = getNthWeekday(10, 4, 4)
-        if (date === date4thThu) return { factor: 0.4, label: '🦃 Thanksgiving (Cierre 4pm)' }
+        if (date === date4thThu) return { factor: 0.35, label: '🦃 Thanksgiving (Cierre 4pm)' }
+        if (date === date4thThu + 1) return { factor: 0.78, label: '🛍️ Day After Thanksgiving (Abre 11am)' }
     }
 
     // Memorial Day (Last Mon May)

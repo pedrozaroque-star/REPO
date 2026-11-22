@@ -11,7 +11,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { X, RefreshCw, TrendingUp } from 'lucide-react'
+import { X, RefreshCw, TrendingUp, Lock } from 'lucide-react'
 import SalesCharts from '@/components/sales/SalesCharts'
 import { useLanguage } from '@/lib/i18n'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -22,9 +22,11 @@ interface SalesDetailModalProps {
     storeGuid: string
     date: string
     storeName?: string
+    projectedValue?: string
+    overrideMeta?: { manual: boolean; aiBaseSales: number; overriddenBy?: string }
 }
 
-export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }: SalesDetailModalProps) {
+export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName, projectedValue, overrideMeta }: SalesDetailModalProps) {
     const [loading, setLoading] = useState(false)
     const [data, setData] = useState<any>(null)
     const { t } = useLanguage()
@@ -63,7 +65,7 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
         if (isOpen) {
             fetchData()
         }
-    }, [isOpen, storeGuid, date])
+    }, [isOpen, storeGuid, date, projectedValue])
 
     // Canonical processData aligning with app/ventas/page.tsx
     const processData = (rawRows: any[], referenceDate: string) => {
@@ -182,8 +184,16 @@ export function SalesDetailModal({ isOpen, onClose, storeGuid, date, storeName }
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                                 {t('sales.charts.sales_trend')}
                             </h2>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {storeName || 'Tacos Gavilan'} • {date}
+                            <p className="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-2">
+                                <span>{storeName || 'Tacos Gavilan'} • {date}</span>
+                                {overrideMeta?.manual && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300/70 dark:border-amber-700/70">
+                                        <Lock size={11} />
+                                        <span>
+                                            {t('planner.mobile.projection_manual_badge')}: ${Math.round(Number(projectedValue || 0)).toLocaleString('en-US')} (IA: ${Math.round(Number(overrideMeta.aiBaseSales || 0)).toLocaleString('en-US')})
+                                        </span>
+                                    </span>
+                                )}
                             </p>
                         </div>
                     </div>

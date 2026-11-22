@@ -92,7 +92,7 @@ async function _cachedQuery(key: string, queryFn: () => Promise<any>) {
  * 2. Trend Adjustment: Calculates 2026 vs 2025 growth for the last 4 weeks.
  * 3. Granularity: Reconstructs hourly curve from historical hourly percents.
  */
-export async function generateSmartForecast(storeId: string, targetDateStr: string, forceRecalculate: boolean = false): Promise<DayForecast> {
+export async function generateSmartForecast(storeId: string, targetDateStr: string, forceRecalculate: boolean = false, options?: { usePureAiBaseline?: boolean }): Promise<DayForecast> {
     const supabase = getSupabase()
     if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDateStr)
         || Number.isNaN(new Date(`${targetDateStr}T12:00:00Z`).getTime())) {
@@ -114,10 +114,30 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             .eq('business_date', targetDateStr)
             .single()
 
+        if (
+            cachedProj &&
+            cachedProj.meta?.model === 'Intelligence v3.1' &&
+            Number(cachedProj.total_sales) === 0 &&
+            (cachedProj.meta?.closed === true || cachedProj.meta?.manual_override === true) &&
+            !(options?.usePureAiBaseline && cachedProj.meta?.manual_override === true && Number(cachedProj.meta?.ai_base_sales) > 0)
+        ) {
+            return {
+                date: targetDateStr,
+                store_id: storeId,
+                total_sales: 0,
+                growth_factor_applied: 0,
+                weather_adjustment: false,
+                methodology: cachedProj.meta?.methodology || 'closed-holiday',
+                hours: []
+            }
+        }
+
         if (cachedProj && cachedProj.total_sales > 0 && cachedProj.meta?.model === 'Intelligence v3.1') {
-            lockedTotalSales = Number(cachedProj.total_sales);
-            if (cachedProj.hourly_data && Object.keys(cachedProj.hourly_data).length > 0) {
-                lockedHourlyData = cachedProj.hourly_data;
+            const usePureAi = Boolean(options?.usePureAiBaseline && cachedProj.meta?.manual_override === true && Number(cachedProj.meta?.ai_base_sales) > 0 && cachedProj.meta?.ai_hourly_data && Object.keys(cachedProj.meta.ai_hourly_data).length > 0);
+            lockedTotalSales = usePureAi ? Number(cachedProj.meta.ai_base_sales) : Number(cachedProj.total_sales);
+            const candidateHourly = (options?.usePureAiBaseline && cachedProj.meta?.manual_override === true && cachedProj.meta?.ai_hourly_data && Object.keys(cachedProj.meta.ai_hourly_data).length > 0) ? cachedProj.meta.ai_hourly_data : cachedProj.hourly_data;
+            if (candidateHourly && Object.keys(candidateHourly).length > 0) {
+                lockedHourlyData = candidateHourly;
             }
             
             // If we have BOTH total and hourly, we can bypass the entire expensive calculation!
@@ -199,11 +219,53 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const { getComparativeDates, getHolidayName, getHolidayImpact, getHolidayEarlyClose, getHolidayLateOpen } = await import('@/lib/holidays')
     const specialEventPeers = getComparativeDates(targetDateStr)
     const holidayName = getHolidayName(targetDateStr)
-    const holidayImpact = getHolidayImpact(targetDateStr)
-    const earlyCloseHour = getHolidayEarlyClose(targetDateStr)
-    const lateOpenHour = getHolidayLateOpen(targetDateStr)
+    let holidayImpact = getHolidayImpact(targetDateStr)
+    let earlyCloseHour = getHolidayEarlyClose(targetDateStr)
+    let lateOpenHour = getHolidayLateOpen(targetDateStr)
 
-    // CLOSED HOLIDAY CHECK (Abort Early)
+    // Also honor dynamic store-specific or chain-wide overrides in public.phone_special_hours
+    try {
+        const [{ data: specialRows }, { data: storeIdRow }] = await Promise.all([
+            supabase
+                .from('phone_special_hours')
+                .select('store_id, is_closed, open_time, close_time')
+                .eq('event_date', targetDateStr),
+            supabase
+                .from('stores')
+                .select('id')
+                .eq('external_id', storeId)
+                .maybeSingle(),
+        ])
+        if (specialRows && specialRows.length > 0) {
+            const storeSpecific = storeIdRow?.id
+                ? specialRows.find((r: any) => Number(r.store_id) === Number(storeIdRow.id))
+                : null
+            const globalSpecial = specialRows.find((r: any) => r.store_id === null || r.store_id === undefined)
+            const matchedSpecial = storeSpecific || globalSpecial
+            if (matchedSpecial) {
+                if (matchedSpecial.is_closed === true) {
+                    holidayImpact = 'CLOSED'
+                } else {
+                    if (matchedSpecial.open_time) {
+                        const [oh, om = 0] = String(matchedSpecial.open_time).split(':').map(Number)
+                        if (Number.isInteger(oh) && oh >= 0 && oh <= 23) {
+                            lateOpenHour = oh
+                        }
+                    }
+                    if (matchedSpecial.close_time) {
+                        const [ch, cm = 0] = String(matchedSpecial.close_time).split(':').map(Number)
+                        if (Number.isInteger(ch) && ch >= 0 && ch <= 23) {
+                            earlyCloseHour = cm > 0 ? ch + 1 : ch
+                        }
+                    }
+                }
+            }
+        }
+    } catch {
+        // Proceed with static/dynamic calendar rules in lib/holidays.ts if table unavailable
+    }
+
+    // CLOSED HOLIDAY CHECK (Abort Early — e.g. Viernes Santo, Navidad Dec 25, or store-specific closure)
     if (holidayImpact === 'CLOSED') {
         return {
             date: targetDateStr,
@@ -211,6 +273,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             total_sales: 0,
             growth_factor_applied: 0,
             weather_adjustment: false,
+            methodology: `closed${holidayName ? ` | ${holidayName}` : ''}`,
             hours: [] // No operations
         }
     }
@@ -383,6 +446,11 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // Raw event totals are only stable enough to replace the current operating
     // baseline after four completed occurrences. Until then the recent robust
     // base remains primary and Event Intelligence may add verified adjustments.
+    const histHolidaySales = baseSales
+    const histHolidayTickets = baseTickets
+    const histHolidayHourlySales: Record<string, number> = { ...hourlySalesDist }
+    const histHolidayHourlyTickets: Record<string, number> = { ...hourlyTicketDist }
+
     const usesHolidayPeers = Boolean(specialEventPeers?.length && historyPoints.length >= 4)
     if (recentComparables.length >= 4 && !usesHolidayPeers) {
         const ordered = [...recentComparables].sort((a: any, b: any) => a.business_date.localeCompare(b.business_date))
@@ -742,7 +810,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     let eventMethodology = ''
     try {
         const { getEventMultiplier } = await import('@/lib/event-intelligence')
-        const isHolidayComp = usesHolidayPeers
+        const isHolidayComp = usesHolidayPeers || earlyCloseHour !== null || lateOpenHour !== null
         const eventResult = await getEventMultiplier(storeId, targetDateStr, isHolidayComp)
         eventMultiplier = eventResult.multiplier
         eventMethodology = eventResult.methodology
@@ -844,8 +912,10 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     if (configuredClose <= configuredOpen) configuredClose += 24
     const effectiveOpen = Math.max(configuredOpen, normalizeHour(lateOpenHour) ?? configuredOpen)
     const effectiveClose = Math.min(configuredClose, normalizeHour(earlyCloseHour) ?? configuredClose)
+    const regularHours: number[] = []
     const activeHours: number[] = []
     for (let hour = 6; hour < 30; hour++) {
+        if (hour >= configuredOpen && hour < configuredClose) regularHours.push(hour)
         if (hour >= effectiveOpen && hour < effectiveClose) activeHours.push(hour)
     }
 
@@ -854,6 +924,48 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         const clock = Number(distribution[String(hour >= 24 ? hour - 24 : hour)])
         const value = Number.isFinite(extended) && extended >= 0 ? extended : clock
         return Number.isFinite(value) && value >= 0 ? value : 0
+    }
+
+    // Special Operating Window Adjustment (e.g., Thanksgiving / Christmas Eve / NYE early close at 4:00 PM [hour < 16],
+    // or Day After Thanksgiving / New Year's Day late open at 11:00 AM [hour >= 11]).
+    // Prevents stuffing a full 24h day's projected sales into shortened hours when baseline comes from regular 8-week comparables.
+    const hasLockedOverride = !forceRecalculate && lockedTotalSales !== null && lockedTotalSales > 0
+    if (!usesHolidayPeers && !hasLockedOverride && (earlyCloseHour !== null || lateOpenHour !== null)) {
+        const fullRegularSalesSum = regularHours.reduce((sum, hour) => sum + historicalValue(hourlySalesDist, hour), 0)
+        const activeWindowSalesSum = activeHours.reduce((sum, hour) => sum + historicalValue(hourlySalesDist, hour), 0)
+        const windowRatio = fullRegularSalesSum > 0
+            ? Math.min(1.0, Math.max(0.05, activeWindowSalesSum / fullRegularSalesSum))
+            : (activeHours.length / Math.max(1, regularHours.length))
+        const windowProjectedTotal = projectedTotal * windowRatio
+
+        const windowTag = [
+            lateOpenHour !== null ? `late-open ${lateOpenHour}:00` : '',
+            earlyCloseHour !== null ? `early-close ${earlyCloseHour}:00` : '',
+        ].filter(Boolean).join(' & ')
+
+        if ((earlyCloseHour !== null || lateOpenHour !== null) && historyPoints.length >= 2 && (histHolidayTickets > 0 || histHolidaySales > 0)) {
+            const peerHolidayTotal = (histHolidayTickets > 0 && currentAvgCheck > 0)
+                ? (histHolidayTickets * currentAvgCheck * weatherFactor * eventMultiplier)
+                : (histHolidaySales * weatherFactor * eventMultiplier)
+            projectedTotal = (windowProjectedTotal * 0.5) + (peerHolidayTotal * 0.5)
+
+            for (const hour of activeHours) {
+                const regS = historicalValue(hourlySalesDist, hour)
+                const holS = historicalValue(histHolidayHourlySales, hour)
+                if (holS > 0 || regS > 0) {
+                    hourlySalesDist[String(hour)] = (regS * 0.5) + (holS * 0.5)
+                }
+                const regT = historicalValue(hourlyTicketDist, hour)
+                const holT = historicalValue(histHolidayHourlyTickets, hour)
+                if (holT > 0 || regT > 0) {
+                    hourlyTicketDist[String(hour)] = (regT * 0.5) + (holT * 0.5)
+                }
+            }
+            projectionMethodology += ` | ${windowTag}`
+        } else {
+            projectedTotal = windowProjectedTotal
+            projectionMethodology += ` | ${windowTag}`
+        }
     }
 
     // Complete gaps in the weight vector before normalization. This preserves the daily total.

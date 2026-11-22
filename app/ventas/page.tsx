@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Calendar, CalendarDays, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap } from 'lucide-react'
+import { Calendar, CalendarDays, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap, Lock } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
@@ -391,12 +391,22 @@ function SalesPageContent() {
             s.guestCount += (row.guestCount || 0)
             s.laborCost += (row.laborCost || 0)
             s.totalHours += (row.totalHours || 0)
+            const rowIsManual = row.projectionMeta?.manual_override === true
+            const rowAiBase = Number(row.projectionMeta?.ai_base_sales ?? row.projectedSales ?? 0)
             if (groupByMode === 'hour') {
                 s.projectedSales = (row.projectedSales || 0)
                 s.projectedToDate = rowProjToDate
+                s.manualOverride = rowIsManual
+                s.aiBaseSales = rowAiBase
+                s.overriddenBy = row.projectionMeta?.overridden_by || null
             } else {
                 s.projectedSales += (row.projectedSales || 0)
                 s.projectedToDate += rowProjToDate
+                s.aiBaseSales = (s.aiBaseSales || 0) + rowAiBase
+                if (rowIsManual) {
+                    s.manualOverrideDays = (s.manualOverrideDays || 0) + 1
+                    s.overriddenBy = row.projectionMeta?.overridden_by || s.overriddenBy || null
+                }
             }
         })
 
@@ -1761,7 +1771,11 @@ function SalesPageContent() {
                                             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/70 text-xs">
                                                 <div className="flex items-center justify-between gap-1 min-w-0">
                                                     <span className="text-[10px] uppercase font-bold text-slate-400 truncate">{t('sales.table.projected_col')}</span>
-                                                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                                                    <span
+                                                        className={`font-mono font-bold truncate inline-flex items-center gap-1 ${(store.manualOverride || store.manualOverrideDays > 0) ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400'}`}
+                                                        title={(store.manualOverride || store.manualOverrideDays > 0) ? `Ajustado manualmente en Planificador (IA original: $${Math.round(Number(store.aiBaseSales || 0)).toLocaleString('en-US')})` : undefined}
+                                                    >
+                                                        {(store.manualOverride || store.manualOverrideDays > 0) && <Lock size={11} className="shrink-0" />}
                                                         $${projectedTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                                                     </span>
                                                 </div>
@@ -1887,8 +1901,14 @@ function SalesPageContent() {
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-sm lg:text-lg whitespace-nowrap">
                                                     <MoneyCell value={store.amount} />
                                                 </td>
-                                                <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-sm lg:text-lg whitespace-nowrap">
-                                                    <MoneyCell value={store.projectedSales || 0} />
+                                                <td
+                                                    className={`px-2.5 py-3 lg:px-6 lg:py-4 text-right font-mono font-bold text-sm lg:text-lg whitespace-nowrap ${(store.manualOverride || store.manualOverrideDays > 0) ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-500 dark:text-indigo-400'}`}
+                                                    title={(store.manualOverride || store.manualOverrideDays > 0) ? `Ajustado manualmente en Planificador${store.overriddenBy ? ` por ${store.overriddenBy}` : ''} (IA original: $${Math.round(Number(store.aiBaseSales || 0)).toLocaleString('en-US')})` : undefined}
+                                                >
+                                                    <span className="inline-flex items-center justify-end gap-1">
+                                                        {(store.manualOverride || store.manualOverrideDays > 0) && <Lock size={13} className="shrink-0" />}
+                                                        <MoneyCell value={store.projectedSales || 0} />
+                                                    </span>
                                                 </td>
                                                 <td className={`px-2.5 py-3 lg:px-6 lg:py-4 text-right font-mono font-bold text-sm lg:text-lg whitespace-nowrap ${store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                                     <MoneyCell

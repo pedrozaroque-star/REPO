@@ -107,7 +107,7 @@ export async function recalculateStoreParIdeal(
 
       const targetWeekDates = [0, 1, 2, 3, 4, 5, 6].map(offset => addDays(currentMonday, offset))
       const forecastResults = await Promise.allSettled(
-        targetWeekDates.map(dStr => generateSmartForecast(store.external_id, dStr))
+        targetWeekDates.map(dStr => generateSmartForecast(store.external_id, dStr, false, { usePureAiBaseline: true }))
       )
       const forecastByOffset = forecastResults.map(res =>
         res.status === 'fulfilled' && Number(res.value?.total_sales) > 0

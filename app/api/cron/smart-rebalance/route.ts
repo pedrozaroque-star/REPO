@@ -234,7 +234,7 @@ export async function GET(req: Request) {
             let storeUpdatedAny = false
             if (varianceShiftIds.size > 0) {
                 const [forecast, { data: stationRows }, { data: storeOverrides }] = await Promise.all([
-                    generateSmartForecast(store.id, today),
+                    generateSmartForecast(store.id, today, false, { usePureAiBaseline: true }),
                     supabase
                         .from('station_assignments')
                         .select('employee_id, assignment_date, main_station, sub_position, station_group')
