@@ -5,6 +5,7 @@
  * - Admins have global access.
  * - Supervisors are assigned multiple store scopes (retaining the "Tacos Gavilan " prefix in the database).
  * - Managers and Assistants require a single store assignment and a position type (kitchen/cashier).
+ * - Restricted single-module roles (`planificador`, `basecamp`) operate without store assignment (`store_id = null`).
  * @dataFlow
  * - Supabase ('users', 'stores') -> Component state -> Table/Grid Layout -> UserModal form interaction.
  * @notes Deletes redundant client-side password RPC calls to avoid permission warning popups, since database update is handled server-side.
@@ -231,12 +232,27 @@ function UsuariosPage() {
     admin: 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-transparent',
     supervisor: 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900/50',
     manager: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50',
-    asistente: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+    asistente: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50',
+    planificador: 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-900/50',
+    basecamp: 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-900/50'
+  }
+
+  const getRoleDisplayLabel = (role?: string) => {
+    const norm = String(role || '').trim().toLowerCase()
+    if (norm === 'basecamp') return t('usuarios.roles.basecamp')
+    if (norm === 'planificador') return t('usuarios.roles.planificador')
+    if (norm === 'admin') return t('usuarios.roles.admin')
+    if (norm === 'supervisor') return t('usuarios.roles.supervisor')
+    if (norm === 'manager') return t('usuarios.roles.manager')
+    if (norm === 'asistente') return t('usuarios.roles.asistente')
+    return role || ''
   }
 
   // Helper para mostrar ubicación (Tienda fija o Alcance múltiple)
   const getLocationLabel = (user: any) => {
     if (user.role === 'admin') return t('usuarios.modal.admin_access_title')
+    if (user.role === 'basecamp') return t('usuarios.roles.basecamp')
+    if (user.role === 'planificador') return t('usuarios.roles.planificador')
 
     if (user.role === 'supervisor') {
       if (!user.store_scope || user.store_scope.length === 0) return t('usuarios.table.location') + ': 0'
@@ -295,6 +311,8 @@ function UsuariosPage() {
                   <option value="supervisor" className="dark:bg-slate-900">{t('usuarios.roles.supervisor')}</option>
                   <option value="manager" className="dark:bg-slate-900">{t('usuarios.roles.manager')}</option>
                   <option value="asistente" className="dark:bg-slate-900">{t('usuarios.roles.asistente')}</option>
+                  <option value="planificador" className="dark:bg-slate-900">{t('usuarios.roles.planificador')}</option>
+                  <option value="basecamp" className="dark:bg-slate-900">{t('usuarios.roles.basecamp')}</option>
                 </select>
               </div>
 
@@ -353,7 +371,7 @@ function UsuariosPage() {
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar w-full">
-              {['all', 'admin', 'supervisor', 'manager', 'asistente'].map(role => (
+              {['all', 'admin', 'supervisor', 'manager', 'asistente', 'planificador', 'basecamp'].map(role => (
                 <button
                   key={role}
                   onClick={() => setRoleFilter(role)}
@@ -362,7 +380,7 @@ function UsuariosPage() {
                     : 'bg-white dark:bg-slate-900 text-gray-500 dark:text-slate-500 border-gray-200 dark:border-slate-800'
                     }`}
                 >
-                  {role === 'all' ? t('usuarios.roles.all') : role}
+                  {role === 'all' ? t('usuarios.roles.all') : getRoleDisplayLabel(role)}
                 </button>
               ))}
             </div>
@@ -400,7 +418,9 @@ function UsuariosPage() {
                                 ${user.role === 'admin' ? 'bg-slate-800 dark:bg-slate-200 dark:text-slate-900' :
                                   user.role === 'manager' ? 'bg-blue-600' :
                                     user.role === 'supervisor' ? 'bg-purple-600' :
-                                      'bg-emerald-500'
+                                      user.role === 'basecamp' ? 'bg-sky-600' :
+                                        user.role === 'planificador' ? 'bg-cyan-600' :
+                                          'bg-emerald-500'
                                 }`}>
                                 {user.full_name?.charAt(0).toUpperCase()}
                               </div>
@@ -413,7 +433,7 @@ function UsuariosPage() {
                           <td className="px-6 py-4">
                             <div className="flex flex-col gap-1 items-start">
                               <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${roleColors[user.role] || 'bg-gray-100 text-gray-500'}`}>
-                                {user.role}
+                                {getRoleDisplayLabel(user.role)}
                               </span>
                               {user.position_type && (
                                 <span className="text-[9px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest pl-1 mt-0.5">
@@ -492,7 +512,9 @@ function UsuariosPage() {
                           ${user.role === 'admin' ? 'bg-gradient-to-br from-slate-700 to-slate-900 dark:from-slate-100 dark:to-slate-300 dark:text-slate-900' :
                             user.role === 'manager' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
                               user.role === 'supervisor' ? 'bg-gradient-to-br from-purple-500 to-purple-600' :
-                                'bg-gradient-to-br from-emerald-400 to-emerald-600'
+                                user.role === 'basecamp' ? 'bg-gradient-to-br from-sky-500 to-blue-600' :
+                                  user.role === 'planificador' ? 'bg-gradient-to-br from-cyan-500 to-teal-600' :
+                                    'bg-gradient-to-br from-emerald-400 to-emerald-600'
                           }`}>
                           {user.full_name?.charAt(0).toUpperCase()}
                         </div>
@@ -518,7 +540,7 @@ function UsuariosPage() {
                             <User size={12} /> {t('usuarios.table.role').toUpperCase()}
                           </span>
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${roleColors[user.role] || 'bg-gray-100'}`}>
-                            {user.role}
+                            {getRoleDisplayLabel(user.role)}
                           </span>
                         </div>
 

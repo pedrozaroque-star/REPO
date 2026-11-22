@@ -13,7 +13,7 @@
  * - User Input -> POST /api/support-chat (with conversation_id & user metadata) -> Gemini Tool Loop & Animated Chart Extraction -> Supabase persistence -> Markdown Render with Recharts Visualizations & Interactive Suggestion Pills.
  * - History Navigation -> GET /api/support-chat/conversations -> GET /api/support-chat/conversations/[id] -> Load thread (rehydrates charts & suggestions).
  * - Predictive Starters -> GET /api/support-chat/conversations/predictive-suggestions -> Personalize initial cards.
- * @notes Permanent spinning circular bubble without periodic size expansion, with dual compact history drawer and expanded sidebar. Listens for `teg:open-support-chat` from the Mobile OS Home `Asistente IA` squircle and hides the floating FAB on `< lg` when `/inicio` is in `homeViewMode === 'os'`.
+ * @notes Permanent spinning circular bubble without periodic size expansion, with dual compact history drawer and expanded sidebar. Listens for `teg:open-support-chat` from the Mobile OS Home `Asistente IA` squircle and hides the floating FAB on `< lg` when `/inicio` is in `homeViewMode === 'os'`. Includes multimodal image/PDF attachments (compressed client-side) and smart voice dictation via `gemini-3.5-transcribe` (`/api/support-chat/transcribe`).
  */
 
 import React, { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
@@ -23,8 +23,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   MessageSquare, X, Send, Bot, User, Loader2, Maximize2, Minimize2, 
   Sparkles, ArrowRight, Plus, Compass, History, Trash2, Clock, CheckCircle2,
-  HelpCircle, ChevronRight, BarChart2, Download, Copy, Check, FileSpreadsheet
+  HelpCircle, ChevronRight, BarChart2, Download, Copy, Check, FileSpreadsheet,
+  Paperclip, Mic, Square, FileText
 } from 'lucide-react'
+import imageCompression from 'browser-image-compression'
 import { useLanguage } from '@/lib/i18n'
 import { DOCK_UPDATED_EVENT, getOSUserStorageKey, type MobileHomeViewMode, type OSUserLike } from '@/lib/mobile-os-catalog'
 import ReactMarkdown from 'react-markdown'
@@ -318,6 +320,14 @@ function ChatCodeBlockWithDownload({ inline, className, children, language, ...p
   )
 }
 
+interface ChatAttachment {
+  id: string
+  name: string
+  mimeType: string
+  data: string
+  previewUrl?: string
+}
+
 interface Message { 
   id: string
   role: 'user' | 'assistant'
@@ -325,6 +335,7 @@ interface Message {
   createdAt?: string
   suggestedQuestions?: string[]
   chart?: ChartConfig | null
+  attachmentBadges?: { name: string; mimeType: string; previewUrl?: string }[]
 }
 
 interface SavedConversation {
@@ -396,6 +407,17 @@ const PROMPTS = {
     powered: 'Asistente Operativo Tacos Gavilan', 
     welcome: '¡Hola! Soy tu Asistente de Operaciones de Tacos Gavilan 🌮\n\nPuedo darte las ventas en vivo, generar gráficas interactivas comparativas, costos de comida, revisar descansos de ley, proyectar la carne de parrilla o ayudarte con cualquier duda de tu restaurante.\n\nTodas tus preguntas y gráficas se guardan automáticamente.\n\n¿Qué te gustaría revisar hoy?',
     errPrefix: 'Error de conexión.',
+    attachTitle: 'Adjuntar foto o PDF (máx. 3)',
+    micStart: 'Dictar por voz (Gemini Transcribe)',
+    micStop: 'Detener grabación y transcribir',
+    micRecording: 'Grabando voz... toca ■ para transcribir',
+    micTranscribing: 'Transcribiendo con Gemini 3.5...',
+    micError: 'No se pudo acceder al micrófono o transcribir.',
+    micBusyLiveSim: 'Finaliza primero la llamada en vivo del simulador antes de usar el dictado por voz.',
+    micMaxDurationNotice: 'Límite de 90 segundos alcanzado. Transcribiendo tu grabación...',
+    fileTooLarge: 'El archivo PDF supera 2 MB o el total adjunto excede el límite permitido.',
+    fileUnsupported: 'Formato no soportado. Usa imagen (JPG, PNG, WebP, HEIC) o PDF.',
+    defaultFilePrompt: 'Analiza este archivo adjunto.',
     cards: [
       { tag: 'VENTAS', text: '¿Cómo van las ventas hoy vs ayer?', color: 'from-red-500 to-orange-500' },
       { tag: 'EQUIPO', text: '¿Cuáles son las reglas de breaks en California?', color: 'from-blue-500 to-cyan-500' },
@@ -434,6 +456,17 @@ const PROMPTS = {
     powered: 'Tacos Gavilan Operations Assistant', 
     welcome: "Hi! I'm your Tacos Gavilan Operations Assistant 🌮\n\nI can help you check live sales, generate interactive comparison charts, food cost, review break compliance, calculate grill pace, or answer questions about your restaurant.\n\nAll your questions and charts are saved automatically.\n\nHow can I help you today?",
     errPrefix: 'Connection error.',
+    attachTitle: 'Attach photo or PDF (max 3)',
+    micStart: 'Voice dictation (Gemini Transcribe)',
+    micStop: 'Stop recording & transcribe',
+    micRecording: 'Recording voice... tap ■ to transcribe',
+    micTranscribing: 'Transcribing with Gemini 3.5...',
+    micError: 'Could not access microphone or transcribe.',
+    micBusyLiveSim: 'Please end the active live simulator call before using voice dictation.',
+    micMaxDurationNotice: '90-second limit reached. Transcribing your recording...',
+    fileTooLarge: 'PDF file exceeds 2 MB or total attachments exceed the allowed size.',
+    fileUnsupported: 'Unsupported format. Use image (JPG, PNG, WebP, HEIC) or PDF.',
+    defaultFilePrompt: 'Analyze this attached file.',
     cards: [
       { tag: 'SALES', text: "How are today's sales vs yesterday?", color: 'from-red-500 to-orange-500' },
       { tag: 'TEAM', text: 'What are the California break rules?', color: 'from-blue-500 to-cyan-500' },
@@ -476,8 +509,24 @@ function formatTimeAgo(isoString: string, lang: 'es' | 'en'): string {
   }
 }
 
+const HIDDEN_SUPPORT_CHAT_ROUTES = [
+  '/inventory/preparador',
+  '/descansos',
+  '/actividades',
+  '/mis-horarios',
+  '/order-ready-board',
+  '/ordenar',
+  '/app',
+]
+const MAX_PDF_ATTACHMENT_BYTES = 2 * 1024 * 1024
+const MAX_TOTAL_ATTACHMENT_BASE64_CHARS = Math.floor(3.2 * 1024 * 1024)
+const MAX_VOICE_RECORDING_SECONDS = 90
+
 export default function SupportChatWidget() {
   const pathname = usePathname()
+  const isSuppressedRoute = HIDDEN_SUPPORT_CHAT_ROUTES.some(
+    (r) => pathname === r || Boolean(pathname?.startsWith(r + '/'))
+  )
   const homeViewMode = useSyncExternalStore<MobileHomeViewMode>(
     subscribeSupportHomeMode,
     getSupportHomeModeSnapshot,
@@ -508,8 +557,55 @@ export default function SupportChatWidget() {
   // Predictive smart starters
   const [predictiveStarters, setPredictiveStarters] = useState<string[]>([])
   
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [isTranscribingAudio, setIsTranscribingAudio] = useState(false)
+  const [composerNotice, setComposerNotice] = useState<string | null>(null)
+
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const inputValRef = useRef<string>('')
+  inputValRef.current = input
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cancelRecordingRef = useRef<boolean>(false)
+
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    if (typeof window === 'undefined') return {}
+    const token = window.localStorage.getItem('teg_token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }, [])
+
+  const abortActiveRecording = useCallback(() => {
+    cancelRecordingRef.current = true
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+    } catch {}
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop())
+      mediaStreamRef.current = null
+    }
+    mediaRecorderRef.current = null
+    audioChunksRef.current = []
+    setIsRecordingAudio(false)
+    setRecordingSeconds(0)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      abortActiveRecording()
+    }
+  }, [abortActiveRecording])
 
   // Load user from localStorage
   useEffect(() => {
@@ -534,7 +630,9 @@ export default function SupportChatWidget() {
       if (currentUser.email) params.append('user_email', currentUser.email)
       if (currentUser.id) params.append('user_id', String(currentUser.id))
 
-      const res = await fetch(`/api/support-chat/conversations?${params.toString()}`)
+      const res = await fetch(`/api/support-chat/conversations?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      })
       if (!res.ok) return
       const data = await res.json()
       if (Array.isArray(data.conversations)) {
@@ -545,7 +643,7 @@ export default function SupportChatWidget() {
     } finally {
       setIsLoadingHistory(false)
     }
-  }, [currentUser])
+  }, [currentUser, getAuthHeaders])
 
   // Fetch predictive starter suggestions based on user history
   const loadPredictiveSuggestions = useCallback(async () => {
@@ -556,7 +654,9 @@ export default function SupportChatWidget() {
       if (currentUser?.store_id) params.append('store_id', String(currentUser.store_id))
       params.append('language', language)
 
-      const res = await fetch(`/api/support-chat/conversations/predictive-suggestions?${params.toString()}`)
+      const res = await fetch(`/api/support-chat/conversations/predictive-suggestions?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      })
       if (!res.ok) return
       const data = await res.json()
       if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
@@ -565,15 +665,16 @@ export default function SupportChatWidget() {
     } catch (e) {
       console.error('Error fetching predictive suggestions:', e)
     }
-  }, [currentUser, language])
+  }, [currentUser, language, getAuthHeaders])
 
-  // Load history & predictive suggestions on mount or when user changes
+  // Load history & predictive suggestions on mount or when user changes (skip restricted roles)
   useEffect(() => {
-    if (currentUser) {
+    const r = currentUser?.role?.toLowerCase()
+    if (currentUser && r !== 'planificador' && r !== 'basecamp' && r !== 'employee' && !isSuppressedRoute) {
       loadSavedConversations()
       loadPredictiveSuggestions()
     }
-  }, [currentUser, loadSavedConversations, loadPredictiveSuggestions])
+  }, [currentUser, isSuppressedRoute, loadSavedConversations, loadPredictiveSuggestions])
 
   useEffect(() => { 
     if (!hasChat && !activeConversationId) {
@@ -585,13 +686,15 @@ export default function SupportChatWidget() {
   useEffect(() => { if (isOpen && inputRef.current) setTimeout(() => inputRef.current?.focus(), 300) }, [isOpen, isExpanded, showExplore, showHistoryCompact])
   useEffect(() => { if (isExpanded) { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } } }, [isExpanded])
 
-  const openChat = useCallback(() => { 
+  const openChat = useCallback(() => {
+    const r = currentUser?.role?.toLowerCase()
+    if (r === 'planificador' || r === 'basecamp' || r === 'employee' || isSuppressedRoute) return
     setIsOpen(true)
     setIsExpanded(false)
     setShowHistoryCompact(false)
     loadSavedConversations()
     loadPredictiveSuggestions()
-  }, [loadSavedConversations, loadPredictiveSuggestions])
+  }, [currentUser?.role, isSuppressedRoute, loadSavedConversations, loadPredictiveSuggestions])
 
   useEffect(() => {
     const handleOpenSupportChat = () => {
@@ -602,6 +705,7 @@ export default function SupportChatWidget() {
   }, [openChat])
 
   const closeChat = () => { 
+    abortActiveRecording()
     setIsOpen(false) 
     setIsExpanded(false) 
     setShowHistoryCompact(false)
@@ -614,6 +718,9 @@ export default function SupportChatWidget() {
 
   // Start fresh chat session
   const startNewChat = () => {
+    abortActiveRecording()
+    setPendingAttachments([])
+    setComposerNotice(null)
     const freshWelcome: Message = { id: 'w-' + Date.now(), role: 'assistant', content: txt.welcome }
     setMessages([freshWelcome])
     setInput('')
@@ -629,7 +736,9 @@ export default function SupportChatWidget() {
   const selectConversation = async (convId: string) => {
     try {
       setIsLoading(true)
-      const res = await fetch(`/api/support-chat/conversations/${convId}`)
+      const res = await fetch(`/api/support-chat/conversations/${convId}`, {
+        headers: getAuthHeaders(),
+      })
       if (!res.ok) throw new Error('Error loading conversation')
       const data = await res.json()
       
@@ -663,7 +772,10 @@ export default function SupportChatWidget() {
     e.stopPropagation()
     try {
       setDeletingId(convId)
-      const res = await fetch(`/api/support-chat/conversations/${convId}`, { method: 'DELETE' })
+      const res = await fetch(`/api/support-chat/conversations/${convId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
       if (res.ok) {
         setSavedConversations(prev => prev.filter(c => c.id !== convId))
         if (activeConversationId === convId) {
@@ -677,22 +789,305 @@ export default function SupportChatWidget() {
     }
   }
 
+  const readBlobAsBase64 = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const resStr = String(reader.result || '')
+        resolve(resStr.replace(/^data:[^;]+;base64,/, ''))
+      }
+      reader.onerror = () => reject(new Error('File read error'))
+      reader.readAsDataURL(blob)
+    })
+
+  const processIncomingFiles = async (fileList: FileList | File[]) => {
+    setComposerNotice(null)
+    const files = Array.from(fileList)
+    if (files.length === 0) return
+    const slots = Math.max(0, 3 - pendingAttachments.length)
+    if (slots === 0) return
+
+    let runningBase64Chars = pendingAttachments.reduce((acc, a) => acc + (a.data?.length || 0), 0)
+    const nextAdded: ChatAttachment[] = []
+    for (const rawFile of files.slice(0, slots)) {
+      const lowerName = (rawFile.name || '').toLowerCase()
+      const isPdf = rawFile.type === 'application/pdf' || lowerName.endsWith('.pdf')
+      const isImage = rawFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(lowerName)
+
+      if (!isPdf && !isImage) {
+        setComposerNotice(txt.fileUnsupported)
+        continue
+      }
+
+      if (isPdf) {
+        if (rawFile.size > MAX_PDF_ATTACHMENT_BYTES) {
+          setComposerNotice(txt.fileTooLarge)
+          continue
+        }
+        const b64 = await readBlobAsBase64(rawFile)
+        if (runningBase64Chars + b64.length > MAX_TOTAL_ATTACHMENT_BASE64_CHARS) {
+          setComposerNotice(txt.fileTooLarge)
+          continue
+        }
+        runningBase64Chars += b64.length
+        nextAdded.push({
+          id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          name: rawFile.name || 'documento.pdf',
+          mimeType: 'application/pdf',
+          data: b64,
+        })
+      } else {
+        let processed: File | Blob = rawFile
+        try {
+          processed = await imageCompression(rawFile, {
+            maxSizeMB: 0.45,
+            maxWidthOrHeight: 1600,
+            useWebWorker: true,
+            fileType: 'image/webp',
+            initialQuality: 0.82,
+          })
+        } catch {
+          try {
+            processed = await imageCompression(rawFile, {
+              maxSizeMB: 0.45,
+              maxWidthOrHeight: 1600,
+              useWebWorker: false,
+              fileType: 'image/webp',
+              initialQuality: 0.82,
+            })
+          } catch {
+            processed = rawFile
+          }
+        }
+        const b64 = await readBlobAsBase64(processed)
+        if (runningBase64Chars + b64.length > MAX_TOTAL_ATTACHMENT_BASE64_CHARS) {
+          setComposerNotice(txt.fileTooLarge)
+          continue
+        }
+        runningBase64Chars += b64.length
+        const rawMime = processed.type ? processed.type.split(';')[0].trim().toLowerCase() : ''
+        const inferredExtMime = lowerName.endsWith('.heic')
+          ? 'image/heic'
+          : lowerName.endsWith('.heif')
+            ? 'image/heif'
+            : lowerName.endsWith('.png')
+              ? 'image/png'
+              : lowerName.endsWith('.webp')
+                ? 'image/webp'
+                : lowerName.endsWith('.gif')
+                  ? 'image/gif'
+                  : 'image/jpeg'
+        const cleanMime = !rawMime || rawMime === 'application/octet-stream'
+          ? inferredExtMime
+          : rawMime === 'image/jpg'
+            ? 'image/jpeg'
+            : rawMime
+        nextAdded.push({
+          id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          name: rawFile.name || 'imagen.webp',
+          mimeType: cleanMime,
+          data: b64,
+          previewUrl: cleanMime === 'image/heic' || cleanMime === 'image/heif' ? undefined : `data:${cleanMime};base64,${b64}`,
+        })
+      }
+    }
+    if (nextAdded.length > 0) {
+      setPendingAttachments(prev => [...prev, ...nextAdded].slice(0, 3))
+    }
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      await processIncomingFiles(e.target.files)
+    }
+    e.target.value = ''
+  }
+
+  const handleInputPaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageFiles: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.kind === 'file' && (it.type.startsWith('image/') || it.type === 'application/pdf')) {
+        const f = it.getAsFile()
+        if (f) imageFiles.push(f)
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault()
+      await processIncomingFiles(imageFiles)
+    }
+  }
+
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments(prev => prev.filter(a => a.id !== id))
+  }
+
+  const toggleVoiceDictation = async () => {
+    setComposerNotice(null)
+    if (isRecordingAudio) {
+      cancelRecordingRef.current = false
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current)
+        recordingTimerRef.current = null
+      }
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop()
+        }
+      } catch {
+        abortActiveRecording()
+      }
+      return
+    }
+
+    if (
+      typeof document !== 'undefined' &&
+      document.querySelector('[data-teg-live-sim="true"]') !== null
+    ) {
+      setComposerNotice(txt.micBusyLiveSim)
+      return
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setComposerNotice(txt.micError)
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+      audioChunksRef.current = []
+      cancelRecordingRef.current = false
+
+      const preferredMimes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+      const chosenMime = preferredMimes.find(m => {
+        try { return MediaRecorder.isTypeSupported(m) } catch { return false }
+      }) || ''
+
+      const recorder = chosenMime ? new MediaRecorder(stream, { mimeType: chosenMime }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data)
+        }
+      }
+
+      recorder.onstop = async () => {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop())
+          mediaStreamRef.current = null
+        }
+        setIsRecordingAudio(false)
+        setRecordingSeconds(0)
+
+        if (cancelRecordingRef.current || audioChunksRef.current.length === 0) {
+          audioChunksRef.current = []
+          return
+        }
+
+        const actualMime = (recorder.mimeType || chosenMime || 'audio/webm').split(';')[0].trim()
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualMime })
+        audioChunksRef.current = []
+        if (audioBlob.size < 200) return
+
+        setIsTranscribingAudio(true)
+        try {
+          const fd = new FormData()
+          const ext = actualMime.includes('mp4') || actualMime.includes('m4a') ? 'm4a' : actualMime.includes('ogg') ? 'ogg' : 'webm'
+          fd.append('audio', audioBlob, `dictation.${ext}`)
+          fd.append('languageHint', language)
+          const latestDraft = inputValRef.current.trim()
+          if (latestDraft) {
+            fd.append('sourceText', latestDraft)
+          }
+          const res = await fetch('/api/support-chat/transcribe', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: fd,
+          })
+          const json = await res.json().catch(() => ({}))
+          if (res.ok && json?.success && typeof json.text === 'string' && json.text.trim()) {
+            setInput(json.text.trim())
+            setTimeout(() => inputRef.current?.focus(), 60)
+          } else {
+            setComposerNotice(json?.error || txt.micError)
+          }
+        } catch {
+          setComposerNotice(txt.micError)
+        } finally {
+          setIsTranscribingAudio(false)
+        }
+      }
+
+      recorder.start(250)
+      setIsRecordingAudio(true)
+      setRecordingSeconds(0)
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(prev => {
+          const next = prev + 1
+          if (next >= MAX_VOICE_RECORDING_SECONDS) {
+            if (recordingTimerRef.current) {
+              clearInterval(recordingTimerRef.current)
+              recordingTimerRef.current = null
+            }
+            cancelRecordingRef.current = false
+            setComposerNotice(txt.micMaxDurationNotice)
+            try {
+              if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                mediaRecorderRef.current.stop()
+              }
+            } catch {
+              abortActiveRecording()
+            }
+          }
+          return next
+        })
+      }, 1000)
+    } catch {
+      abortActiveRecording()
+      setComposerNotice(txt.micError)
+    }
+  }
+
   // Send message
   const send = async (text?: string) => {
-    const msg = text || input.trim()
-    if (!msg || isLoading) return
+    if (isRecordingAudio) abortActiveRecording()
+    const typed = (text ?? input).trim()
+    const attachmentsToSend = text ? [] : [...pendingAttachments]
+    if ((!typed && attachmentsToSend.length === 0) || isLoading || isTranscribingAudio) return
+    const msg = typed || txt.defaultFilePrompt
     if (!hasChat) { setHasChat(true); setShowExplore(false); setShowHistoryCompact(false) }
-    
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: msg }
+    setComposerNotice(null)
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: msg,
+      attachmentBadges: attachmentsToSend.length > 0
+        ? attachmentsToSend.map(a => ({ name: a.name, mimeType: a.mimeType, previewUrl: a.previewUrl }))
+        : undefined,
+    }
     setMessages(prev => [...prev, userMsg])
-    setInput('')
+    if (!text) {
+      setInput('')
+      setPendingAttachments([])
+    }
     setIsLoading(true)
     
     try {
-      const history = [...messages, userMsg].map(m => ({ 
-        role: m.role === 'assistant' ? 'model' : 'user', 
-        content: m.content 
-      }))
+      const history = [...messages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        content: m.content,
+      })), {
+        role: 'user',
+        content: msg,
+        ...(attachmentsToSend.length > 0
+          ? { attachments: attachmentsToSend.map(a => ({ name: a.name, mimeType: a.mimeType, data: a.data })) }
+          : {}),
+      }]
 
       const payload = {
         messages: history,
@@ -709,11 +1104,12 @@ export default function SupportChatWidget() {
 
       const res = await fetch('/api/support-chat', { 
         method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, 
         body: JSON.stringify(payload) 
       })
 
-      const data = await res.json()
+      const contentType = res.headers.get('content-type') || ''
+      const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() }
       if (!res.ok) throw new Error(data.error || 'Error')
       
       const parsed = parseMessageContent(data.reply)
@@ -765,7 +1161,23 @@ export default function SupportChatWidget() {
               </div>
               <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed break-words min-w-0 ${msg.role === 'user' ? 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white rounded-tr-sm shadow-md' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-700 shadow-sm rounded-tl-sm w-full overflow-hidden'}`}>
                 {msg.role === 'user' ? (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <div className="space-y-2">
+                    {msg.attachmentBadges && msg.attachmentBadges.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {msg.attachmentBadges.map((att, aIdx) => (
+                          <div key={aIdx} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/15 border border-white/20 text-[11px] font-medium text-white">
+                            {att.previewUrl ? (
+                              <img src={att.previewUrl} alt={att.name} className="w-6 h-6 rounded object-cover" />
+                            ) : (
+                              <FileText size={13} className="shrink-0" />
+                            )}
+                            <span className="truncate max-w-[140px]">{att.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  </div>
                 ) : (
                   <div className="w-full overflow-hidden">
                     <ReactMarkdown 
@@ -917,26 +1329,105 @@ export default function SupportChatWidget() {
   )
 
   const renderInputBar = (ref?: any, ph?: string) => (
-    <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex-shrink-0">
-      <form onSubmit={handleSubmit} className="relative flex items-center">
+    <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex-shrink-0 space-y-2">
+      {composerNotice && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+          <span className="truncate">{composerNotice}</span>
+          <button type="button" onClick={() => setComposerNotice(null)} className="text-amber-600 hover:text-amber-900 dark:text-amber-300">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+      {pendingAttachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-1">
+          {pendingAttachments.map(att => (
+            <div key={att.id} className="inline-flex items-center gap-1.5 pl-1.5 pr-1 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold text-indigo-800 dark:text-indigo-200">
+              {att.previewUrl ? (
+                <img src={att.previewUrl} alt={att.name} className="w-6 h-6 rounded-md object-cover" />
+              ) : (
+                <FileText size={14} className="text-red-500 shrink-0" />
+              )}
+              <span className="truncate max-w-[130px]">{att.name}</span>
+              <button
+                type="button"
+                onClick={() => removePendingAttachment(att.id)}
+                className="p-0.5 rounded-full hover:bg-indigo-200/70 dark:hover:bg-indigo-800 text-indigo-600 dark:text-indigo-300"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {(isRecordingAudio || isTranscribingAudio) && (
+        <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-[11px] font-semibold text-red-700 dark:text-red-300">
+          <div className="flex items-center gap-2 min-w-0">
+            {isRecordingAudio ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-red-600 animate-ping shrink-0" />
+                <span className="truncate">{txt.micRecording}</span>
+                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/60">
+                  {Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, '0')}
+                </span>
+              </>
+            ) : (
+              <>
+                <Loader2 size={12} className="animate-spin shrink-0 text-indigo-600" />
+                <span className="truncate text-indigo-700 dark:text-indigo-300">{txt.micTranscribing}</span>
+              </>
+            )}
+          </div>
+          {isRecordingAudio && (
+            <button type="button" onClick={abortActiveRecording} className="text-slate-500 hover:text-red-600 ml-2">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-full pl-2 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500/50 transition-all">
+        <button
+          type="button"
+          title={txt.attachTitle}
+          aria-label={txt.attachTitle}
+          disabled={isLoading || isRecordingAudio || pendingAttachments.length >= 3}
+          onClick={() => fileInputRef.current?.click()}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0"
+        >
+          <Paperclip size={15} />
+        </button>
         <input 
           ref={ref || inputRef} 
           type="text" 
           value={input} 
-          onChange={e => setInput(e.target.value)} 
+          onChange={e => setInput(e.target.value)}
+          onPaste={handleInputPaste}
           placeholder={ph || txt.placeholder}
-          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-full pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 dark:text-white transition-all" 
-          disabled={isLoading} 
+          className="flex-1 min-w-0 bg-transparent py-1.5 text-sm focus:outline-none dark:text-white" 
+          disabled={isLoading || isTranscribingAudio} 
         />
+        <button
+          type="button"
+          title={isRecordingAudio ? txt.micStop : txt.micStart}
+          aria-label={isRecordingAudio ? txt.micStop : txt.micStart}
+          disabled={isLoading || isTranscribingAudio}
+          onClick={toggleVoiceDictation}
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 ${
+            isRecordingAudio
+              ? 'bg-red-600 text-white animate-pulse shadow-md'
+              : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800'
+          } disabled:opacity-40`}
+        >
+          {isTranscribingAudio ? <Loader2 size={14} className="animate-spin text-indigo-600" /> : isRecordingAudio ? <Square size={12} fill="currentColor" /> : <Mic size={15} />}
+        </button>
         <button 
           type="submit" 
-          disabled={!input.trim() || isLoading}
-          className="absolute right-2 w-8 h-8 bg-gradient-to-br from-indigo-600 to-purple-700 disabled:from-slate-300 disabled:to-slate-400 text-white rounded-full flex items-center justify-center transition-all shadow-md disabled:shadow-none"
+          disabled={(!input.trim() && pendingAttachments.length === 0) || isLoading || isRecordingAudio || isTranscribingAudio}
+          className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-purple-700 disabled:from-slate-300 disabled:to-slate-400 text-white rounded-full flex items-center justify-center transition-all shadow-md disabled:shadow-none shrink-0"
         >
           {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} className="ml-0.5" />}
         </button>
       </form>
-      <p className="text-center mt-1.5 text-[9px] text-slate-400 uppercase tracking-widest">{txt.powered} ✦</p>
+      <p className="text-center text-[9px] text-slate-400 uppercase tracking-widest">{txt.powered} ✦ Gemini 3.8</p>
     </div>
   )
 
@@ -1208,6 +1699,17 @@ export default function SupportChatWidget() {
     backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
   }
 
+  const normalizedWidgetRole = currentUser?.role?.toLowerCase()
+  if (
+    !mounted ||
+    isSuppressedRoute ||
+    normalizedWidgetRole === 'planificador' ||
+    normalizedWidgetRole === 'basecamp' ||
+    normalizedWidgetRole === 'employee'
+  ) {
+    return null
+  }
+
   return (
     <>
       {/* FAB - Meta AI "Ask" Style */}
@@ -1269,6 +1771,7 @@ export default function SupportChatWidget() {
 
       {/* Expanded Modal */}
       {isOpen && isExpanded && createPortal(
+        <div className="print:hidden">
         <AnimatePresence>
           <motion.div 
             key="bd" 
@@ -1312,9 +1815,18 @@ export default function SupportChatWidget() {
               </div>
             </div>
           </motion.div>
-        </AnimatePresence>,
+        </AnimatePresence>
+        </div>,
         document.body
       )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+        multiple
+        onChange={handleFileSelect}
+        className="hidden"
+      />
     </>
   )
 }

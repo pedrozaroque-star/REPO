@@ -7,7 +7,7 @@
  * - Todos los grupos de categorías inician cerrados por defecto (`effectiveExpandedGroups = {}`), abriendo automáticamente únicamente la categoría que contiene la ruta activa (`pathname`) con auto-scroll suave hacia el módulo activo.
  * - Modo acordeón inteligente: al abrir manualmente un grupo, colapsa los demás para mantener limpia la navegación, con opción global de Abrir/Cerrar todos en 1 clic.
  * - Incluye buscador instantáneo de módulos insensible a mayúsculas y acentos, además de accesos rápidos fijos superiores (`Inicio` y `Dashboard`).
- * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
+ * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`, `basecamp`).
  * - Los módulos configurados con `openInNewTab: true` (ej. `/app` Customer App y `/gavilan-pos` Gavilan POS) se abren en una pestaña independiente (`target="_blank"`) con icono de enlace externo.
  * - Soporta insignias animadas (`NEW`, `Building`) con ubicación en línea o debajo del título (`badgePosition: 'below'`).
  * - Soporta cambio de idioma en vivo (ES/EN), modo claro/oscuro, notificaciones y modal de historial de versiones (`ChangelogModal`).
@@ -230,6 +230,11 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { homeViewMode } = useMobileDockPreferences(user, t)
     const hideMobileTopBarOnOSHome = pathname === '/inicio' && homeViewMode === 'os'
     const hideNotificationsOnKiosk = isNotificationKioskRoute(pathname)
+    const isBasecampOnly = user?.role?.toLowerCase() === 'basecamp'
+    const isPlanificadorOnlyUser =
+        (user?.email || '').trim().toLowerCase() === 'stephany@cingularhr.com' ||
+        user?.role?.toLowerCase() === 'planificador'
+    const logoTargetHref = isBasecampOnly ? '/basecamp' : isPlanificadorOnlyUser ? '/planificador' : '/inicio'
 
     const [expandedSubItems, setExpandedSubItems] = useState<Record<string, boolean>>({})
     // Path-scoped manual accordion overrides; default state keeps all groups closed (except active route group)
@@ -355,7 +360,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     plainName: 'Basecamp',
                     path: '/basecamp',
                     icon: <BasecampIcon size={20} />,
-                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    roles: ['manager', 'supervisor', 'admin', 'asistente', 'basecamp'],
                     tooltip: language === 'en'
                         ? 'Communication hub, operational tickets, and company announcements (Casos, tickets y avisos a corporativo)'
                         : 'Plataforma diaria de comunicación, casos operativos y avisos a la compañía'
@@ -843,6 +848,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             const validItems = group.items.filter(item => {
                 if (item.path === '/admin/contabilidad-externa') return canAccessExternalAccounting
                 if (isPlanificadorOnly) return item.path === '/planificador'
+                if (isBasecampOnly) return item.path === '/basecamp'
                 if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) return false
                 if (!item.roles || item.roles.length === 0) return true
                 const userRole = (user?.role || user?.user_type || '').toLowerCase()
@@ -1222,6 +1228,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {showExpanded && (
                     <div className="flex-shrink-0 px-2.5 pt-2.5 pb-2 space-y-2 border-b border-slate-100 dark:border-slate-800/80">
                         {/* Quick Pinned Shortcuts: Inicio & Dashboard */}
+                        {!isBasecampOnly && !isPlanificadorOnlyUser && (
                         <div className={`grid gap-1.5 ${canViewDashboard ? 'grid-cols-2' : 'grid-cols-1'}`}>
                             <Link
                                 href="/inicio"
@@ -1261,6 +1268,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                 </Link>
                             )}
                         </div>
+                        )}
 
                         {/* Instant Search & Expand/Collapse All */}
                         <div className="flex items-center gap-1.5">
@@ -1449,6 +1457,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         </div>
                     </div>
 
+                    {!isBasecampOnly && !isPlanificadorOnlyUser && (
+                    <>
                     <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
                     {/* ── Quick Links ── */}
@@ -1489,6 +1499,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             Dashboard
                         </Link>
                     </div>
+                    </>
+                    )}
 
                     <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
@@ -1653,7 +1665,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     isCollapsed ? 'justify-center px-2' : 'justify-between px-3.5 gap-2'
                 }`}>
                     <Link
-                        href="/inicio"
+                        href={logoTargetHref}
                         onClick={() => setIsCollapsed(true)}
                         title={t('items.home_hub')}
                         className={`flex items-center gap-2.5 group min-w-0 rounded-lg py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 ${
@@ -1806,7 +1818,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     >
                         <Menu size={22} strokeWidth={2.3} />
                     </button>
-                    <Link href="/inicio" onClick={() => setMobileDrawerOpen(false)} className="flex items-center gap-2 group">
+                    <Link href={logoTargetHref} onClick={() => setMobileDrawerOpen(false)} className="flex items-center gap-2 group">
                         <img src="/logo.png" alt="TEG" className="w-8 h-8 object-contain transition-transform group-hover:scale-110" />
                         <span className="text-[15px] font-black text-slate-900 dark:text-white">
                             SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
@@ -1874,6 +1886,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                 </div>
                             </div>
 
+                            {!isBasecampOnly && !isPlanificadorOnlyUser && (
+                            <>
                             <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
                             {/* ── Quick Links ── */}
@@ -1895,6 +1909,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                                     Dashboard
                                 </Link>
                             </div>
+                            </>
+                            )}
 
                             <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
 
@@ -2013,7 +2029,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                             {/* Drawer Header */}
                             <div className="flex-shrink-0 h-14 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between px-4">
                                 <Link
-                                    href="/inicio"
+                                    href={logoTargetHref}
                                     onClick={() => setMobileDrawerOpen(false)}
                                     className="flex items-center gap-2.5 group"
                                 >

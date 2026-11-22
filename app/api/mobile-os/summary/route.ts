@@ -12,7 +12,7 @@
  *   día calendario siguiente (si `laHour < 6`, resta 1 día calendario). Turno `AM` (`06:00..16:59`)
  *   y turno `PM` (`17:00..05:59`).
  * - `financialPulse` en dólares estadounidenses (`USD`):
- *   * `null` para `vikesh@tacosgavilan.com`, `asistente`, `planificador` y `employee`.
+ *   * `null` para `vikesh@tacosgavilan.com`, `asistente`, `planificador`, `basecamp` y `employee`.
  *   * Visible para `admin`, `supervisor`, `manager` y `auditor` (filtrado a las sucursales autorizadas
  *     del gerente cuando aplica; si aún no hay filas hoy en `sales_daily_cache`, recurre al último
  *     `business_date` disponible marcando `isLiveToday: false` y `effectiveDate`).
@@ -331,12 +331,14 @@ export async function GET(req: Request) {
 
     const isPlanificadorOnly =
       emailNorm === 'stephany@cingularhr.com' || role === 'planificador'
+    const isBasecampOnly = role === 'basecamp'
     const isEmployeeOnly =
       String(user.user_type || '').toLowerCase() === 'employee' || rawRole === 'employee'
 
     const canViewFinancialPulse =
       !isVikesh &&
       !isPlanificadorOnly &&
+      !isBasecampOnly &&
       !isEmployeeOnly &&
       ['admin', 'supervisor', 'manager', 'auditor'].includes(role)
 
@@ -603,6 +605,9 @@ export async function GET(req: Request) {
       if (isPlanificadorOnly) {
         primaryActionPath = '/planificador'
         secondaryActionPath = '/planificador'
+      } else if (isBasecampOnly) {
+        primaryActionPath = '/basecamp'
+        secondaryActionPath = '/basecamp'
       } else if (role === 'admin' || role === 'supervisor') {
         primaryActionPath = '/inspecciones'
         secondaryActionPath = '/planificador'

@@ -12,7 +12,7 @@
  * - Al iniciar sesión, el usuario aterriza en `/inicio` en lugar de entrar directamente a `/dashboard`.
  * - En `/inicio`, la barra lateral (`AppSidebar`) se mantiene colapsada por defecto para maximizar el espacio visual.
  * - Al presionar cualquier módulo, la barra lateral se despliega automáticamente como se maneja en el resto del sistema.
- * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`).
+ * - Filtra dinámicamente los módulos según el rol del usuario autenticado (`admin`, `supervisor`, `manager`, `asistente`, `planificador`, `basecamp`), redirigiendo a `/basecamp` si el rol es `'basecamp'`.
  * - En `< 1024px`, respeta `homeViewMode` (`'os' | 'web'`) persistido por usuario sin afectar jamás Desktop (`>= 1024px`).
  *
  * @dataFlow
@@ -30,6 +30,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import MobileOSHome, { FAVORITES_UPDATED_EVENT } from '@/components/mobile-os/MobileOSHome'
@@ -178,12 +179,19 @@ function readStoredFavoriteIds(): string[] {
 
 function InicioHubContent() {
     const { user } = useAuth()
+    const router = useRouter()
     const { t } = useLanguage()
     const { homeViewMode, setHomeViewMode, canCustomizeDock } = useMobileDockPreferences(user, t)
     const [searchQuery, setSearchQuery] = useState('')
     const [activeCategory, setActiveCategory] = useState<string>('all')
     const [favoriteIds, setFavoriteIds] = useState<string[]>(readStoredFavoriteIds)
     const searchInputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        if (user?.role?.toLowerCase() === 'basecamp') {
+            router.replace('/basecamp')
+        }
+    }, [user, router])
 
     // Keep user's pinned favorite modules synced across Mobile OS & Web Hub
     useEffect(() => {
@@ -342,7 +350,7 @@ function InicioHubContent() {
                     path: '/basecamp',
                     icon: <BasecampIcon size={20} />,
                     iconColorClass: 'bg-sky-500/15 text-[#1d7db5] dark:bg-sky-500/20 dark:text-sky-400 border-sky-500/30',
-                    roles: ['manager', 'supervisor', 'admin', 'asistente'],
+                    roles: ['manager', 'supervisor', 'admin', 'asistente', 'basecamp'],
                     badgeType: 'new',
                     badgeLabel: 'new',
                 },
@@ -798,6 +806,7 @@ function InicioHubContent() {
                         ? 'asistente'
                         : rawRole
         const isPlanificadorOnly = userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador'
+        const isBasecampOnly = userRole === 'basecamp'
         const canAccessExternalAccounting =
             ['raquel@tacosgavilan.com', 'roberto@tacosgavilan.com', 'roque@tacosgavilan.com'].includes(userEmailNorm) &&
             [45, 46, 47].includes(Number(user?.id))
@@ -810,6 +819,7 @@ function InicioHubContent() {
                 const validItems = group.items.filter(item => {
                     if (item.path === '/admin/contabilidad-externa') return canAccessExternalAccounting
                     if (isPlanificadorOnly) return item.path === '/planificador'
+                    if (isBasecampOnly) return item.path === '/basecamp'
                     if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) return false
                     if (!item.roles || item.roles.length === 0) return true
                     if (!userRole) return false

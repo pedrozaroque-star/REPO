@@ -25,6 +25,7 @@
  * - El sync principal no bloquea en descargas de medios. Si no están en caché (`bc_attachment_cache`),
  *   se deja la URL original de Basecamp temporalmente y se procesan en segundo plano por el worker.
  * - 2026-11-19 (Paquete 2A): Cuando es disparado por cron interno (`x-internal-cron: 1` o Vercel Cron), omite ventana nocturna `10:00 PM–6:59 AM LA` (`?force=1` override; usuarios manuales siempre corren); omite upserts no-op en `bc_people`, `bc_projects` y `bc_attachment_cache`; y acota `triggerBackgroundAttachmentDownloader` dentro de `after()` (Next 16) únicamente cuando hay proyectos/contenido cambiados o máximo 1×/hora.
+ * - 2026-11-21 (Autonomía 100% Standalone): Si `bc_system_config.runtime_mode === 'standalone'`, retorna `200 OK { skipped: true, standalone: true }` antes de adquirir lock; ante `402 Payment Required` / cuenta cancelada `404` / `invalid_grant` activa `triggerBasecampAutoCutover` sin ensuciar `bc_sync_log`; y protege `bc_people.avatar_url` en Supabase Storage para jamás ser sobrescrito por URLs externas de Basecamp/37signals.
  */
 
 import { NextResponse, after } from 'next/server'
@@ -57,6 +58,10 @@ import {
   parseHtmlAttachments,
   assertSafeBasecampApiUrl,
   resolveHtmlAttachmentsFromCache,
+  BASECAMP_STAFF_ALLOWED_ROLES,
+  detectBasecampCutoverReason,
+  getBasecampSystemConfig,
+  triggerBasecampAutoCutover,
   syncTodolistCounts,
   syncTodolistGroupCounts,
   formatQuestionScheduleText,
@@ -210,10 +215,19 @@ async function downloadAndUploadAttachment(
       return validCached.supabase_url
     }
 
-    const parsedAttachmentUrl = new URL(basecampUrl)
+    let normalizedInputUrl = basecampUrl.replace(/&amp;/gi, '&').trim()
+    if (normalizedInputUrl.startsWith('/api/basecamp/attachment?')) {
+      const innerQs = new URLSearchParams(normalizedInputUrl.slice('/api/basecamp/attachment?'.length))
+      const inner = innerQs.get('url')
+      if (inner) normalizedInputUrl = inner.trim()
+    }
+    const parsedAttachmentUrl = new URL(normalizedInputUrl)
+    const lowerAttHost = parsedAttachmentUrl.hostname.toLowerCase()
     if (
-      parsedAttachmentUrl.hostname.toLowerCase() === 'preview.app.basecamp.com' ||
-      parsedAttachmentUrl.hostname.toLowerCase() === 'storage.app.basecamp.com'
+      lowerAttHost === 'preview.app.basecamp.com' ||
+      lowerAttHost === 'storage.app.basecamp.com' ||
+      lowerAttHost === 'preview.3.basecamp.com' ||
+      lowerAttHost === 'storage.3.basecamp.com'
     ) {
       parsedAttachmentUrl.hostname = '3.basecampapi.com'
     }
@@ -407,7 +421,10 @@ async function resolveSyncedAuthorUuid(opts: {
 }
 
 export async function GET(request: Request) {
-  const auth = verifyStaffAuth(request, { allowCron: true })
+  const auth = verifyStaffAuth(request, {
+    allowCron: true,
+    allowedRoles: BASECAMP_STAFF_ALLOWED_ROLES,
+  })
   if (!auth.authorized) {
     return auth.response!
   }
@@ -435,9 +452,25 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = verifyStaffAuth(request, { allowCron: true })
+  const auth = verifyStaffAuth(request, {
+    allowCron: true,
+    allowedRoles: BASECAMP_STAFF_ALLOWED_ROLES,
+  })
   if (!auth.authorized) {
     return auth.response!
+  }
+
+  // Standalone mode short-circuit (before acquiring sync lock or touching bc_sync_log)
+  const sysCfg = await getBasecampSystemConfig({ bypassCache: true })
+  if (sysCfg.runtime_mode === 'standalone') {
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      standalone: true,
+      reason: 'standalone_mode',
+      standalone_activated_at: sysCfg.standalone_activated_at,
+      standalone_reason: sysCfg.standalone_reason,
+    })
   }
 
   const urlObj = (() => {
@@ -550,6 +583,26 @@ export async function POST(request: Request) {
 
   const syncLogId = logEntry?.id
 
+  const abortSyncWithAutoCutoverIfApplicable = async (
+    err: unknown,
+    isAccountRootEndpoint: boolean = false
+  ): Promise<NextResponse | null> => {
+    const cutoverReason = detectBasecampCutoverReason(err, { isAccountRootEndpoint })
+    if (!cutoverReason) return null
+    const cutoverActivated = await triggerBasecampAutoCutover(cutoverReason)
+    if (!cutoverActivated) return null
+    if (syncLogId) {
+      await supabase.from('bc_sync_log').delete().eq('id', syncLogId)
+    }
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      standalone: true,
+      auto_cutover: true,
+      reason: cutoverReason,
+    })
+  }
+
   // Double-check: if multiple running syncs now exist, this one loses the race
   const { data: runningSyncs } = await supabase
     .from('bc_sync_log')
@@ -636,11 +689,18 @@ export async function POST(request: Request) {
               isMaskedOrEmptyEmail(incomingEmail) && prev?.email && !isMaskedOrEmptyEmail(prev.email)
                 ? prev.email
                 : incomingEmail
+            // Never overwrite an existing Supabase Storage avatar URL with an external Basecamp/37signals URL
+            const prevAvatar = prev?.avatar_url || ''
+            const incomingAvatar = p.avatar_url || ''
+            const preservedAvatar =
+              prevAvatar && isSupabaseStorageUrl(prevAvatar) && !isSupabaseStorageUrl(incomingAvatar)
+                ? prevAvatar
+                : incomingAvatar || prevAvatar
             return {
               bc_id: p.id,
               name: p.name,
               email: preservedEmail,
-              avatar_url: p.avatar_url || '',
+              avatar_url: preservedAvatar,
               role: p.employee ? 'employee' : p.client ? 'client' : 'user',
               title: p.title || '',
               attachable_sgid: p.attachable_sgid || prev?.attachable_sgid || null,
@@ -685,8 +745,55 @@ export async function POST(request: Request) {
         } else {
           console.log(`   ⚡ People unchanged (0/${people.length} upserts skipped)`)
         }
+
+        // Self-heal & archive any new/external Basecamp/37signals avatars to Supabase Storage (`basecamp-avatars/`)
+        const { data: unarchivedPeople } = await supabase
+          .from('bc_people')
+          .select('id, avatar_url')
+          .not('avatar_url', 'is', null)
+          .neq('avatar_url', '')
+          .not('avatar_url', 'like', '%/storage/v1/object/public/%')
+          .limit(200)
+
+        if (unarchivedPeople && unarchivedPeople.length > 0) {
+          for (const up of unarchivedPeople) {
+            const rawAv = String(up.avatar_url || '').trim()
+            if (!rawAv || isSupabaseStorageUrl(rawAv)) continue
+            try {
+              const avRes = await fetch(rawAv, {
+                headers: { 'User-Agent': 'SM-TEG-Sync (noreply@tacosgavilan.com)' },
+                signal: AbortSignal.timeout(10_000),
+              })
+              if (!avRes.ok) continue
+              const ct = (avRes.headers.get('content-type') || 'image/webp').split(';')[0].trim().toLowerCase()
+              if (!ct.startsWith('image/')) continue
+              const ext = ct.includes('png')
+                ? 'png'
+                : ct.includes('jpeg') || ct.includes('jpg')
+                  ? 'jpg'
+                  : ct.includes('gif')
+                    ? 'gif'
+                    : 'webp'
+              const storagePath = `basecamp-avatars/${up.id}.${ext}`
+              const bytes = Buffer.from(await avRes.arrayBuffer())
+              const { error: upErr } = await supabase.storage
+                .from('checklist-photos')
+                .upload(storagePath, bytes, { contentType: ct, upsert: true })
+              if (!upErr) {
+                const { data: pubData } = supabase.storage.from('checklist-photos').getPublicUrl(storagePath)
+                if (pubData?.publicUrl) {
+                  await supabase.from('bc_people').update({ avatar_url: pubData.publicUrl }).eq('id', up.id)
+                }
+              }
+            } catch {
+              // Best-effort avatar archiving; never fail sync
+            }
+          }
+        }
       }
     } catch (err: any) {
+      const cutoverResp = await abortSyncWithAutoCutoverIfApplicable(err, true)
+      if (cutoverResp) return cutoverResp
       console.error('   ❌ People sync failed:', err.message)
       counters.errors.push(`People: ${err.message}`)
     }
@@ -820,6 +927,8 @@ export async function POST(request: Request) {
         }
       }
     } catch (err: any) {
+      const cutoverResp = await abortSyncWithAutoCutoverIfApplicable(err, true)
+      if (cutoverResp) return cutoverResp
       console.error('   ❌ Projects sync failed:', err.message)
       counters.errors.push(`Projects: ${err.message}`)
     }
@@ -2260,6 +2369,8 @@ export async function POST(request: Request) {
       synced_at: new Date().toISOString(),
     })
   } catch (error: any) {
+    const cutoverResp = await abortSyncWithAutoCutoverIfApplicable(error, false)
+    if (cutoverResp) return cutoverResp
     console.error('💥 [Basecamp Sync] Critical error:', error.message)
 
     // Update sync log with failure
@@ -2297,7 +2408,7 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     const { data: comments } = await supabase
       .from('bc_comments')
       .select('id, content, created_at')
-      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%,content.ilike.%preview.3.basecamp.com%,content.ilike.%storage.3.basecamp.com%')
       .order('created_at', { ascending: false })
       .limit(40)
 
@@ -2322,7 +2433,7 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     const { data: todos } = await supabase
       .from('bc_todos')
       .select('id, description, bc_id, created_at')
-      .or('description.ilike.%/blobs/%,description.ilike.%preview.app.basecamp.com%,description.ilike.%storage.app.basecamp.com%')
+      .or('description.ilike.%/blobs/%,description.ilike.%preview.app.basecamp.com%,description.ilike.%storage.app.basecamp.com%,description.ilike.%preview.3.basecamp.com%,description.ilike.%storage.3.basecamp.com%')
       .order('created_at', { ascending: false })
       .limit(30)
 
@@ -2347,7 +2458,7 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     const { data: docs } = await supabase
       .from('bc_documents')
       .select('id, content, created_at')
-      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%,content.ilike.%preview.3.basecamp.com%,content.ilike.%storage.3.basecamp.com%')
       .order('created_at', { ascending: false })
       .limit(20)
 
@@ -2372,7 +2483,7 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     const { data: messages } = await supabase
       .from('bc_messages')
       .select('id, content, created_at')
-      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%,content.ilike.%preview.3.basecamp.com%,content.ilike.%storage.3.basecamp.com%')
       .order('created_at', { ascending: false })
       .limit(20)
 
@@ -2397,7 +2508,7 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     const { data: answers } = await supabase
       .from('bc_answers')
       .select('id, content, created_at')
-      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%,content.ilike.%preview.3.basecamp.com%,content.ilike.%storage.3.basecamp.com%')
       .order('created_at', { ascending: false })
       .limit(20)
 
@@ -2422,7 +2533,7 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     const { data: lines } = await supabase
       .from('bc_campfire_lines')
       .select('id, content, created_at')
-      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%,content.ilike.%preview.3.basecamp.com%,content.ilike.%storage.3.basecamp.com%')
       .order('created_at', { ascending: false })
       .limit(20)
 

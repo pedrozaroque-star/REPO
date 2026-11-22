@@ -5,7 +5,7 @@
  * @businessRules
  * - Exige que el token de sesión sea un JWT de 3 segmentos válido (`eyJ...`) leído de la cookie `teg_token` establecida por el servidor (o parámetro verificado), rechazando tokens sin firma (`g_sso_...`).
  * - Limpia de inmediato los parámetros sensibles de la URL mediante `window.history.replaceState({}, '', '/auth/sso')`.
- * - Persiste `teg_token` y `teg_user` en `localStorage` y redirige al selector post-login (`/login?welcome=1`) o `/planificador`.
+ * - Persiste `teg_token` y `teg_user` en `localStorage` y redirige al selector post-login (`/login?welcome=1`), `/planificador` o `/basecamp`.
  *
  * @dataFlow
  * - Cookie `teg_token` + Query param (`user`) -> Limpieza URL (`history.replaceState`) -> `localStorage` + `document.cookie` -> Redirección segura.
@@ -98,6 +98,8 @@ function SSOHandler() {
 
                 if (emailNorm === 'stephany@cingularhr.com' || role === 'planificador') {
                     window.location.href = '/planificador'
+                } else if (role === 'basecamp') {
+                    window.location.href = '/basecamp'
                 } else {
                     window.location.href = '/login?welcome=1'
                 }

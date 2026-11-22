@@ -7,6 +7,7 @@
  * - Un `supervisor` NO puede editar cuentas con rol `admin` o `supervisor`, ni asignar rol `admin` o `supervisor` (`HTTP 403`).
  * - Usuarios auto-editándose (no-admin) están restringidos a una lista blanca estricta (`full_name`, `phone`, `avatar_url`, desconexión propia de Gmail `google_email_connected: null, google_refresh_token: null`, y cambio de contraseña propia con `currentPassword` verificado).
  * - Toda contraseña nueva se almacena cifrada con `bcrypt.hash(password, 12)` en `public.users` y se sincroniza con Supabase Auth.
+ * - Cuando el usuario actualizado está activo y tiene rol elegible (`admin`, `supervisor`, `manager`, `asistente`, `basecamp`), asegura su registro no destructivo en `bc_people` vía `resolveOrCreateTegPerson`.
  * @dataFlow
  * - Request (`userId`, `userData`) -> `verifyStaffAuth` + verificación DB -> Whitelist + `bcrypt.hash` -> `supabaseAdmin.from('users').update()` -> Invalidate Auth Cache -> Response.
  * @notes
@@ -21,6 +22,7 @@ import {
     safeTimingEqual,
     verifyStaffAuth,
 } from '@/lib/auth-server'
+import { canonicalizeBasecampEmail, resolveOrCreateTegPerson } from '@/lib/basecamp-person-resolver'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
@@ -37,9 +39,22 @@ const ALLOWED_ROLES_SET = new Set([
     'assistant',
     'shift_leader',
     'planificador',
+    'basecamp',
     'accounting',
     'contador',
     'auditor',
+])
+
+const BASECAMP_SYNC_ROLES = new Set([
+    'admin',
+    'administrador',
+    'supervisor',
+    'general_manager',
+    'manager',
+    'gerente',
+    'asistente',
+    'assistant',
+    'basecamp',
 ])
 
 export async function POST(request: NextRequest) {
@@ -318,6 +333,33 @@ export async function POST(request: NextRequest) {
                 })
             } catch (syncErr) {
                 console.warn('⚠️ Sync Auth password warning:', syncErr)
+            }
+        }
+
+        // Sincronizar de forma no destructiva en bc_people si el usuario actualizado está activo y aplica para Basecamp
+        const updatedRow = data?.[0]
+        const updatedRoleNorm = String(updatedRow?.role || '').trim().toLowerCase()
+        if (updatedRow && updatedRow.is_active !== false && BASECAMP_SYNC_ROLES.has(updatedRoleNorm)) {
+            try {
+                const resolved = await resolveOrCreateTegPerson(supabaseAdmin, {
+                    email: updatedRow.email,
+                    name: updatedRow.full_name,
+                    role: updatedRow.role,
+                })
+                if (resolved?.id && String(updatedRow.email || '').trim().toLowerCase() !== 'roque@tacosgavilan.com') {
+                    const canonEmail = canonicalizeBasecampEmail(updatedRow.email)
+                    const bcPatch: Record<string, unknown> = {
+                        is_active: true,
+                        updated_at: new Date().toISOString(),
+                    }
+                    if (canonEmail) bcPatch.email = canonEmail
+                    if (typeof sanitizedData.full_name === 'string' && sanitizedData.full_name.trim()) {
+                        bcPatch.name = sanitizedData.full_name.trim()
+                    }
+                    await supabaseAdmin.from('bc_people').update(bcPatch).eq('id', resolved.id)
+                }
+            } catch (bcSyncErr) {
+                console.warn('⚠️ [update-user] Non-blocking bc_people upsert warning:', bcSyncErr)
             }
         }
 

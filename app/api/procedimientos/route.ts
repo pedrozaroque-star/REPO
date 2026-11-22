@@ -34,6 +34,14 @@ export async function GET(request: Request) {
             );
         }
 
+        const userRoleNorm = String(user.role || '').trim().toLowerCase();
+        if (userRoleNorm === 'basecamp' || userRoleNorm === 'planificador') {
+            return NextResponse.json(
+                { success: false, error: 'Acceso restringido exclusivamente a su módulo asignado.' },
+                { status: 403 }
+            );
+        }
+
         const { data, error } = await supabaseAdmin
             .from('operating_procedures')
             .select('*')

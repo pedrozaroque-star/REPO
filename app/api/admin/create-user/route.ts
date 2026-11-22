@@ -6,6 +6,7 @@
  * - Bloquea escalación de privilegios: un `supervisor` NO puede crear cuentas con rol `admin` ni `supervisor` (`HTTP 403`).
  * - Aplica lista blanca estricta de columnas de inserción (sin propagar `...otherData` arbitrario).
  * - Almacena siempre la contraseña en `public.users.password` cifrada con `bcrypt` (factor de costo 12).
+ * - Para usuarios activos con rol elegible (`admin`, `supervisor`, `manager`, `asistente`, `basecamp`), asegura su registro no destructivo en `bc_people` vía `resolveOrCreateTegPerson`.
  * @dataFlow
  * - Request -> `verifyStaffAuth` + verificación de rol en DB -> `supabaseAdmin.auth.admin.createUser` -> `bcrypt.hash(password, 12)` -> Insert `public.users` -> Response (columnas seguras).
  * @notes
@@ -16,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
 import { invalidateActiveUserStatusCache, verifyStaffAuth } from '@/lib/auth-server'
+import { canonicalizeBasecampEmail, resolveOrCreateTegPerson } from '@/lib/basecamp-person-resolver'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
@@ -30,9 +32,22 @@ const ALLOWED_TARGET_ROLES = new Set([
     'assistant',
     'shift_leader',
     'planificador',
+    'basecamp',
     'accounting',
     'contador',
     'auditor',
+])
+
+const BASECAMP_SYNC_ROLES = new Set([
+    'admin',
+    'administrador',
+    'supervisor',
+    'general_manager',
+    'manager',
+    'gerente',
+    'asistente',
+    'assistant',
+    'basecamp',
 ])
 
 export async function POST(request: NextRequest) {
@@ -172,6 +187,31 @@ export async function POST(request: NextRequest) {
         }
 
         invalidateActiveUserStatusCache(insertedUser?.id, insertedUser?.email)
+
+        // Sincronizar de forma no destructiva en bc_people para que el colaborador aparezca listo en Basecamp
+        if (insertedUser && insertedUser.is_active !== false && BASECAMP_SYNC_ROLES.has(targetRole)) {
+            try {
+                const resolved = await resolveOrCreateTegPerson(supabaseAdmin, {
+                    email: insertedUser.email,
+                    name: insertedUser.full_name,
+                    role: insertedUser.role,
+                })
+                if (resolved?.id && insertedUser.email?.toLowerCase() !== 'roque@tacosgavilan.com') {
+                    const canonEmail = canonicalizeBasecampEmail(insertedUser.email)
+                    await supabaseAdmin
+                        .from('bc_people')
+                        .update({
+                            is_active: true,
+                            ...(canonEmail ? { email: canonEmail } : {}),
+                            updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', resolved.id)
+                }
+            } catch (bcSyncErr) {
+                console.warn('⚠️ [create-user] Non-blocking bc_people upsert warning:', bcSyncErr)
+            }
+        }
+
         return NextResponse.json({ success: true, data: insertedUser })
     } catch (err: any) {
         console.error('❌ Error inesperado en create-user:', err)

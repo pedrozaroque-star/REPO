@@ -12,6 +12,7 @@
  * @notes
  *   - Soporte multilingüe (ES/EN) con `useLanguage()` y zona horaria `America/Los_Angeles`.
  *   - Evita desfases de medianoche/UTC en eventos `all_day` y elimina clases Tailwind fuera de escala.
+ *   - Privacidad estricta por proyecto (`bc_memberships` / `allowedProjectIds`): filtra asignaciones, documentos, calendario y actividad para que usuarios no-admin solo vean proyectos autorizados.
  */
 
 'use client'
@@ -37,6 +38,8 @@ interface MyStuffPageProps {
         docId?: string
     }) => void
     currentUserName: string
+    allowedProjectIds?: string[]
+    isAdmin?: boolean
 }
 
 function getPacificTodayYMD(): string {
@@ -48,11 +51,19 @@ function getPacificTodayYMD(): string {
     }).format(new Date())
 }
 
-export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPageProps) {
+export default function MyStuffPage({
+    navigateTo,
+    currentUserName,
+    allowedProjectIds,
+    isAdmin = false,
+}: MyStuffPageProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t, language } = useLanguage()
     const locale = language === 'es' ? 'es-MX' : 'en-US'
     const { user, loading: authLoading } = useAuth()
+    const effectiveIsAdmin = Boolean(
+        isAdmin || ['admin', 'administrador'].includes(String((user as any)?.role || '').trim().toLowerCase())
+    )
     const [loading, setLoading] = useState(true)
     const [personId, setPersonId] = useState<string | null>(null)
     const [myTasks, setMyTasks] = useState<any[]>([])
@@ -85,7 +96,7 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                 supabase
                     .from('bc_todos')
                     .select(`
-                        id, title, is_completed, created_at, updated_at,
+                        id, title, is_completed, created_at, updated_at, project_id,
                         project:bc_projects(bc_id, name),
                         todolist:bc_todolists(name),
                         bc_todo_assignees!inner(person_id)
@@ -100,7 +111,7 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                 supabase
                     .from('bc_documents')
                     .select(`
-                        id, title, updated_at,
+                        id, title, updated_at, project_id,
                         project:bc_projects(bc_id, name)
                     `)
                     .eq('author_person_id', resolvedId)
@@ -109,7 +120,7 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                 supabase
                     .from('bc_comments')
                     .select(`
-                        id, content, created_at, parent_type, parent_id,
+                        id, content, created_at, parent_type, parent_id, project_id,
                         project:bc_projects(bc_id, name)
                     `)
                     .eq('author_person_id', resolvedId)
@@ -117,11 +128,27 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
                     .limit(10),
             ])
 
-            setMyTasks(tasksRes.data || [])
-            setMyDocs(docsRes.data || [])
-            setMyActivity(commsRes.data || [])
+            const rawMemberIds: string[] = membershipsRes.data?.map((m: any) => m.project_id).filter(Boolean) || []
+            const passedSet = Array.isArray(allowedProjectIds) ? new Set(allowedProjectIds) : null
+            const userProjectIds: string[] = effectiveIsAdmin
+                ? Array.isArray(allowedProjectIds) && allowedProjectIds.length > 0
+                    ? allowedProjectIds
+                    : rawMemberIds
+                : passedSet
+                    ? rawMemberIds.filter((id) => passedSet.has(id))
+                    : rawMemberIds
+            const allowedSet = new Set<string>(userProjectIds)
 
-            const userProjectIds = membershipsRes.data?.map((m: any) => m.project_id) || []
+            setMyTasks(
+                (tasksRes.data || []).filter((r: any) => effectiveIsAdmin || (r.project_id && allowedSet.has(r.project_id)))
+            )
+            setMyDocs(
+                (docsRes.data || []).filter((r: any) => effectiveIsAdmin || (r.project_id && allowedSet.has(r.project_id)))
+            )
+            setMyActivity(
+                (commsRes.data || []).filter((r: any) => effectiveIsAdmin || (r.project_id && allowedSet.has(r.project_id)))
+            )
+
             if (userProjectIds.length > 0) {
                 const todayYMD = getPacificTodayYMD()
                 const queryFloor = `${todayYMD}T00:00:00Z`
@@ -156,7 +183,7 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
         } finally {
             if (!opts?.silent) setLoading(false)
         }
-    }, [user, currentUserName, supabase])
+    }, [user, currentUserName, supabase, effectiveIsAdmin, allowedProjectIds])
 
     useEffect(() => {
         if (authLoading) return

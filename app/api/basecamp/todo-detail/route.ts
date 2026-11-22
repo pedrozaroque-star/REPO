@@ -20,17 +20,23 @@
  *   - verifyStaffAuth -> lookup local `bc_todos` -> Basecamp API (si `< 1e11`) -> reconciliación DB -> JSON enriquecido
  * @notes
  *   - Sincroniza `bc_todolists` (`syncTodolistCounts`) y `bc_todolist_groups` (`syncTodolistGroupCounts`) cuando cambia `is_completed` o `group_id`.
+ *   - En modo `standalone` (o sin token OAuth), responde en `0 ms` sin red externa hidratando directamente desde Supabase (`bc_todos`, `bc_todo_assignees`, `bc_comments`, `bc_boosts`, `bc_todolists`, `bc_todolist_groups`).
  */
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
+  BASECAMP_STAFF_ALLOWED_ROLES,
+  detectBasecampCutoverReason,
+  getBasecampSystemConfig,
   getValidToken,
   basecampFetch,
   fetchBoosts,
+  isSupabaseStorageUrl,
   resolveHtmlAttachmentsFromCache,
   syncTodolistCounts,
   syncTodolistGroupCounts,
+  triggerBasecampAutoCutover,
 } from '@/lib/basecamp-api'
 import {
   stripTegAuthorBanner,
@@ -144,13 +150,32 @@ async function buildLocalTodoDetailResponse(supabase: any, dbTodo: any, urlCache
       .eq('id', dbTodo.id)
   }
 
-  const [{ data: localComments }, { data: assigneeRows }] = await Promise.all([
+  const [
+    { data: localComments },
+    { data: assigneeRows },
+    { data: todolistRow },
+    { data: groupRow },
+  ] = await Promise.all([
     supabase
       .from('bc_comments')
-      .select('id, bc_id, content, created_at, updated_at, boosts_count, author_person_id, author:bc_people(id, name)')
+      .select('id, bc_id, content, created_at, updated_at, boosts_count, author_person_id, author:bc_people(id, name, avatar_url)')
       .eq('parent_id', dbTodo.id)
       .order('created_at', { ascending: true }),
     supabase.from('bc_todo_assignees').select('person_id').eq('todo_id', dbTodo.id),
+    dbTodo.todolist_id
+      ? supabase
+          .from('bc_todolists')
+          .select('id, bc_id, name, color, completed_count, total_count')
+          .eq('id', dbTodo.todolist_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    dbTodo.group_id
+      ? supabase
+          .from('bc_todolist_groups')
+          .select('id, bc_id, name, color, completed_count, total_count')
+          .eq('id', dbTodo.group_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
 
   const commentUuids = (localComments || []).map((lc: any) => String(lc.id))
@@ -192,6 +217,8 @@ async function buildLocalTodoDetailResponse(supabase: any, dbTodo: any, urlCache
     due_date: dbTodo.due_date || null,
     group_id: dbTodo.group_id || null,
     todolist_id: dbTodo.todolist_id || null,
+    todolist: todolistRow || null,
+    group: groupRow || null,
     assigneeUuids,
     completionSubscriberUuids: Array.isArray(dbTodo.completion_subscriber_ids)
       ? dbTodo.completion_subscriber_ids
@@ -206,7 +233,10 @@ async function buildLocalTodoDetailResponse(supabase: any, dbTodo: any, urlCache
 }
 
 export async function GET(request: Request) {
-  const auth = verifyStaffAuth(request, { allowCron: false })
+  const auth = verifyStaffAuth(request, {
+    allowCron: false,
+    allowedRoles: BASECAMP_STAFF_ALLOWED_ROLES,
+  })
   if (!auth.authorized) {
     return auth.response!
   }
@@ -253,22 +283,43 @@ export async function GET(request: Request) {
       if (pRow?.bc_id) numericProjectBcId = Number(pRow.bc_id)
     }
 
-    // 1. Local-only synthetic todo (bc_id >= 1e11) or non-Basecamp project -> serve directly from Supabase
-    if (!isRealBasecampId(numericProjectBcId) || !isRealBasecampId(numericTodoBcId)) {
+    // 1. Standalone mode, local-only synthetic todo (bc_id >= 1e11), or non-Basecamp project -> 0ms direct from Supabase
+    const sysCfg = await getBasecampSystemConfig()
+    if (
+      sysCfg.runtime_mode === 'standalone' ||
+      !isRealBasecampId(numericProjectBcId) ||
+      !isRealBasecampId(numericTodoBcId)
+    ) {
       if (!dbTodo?.id) {
         return NextResponse.json({ error: 'Todo not found' }, { status: 404 })
       }
       return buildLocalTodoDetailResponse(supabase, dbTodo, urlCache)
     }
 
-    // 2. Fetch Todo details and Comments from Basecamp API with resilient fallback
+    // 2. Fetch Todo details and Comments from Basecamp API with instant local fallback if OAuth token missing/expired
     let todo: any = null
     try {
-      await getValidToken()
+      const token = await getValidToken().catch(async (tokenErr: any) => {
+        const cutoverReason = detectBasecampCutoverReason(tokenErr)
+        if (cutoverReason) {
+          await triggerBasecampAutoCutover(cutoverReason)
+        }
+        return ''
+      })
+      if (!token) {
+        if (dbTodo?.id) {
+          return buildLocalTodoDetailResponse(supabase, dbTodo, urlCache)
+        }
+        return NextResponse.json({ error: 'Todo not found' }, { status: 404 })
+      }
       todo = await basecampFetch<any>(`/buckets/${numericProjectBcId}/todos/${numericTodoBcId}.json`, {
         noPaginate: true,
       })
     } catch (todoFetchErr: any) {
+      const cutoverReason = detectBasecampCutoverReason(todoFetchErr)
+      if (cutoverReason) {
+        await triggerBasecampAutoCutover(cutoverReason)
+      }
       console.warn(`[Todo Detail API] Basecamp fetch fallback for todo ${numericTodoBcId}:`, todoFetchErr.message)
       if (dbTodo?.id) {
         return buildLocalTodoDetailResponse(supabase, dbTodo, urlCache)
@@ -315,14 +366,29 @@ export async function GET(request: Request) {
       const bcPid = Number(personRef.id)
       if (peopleMap.has(bcPid)) return peopleMap.get(bcPid) || null
       const incomingEmail = personRef.email_address || ''
+      const { data: existingRow } = await supabase
+        .from('bc_people')
+        .select('id, name, email, avatar_url')
+        .eq('bc_id', bcPid)
+        .maybeSingle()
+      const preservedAvatar =
+        existingRow?.avatar_url && isSupabaseStorageUrl(existingRow.avatar_url)
+          ? existingRow.avatar_url
+          : personRef.avatar_url || ''
+      const preservedEmail =
+        isMaskedOrEmptyEmail(incomingEmail) && existingRow?.email && !isMaskedOrEmptyEmail(existingRow.email)
+          ? existingRow.email
+          : isMaskedOrEmptyEmail(incomingEmail)
+          ? ''
+          : incomingEmail
       const { data: newPerson } = await supabase
         .from('bc_people')
         .upsert(
           {
             bc_id: bcPid,
             name: personRef.name || 'Unknown',
-            email: isMaskedOrEmptyEmail(incomingEmail) ? '' : incomingEmail,
-            avatar_url: personRef.avatar_url || '',
+            email: preservedEmail,
+            avatar_url: preservedAvatar,
             role: personRef.employee ? 'employee' : 'user',
             title: personRef.title || '',
             attachable_sgid: personRef.attachable_sgid || null,

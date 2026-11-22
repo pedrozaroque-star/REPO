@@ -5,7 +5,7 @@
  *              del módulo Basecamp hacia Supabase Storage (`checklist-photos/basecamp-uploads/...`).
  *
  * @businessRules
- * - Requiere sesión activa de personal autenticado (`verifyStaffAuth`, validando cookie `httpOnly` `teg_token`
+ * - Requiere sesión activa de personal autenticado incluyendo rol `'basecamp'` (`verifyStaffAuth` con `BASECAMP_STAFF_ALLOWED_ROLES`, validando cookie `httpOnly` `teg_token`
  *   o header `Authorization: Bearer`), evitando fallos de RLS en navegadores con `localStorage` desactualizado.
  * - Tamaño máximo por archivo: 25 MB.
  * - Almacena en el bucket público `checklist-photos` usando `supabaseAdmin` (`service_role`) y retorna la URL
@@ -21,6 +21,7 @@
 import { NextResponse } from 'next/server'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { BASECAMP_STAFF_ALLOWED_ROLES } from '@/lib/basecamp-api'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +41,10 @@ const MIME_FALLBACK_EXT: Record<string, string> = {
 }
 
 export async function POST(request: Request) {
-  const staffAuth = verifyStaffAuth(request, { allowCron: false })
+  const staffAuth = verifyStaffAuth(request, {
+    allowCron: false,
+    allowedRoles: BASECAMP_STAFF_ALLOWED_ROLES,
+  })
   if (!staffAuth.authorized) {
     return staffAuth.response!
   }

@@ -15,6 +15,7 @@
  *   - Soporte bilingüe completo (ES/EN) con `useLanguage()` y zona horaria `America/Los_Angeles`.
  *   - `cleanFeedSnippet` transforma menciones Basecamp (`application/vnd.basecamp.mention`) y TEG (`data-teg-mention-person-id`) a texto `@Nombre` antes de limpiar etiquetas HTML.
  *   - Sin consultas `.single()` frágiles que arrojen errores HTTP 406.
+ *   - Privacidad estricta por proyecto (`bc_memberships` / `allowedProjectIds`): usuarios no-admin jamás ven notificaciones, tareas ni actividad de proyectos privados ajenos.
  */
 
 'use client'
@@ -43,6 +44,8 @@ interface NewForYouDrawerProps {
     onClose: () => void
     onMarkAllRead?: () => void
     onReadOne?: () => void
+    allowedProjectIds?: string[]
+    isAdmin?: boolean
     navigateTo: (params: {
         project?: string
         tool?: string
@@ -115,11 +118,22 @@ function stripAccentsLower(s?: string | null): string {
     return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
-export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onReadOne, navigateTo }: NewForYouDrawerProps) {
+export default function NewForYouDrawer({
+    isOpen,
+    onClose,
+    onMarkAllRead,
+    onReadOne,
+    allowedProjectIds,
+    isAdmin = false,
+    navigateTo,
+}: NewForYouDrawerProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t, language } = useLanguage()
     const locale = language === 'es' ? 'es-MX' : 'en-US'
     const { user: authUser, loading: authLoading } = useAuth()
+    const effectiveIsAdmin = Boolean(
+        isAdmin || ['admin', 'administrador'].includes(String((authUser as any)?.role || '').trim().toLowerCase())
+    )
 
     const [notifications, setNotifications] = useState<any[]>([])
     const [collaborators, setCollaborators] = useState<any[]>([])
@@ -161,7 +175,7 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onRead
                     `).eq('person_id', personId).limit(20),
                     supabase.from('bc_people').select('*').eq('is_active', true).order('name', { ascending: true }).limit(5000),
                     supabase.from('bc_notifications').select(`
-                        id, type, title, description, recording_type, recording_id, is_read, created_at,
+                        id, type, title, description, recording_type, recording_id, is_read, created_at, project_id,
                         project:bc_projects(bc_id, name)
                     `).eq('person_id', personId).order('created_at', { ascending: false }).limit(30),
                     supabase.from('bc_pings').select(`
@@ -170,11 +184,24 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onRead
                     `).eq('recipient_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10),
                 ])
 
-                const myProjectIds = membershipsRes.data?.map((m: any) => m.project_id) || []
+                const rawMemberProjectIds: string[] = membershipsRes.data?.map((m: any) => m.project_id).filter(Boolean) || []
+                const passedSet = Array.isArray(allowedProjectIds) ? new Set(allowedProjectIds) : null
+                const effectiveProjectIds: string[] = effectiveIsAdmin
+                    ? Array.isArray(allowedProjectIds) && allowedProjectIds.length > 0
+                        ? allowedProjectIds
+                        : rawMemberProjectIds
+                    : passedSet
+                        ? rawMemberProjectIds.filter((id) => passedSet.has(id))
+                        : rawMemberProjectIds
+                const effectiveAllowedSet = new Set<string>(effectiveProjectIds)
                 setCollaborators(peopleRes.data || [])
 
                 if (dbNotifsRes.data) {
                     for (const n of dbNotifsRes.data) {
+                        const nProjectId = (n as any).project_id as string | null
+                        if (!effectiveIsAdmin && nProjectId && !effectiveAllowedSet.has(nProjectId)) {
+                            continue
+                        }
                         const proj = Array.isArray(n.project) ? n.project[0] : n.project
                         feedItems.push({
                             id: `notif-${n.id}`,
@@ -214,6 +241,9 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onRead
                         const rawTodo = (row as any).todo
                         const todo = Array.isArray(rawTodo) ? rawTodo[0] : rawTodo
                         if (!todo || !todo.updated_at) continue
+                        if (!effectiveIsAdmin && (!todo.project_id || !effectiveAllowedSet.has(todo.project_id))) {
+                            continue
+                        }
                         const proj = Array.isArray(todo.project) ? todo.project[0] : todo.project
                         feedItems.push({
                             id: `todo-${todo.id}`,
@@ -231,18 +261,18 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onRead
                     }
                 }
 
-                if (myProjectIds.length > 0) {
+                if (effectiveProjectIds.length > 0) {
                     const [recentCommentsRes, recentMessagesRes] = await Promise.all([
                         supabase.from('bc_comments').select(`
                             id, content, created_at, parent_type, parent_id, author_person_id,
                             author:bc_people(name),
                             project:bc_projects(bc_id, name)
-                        `).in('project_id', myProjectIds).neq('author_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(15),
+                        `).in('project_id', effectiveProjectIds).neq('author_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(15),
                         supabase.from('bc_messages').select(`
                             id, title, created_at, comments_count, author_person_id,
                             author:bc_people(name),
                             project:bc_projects(bc_id, name)
-                        `).in('project_id', myProjectIds).neq('author_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10),
+                        `).in('project_id', effectiveProjectIds).neq('author_person_id', personId).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }).limit(10),
                     ])
 
                     if (recentCommentsRes.data) {
@@ -327,7 +357,7 @@ export default function NewForYouDrawer({ isOpen, onClose, onMarkAllRead, onRead
         } finally {
             setLoading(false)
         }
-    }, [authUser, supabase, t])
+    }, [authUser, supabase, t, effectiveIsAdmin, allowedProjectIds])
 
     useEffect(() => {
         if (isOpen && !authLoading && authUser) {

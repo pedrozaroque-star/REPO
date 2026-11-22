@@ -42,9 +42,16 @@
  * - Repara las 2,457 `@menciones` reales en `bc_comments` y `bc_todos` evitando chips de archivo roto
  *   y excluyendo mini-avatares (`class="avatar"`, `data-avatar-for-person-id`, `data-bc-avatar`) de
  *   `injectImageDownloadOverlays`.
+ * - Autonomía Basecamp Standalone (2026-11-21): provee `parseInterceptableBasecampHref` (interceptor de enlaces
+ *   históricos `https://(app|3).basecamp.com/5052386/buckets/...` y deep-links internos), `canUserAccessBasecampProject`
+ *   (privacidad estricta por `bc_memberships`), `isManagerOrSupervisorBcPerson` y `normalizeEnabledProjectTools`.
  */
 
-import { stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
+import {
+  stripTegAuthorBanner,
+  canonicalizeBasecampEmail,
+  isMaskedOrEmptyEmail,
+} from '@/lib/basecamp-person-resolver'
 
 export const BASECAMP_PROXYABLE_HOSTS = new Set([
   'preview.app.basecamp.com',
@@ -1366,3 +1373,183 @@ export const BASECAMP_IMAGE_HOVER_CSS = `
     }
   }
 `
+
+export type CanonicalBasecampDockTool =
+  | 'todoset'
+  | 'message_board'
+  | 'chat'
+  | 'vault'
+  | 'schedule'
+  | 'questionnaire'
+
+export const ALL_CANONICAL_DOCK_TOOLS: CanonicalBasecampDockTool[] = [
+  'todoset',
+  'message_board',
+  'chat',
+  'vault',
+  'schedule',
+  'questionnaire',
+]
+
+const RAW_TOOL_TO_CANONICAL_DOCK: Record<string, CanonicalBasecampDockTool> = {
+  todoset: 'todoset',
+  todos: 'todoset',
+  todo: 'todoset',
+  todolist: 'todoset',
+  todolists: 'todoset',
+  message_board: 'message_board',
+  'message-board': 'message_board',
+  messages: 'message_board',
+  message: 'message_board',
+  chat: 'chat',
+  chats: 'chat',
+  campfire: 'chat',
+  vault: 'vault',
+  docs: 'vault',
+  doc: 'vault',
+  documents: 'vault',
+  schedule: 'schedule',
+  calendar: 'schedule',
+  questionnaire: 'questionnaire',
+  checkins: 'questionnaire',
+  checkin: 'questionnaire',
+}
+
+export function normalizeEnabledProjectTools(rawTools?: string[] | null): CanonicalBasecampDockTool[] {
+  if (!Array.isArray(rawTools) || rawTools.length === 0) {
+    return [...ALL_CANONICAL_DOCK_TOOLS]
+  }
+  const seen = new Set<CanonicalBasecampDockTool>()
+  const out: CanonicalBasecampDockTool[] = []
+  for (const item of rawTools) {
+    const mapped = RAW_TOOL_TO_CANONICAL_DOCK[String(item || '').toLowerCase().trim()]
+    if (mapped && !seen.has(mapped)) {
+      seen.add(mapped)
+      out.push(mapped)
+    }
+  }
+  return out.length > 0 ? out : [...ALL_CANONICAL_DOCK_TOOLS]
+}
+
+export function isManagerOrSupervisorBcPerson(person?: {
+  role?: string | null
+  title?: string | null
+}): boolean {
+  if (!person) return false
+  const probe = `${person.role || ''} ${person.title || ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  return /\b(admin|administrador|supervisor|regional_manager|regional manager|general_manager|general manager|manager|gerente)\b/.test(
+    probe
+  )
+}
+
+export function canUserAccessBasecampProject(
+  project: {
+    people?: Array<{ id?: string | null; email?: string | null }> | null
+    memberPersonIds?: string[] | null
+  } | null | undefined,
+  opts: {
+    isAdmin: boolean
+    resolvedPersonId?: string | null
+    canonicalEmail?: string | null
+  }
+): boolean {
+  if (!project) return false
+  if (opts.isAdmin) return true
+  const pid = (opts.resolvedPersonId || '').trim()
+  const cleanEmail = canonicalizeBasecampEmail(opts.canonicalEmail)
+  if (pid && Array.isArray(project.memberPersonIds) && project.memberPersonIds.includes(pid)) {
+    return true
+  }
+  const members = Array.isArray(project.people) ? project.people : []
+  return members.some((m) => {
+    if (pid && m?.id === pid) return true
+    if (cleanEmail && !isMaskedOrEmptyEmail(m?.email) && canonicalizeBasecampEmail(m?.email) === cleanEmail) {
+      return true
+    }
+    return false
+  })
+}
+
+export type InterceptedBasecampLink =
+  | {
+      kind: 'bc_bucket'
+      projectBcId: string
+      resourceType: 'todos' | 'messages' | 'documents' | 'todolists' | null
+      itemBcId: string | null
+    }
+  | {
+      kind: 'teg_deeplink'
+      project: string
+      tool?: string
+      todoId?: string
+      messageId?: string
+      docId?: string
+    }
+
+export function parseInterceptableBasecampHref(rawHref?: string | null): InterceptedBasecampLink | null {
+  if (!rawHref || typeof rawHref !== 'string') return null
+  const trimmed = rawHref.trim()
+  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('mailto:') || trimmed.startsWith('tel:')) {
+    return null
+  }
+  if (trimmed.startsWith('/api/basecamp/')) return null
+
+  const bucketMatch = trimmed.match(
+    /^https?:\/\/(?:app|3)\.basecamp\.com\/\d+\/buckets\/(\d+)(?:\/(todos|messages|documents|todolists)\/(\d+))?(?:[/?#].*)?$/i
+  )
+  if (bucketMatch) {
+    return {
+      kind: 'bc_bucket',
+      projectBcId: bucketMatch[1],
+      resourceType: bucketMatch[2]
+        ? (bucketMatch[2].toLowerCase() as 'todos' | 'messages' | 'documents' | 'todolists')
+        : null,
+      itemBcId: bucketMatch[3] || null,
+    }
+  }
+
+  try {
+    const parsed = trimmed.startsWith('/')
+      ? new URL(trimmed, 'https://tacosgavilan.vercel.app')
+      : new URL(trimmed)
+    const host = parsed.hostname.toLowerCase()
+    const isSameBasecampRoute =
+      parsed.pathname === '/basecamp' &&
+      (trimmed.startsWith('/basecamp') ||
+        host === 'tacosgavilan.vercel.app' ||
+        (typeof window !== 'undefined' && host === window.location.hostname.toLowerCase()))
+    if (isSameBasecampRoute) {
+      const proj = parsed.searchParams.get('project')?.trim() || ''
+      if (proj) {
+        return {
+          kind: 'teg_deeplink',
+          project: proj,
+          tool: parsed.searchParams.get('tool')?.trim() || undefined,
+          todoId: parsed.searchParams.get('todoId')?.trim() || undefined,
+          messageId: parsed.searchParams.get('messageId')?.trim() || undefined,
+          docId: parsed.searchParams.get('docId')?.trim() || undefined,
+        }
+      }
+    }
+  } catch {
+    // Non-URL
+  }
+
+  return null
+}
+
+export function buildBasecampJsonHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (typeof window !== 'undefined') {
+    try {
+      const token = window.localStorage?.getItem('teg_token')
+      if (token) headers['Authorization'] = `Bearer ${token}`
+    } catch {
+      // Ignore storage access errors
+    }
+  }
+  return headers
+}

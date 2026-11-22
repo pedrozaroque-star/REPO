@@ -11,6 +11,7 @@
  *   `assistant` -> `asistente`, `administrador` -> `admin`) y reglas especiales de acceso:
  *   * `vikesh@tacosgavilan.com`: sin acceso a `inventario`, `/ventas`, `/ventas/reportes` ni `financialPulse`.
  *   * `stephany@cingularhr.com` / `planificador`: acceso exclusivo a `/planificador` (`canCustomizeDock: false`).
+ *   * `basecamp`: acceso exclusivo a `/basecamp` (`canCustomizeDock: false`).
  *   * `employee`: acceso exclusivo a `/mis-horarios` (`canCustomizeDock: false`).
  *   * `/admin/contabilidad-externa`: restringido exclusivamente a Raquel, Roberto y Roque (`id` 45, 46, 47).
  * - La barra inferior editable (`BottomTabBar` OS Dock) mantiene `Inicio` (`/inicio`) fijo a la izquierda
@@ -101,6 +102,7 @@ export interface NormalizedOSUserRole {
   userRole: string
   userEmailNorm: string
   isPlanificadorOnly: boolean
+  isBasecampOnly: boolean
   isEmployeeOnly: boolean
   isVikesh: boolean
   canCustomizeDock: boolean
@@ -405,13 +407,15 @@ export function normalizeOSUserRole(user: OSUserLike | null | undefined): Normal
 
   const isPlanificadorOnly =
     userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador'
+  const isBasecampOnly = userRole === 'basecamp'
   const isEmployeeOnly =
     String(user?.user_type || '').toLowerCase() === 'employee' || rawRole === 'employee'
 
-  const canCustomizeDock = !isPlanificadorOnly && !isEmployeeOnly
+  const canCustomizeDock = !isPlanificadorOnly && !isBasecampOnly && !isEmployeeOnly
   const canViewFinancialPulse =
     !isVikesh &&
     !isPlanificadorOnly &&
+    !isBasecampOnly &&
     !isEmployeeOnly &&
     ['admin', 'supervisor', 'manager', 'auditor'].includes(userRole)
 
@@ -424,6 +428,7 @@ export function normalizeOSUserRole(user: OSUserLike | null | undefined): Normal
     userRole,
     userEmailNorm,
     isPlanificadorOnly,
+    isBasecampOnly,
     isEmployeeOnly,
     isVikesh,
     canCustomizeDock,
@@ -582,7 +587,7 @@ export function getOSModuleGroups(t: (key: string) => string): OSModuleGroup[] {
           iconColorClass:
             'bg-sky-500/15 text-[#1d7db5] dark:bg-sky-500/20 dark:text-sky-400 border-sky-500/30',
           renderIcon: (size = 20) => <BasecampIcon size={size} />,
-          roles: ['manager', 'supervisor', 'admin', 'asistente'],
+          roles: ['manager', 'supervisor', 'admin', 'asistente', 'basecamp'],
           badgeType: 'new',
           badgeLabel: 'new',
         },
@@ -1204,6 +1209,7 @@ export function getPermittedOSGroups(
     userRole,
     isVikesh,
     isPlanificadorOnly,
+    isBasecampOnly,
     isEmployeeOnly,
     canAccessExternalAccounting,
   } = normalizeOSUserRole(user)
@@ -1216,6 +1222,7 @@ export function getPermittedOSGroups(
       const validItems = group.items.filter((item) => {
         if (item.path === '/admin/contabilidad-externa') return canAccessExternalAccounting
         if (isPlanificadorOnly) return item.path === '/planificador'
+        if (isBasecampOnly) return item.path === '/basecamp'
         if (isEmployeeOnly) return item.path === '/mis-horarios'
         if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) return false
         if (!item.roles || item.roles.length === 0) return true
@@ -1231,9 +1238,10 @@ export function getPermittedOSGroups(
  * Retorna los accesos directos predeterminados de la barra inferior según el rol del usuario.
  */
 export function getDefaultDockModuleIds(user: OSUserLike | null | undefined): string[] {
-  const { userRole, isVikesh, isPlanificadorOnly, isEmployeeOnly } = normalizeOSUserRole(user)
+  const { userRole, isVikesh, isPlanificadorOnly, isBasecampOnly, isEmployeeOnly } = normalizeOSUserRole(user)
 
   if (isPlanificadorOnly) return ['planner']
+  if (isBasecampOnly) return ['basecamp']
   if (isEmployeeOnly) return ['my_schedule']
 
   if (userRole === 'admin' || userRole === 'supervisor') {
@@ -1745,6 +1753,7 @@ export function useMobileDockPreferences(
     permittedModulesMap,
     canCustomizeDock: roleMeta.canCustomizeDock,
     isPlanificadorOnly: roleMeta.isPlanificadorOnly,
+    isBasecampOnly: roleMeta.isBasecampOnly,
     isEmployeeOnly: roleMeta.isEmployeeOnly,
     isSavingSync,
     homeViewMode,

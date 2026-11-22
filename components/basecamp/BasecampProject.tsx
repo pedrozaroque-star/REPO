@@ -18,19 +18,34 @@
  * @notes
  *   - `supabase` está memoizado con `useMemo` para evitar ciclos infinitos de re-render y re-suscripción Realtime.
  *   - Limpia banners `<p data-teg-author=...>` y entidades HTML en las vistas previas, y usa clases Tailwind estándar.
+ *   - Autonomía Standalone (2026-11-21): modales nativos para Admin (`z-[120]`) de `👥 Personas y accesos` (`update_project_members` + `list_manageable_people`) y `⚙️ Configurar proyecto` (`update_project`, herramientas `enabled_tools` y archivar).
  */
 
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import {
     Star, MessageSquare, ClipboardList, FolderOpen, Calendar, HelpCircle,
-    Mail, Users, FileText, CheckSquare, ArrowLeft
+    Mail, Users, FileText, CheckSquare, ArrowLeft, Settings, Search, Loader2, Check, X, Archive
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
-import { stripTegAuthorBanner } from '@/lib/basecamp-person-resolver'
-import { safeDecodeFilename, proxyBasecampUrl, isVideoMimeOrFilename } from '@/lib/basecamp-html'
+import {
+    stripTegAuthorBanner,
+    canonicalizeBasecampEmail,
+    isMaskedOrEmptyEmail,
+    normalizePersonName,
+} from '@/lib/basecamp-person-resolver'
+import {
+    safeDecodeFilename,
+    proxyBasecampUrl,
+    isVideoMimeOrFilename,
+    ALL_CANONICAL_DOCK_TOOLS,
+    CanonicalBasecampDockTool,
+    normalizeEnabledProjectTools,
+    isManagerOrSupervisorBcPerson,
+    buildBasecampJsonHeaders,
+} from '@/lib/basecamp-html'
 import ToolMessages from '@/components/basecamp/ToolMessages'
 
 // ───────── Avatar helpers ─────────
@@ -271,6 +286,8 @@ interface BasecampProjectProps {
     onCloseDetail?: () => void
     onConsumeReplicateMessage?: () => void
     onOpenSearch?: () => void
+    isAdmin?: boolean
+    onRefreshProjects?: () => Promise<void> | void
 }
 
 export default function BasecampProject({
@@ -285,6 +302,8 @@ export default function BasecampProject({
     onCloseDetail,
     onConsumeReplicateMessage,
     onOpenSearch,
+    isAdmin = false,
+    onRefreshProjects,
 }: BasecampProjectProps) {
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
     const { t, language } = useLanguage()
@@ -312,6 +331,23 @@ export default function BasecampProject({
     const [projectMembers, setProjectMembers] = useState<any[]>([])
     const [latchedMessagesTool, setLatchedMessagesTool] = useState<boolean>(() => Boolean(replicateMessageId || selectedMessageId))
 
+    // Admin Native Management Modals (Members & Project Config)
+    const [showMembersModal, setShowMembersModal] = useState(false)
+    const [manageablePeople, setManageablePeople] = useState<any[]>([])
+    const [loadingPeople, setLoadingPeople] = useState(false)
+    const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(() => new Set())
+    const [memberSearch, setMemberSearch] = useState('')
+    const [savingMembers, setSavingMembers] = useState(false)
+    const [membersError, setMembersError] = useState<string | null>(null)
+
+    const [showConfigModal, setShowConfigModal] = useState(false)
+    const [editName, setEditName] = useState('')
+    const [editDesc, setEditDesc] = useState('')
+    const [editColor, setEditColor] = useState('white')
+    const [editTools, setEditTools] = useState<CanonicalBasecampDockTool[]>(() => [...ALL_CANONICAL_DOCK_TOOLS])
+    const [savingConfig, setSavingConfig] = useState(false)
+    const [configError, setConfigError] = useState<string | null>(null)
+
     useEffect(() => {
         if (replicateMessageId || selectedMessageId) {
             setLatchedMessagesTool(true)
@@ -329,13 +365,17 @@ export default function BasecampProject({
     }, [project.id, project.db_id, replicateMessageId, selectedMessageId])
 
     useEffect(() => {
-        if (!showNeedleModal) return
+        if (!showNeedleModal && !showMembersModal && !showConfigModal) return
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setShowNeedleModal(false)
+            if (e.key === 'Escape') {
+                setShowNeedleModal(false)
+                setShowMembersModal(false)
+                setShowConfigModal(false)
+            }
         }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
-    }, [showNeedleModal])
+    }, [showNeedleModal, showMembersModal, showConfigModal])
 
     // ───── Data Fetching ─────
     useEffect(() => {
@@ -385,7 +425,7 @@ export default function BasecampProject({
                         .eq('project_id', project.db_id)
                         .or(`and(starts_at.gte.${windowStart},starts_at.lt.${windowEnd}),and(ends_at.gte.${windowStart},starts_at.lt.${windowEnd})`)
                         .order('starts_at', { ascending: true }),
-                    supabase.from('bc_memberships').select('person:bc_people(id, name, role)').eq('project_id', project.db_id),
+                    supabase.from('bc_memberships').select('person:bc_people(id, bc_id, name, email, role, title, avatar_url, is_active)').eq('project_id', project.db_id),
                 ])
 
                 if (cancelled) return
@@ -691,8 +731,12 @@ export default function BasecampProject({
                         if (key) seenIds.add(key)
                         mappedMembers.push({
                             id: p.id,
+                            bc_id: p.bc_id ? Number(p.bc_id) : null,
                             name: typeof p.name === 'string' ? p.name.trim() : '',
+                            email: isMaskedOrEmptyEmail(p.email) ? '' : canonicalizeBasecampEmail(p.email),
                             role: p.role || 'user',
+                            title: p.title || '',
+                            avatar_url: p.avatar_url || '',
                         })
                     })
                     setProjectMembers(mappedMembers)
@@ -710,6 +754,7 @@ export default function BasecampProject({
         const channel = supabase
             .channel(`bc_project_dashboard_${project.db_id}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_projects', filter: `id=eq.${project.db_id}` }, () => fetchProjectDetails())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_memberships', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_todolists', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_todos', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'bc_messages', filter: `project_id=eq.${project.db_id}` }, () => fetchProjectDetails())
@@ -737,6 +782,185 @@ export default function BasecampProject({
     const togglePin = () => {
         const updated = projects.map((p) => (p.id === project.id ? { ...p, is_pinned: !p.is_pinned } : p))
         saveProjects(updated)
+    }
+
+    const currentMemberSource = projectMembers.length > 0 ? projectMembers : (project.people || [])
+
+    const openMembersModal = useCallback(async () => {
+        if (!isAdmin) return
+        setMembersError(null)
+        setMemberSearch('')
+        const initialIds = new Set<string>(
+            [
+                ...(project.memberPersonIds || []),
+                ...currentMemberSource.map((m: any) => m?.id),
+            ].filter(Boolean)
+        )
+        setSelectedMemberIds(initialIds)
+        setShowMembersModal(true)
+        setLoadingPeople(true)
+        try {
+            const res = await fetch('/api/basecamp/action', {
+                method: 'POST',
+                headers: buildBasecampJsonHeaders(),
+                body: JSON.stringify({
+                    action: 'list_manageable_people',
+                    projectId: project.db_id || project.id,
+                }),
+            })
+            const data = await res.json().catch(() => ({}))
+            let apiList: any[] = Array.isArray(data?.people) ? data.people : []
+            if (apiList.length === 0) {
+                const { data: fallback } = await supabase
+                    .from('bc_people')
+                    .select('id, bc_id, name, email, role, avatar_url, title')
+                    .eq('is_active', true)
+                    .order('name', { ascending: true })
+                apiList = fallback || []
+            }
+            const byId = new Map<string, any>()
+            for (const p of apiList) {
+                if (p?.id) byId.set(p.id, p)
+            }
+            for (const m of currentMemberSource) {
+                if (m?.id && !byId.has(m.id)) {
+                    byId.set(m.id, m)
+                }
+            }
+            const merged = Array.from(byId.values()).sort((a, b) =>
+                String(a?.name || '').localeCompare(String(b?.name || ''))
+            )
+            setManageablePeople(merged)
+        } catch (err) {
+            console.error('Error loading manageable people:', err)
+        } finally {
+            setLoadingPeople(false)
+        }
+    }, [isAdmin, project.db_id, project.id, project.memberPersonIds, currentMemberSource, supabase])
+
+    const toggleMemberId = (pid: string) => {
+        setSelectedMemberIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(pid)) next.delete(pid)
+            else next.add(pid)
+            return next
+        })
+    }
+
+    const handleSelectAllMembers = () => {
+        setSelectedMemberIds(new Set(manageablePeople.map((p) => p.id).filter(Boolean)))
+    }
+
+    const handleSelectManagersOnly = () => {
+        const ids = manageablePeople
+            .filter((p) => isManagerOrSupervisorBcPerson(p))
+            .map((p) => p.id)
+            .filter(Boolean)
+        setSelectedMemberIds(new Set(ids))
+    }
+
+    const filteredModalPeople = useMemo(() => {
+        if (!memberSearch.trim()) return manageablePeople
+        const q = memberSearch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+        const qNorm = normalizePersonName(memberSearch)
+        return manageablePeople.filter((p) => {
+            const cleanEmail = isMaskedOrEmptyEmail(p?.email) ? '' : canonicalizeBasecampEmail(p?.email)
+            const hay = `${p?.name || ''} ${cleanEmail} ${p?.role || ''} ${p?.title || ''}`
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+            return hay.includes(q) || (qNorm.length > 0 && normalizePersonName(p?.name).includes(qNorm))
+        })
+    }, [manageablePeople, memberSearch])
+
+    const handleSaveMembers = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!isAdmin || savingMembers) return
+        setSavingMembers(true)
+        setMembersError(null)
+        try {
+            const memberIdsArr = Array.from(selectedMemberIds)
+            const res = await fetch('/api/basecamp/action', {
+                method: 'POST',
+                headers: buildBasecampJsonHeaders(),
+                body: JSON.stringify({
+                    action: 'update_project_members',
+                    projectId: project.db_id || project.id,
+                    memberPersonIds: memberIdsArr,
+                }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok || data?.error) {
+                setMembersError(data?.error || t('basecamp.action_error'))
+                return
+            }
+            const nextLocalMembers = manageablePeople.filter((p) => selectedMemberIds.has(p.id))
+            setProjectMembers(nextLocalMembers)
+            await onRefreshProjects?.()
+            setShowMembersModal(false)
+        } catch (err: any) {
+            setMembersError(err?.message || t('basecamp.action_error'))
+        } finally {
+            setSavingMembers(false)
+        }
+    }
+
+    const openConfigModal = () => {
+        if (!isAdmin) return
+        setConfigError(null)
+        setEditName(project.name || '')
+        setEditDesc(project.description || '')
+        setEditColor(project.color || 'white')
+        setEditTools(normalizeEnabledProjectTools(liveEnabledTools || project.enabled_tools))
+        setShowConfigModal(true)
+    }
+
+    const toggleEditTool = (toolKey: CanonicalBasecampDockTool) => {
+        setEditTools((prev) => {
+            if (prev.includes(toolKey)) {
+                return prev.length > 1 ? prev.filter((k) => k !== toolKey) : prev
+            }
+            return [...prev, toolKey]
+        })
+    }
+
+    const submitProjectConfig = async (opts?: { archive?: boolean }) => {
+        if (!isAdmin || savingConfig) return
+        const cleanName = editName.trim() || project.name
+        if (!cleanName) return
+        setSavingConfig(true)
+        setConfigError(null)
+        try {
+            const res = await fetch('/api/basecamp/action', {
+                method: 'POST',
+                headers: buildBasecampJsonHeaders(),
+                body: JSON.stringify({
+                    action: 'update_project',
+                    projectId: project.db_id || project.id,
+                    name: cleanName,
+                    description: editDesc.trim(),
+                    color: editColor,
+                    isPinned: Boolean(project.is_pinned),
+                    isArchived: Boolean(opts?.archive),
+                    enabledTools: editTools,
+                }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok || data?.error) {
+                setConfigError(data?.error || t('basecamp.action_error'))
+                return
+            }
+            setLiveEnabledTools([...editTools])
+            await onRefreshProjects?.()
+            setShowConfigModal(false)
+            if (opts?.archive) {
+                navigateTo({})
+            }
+        } catch (err: any) {
+            setConfigError(err?.message || t('basecamp.action_error'))
+        } finally {
+            setSavingConfig(false)
+        }
     }
 
     // Format time for activity feed (America/Los_Angeles)
@@ -993,8 +1217,15 @@ export default function BasecampProject({
                 </div>
 
                 <div className="flex flex-col md:items-end gap-2.5">
-                    <div className="flex items-center gap-4">
-                        <div className="flex -space-x-2">
+                    <div className="flex items-center gap-2.5 flex-wrap md:justify-end">
+                        <div
+                            onClick={isAdmin ? () => void openMembersModal() : undefined}
+                            role={isAdmin ? 'button' : undefined}
+                            tabIndex={isAdmin ? 0 : undefined}
+                            onKeyDown={isAdmin ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); void openMembersModal() } } : undefined}
+                            className={`flex -space-x-2 ${isAdmin ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+                            title={isAdmin ? t('basecamp.manage_members_btn') : undefined}
+                        >
                             {membersToShow.slice(0, 5).map((m: any, idx: number) => {
                                 const mName = m?.name || t('basecamp.unknown_user')
                                 return (
@@ -1014,14 +1245,29 @@ export default function BasecampProject({
                                 </div>
                             )}
                         </div>
-                        <button
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300 text-xs font-bold opacity-50 cursor-not-allowed"
-                            title={t('basecamp.invite_coming_soon')}
-                            disabled
-                        >
-                            <Users size={14} />
-                            {t('basecamp.invite')}
-                        </button>
+                        {isAdmin && (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => void openMembersModal()}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[#1D7DB5] dark:text-blue-300 text-xs font-extrabold transition-colors cursor-pointer"
+                                >
+                                    <Users size={14} />
+                                    <span>{t('basecamp.manage_members_btn')}</span>
+                                    <span className="px-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 text-[10px] font-black">
+                                        {memberCount}
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={openConfigModal}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-extrabold transition-colors cursor-pointer"
+                                >
+                                    <Settings size={14} />
+                                    <span>{t('basecamp.edit_project_btn')}</span>
+                                </button>
+                            </>
+                        )}
                     </div>
                     {onOpenSearch && (
                         <div
@@ -1662,6 +1908,301 @@ export default function BasecampProject({
                                 >
                                     {t('basecamp.adjust_needle')}
                                 </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ════════════════════════════════════════════════
+                Admin Modal: Personas y Accesos (z-[120])
+            ════════════════════════════════════════════════ */}
+            {isAdmin && showMembersModal && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowMembersModal(false) }}
+                >
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                        <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+                            <div>
+                                <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                                    <Users size={18} className="text-[#1D7DB5]" />
+                                    <span>{t('basecamp.members_modal_title')}</span>
+                                </h3>
+                                <p className="text-xs font-bold text-[#1D7DB5] dark:text-blue-300 mt-0.5">
+                                    {project.name} · {selectedMemberIds.size} / {manageablePeople.length || memberCount}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowMembersModal(false)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title={t('basecamp.close_esc')}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                            {t('basecamp.members_modal_desc')}
+                        </p>
+
+                        {membersError && (
+                            <div className="mb-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs font-bold text-red-700 dark:text-red-300">
+                                {membersError}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSaveMembers} className="space-y-3">
+                            <div className="flex flex-wrap gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAllMembers}
+                                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                >
+                                    {t('basecamp.members_select_all')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSelectManagersOnly}
+                                    className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 text-xs font-bold text-[#1D7DB5] dark:text-blue-300 cursor-pointer"
+                                >
+                                    {t('basecamp.members_select_managers')}
+                                </button>
+                            </div>
+
+                            <div className="relative">
+                                <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={memberSearch}
+                                    onChange={(e) => setMemberSearch(e.target.value)}
+                                    placeholder={t('basecamp.members_search_placeholder')}
+                                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5]"
+                                />
+                            </div>
+
+                            <div className="max-h-72 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800">
+                                {loadingPeople ? (
+                                    <div className="flex items-center justify-center py-8">
+                                        <Loader2 size={20} className="animate-spin text-[#1D7DB5]" />
+                                    </div>
+                                ) : filteredModalPeople.length === 0 ? (
+                                    <p className="text-xs text-slate-400 text-center py-6 italic">
+                                        {t('basecamp.no_people_found')}
+                                    </p>
+                                ) : (
+                                    filteredModalPeople.map((person) => {
+                                        const checked = selectedMemberIds.has(person.id)
+                                        const cleanEmail = isMaskedOrEmptyEmail(person.email)
+                                            ? ''
+                                            : canonicalizeBasecampEmail(person.email)
+                                        const roleBadge = (person.title || person.role || '').trim()
+                                        return (
+                                            <label
+                                                key={person.id}
+                                                onClick={() => toggleMemberId(person.id)}
+                                                className={`flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer transition-colors ${
+                                                    checked ? 'bg-blue-50/60 dark:bg-blue-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <span className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${checked ? 'bg-[#1D7DB5] border-[#1D7DB5] text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                                                        {checked && <Check size={11} />}
+                                                    </span>
+                                                    <div
+                                                        className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0"
+                                                        style={{ backgroundColor: getAvatarColor(person.name || '?') }}
+                                                    >
+                                                        {getInitials(person.name || '?')}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                                            {person.name}
+                                                        </p>
+                                                        {cleanEmail && (
+                                                            <p className="text-[10px] text-slate-400 truncate">{cleanEmail}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {roleBadge && (
+                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">
+                                                        {roleBadge}
+                                                    </span>
+                                                )}
+                                            </label>
+                                        )
+                                    })
+                                )}
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowMembersModal(false)}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                >
+                                    {t('basecamp.cancel')}
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={savingMembers}
+                                    className="px-4 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] disabled:opacity-50 text-white font-extrabold text-xs shadow flex items-center gap-1.5 cursor-pointer"
+                                >
+                                    {savingMembers && <Loader2 size={12} className="animate-spin" />}
+                                    <span>{t('basecamp.members_save_btn')}</span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ════════════════════════════════════════════════
+                Admin Modal: Configurar Proyecto (z-[120])
+            ════════════════════════════════════════════════ */}
+            {isAdmin && showConfigModal && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowConfigModal(false) }}
+                >
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+                            <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                                <Settings size={18} className="text-[#1D7DB5]" />
+                                <span>{t('basecamp.edit_project_btn')}</span>
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setShowConfigModal(false)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title={t('basecamp.close_esc')}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {configError && (
+                            <div className="mb-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs font-bold text-red-700 dark:text-red-300">
+                                {configError}
+                            </div>
+                        )}
+
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault()
+                                void submitProjectConfig({ archive: false })
+                            }}
+                            className="space-y-4"
+                        >
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                    {t('basecamp.project_name_label')}
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                    {t('basecamp.project_desc_label')}
+                                </label>
+                                <textarea
+                                    value={editDesc}
+                                    onChange={(e) => setEditDesc(e.target.value)}
+                                    placeholder={t('basecamp.project_description_placeholder')}
+                                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-sm h-20"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                                    {t('basecamp.project_color_label')}
+                                </label>
+                                <div className="flex gap-1.5 flex-wrap">
+                                    {Object.keys(COLOR_CLASSES).map((cName) => (
+                                        <button
+                                            key={cName}
+                                            type="button"
+                                            onClick={() => setEditColor(cName)}
+                                            className={`w-7 h-7 rounded-full border-2 ${
+                                                editColor === cName ? 'border-[#1D7DB5] scale-110' : 'border-slate-200 dark:border-slate-700'
+                                            }`}
+                                            style={{ backgroundColor: cName === 'white' ? '#ffffff' : cName === 'brown' ? '#8d5b4c' : cName }}
+                                            title={t(`basecamp.color_${cName}`)}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                                    {t('basecamp.project_tools_label')}
+                                </label>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {(
+                                        [
+                                            { key: 'todoset', label: t('basecamp.todos') },
+                                            { key: 'message_board', label: t('basecamp.message_board') },
+                                            { key: 'chat', label: t('basecamp.campfire') },
+                                            { key: 'vault', label: t('basecamp.docs_files') },
+                                            { key: 'schedule', label: t('basecamp.schedule') },
+                                            { key: 'questionnaire', label: t('basecamp.checkins') },
+                                        ] as Array<{ key: CanonicalBasecampDockTool; label: string }>
+                                    ).map((toolItem) => {
+                                        const active = editTools.includes(toolItem.key)
+                                        return (
+                                            <button
+                                                key={toolItem.key}
+                                                type="button"
+                                                onClick={() => toggleEditTool(toolItem.key)}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                                    active
+                                                        ? 'bg-blue-50 dark:bg-blue-950/40 border-[#1D7DB5] text-[#1D7DB5] dark:text-blue-300'
+                                                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-500'
+                                                }`}
+                                            >
+                                                <span className={`w-4 h-4 rounded flex items-center justify-center border ${active ? 'bg-[#1D7DB5] border-[#1D7DB5] text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                                                    {active && <Check size={11} />}
+                                                </span>
+                                                <span className="truncate">{toolItem.label}</span>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 pt-4 border-t border-slate-100 dark:border-slate-800 flex-wrap">
+                                <button
+                                    type="button"
+                                    disabled={savingConfig}
+                                    onClick={() => void submitProjectConfig({ archive: true })}
+                                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/70 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 text-xs font-extrabold cursor-pointer"
+                                >
+                                    <Archive size={13} />
+                                    <span>{t('basecamp.project_archive_btn')}</span>
+                                </button>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfigModal(false)}
+                                        className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    >
+                                        {t('basecamp.cancel')}
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={savingConfig || !editName.trim()}
+                                        className="px-4 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] disabled:opacity-50 text-white font-extrabold text-xs shadow flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        {savingConfig && <Loader2 size={12} className="animate-spin" />}
+                                        <span>{t('basecamp.project_save_btn')}</span>
+                                    </button>
+                                </div>
                             </div>
                         </form>
                     </div>

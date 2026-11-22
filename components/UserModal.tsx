@@ -5,6 +5,7 @@
  * @businessRules
  * - Managers and Assistants require a single store_id and a valid position_type (kitchen/cashier).
  * - Supervisors require a store_scope array (containing full store names with "Tacos Gavilan " prefix).
+ * - Restricted single-module roles (`planificador`, `basecamp`) do not require `store_id` or `store_scope`.
  * @dataFlow
  * - Props (initialData, stores) -> Modal state -> Form validation -> Save event (onSave).
  * @notes Implements case-insensitive and prefix-insensitive matching for supervisor checkboxes to prevent data loss.
@@ -188,7 +189,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
       return
     }
 
-    if (!formData.phone) {
+    if (!formData.phone && !['planificador', 'basecamp'].includes(formData.role)) {
       alert(t('usuarios.modal.errors.phone_required'))
       return
     }
@@ -234,8 +235,11 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
     // Limpiar campos auxiliares antes de enviar
     const { confirmPassword, ...dataToSend } = formData
+    const clearsStoreAssignment = ['admin', 'planificador', 'basecamp'].includes(formData.role)
     onSave({
       ...dataToSend,
+      store_id: clearsStoreAssignment ? '' : dataToSend.store_id,
+      store_scope: formData.role === 'supervisor' ? dataToSend.store_scope : [],
       id: initialData?.id,
       toast_guid: selectedToastGuid || undefined,
       deactivateCurrentId: (deactivateConflict && conflictingUser) ? conflictingUser.id : null
@@ -246,6 +250,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
   const isSupervisor = formData.role === 'supervisor'
   const isAdmin = formData.role === 'admin'
   const isPlanificador = formData.role === 'planificador'
+  const isBasecamp = formData.role === 'basecamp'
   const isStaff = ['manager', 'asistente'].includes(formData.role)
 
   // Calcular fuerza password visualmente
@@ -398,7 +403,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         type="tel"
                         value={formData.phone}
                         onChange={handleChange}
-                        required
+                        required={!isPlanificador && !isBasecamp}
                         className="w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
                         placeholder={t('usuarios.modal.placeholders.phone')}
                       />
@@ -495,7 +500,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">{t('usuarios.modal.fields.user_role')}</label>
                     <div className="grid grid-cols-1 gap-2">
-                      {['asistente', 'manager', 'supervisor', 'admin', 'planificador'].map((roleOp) => (
+                      {['asistente', 'manager', 'supervisor', 'admin', 'planificador', 'basecamp'].map((roleOp) => (
                         <label key={roleOp} className={`flex items-center gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${formData.role === roleOp ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800/50 border-gray-100 dark:border-slate-800 hover:border-gray-200 dark:hover:border-slate-700'}`}>
                           <input
                             type="radio"
@@ -531,9 +536,21 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 flex items-center justify-center mx-auto mb-4">
                           <span className="text-3xl">📅</span>
                         </div>
-                        <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-tight">Acceso Exclusivo a Planificador</h4>
+                        <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-tight">{t('usuarios.modal.planificador_scope.title')}</h4>
                         <p className="text-[11px] text-slate-500 dark:text-slate-500 px-4 mt-2 font-bold leading-relaxed">
-                          Este usuario solo tendrá acceso al módulo Planificador con vista de todas las sucursales. Todos los demás módulos estarán restringidos.
+                          {t('usuarios.modal.planificador_scope.description')}
+                        </p>
+                      </div>
+                    )}
+
+                    {isBasecamp && (
+                      <div className="text-center py-10">
+                        <div className="w-16 h-16 bg-sky-50 dark:bg-sky-900/30 rounded-2xl shadow-sm border border-sky-100 dark:border-sky-800/60 flex items-center justify-center mx-auto mb-4">
+                          <span className="text-3xl">🏕️</span>
+                        </div>
+                        <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-tight">{t('usuarios.modal.basecamp_scope.title')}</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 px-4 mt-2 font-bold leading-relaxed">
+                          {t('usuarios.modal.basecamp_scope.description')}
                         </p>
                       </div>
                     )}

@@ -5,6 +5,7 @@
  * @businessRules
  * - Verifica existencia y vigencia de `teg_token` y `teg_user` en `localStorage`.
  * - Sincroniza cookie `teg_token` para soporte SSR/API.
+ * - Aísla usuarios de módulo único (`planificador` -> `/planificador`, `basecamp` -> `/basecamp`, `employee` -> `/mis-horarios`).
  * - Si un usuario autenticado intenta acceder a una ruta fuera de `allowedRoles`, redirige a `/inicio`.
  *
  * @dataFlow
@@ -129,6 +130,19 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
           return
         }
         router.push('/planificador')
+        return
+      }
+
+      // Handle BASECAMP-only user restriction - can only access /basecamp
+      const isBasecampOnly = userData.role?.toLowerCase() === 'basecamp'
+
+      if (isBasecampOnly) {
+        if (pathname.startsWith('/basecamp')) {
+          setUser(userData)
+          setLoading(false)
+          return
+        }
+        router.replace('/basecamp')
         return
       }
 

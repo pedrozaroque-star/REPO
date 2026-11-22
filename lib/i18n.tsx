@@ -83,6 +83,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             tasks: 'Checklists',
             sales: 'Ventas',
             planner: 'Planificar',
+            basecamp: 'Basecamp',
             activities: 'Actividades',
             schedule: 'Horario',
             more: 'Más',
@@ -1653,7 +1654,9 @@ export const dictionaries: Record<Language, Dictionary> = {
                 admin: "Admin",
                 supervisor: "Supervisor",
                 manager: "Manager",
-                asistente: "Asistente"
+                asistente: "Asistente",
+                planificador: "Solo Planificador",
+                basecamp: "Solo Basecamp"
             },
             table: {
                 user: "Usuario",
@@ -1701,11 +1704,21 @@ export const dictionaries: Record<Language, Dictionary> = {
                 staff_scope: {
                     description: "La tienda principal donde este usuario registra su actividad."
                 },
+                planificador_scope: {
+                    title: "Acceso Exclusivo a Planificador",
+                    description: "Este usuario solo tendrá acceso al módulo Planificador con vista de todas las sucursales. Todos los demás módulos estarán restringidos."
+                },
+                basecamp_scope: {
+                    title: "Acceso Exclusivo a Basecamp",
+                    description: "Este usuario solo tendrá acceso al módulo Basecamp para Casos, Pedidos y Anuncios, sin requerir sucursal asignada ni acceso a módulos financieros o de tiendas."
+                },
                 roles: {
                     admin: "Admin",
                     supervisor: "Supervisor",
                     manager: "Manager",
-                    asistente: "Asistente"
+                    asistente: "Asistente",
+                    planificador: "Planificador (Solo Planificador)",
+                    basecamp: "Solo Basecamp (Casos, Pedidos y Anuncios)"
                 },
                 positions: {
                     kitchen: "Cocina",
@@ -2682,9 +2695,9 @@ export const dictionaries: Record<Language, Dictionary> = {
             no_description: 'Sin descripción.',
             project_description_placeholder: 'Detalles sobre este proyecto...',
             project_name_placeholder: 'Ej. Edison Cases',
-            project_name_label: 'Nombre *',
-            project_desc_label: 'Descripción',
-            project_color_label: 'Color del Proyecto',
+            project_name_label: 'Nombre del proyecto',
+            project_desc_label: 'Descripción (opcional)',
+            project_color_label: 'Color del proyecto',
             cancel: 'Cancelar',
             create: 'Crear',
             project_progress: 'Progreso del Proyecto',
@@ -3091,6 +3104,27 @@ export const dictionaries: Record<Language, Dictionary> = {
             cat_pitch: 'Propuesta / Idea',
             msg_subscribers_footer: 'El autor y cualquier persona etiquetada con @ reciben notificación automática cuando alguien comenta en este anuncio.',
             download_video: 'Descargar video',
+            mode_hybrid_badge: 'Puente Basecamp Activo',
+            mode_standalone_badge: '100% Nativo TEG',
+            mode_settings_title: 'Modo de Operación y Autonomía',
+            mode_hybrid_title: 'Modo Híbrido (Sincronizando con Basecamp 3)',
+            mode_hybrid_desc: 'Mantiene sincronización bidireccional mientras el personal termina de migrar. Si Basecamp deja de responder o se cancela la suscripción, el sistema pasa solo a Modo 100% Nativo.',
+            mode_standalone_title: 'Modo 100% Independiente TEG (Basecamp Apagado)',
+            mode_standalone_desc: 'Opera al 100% en servidores propios de Tacos Gavilan (Supabase + Vercel) con latencia cero y sin ninguna conexión a Basecamp externo.',
+            auto_cutover_label: 'Auto-corte automático al cancelar Basecamp 3',
+            new_project_btn: 'Nuevo proyecto',
+            edit_project_btn: 'Configurar proyecto',
+            manage_members_btn: 'Personas y accesos',
+            project_tools_label: 'Herramientas habilitadas en este proyecto',
+            project_archive_btn: 'Archivar proyecto',
+            members_modal_title: 'Personas con acceso a este proyecto',
+            members_modal_desc: 'Solo las personas marcadas abajo (y los Administradores) podrán ver este proyecto y recibir notificaciones.',
+            members_search_placeholder: 'Buscar persona por nombre o correo...',
+            members_select_all: 'Seleccionar todos',
+            members_select_managers: 'Solo Gerentes y Supervisores',
+            members_save_btn: 'Guardar accesos',
+            project_save_btn: 'Guardar proyecto',
+            project_create_submit: 'Crear proyecto',
         },
         roles_hub: {
             title: 'Control de Roles y Posiciones',
@@ -5167,6 +5201,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                         supervisor: 'Supervisor',
                         admin: 'Administrador',
                         planificador: 'Planificador (Solo Planificador)',
+                        basecamp: 'Solo Basecamp',
                     },
                 },
             },
@@ -9539,6 +9574,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             tasks: 'Checklists',
             sales: 'Sales',
             planner: 'Planner',
+            basecamp: 'Basecamp',
             activities: 'Activities',
             schedule: 'Schedule',
             more: 'More',
@@ -11109,7 +11145,9 @@ export const dictionaries: Record<Language, Dictionary> = {
                 admin: "Admin",
                 supervisor: "Supervisor",
                 manager: "Manager",
-                asistente: "Assistant"
+                asistente: "Assistant",
+                planificador: "Planner Only",
+                basecamp: "Basecamp Only"
             },
             table: {
                 user: "User",
@@ -11157,11 +11195,21 @@ export const dictionaries: Record<Language, Dictionary> = {
                 staff_scope: {
                     description: "The main store where this user logs their activity."
                 },
+                planificador_scope: {
+                    title: "Planner Exclusive Access",
+                    description: "This user will only have access to the Planner module across all locations. All other modules are restricted."
+                },
+                basecamp_scope: {
+                    title: "Basecamp Exclusive Access",
+                    description: "This user will only have access to the Basecamp module for Cases, Orders, and Announcements, without requiring an assigned store or access to financial or store modules."
+                },
                 roles: {
                     admin: "Admin",
                     supervisor: "Supervisor",
                     manager: "Manager",
-                    asistente: "Assistant"
+                    asistente: "Assistant",
+                    planificador: "Planner (Planner Only)",
+                    basecamp: "Basecamp Only (Cases, Orders & Announcements)"
                 },
                 positions: {
                     kitchen: "Kitchen",
@@ -12138,9 +12186,9 @@ export const dictionaries: Record<Language, Dictionary> = {
             no_description: 'No description.',
             project_description_placeholder: 'Details about this project...',
             project_name_placeholder: 'e.g. Edison Cases',
-            project_name_label: 'Name *',
-            project_desc_label: 'Description',
-            project_color_label: 'Project Color',
+            project_name_label: 'Project name',
+            project_desc_label: 'Description (optional)',
+            project_color_label: 'Project color',
             cancel: 'Cancel',
             create: 'Create',
             project_progress: 'Project Progress',
@@ -12547,6 +12595,27 @@ export const dictionaries: Record<Language, Dictionary> = {
             cat_pitch: 'Pitch',
             msg_subscribers_footer: 'The author and anyone tagged with @ are automatically notified when someone comments on this announcement.',
             download_video: 'Download video',
+            mode_hybrid_badge: 'Basecamp Bridge Active',
+            mode_standalone_badge: '100% Native TEG',
+            mode_settings_title: 'Operation & Autonomy Mode',
+            mode_hybrid_title: 'Hybrid Mode (Syncing with Basecamp 3)',
+            mode_hybrid_desc: 'Keeps bidirectional sync while staff finishes migrating. If Basecamp stops responding or the subscription ends, the system switches to 100% Native Mode automatically.',
+            mode_standalone_title: '100% Standalone TEG Mode (Basecamp Off)',
+            mode_standalone_desc: 'Operates 100% on Tacos Gavilan servers (Supabase + Vercel) with zero latency and no connection to external Basecamp.',
+            auto_cutover_label: 'Automatic cutover when Basecamp 3 is cancelled',
+            new_project_btn: 'New project',
+            edit_project_btn: 'Project settings',
+            manage_members_btn: 'People & access',
+            project_tools_label: 'Enabled tools in this project',
+            project_archive_btn: 'Archive project',
+            members_modal_title: 'People with access to this project',
+            members_modal_desc: 'Only checked people below (and Admins) can view this project and receive notifications.',
+            members_search_placeholder: 'Search person by name or email...',
+            members_select_all: 'Select all',
+            members_select_managers: 'Managers & Supervisors only',
+            members_save_btn: 'Save access',
+            project_save_btn: 'Save project',
+            project_create_submit: 'Create project',
         },
         roles_hub: {
             title: 'Roles & Positions Control',
@@ -14623,6 +14692,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                         supervisor: 'Supervisor',
                         admin: 'Administrator',
                         planificador: 'Planner (Planner Only)',
+                        basecamp: 'Basecamp Only',
                     },
                 },
             },

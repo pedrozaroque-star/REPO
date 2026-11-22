@@ -17,6 +17,7 @@
  *   * `admin` y `supervisor` tienen alcance global multitienda.
  *   * `manager`, `asistente` y `shift_leader` están restringidos exclusivamente a su `store_id` asignada (resolviendo tanto ID numérico como `external_id` Toast GUID).
  *   * `employee` solo puede consultar su propia información/tienda cuando el endpoint habilite `allowEmployeeRead`.
+ *   * `basecamp` está aislado estrictamente al módulo `/basecamp` (`/api/basecamp/*`): `verifyStaffAuth` y `authorizeStoreScope` rechazan con `HTTP 403` cualquier petición a endpoints financieros, operativos, de tiendas o de administración salvo que el endpoint declare explícitamente `'basecamp'` en `allowedRoles` o `allowBasecampRole: true`.
  *
  * @dataFlow
  * - Request (Cookie `teg_token` o Header `Authorization`) -> `getServerUser()` -> `jwt.verify()` -> `ServerUser` -> `authorizeStoreScope()`.
@@ -25,6 +26,7 @@
  * - Fail-closed: si no hay secreto JWT configurado en el entorno, rechaza peticiones sin permitir bypasses.
  * - OPTIMIZACIÓN CACHE RAM (2026-11-19): Caché en memoria de 15 min para lookups de `stores` (`id`, `code`, `external_id`) en `authorizeStoreScope` y `resolveCachedStore`, con deduplicación in-flight, refresco acotado ante misses (cooldown 60s), cero envenenamiento ante errores y preservación exacta de semántica de autorización.
  * - ENDURECIMIENTO AUTH CORE (2026-11-21): Ventana máxima de gracia acotada a 14 días (`MAX_EXPIRED_GRACE_MS`) para tabletas 24/7, validación de `public.users.is_active` con caché TTL 60s (`activeUserStatusCache`, máx 1,000 entradas), comparación en tiempo constante (`safeTimingEqual`) para `CRON_SECRET`, bloqueo de auto-mint `internal-cron` en producción/Vercel y rate limiter reutilizable (`checkRateLimit`).
+ * - AISLAMIENTO ROL BASECAMP (2026-11-21): Defensa en profundidad para `role === 'basecamp'` en `verifyStaffAuth` y `authorizeStoreScope` (`HTTP 403`).
  */
 
 import crypto from 'crypto'
@@ -842,6 +844,14 @@ export async function authorizeStoreScope(
 
   const role = (user.role || '').trim().toLowerCase()
 
+  if (role === 'basecamp') {
+    return {
+      authorized: false,
+      status: 403,
+      error: 'Acceso restringido exclusivamente al módulo Basecamp'
+    }
+  }
+
   if (Array.isArray(options?.allowedRoles) && options!.allowedRoles.length > 0) {
     const normalizedAllowed = options!.allowedRoles.map((r) => r.trim().toLowerCase())
     if (!normalizedAllowed.includes(role)) {
@@ -1140,10 +1150,12 @@ export function verifyAuthToken(token: string): DecodedToken | null {
 /**
  * Valida que una petición HTTP cuente con sesión JWT válida de personal interno (admin, supervisor,
  * manager, asistente, shift_leader, planificador, etc.) o provenga de un Cron autorizado con CRON_SECRET.
+ * El rol restringido `'basecamp'` se rechaza con HTTP 403 salvo que el endpoint lo autorice explícitamente
+ * mediante `allowedRoles` incluyendo `'basecamp'` o `allowBasecampRole: true`.
  */
 export function verifyStaffAuth(
   request: Request,
-  options?: { allowedRoles?: string[]; allowCron?: boolean; allowEmployee?: boolean }
+  options?: { allowedRoles?: string[]; allowCron?: boolean; allowEmployee?: boolean; allowBasecampRole?: boolean }
 ): AdminAuthResult {
   const allowCron = options?.allowCron ?? true
   const cronSecret = getCronSecret()
@@ -1196,7 +1208,7 @@ export function verifyStaffAuth(
     }
   }
 
-  const userRole = (user.role || user.user_role || '').toLowerCase()
+  const userRole = (user.role || user.user_role || '').trim().toLowerCase()
   if (!options?.allowEmployee && (user.user_type === 'employee' || userRole === 'employee')) {
     const error = 'No autorizado: Credenciales de empleado no tienen acceso a este recurso administrativo'
     return {
@@ -1207,9 +1219,30 @@ export function verifyStaffAuth(
     }
   }
 
+  if (userRole === 'basecamp') {
+    const explicitlyAllowed =
+      Boolean(options?.allowBasecampRole) ||
+      (options?.allowedRoles || []).some((r) => r.trim().toLowerCase() === 'basecamp')
+    if (!explicitlyAllowed) {
+      const error = 'Acceso restringido exclusivamente al módulo Basecamp'
+      return {
+        authorized: false,
+        error,
+        status: 403,
+        response: NextResponse.json({ error }, { status: 403 })
+      }
+    }
+  }
+
   if (options?.allowedRoles && options.allowedRoles.length > 0) {
-    const normalizedAllowed = options.allowedRoles.map(r => r.toLowerCase())
-    if (userRole !== 'admin' && userRole !== 'administrador' && !normalizedAllowed.includes(userRole)) {
+    const normalizedAllowed = options.allowedRoles.map(r => r.trim().toLowerCase())
+    const allowedViaBasecampFlag = userRole === 'basecamp' && Boolean(options?.allowBasecampRole)
+    if (
+      userRole !== 'admin' &&
+      userRole !== 'administrador' &&
+      !normalizedAllowed.includes(userRole) &&
+      !allowedViaBasecampFlag
+    ) {
       const error = 'Acceso denegado: Permisos insuficientes para esta operación'
       return {
         authorized: false,
@@ -1550,12 +1583,15 @@ export async function authorizeDeliveryReconciliationRequest(
     .trim()
     .toLowerCase()
 
-  if (verifiedPayload.user_type === 'employee' || tokenRole === 'employee') {
+  if (verifiedPayload.user_type === 'employee' || tokenRole === 'employee' || tokenRole === 'basecamp') {
     return {
       authorized: false,
       status: 403,
       code: 'ROLE_FORBIDDEN',
-      error: 'Acceso denegado: Las cuentas de empleado no tienen acceso al módulo de conciliación financiera.',
+      error:
+        tokenRole === 'basecamp'
+          ? 'Acceso restringido exclusivamente al módulo Basecamp'
+          : 'Acceso denegado: Las cuentas de empleado no tienen acceso al módulo de conciliación financiera.',
     }
   }
 

@@ -4,7 +4,7 @@
  * estilo sistema operativo (`OS Dock` en `Modo OS` y barra anclada clásica en `Versión Web`).
  *
  * @businessRules
- * - En roles restringidos de módulo único (`isPlanificadorOnly` -> `/planificador`, `isEmployeeOnly` -> `/mis-horarios`),
+ * - En roles restringidos de módulo único (`isPlanificadorOnly` -> `/planificador`, `isBasecampOnly` -> `/basecamp`, `isEmployeeOnly` -> `/mis-horarios`),
  *   renderiza únicamente su pestaña asignada con personalización deshabilitada (`canCustomizeDock === false`).
  * - Para el resto de roles, mantiene fijos los extremos `Inicio` (`/inicio`) a la izquierda y `Más` (`__drawer__`) a la derecha,
  *   permitiendo personalizar de 1 a 4 accesos directos intermedios (`dockItems`) persistidos por usuario.
@@ -60,7 +60,17 @@ interface TabColorStyle {
     indicatorColor: string
 }
 
-const ANCHOR_TAB_COLORS: Record<'home' | 'planner' | 'schedule' | 'more', TabColorStyle> = {
+const BasecampTabIcon = ({ size = 24 }: { size?: number }) => (
+    <svg viewBox="0 0 512 512" width={size} height={size} fill="currentColor" style={{ flexShrink: 0 }}>
+        <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M111.962 57.729C155.189 19.34 206.449 0 265.307 0c77.361 0 133.713 49.448 171.582 113.692 37.866 64.24 57.6 143.773 61.686 205.326a26.662 26.662 0 01-3.283 14.894l-.012.028-.016.025c-36.169 62.105-118.272 96.008-229.939 96.011-80.188 1.053-156.884-32.74-210.199-92.613a25.471 25.471 0 01-4.943-25.924c7.15-19.237 20.547-51.324 38.335-78.688 8.892-13.679 18.959-26.299 29.988-35.543 11.026-9.24 23.224-15.276 36.306-15.348h.016c13.181 0 24.573 5.25 34.449 12.345 9.657 6.937 18.057 15.784 25.377 23.491l.444.471.025.024a169.12 169.12 0 0013.322 13.212 392.206 392.206 0 0049.68-83.351l.039-.092.05-.091c6.327-12.016 20.971-16.961 33.293-11.242 12.324 5.718 17.991 20.089 12.892 32.673l-.026.07-.032.066c-26.677 57.123-47.287 86.004-62.615 100.621-7.688 7.334-14.109 11.141-19.363 13.083-5.294 1.959-9.228 1.959-11.664 1.959-11.174 0-20.703-4.308-29.181-10.435-8.312-6.007-15.793-13.897-22.916-21.409l-.301-.317c-3.271-3.468-8.227-8.715-12.998-13.091-2.39-2.194-4.666-4.105-6.614-5.45-.973-.673-1.807-1.166-2.486-1.478a5.54 5.54 0 00-.806-.31c-.048-.013-.091-.022-.128-.03-.8.211-1.931.762-3.402 1.858-1.635 1.218-3.501 2.964-5.563 5.229-4.12 4.526-8.817 10.903-13.77 18.655-9.628 15.064-20.054 35.063-28.896 56.107a223.491 223.491 0 00161.61 64.325h.059c88.439 0 153.567-23.975 181.811-64.431-5.026-55.783-22.994-121.651-53.471-173.599-30.694-52.325-73.656-89.898-128.34-89.898-93.402 0-164.264 65.12-210.272 194.986l-.029.08-.034.079c-5.254 12.403-19.257 18.576-31.962 14.093-12.706-4.487-19.726-18.08-16.023-31.026l.024-.086.029-.084c26.723-75.584 61.75-132.8 104.922-171.138z"
+        />
+    </svg>
+)
+
+const ANCHOR_TAB_COLORS: Record<'home' | 'planner' | 'basecamp' | 'schedule' | 'more', TabColorStyle> = {
     home: {
         activeIcon: 'text-red-600 dark:text-red-400',
         inactiveOSIcon: 'text-red-600 dark:text-red-400',
@@ -76,6 +86,14 @@ const ANCHOR_TAB_COLORS: Record<'home' | 'planner' | 'schedule' | 'more', TabCol
         inactiveOSBg: 'bg-cyan-500/8 dark:bg-cyan-500/15 border border-cyan-500/20',
         activeText: 'text-cyan-600 dark:text-cyan-400',
         indicatorColor: 'bg-cyan-600',
+    },
+    basecamp: {
+        activeIcon: 'text-sky-600 dark:text-sky-400',
+        inactiveOSIcon: 'text-sky-600 dark:text-sky-400',
+        activeBg: 'bg-sky-500/15 dark:bg-sky-500/25 ring-1 ring-sky-500/30',
+        inactiveOSBg: 'bg-sky-500/8 dark:bg-sky-500/15 border border-sky-500/20',
+        activeText: 'text-sky-600 dark:text-sky-400',
+        indicatorColor: 'bg-sky-600',
     },
     schedule: {
         activeIcon: 'text-cyan-600 dark:text-cyan-400',
@@ -227,7 +245,7 @@ export default function BottomTabBar({ onOpenDrawer, isDrawerOpen = false }: Bot
     const {
         dockItems,
         permittedGroups,
-        canCustomizeDock,
+        canCustomizeDock: rawCanCustomizeDock,
         isPlanificadorOnly,
         isEmployeeOnly,
         isSavingSync,
@@ -239,6 +257,9 @@ export default function BottomTabBar({ onOpenDrawer, isDrawerOpen = false }: Bot
         removeDockSlot,
         resetDockToDefaults,
     } = useMobileDockPreferences(user, t)
+
+    const isBasecampOnly = user?.role?.toLowerCase() === 'basecamp'
+    const canCustomizeDock = rawCanCustomizeDock && !isBasecampOnly
 
     const [isEditorOpen, setIsEditorOpen] = useState(false)
     const [editorSessionKey, setEditorSessionKey] = useState(0)
@@ -371,6 +392,21 @@ export default function BottomTabBar({ onOpenDrawer, isDrawerOpen = false }: Bot
             ]
         }
 
+        if (isBasecampOnly) {
+            return [
+                {
+                    key: 'fixed-basecamp',
+                    label: t('bottom_nav.basecamp') || 'Basecamp',
+                    path: '/basecamp',
+                    squircleBg: 'bg-gradient-to-br from-sky-500 to-blue-600',
+                    colors: ANCHOR_TAB_COLORS.basecamp,
+                    renderIcon: (isActive, isOSSquircle) => (
+                        <BasecampTabIcon size={isOSSquircle ? 26 : isActive ? 25 : 23} />
+                    ),
+                },
+            ]
+        }
+
         if (isEmployeeOnly) {
             return [
                 {
@@ -446,7 +482,7 @@ export default function BottomTabBar({ onOpenDrawer, isDrawerOpen = false }: Bot
                 ),
             },
         ]
-    }, [dockItems, isEmployeeOnly, isPlanificadorOnly, t])
+    }, [dockItems, isBasecampOnly, isEmployeeOnly, isPlanificadorOnly, t])
 
     const activeIndex = useMemo(
         () => resolveActiveDockIndex(allItems, pathname, isDrawerOpen, STANDALONE_SIBLING_PATHS),

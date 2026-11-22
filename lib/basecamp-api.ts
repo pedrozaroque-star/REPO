@@ -28,6 +28,8 @@
  * - Base URL: https://3.basecampapi.com/{account_id}/
  * - Auth URLs usan launchpad.37signals.com (no basecampapi.com)
  * - El token de Basecamp expira cada 2 semanas (~1,209,600 segundos). El refresh_token no expira.
+ * - Soporta modo híbrido (`hybrid`) y 100% independiente (`standalone`) controlado por `public.bc_system_config`
+ *   con caché en memoria de 15s e invalidación inmediata + auto-cutover ante cancelación de cuenta (`402` / `404` / `invalid_grant`).
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -35,8 +37,20 @@ import crypto from 'crypto'
 import { sanitizeBasecampHtml as sanitizeBasecampHtmlShared } from '@/lib/basecamp-html'
 
 // ============================================================================
-// CONFIGURATION
+// CONFIGURATION & ALLOWED ROLES
 // ============================================================================
+
+export const BASECAMP_STAFF_ALLOWED_ROLES: string[] = [
+  'admin',
+  'supervisor',
+  'regional_manager',
+  'manager',
+  'gerente',
+  'general_manager',
+  'asistente',
+  'assistant',
+  'basecamp',
+]
 
 const BASECAMP_ACCOUNT_ID = process.env.BASECAMP_ACCOUNT_ID || '5052386'
 const BASECAMP_API_BASE = `https://3.basecampapi.com/${BASECAMP_ACCOUNT_ID}`
@@ -420,6 +434,252 @@ function getServiceClient() {
 }
 
 // ============================================================================
+// SYSTEM CONFIG & AUTO-CUTOVER (`public.bc_system_config`, id = 1)
+// ============================================================================
+
+export type BasecampRuntimeMode = 'hybrid' | 'standalone'
+
+export interface BasecampSystemConfig {
+  id: number
+  runtime_mode: BasecampRuntimeMode
+  auto_cutover_enabled: boolean
+  standalone_activated_at: string | null
+  standalone_reason: string | null
+  updated_by: string | null
+  updated_at: string | null
+}
+
+const SYSTEM_CONFIG_CACHE_TTL_MS = 5_000
+
+type GlobalBcConfigCacheHolder = typeof globalThis & {
+  __tegBcSystemConfigCache?: { value: BasecampSystemConfig; expiresAt: number } | null
+  __tegBcSystemConfigInflight?: Promise<BasecampSystemConfig> | null
+}
+const globalBcConfigHolder = globalThis as GlobalBcConfigCacheHolder
+
+function normalizeSystemConfigRow(row: any): BasecampSystemConfig {
+  return {
+    id: 1,
+    runtime_mode: row?.runtime_mode === 'standalone' ? 'standalone' : 'hybrid',
+    auto_cutover_enabled: row?.auto_cutover_enabled !== false,
+    standalone_activated_at: row?.standalone_activated_at || null,
+    standalone_reason: row?.standalone_reason || null,
+    updated_by: row?.updated_by || null,
+    updated_at: row?.updated_at || null,
+  }
+}
+
+export function invalidateBasecampSystemConfigCache(): void {
+  globalBcConfigHolder.__tegBcSystemConfigCache = null
+  globalBcConfigHolder.__tegBcSystemConfigInflight = null
+}
+
+export async function getBasecampSystemConfig(options?: {
+  bypassCache?: boolean
+}): Promise<BasecampSystemConfig> {
+  const bypass = Boolean(options?.bypassCache)
+  const cached = globalBcConfigHolder.__tegBcSystemConfigCache
+  if (!bypass && cached && cached.expiresAt > Date.now()) {
+    return cached.value
+  }
+  if (!bypass && globalBcConfigHolder.__tegBcSystemConfigInflight) {
+    return globalBcConfigHolder.__tegBcSystemConfigInflight
+  }
+
+  const fetchPromise = (async (): Promise<BasecampSystemConfig> => {
+    try {
+      const supabase = getServiceClient()
+      const { data, error } = await supabase
+        .from('bc_system_config')
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle()
+
+      if (error) {
+        console.warn('⚠️ [Basecamp Config] Error reading bc_system_config, using safe fallback:', error.message)
+        return globalBcConfigHolder.__tegBcSystemConfigCache?.value || normalizeSystemConfigRow(null)
+      }
+
+      if (!data) {
+        const nowIso = new Date().toISOString()
+        const { data: created } = await supabase
+          .from('bc_system_config')
+          .upsert(
+            { id: 1, runtime_mode: 'hybrid', auto_cutover_enabled: true, updated_at: nowIso },
+            { onConflict: 'id' }
+          )
+          .select('*')
+          .maybeSingle()
+        const normalized = normalizeSystemConfigRow(created)
+        globalBcConfigHolder.__tegBcSystemConfigCache = {
+          value: normalized,
+          expiresAt: Date.now() + SYSTEM_CONFIG_CACHE_TTL_MS,
+        }
+        return normalized
+      }
+
+      const normalized = normalizeSystemConfigRow(data)
+      globalBcConfigHolder.__tegBcSystemConfigCache = {
+        value: normalized,
+        expiresAt: Date.now() + SYSTEM_CONFIG_CACHE_TTL_MS,
+      }
+      return normalized
+    } catch (err: any) {
+      console.warn('⚠️ [Basecamp Config] Unexpected exception reading bc_system_config:', err?.message || err)
+      return globalBcConfigHolder.__tegBcSystemConfigCache?.value || normalizeSystemConfigRow(null)
+    } finally {
+      globalBcConfigHolder.__tegBcSystemConfigInflight = null
+    }
+  })()
+
+  if (!bypass) {
+    globalBcConfigHolder.__tegBcSystemConfigInflight = fetchPromise
+  }
+  return fetchPromise
+}
+
+export async function updateBasecampSystemConfig(input: {
+  runtimeMode?: BasecampRuntimeMode
+  autoCutoverEnabled?: boolean
+  reason?: string | null
+  updatedBy?: string | null
+}): Promise<BasecampSystemConfig> {
+  const supabase = getServiceClient()
+  const current = await getBasecampSystemConfig({ bypassCache: true })
+  const nowIso = new Date().toISOString()
+
+  const nextMode: BasecampRuntimeMode =
+    input.runtimeMode === 'standalone' || input.runtimeMode === 'hybrid'
+      ? input.runtimeMode
+      : current.runtime_mode
+
+  const nextAutoCutover =
+    typeof input.autoCutoverEnabled === 'boolean'
+      ? input.autoCutoverEnabled
+      : current.auto_cutover_enabled
+
+  const standaloneActivatedAt =
+    nextMode === 'standalone'
+      ? current.runtime_mode === 'standalone' && current.standalone_activated_at
+        ? current.standalone_activated_at
+        : nowIso
+      : null
+
+  const standaloneReason =
+    nextMode === 'standalone'
+      ? input.reason !== undefined
+        ? input.reason
+        : current.standalone_reason || 'manual_admin_switch'
+      : input.reason ?? null
+
+  const { data, error } = await supabase
+    .from('bc_system_config')
+    .upsert(
+      {
+        id: 1,
+        runtime_mode: nextMode,
+        auto_cutover_enabled: nextAutoCutover,
+        standalone_activated_at: standaloneActivatedAt,
+        standalone_reason: standaloneReason,
+        updated_by: input.updatedBy !== undefined ? input.updatedBy : current.updated_by,
+        updated_at: nowIso,
+      },
+      { onConflict: 'id' }
+    )
+    .select('*')
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to update bc_system_config: ${error.message}`)
+  }
+
+  const normalized = normalizeSystemConfigRow(data)
+  globalBcConfigHolder.__tegBcSystemConfigCache = {
+    value: normalized,
+    expiresAt: Date.now() + SYSTEM_CONFIG_CACHE_TTL_MS,
+  }
+  globalBcConfigHolder.__tegBcSystemConfigInflight = null
+  return normalized
+}
+
+export function detectBasecampCutoverReason(
+  errOrMsg: unknown,
+  context?: { isAccountRootEndpoint?: boolean; url?: string }
+): string | null {
+  const msg = String((errOrMsg as any)?.message || errOrMsg || '').trim()
+  if (!msg) return null
+
+  if (
+    /\(402\)|status\s*[:=]?\s*402|\b402\s+payment\s+required\b/i.test(msg) ||
+    /payment\s*required|subscription\s+(?:expired|canceled|cancelled|inactive)|account\s+(?:is\s+)?(?:frozen|suspended|cancelled|canceled|closed|inactive|expired)/i.test(
+      msg
+    )
+  ) {
+    return `basecamp_402_account_inactive: ${msg.slice(0, 180)}`
+  }
+
+  if (/\binvalid_grant\b|\bunauthorized_client\b/i.test(msg)) {
+    return `oauth_permanent_failure: ${msg.slice(0, 180)}`
+  }
+
+  const targetUrl = String(context?.url || '')
+  const isAccountRootUrl =
+    Boolean(context?.isAccountRootEndpoint) ||
+    new RegExp(`/${BASECAMP_ACCOUNT_ID}/(?:projects|people)\\.json(?:\\?|$)`, 'i').test(targetUrl)
+
+  if (
+    /\(404\)|status\s*[:=]?\s*404/i.test(msg) &&
+    (isAccountRootUrl ||
+      new RegExp(
+        `account\\s*(?:not\\s*found|cancelled|canceled|closed|inactive|deleted|does\\s*not\\s*exist)|/${BASECAMP_ACCOUNT_ID}/[^\\n]*account`,
+        'i'
+      ).test(msg))
+  ) {
+    return `basecamp_404_account_cancelled: ${msg.slice(0, 180)}`
+  }
+
+  return null
+}
+
+export async function triggerBasecampAutoCutover(reason: string): Promise<boolean> {
+  const cleanReason = String(reason || 'auto_cutover_detected').trim().slice(0, 240)
+  try {
+    const cfg = await getBasecampSystemConfig({ bypassCache: true })
+    if (cfg.runtime_mode === 'standalone') {
+      return true
+    }
+    if (!cfg.auto_cutover_enabled) {
+      console.warn(`⚠️ [Basecamp Auto-Cutover] Skipped (${cleanReason}) — auto_cutover_enabled is false`)
+      return false
+    }
+
+    const supabase = getServiceClient()
+    const { count, error: countErr } = await supabase
+      .from('bc_projects')
+      .select('id', { count: 'exact', head: true })
+
+    if (countErr || !count || count < 1) {
+      console.warn(
+        `⚠️ [Basecamp Auto-Cutover] Aborted (${cleanReason}) — bc_projects count is ${count ?? 0}`
+      )
+      return false
+    }
+
+    await updateBasecampSystemConfig({
+      runtimeMode: 'standalone',
+      autoCutoverEnabled: cfg.auto_cutover_enabled,
+      reason: cleanReason,
+      updatedBy: 'system:auto_cutover',
+    })
+    console.log(`🛡️ [Basecamp Auto-Cutover] Switched to 100% Standalone Mode! Reason: ${cleanReason}`)
+    return true
+  } catch (err: any) {
+    console.error('❌ [Basecamp Auto-Cutover] Failed to persist standalone cutover:', err?.message || err)
+    return false
+  }
+}
+
+// ============================================================================
 // RATE LIMITER — Token Bucket Implementation
 // ============================================================================
 
@@ -706,6 +966,10 @@ export async function getValidToken(): Promise<string> {
       return newTokens.access_token
     } catch (refreshErr: any) {
       console.error('❌ [Basecamp] Token refresh failed:', refreshErr.message)
+      const cutoverReason = detectBasecampCutoverReason(refreshErr)
+      if (cutoverReason) {
+        await triggerBasecampAutoCutover(cutoverReason)
+      }
       throw new Error(
         `Basecamp token refresh failed. Re-authenticate at /api/basecamp/auth. Error: ${refreshErr.message}`
       )
@@ -897,7 +1161,12 @@ export async function basecampFetch<T>(path: string, options?: RequestInit & { n
 
         // Client error (4xx, not 429) — don't retry
         const errorBody = await response.text()
-        throw new Error(`Basecamp API error (${response.status}): ${errorBody}`)
+        const clientErr = new Error(`Basecamp API error (${response.status}): ${errorBody}`)
+        const cutoverReason = detectBasecampCutoverReason(clientErr, { url: verifiedCurrentUrl })
+        if (cutoverReason) {
+          await triggerBasecampAutoCutover(cutoverReason)
+        }
+        throw clientErr
       } catch (err: any) {
         if (err.name === 'AbortError') {
           lastError = new Error('Basecamp API request timed out (30s)')
@@ -1567,13 +1836,32 @@ export function isSupabaseStorageUrl(url: string): boolean {
   )
 }
 
+export const EXTERNAL_BASECAMP_ATTACHMENT_HOSTS = [
+  'preview.3.basecamp.com',
+  'storage.3.basecamp.com',
+  'preview.app.basecamp.com',
+  'storage.app.basecamp.com',
+  '3.basecampapi.com',
+] as const
+
 export function isExternalBasecampUrl(url: string): boolean {
   if (!url || isSupabaseStorageUrl(url)) return false
-  return (
-    url.includes('basecamp.com') ||
-    url.includes('3.basecampapi.com') ||
-    url.includes('/blobs/')
-  )
+  const clean = url.replace(/&amp;/gi, '&').trim()
+  if (!clean || /^mailto:/i.test(clean)) return false
+  if (clean.startsWith('/api/basecamp/attachment?')) {
+    try {
+      const qs = new URLSearchParams(clean.slice('/api/basecamp/attachment?'.length))
+      const inner = qs.get('url')
+      return inner ? isExternalBasecampUrl(inner) : false
+    } catch {
+      return false
+    }
+  }
+  const lower = clean.toLowerCase()
+  if (EXTERNAL_BASECAMP_ATTACHMENT_HOSTS.some((host) => lower.includes(host))) {
+    return true
+  }
+  return (lower.includes('basecamp.com') || lower.includes('basecampapi.com')) && lower.includes('/blobs/')
 }
 
 export function extractDeterministicBlobKey(basecampUrl: string): string {
@@ -1627,16 +1915,30 @@ export function parseHtmlAttachments(html: string): HtmlAttachment[] {
   const attachments: HtmlAttachment[] = []
   if (!html) return attachments
 
-  // 1. bc-attachment tags (captures both `url` and `href` when external Basecamp URLs)
-  const bcAttachmentRegex = /<bc-attachment\s+([^>]+)>([\s\S]*?)<\/bc-attachment>/gi
+  const addIfUnique = (entry: HtmlAttachment) => {
+    const isDuplicate = attachments.some(
+      (a) =>
+        a.url === entry.url ||
+        a.secondaryUrl === entry.url ||
+        (entry.secondaryUrl && (a.url === entry.secondaryUrl || a.secondaryUrl === entry.secondaryUrl))
+    )
+    if (!isDuplicate) {
+      attachments.push(entry)
+    }
+  }
+
+  // 1. <bc-attachment> tags (paired or self-closing; captures preview.3, storage.3, preview.app, storage.app, 3.basecampapi)
+  const bcAttachmentRegex = /<bc-attachment\b([^>]*?)(?:\/>|>([\s\S]*?)<\/bc-attachment>)/gi
   let match: RegExpExecArray | null
   while ((match = bcAttachmentRegex.exec(html)) !== null) {
-    const attrsStr = match[1]
+    const attrsStr = match[1] || ''
     const getAttr = (name: string) => {
       const m = attrsStr.match(new RegExp(`(?:^|\\s)${name}=["']([^"']+)["']`, 'i'))
       return m ? m[1] : null
     }
     const contentType = getAttr('content-type') || ''
+    if (contentType.toLowerCase().includes('vnd.basecamp.mention')) continue
+
     const filename = getAttr('filename') || 'attachment'
     const rawHref = getAttr('href') || ''
     const rawUrl = getAttr('url') || ''
@@ -1645,9 +1947,14 @@ export function parseHtmlAttachments(html: string): HtmlAttachment[] {
     const hrefIsExternal = isExternalBasecampUrl(rawHref)
 
     if (urlIsExternal || hrefIsExternal) {
-      const primaryUrl = urlIsExternal ? rawUrl : rawHref
-      const secondaryUrl = urlIsExternal && hrefIsExternal && rawHref !== rawUrl ? rawHref : undefined
-      attachments.push({
+      const preferDownloadHref = hrefIsExternal && rawHref.includes('/download/')
+      const primaryUrl = preferDownloadHref ? rawHref : urlIsExternal ? rawUrl : rawHref
+      const otherCandidate = primaryUrl === rawHref ? rawUrl : rawHref
+      const otherIsExternal = primaryUrl === rawHref ? urlIsExternal : hrefIsExternal
+      const secondaryUrl =
+        otherIsExternal && otherCandidate && otherCandidate !== primaryUrl ? otherCandidate : undefined
+
+      addIfUnique({
         contentType,
         filename,
         url: primaryUrl,
@@ -1658,25 +1965,56 @@ export function parseHtmlAttachments(html: string): HtmlAttachment[] {
     }
   }
 
-  // 2. img tags
-  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
+  // 2. <img> tags (excluding user/mention avatars)
+  const imgRegex = /<img\b([^>]*)>/gi
   let imgMatch: RegExpExecArray | null
   while ((imgMatch = imgRegex.exec(html)) !== null) {
-    const src = imgMatch[1]
+    const attrsStr = imgMatch[1] || ''
+    if (
+      /\bclass\s*=\s*["'][^"']*\bavatar\b/i.test(attrsStr) ||
+      /\bdata-(?:bc-avatar|avatar-for-person-id)\b/i.test(attrsStr)
+    ) {
+      continue
+    }
+    const srcMatch = attrsStr.match(/(?:^|\s)src=["']([^"']+)["']/i)
+    const src = srcMatch?.[1] || ''
     if (isExternalBasecampUrl(src)) {
-      const isAlreadyCaptured = attachments.some((a) => a.url === src || a.secondaryUrl === src)
-      if (!isAlreadyCaptured) {
-        let filename = 'image.png'
-        const altMatch = imgMatch[0].match(/alt=["']([^"']+)["']/i)
-        if (altMatch) filename = altMatch[1]
-        attachments.push({
-          contentType: 'image/png',
-          filename,
-          url: src,
-          rawMatch: imgMatch[0],
-          isTag: false,
-        })
+      const altMatch = attrsStr.match(/(?:^|\s)alt=["']([^"']+)["']/i)
+      addIfUnique({
+        contentType: 'image/png',
+        filename: altMatch?.[1] || 'image.png',
+        url: src,
+        rawMatch: imgMatch[0],
+        isTag: false,
+      })
+    }
+  }
+
+  // 3. Direct <a href="..."> links pointing to Basecamp blob storage/preview hosts
+  const anchorBlobRegex = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi
+  let anchorMatch: RegExpExecArray | null
+  while ((anchorMatch = anchorBlobRegex.exec(html)) !== null) {
+    const attrsStr = anchorMatch[1] || ''
+    const hrefMatch = attrsStr.match(/(?:^|\s)href=["']([^"']+)["']/i)
+    const href = hrefMatch?.[1] || ''
+    if (href && href.includes('/blobs/') && isExternalBasecampUrl(href)) {
+      const linkText = (anchorMatch[2] || '').replace(/<[^>]+>/g, '').trim()
+      const dlSeg = href.split('/download/')[1]?.split(/[?#]/)[0] || ''
+      let fallbackName = linkText || 'attachment'
+      if (dlSeg) {
+        try {
+          fallbackName = decodeURIComponent(dlSeg)
+        } catch {
+          fallbackName = dlSeg
+        }
       }
+      addIfUnique({
+        contentType: 'application/octet-stream',
+        filename: fallbackName,
+        url: href,
+        rawMatch: anchorMatch[0],
+        isTag: false,
+      })
     }
   }
 

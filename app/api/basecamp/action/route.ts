@@ -33,6 +33,10 @@
  *   - `create_campfire_line` / `create_answer` / `create_schedule_entry`
  *   - `create_vault` / `create_document` / `create_upload`
  *   - `delete_recording`
+ *   - `list_manageable_people` / `create_project` / `update_project` / `update_project_members` (exclusivas Admin)
+ * - **Autonomía Standalone & Membresías**:
+ *   - Cuando `bc_system_config.runtime_mode === 'standalone'`, fuerza `skipRemoteMirror = true` para latencia cero 100% nativa en Supabase (manteniendo correos TEG y `bc_notifications`), y activa `triggerBasecampAutoCutover` ante `402` / `invalid_grant`.
+ *   - Valida membresía en `bc_memberships` para todo usuario no-Admin (`403` si intenta mutar proyectos ajenos).
  *
  * @dataFlow
  * - POST /api/basecamp/action → auth check → resolve person → save to Supabase → mirror to Basecamp API (best-effort)
@@ -68,6 +72,10 @@ import {
   trashRecording as bcTrashRecording,
   createBoostRemote as bcCreateBoostRemote,
   deleteBoostRemote as bcDeleteBoostRemote,
+  BASECAMP_STAFF_ALLOWED_ROLES,
+  detectBasecampCutoverReason,
+  getBasecampSystemConfig,
+  triggerBasecampAutoCutover,
   getValidToken,
   uploadBasecampAttachment,
   syncTodolistCounts,
@@ -78,6 +86,11 @@ import {
   buildBasecampDescriptionWithAuthor,
   buildBasecampCommentWithAuthor,
   isRealBasecampId,
+  canonicalizeBasecampEmail,
+  canonicalizeBasecampDisplayName,
+  findPersonInListByFuzzyName,
+  isMaskedOrEmptyEmail,
+  normalizePersonName,
 } from '@/lib/basecamp-person-resolver'
 import {
   sendBasecampTodoNotificationEmail,
@@ -100,12 +113,367 @@ export const dynamic = 'force-dynamic'
  * Helper: intenta ejecutar una operación en Basecamp API como best-effort.
  * Si falla, loguea el error pero NO lanza excepción.
  */
+let lastSyntheticActionBcId = 0
+function nextSyntheticBcId(): number {
+  const candidate = Date.now() * 1000 + Math.floor(Math.random() * 1000)
+  lastSyntheticActionBcId = candidate > lastSyntheticActionBcId ? candidate : lastSyntheticActionBcId + 1
+  return lastSyntheticActionBcId
+}
+
+const ALL_CANONICAL_DOCK_TOOLS = [
+  'todoset',
+  'message_board',
+  'chat',
+  'vault',
+  'schedule',
+  'questionnaire',
+] as const
+
+const TOOL_INPUT_TO_CANONICAL_DOCK: Record<string, string> = {
+  todoset: 'todoset',
+  todos: 'todoset',
+  todo: 'todoset',
+  todolist: 'todoset',
+  todolists: 'todoset',
+  message_board: 'message_board',
+  'message-board': 'message_board',
+  messages: 'message_board',
+  message: 'message_board',
+  chat: 'chat',
+  chats: 'chat',
+  campfire: 'chat',
+  vault: 'vault',
+  docs: 'vault',
+  doc: 'vault',
+  documents: 'vault',
+  files: 'vault',
+  schedule: 'schedule',
+  calendar: 'schedule',
+  questionnaire: 'questionnaire',
+  checkins: 'questionnaire',
+  checkin: 'questionnaire',
+  'check-ins': 'questionnaire',
+  inbox: 'inbox',
+}
+
+function normalizeEnabledTools(rawTools: unknown, fallbackTools?: string[] | null): string[] {
+  if (!Array.isArray(rawTools)) {
+    return Array.isArray(fallbackTools) && fallbackTools.length > 0
+      ? fallbackTools
+      : [...ALL_CANONICAL_DOCK_TOOLS]
+  }
+  const normalizedSet = new Set<string>()
+  for (const item of rawTools) {
+    const key = String(item || '').trim().toLowerCase()
+    const mapped = TOOL_INPUT_TO_CANONICAL_DOCK[key]
+    if (mapped) normalizedSet.add(mapped)
+  }
+  return Array.from(normalizedSet)
+}
+
+async function ensureProjectToolContainers(
+  supabase: any,
+  projectUuid: string,
+  toolsToEnsure?: string[] | null
+): Promise<void> {
+  const targetTools = new Set<string>(
+    Array.isArray(toolsToEnsure) && toolsToEnsure.length > 0
+      ? normalizeEnabledTools(toolsToEnsure)
+      : [...ALL_CANONICAL_DOCK_TOOLS]
+  )
+
+  const [
+    { data: existingTodoset },
+    { data: existingBoard },
+    { data: existingCampfire },
+    { data: existingVault },
+    { data: existingSchedule },
+    { data: existingQuestionnaire },
+  ] = await Promise.all([
+    targetTools.has('todoset')
+      ? supabase.from('bc_todosets').select('id').eq('project_id', projectUuid).limit(1).maybeSingle()
+      : Promise.resolve({ data: { id: 'skip' } }),
+    targetTools.has('message_board')
+      ? supabase.from('bc_message_boards').select('id').eq('project_id', projectUuid).limit(1).maybeSingle()
+      : Promise.resolve({ data: { id: 'skip' } }),
+    targetTools.has('chat')
+      ? supabase.from('bc_campfires').select('id').eq('project_id', projectUuid).limit(1).maybeSingle()
+      : Promise.resolve({ data: { id: 'skip' } }),
+    targetTools.has('vault')
+      ? supabase
+          .from('bc_vaults')
+          .select('id')
+          .eq('project_id', projectUuid)
+          .is('parent_vault_id', null)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: { id: 'skip' } }),
+    targetTools.has('schedule')
+      ? supabase.from('bc_schedules').select('id').eq('project_id', projectUuid).limit(1).maybeSingle()
+      : Promise.resolve({ data: { id: 'skip' } }),
+    targetTools.has('questionnaire')
+      ? supabase.from('bc_questionnaires').select('id').eq('project_id', projectUuid).limit(1).maybeSingle()
+      : Promise.resolve({ data: { id: 'skip' } }),
+  ])
+
+  const insertTasks: Promise<any>[] = []
+  if (targetTools.has('todoset') && !existingTodoset?.id) {
+    insertTasks.push(
+      supabase.from('bc_todosets').insert({
+        bc_id: nextSyntheticBcId(),
+        project_id: projectUuid,
+        name: 'To-dos',
+      })
+    )
+  }
+  if (targetTools.has('message_board') && !existingBoard?.id) {
+    insertTasks.push(
+      supabase.from('bc_message_boards').insert({
+        bc_id: nextSyntheticBcId(),
+        project_id: projectUuid,
+      })
+    )
+  }
+  if (targetTools.has('chat') && !existingCampfire?.id) {
+    insertTasks.push(
+      supabase.from('bc_campfires').insert({
+        bc_id: nextSyntheticBcId(),
+        project_id: projectUuid,
+      })
+    )
+  }
+  if (targetTools.has('vault') && !existingVault?.id) {
+    insertTasks.push(
+      supabase.from('bc_vaults').insert({
+        bc_id: nextSyntheticBcId(),
+        project_id: projectUuid,
+        name: 'Docs & Files',
+        parent_vault_id: null,
+      })
+    )
+  }
+  if (targetTools.has('schedule') && !existingSchedule?.id) {
+    insertTasks.push(
+      supabase.from('bc_schedules').insert({
+        bc_id: nextSyntheticBcId(),
+        project_id: projectUuid,
+      })
+    )
+  }
+  if (targetTools.has('questionnaire') && !existingQuestionnaire?.id) {
+    insertTasks.push(
+      supabase.from('bc_questionnaires').insert({
+        bc_id: nextSyntheticBcId(),
+        project_id: projectUuid,
+      })
+    )
+  }
+
+  if (insertTasks.length > 0) {
+    await Promise.all(insertTasks)
+  }
+}
+
+async function hasProjectMembershipAccess(
+  supabase: any,
+  projectUuid: string,
+  authorPersonId: string | null,
+  userEmail: string | null,
+  isCallerAdmin: boolean
+): Promise<boolean> {
+  if (isCallerAdmin) return true
+
+  if (authorPersonId) {
+    const { data: directRow } = await supabase
+      .from('bc_memberships')
+      .select('id')
+      .eq('project_id', projectUuid)
+      .eq('person_id', authorPersonId)
+      .limit(1)
+      .maybeSingle()
+    if (directRow?.id) return true
+  }
+
+  const canonEmail = canonicalizeBasecampEmail(userEmail)
+  if (canonEmail && !isMaskedOrEmptyEmail(canonEmail)) {
+    const { data: memberRows } = await supabase
+      .from('bc_memberships')
+      .select('person_id, person:bc_people(email, is_active)')
+      .eq('project_id', projectUuid)
+
+    for (const m of memberRows || []) {
+      const pObj = Array.isArray((m as any).person) ? (m as any).person[0] : (m as any).person
+      if (!pObj || pObj.is_active === false) continue
+      if (!isMaskedOrEmptyEmail(pObj.email) && canonicalizeBasecampEmail(pObj.email) === canonEmail) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+async function validatePersonIdsInDb(supabase: any, rawIds: unknown): Promise<string[]> {
+  if (!Array.isArray(rawIds)) return []
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const deduped = Array.from(
+    new Set(
+      rawIds
+        .map((id) => String(id || '').trim())
+        .filter((id) => uuidRegex.test(id))
+    )
+  )
+  if (deduped.length === 0) return []
+
+  const { data: existingRows } = await supabase
+    .from('bc_people')
+    .select('id')
+    .in('id', deduped)
+
+  const validSet = new Set((existingRows || []).map((r: any) => String(r.id)))
+  return deduped.filter((id) => validSet.has(id))
+}
+
+async function syncAndListManageablePeople(supabase: any) {
+  const MANAGEABLE_TEG_ROLES = [
+    'admin',
+    'administrador',
+    'supervisor',
+    'regional_manager',
+    'manager',
+    'gerente',
+    'general_manager',
+    'asistente',
+    'assistant',
+    'basecamp',
+  ]
+
+  const [{ data: activeTegUsers }, { data: existingPeopleRows }] = await Promise.all([
+    supabase
+      .from('users')
+      .select('id, full_name, email, role, is_active, avatar_url')
+      .eq('is_active', true)
+      .in('role', MANAGEABLE_TEG_ROLES),
+    supabase
+      .from('bc_people')
+      .select('id, bc_id, name, email, role, avatar_url, title, is_active')
+      .limit(5000),
+  ])
+
+  const allPeople: any[] = [...(existingPeopleRows || [])]
+  const tegRoleByPersonId = new Map<string, string>()
+
+  for (const u of activeTegUsers || []) {
+    const rawEmail = String(u.email || '').trim().toLowerCase()
+    if (!rawEmail) continue
+
+    const canonEmail = canonicalizeBasecampEmail(rawEmail)
+    const displayName =
+      canonicalizeBasecampDisplayName(u.full_name, canonEmail) ||
+      String(u.full_name || '').trim() ||
+      canonEmail.split('@')[0]
+    const normRole = String(u.role || 'user').trim().toLowerCase()
+
+    const matched = findPersonInListByFuzzyName(allPeople, displayName, canonEmail)
+    if (matched) {
+      tegRoleByPersonId.set(matched.id, normRole)
+      const needsEmailHeal = canonEmail && isMaskedOrEmptyEmail(matched.email)
+      const needsActiveHeal = matched.is_active === false && !/^\s*test\b/i.test(matched.name || '')
+      const needsTitleHeal = !String(matched.title || '').trim() && Boolean(normRole)
+
+      if (needsEmailHeal || needsActiveHeal || needsTitleHeal) {
+        const patch: Record<string, any> = { updated_at: new Date().toISOString() }
+        if (needsEmailHeal) {
+          patch.email = canonEmail
+          matched.email = canonEmail
+        }
+        if (needsActiveHeal) {
+          patch.is_active = true
+          matched.is_active = true
+        }
+        if (needsTitleHeal) {
+          patch.title = normRole
+          matched.title = normRole
+        }
+        await supabase.from('bc_people').update(patch).eq('id', matched.id)
+      }
+    } else if (rawEmail !== 'roque@tacosgavilan.com') {
+      const nowIso = new Date().toISOString()
+      const { data: created } = await supabase
+        .from('bc_people')
+        .insert({
+          bc_id: nextSyntheticBcId(),
+          name: displayName,
+          email: canonEmail,
+          avatar_url: u.avatar_url || '',
+          role: 'employee',
+          title: normRole,
+          is_active: true,
+          updated_at: nowIso,
+        })
+        .select('id, bc_id, name, email, role, avatar_url, title, is_active')
+        .maybeSingle()
+
+      if (created?.id) {
+        allPeople.push(created)
+        tegRoleByPersonId.set(created.id, normRole)
+      }
+    }
+  }
+
+  const seenKey = new Set<string>()
+  const cleanList: Array<{
+    id: string
+    bc_id: number | null
+    name: string
+    email: string
+    role: string
+    avatar_url: string
+    title: string
+  }> = []
+
+  for (const p of allPeople) {
+    if (p.is_active === false) continue
+    const cleanName = String(p.name || '').trim()
+    if (!cleanName || /^\s*test\b/i.test(cleanName)) continue
+    const rawPemail = String(p.email || '').trim().toLowerCase()
+    if (rawPemail === 'roque@tacosgavilan.com') continue
+
+    const cleanEmail = isMaskedOrEmptyEmail(p.email) ? '' : canonicalizeBasecampEmail(p.email)
+    const dedupeKey = cleanEmail || `name:${normalizePersonName(cleanName)}` || p.id
+    if (seenKey.has(dedupeKey)) continue
+    seenKey.add(dedupeKey)
+
+    const mappedRole = tegRoleByPersonId.get(p.id) || String(p.role || 'user').trim().toLowerCase()
+    cleanList.push({
+      id: p.id,
+      bc_id: p.bc_id != null ? Number(p.bc_id) : null,
+      name: cleanName,
+      email: cleanEmail,
+      role: mappedRole,
+      avatar_url: p.avatar_url || '',
+      title: String(p.title || '').trim(),
+    })
+  }
+
+  cleanList.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+  return cleanList
+}
+
 async function basecampBestEffort<T>(label: string, fn: () => Promise<T>): Promise<T | null> {
   try {
+    const cfg = await getBasecampSystemConfig()
+    if (cfg.runtime_mode === 'standalone') {
+      return null
+    }
     const result = await fn()
     console.log(`✅ [Basecamp Sync] ${label} — synced to Basecamp successfully`)
     return result
   } catch (err: any) {
+    const cutoverReason = detectBasecampCutoverReason(err)
+    if (cutoverReason) {
+      await triggerBasecampAutoCutover(cutoverReason).catch(() => {})
+    }
     console.warn(`⚠️ [Basecamp Sync] ${label} — failed (best-effort, local data intact): ${err.message}`)
     return null
   }
@@ -443,6 +811,10 @@ async function downloadBasecampBlobBuffer(
   targetBcApiUrl: string
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
   try {
+    const cfg = await getBasecampSystemConfig()
+    if (cfg.runtime_mode === 'standalone') {
+      return null
+    }
     const token = await getValidToken()
     const userAgent = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (noreply@tacosgavilan.com)'
 
@@ -1200,8 +1572,11 @@ function normalizeDateOrNull(val: unknown): string | null {
 }
 
 export async function POST(request: Request) {
-  // 1. Require authenticated staff user (blocks unauthenticated & employee kiosk tokens)
-  const staffAuth = verifyStaffAuth(request, { allowCron: false })
+  // 1. Require authenticated staff user (including 'basecamp' role; blocks unauthenticated & employee kiosk tokens)
+  const staffAuth = verifyStaffAuth(request, {
+    allowCron: false,
+    allowedRoles: BASECAMP_STAFF_ALLOWED_ROLES,
+  })
   if (!staffAuth.authorized) {
     return staffAuth.response!
   }
@@ -1210,6 +1585,9 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const callerRole = String(user.role || '').trim().toLowerCase()
+  const isCallerAdmin = callerRole === 'admin' || callerRole === 'administrador'
 
   const supabase = supabaseAdmin
 
@@ -1231,7 +1609,112 @@ export async function POST(request: Request) {
   }
 
   const { action, projectId, ...args } = body || {}
-  if (!action || !projectId) {
+  if (!action) {
+    return NextResponse.json({ error: 'Missing action' }, { status: 400 })
+  }
+
+  // Force 100% native local operation with 0ms external calls when standalone mode is active
+  const sysCfg = await getBasecampSystemConfig()
+  if (sysCfg.runtime_mode === 'standalone') {
+    args.skipRemoteMirror = true
+  }
+
+  // 4. Global Admin-only actions that do NOT require an existing projectId
+  if (action === 'list_manageable_people') {
+    if (!isCallerAdmin) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: Se requieren permisos de Administrador' },
+        { status: 403 }
+      )
+    }
+    try {
+      const people = await syncAndListManageablePeople(supabase)
+      return NextResponse.json({ success: true, people })
+    } catch (err: any) {
+      console.error('❌ [Basecamp Action] list_manageable_people error:', err.message)
+      return NextResponse.json(
+        { error: `Failed to list manageable people: ${err.message}` },
+        { status: 500 }
+      )
+    }
+  }
+
+  if (action === 'create_project') {
+    if (!isCallerAdmin) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: Se requieren permisos de Administrador' },
+        { status: 403 }
+      )
+    }
+    try {
+      const cleanName = String(args.name || '').trim()
+      if (!cleanName) {
+        return NextResponse.json({ error: 'Project name is required' }, { status: 400 })
+      }
+      const cleanDescription = args.description !== undefined ? String(args.description) : ''
+      const cleanColor = String(args.color || 'white').trim() || 'white'
+      const isPinned = Boolean(args.isPinned ?? args.is_pinned ?? false)
+      const enabledTools = normalizeEnabledTools(args.enabledTools ?? args.enabled_tools)
+      const validMemberIds = await validatePersonIdsInDb(
+        supabase,
+        args.memberPersonIds ?? args.member_person_ids ?? []
+      )
+      const nowIso = new Date().toISOString()
+
+      const { data: createdProject, error: projErr } = await supabase
+        .from('bc_projects')
+        .insert({
+          bc_id: nextSyntheticBcId(),
+          name: cleanName,
+          description: cleanDescription,
+          color: cleanColor,
+          is_pinned: isPinned,
+          is_archived: false,
+          member_count: validMemberIds.length,
+          enabled_tools: enabledTools,
+          updated_at: nowIso,
+        })
+        .select('*')
+        .single()
+
+      if (projErr || !createdProject) {
+        throw projErr || new Error('Failed to insert project in bc_projects')
+      }
+
+      // Initialize all 6 local tool containers so every tool works 100% natively without Basecamp 3
+      await ensureProjectToolContainers(supabase, createdProject.id, [...ALL_CANONICAL_DOCK_TOOLS])
+
+      if (validMemberIds.length > 0) {
+        const membershipRows = validMemberIds.map((pid) => ({
+          project_id: createdProject.id,
+          person_id: pid,
+          role: 'employee',
+        }))
+        const { error: memErr } = await supabase
+          .from('bc_memberships')
+          .upsert(membershipRows, { onConflict: 'project_id,person_id' })
+        if (memErr) throw memErr
+      }
+
+      return NextResponse.json({
+        success: true,
+        project: {
+          ...createdProject,
+          db_id: createdProject.id,
+          bc_id: Number(createdProject.bc_id),
+          member_count: validMemberIds.length,
+        },
+      })
+    } catch (err: any) {
+      console.error('❌ [Basecamp Action] create_project error:', err.message)
+      return NextResponse.json(
+        { error: `Failed to create project: ${err.message}` },
+        { status: 500 }
+      )
+    }
+  }
+
+  if (!projectId) {
     return NextResponse.json({ error: 'Missing action or projectId' }, { status: 400 })
   }
 
@@ -1248,6 +1731,21 @@ export async function POST(request: Request) {
 
   const projectUuid = dbProject.id
   const bcProjectId = Number(dbProject.bc_id)
+
+  // 5. Enforce project membership authorization for non-admin staff
+  const hasProjectAccess = await hasProjectMembershipAccess(
+    supabase,
+    projectUuid,
+    authorPersonId,
+    user.email,
+    isCallerAdmin
+  )
+  if (!hasProjectAccess) {
+    return NextResponse.json(
+      { error: 'Acceso denegado: No perteneces a este proyecto' },
+      { status: 403 }
+    )
+  }
   const reqOrigin = (() => {
     try {
       return new URL(request.url).origin
@@ -1259,7 +1757,7 @@ export async function POST(request: Request) {
   const requestMediaCache = new Map<string, ClonedMediaCacheEntry>()
 
   try {
-    const generateUniqueBcId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000)
+    const generateUniqueBcId = () => nextSyntheticBcId()
 
     const requireArgs = (names: string[]) => {
       for (const name of names) {
@@ -1270,6 +1768,155 @@ export async function POST(request: Request) {
     }
 
     switch (action) {
+      case 'update_project': {
+        if (!isCallerAdmin) {
+          return NextResponse.json(
+            { error: 'Acceso denegado: Se requieren permisos de Administrador' },
+            { status: 403 }
+          )
+        }
+
+        const { data: currentProj, error: curErr } = await supabase
+          .from('bc_projects')
+          .select('*')
+          .eq('id', projectUuid)
+          .single()
+
+        if (curErr || !currentProj) {
+          return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+        }
+
+        const nextName =
+          args.name !== undefined ? String(args.name).trim() : String(currentProj.name || '').trim()
+        if (!nextName) {
+          return NextResponse.json({ error: 'Project name cannot be empty' }, { status: 400 })
+        }
+
+        const nextDescription =
+          args.description !== undefined ? String(args.description) : (currentProj.description ?? '')
+        const nextColor =
+          args.color !== undefined
+            ? String(args.color).trim() || 'white'
+            : currentProj.color || 'white'
+
+        const rawPinned = args.isPinned !== undefined ? args.isPinned : args.is_pinned
+        const nextPinned = rawPinned !== undefined ? Boolean(rawPinned) : Boolean(currentProj.is_pinned)
+
+        const rawArchived = args.isArchived !== undefined ? args.isArchived : args.is_archived
+        const nextArchived =
+          rawArchived !== undefined ? Boolean(rawArchived) : Boolean(currentProj.is_archived)
+
+        const rawTools = args.enabledTools !== undefined ? args.enabledTools : args.enabled_tools
+        const nextTools =
+          rawTools !== undefined
+            ? normalizeEnabledTools(rawTools, currentProj.enabled_tools)
+            : currentProj.enabled_tools
+
+        const { data: updatedProj, error: updErr } = await supabase
+          .from('bc_projects')
+          .update({
+            name: nextName,
+            description: nextDescription,
+            color: nextColor,
+            is_pinned: nextPinned,
+            is_archived: nextArchived,
+            enabled_tools: nextTools,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', projectUuid)
+          .select('*')
+          .single()
+
+        if (updErr || !updatedProj) {
+          throw updErr || new Error('Failed to update project')
+        }
+
+        await ensureProjectToolContainers(supabase, projectUuid, updatedProj.enabled_tools)
+
+        return NextResponse.json({
+          success: true,
+          project: {
+            ...updatedProj,
+            db_id: updatedProj.id,
+            bc_id: Number(updatedProj.bc_id),
+          },
+        })
+      }
+
+      case 'update_project_members': {
+        if (!isCallerAdmin) {
+          return NextResponse.json(
+            { error: 'Acceso denegado: Se requieren permisos de Administrador' },
+            { status: 403 }
+          )
+        }
+
+        const rawMemberIds = args.memberPersonIds ?? args.member_person_ids
+        if (!Array.isArray(rawMemberIds)) {
+          return NextResponse.json(
+            { error: 'memberPersonIds array is required' },
+            { status: 400 }
+          )
+        }
+
+        const validPersonIds = await validatePersonIdsInDb(supabase, rawMemberIds)
+        const validSet = new Set(validPersonIds)
+
+        const { data: existingMemberships, error: exMemErr } = await supabase
+          .from('bc_memberships')
+          .select('id, person_id')
+          .eq('project_id', projectUuid)
+
+        if (exMemErr) throw exMemErr
+
+        const existingPersonSet = new Set(
+          (existingMemberships || []).map((m: any) => String(m.person_id))
+        )
+        const toInsert = validPersonIds
+          .filter((pid) => !existingPersonSet.has(pid))
+          .map((pid) => ({
+            project_id: projectUuid,
+            person_id: pid,
+            role: 'employee',
+          }))
+
+        if (toInsert.length > 0) {
+          const { error: insErr } = await supabase
+            .from('bc_memberships')
+            .upsert(toInsert, { onConflict: 'project_id,person_id' })
+          if (insErr) throw insErr
+        }
+
+        const toDeleteRowIds = (existingMemberships || [])
+          .filter((m: any) => !validSet.has(String(m.person_id)))
+          .map((m: any) => m.id)
+
+        if (toDeleteRowIds.length > 0) {
+          const { error: delErr } = await supabase
+            .from('bc_memberships')
+            .delete()
+            .eq('project_id', projectUuid)
+            .in('id', toDeleteRowIds)
+          if (delErr) throw delErr
+        }
+
+        const { error: projCountErr } = await supabase
+          .from('bc_projects')
+          .update({
+            member_count: validPersonIds.length,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', projectUuid)
+
+        if (projCountErr) throw projCountErr
+
+        return NextResponse.json({
+          success: true,
+          memberCount: validPersonIds.length,
+          projectId: projectUuid,
+        })
+      }
+
       case 'complete_todo': {
         const todoDbId = args.todoDbId || args.todoId || args.id
         if (!todoDbId) throw new Error('Missing required parameter: todoDbId')
@@ -1309,7 +1956,7 @@ export async function POST(request: Request) {
         ]
 
         await Promise.all([
-          isRealBasecampId(todoRow.bc_id)
+          !args.skipRemoteMirror && isRealBasecampId(todoRow.bc_id)
             ? basecampBestEffort('complete_todo', () => bcCompleteTodo(bcProjectId, Number(todoRow.bc_id)))
             : Promise.resolve(null),
           createBasecampInAppNotifications({
@@ -1364,7 +2011,7 @@ export async function POST(request: Request) {
         ])
 
         await Promise.all([
-          isRealBasecampId(todoRow.bc_id)
+          !args.skipRemoteMirror && isRealBasecampId(todoRow.bc_id)
             ? basecampBestEffort('uncomplete_todo', () => bcUncompleteTodo(bcProjectId, Number(todoRow.bc_id)))
             : Promise.resolve(null),
           args.skipEmailNotification
@@ -2032,6 +2679,22 @@ export async function POST(request: Request) {
         const targetPosition =
           args.position !== undefined ? Math.max(1, Math.floor(Number(args.position) || 1)) : 1
         const isSameProject = todoRow.project_id === destList.project_id
+
+        if (!isSameProject && !isCallerAdmin) {
+          const hasDestAccess = await hasProjectMembershipAccess(
+            supabase,
+            destList.project_id,
+            authorPersonId,
+            user.email,
+            isCallerAdmin
+          )
+          if (!hasDestAccess) {
+            return NextResponse.json(
+              { error: 'Acceso denegado: No perteneces al proyecto destino' },
+              { status: 403 }
+            )
+          }
+        }
         const nowIso = new Date().toISOString()
 
         const reindexDestinationSiblings = async () => {

@@ -7,7 +7,8 @@
  *                y lo entrega con `Content-Disposition: attachment` para descarga inmediata en 1 clic sin abrir pestañas nuevas.
  *
  * @businessRules
- *   - Requiere autenticación de personal SM TEG (`verifyStaffAuth`).
+ *   - Requiere autenticación de personal SM TEG incluyendo rol `'basecamp'` (`verifyStaffAuth`, `BASECAMP_STAFF_ALLOWED_ROLES`).
+ *   - Consulta primero `bc_attachment_cache` en Supabase para resolver blobs archivados en `0 ms` incluso tras apagar Basecamp 3 (`standalone`).
  *   - Validación estricta anti-SSRF: solo permite hosts oficiales de Basecamp (`3.basecampapi.com`,
  *     `preview.app.basecamp.com`, `storage.app.basecamp.com`, y para `preview.3.basecamp.com` / `storage.3.basecamp.com`
  *     exige estrictamente `/5052386/blobs/`) o el host oficial de Supabase Storage del proyecto (`checklist-photos`).
@@ -18,7 +19,12 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getValidToken } from '@/lib/basecamp-api'
+import {
+  BASECAMP_STAFF_ALLOWED_ROLES,
+  getBasecampSystemConfig,
+  getValidToken,
+  isSupabaseStorageUrl,
+} from '@/lib/basecamp-api'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import { isVideoMimeOrFilename, safeDecodeFilename } from '@/lib/basecamp-html'
 
@@ -80,7 +86,10 @@ function buildContentDisposition(rawFilename: string | null, urlPath: string, co
 }
 
 export async function GET(request: Request) {
-  const auth = verifyStaffAuth(request, { allowCron: false })
+  const auth = verifyStaffAuth(request, {
+    allowCron: false,
+    allowedRoles: BASECAMP_STAFF_ALLOWED_ROLES,
+  })
   if (!auth.authorized) {
     return auth.response!
   }
@@ -141,8 +150,10 @@ export async function GET(request: Request) {
       !parsed.pathname.includes('//')
 
     if (isAllowedSupabaseStorage) {
+      const sysCfg = await getBasecampSystemConfig()
       let upgradedToBasecampBlob = false
       const isLegacySyncedVideoCandidate =
+        sysCfg.runtime_mode !== 'standalone' &&
         parsed.pathname.startsWith('/storage/v1/object/public/checklist-photos/basecamp-attachments/') &&
         isVideoMimeOrFilename(null, filenameParam, parsed.pathname)
 
@@ -267,8 +278,65 @@ export async function GET(request: Request) {
     }
 
     parsed.hostname = '3.basecampapi.com'
-
     const targetUrl = parsed.toString()
+
+    // Check bc_attachment_cache first so cached attachments resolve in 0ms even after Basecamp 3 is cancelled
+    const sb = getServiceSupabase()
+    if (sb) {
+      const blobMatch = parsed.pathname.match(/\/blobs\/([a-f0-9-]{8,})(?:\/|$)/i)
+      const lookupCandidates = [rawTrimmed, targetUrl]
+      const { data: exactCached } = await sb
+        .from('bc_attachment_cache')
+        .select('supabase_url')
+        .in('basecamp_url', lookupCandidates)
+        .limit(5)
+
+      let cachedSupabaseUrl =
+        (exactCached || []).find((r: any) => r?.supabase_url && isSupabaseStorageUrl(r.supabase_url))
+          ?.supabase_url || null
+
+      if (!cachedSupabaseUrl && blobMatch?.[1]) {
+        const { data: blobCached } = await sb
+          .from('bc_attachment_cache')
+          .select('supabase_url')
+          .ilike('basecamp_url', `%/blobs/${blobMatch[1]}%`)
+          .limit(5)
+        cachedSupabaseUrl =
+          (blobCached || []).find((r: any) => r?.supabase_url && isSupabaseStorageUrl(r.supabase_url))
+            ?.supabase_url || null
+      }
+
+      if (cachedSupabaseUrl) {
+        if (!forceDownload) {
+          return NextResponse.redirect(cachedSupabaseUrl, { status: 307 })
+        }
+        const supaRes = await fetch(cachedSupabaseUrl, {
+          method: 'GET',
+          redirect: 'error',
+          signal: AbortSignal.timeout(45_000),
+        })
+        if (supaRes.ok) {
+          const contentType = (supaRes.headers.get('Content-Type') || 'application/octet-stream').toLowerCase()
+          const contentLength = supaRes.headers.get('Content-Length')
+          const headers = new Headers()
+          headers.set('Content-Type', contentType)
+          if (contentLength) headers.set('Content-Length', contentLength)
+          headers.set('Content-Disposition', buildContentDisposition(filenameParam, decodedPath, contentType))
+          headers.set('X-Content-Type-Options', 'nosniff')
+          headers.set('Cache-Control', 'private, max-age=3600')
+          return new Response(supaRes.body, { status: 200, headers })
+        }
+      }
+    }
+
+    const sysCfg = await getBasecampSystemConfig()
+    if (sysCfg.runtime_mode === 'standalone') {
+      return NextResponse.json(
+        { error: 'Attachment not available in local archive (standalone mode)' },
+        { status: 404 }
+      )
+    }
+
     const token = await getValidToken()
     const userAgent = process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (noreply@tacosgavilan.com)'
 

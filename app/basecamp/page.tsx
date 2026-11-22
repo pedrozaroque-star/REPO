@@ -16,6 +16,7 @@
  *   - `onCloseDetail` actualiza la URL únicamente cuando un parámetro deep-link estaba activo, evitando contaminación de historial.
  *   - Fix 2026-11-21: reubicados `handleConsumeReplicateTodo` y `handleConsumeReplicateMessage` (`useCallback`) antes de los retornos tempranos (`if (loading)` / `if (isAuthorized === false)`) para cumplir estrictamente las Reglas de Hooks de React en todos los renders.
  *   - Fix 2026-11-21 (Cold-Load Deep-Link): hidratación resiliente de `project`, `tool`, `todoId`, `messageId` y `docId` desde `useSearchParams` + `window.location.search` en carga fría, soporte de `project` por `bc_id` o `UUID` (incluyendo proyectos archivados) e inferencia automática de herramienta cuando viene `todoId`/`messageId`/`docId`.
+ *   - Autonomía Basecamp Standalone (2026-11-21): cero bloqueo OAuth al apagar Basecamp 3, switch Admin (`Modo Híbrido` <-> `Modo 100% Independiente TEG` + auto-corte), privacidad estricta por `bc_memberships` en Home/URLs/Buscador/Hey!/Mi Espacio, e interceptor delegado de enlaces históricos `https://(app|3).basecamp.com/5052386/buckets/...`.
  */
 
 'use client'
@@ -38,7 +39,7 @@ import ToolCheckins from '@/components/basecamp/ToolCheckins'
 import NewForYouDrawer from '@/components/basecamp/NewForYouDrawer'
 import {
     Home, MessageSquare, Bell, User, Search, ArrowLeft, Briefcase, KeyRound, RefreshCw,
-    CheckSquare, Mail, Loader2, Play, FolderOpen
+    CheckSquare, Mail, Loader2, Play, FolderOpen, X, Check
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import {
@@ -50,7 +51,13 @@ import {
     isMaskedOrEmptyEmail,
     stripTegAuthorBanner,
 } from '@/lib/basecamp-person-resolver'
-import { proxyBasecampUrl, isVideoMimeOrFilename } from '@/lib/basecamp-html'
+import {
+    proxyBasecampUrl,
+    isVideoMimeOrFilename,
+    canUserAccessBasecampProject,
+    parseInterceptableBasecampHref,
+    buildBasecampJsonHeaders,
+} from '@/lib/basecamp-html'
 
 const stripLeadingCatEmoji = (label: string): string =>
     String(label || '')
@@ -159,8 +166,12 @@ function BasecampWorkspace() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const { t, language } = useLanguage()
-    const { user } = useAuth()
+    const { user, loading: authLoading } = useAuth()
     const supabase = useMemo(() => getSupabaseWithAuth(), [])
+    const isAdmin = useMemo(
+        () => ['admin', 'administrador'].includes(String((user as any)?.role || '').trim().toLowerCase()),
+        [user]
+    )
 
     const readUrlParam = useCallback(
         (key: string): string | null => {
@@ -179,8 +190,17 @@ function BasecampWorkspace() {
     const section = readUrlParam('section') // 'pings' | 'hey' | 'mystuff'
     const pingUser = readUrlParam('ping')
 
-    const [projects, setProjects] = useState<any[]>([])
+    const [allProjects, setAllProjects] = useState<any[]>([])
     const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
+    const [runtimeMode, setRuntimeMode] = useState<'hybrid' | 'standalone'>('hybrid')
+    const [standaloneFlag, setStandaloneFlag] = useState<boolean>(false)
+    const [autoCutoverEnabled, setAutoCutoverEnabled] = useState<boolean>(true)
+    const [oauthConnected, setOauthConnected] = useState<boolean>(true)
+    const [hasLocalData, setHasLocalData] = useState<boolean>(false)
+    const [identityResolved, setIdentityResolved] = useState<boolean>(false)
+    const [showModeModal, setShowModeModal] = useState<boolean>(false)
+    const [savingMode, setSavingMode] = useState<boolean>(false)
+    const [modeError, setModeError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
@@ -197,6 +217,10 @@ function BasecampWorkspace() {
     const [resolvedPersonName, setResolvedPersonName] = useState<string | null>(null)
     const [heyDrawerOpen, setHeyDrawerOpen] = useState(false)
 
+    const isStandaloneMode = Boolean(
+        standaloneFlag || runtimeMode === 'standalone' || (!oauthConnected && hasLocalData)
+    )
+
     const [currentTodoId, setCurrentTodoId] = useState<string | null>(() => readUrlParam('todoId'))
     const [currentReplicateTodoId, setCurrentReplicateTodoId] = useState<string | null>(() => readUrlParam('replicateTodoId'))
     const [currentMessageId, setCurrentMessageId] = useState<string | null>(() => readUrlParam('messageId'))
@@ -212,188 +236,282 @@ function BasecampWorkspace() {
     }, [readUrlParam])
 
     const currentUserEmail = useMemo(() => canonicalizeBasecampEmail(user?.email), [user?.email])
+
+    const projects = useMemo(() => {
+        if (isAdmin) return allProjects
+        return allProjects.filter((p) =>
+            canUserAccessBasecampProject(p, {
+                isAdmin: false,
+                resolvedPersonId,
+                canonicalEmail: currentUserEmail,
+            })
+        )
+    }, [allProjects, isAdmin, resolvedPersonId, currentUserEmail])
+
+    const allowedProjectIds = useMemo(
+        () => projects.map((p) => p.db_id).filter(Boolean) as string[],
+        [projects]
+    )
+    const allowedProjectIdSet = useMemo(() => new Set(allowedProjectIds), [allowedProjectIds])
+
     const currentUserName = useMemo(() => {
         if (resolvedPersonName) return resolvedPersonName
         const canonicalInputName = canonicalizeBasecampDisplayName(user?.name, currentUserEmail)
-        for (const p of projects) {
+        for (const p of allProjects) {
             if (Array.isArray(p?.people) && p.people.length > 0) {
                 const match = findPersonInListByFuzzyName(p.people, canonicalInputName, currentUserEmail)
                 if (match?.name) return String(match.name).trim()
             }
         }
         return canonicalInputName || 'Sistema de Monitoreo'
-    }, [resolvedPersonName, user?.name, currentUserEmail, projects])
+    }, [resolvedPersonName, user?.name, currentUserEmail, allProjects])
 
-    // 1. Fetch authorization status and projects
+    // 1. Fetch autonomy/auth status, resolve current person FIRST, and load projects
     const checkAuthAndLoadProjects = useCallback(async (opts?: { silent?: boolean }) => {
         if (!opts?.silent) setLoading(true)
         try {
-            const statusRes = await fetch('/api/basecamp/status')
-            if (!statusRes.ok) throw new Error('Failed to get status')
-            const statusData = await statusRes.json()
-            const { authorized, last_synced_at, is_stale, is_running } = statusData
-            setIsAuthorized(authorized)
-            if (last_synced_at) {
-                setLastSyncedAt(last_synced_at)
+            let statusData: any = {}
+            try {
+                const statusRes = await fetch('/api/basecamp/status', {
+                    headers: buildBasecampJsonHeaders(),
+                })
+                if (statusRes.ok) {
+                    statusData = await statusRes.json()
+                }
+            } catch {
+                // Resilient fallback to local Supabase data if status endpoint transiently fails
             }
 
-            if (authorized) {
-                const { data: dbProjects, error } = await supabase
-                    .from('bc_projects')
-                    .select(`
-                        id,
-                        bc_id,
-                        name,
-                        description,
-                        color,
-                        is_pinned,
-                        is_archived,
-                        member_count,
-                        enabled_tools,
-                        bc_memberships(
-                            role,
-                            person:bc_people(id, bc_id, name, email, title, attachable_sgid, avatar_url, role, is_active)
-                        )
-                    `)
-                    .eq('is_archived', false)
-                    .order('name', { ascending: true })
+            const nextMode: 'hybrid' | 'standalone' =
+                statusData.runtime_mode === 'standalone' || statusData.standalone === true ? 'standalone' : 'hybrid'
+            const nextStandalone = Boolean(
+                statusData.standalone === true ||
+                nextMode === 'standalone' ||
+                (statusData.oauth_connected === false && statusData.has_local_data)
+            )
+            const nextOauthConnected =
+                typeof statusData.oauth_connected === 'boolean'
+                    ? statusData.oauth_connected
+                    : Boolean(statusData.authorized && !nextStandalone)
+            const nextHasLocalData = Boolean(statusData.has_local_data)
+            const nextAutoCutover =
+                typeof statusData.auto_cutover_enabled === 'boolean' ? statusData.auto_cutover_enabled : true
 
-                if (error) {
-                    console.error('Error loading projects:', error.message)
-                } else if (dbProjects) {
-                    let projectRows: any[] = [...dbProjects]
-                    const urlProjectParam =
-                        typeof window !== 'undefined'
-                            ? new URLSearchParams(window.location.search).get('project')?.trim() || ''
-                            : ''
-                    if (
-                        urlProjectParam &&
-                        !projectRows.some((p: any) => String(p.bc_id) === urlProjectParam || p.id === urlProjectParam)
-                    ) {
-                        const isUuidProj = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlProjectParam)
-                        const isNumProj = /^\d+$/.test(urlProjectParam)
-                        if (isUuidProj || isNumProj) {
-                            const extraQuery = supabase
-                                .from('bc_projects')
-                                .select(`
-                                    id,
-                                    bc_id,
-                                    name,
-                                    description,
-                                    color,
-                                    is_pinned,
-                                    is_archived,
-                                    member_count,
-                                    enabled_tools,
-                                    bc_memberships(
-                                        role,
-                                        person:bc_people(id, bc_id, name, email, title, attachable_sgid, avatar_url, role, is_active)
-                                    )
-                                `)
-                            const { data: extraProj } = await (isUuidProj
-                                ? extraQuery.eq('id', urlProjectParam).maybeSingle()
-                                : extraQuery.eq('bc_id', Number(urlProjectParam)).maybeSingle())
-                            if (extraProj) {
-                                projectRows = [...projectRows, extraProj]
-                            }
-                        }
+            setRuntimeMode(nextMode)
+            setStandaloneFlag(Boolean(statusData.standalone || nextMode === 'standalone'))
+            setOauthConnected(nextOauthConnected)
+            setHasLocalData(nextHasLocalData)
+            setAutoCutoverEnabled(nextAutoCutover)
+
+            if (statusData.last_synced_at) {
+                setLastSyncedAt(statusData.last_synced_at)
+            }
+
+            // Resolve current TEG person FIRST so membership privacy is accurate on first paint
+            let resolvedPid: string | null = null
+            if (user?.email || user?.name) {
+                const person = await resolveOrCreateTegPerson(supabase, {
+                    email: canonicalizeBasecampEmail(user?.email),
+                    name: canonicalizeBasecampDisplayName(user?.name, user?.email),
+                    role: (user as any)?.role,
+                })
+                if (person?.id) {
+                    resolvedPid = person.id
+                    setResolvedPersonId(person.id)
+                    if (person.name) {
+                        setResolvedPersonName(person.name)
                     }
-
-                    const formatted = projectRows.map((p: any) => {
-                        const memberByKey = new Map<string, any>()
-                        const members: any[] = []
-                        ;(p.bc_memberships || []).forEach((m: any) => {
-                            const personObj = Array.isArray(m.person) ? m.person[0] : m.person
-                            if (!personObj || personObj.is_active === false) return
-                            const mKey = normalizePersonName(personObj.name) || personObj.id
-                            const cleanEmail = isMaskedOrEmptyEmail(personObj.email)
-                                ? ''
-                                : canonicalizeBasecampEmail(personObj.email)
-                            if (mKey && memberByKey.has(mKey)) {
-                                const existing = memberByKey.get(mKey)
-                                if (!existing.attachable_sgid && personObj.attachable_sgid) {
-                                    existing.attachable_sgid = personObj.attachable_sgid
-                                }
-                                if (!existing.email && cleanEmail) {
-                                    existing.email = cleanEmail
-                                }
-                                if (!existing.title && personObj.title) {
-                                    existing.title = personObj.title
-                                }
-                                if (!existing.avatar && personObj.avatar_url) {
-                                    existing.avatar = personObj.avatar_url
-                                    existing.avatar_url = personObj.avatar_url
-                                }
-                                return
-                            }
-                            const memberEntry = {
-                                id: personObj.id,
-                                bc_id: personObj.bc_id ? Number(personObj.bc_id) : null,
-                                name: personObj.name || '',
-                                email: cleanEmail,
-                                title: personObj.title || '',
-                                attachable_sgid: personObj.attachable_sgid || null,
-                                role: m.role || personObj.role || 'user',
-                                avatar: personObj.avatar_url || '',
-                                avatar_url: personObj.avatar_url || '',
-                            }
-                            if (mKey) memberByKey.set(mKey, memberEntry)
-                            members.push(memberEntry)
-                        })
-
-                        return {
-                            id: String(p.bc_id),
-                            db_id: p.id,
-                            name: p.name,
-                            description: p.description,
-                            color: p.color || 'white',
-                            is_pinned: Boolean(p.is_pinned),
-                            enabled_tools: Array.isArray(p.enabled_tools) ? p.enabled_tools : null,
-                            peopleCount: members.length || Number(p.member_count) || 0,
-                            people: members,
-                        }
-                    })
-                    setProjects(formatted)
                 }
+            }
 
-                // Resolve current user resiliently (canonicalizing alias emails like roque@ -> carlos@)
-                if (user?.email || user?.name) {
-                    const person = await resolveOrCreateTegPerson(supabase, {
-                        email: canonicalizeBasecampEmail(user?.email),
-                        name: canonicalizeBasecampDisplayName(user?.name, user?.email),
-                        role: (user as any)?.role,
-                    })
-                    if (person?.id) {
-                        setResolvedPersonId(person.id)
-                        if (person.name) {
-                            setResolvedPersonName(person.name)
+            const { data: dbProjects, error } = await supabase
+                .from('bc_projects')
+                .select(`
+                    id,
+                    bc_id,
+                    name,
+                    description,
+                    color,
+                    is_pinned,
+                    is_archived,
+                    member_count,
+                    enabled_tools,
+                    bc_memberships(
+                        role,
+                        person:bc_people(id, bc_id, name, email, title, attachable_sgid, avatar_url, role, is_active)
+                    )
+                `)
+                .eq('is_archived', false)
+                .order('name', { ascending: true })
+
+            const localHasProjects = Array.isArray(dbProjects) && dbProjects.length > 0
+            if (localHasProjects && !nextHasLocalData) {
+                setHasLocalData(true)
+            }
+
+            const effectivelyAuthorized = Boolean(
+                statusData.authorized || nextStandalone || nextHasLocalData || localHasProjects
+            )
+            setIsAuthorized(effectivelyAuthorized)
+
+            let formattedProjects: any[] = []
+            if (!error && dbProjects) {
+                let projectRows: any[] = [...dbProjects]
+                const urlProjectParam =
+                    typeof window !== 'undefined'
+                        ? new URLSearchParams(window.location.search).get('project')?.trim() || ''
+                        : ''
+                if (
+                    urlProjectParam &&
+                    !projectRows.some((p: any) => String(p.bc_id) === urlProjectParam || p.id === urlProjectParam)
+                ) {
+                    const isUuidProj = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlProjectParam)
+                    const isNumProj = /^\d+$/.test(urlProjectParam)
+                    if (isUuidProj || isNumProj) {
+                        const extraQuery = supabase
+                            .from('bc_projects')
+                            .select(`
+                                id,
+                                bc_id,
+                                name,
+                                description,
+                                color,
+                                is_pinned,
+                                is_archived,
+                                member_count,
+                                enabled_tools,
+                                bc_memberships(
+                                    role,
+                                    person:bc_people(id, bc_id, name, email, title, attachable_sgid, avatar_url, role, is_active)
+                                )
+                            `)
+                        const { data: extraProj } = await (isUuidProj
+                            ? extraQuery.eq('id', urlProjectParam).maybeSingle()
+                            : extraQuery.eq('bc_id', Number(urlProjectParam)).maybeSingle())
+                        if (extraProj) {
+                            projectRows = [...projectRows, extraProj]
                         }
-                        const { count } = await supabase
-                            .from('bc_notifications')
-                            .select('*', { count: 'exact', head: true })
-                            .eq('person_id', person.id)
-                            .eq('is_read', false)
-
-                        setUnreadHeyCount(count || 0)
                     }
                 }
 
-                // Stale-While-Revalidate: trigger silent background sync if stale (> 3m)
-                if (is_stale && !is_running && !syncingRef.current) {
-                    setTimeout(() => {
-                        void handleSyncRef.current?.({ silent: true })
-                    }, 300)
-                }
+                formattedProjects = projectRows.map((p: any) => {
+                    const memberByKey = new Map<string, any>()
+                    const members: any[] = []
+                    const rawMemberIds = new Set<string>()
+                    ;(p.bc_memberships || []).forEach((m: any) => {
+                        const personObj = Array.isArray(m.person) ? m.person[0] : m.person
+                        if (!personObj) return
+                        if (personObj.id) rawMemberIds.add(personObj.id)
+                        const mKey = normalizePersonName(personObj.name) || personObj.id
+                        const cleanEmail = isMaskedOrEmptyEmail(personObj.email)
+                            ? ''
+                            : canonicalizeBasecampEmail(personObj.email)
+                        if (mKey && memberByKey.has(mKey)) {
+                            const existing = memberByKey.get(mKey)
+                            if (!existing.attachable_sgid && personObj.attachable_sgid) {
+                                existing.attachable_sgid = personObj.attachable_sgid
+                            }
+                            if (!existing.email && cleanEmail) {
+                                existing.email = cleanEmail
+                            }
+                            if (!existing.title && personObj.title) {
+                                existing.title = personObj.title
+                            }
+                            if (!existing.avatar && personObj.avatar_url) {
+                                existing.avatar = personObj.avatar_url
+                                existing.avatar_url = personObj.avatar_url
+                            }
+                            return
+                        }
+                        const memberEntry = {
+                            id: personObj.id,
+                            bc_id: personObj.bc_id ? Number(personObj.bc_id) : null,
+                            name: personObj.name || '',
+                            email: cleanEmail,
+                            title: personObj.title || '',
+                            attachable_sgid: personObj.attachable_sgid || null,
+                            role: m.role || personObj.role || 'user',
+                            avatar: personObj.avatar_url || '',
+                            avatar_url: personObj.avatar_url || '',
+                        }
+                        if (mKey) memberByKey.set(mKey, memberEntry)
+                        members.push(memberEntry)
+                    })
+
+                    return {
+                        id: String(p.bc_id),
+                        db_id: p.id,
+                        name: p.name,
+                        description: p.description,
+                        color: p.color || 'white',
+                        is_pinned: Boolean(p.is_pinned),
+                        enabled_tools: Array.isArray(p.enabled_tools) ? p.enabled_tools : null,
+                        peopleCount: members.length || Number(p.member_count) || 0,
+                        people: members,
+                        memberPersonIds: Array.from(rawMemberIds),
+                    }
+                })
+                setAllProjects(formattedProjects)
+            } else if (error) {
+                console.error('Error loading projects:', error.message)
+            }
+
+            if (resolvedPid) {
+                const { data: unreadRows } = await supabase
+                    .from('bc_notifications')
+                    .select('id, project_id')
+                    .eq('person_id', resolvedPid)
+                    .eq('is_read', false)
+                    .limit(200)
+
+                const allowedDbIds = new Set(
+                    (isAdmin
+                        ? formattedProjects
+                        : formattedProjects.filter((proj) =>
+                              canUserAccessBasecampProject(proj, {
+                                  isAdmin: false,
+                                  resolvedPersonId: resolvedPid,
+                                  canonicalEmail: canonicalizeBasecampEmail(user?.email),
+                              })
+                          )
+                    )
+                        .map((proj) => proj.db_id)
+                        .filter(Boolean)
+                )
+                const filteredUnread = (unreadRows || []).filter(
+                    (n: any) => isAdmin || !n.project_id || allowedDbIds.has(n.project_id)
+                )
+                setUnreadHeyCount(filteredUnread.length)
+            }
+
+            setIdentityResolved(true)
+
+            // Stale-While-Revalidate ONLY in hybrid mode when OAuth is connected
+            if (
+                effectivelyAuthorized &&
+                !nextStandalone &&
+                nextOauthConnected &&
+                statusData.is_stale &&
+                !statusData.is_running &&
+                !syncingRef.current
+            ) {
+                setTimeout(() => {
+                    void handleSyncRef.current?.({ silent: true })
+                }, 300)
             }
         } catch (err: any) {
             console.error('Error loading Basecamp workspace:', err.message)
         } finally {
             if (!opts?.silent) setLoading(false)
         }
-    }, [user?.email, user?.name, supabase])
+    }, [user, isAdmin, supabase])
 
-    // Trigger manual or silent background sync (returns boolean success)
+    // Trigger manual or silent background sync (skipped in standalone mode)
     const handleSync = useCallback(async (opts?: { silent?: boolean; projectId?: string }): Promise<boolean> => {
+        if (isStandaloneMode) {
+            await checkAuthAndLoadProjects({ silent: true })
+            return true
+        }
         if (syncingRef.current) return true
         syncingRef.current = true
         setSyncing(true)
@@ -401,13 +519,18 @@ function BasecampWorkspace() {
             const payload = opts?.projectId ? { projectId: Number(opts.projectId) } : { full: false }
             const res = await fetch('/api/basecamp/sync', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: buildBasecampJsonHeaders(),
                 body: JSON.stringify(payload),
             })
             const data = await res.json().catch(() => ({}))
 
             if (res.status === 409) {
                 await new Promise((r) => setTimeout(r, 2000))
+                await checkAuthAndLoadProjects({ silent: true })
+                return true
+            }
+
+            if (data?.standalone || data?.skipped) {
                 await checkAuthAndLoadProjects({ silent: true })
                 return true
             }
@@ -433,19 +556,20 @@ function BasecampWorkspace() {
             syncingRef.current = false
             setSyncing(false)
         }
-    }, [checkAuthAndLoadProjects, t])
+    }, [isStandaloneMode, checkAuthAndLoadProjects, t])
 
     const handleSyncRef = useRef(handleSync)
     handleSyncRef.current = handleSync
 
     useEffect(() => {
-        checkAuthAndLoadProjects()
-    }, [checkAuthAndLoadProjects])
+        if (authLoading) return
+        void checkAuthAndLoadProjects()
+    }, [authLoading, checkAuthAndLoadProjects])
 
     const saveProjects = async (updated: any[]) => {
         try {
             for (const up of updated) {
-                const orig = projects.find((p) => p.id === up.id)
+                const orig = allProjects.find((p) => p.id === up.id)
                 if (orig && (orig.color !== up.color || orig.is_pinned !== up.is_pinned)) {
                     const { error } = await supabase
                         .from('bc_projects')
@@ -463,24 +587,31 @@ function BasecampWorkspace() {
         } catch (err: any) {
             console.error('Error in saveProjects:', err.message)
         }
-        setProjects(updated)
+        const byId = new Map(updated.map((u) => [u.id, u]))
+        setAllProjects((prev) => prev.map((p) => (byId.has(p.id) ? { ...p, ...byId.get(p.id) } : p)))
     }
 
-    // Background Auto-Sync Heartbeat (every 3 minutes) + Tab Focus / Visibility Revalidation + Realtime Listener
+    // Background Auto-Sync Heartbeat (ONLY when hybrid & oauthConnected) + Supabase Realtime Listener
     useEffect(() => {
         if (!isAuthorized) return
 
-        const tickInterval = setInterval(() => {
-            setNowTick(Date.now())
-        }, 30_000)
+        const tickInterval = !isStandaloneMode
+            ? setInterval(() => {
+                  setNowTick(Date.now())
+              }, 30_000)
+            : null
 
-        const syncInterval = setInterval(() => {
-            if (document.visibilityState === 'visible' && !syncingRef.current) {
-                void handleSync({ silent: true, projectId: projectId || undefined })
-            }
-        }, 3 * 60 * 1000)
+        const syncInterval =
+            !isStandaloneMode && oauthConnected
+                ? setInterval(() => {
+                      if (document.visibilityState === 'visible' && !syncingRef.current) {
+                          void handleSync({ silent: true, projectId: projectId || undefined })
+                      }
+                  }, 3 * 60 * 1000)
+                : null
 
         const handleVisibilityOrFocus = () => {
+            if (isStandaloneMode || !oauthConnected) return
             if (document.visibilityState === 'visible' && !syncingRef.current) {
                 const ageMs = lastSyncedAt ? Date.now() - new Date(lastSyncedAt).getTime() : Infinity
                 if (ageMs > 2 * 60 * 1000) {
@@ -488,8 +619,10 @@ function BasecampWorkspace() {
                 }
             }
         }
-        window.addEventListener('focus', handleVisibilityOrFocus)
-        document.addEventListener('visibilitychange', handleVisibilityOrFocus)
+        if (!isStandaloneMode && oauthConnected) {
+            window.addEventListener('focus', handleVisibilityOrFocus)
+            document.addEventListener('visibilitychange', handleVisibilityOrFocus)
+        }
 
         let channelBuilder = supabase
             .channel('basecamp-workspace-live')
@@ -512,18 +645,29 @@ function BasecampWorkspace() {
                     void checkAuthAndLoadProjects({ silent: true })
                 }
             )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bc_memberships' },
+                () => {
+                    void checkAuthAndLoadProjects({ silent: true })
+                }
+            )
 
         if (resolvedPersonId) {
             channelBuilder = channelBuilder.on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'bc_notifications', filter: `person_id=eq.${resolvedPersonId}` },
                 async () => {
-                    const { count } = await supabase
+                    const { data: unreadRows } = await supabase
                         .from('bc_notifications')
-                        .select('*', { count: 'exact', head: true })
+                        .select('id, project_id')
                         .eq('person_id', resolvedPersonId)
                         .eq('is_read', false)
-                    setUnreadHeyCount(count || 0)
+                        .limit(200)
+                    const filteredUnread = (unreadRows || []).filter(
+                        (n: any) => isAdmin || !n.project_id || allowedProjectIdSet.has(n.project_id)
+                    )
+                    setUnreadHeyCount(filteredUnread.length)
                 }
             )
         }
@@ -531,13 +675,25 @@ function BasecampWorkspace() {
         const channel = channelBuilder.subscribe()
 
         return () => {
-            clearInterval(tickInterval)
-            clearInterval(syncInterval)
+            if (tickInterval) clearInterval(tickInterval)
+            if (syncInterval) clearInterval(syncInterval)
             window.removeEventListener('focus', handleVisibilityOrFocus)
             document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
             supabase.removeChannel(channel)
         }
-    }, [isAuthorized, projectId, lastSyncedAt, resolvedPersonId, handleSync, checkAuthAndLoadProjects, supabase])
+    }, [
+        isAuthorized,
+        isStandaloneMode,
+        oauthConnected,
+        projectId,
+        lastSyncedAt,
+        resolvedPersonId,
+        isAdmin,
+        allowedProjectIdSet,
+        handleSync,
+        checkAuthAndLoadProjects,
+        supabase,
+    ])
 
     const navigateTo = useCallback((params: NavigateParams) => {
         const query = new URLSearchParams()
@@ -590,6 +746,19 @@ function BasecampWorkspace() {
     }, [router])
 
     const currentProject = projects.find((p) => p.id === projectId || p.db_id === projectId)
+
+    // Strict Project Privacy URL Guard: if user tries ?project=46408455 without membership/admin, return cleanly to Home
+    useEffect(() => {
+        if (loading || authLoading || !identityResolved) return
+        if (projectId && !currentProject) {
+            setCurrentTodoId(null)
+            setCurrentReplicateTodoId(null)
+            setCurrentMessageId(null)
+            setCurrentReplicateMessageId(null)
+            setCurrentDocId(null)
+            router.replace('/basecamp')
+        }
+    }, [loading, authLoading, identityResolved, projectId, currentProject, router])
 
     // Strip TEG author banner, preserve @mentions, strip <bc-attachment>, HTML tags, and decode entities for search snippets
     const stripHtml = (html?: string | null) => {
@@ -756,25 +925,42 @@ function BasecampWorkspace() {
                 return clauses.join(',')
             }
 
+            const hasAllowedSearchProjects = isAdmin || allowedProjectIds.length > 0
+            const todosQuery = supabase
+                .from('bc_todos')
+                .select('id, bc_id, title, description, is_completed, created_at, completed_at, project_id, todolist_id, project:bc_projects(bc_id, name), todolist:bc_todolists(id, name, color)')
+                .or(buildDualOrFilter('title', 'description'))
+                .order('created_at', { ascending: false })
+                .limit(25)
+            const messagesQuery = supabase
+                .from('bc_messages')
+                .select('id, bc_id, title, content, category, is_pinned, created_at, project_id, project:bc_projects(bc_id, name)')
+                .or(buildDualOrFilter('title', 'content'))
+                .order('created_at', { ascending: false })
+                .limit(20)
+            const docsQuery = supabase
+                .from('bc_documents')
+                .select('id, title, content, created_at, project_id')
+                .or(buildDualOrFilter('title', 'content'))
+                .order('created_at', { ascending: false })
+                .limit(25)
+
             const [todosRes, messagesRes, docsRes, peopleRes] = await Promise.all([
-                supabase
-                    .from('bc_todos')
-                    .select('id, bc_id, title, description, is_completed, created_at, completed_at, project_id, todolist_id, project:bc_projects(bc_id, name), todolist:bc_todolists(id, name, color)')
-                    .or(buildDualOrFilter('title', 'description'))
-                    .order('created_at', { ascending: false })
-                    .limit(25),
-                supabase
-                    .from('bc_messages')
-                    .select('id, bc_id, title, content, category, is_pinned, created_at, project_id, project:bc_projects(bc_id, name)')
-                    .or(buildDualOrFilter('title', 'content'))
-                    .order('created_at', { ascending: false })
-                    .limit(20),
-                supabase
-                    .from('bc_documents')
-                    .select('id, title, content, created_at, project_id')
-                    .or(buildDualOrFilter('title', 'content'))
-                    .order('created_at', { ascending: false })
-                    .limit(25),
+                !hasAllowedSearchProjects
+                    ? Promise.resolve({ data: [] as any[] })
+                    : isAdmin
+                        ? todosQuery
+                        : todosQuery.in('project_id', allowedProjectIds),
+                !hasAllowedSearchProjects
+                    ? Promise.resolve({ data: [] as any[] })
+                    : isAdmin
+                        ? messagesQuery
+                        : messagesQuery.in('project_id', allowedProjectIds),
+                !hasAllowedSearchProjects
+                    ? Promise.resolve({ data: [] as any[] })
+                    : isAdmin
+                        ? docsQuery
+                        : docsQuery.in('project_id', allowedProjectIds),
                 supabase
                     .from('bc_people')
                     .select('id, bc_id, name, email, title, role, attachable_sgid')
@@ -807,9 +993,10 @@ function BasecampWorkspace() {
                         const relProj = Array.isArray(row.project) ? row.project[0] : row.project
                         const relList = Array.isArray(row.todolist) ? row.todolist[0] : row.todolist
                         const proj = projects.find((p) => p.db_id === row.project_id)
-                        const resolvedProjBcId = proj?.id || (relProj?.bc_id ? String(relProj.bc_id) : '')
+                        const canSeeRow = isAdmin || (row.project_id && allowedProjectIdSet.has(row.project_id))
+                        const resolvedProjBcId = proj?.id || (isAdmin && relProj?.bc_id ? String(relProj.bc_id) : '')
                         const resolvedProjName = proj?.name || relProj?.name || ''
-                        if (resolvedProjBcId && (proj || relProj)) {
+                        if (canSeeRow && resolvedProjBcId && (proj || relProj)) {
                             const media = extractMediaUrls(row.description)
                             const imageCount = media.filter((m) => m.type === 'image').length
                             const hasPhotos =
@@ -849,9 +1036,10 @@ function BasecampWorkspace() {
                     .forEach((row: any) => {
                         const relProj = Array.isArray(row.project) ? row.project[0] : row.project
                         const proj = projects.find((p) => p.db_id === row.project_id)
-                        const resolvedProjBcId = proj?.id || (relProj?.bc_id ? String(relProj.bc_id) : '')
+                        const canSeeRow = isAdmin || (row.project_id && allowedProjectIdSet.has(row.project_id))
+                        const resolvedProjBcId = proj?.id || (isAdmin && relProj?.bc_id ? String(relProj.bc_id) : '')
                         const resolvedProjName = proj?.name || relProj?.name || ''
-                        if (resolvedProjBcId && (proj || relProj)) {
+                        if (canSeeRow && resolvedProjBcId && (proj || relProj)) {
                             const media = extractMediaUrls(row.content)
                             const imageCount = media.filter((m) => m.type === 'image').length
                             const videoCount = media.filter((m) => m.type === 'video').length
@@ -933,7 +1121,7 @@ function BasecampWorkspace() {
         } finally {
             if (reqSeq === searchReqSeqRef.current) setSearchLoading(false)
         }
-    }, [projects, supabase])
+    }, [projects, isAdmin, allowedProjectIds, allowedProjectIdSet, supabase])
 
     const handleSearchInput = useCallback((value: string) => {
         setSearchQuery(value)
@@ -960,6 +1148,11 @@ function BasecampWorkspace() {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                if (showModeModal) {
+                    e.preventDefault()
+                    setShowModeModal(false)
+                    return
+                }
                 if (showSearchModal) {
                     e.preventDefault()
                     searchReqSeqRef.current++
@@ -991,7 +1184,7 @@ function BasecampWorkspace() {
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [showSearchModal, heyDrawerOpen, navigateTo])
+    }, [showModeModal, showSearchModal, heyDrawerOpen, navigateTo])
 
     const handleConsumeReplicateTodo = useCallback(() => {
         setCurrentReplicateTodoId(null)
@@ -1024,6 +1217,149 @@ function BasecampWorkspace() {
         }
     }, [router])
 
+    const handleUpdateAutonomyMode = useCallback(
+        async (nextMode: 'hybrid' | 'standalone', nextAutoCutover: boolean) => {
+            if (!isAdmin || savingMode) return
+            setSavingMode(true)
+            setModeError(null)
+            try {
+                const res = await fetch('/api/basecamp/status', {
+                    method: 'POST',
+                    headers: buildBasecampJsonHeaders(),
+                    body: JSON.stringify({
+                        runtime_mode: nextMode,
+                        auto_cutover_enabled: nextAutoCutover,
+                    }),
+                })
+                const data = await res.json().catch(() => ({}))
+                if (!res.ok || data?.error) {
+                    setModeError(data?.error || t('basecamp.action_error'))
+                    return
+                }
+                const resolvedMode: 'hybrid' | 'standalone' =
+                    data.runtime_mode === 'standalone' || data.standalone === true ? 'standalone' : nextMode
+                setRuntimeMode(resolvedMode)
+                setStandaloneFlag(resolvedMode === 'standalone')
+                if (typeof data.auto_cutover_enabled === 'boolean') {
+                    setAutoCutoverEnabled(data.auto_cutover_enabled)
+                } else {
+                    setAutoCutoverEnabled(nextAutoCutover)
+                }
+                if (typeof data.oauth_connected === 'boolean') {
+                    setOauthConnected(data.oauth_connected)
+                }
+                if (typeof data.has_local_data === 'boolean') {
+                    setHasLocalData(data.has_local_data)
+                }
+            } catch (err: any) {
+                setModeError(err?.message || t('basecamp.action_error'))
+            } finally {
+                setSavingMode(false)
+            }
+        },
+        [isAdmin, savingMode, t]
+    )
+
+    // Delegated Smart Link Interceptor for historical app.basecamp.com / 3.basecamp.com bucket URLs
+    const handleContainerLinkClick = useCallback(
+        async (e: React.MouseEvent<HTMLDivElement>) => {
+            if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+            const target = e.target as HTMLElement | null
+            if (!target) return
+            if (target.closest?.('[contenteditable="true"]')) return
+            if (target.closest?.('a[data-bc-download="true"]')) return
+
+            const anchor = target.closest?.('a') as HTMLAnchorElement | null
+            if (!anchor) return
+
+            const rawHref = anchor.getAttribute('href') || anchor.href || ''
+            const parsed = parseInterceptableBasecampHref(rawHref)
+            if (!parsed) return
+
+            e.preventDefault()
+            e.stopPropagation()
+
+            if (parsed.kind === 'teg_deeplink') {
+                const allowedProj = projects.find(
+                    (p) => p.id === parsed.project || p.db_id === parsed.project
+                )
+                if (!isAdmin && !allowedProj) return
+                navigateTo({
+                    project: allowedProj?.id || parsed.project,
+                    tool: parsed.tool,
+                    todoId: parsed.todoId,
+                    messageId: parsed.messageId,
+                    docId: parsed.docId,
+                })
+                return
+            }
+
+            const { projectBcId, resourceType, itemBcId } = parsed
+            const numItemId = itemBcId ? Number(itemBcId) : 0
+
+            try {
+                if (resourceType === 'todos' && numItemId > 0) {
+                    const { data: todoRow } = await supabase
+                        .from('bc_todos')
+                        .select('id, project_id, project:bc_projects(bc_id)')
+                        .eq('bc_id', numItemId)
+                        .maybeSingle()
+                    if (todoRow && (isAdmin || (todoRow.project_id && allowedProjectIdSet.has(todoRow.project_id)))) {
+                        const relP = Array.isArray((todoRow as any).project)
+                            ? (todoRow as any).project[0]
+                            : (todoRow as any).project
+                        const targetProj = String(relP?.bc_id || projectBcId)
+                        navigateTo({ project: targetProj, tool: 'todos', todoId: todoRow.id })
+                        return
+                    }
+                } else if (resourceType === 'messages' && numItemId > 0) {
+                    const { data: msgRow } = await supabase
+                        .from('bc_messages')
+                        .select('id, project_id, project:bc_projects(bc_id)')
+                        .eq('bc_id', numItemId)
+                        .maybeSingle()
+                    if (msgRow && (isAdmin || (msgRow.project_id && allowedProjectIdSet.has(msgRow.project_id)))) {
+                        const relP = Array.isArray((msgRow as any).project)
+                            ? (msgRow as any).project[0]
+                            : (msgRow as any).project
+                        const targetProj = String(relP?.bc_id || projectBcId)
+                        navigateTo({ project: targetProj, tool: 'messages', messageId: msgRow.id })
+                        return
+                    }
+                } else if (resourceType === 'documents' && numItemId > 0) {
+                    const { data: docRow } = await supabase
+                        .from('bc_documents')
+                        .select('id, project_id, project:bc_projects(bc_id)')
+                        .eq('bc_id', numItemId)
+                        .maybeSingle()
+                    if (docRow && (isAdmin || (docRow.project_id && allowedProjectIdSet.has(docRow.project_id)))) {
+                        const relP = Array.isArray((docRow as any).project)
+                            ? (docRow as any).project[0]
+                            : (docRow as any).project
+                        const targetProj = String(relP?.bc_id || projectBcId)
+                        navigateTo({ project: targetProj, tool: 'docs', docId: docRow.id })
+                        return
+                    }
+                }
+            } catch (err) {
+                console.error('Error resolving intercepted Basecamp link:', err)
+            }
+
+            if (isAdmin || projects.some((p) => p.id === projectBcId)) {
+                const fallbackTool =
+                    resourceType === 'messages'
+                        ? 'messages'
+                        : resourceType === 'documents'
+                            ? 'docs'
+                            : resourceType
+                                ? 'todos'
+                                : undefined
+                navigateTo({ project: projectBcId, tool: fallbackTool })
+            }
+        },
+        [projects, isAdmin, allowedProjectIdSet, navigateTo, supabase]
+    )
+
     const closeSearchModal = () => {
         searchReqSeqRef.current++
         setSearchQuery('')
@@ -1032,7 +1368,7 @@ function BasecampWorkspace() {
         setShowSearchModal(false)
     }
 
-    if (loading) {
+    if (loading || authLoading) {
         return (
             <div className="w-full min-h-[60vh] flex items-center justify-center bg-[#f4f1ea] dark:bg-slate-950 rounded-2xl">
                 <div className="text-center">
@@ -1043,7 +1379,7 @@ function BasecampWorkspace() {
         )
     }
 
-    if (isAuthorized === false) {
+    if (isAuthorized === false && !isStandaloneMode && !hasLocalData) {
         return (
             <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
@@ -1065,7 +1401,7 @@ function BasecampWorkspace() {
         )
     }
 
-    if (projects.length === 0 && !syncing) {
+    if (allProjects.length === 0 && !syncing && !isStandaloneMode && oauthConnected && isAdmin) {
         return (
             <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
@@ -1088,7 +1424,7 @@ function BasecampWorkspace() {
         )
     }
 
-    if (syncing && projects.length === 0) {
+    if (syncing && allProjects.length === 0 && !isStandaloneMode) {
         return (
             <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
@@ -1138,13 +1474,37 @@ function BasecampWorkspace() {
                 </div>
 
                 <div className="flex items-center justify-end gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1">
-                    <div
-                        className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0"
-                        title={t('basecamp.auto_sync_tooltip')}
-                    >
-                        <span className={`w-1.5 h-1.5 rounded-full ${syncing ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
-                        <span>{syncing ? t('basecamp.syncing_in_progress') : getSyncRelativeLabel()}</span>
-                    </div>
+                    {isAdmin ? (
+                        <button
+                            type="button"
+                            onClick={() => setShowModeModal(true)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-extrabold transition-all shrink-0 cursor-pointer ${
+                                isStandaloneMode
+                                    ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border-blue-300 dark:border-blue-700 text-[#1D7DB5] dark:text-blue-300'
+                            }`}
+                            title={t('basecamp.mode_settings_title')}
+                        >
+                            <span>{isStandaloneMode ? '🛡️' : '🔗'}</span>
+                            <span className="hidden sm:inline">
+                                {isStandaloneMode ? t('basecamp.mode_standalone_badge') : t('basecamp.mode_hybrid_badge')}
+                            </span>
+                        </button>
+                    ) : (
+                        <div
+                            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0"
+                            title={isStandaloneMode ? t('basecamp.mode_standalone_badge') : t('basecamp.auto_sync_tooltip')}
+                        >
+                            <span className={`w-1.5 h-1.5 rounded-full ${syncing && !isStandaloneMode ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
+                            <span>
+                                {isStandaloneMode
+                                    ? `🛡️ ${t('basecamp.mode_standalone_badge')}`
+                                    : syncing
+                                        ? t('basecamp.syncing_in_progress')
+                                        : getSyncRelativeLabel()}
+                            </span>
+                        </div>
+                    )}
 
                     <button
                         onClick={() => setHeyDrawerOpen(true)}
@@ -1195,19 +1555,21 @@ function BasecampWorkspace() {
                         <span className="hidden sm:inline">{t('basecamp.find')}</span>
                     </button>
 
-                    <button
-                        onClick={() => void handleSync({ projectId: projectId || undefined })}
-                        disabled={syncing}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shrink-0 ${
-                            syncing
-                                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-800 cursor-not-allowed opacity-80'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-dashed border-blue-300 dark:border-slate-700 hover:border-blue-400'
-                        }`}
-                        title={syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}
-                    >
-                        <RefreshCw size={13} className={syncing ? 'animate-spin text-blue-500' : ''} />
-                        <span>{syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}</span>
-                    </button>
+                    {isAdmin && !isStandaloneMode && (
+                        <button
+                            onClick={() => void handleSync({ projectId: projectId || undefined })}
+                            disabled={syncing}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shrink-0 ${
+                                syncing
+                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-800 cursor-not-allowed opacity-80'
+                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-dashed border-blue-300 dark:border-slate-700 hover:border-blue-400'
+                            }`}
+                            title={syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}
+                        >
+                            <RefreshCw size={13} className={syncing ? 'animate-spin text-blue-500' : ''} />
+                            <span>{syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}</span>
+                        </button>
+                    )}
                 </div>
 
                 <div className="hidden md:flex items-center gap-2 shrink-0">
@@ -1243,7 +1605,14 @@ function BasecampWorkspace() {
             return <PingsDrawer activeUser={pingUser} navigateTo={navigateTo} currentUserName={currentUserName} />
         }
         if (section === 'mystuff') {
-            return <MyStuffPage navigateTo={navigateTo} currentUserName={currentUserName} />
+            return (
+                <MyStuffPage
+                    navigateTo={navigateTo}
+                    currentUserName={currentUserName}
+                    allowedProjectIds={allowedProjectIds}
+                    isAdmin={isAdmin}
+                />
+            )
         }
 
         if (projectId && currentProject) {
@@ -1335,6 +1704,8 @@ function BasecampWorkspace() {
                                 onCloseDetail={() => clearDeepLinkParamIfActive('messageId', currentMessageId, () => setCurrentMessageId(null))}
                                 onConsumeReplicateMessage={handleConsumeReplicateMessage}
                                 onOpenSearch={() => setShowSearchModal(true)}
+                                isAdmin={isAdmin}
+                                onRefreshProjects={() => checkAuthAndLoadProjects({ silent: true })}
                             />
                         )
                 }
@@ -1352,6 +1723,8 @@ function BasecampWorkspace() {
                     onCloseDetail={() => clearDeepLinkParamIfActive('messageId', currentMessageId, () => setCurrentMessageId(null))}
                     onConsumeReplicateMessage={handleConsumeReplicateMessage}
                     onOpenSearch={() => setShowSearchModal(true)}
+                    isAdmin={isAdmin}
+                    onRefreshProjects={() => checkAuthAndLoadProjects({ silent: true })}
                 />
             )
         }
@@ -1368,6 +1741,10 @@ function BasecampWorkspace() {
                 onSync={() => handleSync()}
                 isBackgroundSyncing={syncing}
                 lastSyncedAt={lastSyncedAt}
+                isAdmin={isAdmin}
+                isStandalone={isStandaloneMode}
+                onOpenModeModal={() => setShowModeModal(true)}
+                onRefreshProjects={() => checkAuthAndLoadProjects({ silent: true })}
             />
         )
     }
@@ -1411,7 +1788,10 @@ function BasecampWorkspace() {
     }
 
     return (
-        <div className="relative w-full min-h-[85vh] bg-[#f4f1ea] dark:bg-slate-950 p-2 sm:p-4 md:p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-2xl flex flex-col font-sans pb-16">
+        <div
+            onClickCapture={(e) => void handleContainerLinkClick(e)}
+            className="relative w-full min-h-[85vh] bg-[#f4f1ea] dark:bg-slate-950 p-2 sm:p-4 md:p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-2xl flex flex-col font-sans pb-16"
+        >
             {!isHome && renderBasecampHeader()}
 
             <main className={`flex-1 bg-[#fffdf9] dark:bg-slate-900 rounded-2xl p-4 sm:p-6 md:p-8 min-h-[60vh] flex flex-col ${!isHome ? 'border-x border-b border-slate-200 dark:border-slate-800 rounded-t-none' : 'border border-slate-200/60 dark:border-slate-800'}`}>
@@ -1424,6 +1804,8 @@ function BasecampWorkspace() {
                 onClose={() => setHeyDrawerOpen(false)}
                 onMarkAllRead={() => setUnreadHeyCount(0)}
                 onReadOne={() => setUnreadHeyCount((prev) => Math.max(0, prev - 1))}
+                allowedProjectIds={allowedProjectIds}
+                isAdmin={isAdmin}
                 navigateTo={navigateTo}
             />
 
@@ -1788,6 +2170,132 @@ function BasecampWorkspace() {
                             <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 text-center">
                                 {t('basecamp.jump_description')}
                             </p>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Admin: Modo de Operación y Autonomía (z-[120]) */}
+            {isAdmin && showModeModal && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowModeModal(false) }}
+                >
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+                            <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                                <span>{isStandaloneMode ? '🛡️' : '🔗'}</span>
+                                <span>{t('basecamp.mode_settings_title')}</span>
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setShowModeModal(false)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title={t('basecamp.close_esc')}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {modeError && (
+                            <div className="mb-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs font-bold text-red-700 dark:text-red-300">
+                                {modeError}
+                            </div>
+                        )}
+
+                        <div className="space-y-3">
+                            {/* Option 1: Hybrid Mode */}
+                            <button
+                                type="button"
+                                disabled={savingMode}
+                                onClick={() => void handleUpdateAutonomyMode('hybrid', autoCutoverEnabled)}
+                                className={`w-full text-left p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                                    !isStandaloneMode
+                                        ? 'border-[#1D7DB5] bg-blue-50/70 dark:bg-blue-950/30 shadow-sm'
+                                        : 'border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-800 bg-slate-50/50 dark:bg-slate-800/40'
+                                }`}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span>🔗</span>
+                                            <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+                                                {t('basecamp.mode_hybrid_title')}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                            {t('basecamp.mode_hybrid_desc')}
+                                        </p>
+                                    </div>
+                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center border shrink-0 mt-0.5 ${!isStandaloneMode ? 'bg-[#1D7DB5] border-[#1D7DB5] text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                                        {!isStandaloneMode && <Check size={12} />}
+                                    </span>
+                                </div>
+                            </button>
+
+                            {/* Option 2: 100% Standalone TEG Mode */}
+                            <button
+                                type="button"
+                                disabled={savingMode}
+                                onClick={() => void handleUpdateAutonomyMode('standalone', autoCutoverEnabled)}
+                                className={`w-full text-left p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                                    isStandaloneMode
+                                        ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/30 shadow-sm'
+                                        : 'border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-800 bg-slate-50/50 dark:bg-slate-800/40'
+                                }`}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span>🛡️</span>
+                                            <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+                                                {t('basecamp.mode_standalone_title')}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                            {t('basecamp.mode_standalone_desc')}
+                                        </p>
+                                    </div>
+                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center border shrink-0 mt-0.5 ${isStandaloneMode ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                                        {isStandaloneMode && <Check size={12} />}
+                                    </span>
+                                </div>
+                            </button>
+
+                            {/* Auto-Cutover Toggle */}
+                            <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    {t('basecamp.auto_cutover_label')}
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={autoCutoverEnabled}
+                                    disabled={savingMode}
+                                    onClick={() =>
+                                        void handleUpdateAutonomyMode(
+                                            isStandaloneMode ? 'standalone' : 'hybrid',
+                                            !autoCutoverEnabled
+                                        )
+                                    }
+                                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                        autoCutoverEnabled ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-600'
+                                    }`}
+                                >
+                                    <span
+                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                            autoCutoverEnabled ? 'translate-x-5' : 'translate-x-0'
+                                        }`}
+                                    />
+                                </button>
+                            </div>
+                        </div>
+
+                        {savingMode && (
+                            <div className="flex items-center justify-center gap-2 pt-3 text-xs font-bold text-[#1D7DB5]">
+                                <Loader2 size={14} className="animate-spin" />
+                                <span>{t('basecamp.saving_changes')}</span>
+                            </div>
                         )}
                     </div>
                 </div>

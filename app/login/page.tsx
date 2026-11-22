@@ -10,6 +10,7 @@
  *   2) Dashboard (`/dashboard`) con métricas en tiempo real y barra lateral desplegada.
  * - Empleados (`user_type === 'employee'`) van directamente a `/mis-horarios`.
  * - Usuarios con rol exclusivo `planificador` van directamente a `/planificador`.
+ * - Usuarios con rol exclusivo `basecamp` van directamente a `/basecamp`.
  *
  * @dataFlow
  * - POST `/api/login` -> almacena `teg_token` y `teg_user` en `localStorage` y cookie -> Splash Screen -> selección de destino (`/inicio` vs `/dashboard`).
@@ -77,6 +78,16 @@ export default function LoginPage() {
       if (savedUserStr && savedToken) {
         try {
           const parsedUser = JSON.parse(savedUserStr) as LoggedUserInfo
+          const parsedRole = (parsedUser.role || '').trim().toLowerCase()
+          const parsedEmail = (parsedUser.email || '').trim().toLowerCase()
+          if (parsedRole === 'basecamp') {
+            router.replace('/basecamp')
+            return
+          }
+          if (parsedEmail === 'stephany@cingularhr.com' || parsedRole === 'planificador') {
+            router.replace('/planificador')
+            return
+          }
           setLoggedUser(parsedUser)
           setPostLoginStep('splash')
           const timer = setTimeout(() => {
@@ -126,7 +137,12 @@ export default function LoginPage() {
       const userRole = data.user.role?.toLowerCase()
       const userType = data.user.user_type
       const userEmailNorm = (data.user.email || '').trim().toLowerCase()
-      const isDirectRedirect = userType === 'employee' || Boolean(data.redirect) || userEmailNorm === 'stephany@cingularhr.com' || userRole === 'planificador'
+      const isDirectRedirect =
+        userType === 'employee' ||
+        Boolean(data.redirect) ||
+        userEmailNorm === 'stephany@cingularhr.com' ||
+        userRole === 'planificador' ||
+        userRole === 'basecamp'
 
       setLoggedUser(data.user)
       setPostLoginStep('splash')
@@ -135,6 +151,10 @@ export default function LoginPage() {
         setTimeout(() => {
           if (userType === 'employee' || data.redirect) {
             router.push(data.redirect || '/mis-horarios')
+            return
+          }
+          if (userRole === 'basecamp') {
+            router.push('/basecamp')
             return
           }
           router.push('/planificador')

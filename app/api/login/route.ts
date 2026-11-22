@@ -269,6 +269,14 @@ export async function POST(request: Request) {
         }
       )
 
+      const roleLower = String(user.role || '').trim().toLowerCase()
+      const roleRedirect =
+        roleLower === 'basecamp'
+          ? '/basecamp'
+          : roleLower === 'planificador' || normalizedEmail === 'stephany@cingularhr.com'
+          ? '/planificador'
+          : undefined
+
       const response = NextResponse.json({
         success: true,
         user: {
@@ -281,6 +289,7 @@ export async function POST(request: Request) {
           user_type: 'admin',
         },
         token,
+        ...(roleRedirect ? { redirect: roleRedirect } : {}),
       })
 
       // httpOnly: false requerido porque ProtectedRoute.tsx y el cliente browser de Supabase sincronizan teg_token en cliente
