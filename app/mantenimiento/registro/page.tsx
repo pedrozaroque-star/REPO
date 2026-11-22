@@ -19,6 +19,7 @@
  *   POST a /api/mantenimiento -> Notificación interna a supervisores y almacenamiento en maintenance_service_logs.
  * @notes
  * - Diseñado 'mobile-first' con compresión automática en cliente (browser-image-compression), botones táctiles de 56px y soporte de cámara directa.
+ * - Integra Diagnóstico Visual IA en Paso 4 (`POST /api/mantenimiento/ai-diagnose`) y Lectura Automática de Factura IA en Paso 5 (`POST /api/ai/scan-receipt`) con `gemini-3.8-flash`.
  */
 
 'use client'
@@ -171,6 +172,13 @@ function MaintenanceFormContent() {
   const [photosAfter, setPhotosAfter] = useState<string[]>([])
   const [photosInvoice, setPhotosInvoice] = useState<string[]>([])
   const [uploadingSection, setUploadingSection] = useState<'before' | 'after' | 'invoice' | null>(null)
+  const [diagnosingPhoto, setDiagnosingPhoto] = useState(false)
+  const [aiDiagnosisResult, setAiDiagnosisResult] = useState<any | null>(null)
+  const [extractingInvoiceAi, setExtractingInvoiceAi] = useState(false)
+  const [aiInvoiceNotice, setAiInvoiceNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  const serviceTypeRef = useRef(serviceType)
+  serviceTypeRef.current = serviceType
+  const invoiceScanSeqRef = useRef(0)
 
   // Directorio dinámico de proveedores y técnicos que ya han realizado trabajos en las tiendas
   const [directoryCompanies, setDirectoryCompanies] = useState<DirectoryCompany[]>([])
@@ -595,10 +603,18 @@ function MaintenanceFormContent() {
 
     try {
       for (let i = 0; i < filesToUpload.length; i++) {
-        let file = filesToUpload[i]
+        let file: File = filesToUpload[i]
+        const lowerName = (file.name || '').toLowerCase()
+        const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf')
+        const isHeic = /\.(heic|heif)$/i.test(lowerName) || file.type === 'image/heic' || file.type === 'image/heif'
+        const isImage = !isPdf && (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(lowerName))
 
-        // Compresión automática de imágenes antes de enviar a Vercel (no comprimir PDFs)
-        if (file.type.startsWith('image/')) {
+        if (isPdf && file.size > 4 * 1024 * 1024) {
+          throw new Error(t('maintenance.ai_invoice_file_too_large'))
+        }
+
+        // Compresión automática de imágenes antes de enviar a Vercel (incluyendo .HEIC de iPhone sin file.type)
+        if (isImage) {
           try {
             file = await imageCompression(file, {
               maxSizeMB: 0.4,
@@ -607,13 +623,32 @@ function MaintenanceFormContent() {
               fileType: 'image/webp',
               initialQuality: 0.8
             })
-          } catch (compErr) {
-            console.warn('Compresión en cliente no disponible, usando original:', compErr)
+          } catch {
+            try {
+              file = await imageCompression(file, {
+                maxSizeMB: 0.4,
+                maxWidthOrHeight: 1400,
+                useWebWorker: false,
+                fileType: 'image/webp',
+                initialQuality: 0.8
+              })
+            } catch (compErr) {
+              console.warn('Compresión en cliente no disponible, usando original:', compErr)
+              if (!file.type && isHeic) {
+                file = new File([file], file.name || 'photo.heic', {
+                  type: lowerName.endsWith('.heif') ? 'image/heif' : 'image/heic'
+                })
+              }
+            }
           }
         }
 
+        if (file.size > 4 * 1024 * 1024) {
+          throw new Error(t('maintenance.ai_invoice_file_too_large'))
+        }
+
         const formData = new FormData()
-        formData.append('file', file)
+        formData.append('file', file, file.name || (isPdf ? 'invoice.pdf' : 'photo.webp'))
         formData.append('folder', section)
 
         const res = await fetch('/api/mantenimiento/upload', {
@@ -621,11 +656,20 @@ function MaintenanceFormContent() {
           body: formData
         })
 
-        const result = await res.json()
+        if (res.status === 413) {
+          throw new Error(t('maintenance.ai_invoice_file_too_large'))
+        }
+        const ct = res.headers.get('content-type') || ''
+        const result = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
         if (result.success && result.url) {
           if (section === 'before') setPhotosBefore(prev => [...prev, result.url].slice(0, 5))
           if (section === 'after') setPhotosAfter(prev => [...prev, result.url].slice(0, 5))
-          if (section === 'invoice') setPhotosInvoice(prev => [...prev, result.url].slice(0, 5))
+          if (section === 'invoice') {
+            setPhotosInvoice(prev => [...prev, result.url].slice(0, 5))
+            if (i === 0) {
+              void extractInvoiceFieldsWithAi(result.url)
+            }
+          }
         } else {
           throw new Error(result.error || t('maintenance.error_upload_photo'))
         }
@@ -646,7 +690,179 @@ function MaintenanceFormContent() {
   const removePhoto = (urlToRemove: string, section: 'before' | 'after' | 'invoice') => {
     if (section === 'before') setPhotosBefore(prev => prev.filter(u => u !== urlToRemove))
     if (section === 'after') setPhotosAfter(prev => prev.filter(u => u !== urlToRemove))
-    if (section === 'invoice') setPhotosInvoice(prev => prev.filter(u => u !== urlToRemove))
+    if (section === 'invoice') {
+      invoiceScanSeqRef.current += 1
+      setExtractingInvoiceAi(false)
+      setAiInvoiceNotice(null)
+      setPhotosInvoice(prev => prev.filter(u => u !== urlToRemove))
+    }
+  }
+
+  // Extracción automática de factura con Gemini 3.8 (Paso 5 -> Paso 6)
+  const extractInvoiceFieldsWithAi = async (uploadedUrl: string, forceOverwrite = false) => {
+    if (!uploadedUrl) return
+    const reqSeq = ++invoiceScanSeqRef.current
+    setExtractingInvoiceAi(true)
+    setAiInvoiceNotice(null)
+    try {
+      const res = await fetch('/api/ai/scan-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileUrl: uploadedUrl, contextHint: 'maintenance' }),
+      })
+      if (reqSeq !== invoiceScanSeqRef.current) return
+      if (res.status === 413) {
+        throw new Error(t('maintenance.ai_invoice_file_too_large'))
+      }
+      const ct = res.headers.get('content-type') || ''
+      const json = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
+      if (!res.ok || !json?.success || !json?.receipt) {
+        throw new Error(json?.error || t('maintenance.ai_invoice_error'))
+      }
+      const rec = json.receipt
+      if (!rec.is_valid_document) {
+        const warn = language === 'en' ? rec.quality_warning_en : rec.quality_warning_es
+        setAiInvoiceNotice({
+          ok: false,
+          text: warn || t('maintenance.ai_invoice_not_valid'),
+        })
+        return
+      }
+      if (rec.invoice_number) {
+        setInvoiceNumber(prev => (forceOverwrite ? rec.invoice_number : prev || rec.invoice_number))
+      }
+      if (typeof rec.total_usd === 'number' && rec.total_usd > 0 && serviceTypeRef.current !== 'warranty') {
+        setCostEstimate(prev => (forceOverwrite ? String(rec.total_usd) : prev || String(rec.total_usd)))
+      }
+      if (rec.vendor_name) {
+        setCompanyName(prev => (forceOverwrite ? rec.vendor_name : prev || rec.vendor_name))
+      }
+      if (rec.parts_or_items_summary) {
+        const cleanParts = rec.parts_or_items_summary.slice(0, 480)
+        setPartsReplaced(prev => (forceOverwrite ? cleanParts : prev || cleanParts))
+      }
+      const label = language === 'en' ? rec.summary_en : rec.summary_es
+      setAiInvoiceNotice({
+        ok: true,
+        text: `${t('maintenance.ai_invoice_applied')}${label ? `: ${label}` : ''}`,
+      })
+    } catch (err: any) {
+      if (reqSeq === invoiceScanSeqRef.current) {
+        setAiInvoiceNotice({
+          ok: false,
+          text: err?.message || t('maintenance.ai_invoice_error'),
+        })
+      }
+    } finally {
+      if (reqSeq === invoiceScanSeqRef.current) {
+        setExtractingInvoiceAi(false)
+      }
+    }
+  }
+
+  // Diagnóstico Visual IA en Paso 4 (sube foto a Evidencia Antes y autocompleta equipo/urgencia/resumen)
+  const handleAiDiagnosticUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFile = e.target.files?.[0]
+    e.target.value = ''
+    if (!rawFile) return
+    setDiagnosingPhoto(true)
+    setErrorMessage(null)
+    try {
+      let file: File | Blob = rawFile
+      const lowerName = (rawFile.name || '').toLowerCase()
+      const isHeic = /\.(heic|heif)$/i.test(lowerName) || rawFile.type === 'image/heic' || rawFile.type === 'image/heif'
+      const isImage = rawFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(lowerName)
+      let uploadFileName = rawFile.name || 'before.webp'
+      if (isImage) {
+        try {
+          file = await imageCompression(rawFile, {
+            maxSizeMB: 0.4,
+            maxWidthOrHeight: 1400,
+            useWebWorker: true,
+            fileType: 'image/webp',
+            initialQuality: 0.82,
+          })
+          uploadFileName = rawFile.name ? rawFile.name.replace(/\.[^.]+$/, '.webp') : 'before.webp'
+        } catch {
+          try {
+            file = await imageCompression(rawFile, {
+              maxSizeMB: 0.4,
+              maxWidthOrHeight: 1400,
+              useWebWorker: false,
+              fileType: 'image/webp',
+              initialQuality: 0.82,
+            })
+            uploadFileName = rawFile.name ? rawFile.name.replace(/\.[^.]+$/, '.webp') : 'before.webp'
+          } catch {
+            if (!rawFile.type && isHeic) {
+              file = new File([rawFile], rawFile.name || 'before.heic', {
+                type: lowerName.endsWith('.heif') ? 'image/heif' : 'image/heic',
+              })
+            } else {
+              file = rawFile
+            }
+          }
+        }
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        throw new Error(t('maintenance.ai_invoice_file_too_large'))
+      }
+      const fd = new FormData()
+      fd.append('file', file, uploadFileName)
+      fd.append('folder', 'before')
+      const upRes = await fetch('/api/mantenimiento/upload', { method: 'POST', body: fd })
+      if (upRes.status === 413) {
+        throw new Error(t('maintenance.ai_invoice_file_too_large'))
+      }
+      const upCt = upRes.headers.get('content-type') || ''
+      const upJson = upCt.includes('application/json') ? await upRes.json().catch(() => ({})) : {}
+      if (!upRes.ok || !upJson?.success || !upJson?.url) {
+        throw new Error(upJson?.error || t('maintenance.error_upload_photo'))
+      }
+      setPhotosBefore(prev => (prev.includes(upJson.url) ? prev : [...prev, upJson.url].slice(0, 5)))
+
+      const diagRes = await fetch('/api/mantenimiento/ai-diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileUrl: upJson.url }),
+      })
+      const diagCt = diagRes.headers.get('content-type') || ''
+      const diagJson = diagCt.includes('application/json') ? await diagRes.json().catch(() => ({})) : {}
+      if (!diagRes.ok || !diagJson?.success || !diagJson?.diagnosis) {
+        throw new Error(diagJson?.error || t('maintenance.ai_diag_error_msg'))
+      }
+      const d = diagJson.diagnosis
+      setAiDiagnosisResult(d)
+      if (d.suggested_category) setCategory(d.suggested_category)
+      if (d.suggested_service_type && serviceTypeRef.current !== 'warranty') {
+        setServiceType(d.suggested_service_type)
+      }
+
+      const equipBase = language === 'en' ? (d.equipment_en || d.equipment_es) : (d.equipment_es || d.equipment_en)
+      const specs = [d.brand, d.model_number, d.serial_number ? `S/N ${d.serial_number}` : '', d.error_code ? `Err ${d.error_code}` : '']
+        .filter(Boolean)
+        .join(' ')
+      const builtEquip = [equipBase, specs ? `(${specs})` : ''].filter(Boolean).join(' ').slice(0, 195)
+      if (builtEquip) setAreaEquipment(builtEquip)
+
+      const bilingualSummary = [d.technical_summary_es ? `[ES] ${d.technical_summary_es}` : '', d.technical_summary_en ? `[EN] ${d.technical_summary_en}` : '']
+        .filter(Boolean)
+        .join(' / ')
+      if (bilingualSummary) {
+        setWorkDescription(prev => {
+          const trimmed = prev.trim()
+          if (!trimmed) return bilingualSummary.slice(0, 1950)
+          if (trimmed.includes(d.technical_summary_es)) return trimmed
+          return `${trimmed}\n${bilingualSummary}`.slice(0, 1950)
+        })
+      }
+      const partsHint = language === 'en' ? (d.suggested_parts_en || d.suggested_parts_es) : (d.suggested_parts_es || d.suggested_parts_en)
+      if (partsHint) setPartsReplaced(prev => prev || partsHint.slice(0, 480))
+    } catch (err: any) {
+      setErrorMessage(err?.message || t('maintenance.ai_diag_error_msg'))
+    } finally {
+      setDiagnosingPhoto(false)
+    }
   }
 
   // Toggle multi-selección de chips de equipo en Paso 4
@@ -888,6 +1104,11 @@ function MaintenanceFormContent() {
     setCostEstimate('')
     setManagerName('')
     setSignatureDataUrl(null)
+    invoiceScanSeqRef.current += 1
+    setExtractingInvoiceAi(false)
+    setDiagnosingPhoto(false)
+    setAiDiagnosisResult(null)
+    setAiInvoiceNotice(null)
     setErrorMessage(null)
   }
 
@@ -1725,6 +1946,57 @@ function MaintenanceFormContent() {
                     </div>
                   </div>
 
+                  {/* Diagnóstico Visual IA con Gemini 3.8 (Foto de Equipo / Placa / Código de Error) */}
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-50/90 to-purple-50/80 dark:from-indigo-950/40 dark:to-purple-950/30 border border-indigo-200/80 dark:border-indigo-800/70 space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                          <Sparkles size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+                          <span>{t('maintenance.ai_diag_title')}</span>
+                        </p>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                          {t('maintenance.ai_diag_subtitle')}
+                        </p>
+                      </div>
+                      <label className="cursor-pointer inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-xs transition-colors shrink-0">
+                        {diagnosingPhoto ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                        <span>{diagnosingPhoto ? t('maintenance.ai_diag_analyzing') : t('maintenance.ai_diag_btn')}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={diagnosingPhoto}
+                          onChange={handleAiDiagnosticUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    {aiDiagnosisResult && (
+                      <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/80 border border-indigo-200/70 dark:border-indigo-800/70 text-[11px] space-y-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-extrabold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 size={13} /> {t('maintenance.ai_diag_applied')}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/70 text-indigo-800 dark:text-indigo-200 font-bold uppercase text-[10px]">
+                            {t('maintenance.ai_diag_urgency')}: {aiDiagnosisResult.urgency_level}
+                          </span>
+                        </div>
+                        {(aiDiagnosisResult.brand || aiDiagnosisResult.model_number || aiDiagnosisResult.serial_number || aiDiagnosisResult.error_code) && (
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-slate-700 dark:text-slate-300 font-semibold">
+                            {(aiDiagnosisResult.brand || aiDiagnosisResult.model_number) && (
+                              <span>{t('maintenance.ai_diag_brand_model')}: {[aiDiagnosisResult.brand, aiDiagnosisResult.model_number].filter(Boolean).join(' ')}</span>
+                            )}
+                            {aiDiagnosisResult.serial_number && (
+                              <span>{t('maintenance.ai_diag_serial')}: {aiDiagnosisResult.serial_number}</span>
+                            )}
+                            {aiDiagnosisResult.error_code && (
+                              <span className="text-red-600 dark:text-red-400 font-bold">{t('maintenance.ai_diag_error_code')}: {aiDiagnosisResult.error_code}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Equipo o Área + Sugerencias Rápidas Multi-Selección Libres de Marcas */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
@@ -2005,13 +2277,37 @@ function MaintenanceFormContent() {
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                           {t('maintenance.evidence_invoice')}
                         </span>
-                        {photosInvoice.length > 0 && (
-                          <span className="text-[10px] text-slate-500 font-semibold">
-                            {photosInvoice.length}/5
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {photosInvoice.length > 0 && (
+                            <button
+                              type="button"
+                              disabled={extractingInvoiceAi}
+                              onClick={() => extractInvoiceFieldsWithAi(photosInvoice[photosInvoice.length - 1], true)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-bold hover:bg-indigo-100"
+                            >
+                              {extractingInvoiceAi ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                              <span>{extractingInvoiceAi ? t('maintenance.ai_invoice_extracting') : t('maintenance.ai_invoice_extract_btn')}</span>
+                            </button>
+                          )}
+                          {photosInvoice.length > 0 && (
+                            <span className="text-[10px] text-slate-500 font-semibold">
+                              {photosInvoice.length}/5
+                            </span>
+                          )}
+                        </div>
                       </div>
 
+                      {aiInvoiceNotice && (
+                        <div
+                          className={`mb-2 px-3 py-1.5 rounded-xl border text-[11px] font-semibold ${
+                            aiInvoiceNotice.ok
+                              ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                              : 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                          }`}
+                        >
+                          {aiInvoiceNotice.ok ? '✨' : '⚠️'} {aiInvoiceNotice.text}
+                        </div>
+                      )}
                       {photosInvoice.length === 0 ? (
                         <label className="cursor-pointer flex flex-col items-center justify-center p-3.5 border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-400 rounded-2xl bg-slate-50/60 dark:bg-slate-800/30 transition-all text-center group">
                           <UploadCloud size={22} className="text-slate-400 group-hover:text-blue-600 mb-1 transition-colors" />
@@ -2478,8 +2774,9 @@ function MaintenanceFormContent() {
 
               <button
                 type="button"
+                disabled={diagnosingPhoto || uploadingSection !== null}
                 onClick={handleNext}
-                className="flex-1 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:from-red-700 active:to-red-800 text-white font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition-all hover:scale-[1.01] active:scale-[0.98]"
+                className="flex-1 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:from-red-700 active:to-red-800 disabled:opacity-60 disabled:pointer-events-none text-white font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition-all hover:scale-[1.01] active:scale-[0.98]"
               >
                 <span>{t('maintenance.btn_next')}</span>
                 <ArrowRight size={16} />

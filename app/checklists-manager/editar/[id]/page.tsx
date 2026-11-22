@@ -83,19 +83,21 @@ function EditManagerChecklistContent() {
         if (data.answers) {
           questions.forEach((q: any, idx: number) => {
             // Try matching by text (new format) or legacy key (s0_0)
-            const val = data.answers[q.text] || data.answers[`s${q.section_idx || 0}_${q.order_index || idx}`]
+            const val = data.answers[q.text] !== undefined ? data.answers[q.text] : data.answers[`s${q.section_idx || 0}_${q.order_index || idx}`]
             if (val !== undefined) {
-              initialAnswers[q.id] = typeof val === 'object' ? val.value : val
+              initialAnswers[q.id] = typeof val === 'object' && val !== null ? val.value : val
             }
           })
+          if (data.answers.__question_photos && typeof data.answers.__question_photos === 'object') {
+            Object.assign(initialPhotos, data.answers.__question_photos)
+          }
+        }
+        if (data.responses?.__question_photos && typeof data.responses.__question_photos === 'object') {
+          Object.assign(initialPhotos, data.responses.__question_photos)
         }
 
-        // Photos are currently stored as a single array in manager_checklists.photo_urls
-        // We might not be able to easily map them back to specific questions if they weren't stored that way.
-        // For now, if we have photo_urls, we just keep them but it might be hard to edit them per-question.
-        // However, we want to allow ADDING photos to questions that require them.
-
         setAnswers(initialAnswers)
+        setQuestionPhotos(initialPhotos)
         setComments(data.comments || '')
       }
 
@@ -151,17 +153,25 @@ function EditManagerChecklistContent() {
     try {
       const supabase = await getSupabaseClient()
       const newPhotos = Object.values(questionPhotos).flat()
-      // Merge with existing photo_urls if we want to keep them, or replace them.
-      // Usually, editing might involve adding new photos.
-      const allPhotos = [...(checklist.photo_urls || []), ...newPhotos]
+      const allPhotos = Array.from(new Set([...(checklist.photo_urls || []), ...newPhotos].filter(Boolean)))
 
       const formattedAnswers: { [key: string]: any } = {}
       questions.forEach(q => {
         formattedAnswers[q.text] = answers[q.id]
       })
 
-      // Add rich photo mapping
-      formattedAnswers['__question_photos'] = questionPhotos
+      const existingQuestionPhotos =
+        (checklist?.answers?.__question_photos && typeof checklist.answers.__question_photos === 'object'
+          ? checklist.answers.__question_photos
+          : checklist?.responses?.__question_photos && typeof checklist.responses.__question_photos === 'object'
+            ? checklist.responses.__question_photos
+            : {}) as Record<string, string[]>
+
+      // Preserve existing __question_photos while merging any newly edited/added question photos
+      formattedAnswers['__question_photos'] = {
+        ...existingQuestionPhotos,
+        ...questionPhotos
+      }
 
       const payload: any = {
         answers: formattedAnswers,

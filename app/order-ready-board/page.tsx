@@ -2851,7 +2851,11 @@ function OrderReadyBoardContent() {
     if (!orderGuid || !storeId) return
     if (orderDetailCacheRef.current.has(orderGuid) || orderDetailInflightRef.current.has(orderGuid)) return
 
-    const req = fetch(`/api/toast-order-detail?guid=${orderGuid}&storeId=${storeId}`)
+    const bearer = typeof window !== 'undefined' ? window.localStorage.getItem('teg_token') : null
+    const req = fetch(`/api/toast-order-detail?guid=${encodeURIComponent(orderGuid)}&storeId=${encodeURIComponent(storeId)}`, {
+      credentials: 'include',
+      headers: bearer && bearer !== 'null' && bearer !== 'undefined' ? { Authorization: `Bearer ${bearer}` } : undefined
+    })
       .then(res => res.json())
       .then(data => {
         if (data?.order) {
@@ -2924,9 +2928,13 @@ function OrderReadyBoardContent() {
     }
 
     const existingPromise = orderDetailInflightRef.current.get(orderGuid)
+    const bearer = typeof window !== 'undefined' ? window.localStorage.getItem('teg_token') : null
     const promise =
       existingPromise ||
-      fetch(`/api/toast-order-detail?guid=${orderGuid}&storeId=${storeId}`).then(res => res.json())
+      fetch(`/api/toast-order-detail?guid=${encodeURIComponent(orderGuid)}&storeId=${encodeURIComponent(storeId)}`, {
+        credentials: 'include',
+        headers: bearer && bearer !== 'null' && bearer !== 'undefined' ? { Authorization: `Bearer ${bearer}` } : undefined
+      }).then(res => res.json())
 
     promise
       .then(data => {
@@ -4572,7 +4580,7 @@ function OrderReadyBoardContent() {
                     <CheckCircle2 className={`w-12 h-12 mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
                     <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_ready')}</p>
                     <p className={`text-xs font-medium mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {t('orderReadyBoard.kds_bump_notice')}
+                      {formatCustomerStoreName({ code: selectedStore, name: STORES_LIST.find(s => s.code === selectedStore)?.name }, language === 'en' ? 'en' : 'es')} • {t('orderReadyBoard.kds_bump_notice')}
                     </p>
                   </div>
                 ) : (
@@ -4774,7 +4782,7 @@ function OrderReadyBoardContent() {
                     <Clock className={`w-12 h-12 mb-3 ${isDark ? 'text-amber-500/40' : 'text-amber-300'}`} />
                     <p className={`text-lg font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{t('orderReadyBoard.no_orders_in_progress')}</p>
                     <p className={`text-xs font-medium mt-1 ${isDark ? 'text-amber-400/70' : 'text-amber-700'}`}>
-                      {STORES_LIST.find(s => s.code === selectedStore)?.name || selectedStore} • {t('orderReadyBoard.kitchen_caught_up')}
+                      {formatCustomerStoreName({ code: selectedStore, name: STORES_LIST.find(s => s.code === selectedStore)?.name }, language === 'en' ? 'en' : 'es')} • {t('orderReadyBoard.kitchen_caught_up')}
                     </p>
                   </div>
                 ) : (
@@ -4997,7 +5005,7 @@ function OrderReadyBoardContent() {
                 <div className="space-y-4 text-slate-800">
                   <div className="text-xs text-center border-b border-slate-200 pb-3">
                     <div className="font-bold text-[14px] uppercase tracking-wider mb-1">
-                      {t('orderReadyBoard.receipt_store')} {orderDetailData.storeName}
+                      {t('orderReadyBoard.receipt_store')} {formatCustomerStoreName({ code: selectedStore, name: orderDetailData.storeName }, language === 'en' ? 'en' : 'es')}
                     </div>
                     <div>
                       {orderDetailData.diningOption === 'FOR_HERE'
@@ -5039,7 +5047,7 @@ function OrderReadyBoardContent() {
                   <div className="text-xs text-center border-b border-slate-200 pb-3">
                     <div className="font-bold text-[14px] uppercase tracking-wider mb-1">
                       {t('orderReadyBoard.receipt_store')}{' '}
-                      {orderDetailData.storeName || orderDetailData.data.restaurantService?.name || 'TACOS GAVILAN'}
+                      {formatCustomerStoreName({ code: selectedStore, name: orderDetailData.storeName || orderDetailData.data.restaurantService?.name || 'Tacos Gavilan' }, language === 'en' ? 'en' : 'es')}
                     </div>
                     <div>{orderDetailData.data.diningOption?.name || t('orderReadyBoard.receipt_dining_fallback')}</div>
                     <div>

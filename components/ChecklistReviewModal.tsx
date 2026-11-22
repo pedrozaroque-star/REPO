@@ -566,6 +566,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         // Validation: require comment ONLY if rejecting AND no chat history
         // Supervisors can approve/close without comment
         if (newStatus === 'rechazado' && comments.length === 0 && !newComment.trim()) {
+            setChatOpen(true)
             alert('Por favor explica la razón del rechazo en el chat o comentario.')
             return
         }
@@ -1405,19 +1406,24 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         {/* Input */}
                         <div className="p-2 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 flex gap-2">
                             {(() => {
-                                const isCreator = String(checklist?.inspector_id) === String(currentUser.id)
-                                const isAdmin = ['admin', 'administrador', 'auditor'].includes(currentUser.role)
+                                const creatorId = String(checklist?.user_id || checklist?.inspector_id || '')
+                                const isCreator = Boolean(creatorId) && creatorId === String(currentUser?.id || '')
+                                const normalizedRole = String(currentUser?.role || '').toLowerCase()
+                                const isReviewer = ['admin', 'administrador', 'auditor', 'supervisor', 'manager'].includes(normalizedRole)
 
-                                // REGLA: Si vacío, SOLO Admin inicia. Si no, Admin o Creador.
-                                const canWrite = (comments.length === 0 && isAdmin) || (comments.length > 0 && (isAdmin || isCreator))
+                                // Reviewers (admin, supervisor, manager) can start or reply; creator can reply once started or when rejected
+                                const canWrite =
+                                    (comments.length === 0 && isReviewer) ||
+                                    (comments.length > 0 && (isReviewer || isCreator)) ||
+                                    (status === 'rechazado' && isCreator)
 
-                                const isClosed = status === 'cerrado' && !isAdmin
+                                const isClosed = status === 'cerrado' && !['admin', 'administrador', 'auditor', 'supervisor'].includes(normalizedRole)
                                 const isDisabled = !canWrite || isClosed
 
                                 let placeholderText = "Write a message..."
                                 if (isClosed) placeholderText = "Chat is closed"
                                 else if (!canWrite) {
-                                    if (comments.length === 0) placeholderText = "Waiting for an Admin to start the review..."
+                                    if (comments.length === 0) placeholderText = "Waiting for a reviewer to start the review..."
                                     else placeholderText = "Read only"
                                 }
 

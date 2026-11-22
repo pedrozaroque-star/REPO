@@ -2,7 +2,7 @@
 
 /**
  * @module TiendasPage
- * @description Panel de control y administración para las tiendas de Tacos El Gavilán.
+ * @description Panel de control y administración para las tiendas de Tacos Gavilan.
  * @businessRules
  * - Permite crear y editar sucursales.
  * - Sincroniza direcciones, teléfonos y GUIDs desde la API de Toast.

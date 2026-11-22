@@ -172,6 +172,38 @@ const AVAILABLE_MODIFIERS = [
     { name: 'Salsa Roja de Árbol', price: 0, isAlert: true },
 ]
 
+const CANONICAL_POS_STORE_PHONES: Record<number, string> = {
+    1: '(909) 562-0430',
+    3: '(626) 917-2662',
+    4: '(626) 969-1011',
+    5: '(323) 233-2302',
+    6: '(213) 742-6677',
+    7: '(323) 615-0084',
+    8: '(323) 963-7993',
+    9: '(714) 480-0713',
+    10: '(626) 336-3000',
+    11: '(323) 581-7309',
+    12: '(562) 651-0045',
+    13: '(323) 771-1722',
+    14: '(424) 785-5535',
+    15: '(562) 806-1200',
+    16: '(562) 927-7486',
+}
+
+function getPosAuthHeaders(withJson = false): Record<string, string> {
+    const headers: Record<string, string> = {}
+    if (withJson) headers['Content-Type'] = 'application/json'
+    if (typeof window !== 'undefined') {
+        try {
+            const token = window.localStorage.getItem('teg_token')
+            if (token && token !== 'null' && token !== 'undefined') {
+                headers['Authorization'] = `Bearer ${token}`
+            }
+        } catch {}
+    }
+    return headers
+}
+
 export default function GavilanPosEcosystemPage() {
     const { language, setLanguage, t } = useLanguage()
     const isEs = language === 'es'
@@ -480,7 +512,8 @@ export default function GavilanPosEcosystemPage() {
         try {
             const res = await fetch('/api/gavilan-pos/overview', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: getPosAuthHeaders(true),
                 body: JSON.stringify({ action, ...payload })
             })
             const data = await res.json()
@@ -517,7 +550,8 @@ export default function GavilanPosEcosystemPage() {
         try {
             const res = await fetch('/api/gavilan-pos/overview', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: getPosAuthHeaders(true),
                 body: JSON.stringify({
                     action: 'SYNC_OFFLINE_OUTBOX',
                     events: offlineOutbox
@@ -554,7 +588,10 @@ export default function GavilanPosEcosystemPage() {
         async function loadOverview() {
             setLoadingData(true)
             try {
-                const res = await fetch('/api/gavilan-pos/overview')
+                const res = await fetch('/api/gavilan-pos/overview', {
+                    credentials: 'include',
+                    headers: getPosAuthHeaders(false),
+                })
                 const data = await res.json()
                 if (data?.ok) {
                     try {
@@ -1026,7 +1063,7 @@ export default function GavilanPosEcosystemPage() {
     const handleVerifiedVoidLastOrder = async (approverName: string, isWaste: boolean) => {
         const targetOrd = rawOrders.find((o: any) => !o.is_voided)
         if (!targetOrd) return
-        await dispatchPosMutation('VOID_OR_COMP_ORDER', {
+        const voidRes = await dispatchPosMutation('VOID_OR_COMP_ORDER', {
             orderId: targetOrd.id || targetOrd.client_order_id,
             clientOrderId: targetOrd.client_order_id,
             orderNumber: targetOrd.order_number,
@@ -1037,6 +1074,10 @@ export default function GavilanPosEcosystemPage() {
             isWaste,
             managerPinUsed: approverName,
         })
+        if (!voidRes?.ok && !voidRes?.queuedOffline) {
+            setLastDbWriteBadge(`Error al anular orden: ${voidRes?.error || 'No autorizado'}`)
+            return
+        }
         setRawOrders(prev => prev.map(o =>
             (o.id === targetOrd.id || o.client_order_id === targetOrd.client_order_id)
                 ? { ...o, is_voided: true, is_waste: isWaste, kds_status: 'BUMPED' }
@@ -4316,7 +4357,7 @@ export default function GavilanPosEcosystemPage() {
                                         {receiptConfig.showLogo && (
                                             <div className="text-center border-b border-dashed border-slate-300 pb-2">
                                                 <p className="text-sm font-black tracking-tight">🦅 TACOS GAVILAN</p>
-                                                <p className="text-[10px] text-slate-600">Sucursal #{activeStore?.storeNumber || 14} {formatCustomerStoreName({ id: activeStore?.storeNumber || 14, name: activeStore?.name || 'Lynwood' }, 'es')} • (424) 785-5535</p>
+                                                <p className="text-[10px] text-slate-600">Sucursal #{activeStore?.storeNumber || 14} {formatCustomerStoreName({ id: activeStore?.storeNumber || 14, name: activeStore?.name || 'Lynwood' }, isEs ? 'es' : 'en')} • {CANONICAL_POS_STORE_PHONES[activeStore?.storeNumber || 14] || '(424) 785-5535'}</p>
                                             </div>
                                         )}
                                         {receiptConfig.giantOrderNumber && (
@@ -4455,7 +4496,8 @@ export default function GavilanPosEcosystemPage() {
                                                     try {
                                                         const res = await fetch('/api/gavilan-pos/overview', {
                                                             method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
+                                                            credentials: 'include',
+                                                            headers: getPosAuthHeaders(true),
                                                             body: JSON.stringify({
                                                                 action: 'TEST_TCP_PRINT',
                                                                 targetIpPort: printerTargetIp,
@@ -4794,7 +4836,8 @@ export default function GavilanPosEcosystemPage() {
                                             try {
                                                 const res = await fetch('/api/gavilan-pos/overview', {
                                                     method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
+                                                    credentials: 'include',
+                                                    headers: getPosAuthHeaders(true),
                                                     body: JSON.stringify({
                                                         action: 'VERIFY_IDEMPOTENCY_LAB',
                                                         storeNumber: activeStore?.storeNumber || 14
@@ -4942,7 +4985,8 @@ export default function GavilanPosEcosystemPage() {
                                                     try {
                                                         const res = await fetch('/api/gavilan-pos/overview', {
                                                             method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
+                                                            credentials: 'include',
+                                                            headers: getPosAuthHeaders(true),
                                                             body: JSON.stringify({ action: 'SCAN_WAREHOUSE_PRINTERS' })
                                                         })
                                                         const data = await res.json()
@@ -5019,7 +5063,8 @@ export default function GavilanPosEcosystemPage() {
                                                     try {
                                                         const res = await fetch('/api/gavilan-pos/overview', {
                                                             method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
+                                                            credentials: 'include',
+                                                            headers: getPosAuthHeaders(true),
                                                             body: JSON.stringify({
                                                                 action: 'TEST_TCP_PRINT',
                                                                 targetIpPort: printerTargetIp,

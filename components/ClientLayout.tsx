@@ -26,6 +26,7 @@ import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
 import SupportChatWidget from './SupportChatWidget'
 import SupervisorAutoTracker from './miles/SupervisorAutoTracker'
+import SurpriseLoader from './SurpriseLoader'
 import ProtectedRoute, { useAuth } from './ProtectedRoute'
 import { useState, useEffect, useRef } from 'react'
 import { LanguageProvider, useLanguage } from '@/lib/i18n'
@@ -201,10 +202,21 @@ export default function ClientLayout({
         return false
     }
 
-    const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(() => checkDedicatedKioskSync(pathname))
-    const [isProtectedAppFullscreen, setIsProtectedAppFullscreen] = useState(() => checkProtectedAppFullscreenSync(pathname))
+    const isPathProtectedAppFullscreen = Boolean(
+        pathname && (
+            pathname === '/app/v1' ||
+            pathname.startsWith('/app/v1/') ||
+            pathname === '/app/v2' ||
+            pathname.startsWith('/app/v2/')
+        )
+    )
+
+    const [clientReady, setClientReady] = useState(false)
+    const [isDedicatedKiosk, setIsDedicatedKiosk] = useState(false)
+    const [isProtectedAppFullscreen, setIsProtectedAppFullscreen] = useState(false)
     useEffect(() => {
         const evaluateFullscreen = () => {
+            setClientReady(true)
             setIsDedicatedKiosk(checkDedicatedKioskSync(pathname))
             setIsProtectedAppFullscreen(checkProtectedAppFullscreenSync(pathname))
         }
@@ -224,13 +236,28 @@ export default function ClientLayout({
         pathname.startsWith('/t/') ||
         pathname.startsWith('/auth/') ||
         isDedicatedKiosk ||
-        checkDedicatedKioskSync(pathname)
+        (clientReady && checkDedicatedKioskSync(pathname))
 
     const isPrintSheetPage = printSheetRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
     const isChromelessProtectedPage =
         isPrintSheetPage ||
+        isPathProtectedAppFullscreen ||
         isProtectedAppFullscreen ||
-        checkProtectedAppFullscreenSync(pathname)
+        (clientReady && checkProtectedAppFullscreenSync(pathname))
+
+    // Store 24/7 kitchen/breakroom tablets, kiosk boards, customer order previews & hourly employee routes where SupportChatWidget must stay hidden
+    const hideSupportChatRoutes = [
+        '/inventory/preparador',
+        '/descansos',
+        '/actividades',
+        '/mis-horarios',
+        '/order-ready-board',
+        '/ordenar',
+        '/app',
+    ]
+    const shouldHideSupportChat = hideSupportChatRoutes.some(
+        r => pathname === r || Boolean(pathname?.startsWith(r + '/'))
+    )
 
     // Dedicated full-viewport workspace routes (REQUIRE login via ProtectedRoute, render their own 1:1 left rail & top bar)
     const dedicatedWorkspaceRoutes = [
@@ -245,7 +272,9 @@ export default function ClientLayout({
 
     return (
         <LanguageProvider>
-            {isPublicPage ? (
+            {pathname === '/order-ready-board' && !clientReady ? (
+                <SurpriseLoader />
+            ) : isPublicPage ? (
                 children
             ) : isChromelessProtectedPage ? (
                 <ProtectedRoute>
@@ -255,8 +284,10 @@ export default function ClientLayout({
                 <ProtectedRoute>
                     <div className="min-h-screen bg-[#f4f5f8] dark:bg-slate-950 relative">
                         {children}
-                        <SupportChatWidget />
-                        <SupervisorAutoTracker />
+                        <div className="print:hidden">
+                            {!shouldHideSupportChat && <SupportChatWidget />}
+                            <SupervisorAutoTracker />
+                        </div>
                     </div>
                 </ProtectedRoute>
             ) : (
@@ -288,7 +319,7 @@ export default function ClientLayout({
                             />
 
                             {/* TEG Assistant Chat Widget */}
-                            <SupportChatWidget />
+                            {!shouldHideSupportChat && <SupportChatWidget />}
 
                             {/* Supervisor Smart Mileage Auto-Tracker */}
                             <SupervisorAutoTracker />

@@ -142,6 +142,17 @@ function resolveMilesEmail(rawEmail?: string | null): string {
     : clean
 }
 
+function getMilesAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...(extra || {}) }
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('teg_token')
+    if (token && token !== 'null' && token !== 'undefined') {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+  }
+  return headers
+}
+
 export default function MilesIQPage() {
   return (
     <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
@@ -230,7 +241,7 @@ function MilesIQContent() {
     try {
       const res = await fetch('/api/miles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           supervisor_id: gap.supId || currentUser.id,
           supervisor_name: gap.supName || currentUser.name,
@@ -271,7 +282,7 @@ function MilesIQContent() {
 
       const res = await fetch('/api/miles/sync-inspections', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           date: dateRange.end || getCaliforniaBusinessDate(),
           supervisor_name: targetSupName,
@@ -352,7 +363,7 @@ function MilesIQContent() {
 
       // 2. Fetch Supervisors from Users Module (/usuarios)
       try {
-        const resSups = await fetch('/api/miles/supervisors')
+        const resSups = await fetch('/api/miles/supervisors', { headers: getMilesAuthHeaders() })
         const jsonSups = await resSups.json()
         if (jsonSups.success && Array.isArray(jsonSups.supervisors)) {
           setSupervisorsList(jsonSups.supervisors)
@@ -362,14 +373,14 @@ function MilesIQContent() {
       }
 
       // 3. Fetch Trips
-      const resTrips = await fetch('/api/miles')
+      const resTrips = await fetch('/api/miles', { headers: getMilesAuthHeaders() })
       const jsonTrips = await resTrips.json()
       if (jsonTrips.success) {
         setTrips(jsonTrips.trips || [])
       }
 
       // 4. Fetch Recurrent Emails
-      const resEmails = await fetch('/api/miles/recurrent-emails')
+      const resEmails = await fetch('/api/miles/recurrent-emails', { headers: getMilesAuthHeaders() })
       const jsonEmails = await resEmails.json()
       if (jsonEmails.success && jsonEmails.emails?.length > 0) {
         const dedupedMap = new Map<string, RecurrentEmail>()
@@ -395,7 +406,7 @@ function MilesIQContent() {
       }
 
       // 5. Fetch Settings & Distance Matrix
-      const resSettings = await fetch('/api/miles/settings')
+      const resSettings = await fetch('/api/miles/settings', { headers: getMilesAuthHeaders() })
       const jsonSettings = await resSettings.json()
       if (jsonSettings.success) {
         setCurrentRate(jsonSettings.rate_per_mile || 0.76)
@@ -405,7 +416,7 @@ function MilesIQContent() {
 
       // 6. Fetch Submissions Log
       try {
-        const resSubs = await fetch('/api/miles/submissions')
+        const resSubs = await fetch('/api/miles/submissions', { headers: getMilesAuthHeaders() })
         const jsonSubs = await resSubs.json()
         if (jsonSubs.success) {
           setSubmissions(jsonSubs.submissions || [])
@@ -429,7 +440,7 @@ function MilesIQContent() {
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(tripData)
       })
       const json = await res.json()
@@ -452,7 +463,7 @@ function MilesIQContent() {
   const handleDeleteTrip = async (id: string) => {
     if (!confirm(t('miles.confirm_delete'))) return
     try {
-      const res = await fetch(`/api/miles/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/miles/${id}`, { method: 'DELETE', headers: getMilesAuthHeaders() })
       const json = await res.json()
       if (json.success) {
         showToast(t('miles.trip_deleted'), 'warning')
@@ -470,7 +481,7 @@ function MilesIQContent() {
     try {
       const res = await fetch(`/api/miles/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status: newStatus })
       })
       const json = await res.json()
@@ -495,7 +506,7 @@ function MilesIQContent() {
       setSendingHr(true)
       const res = await fetch('/api/miles/send-hr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           sender_id: currentUser.id,
           sender_name: currentUser.name,
@@ -535,7 +546,7 @@ function MilesIQContent() {
       setSendingHr(true)
       const res = await fetch('/api/miles/send-hr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           sender_id: currentUser.id,
           sender_name: currentUser.name,
@@ -571,7 +582,7 @@ function MilesIQContent() {
     try {
       const res = await fetch('/api/miles/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           action: 'update_rate',
           rate_per_mile: val,
@@ -598,7 +609,7 @@ function MilesIQContent() {
       setIsPopulatingMatrix(true)
       const res = await fetch('/api/miles/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ action: 'auto_populate_matrix' })
       })
       const json = await res.json()
@@ -626,7 +637,7 @@ function MilesIQContent() {
     try {
       const res = await fetch('/api/miles/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getMilesAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           action: 'upsert_distance',
           origin_name: newOrigin.trim(),
@@ -706,6 +717,7 @@ function MilesIQContent() {
   const metrics = useMemo(() => {
     const totalMiles = filteredTrips.reduce((s, t) => s + (Number(t.distance_miles) || 0), 0)
     const totalReimbursement = filteredTrips.reduce((s, t) => {
+      if ((t.purpose && t.purpose !== 'Business') || t.status === 'rejected') return s
       const m = Number(t.distance_miles) || 0
       const r = Number(t.rate_per_mile) || currentRate
       const p = Number(t.parking_amount) || 0
@@ -737,8 +749,9 @@ function MilesIQContent() {
       totalAmount: number
     }> = {}
 
-    // Filter trips by active payroll date range
+    // Filter trips strictly to reimbursable Business + pending trips in the active payroll date range (matches POST /api/miles/send-hr)
     const targetTrips = trips.filter(t => {
+      if (t.purpose !== 'Business' || t.status !== 'pending') return false
       if (dateRange.start && t.trip_date < dateRange.start) return false
       if (dateRange.end && t.trip_date > dateRange.end) return false
       return true

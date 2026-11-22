@@ -1,5 +1,21 @@
 'use client'
 
+/**
+ * @module app/gestion/auto-schedule/page
+ * @description Panel administrativo de Auto-Programación (Self-Scheduling) de Tacos Gavilan
+ *   para generar, visualizar mapas de demanda, publicar y cerrar turnos semanales.
+ *
+ * @businessRules
+ *   - Acceso exclusivo para `admin` y `supervisor`.
+ *   - Marca oficial: estrictamente **Tacos Gavilan**.
+ *
+ * @dataFlow
+ *   `open_shifts` + `stores` + `/api/self-schedule/demand` + `/api/self-schedule/admin/generate`.
+ *
+ * @notes
+ *   - [2026-11-20] Corregido reemplazo de prefijo de marca a `'Tacos Gavilan - '`.
+ */
+
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
@@ -489,7 +505,7 @@ export default function AdminAutoSchedulePage() {
                                                         </option>
                                                         {stores.map(s => (
                                                             <option key={s.external_id} value={s.external_id}>
-                                                                📍 {s.name.replace('Tacos El Gordo - ', '')}
+                                                                📍 {s.name.replace('Tacos Gavilan - ', '')}
                                                             </option>
                                                         ))}
                                                     </select>

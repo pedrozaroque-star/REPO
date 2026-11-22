@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { getStoreStatusInLA } from '../data/stores'
 import type { CustomerAppV2Controller } from '../hooks/useCustomerAppV2'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 
 const DARK_MAP_STYLES = [
   { elementType: 'geometry', stylers: [{ color: '#212121' }] },
@@ -179,7 +180,7 @@ export function StoreAndMapModals({
             const marker = new gmaps.Marker({
               position: { lat: st.latitude, lng: st.longitude },
               map,
-              title: `Tacos Gavilan ${st.cityTitle} (${st.crossStreets})`,
+              title: `Tacos Gavilan ${formatCustomerStoreName(st, lang)}`,
               icon: isTarget ? activePinIcon : pinIcon,
               zIndex: isTarget ? 9990 : 100,
             })
@@ -311,10 +312,14 @@ export function StoreAndMapModals({
                     >
                       <div className="min-w-0 pr-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-black text-white">{st.cityTitle}</span>
-                          <span className="text-xs font-extrabold text-[#FFC72C]">
-                            {st.crossStreets}
+                          <span className="text-xs font-black text-white">
+                            {formatCustomerStoreName(st, lang)}
                           </span>
+                          {![5, 6, 7].includes(st.id) && (
+                            <span className="text-xs font-extrabold text-[#FFC72C]">
+                              {getCustomerStoreCrossStreets(st, lang) || st.crossStreets}
+                            </span>
+                          )}
                           <span
                             className={`text-[10px] font-bold ${
                               status.isOpen ? 'text-emerald-400' : 'text-amber-400'
@@ -356,7 +361,7 @@ export function StoreAndMapModals({
               <div className="bg-white text-[#121212] px-3.5 py-2.5 border-b border-black/10 space-y-2 shrink-0">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="v2-outfit text-sm font-extrabold text-[#121212] truncate">
-                    {t('mobile_legal.v2_map_modal_title')} · {mapFocusedStore.cityTitle}
+                    {t('mobile_legal.v2_map_modal_title')} · {formatCustomerStoreName(mapFocusedStore, lang)}
                   </h3>
                   <button
                     type="button"
@@ -432,7 +437,7 @@ export function StoreAndMapModals({
                           : 'bg-black/60 text-white/75 border-white/15'
                       }`}
                     >
-                      <span>{st.cityTitle}</span>
+                      <span>{formatCustomerStoreName(st, lang)}</span>
                       {st.distanceMiles !== null && (
                         <span className="text-[#FFC72C]">({st.distanceMiles.toFixed(1)} mi)</span>
                       )}
@@ -448,7 +453,7 @@ export function StoreAndMapModals({
                 ) : (
                   <iframe
                     key={`${mapFocusedStore.id}-${mapTheme}-${mapViewAll}-${lang}`}
-                    title={`Tacos Gavilan ${mapFocusedStore.cityTitle} Map`}
+                    title={`Tacos Gavilan ${formatCustomerStoreName(mapFocusedStore, lang)} Map`}
                     src={`https://maps.google.com/maps?q=${encodeURIComponent(
                       `Tacos Gavilan ${mapFocusedStore.address}`
                     )}&ll=${mapFocusedStore.latitude},${mapFocusedStore.longitude}&z=${
@@ -477,10 +482,15 @@ export function StoreAndMapModals({
                       ● {mapFocusedStoreStatus.badgeText}
                     </span>
                     <h4 className="v2-outfit text-base font-black text-white leading-tight mt-0.5">
-                      {mapFocusedStore.cityTitle}{' '}
-                      <span className="text-xs font-extrabold text-[#FFC72C] font-sans">
-                        • {mapFocusedStore.crossStreets}
-                      </span>
+                      {formatCustomerStoreName(mapFocusedStore, lang)}
+                      {![5, 6, 7].includes(mapFocusedStore.id) && (
+                        <>
+                          {' '}
+                          <span className="text-xs font-extrabold text-[#FFC72C] font-sans">
+                            • {getCustomerStoreCrossStreets(mapFocusedStore, lang) || mapFocusedStore.crossStreets}
+                          </span>
+                        </>
+                      )}
                     </h4>
                   </div>
                 </div>

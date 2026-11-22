@@ -1,3 +1,14 @@
+/**
+ * @module components/FeedbackReviewModal
+ * @description Modal de auditoría y seguimiento administrativo de reseñas y encuestas de satisfacción de clientes en Tacos Gavilan.
+ * @businessRules
+ * - Muestra calificaciones operativas, pregunta NPS oficial de Tacos Gavilan, fotografías adjuntas e historial de seguimiento gerencial.
+ * @dataFlow
+ * - `customer_feedback` + `feedback_comments` + `useDynamicChecklist` -> Revisión y cierre administrativo.
+ * @notes
+ * - Corregido 2026-11-20: uso estricto del nombre oficial de la marca `Tacos Gavilan`.
+ */
+
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
@@ -630,7 +641,7 @@ export default function FeedbackReviewModal({
                                     </div>
 
                                     <p className="text-lg font-bold text-slate-800 dark:text-white mb-4 text-center max-w-2xl mx-auto">
-                                        "{template?.sections?.[0]?.questions?.find((q: any) => q.type === 'nps')?.text || '¿Qué tan probable es que recomiendes Tacos El Gavilán a un amigo o familiar?'}"
+                                        "{template?.sections?.[0]?.questions?.find((q: any) => q.type === 'nps')?.text || '¿Qué tan probable es que recomiendes Tacos Gavilan a un amigo o familiar?'}"
                                     </p>
 
                                     <div className="flex flex-col items-center">

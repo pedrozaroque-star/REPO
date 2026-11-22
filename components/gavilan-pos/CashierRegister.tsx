@@ -1445,9 +1445,13 @@ function ManagerPinModal(props: {
         setError('')
         try {
             if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error(tr('pin_requires_network'))
+            const token = typeof window !== 'undefined' ? window.localStorage.getItem('teg_token') : null
+            const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+            if (token && token !== 'null' && token !== 'undefined') authHeaders.Authorization = `Bearer ${token}`
             const res = await fetch('/api/gavilan-pos/manager-approval', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: authHeaders,
                 body: JSON.stringify({
                     action: 'VERIFY',
                     pin,
@@ -1522,9 +1526,13 @@ function PinSetupModal({ tr, onClose, onSaved }: { tr: (k: string, o?: Record<st
         setBusy(true)
         setError('')
         try {
+            const token = typeof window !== 'undefined' ? window.localStorage.getItem('teg_token') : null
+            const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+            if (token && token !== 'null' && token !== 'undefined') authHeaders.Authorization = `Bearer ${token}`
             const res = await fetch('/api/gavilan-pos/manager-approval', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: authHeaders,
                 body: JSON.stringify({ action: 'SET_PIN', pin: first }),
             })
             const data = await res.json().catch(() => ({}))

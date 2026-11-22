@@ -10,14 +10,17 @@
  * - Supports Round Trip doubling and optional odometer inputs.
  * - Includes an interactive route map showing the visual path between origin and destination.
  * @dataFlow Component state -> API POST/PUT /api/miles -> Parent callback.
+ * @notes Incluye escáner IA de recibos/peajes (`POST /api/ai/scan-receipt` con `gemini-3.8-flash`) que autocompleta `parking_amount`, `tolls_amount`, `trip_date` y `purpose_notes` sin tocar columnas autocalculadas de PostgreSQL (`mileage_value`, `total_reimbursement`).
  */
 
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X, Car, MapPin, ArrowRight, RotateCw, DollarSign, Gauge,
-  FileText, CheckCircle, User, Navigation, LocateFixed, ExternalLink, Compass, Clock
+  FileText, CheckCircle, User, Navigation, LocateFixed, ExternalLink, Compass, Clock,
+  Sparkles, Loader2, UploadCloud
 } from 'lucide-react'
+import imageCompression from 'browser-image-compression'
 import { useLanguage } from '@/lib/i18n'
 import dynamic from 'next/dynamic'
 import { getCaliforniaBusinessDate, getCaliforniaTime } from '@/lib/business-date'
@@ -107,6 +110,153 @@ export default function TripModal({
   const [parkingAmount, setParkingAmount] = useState<number>(0)
   const [tollsAmount, setTollsAmount] = useState<number>(0)
   const [saving, setSaving] = useState<boolean>(false)
+  const [scanningReceipt, setScanningReceipt] = useState<boolean>(false)
+  const [receiptFeedback, setReceiptFeedback] = useState<{ ok: boolean; title: string; detail?: string } | null>(null)
+  const receiptInputRef = useRef<HTMLInputElement | null>(null)
+  const scanReqIdRef = useRef<number>(0)
+
+  const handleScanReceiptFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFile = e.target.files?.[0]
+    e.target.value = ''
+    if (!rawFile) return
+
+    const lowerName = (rawFile.name || '').toLowerCase()
+    const isPdf = rawFile.type === 'application/pdf' || lowerName.endsWith('.pdf')
+    const isHeic = /\.(heic|heif)$/i.test(lowerName) || rawFile.type === 'image/heic' || rawFile.type === 'image/heif'
+    const isImage = rawFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(lowerName)
+
+    if (isPdf && rawFile.size > 3 * 1024 * 1024) {
+      setReceiptFeedback({ ok: false, title: t('miles.ai_scan_pdf_too_large') })
+      return
+    }
+
+    const reqId = ++scanReqIdRef.current
+    setScanningReceipt(true)
+    setReceiptFeedback(null)
+    try {
+      let uploadFile: File | Blob = rawFile
+      let uploadName = rawFile.name || 'receipt.webp'
+      if (isImage) {
+        try {
+          uploadFile = await imageCompression(rawFile, {
+            maxSizeMB: 0.45,
+            maxWidthOrHeight: 1600,
+            useWebWorker: true,
+            fileType: 'image/webp',
+            initialQuality: 0.82,
+          })
+          uploadName = rawFile.name ? rawFile.name.replace(/\.[^.]+$/, '.webp') : 'receipt.webp'
+        } catch {
+          try {
+            uploadFile = await imageCompression(rawFile, {
+              maxSizeMB: 0.45,
+              maxWidthOrHeight: 1600,
+              useWebWorker: false,
+              fileType: 'image/webp',
+              initialQuality: 0.82,
+            })
+            uploadName = rawFile.name ? rawFile.name.replace(/\.[^.]+$/, '.webp') : 'receipt.webp'
+          } catch {
+            if (!rawFile.type && isHeic) {
+              const heicMime = lowerName.endsWith('.heif') ? 'image/heif' : 'image/heic'
+              uploadFile = new File([rawFile], rawFile.name || 'receipt.heic', { type: heicMime })
+            } else {
+              uploadFile = rawFile
+            }
+          }
+        }
+      }
+      if (reqId !== scanReqIdRef.current) return
+      if (uploadFile.size > 4 * 1024 * 1024) {
+        setReceiptFeedback({ ok: false, title: t('miles.ai_scan_pdf_too_large') })
+        return
+      }
+      const fd = new FormData()
+      fd.append('file', uploadFile, uploadName)
+      fd.append('contextHint', 'mileage')
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('teg_token') : null
+      const res = await fetch('/api/ai/scan-receipt', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: fd,
+      })
+      if (reqId !== scanReqIdRef.current) return
+      if (res.status === 413) {
+        throw new Error(t('miles.ai_scan_pdf_too_large'))
+      }
+      const ct = res.headers.get('content-type') || ''
+      const json = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
+      if (!res.ok || !json?.success || !json?.receipt) {
+        throw new Error(json?.error || t('miles.ai_scan_error'))
+      }
+      const rec = json.receipt
+      if (!rec.is_valid_document) {
+        setReceiptFeedback({
+          ok: false,
+          title: t('miles.ai_scan_not_receipt'),
+          detail: language === 'en' ? rec.quality_warning_en : rec.quality_warning_es,
+        })
+        return
+      }
+      if (typeof rec.total_usd === 'number' && rec.total_usd > 0) {
+        if (rec.expense_category === 'toll') {
+          setTollsAmount(rec.total_usd)
+        } else if (rec.expense_category === 'parking') {
+          setParkingAmount(rec.total_usd)
+        }
+      }
+      if (!editingTrip) {
+        if (rec.date_yyyy_mm_dd) {
+          setTripDate(rec.date_yyyy_mm_dd)
+        }
+        if (rec.time_12h) {
+          setStartTime(rec.time_12h)
+        }
+      }
+      const vendorTag = [rec.vendor_name, rec.invoice_number ? `#${rec.invoice_number}` : ''].filter(Boolean).join(' ')
+      const amountTag = typeof rec.total_usd === 'number' && rec.total_usd > 0 ? `$${rec.total_usd.toFixed(2)} USD` : ''
+      const auditStamp = [t('miles.ai_note_prefix') + ':', vendorTag, amountTag].filter(Boolean).join(' ')
+      if (auditStamp) {
+        setPurposeNotes(prev => {
+          const trimmed = prev.trim()
+          if (trimmed.includes(auditStamp)) return trimmed
+          return trimmed ? `${trimmed} • ${auditStamp}` : auditStamp
+        })
+      }
+      const summaryText = language === 'en' ? rec.summary_en : rec.summary_es
+      const warnText = language === 'en' ? rec.quality_warning_en : rec.quality_warning_es
+      const isReimbursableMileageAddon = rec.expense_category === 'toll' || rec.expense_category === 'parking'
+      if (!isReimbursableMileageAddon) {
+        const nonParkingTitle =
+          rec.expense_category === 'fuel'
+            ? t('miles.ai_scan_fuel_skipped')
+            : t('miles.ai_scan_non_parking_skipped')
+        setReceiptFeedback({
+          ok: false,
+          title: nonParkingTitle,
+          detail: [summaryText, warnText].filter(Boolean).join(' • '),
+        })
+        return
+      }
+      const catLabel =
+        rec.expense_category === 'toll'
+          ? t('miles.ai_scan_applied_toll')
+          : t('miles.ai_scan_applied_parking')
+      setReceiptFeedback({
+        ok: true,
+        title: `${catLabel}${amountTag ? ` — ${amountTag}` : ''}`,
+        detail: [summaryText, warnText].filter(Boolean).join(' • '),
+      })
+    } catch (err: any) {
+      if (reqId === scanReqIdRef.current) {
+        setReceiptFeedback({ ok: false, title: err?.message || t('miles.ai_scan_error') })
+      }
+    } finally {
+      if (reqId === scanReqIdRef.current) {
+        setScanningReceipt(false)
+      }
+    }
+  }
 
   // GPS & Navigation state
   const [detectingGps, setDetectingGps] = useState<'origin' | 'dest' | null>(null)
@@ -169,6 +319,10 @@ export default function TripModal({
 
   // Synchronize state when modal opens or editingTrip changes
   useEffect(() => {
+    scanReqIdRef.current += 1
+    setScanningReceipt(false)
+    setReceiptFeedback(null)
+
     if (!isOpen) return
 
     if (editingTrip) {
@@ -945,7 +1099,47 @@ export default function TripModal({
               </div>
             </div>
 
-            {/* Parking & Tolls Expenses */}
+            {/* Parking & Tolls Expenses + AI Receipt Scanner */}
+            <div className="p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/70 space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <span>{t('miles.ai_scan_receipt_btn')}</span>
+                  </p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    {t('miles.ai_scan_hint')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={scanningReceipt}
+                  onClick={() => receiptInputRef.current?.click()}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
+                >
+                  {scanningReceipt ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                  <span>{scanningReceipt ? t('miles.ai_scanning_receipt') : t('miles.ai_scan_receipt_btn')}</span>
+                </button>
+                <input
+                  ref={receiptInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={handleScanReceiptFile}
+                  className="hidden"
+                />
+              </div>
+              {receiptFeedback && (
+                <div className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border ${
+                  receiptFeedback.ok
+                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                    : 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                }`}>
+                  <div className="font-bold">{receiptFeedback.title}</div>
+                  {receiptFeedback.detail && <div className="opacity-90 mt-0.5">{receiptFeedback.detail}</div>}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
@@ -953,7 +1147,7 @@ export default function TripModal({
                 </label>
                 <input
                   type="number"
-                  step="0.50"
+                  step="0.01"
                   min="0"
                   value={parkingAmount}
                   onChange={e => setParkingAmount(parseFloat(e.target.value) || 0)}
@@ -966,7 +1160,7 @@ export default function TripModal({
                 </label>
                 <input
                   type="number"
-                  step="0.50"
+                  step="0.01"
                   min="0"
                   value={tollsAmount}
                   onChange={e => setTollsAmount(parseFloat(e.target.value) || 0)}

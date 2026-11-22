@@ -5,20 +5,23 @@
  * @businessRules
  * - Muestra todas las sucursales activas usando la nomenclatura oficial de cara al cliente (`formatCustomerStoreName`),
  *   identificando las tres tiendas de Los Ángeles (#5, #6 y #7) como `Los Ángeles` con sus entrecalles oficiales.
+ * - Inserta únicamente columnas reales de `public.customer_feedback` (`comments`, `service_rating`, `speed_rating`,
+ *   `food_quality_rating`, `cleanliness_rating`, `nps_score`, `nps_category`, `photo_urls`, `language`, `source`).
+ * - Si la pregunta NPS queda sin responder, guarda `nps_score: null` y `nps_category: null` (nunca `0` / `'detractor'`).
  *
  * @dataFlow
- * - GET `stores` + `useDynamicChecklist('public_feedback_v1')` -> respuestas de encuesta pública.
+ * - GET `stores` + `useDynamicChecklist('public_feedback_v1')` -> `INSERT public.customer_feedback`.
  *
  * @notes
- * - Sincronizado con `lib/customer-store-names.ts` para evitar mostrar alias internos (`LA Broadway`, `LA Central`, `Slauson`).
+ * - Corregido 2026-11-20: mapeadas columnas reales de `customer_feedback` (cero `PGRST204`), preservado `null` en NPS vacío y retirado cupón expirado.
  */
 
 'use client'
 
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Heart, Send, CheckCircle2, Gift, MapPin, Globe } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Heart, Send, CheckCircle2, MapPin, Globe } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
@@ -38,13 +41,13 @@ export default function FeedbackPublicoPage() {
 
   const [customerInfo, setCustomerInfo] = useState({
     customer_name: '',
-    customer_comments: ''
+    comments: ''
   })
 
   const [answers, setAnswers] = useState<{ [key: string]: any }>({})
   const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
 
-  const { data: template, loading: checklistLoading, isCached } = useDynamicChecklist('public_feedback_v1')
+  const { data: template, loading: checklistLoading } = useDynamicChecklist('public_feedback_v1')
 
   useEffect(() => {
     fetchStores()
@@ -69,34 +72,56 @@ export default function FeedbackPublicoPage() {
     setLoading(true)
     try {
       const supabase = await getSupabaseClient()
+      const questions = template?.sections?.[0]?.questions || []
 
-      // Calculate NPS category if NPS question exists
-      const npsQ = template?.sections[0]?.questions.find((q: any) => q.type === 'nps_10')
-      let nps_score = npsQ ? (answers[npsQ.id] || 0) : null
-      let nps_category = 'passive'
+      // Preserve null when NPS is unanswered (never coerce blank to 0 detractor)
+      const npsQ = questions.find((q: any) => q.type === 'nps_10' || q.type === 'nps')
+      const rawNps = npsQ ? answers[npsQ.id] : undefined
+      const parsedNps =
+        rawNps !== undefined && rawNps !== null && String(rawNps).trim() !== ''
+          ? Number(rawNps)
+          : NaN
+      const nps_score: number | null =
+        Number.isFinite(parsedNps) && parsedNps >= 0 && parsedNps <= 10
+          ? Math.round(parsedNps)
+          : null
+
+      let nps_category: string | null = null
       if (nps_score !== null) {
         if (nps_score >= 9) nps_category = 'promoter'
         else if (nps_score <= 6) nps_category = 'detractor'
+        else nps_category = 'passive'
       }
 
-      const formattedAnswers: { [key: string]: any } = {}
-      template?.sections[0]?.questions.forEach((q: any) => {
-        formattedAnswers[q.text] = answers[q.id]
-      })
+      const resolveRating = (keywords: string[], fallbackOrderIndex: number): number | null => {
+        const matched =
+          questions.find((q: any) => {
+            if (q.type !== 'rating_5') return false
+            const hay = `${q.original_text || ''} ${q.text || ''}`.toLowerCase()
+            return keywords.some(kw => hay.includes(kw))
+          }) || questions.find((q: any) => q.type === 'rating_5' && q.order_index === fallbackOrderIndex)
+        if (!matched) return null
+        const val = Number(answers[matched.id])
+        return Number.isFinite(val) && val >= 1 && val <= 5 ? Math.round(val) : null
+      }
 
-      // Add rich photo mapping
-      formattedAnswers['__question_photos'] = questionPhotos
+      const allPhotos = Object.values(questionPhotos).flat().filter(Boolean)
+      const numericStoreId = Number(selectedStore)
 
       const payload = {
-        store_id: selectedStore,
+        store_id: Number.isFinite(numericStoreId) && numericStoreId > 0 ? numericStoreId : selectedStore,
         submission_date: new Date().toISOString(),
+        service_rating: resolveRating(['caja', 'servicio', 'register', 'service'], 0),
+        speed_rating: resolveRating(['entrega', 'tiempo', 'rapidez', 'speed', 'delivery'], 1),
+        food_quality_rating: resolveRating(['calidad', 'alimentos', 'food', 'quality'], 2),
+        cleanliness_rating: resolveRating(['limpieza', 'clean'], 3),
         nps_score,
         nps_category,
-        customer_comments: customerInfo.customer_comments,
-        customer_name: customerInfo.customer_name,
+        comments: customerInfo.comments.trim() || null,
+        customer_name: customerInfo.customer_name.trim() || null,
         language: lang,
-        answers: formattedAnswers,
-        photo_urls: Object.values(questionPhotos).flat()
+        source: 'qr_public_feedback',
+        photo_urls: allPhotos.length > 0 ? allPhotos : null
       }
 
       const { error } = await supabase.from('customer_feedback').insert([payload])
@@ -120,10 +145,10 @@ export default function FeedbackPublicoPage() {
       submit: 'Enviar Feedback',
       sending: 'Enviando...',
       thanks: '¡Gracias!',
-      thanksMsg: 'Tu opinión nos ayuda a mejorar cada día.',
-      couponTitle: '¡TENEMOS UN REGALO!',
-      couponCode: 'TG2024',
-      couponDesc: 'Muestra este código en tu próxima visita para un 10% de descuento.',
+      thanksMsg: 'Tu opinión ha sido recibida por el equipo de Tacos Gavilan y nos ayuda a mejorar cada día.',
+      appreciationBadge: 'FAMILIA TACOS GAVILAN',
+      appreciationText: '¡Esperamos verte muy pronto en cualquiera de nuestras sucursales!',
+      backStart: 'Volver al inicio',
       errStore: 'Por favor selecciona una sucursal'
     },
     en: {
@@ -136,10 +161,10 @@ export default function FeedbackPublicoPage() {
       submit: 'Submit Feedback',
       sending: 'Sending...',
       thanks: 'Thank You!',
-      thanksMsg: 'Your feedback helps us improve every day.',
-      couponTitle: 'WE HAVE A GIFT!',
-      couponCode: 'TG2024',
-      couponDesc: 'Show this code on your next visit for a 10% discount.',
+      thanksMsg: 'Your feedback has been received by the Tacos Gavilan team and helps us improve every day.',
+      appreciationBadge: 'TACOS GAVILAN FAMILY',
+      appreciationText: 'We look forward to serving you again soon at any of our locations!',
+      backStart: 'Back to start',
       errStore: 'Please select a location'
     }
   }
@@ -165,33 +190,20 @@ export default function FeedbackPublicoPage() {
     return (
       <div className="min-h-screen bg-green-50 dark:bg-neutral-900 flex items-center justify-center p-6 text-center overflow-hidden relative">
         <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-        <div className="absolute inset-0 pointer-events-none opacity-20">
-          {[...Array(12)].map((_, i) => (
-            <motion.div key={i} animate={{ y: [0, 1000] }} transition={{ duration: 5 + Math.random() * 5, repeat: Infinity, ease: 'linear', delay: Math.random() * 5 }}
-              className="absolute text-4xl" style={{ left: `${Math.random() * 100}%`, top: '-50px' }}>
-              🪙
-            </motion.div>
-          ))}
-        </div>
 
         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="max-w-md w-full bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border-4 border-white dark:border-slate-800">
           <div className="w-20 h-20 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner shadow-green-200/50">
             <CheckCircle2 size={40} />
           </div>
           <h1 className="text-4xl font-black text-gray-900 dark:text-white mb-4">{t.thanks}</h1>
-          <p className="text-gray-500 dark:text-slate-400 text-lg mb-10 leading-relaxed font-medium">{t.thanksMsg}</p>
+          <p className="text-gray-500 dark:text-slate-400 text-lg mb-8 leading-relaxed font-medium">{t.thanksMsg}</p>
 
-          <div className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-[2.5rem] p-8 text-white shadow-xl shadow-orange-200/50 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 rotate-12 group-hover:rotate-45 transition-transform duration-700">
-              <Gift size={100} />
-            </div>
-            <h2 className="text-xs font-black uppercase tracking-[0.2em] mb-2">{t.couponTitle}</h2>
-            <div className="text-4xl font-black mb-4 tracking-tighter">10% OFF</div>
-            <div className="bg-white/20 backdrop-blur-md rounded-2xl py-3 px-6 font-black text-2xl tracking-widest inline-block border border-white/30 uppercase">{t.couponCode}</div>
-            <p className="text-[10px] font-bold mt-6 opacity-90 leading-relaxed">{t.couponDesc}</p>
+          <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-[2rem] p-6 text-white shadow-xl shadow-red-200/50 dark:shadow-none">
+            <div className="text-[11px] font-black uppercase tracking-[0.2em] text-yellow-300 mb-2">{t.appreciationBadge}</div>
+            <p className="text-sm font-bold leading-relaxed">{t.appreciationText}</p>
           </div>
 
-          <button onClick={() => window.location.reload()} className="mt-10 text-gray-400 dark:text-slate-500 font-black text-xs uppercase tracking-widest hover:text-gray-900 dark:hover:text-white transition-colors">Volver al inicio</button>
+          <button onClick={() => window.location.reload()} className="mt-10 text-gray-400 dark:text-slate-500 font-black text-xs uppercase tracking-widest hover:text-gray-900 dark:hover:text-white transition-colors">{t.backStart}</button>
         </motion.div>
       </div>
     )
@@ -268,7 +280,7 @@ export default function FeedbackPublicoPage() {
           <section className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-[3rem] p-8 shadow-xl shadow-red-50/50 dark:shadow-none border border-gray-100 dark:border-slate-800 space-y-8 transition-colors">
             <div className="space-y-4">
               <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-2 italic">{t.comments}</label>
-              <textarea value={customerInfo.customer_comments} onChange={e => setCustomerInfo({ ...customerInfo, customer_comments: e.target.value })} rows={4}
+              <textarea value={customerInfo.comments} onChange={e => setCustomerInfo({ ...customerInfo, comments: e.target.value })} rows={4}
                 className="w-full p-6 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-[2rem] font-medium text-gray-700 dark:text-white outline-none focus:ring-4 focus:ring-red-50 dark:focus:ring-red-900/20 transition-all resize-none placeholder:text-gray-300 dark:placeholder:text-slate-600"
                 placeholder="..." />
             </div>

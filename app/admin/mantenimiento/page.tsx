@@ -11,18 +11,19 @@
  * @dataFlow
  * - /api/mantenimiento -> maintenance_service_logs & stores -> Renderizado de métricas, bitácora y eliminación.
  * @notes
- * - Incluye modal interactivo con visor de imágenes a pantalla completa para inspección forense de trabajos.
+ * - Incluye modal interactivo con visor de imágenes a pantalla completa para inspección forense de trabajos y extracción automática de facturas PDF/foto con `gemini-3.8-flash` (`/api/ai/scan-receipt`).
  */
 
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import imageCompression from 'browser-image-compression'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Wrench, QrCode, Download, Search, Calendar,
   Building2, CheckCircle2, Clock, AlertTriangle,
   X, ExternalLink, RefreshCw, FileText,
-  ShieldCheck, User, Trash2, Loader2, UploadCloud, Save
+  ShieldCheck, User, Trash2, Loader2, UploadCloud, Save, Sparkles
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
@@ -101,7 +102,7 @@ function formatTimeAndDuration(start?: string, end?: string): string | null {
 }
 
 export default function AdminMaintenanceDashboardPage() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
 
   const [logs, setLogs] = useState<MaintenanceLog[]>([])
   const [stores, setStores] = useState<Store[]>([])
@@ -133,12 +134,20 @@ export default function AdminMaintenanceDashboardPage() {
   const [editPhotosInvoice, setEditPhotosInvoice] = useState<string[]>([])
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [isUploadingAdminInvoice, setIsUploadingAdminInvoice] = useState(false)
+  const [isExtractingAdminInvoiceAi, setIsExtractingAdminInvoiceAi] = useState(false)
+  const [adminInvoiceAiBanner, setAdminInvoiceAiBanner] = useState<{ ok: boolean; text: string } | null>(null)
+  const selectedLogIdRef = useRef<string | null>(null)
+  const adminScanSeqRef = useRef(0)
   const [modalShiftLeaders, setModalShiftLeaders] = useState<ShiftLeaderOption[]>([])
   const [loadingModalLeaders, setLoadingModalLeaders] = useState(false)
 
   // Sincronizar campos de edición y consultar encargados del turno (Planificador + Horarios) al abrir un registro en el modal
   useEffect(() => {
     let active = true
+    selectedLogIdRef.current = selectedLog?.id ?? null
+    adminScanSeqRef.current += 1
+    setIsExtractingAdminInvoiceAi(false)
+    setAdminInvoiceAiBanner(null)
     if (selectedLog) {
       setEditStatus(selectedLog.status || 'completed')
       setEditInvoiceNumber(selectedLog.invoice_number || '')
@@ -243,28 +252,155 @@ export default function AdminMaintenanceDashboardPage() {
   const handleAdminInvoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
+    const targetLogId = selectedLog?.id ?? null
     setIsUploadingAdminInvoice(true)
     try {
-      const file = files[0]
+      const rawFile = files[0]
+      const lowerName = (rawFile.name || '').toLowerCase()
+      const isPdf = rawFile.type === 'application/pdf' || lowerName.endsWith('.pdf')
+      const isHeic = /\.(heic|heif)$/i.test(lowerName) || rawFile.type === 'image/heic' || rawFile.type === 'image/heif'
+      const isImage = !isPdf && (rawFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(lowerName))
+
+      if (isPdf && rawFile.size > 4 * 1024 * 1024) {
+        setAdminInvoiceAiBanner({ ok: false, text: t('maintenance.ai_invoice_file_too_large') })
+        return
+      }
+
+      let uploadFile: File | Blob = rawFile
+      let uploadFileName = rawFile.name || (isPdf ? 'invoice.pdf' : 'invoice.webp')
+      if (isImage) {
+        try {
+          uploadFile = await imageCompression(rawFile, {
+            maxSizeMB: 0.45,
+            maxWidthOrHeight: 1600,
+            useWebWorker: true,
+            fileType: 'image/webp',
+            initialQuality: 0.82,
+          })
+          uploadFileName = rawFile.name ? rawFile.name.replace(/\.[^.]+$/, '.webp') : 'invoice.webp'
+        } catch {
+          try {
+            uploadFile = await imageCompression(rawFile, {
+              maxSizeMB: 0.45,
+              maxWidthOrHeight: 1600,
+              useWebWorker: false,
+              fileType: 'image/webp',
+              initialQuality: 0.82,
+            })
+            uploadFileName = rawFile.name ? rawFile.name.replace(/\.[^.]+$/, '.webp') : 'invoice.webp'
+          } catch {
+            if (!rawFile.type && isHeic) {
+              uploadFile = new File([rawFile], rawFile.name || 'invoice.heic', {
+                type: lowerName.endsWith('.heif') ? 'image/heif' : 'image/heic',
+              })
+            } else {
+              uploadFile = rawFile
+            }
+          }
+        }
+      }
+
+      if (uploadFile.size > 4 * 1024 * 1024) {
+        setAdminInvoiceAiBanner({ ok: false, text: t('maintenance.ai_invoice_file_too_large') })
+        return
+      }
+
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', uploadFile, uploadFileName)
       formData.append('folder', 'invoice')
 
       const res = await fetch('/api/mantenimiento/upload', {
         method: 'POST',
         body: formData
       })
-      const json = await res.json()
-      if (json.success && json.url) {
+      if (res.status === 413) {
+        setAdminInvoiceAiBanner({ ok: false, text: t('maintenance.ai_invoice_file_too_large') })
+        return
+      }
+      const ct = res.headers.get('content-type') || ''
+      const json = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
+      if (selectedLogIdRef.current !== targetLogId) return
+      if (res.ok && json.success && json.url) {
         setEditPhotosInvoice(prev => [...prev, json.url].slice(0, 5))
+        void handleAdminExtractInvoiceWithAi(json.url)
       } else {
         setDeleteFeedback({ type: 'error', message: json.error || t('maintenance.error_upload_photo') })
       }
     } catch (err: any) {
-      setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.error_upload_photo') })
+      if (selectedLogIdRef.current === targetLogId) {
+        setDeleteFeedback({ type: 'error', message: err.message || t('maintenance.error_upload_photo') })
+      }
     } finally {
-      setIsUploadingAdminInvoice(false)
+      if (selectedLogIdRef.current === targetLogId) {
+        setIsUploadingAdminInvoice(false)
+      }
       e.target.value = ''
+    }
+  }
+
+  // Extraer datos de Factura/PDF con Gemini 3.8 en el Modal Administrativo
+  const handleAdminExtractInvoiceWithAi = async (invoiceUrl: string) => {
+    if (!invoiceUrl) return
+    const targetLogId = selectedLog?.id ?? null
+    const isWarrantyLog = selectedLog?.service_type === 'warranty'
+    const reqSeq = ++adminScanSeqRef.current
+    setIsExtractingAdminInvoiceAi(true)
+    setAdminInvoiceAiBanner(null)
+    try {
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('teg_token') : null
+      const res = await fetch('/api/ai/scan-receipt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ fileUrl: invoiceUrl, contextHint: 'maintenance' }),
+      })
+      if (reqSeq !== adminScanSeqRef.current || selectedLogIdRef.current !== targetLogId) return
+      if (res.status === 413) {
+        throw new Error(t('maintenance.ai_invoice_file_too_large'))
+      }
+      const ct = res.headers.get('content-type') || ''
+      const json = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
+      if (!res.ok || !json?.success || !json?.receipt) {
+        throw new Error(json?.error || t('maintenance.ai_invoice_error'))
+      }
+      const rec = json.receipt
+      if (!rec.is_valid_document) {
+        const warn = language === 'en' ? rec.quality_warning_en : rec.quality_warning_es
+        setAdminInvoiceAiBanner({
+          ok: false,
+          text: warn || t('maintenance.ai_invoice_not_valid'),
+        })
+        return
+      }
+      if (rec.invoice_number) setEditInvoiceNumber(rec.invoice_number)
+      if (typeof rec.total_usd === 'number' && rec.total_usd > 0 && !isWarrantyLog && selectedLog?.service_type !== 'warranty') {
+        setEditCostEstimate(String(rec.total_usd))
+      }
+      const summary = language === 'en' ? rec.summary_en : rec.summary_es
+      if (summary) {
+        setEditNotes(prev => {
+          const trimmed = prev.trim()
+          if (trimmed.includes(summary)) return trimmed
+          return trimmed ? `${trimmed}\n[IA: ${summary}]` : `[IA: ${summary}]`
+        })
+      }
+      setAdminInvoiceAiBanner({
+        ok: true,
+        text: `${t('maintenance.ai_invoice_applied')}${summary ? `: ${summary}` : ''}`,
+      })
+    } catch (err: any) {
+      if (reqSeq === adminScanSeqRef.current && selectedLogIdRef.current === targetLogId) {
+        setAdminInvoiceAiBanner({
+          ok: false,
+          text: err?.message || t('maintenance.ai_invoice_error'),
+        })
+      }
+    } finally {
+      if (reqSeq === adminScanSeqRef.current) {
+        setIsExtractingAdminInvoiceAi(false)
+      }
     }
   }
 
@@ -1105,10 +1241,22 @@ export default function AdminMaintenanceDashboardPage() {
 
                   {/* Factura / Orden Física */}
                   <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
                       <span className="font-bold text-slate-700 dark:text-slate-300">
                         {t('maintenance.invoice_photo')} ({editPhotosInvoice.length})
                       </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                      {editPhotosInvoice.length > 0 && (
+                        <button
+                          type="button"
+                          disabled={isExtractingAdminInvoiceAi}
+                          onClick={() => handleAdminExtractInvoiceWithAi(editPhotosInvoice[editPhotosInvoice.length - 1])}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold border border-indigo-200 dark:border-indigo-800 transition-colors"
+                        >
+                          {isExtractingAdminInvoiceAi ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                          <span>{isExtractingAdminInvoiceAi ? t('maintenance.ai_invoice_extracting') : t('maintenance.ai_invoice_extract_btn')}</span>
+                        </button>
+                      )}
                       {editPhotosInvoice.length < 5 && (
                         <label className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-700 dark:text-blue-300 text-[11px] font-bold border border-blue-200 dark:border-blue-800 transition-colors">
                           <UploadCloud size={13} />
@@ -1126,7 +1274,19 @@ export default function AdminMaintenanceDashboardPage() {
                           />
                         </label>
                       )}
+                      </div>
                     </div>
+                    {adminInvoiceAiBanner && (
+                      <div
+                        className={`mb-2 px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold ${
+                          adminInvoiceAiBanner.ok
+                            ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-800 dark:text-indigo-200'
+                            : 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                        }`}
+                      >
+                        {adminInvoiceAiBanner.ok ? '✨' : '⚠️'} {adminInvoiceAiBanner.text}
+                      </div>
+                    )}
                     {editPhotosInvoice.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {editPhotosInvoice.map((url, idx) => {

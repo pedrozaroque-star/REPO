@@ -19,7 +19,7 @@ import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCir
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
-import { getSafeLADateISO } from '@/lib/checklistPermissions'
+import { getSafeLADateISO, getCurrentShift } from '@/lib/checklistPermissions'
 import { getNumericValue } from '@/lib/scoreCalculator'
 import { useLanguage } from '@/lib/i18n'
 
@@ -102,7 +102,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     store_id: initialData?.store_id?.toString() || '',
     inspection_date: initialData?.inspection_date ? initialData.inspection_date.substring(0, 10) : getSafeLADateISO(null),
     inspection_time: initialData?.inspection_time || new Date().toTimeString().slice(0, 5),
-    shift: initialData?.shift || (new Date().getHours() >= 17 || new Date().getHours() < 7 ? 'PM' : 'AM'),
+    shift: initialData?.shift || getCurrentShift(),
     observaciones: initialData?.observaciones || ''
   })
 
@@ -570,11 +570,18 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             // Notificaciones de comentarios: Se delegan a la API para evitar problemas de RLS en el frontend
             const questionsWithComments = allQuestions.filter(q => questionComments[q.id] && questionComments[q.id].trim() !== '')
 
+            const staffBearerToken = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+            const authFetchHeaders: Record<string, string> = {
+              'Content-Type': 'application/json',
+              ...(staffBearerToken ? { Authorization: `Bearer ${staffBearerToken}` } : {})
+            }
+
             // --- NUEVO: DISPARAR NOTIFICACION POR CORREO ---
             if (questionsWithComments.length > 0 && savedData?.[0]?.id) {
               fetch('/api/notifications/inspection-comments', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: authFetchHeaders,
                 body: JSON.stringify({ inspection_id: savedData[0].id })
               }).then(res => res.json())
                 .then(data => console.log('📧 Email notification response:', data))
@@ -585,7 +592,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             try {
               fetch('/api/miles/sync-inspections', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: authFetchHeaders,
                 body: JSON.stringify({
                   supervisor_id: payload.inspector_id,
                   supervisor_name: payload.supervisor_name,

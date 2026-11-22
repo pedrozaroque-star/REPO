@@ -46,7 +46,7 @@ import {
 const getBusinessDate = (): string => {
   const now = new Date()
   const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-  const laHour = parseInt(now.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
+  const laHour = (parseInt(now.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }), 10) || 0) % 24
   if (laHour < 6) {
     const [y, m, d] = laDateStr.split('-').map(Number)
     const prev = new Date(y, m - 1, d - 1)

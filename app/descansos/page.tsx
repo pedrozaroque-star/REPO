@@ -19,6 +19,8 @@
  *   y Escenario 2 (ausencia de último minuto con Reajuste IA de pendientes futuros vs Solo Ocultar, protegiendo memoria semanal).
  *   Mantiene la pantalla siempre encendida 24/7 (Screen Wake Lock + video silencioso de respaldo, ver `lib/use-wake-lock.ts`).
  *   Optimización 2026-11-19 (Paquete 2B): polling de respaldo bidireccional sobre `shifts` elevado de 10s a 45s con guardia `visibilityState === 'visible'` (mantiene Realtime activo).
+ *   [2026-11-20] FIX CRÍTICO: Unificada la huella JSON de polling (`serializeShiftsPollingSnapshot` con `{ id, bs, ic, n }`)
+ *   entre `loadDayData`, `syncLocalPollingSnapshot` y el ciclo de 45s, eliminando ~1,920 recargas completas/día por tableta.
  */
 
 'use client'
@@ -125,6 +127,20 @@ export default function DescansosPage() {
         )
     }
 
+    const serializeShiftsPollingSnapshot = (shiftsArr: any[]): string =>
+        JSON.stringify(
+            (shiftsArr || [])
+                .filter(s => s && s.id != null)
+                .slice()
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                .map(s => ({
+                    id: s.id,
+                    bs: (s as any).breaks_schedule ?? null,
+                    ic: Boolean((s as any).is_callback),
+                    n: String((s as any).notes || '')
+                }))
+        )
+
     const syncLocalPollingSnapshot = (shiftsList?: Shift[]) => {
         lastLocalMutationAtRef.current = Date.now()
         const baseDbShifts = lastDataRef.current?.shifts || []
@@ -137,9 +153,7 @@ export default function DescansosPage() {
         const merged = (baseDbShifts.length > 0 ? baseDbShifts : (shiftsList || []).filter((s: any) => !(s as any)._isAbsent))
             .filter(s => s.id != null)
             .map(s => overrideMap.get(String(s.id)) || s)
-            .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-            .map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback, n: (s as any).notes || '' }))
-        lastPolledDbRef.current = JSON.stringify(merged)
+        lastPolledDbRef.current = serializeShiftsPollingSnapshot(merged)
     }
 
     const shouldSkipPermanentLearning = (
@@ -1412,13 +1426,7 @@ export default function DescansosPage() {
         setTodayShifts(todayRawShifts);
 
         // Inicializar snapshot del polling ordenado por ID para evitar falsos positivos por ordenamiento MVCC en Postgres
-        lastPolledDbRef.current = JSON.stringify(
-            todayRawShifts
-                .filter(s => s.id != null)
-                .slice()
-                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-                .map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback }))
-        );
+        lastPolledDbRef.current = serializeShiftsPollingSnapshot(todayRawShifts);
 
         const dbAbsentees = todayRawShifts
             .filter(s => s.is_callback === true && s.employee_id !== null)
@@ -1614,14 +1622,8 @@ export default function DescansosPage() {
 
                 if (!freshShifts || freshShifts.length === 0) return;
 
-                // Serializar el snapshot actual de la BD ordenado por ID
-                const freshSnapshot = JSON.stringify(
-                    freshShifts
-                        .filter(s => s.id != null)
-                        .slice()
-                        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-                        .map(s => ({ id: s.id, bs: s.breaks_schedule, ic: s.is_callback, n: (s as any).notes || '' }))
-                );
+                // Serializar el snapshot actual de la BD ordenado por ID (idéntico a loadDayData)
+                const freshSnapshot = serializeShiftsPollingSnapshot(freshShifts);
 
                 // Primera vez: guardar snapshot y salir (no hay con qué comparar)
                 if (!lastPolledDbRef.current) {

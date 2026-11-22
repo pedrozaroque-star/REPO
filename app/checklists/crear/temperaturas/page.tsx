@@ -20,6 +20,10 @@ import '@/app/checklists/checklists.css'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
+import { getTempValidation } from '@/lib/checklistValidators'
+
+const hasValidTemp = (val: unknown): val is number =>
+  val !== '' && val !== null && val !== undefined && !Number.isNaN(Number(val))
 
 interface Store {
   id: string
@@ -50,11 +54,11 @@ function TemperaturasContent() {
   // Flatten and Derive Logic
   const temperatureItems = template?.sections.flatMap((s: any) =>
     s.questions.map((q: any) => {
-      const textToCheck = `${q.text} ${s.title}`.toLowerCase()
-      const isRefrig = textToCheck.includes('refrig') || textToCheck.includes('frio') || textToCheck.includes('walking') || textToCheck.includes('hiel')
+      const { isFreezer, isRefrig } = getTempValidation(q.text, 0, s.title)
       return {
         ...q,
-        type: isRefrig ? 'cold' : 'hot' as 'cold' | 'hot'
+        sectionTitle: s.title,
+        type: (isFreezer ? 'freezer' : isRefrig ? 'cold' : 'hot') as 'freezer' | 'cold' | 'hot'
       }
     })
   ) || []
@@ -95,9 +99,9 @@ function TemperaturasContent() {
 
   const adjustTemp = (id: string, delta: number) => {
     setTemperatures(prev => {
-      const current = prev[id] || 0
-      const newValue = current + delta
-      return { ...prev, [id]: Math.max(0, newValue) }
+      const current = hasValidTemp(prev[id]) ? Number(prev[id]) : 0
+      const newValue = Math.round((current + delta) * 10) / 10
+      return { ...prev, [id]: newValue }
     })
   }
 
@@ -106,18 +110,24 @@ function TemperaturasContent() {
   }
 
   const handleManualInput = (id: string, value: string) => {
+    if (value === '') {
+      setTemperatures(prev => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      return
+    }
     const num = parseFloat(value)
-    if (!isNaN(num)) {
+    if (!Number.isNaN(num)) {
       setTemperatures(prev => ({ ...prev, [id]: num }))
-    } else if (value === '') {
-      const newTemps = { ...temperatures }
-      delete newTemps[id]
-      setTemperatures(newTemps)
     }
   }
 
-  const isValidTemp = (temp: number, type: 'cold' | 'hot'): boolean => {
-    if (type === 'cold') {
+  const isValidTemp = (temp: number, type: 'freezer' | 'cold' | 'hot'): boolean => {
+    if (type === 'freezer') {
+      return temp <= 32
+    } else if (type === 'cold') {
       return temp <= 40
     } else {
       return temp >= 140
@@ -126,12 +136,12 @@ function TemperaturasContent() {
 
   const getTempStatus = (id: string): 'good' | 'bad' | 'none' => {
     const value = temperatures[id]
-    if (value === undefined || value === 0) return 'none'
+    if (!hasValidTemp(value)) return 'none'
 
     const item = temperatureItems.find((i: any) => i.id === id)
     if (!item) return 'none'
 
-    return isValidTemp(value, item.type) ? 'good' : 'bad'
+    return isValidTemp(Number(value), item.type) ? 'good' : 'bad'
   }
 
   const calculateScore = (): number => {
@@ -140,9 +150,9 @@ function TemperaturasContent() {
 
     temperatureItems.forEach((item: any) => {
       const value = temperatures[item.id]
-      if (value === undefined || value === 0) return
+      if (!hasValidTemp(value)) return
       totalCount++
-      if (isValidTemp(value, item.type)) {
+      if (isValidTemp(Number(value), item.type)) {
         validCount++
       }
     })
@@ -158,8 +168,9 @@ function TemperaturasContent() {
 
     if (!formData.store_id) return alert('Selecciona una sucursal')
 
-    if (Object.keys(temperatures).length < temperatureItems.length) {
-      alert(`⚠️ Falta capturar ${temperatureItems.length - Object.keys(temperatures).length} temperaturas.`)
+    const capturedTotal = temperatureItems.filter((item: any) => hasValidTemp(temperatures[item.id])).length
+    if (capturedTotal < temperatureItems.length) {
+      alert(`⚠️ Falta capturar ${temperatureItems.length - capturedTotal} temperaturas.`)
       return
     }
 
@@ -223,7 +234,7 @@ function TemperaturasContent() {
   }
 
   const score = calculateScore()
-  const capturedCount = Object.keys(temperatures).length
+  const capturedCount = temperatureItems.filter((item: any) => hasValidTemp(temperatures[item.id])).length
 
   return (
     <div className="min-h-screen bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden">
@@ -293,9 +304,11 @@ function TemperaturasContent() {
                 <div className="grid grid-cols-1 gap-4">
                   {section.questions.map((item: any) => {
                     const status = getTempStatus(item.id)
-                    const currentTemp = temperatures[item.id] || 0
-                    const textToCheck = (item.text + ' ' + section.title).toLowerCase()
-                    const itemType = (textToCheck.includes('refrig') || textToCheck.includes('frio') || textToCheck.includes('walking') || textToCheck.includes('hiel')) ? 'cold' : 'hot'
+                    const rawTemp = temperatures[item.id]
+                    const displayTemp = hasValidTemp(rawTemp) ? rawTemp : ''
+                    const { isFreezer, isRefrig } = getTempValidation(item.text, 0, section.title)
+                    const itemType: 'freezer' | 'cold' | 'hot' = isFreezer ? 'freezer' : isRefrig ? 'cold' : 'hot'
+                    const isColdLike = itemType === 'cold' || itemType === 'freezer'
 
                     return (
                       <motion.div
@@ -308,14 +321,14 @@ function TemperaturasContent() {
                       >
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${itemType === 'cold' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isColdLike ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
                               }`}>
-                              {itemType === 'cold' ? <Snowflake size={20} /> : <Flame size={20} />}
+                              {isColdLike ? <Snowflake size={20} /> : <Flame size={20} />}
                             </div>
                             <div>
                               <h4 className="font-bold text-gray-900 dark:text-white">{item.text}</h4>
                               <span className="text-[10px] font-black uppercase tracking-widest opacity-40">
-                                {itemType === 'cold' ? 'Rango: ≤40°F' : 'Rango: ≥140°F'}
+                                {itemType === 'freezer' ? 'Rango: ≤32°F' : itemType === 'cold' ? 'Rango: ≤40°F' : 'Rango: ≥140°F'}
                               </span>
                             </div>
                           </div>
@@ -329,7 +342,14 @@ function TemperaturasContent() {
 
                         <div className="flex flex-col md:flex-row gap-4 items-center">
                           <div className="flex gap-2 w-full md:w-auto">
-                            {itemType === 'cold' ? (
+                            {itemType === 'freezer' ? (
+                              [-5, 0, 20].map(v => (
+                                <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
+                                  className="flex-1 md:w-16 h-10 bg-gray-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-500 hover:text-white rounded-xl font-bold text-xs transition-colors text-gray-600 dark:text-slate-400">
+                                  {v}°F
+                                </button>
+                              ))
+                            ) : itemType === 'cold' ? (
                               [35, 38, 40].map(v => (
                                 <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
                                   className="flex-1 md:w-16 h-10 bg-gray-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-500 hover:text-white rounded-xl font-bold text-xs transition-colors text-gray-600 dark:text-slate-400">
@@ -353,7 +373,7 @@ function TemperaturasContent() {
                             </button>
                             <div className="flex-1 relative">
                               <input type="number" step="0.1"
-                                value={currentTemp || ''}
+                                value={displayTemp}
                                 onChange={(e) => handleManualInput(item.id, e.target.value)}
                                 placeholder="--"
                                 className="w-full h-12 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-center font-black text-2xl text-gray-900 dark:text-white focus:ring-2 focus:ring-red-100 dark:focus:ring-red-900/20" />

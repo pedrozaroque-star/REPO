@@ -1,3 +1,14 @@
+/**
+ * @module components/food-cost/ProductDetailModal
+ * @description Modal de desglose unitario de receta, empaque, margen y tickets Toast POS por platillo para el módulo Food Cost de Tacos Gavilan.
+ * @businessRules
+ * - Separa ingredientes alimenticios vs empaque/suministros y permite inspeccionar órdenes reales vía `/api/toast-order-detail`.
+ * @dataFlow
+ * - `/api/inventory/recipe-detail` + `/api/inventory/item-tickets` + `/api/toast-order-detail` -> Modal interactivo.
+ * @notes
+ * - Corregido 2026-11-20: uso estricto del nombre oficial de la marca `Tacos Gavilan`.
+ */
+
 'use client'
 
 import React, { useEffect, useState } from 'react'
@@ -152,7 +163,7 @@ export default function ProductDetailModal({ item, storeId, startDate, endDate, 
         setOrderDetailData({
             loading: true,
             checkId: checkId || orderId.slice(0, 8),
-            storeName: item.group_name || 'Tacos El Gavilan'
+            storeName: item.group_name || 'Tacos Gavilan'
         })
 
         const fetchUrl = `/api/toast-order-detail?guid=${orderId}${storeId ? `&storeId=${storeId}` : ''}`

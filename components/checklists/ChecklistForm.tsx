@@ -272,7 +272,12 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
       const supabase = await getSupabaseClient()
       const score = calculateScore()
       const newPhotos = Object.values(questionPhotos).flat()
-      const allPhotos = [...(initialData?.photos || []), ...newPhotos]
+      const existingPhotos = Array.isArray(initialData?.photo_urls)
+        ? initialData.photo_urls
+        : Array.isArray(initialData?.photos)
+          ? initialData.photos
+          : []
+      const allPhotos = Array.from(new Set([...existingPhotos, ...newPhotos].filter(Boolean)))
 
       const formattedAnswers: { [key: string]: any } = {}
       allQuestions.forEach((q: any) => {
@@ -283,20 +288,42 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
 
       const isEditing = Boolean(initialData?.id)
       const tableName = type === 'manager' ? 'manager_checklists' : 'assistant_checklists'
+      const resolvedStoreId = isEditing
+        ? (initialData?.store_id || user.store_id || null)
+        : (user.store_id || initialData?.store_id || null)
+      const resolvedUserId = isEditing ? (initialData?.user_id || user.id) : user.id
+      const resolvedAuthorName = isEditing
+        ? (initialData?.manager_name || initialData?.user_name || initialData?.created_by || user.name || user.email)
+        : (user.name || user.email)
 
-      const payload = {
-        checklist_type: type,
-        user_id: isEditing ? (initialData?.user_id || user.id) : user.id,
-        user_name: isEditing ? (initialData?.user_name || user.name || user.email) : (user.name || user.email),
-        store_id: user.store_id || initialData?.store_id || null,
-        checklist_date: formData.checklist_date,
-        shift: formData.shift,
-        comments: formData.comments,
-        answers: formattedAnswers,
-        score: score,
-        photos: allPhotos.length > 0 ? allPhotos : (initialData?.photos || null),
-        status: initialData ? initialData.status : 'pendiente'
-      }
+      const payload: Record<string, any> =
+        tableName === 'manager_checklists'
+          ? {
+              user_id: resolvedUserId,
+              manager_name: resolvedAuthorName,
+              created_by: isEditing ? (initialData?.created_by || resolvedAuthorName) : resolvedAuthorName,
+              store_id: resolvedStoreId,
+              checklist_date: formData.checklist_date,
+              shift: formData.shift,
+              comments: formData.comments || null,
+              answers: formattedAnswers,
+              score: score,
+              photo_urls: allPhotos.length > 0 ? allPhotos : null
+            }
+          : {
+              checklist_type: type,
+              user_id: resolvedUserId,
+              user_name: resolvedAuthorName,
+              created_by: isEditing ? (initialData?.created_by || resolvedAuthorName) : resolvedAuthorName,
+              store_id: resolvedStoreId,
+              checklist_date: formData.checklist_date,
+              shift: formData.shift,
+              comments: formData.comments || null,
+              answers: formattedAnswers,
+              score: score,
+              photos: allPhotos.length > 0 ? allPhotos : null,
+              photo_urls: allPhotos.length > 0 ? allPhotos : null
+            }
 
       const { error } = isEditing
         ? await supabase.from(tableName).update(payload).eq('id', initialData.id)

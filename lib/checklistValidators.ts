@@ -5,7 +5,7 @@
  * - Alimentos y equipos fríos / Refrigeración (Cold holding): <= 40°F (40°F o menos).
  * - Congelación (Freezer): <= 32°F (óptimo 0°F).
  * - Mantenimiento caliente (Hot holding / Vaporeras): >= 140°F.
- * @notes Normaliza tildes y mayúsculas para coincidencia bilingüe exacta.
+ * @notes Normaliza tildes y mayúsculas para coincidencia bilingüe exacta y prioriza contexto caliente (vaporera/caliente/carnes/huevo ranchero) antes de palabras frías genéricas como 'salsa'.
  */
 
 export const getTempValidation = (questionText: string = '', value: number, sectionTitle?: string) => {
@@ -15,21 +15,51 @@ export const getTempValidation = (questionText: string = '', value: number, sect
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase();
 
-    const isFreezer = normalized.includes('freezer') || normalized.includes('congelador') || normalized.includes('nieve');
-    const isRefrig = !isFreezer && (
+    const isFreezer =
+        normalized.includes('freezer') ||
+        normalized.includes('congelador') ||
+        normalized.includes('nieve');
+
+    const hasColdEquipment =
         normalized.includes('refrig') ||
         normalized.includes('frio') ||
         normalized.includes('fria') ||
-        normalized.includes('cold') ||
+        /\bcold\b/.test(normalized) ||
         normalized.includes('cooler') ||
         normalized.includes('walk-in') ||
         normalized.includes('walking') ||
-        normalized.includes('salsa') ||
-        normalized.includes('hiel')
+        normalized.includes('hiel');
+
+    const isHotHolding =
+        !isFreezer &&
+        (normalized.includes('vaporera') ||
+            normalized.includes('caliente') ||
+            normalized.includes('steam') ||
+            normalized.includes('parrilla') ||
+            normalized.includes('plancha') ||
+            /\bhot\b/.test(normalized) ||
+            normalized.includes('huevo ranchero') ||
+            (!hasColdEquipment &&
+                (normalized.includes('arroz') ||
+                    normalized.includes('frijol') ||
+                    normalized.includes('frijo') ||
+                    normalized.includes('carnitas') ||
+                    normalized.includes('cabeza') ||
+                    normalized.includes('lengua') ||
+                    normalized.includes('buche') ||
+                    normalized.includes('chorizo') ||
+                    normalized.includes('asada') ||
+                    normalized.includes('pastor') ||
+                    normalized.includes('pollo') ||
+                    normalized.includes('champurrado'))));
+
+    const isRefrig = !isFreezer && !isHotHolding && (
+        hasColdEquipment ||
+        normalized.includes('salsa')
     );
 
     const num = Number(value);
-    if (isNaN(num)) {
+    if (value === null || value === undefined || (typeof value === 'string' && value === '') || isNaN(num)) {
         return { isValid: false, isRefrig, isFreezer };
     }
 

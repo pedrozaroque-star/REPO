@@ -39,6 +39,7 @@ import {
   Truck,
 } from 'lucide-react'
 import type { CustomerAppV2Controller } from '../hooks/useCustomerAppV2'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 
 export function OrderHubTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
   const {
@@ -116,7 +117,7 @@ export function OrderHubTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
             }`}
           />
           <span className="truncate">
-            {currentStore.cityTitle} • {currentStoreStatus.badgeText}
+            {formatCustomerStoreName(currentStore, lang)} • {currentStoreStatus.badgeText}
           </span>
         </div>
 
@@ -143,10 +144,12 @@ export function OrderHubTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
               {t('mobile_legal.wrapper_active_store_label')}
             </div>
             <div className="text-xs font-black text-white truncate flex items-center gap-1.5">
-              <span>{currentStore.cityTitle}</span>
-              <span className="text-[#FFC72C] font-extrabold font-sans truncate">
-                {currentStore.crossStreets}
-              </span>
+              <span>{formatCustomerStoreName(currentStore, lang)}</span>
+              {![5, 6, 7].includes(currentStore.id) && (
+                <span className="text-[#FFC72C] font-extrabold font-sans truncate">
+                  {getCustomerStoreCrossStreets(currentStore, lang) || currentStore.crossStreets}
+                </span>
+              )}
             </div>
           </div>
           <ChevronDown size={13} className="text-[#FDC82F] shrink-0" />
@@ -586,7 +589,7 @@ export function OrderHubTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
                   >
                     <div className="min-w-0">
                       <p className="text-xs font-black text-white truncate">
-                        {st.cityTitle} · {sess.mode.toUpperCase()}
+                        {formatCustomerStoreName(st, lang)} · {sess.mode.toUpperCase()}
                       </p>
                       <p className="text-[10px] text-white/55 truncate">
                         {t('mobile_legal.v2_orders_session_opened_at')} {formatSessionTime(sess.openedAt)}

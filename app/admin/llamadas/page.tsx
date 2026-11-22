@@ -4596,7 +4596,10 @@ export default function ContestadoraIaPage() {
                 />
               </div>
             ) : (
-            <div className="lg:col-span-7 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-h-[560px]">
+            <div
+              data-teg-live-sim={simActive ? 'true' : 'false'}
+              className="lg:col-span-7 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-h-[560px]"
+            >
               {/* Phone Call Top Bar */}
               <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
                 <div className="flex items-center gap-3">
