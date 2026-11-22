@@ -9,7 +9,7 @@
  *   1) Puntualidad estricta (±3 min respecto al turno publicado) con exención inteligente por llamado/cobertura gerencial.
  *   2) Discrepancias Toast POS vs RONOS (`REPAIR_RONOS_PUNCH`) y tarjetas incompletas (`BROKEN_TIMECARD`) para proteger el cheque.
  *   3) Inasistencias (`NO_SHOW`), salidas tempranas (`EARLY_CLOCK_OUT`) y 3+ días consecutivos por enfermedad (`MEDICAL_NOTE_REQUIRED`).
- *   4) Comidas en RONOS: 30m exactos (`LONG_LUNCH` >=31m sin mencionar margen, `MEAL_PENALTY_SHORT` <30m, 5ta hora `>5h`, omitido `>6h`).
+ *   4) Comidas en RONOS: 30m exactos (`LONG_LUNCH` >=33m con +2m de tolerancia confidencial hasta 32m 59s sin mencionar margen, `MEAL_PENALTY_SHORT` <30m, 5ta hora `>5h`, omitido `>6h`).
  *   Además genera y envía el **Reporte General Diario de Cadena (Todas las Tiendas)** consolidando las 15 sucursales.
  *
  * @businessRules

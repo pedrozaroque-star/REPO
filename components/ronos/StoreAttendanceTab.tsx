@@ -60,7 +60,7 @@ import {
   RonosDayAttendanceEvaluation
 } from './types'
 import EmployeeDetailView from './EmployeeDetailView'
-import { getPacificBusinessDate, detectTodayAnomalies, formatTime12h, getPunchIsoString, formatUsaDate } from './helpers'
+import { getPacificBusinessDate, detectTodayAnomalies, formatTime12h, getPunchIsoString, formatUsaDate, isActiveRonosViolation } from './helpers'
 
 interface StoreAttendanceTabProps {
   storeData: StoreAuditData | null
@@ -76,7 +76,7 @@ interface StoreAttendanceTabProps {
 
 function getPreferredViolationDay(employee: EmployeeTimecard): { date: string; violation?: DailyViolation } | undefined {
   for (const day of employee.days || []) {
-    const active = (day.violations || []).filter(v => v && v.isViolation !== false)
+    const active = (day.violations || []).filter(isActiveRonosViolation)
     if (active.length > 0) {
       return { date: (day.date || '').slice(0, 10), violation: active[0] }
     }
@@ -397,7 +397,7 @@ export default function StoreAttendanceTab({
     const sched = ev?.scheduledShift || day.scheduledShift
     const toast = ev?.toastSummary || day.toastSummary
     const badgeSpec = getPunctualityBadgeSpec(ev)
-    const activeViolations = (day.violations || []).filter(v => v && v.isViolation !== false)
+    const activeViolations = (day.violations || []).filter(isActiveRonosViolation)
 
     const ronosIn = ev?.ronosSummary?.clockInLA || (day.clockInTime ? formatTime12h(day.clockInTime) : null)
     const ronosOut = ev?.ronosSummary?.clockOutLA || (day.clockOutTime ? formatTime12h(day.clockOutTime) : null)
@@ -644,7 +644,7 @@ export default function StoreAttendanceTab({
 
       if (filterExceptionsOnly) {
         const hasNhpIssues = (emp.nhpSummary?.totalActiveViolationsCount || 0) > 0
-        const hasDayViolations = (emp.days || []).some(d => (d.violations || []).some(v => v.isViolation !== false))
+        const hasDayViolations = (emp.days || []).some(d => (d.violations || []).some(isActiveRonosViolation))
         const hasIssue = emp.brokenHours || (emp.mealPenaltyCount || 0) > 0 || hasNhpIssues || hasDayViolations
         if (!hasIssue) return false
       }
@@ -1556,7 +1556,7 @@ export default function StoreAttendanceTab({
                         d.clockInTime ||
                         d.clockOutTime ||
                         (d.totalHours || 0) > 0 ||
-                        (d.violations && d.violations.length > 0)
+                        (d.violations || []).some(isActiveRonosViolation)
                       )
                     )
 
@@ -1730,7 +1730,7 @@ export default function StoreAttendanceTab({
                     d.clockInTime ||
                     d.clockOutTime ||
                     (d.totalHours || 0) > 0 ||
-                    (d.violations && d.violations.length > 0)
+                    (d.violations || []).some(isActiveRonosViolation)
                   )
                 )
 

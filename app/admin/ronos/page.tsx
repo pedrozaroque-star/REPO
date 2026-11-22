@@ -46,7 +46,7 @@ import {
   PhotoModalState,
   EmailModalState
 } from '@/components/ronos/types'
-import { computeCingularBiWeeklyPeriods, getPacificDateString } from '@/components/ronos/helpers'
+import { computeCingularBiWeeklyPeriods, getPacificDateString, isActiveRonosViolation } from '@/components/ronos/helpers'
 
 // Componentes modulares de las 5 Pestañas
 import RonosHeader, { RonosTabId } from '@/components/ronos/RonosHeader'
@@ -708,9 +708,9 @@ function RonosLaborAuditContent() {
   ) => {
     const today = new Date()
     const firstViolationDay = (employee.days || []).find(d =>
-      (d.violations || []).some(v => v && v.isViolation !== false)
+      (d.violations || []).some(isActiveRonosViolation)
     )
-    const fallbackViolation = firstViolationDay?.violations?.find(v => v && v.isViolation !== false)
+    const fallbackViolation = firstViolationDay?.violations?.find(isActiveRonosViolation)
     const targetViolation = dayContext?.violation || fallbackViolation
     const dateStr =
       dayContext?.date?.slice(0, 10) ||

@@ -30,6 +30,7 @@ import { supabaseAdmin } from './supabase'
 import { getAllToastEmployees, calculateNameSimilarity, ToastEmployeeCandidate } from './ronos-mapping'
 import { getSimplifyHrRateForEmployee } from './simplifyhr-api'
 import { isEmployeeSalaried } from './payroll-calculator'
+import { INTERNAL_LUNCH_MIN_VIOLATION_MINUTES } from './break-violations-policy'
 
 // ============================================================================
 // TIPOS E INTERFACES
@@ -984,7 +985,7 @@ export function analyzeDayCompliance(
         })
       }
 
-      if (Math.floor(m.durationMinutes) >= 31) {
+      if (Math.floor(m.durationMinutes) >= INTERNAL_LUNCH_MIN_VIOLATION_MINUTES) {
         const excessMins = Number((m.durationMinutes - 30).toFixed(2))
         violations.push({
           type: 'LONG_LUNCH',

@@ -43,6 +43,7 @@ import {
   detectStoreDayCoverageGap,
   evaluateEmployeeDayAttendancePolicy,
   evaluateSalariedExemption,
+  INTERNAL_LUNCH_MIN_VIOLATION_MINUTES,
   parseTimeInLA,
   summarizePlannerShiftForDay,
   summarizeToastPunchesForDay,
@@ -221,6 +222,15 @@ function mergeDayViolations(
   if (Array.isArray(existingViolations)) {
     for (const ev of existingViolations) {
       if (!ev?.type) continue
+      // Descartar LONG_LUNCH cacheados antiguos (< 33m cumplidos, ej. 31m o 32m dentro de la tolerancia confidencial)
+      if (
+        ev.type === 'LONG_LUNCH' &&
+        (ev.minutes === undefined ||
+          ev.minutes === null ||
+          Math.floor(Number(ev.minutes)) < INTERNAL_LUNCH_MIN_VIOLATION_MINUTES)
+      ) {
+        continue
+      }
       if (!byType.has(ev.type)) {
         byType.set(ev.type, ev)
       }

@@ -6,7 +6,8 @@
  *
  * @businessRules
  * - Tiempos oficiales autorizados: 10 minutos exactos para Rest Break pagado y 30 minutos exactos para Meal Lunch no pagado.
- * - Margen técnico interno confidencial de 1 minuto (cortando en >= 11m 00s para Break y >= 31m 00s para Lunch).
+ * - Margen técnico interno confidencial: +1 minuto en Break (10m y 11m cumplidos, hasta 11m 59s sin alerta; cortando en >= 12m 00s)
+ *   y +2 minutos en Lunch (30m, 31m y 32m cumplidos, hasta 32m 59s sin alerta; cortando en >= 33m 00s).
  * - REGLA ESTRICTA DE CONFIDENCIALIDAD: Queda terminantemente prohibido mencionar o insinuar cualquier margen
  *   de tolerancia en correos electrónicos, reportes gerenciales, interfaz de usuario o respuestas del asistente.
  * - Responsabilidad compartida obligatoria:
@@ -27,9 +28,11 @@
 export const AUTHORIZED_BREAK_MINUTES = 10
 export const AUTHORIZED_LUNCH_MINUTES = 30
 
-// Umbrales internos estrictamente confidenciales (10m + 1m = 11m; 30m + 1m = 31m)
-export const INTERNAL_BREAK_MIN_VIOLATION_MINUTES = 11
-export const INTERNAL_LUNCH_MIN_VIOLATION_MINUTES = 31
+// Umbrales internos estrictamente confidenciales:
+// Break: 10m autorizados + 1m tolerancia confidencial (10m y 11m limpios, hasta 11m 59s) -> infracción desde >= 12m 00s
+// Lunch: 30m autorizados + 2m tolerancia confidencial (30m, 31m y 32m limpios, hasta 32m 59s) -> infracción desde >= 33m 00s
+export const INTERNAL_BREAK_MIN_VIOLATION_MINUTES = 12
+export const INTERNAL_LUNCH_MIN_VIOLATION_MINUTES = 33
 export const SEVERE_PUNCH_ANOMALY_MINUTES = 60
 
 export const KNOWN_OFFICIAL_CORPORATE_EMAILS = new Set([

@@ -9,7 +9,7 @@
  *
  * @businessRules
  * - Tiempos oficiales autorizados: 10 minutos exactos (Rest Break pagado) y 30 minutos exactos (Meal Lunch no pagado).
- * - Evaluación vía `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`) con margen técnico confidencial de 1m.
+ * - Evaluación vía `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`): Break 10m oficial (+1m tolerancia confidencial hasta 11m 59s -> infracción desde >= 12m cumplidos) y Lunch 30m oficial (+2m tolerancia confidencial hasta 32m 59s -> infracción desde >= 33m cumplidos).
  * - PROHIBICIÓN ESTRICTA: Jamás mencionar ni insinuar tolerancia en correos ni en interfaz.
  * - Envío institucional desde `noreply@tacosgavilan.com` vía `sendSystemEmail` (`lib/system-mailer.ts`).
  * - Filtra la hora local de `America/Los_Angeles` (`laHour === 11`) para que el par de crons UTC (`59 18 * * *` y `59 19 * * *`)

@@ -17,7 +17,25 @@
  *   - Evita problemas de cambio de horario (daylight saving) parseando componentes de fecha explícitamente en hora del Pacífico.
  */
 
-import { WorkWeekOption, BiWeeklyPeriod, EmployeeTimecard } from './types'
+import { INTERNAL_LUNCH_MIN_VIOLATION_MINUTES } from '@/lib/break-violations-policy'
+import { WorkWeekOption, BiWeeklyPeriod, EmployeeTimecard, DailyViolation } from './types'
+
+/**
+ * Filtra si una violación de día en RONOS está activa, descartando cualquier LONG_LUNCH
+ * heredado/cacheado cuyo tiempo completo sea menor al umbral interno (>= 33 min).
+ */
+export function isActiveRonosViolation(v?: DailyViolation | null): v is DailyViolation {
+  if (!v || v.isViolation === false) return false
+  if (
+    v.type === 'LONG_LUNCH' &&
+    typeof v.minutes === 'number' &&
+    v.minutes > 0 &&
+    Math.floor(v.minutes) < INTERNAL_LUNCH_MIN_VIOLATION_MINUTES
+  ) {
+    return false
+  }
+  return true
+}
 
 /**
  * Convierte timestamps ISO (ej. 2026-08-24T16:50:46.264-07:00) en hora legible 12h (ej. 4:50 PM)

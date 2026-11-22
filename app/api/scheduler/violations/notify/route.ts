@@ -5,7 +5,7 @@
  *
  * @businessRules
  * - Autentica al usuario en servidor vía `getServerUser` y verifica permisos (`admin`, `supervisor`, `manager`).
- * - Revalida en servidor cada infracción mediante `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`).
+ * - Revalida en servidor cada infracción mediante `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`: Break >= 12m, Lunch >= 33m).
  * - CERO mención de tolerancia en correos; envía desde `noreply@tacosgavilan.com` vía `sendSystemEmail`
  *   tanto a cada empleado con correo entregable como al Gerente de Tienda activo (con CC al Supervisor de Zona),
  *   recordándole sus responsabilidades gerenciales obligatorias.
@@ -20,6 +20,8 @@ import {
     buildEmployeeBreakViolationEmailHtml,
     buildManagerDailyViolationReportHtml,
     evaluatePunchBreakViolation,
+    INTERNAL_BREAK_MIN_VIOLATION_MINUTES,
+    INTERNAL_LUNCH_MIN_VIOLATION_MINUTES,
     ManagerDailyViolationItem,
     validateEmployeeViolationEmail,
 } from '@/lib/break-violations-policy'
@@ -173,6 +175,11 @@ export async function POST(req: Request) {
                 outDate: v.outDate,
             })
             if (!evalRes || !evalRes.isViolation) continue
+            const minRequiredMins =
+                evalRes.type === 'BRK'
+                    ? INTERNAL_BREAK_MIN_VIOLATION_MINUTES
+                    : INTERNAL_LUNCH_MIN_VIOLATION_MINUTES
+            if (evalRes.actualMinutes < minRequiredMins) continue
 
             const alreadySaved = existingViolations?.some(
                 (dbV: any) =>

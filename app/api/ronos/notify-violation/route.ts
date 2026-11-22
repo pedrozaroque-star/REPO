@@ -33,6 +33,7 @@ import {
   validateEmployeeViolationEmail,
   type RonosDayAttendanceEvaluation,
 } from '@/lib/ronos-attendance-policy'
+import { INTERNAL_LUNCH_MIN_VIOLATION_MINUTES } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
 
 export async function POST(req: Request) {
@@ -198,10 +199,29 @@ export async function POST(req: Request) {
       )
     }
 
+    const isUnderThresholdLongLunch = (v: any): boolean => {
+      if (!v || v.type !== 'LONG_LUNCH') return false
+      const vMins = Number(v.minutes ?? 0)
+      if (Number.isFinite(vMins) && vMins > 0 && Math.floor(vMins) < INTERNAL_LUNCH_MIN_VIOLATION_MINUTES) {
+        return true
+      }
+      const dayLunchMins = Number(auditDay.lunchDurationMinutes ?? 0)
+      if (
+        Number.isFinite(dayLunchMins) &&
+        dayLunchMins > 0 &&
+        Math.floor(dayLunchMins) < INTERNAL_LUNCH_MIN_VIOLATION_MINUTES
+      ) {
+        return true
+      }
+      return false
+    }
+
     const nhpEval: RonosDayAttendanceEvaluation | undefined = auditDay.nhpEvaluation
-    const activeNhpViolations = (nhpEval?.violations || []).filter((v) => v.isViolation)
+    const activeNhpViolations = (nhpEval?.violations || []).filter(
+      (v) => v.isViolation && !isUnderThresholdLongLunch(v)
+    )
     const fallbackDayViolations = (auditDay.violations || []).filter(
-      (v: any) => v && v.isViolation !== false
+      (v: any) => v && v.isViolation !== false && !isUnderThresholdLongLunch(v)
     )
     const violations = activeNhpViolations.length > 0 ? activeNhpViolations : fallbackDayViolations
 
@@ -218,6 +238,18 @@ export async function POST(req: Request) {
     // 5. Extracción de evidencia y ponchadas validadas del servidor (NO del cliente)
     const requestedViolationType =
       typeof body.violationType === 'string' ? body.violationType.trim() : ''
+    if (
+      requestedViolationType === 'LONG_LUNCH' &&
+      !violations.some((v: any) => v.type === 'LONG_LUNCH')
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Auditoría verificada: No existe infracción LONG_LUNCH comprobada en el sistema para la fecha ${targetDate}.`,
+        },
+        { status: 400 }
+      )
+    }
     const primaryViolation =
       (requestedViolationType &&
         violations.find((v: any) => v.type === requestedViolationType)) ||

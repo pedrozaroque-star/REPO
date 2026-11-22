@@ -36,7 +36,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { EmployeeTimecard } from './types'
-import { formatTime12h, formatDayDetails, formatUsaDate } from './helpers'
+import { formatTime12h, formatDayDetails, formatUsaDate, isActiveRonosViolation } from './helpers'
 
 interface EmployeeDetailViewProps {
   employee: EmployeeTimecard
@@ -215,7 +215,8 @@ export default function EmployeeDetailView({
         <div className="space-y-2">
           {employee.days?.map((day, dIdx) => {
             const hasWorked = (day.totalHours || 0) > 0 || (day.punches && day.punches.length > 0)
-            const hasViolations = day.violations && day.violations.length > 0
+            const activeDayViolations = (day.violations || []).filter(isActiveRonosViolation)
+            const hasViolations = activeDayViolations.length > 0
             const { dayOfWeek, dateFormatted } = formatDayDetails(day.date, day.dayName)
 
             if (!hasWorked) {
@@ -268,9 +269,9 @@ export default function EmployeeDetailView({
                   <div className="mt-2.5 p-2.5 rounded-lg bg-rose-100/70 dark:bg-rose-900/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                     <div>
-                      <strong className="font-bold">{day.violations![0]?.title || 'Incidencia de Horario'}</strong>
+                      <strong className="font-bold">{activeDayViolations[0]?.title || 'Incidencia de Horario'}</strong>
                       <span className="mx-1">·</span>
-                      <span>{day.violations![0]?.description}</span>
+                      <span>{activeDayViolations[0]?.description}</span>
                     </div>
                   </div>
                 )}

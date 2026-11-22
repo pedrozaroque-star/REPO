@@ -8,7 +8,7 @@
  * @businessRules
  * - Período evaluado: Semana completa inmediata anterior (lunes a domingo, `America/Los_Angeles`).
  * - Tiempos oficiales autorizados: 10 minutos exactos para Rest Break pagado y 30 minutos exactos para Meal Lunch no pagado.
- * - Evaluación unificada mediante `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`).
+ * - Evaluación unificada mediante `evaluatePunchBreakViolation` (`lib/break-violations-policy.ts`: Break >= 12m, Lunch >= 33m).
  * - REGLA ESTRICTA: Cero mención de márgenes de tolerancia en el cuerpo del correo o encabezados.
  * - Destinatarios: Dirección General (`raquel@tacosgavilan.com`, `roberto@tacosgavilan.com`), `carlos@tacosgavilan.com`
  *   y Supervisores de Zona asignados en `stores` (`ricardo@tacosgavilan.com`, `javier@tacosgavilan.com`, etc.).
@@ -31,6 +31,8 @@ import {
     evaluatePunchBreakViolation,
     formatBusinessDateEs,
     formatTimeLA,
+    INTERNAL_BREAK_MIN_VIOLATION_MINUTES,
+    INTERNAL_LUNCH_MIN_VIOLATION_MINUTES,
 } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
 
@@ -166,6 +168,11 @@ export async function GET(req: Request) {
                     outDate: b.outDate,
                 })
                 if (!evalRes || !evalRes.isViolation) continue
+                const minViolationThreshold =
+                    evalRes.type === 'BRK'
+                        ? INTERNAL_BREAK_MIN_VIOLATION_MINUTES
+                        : INTERNAL_LUNCH_MIN_VIOLATION_MINUTES
+                if (evalRes.actualMinutes < minViolationThreshold) continue
 
                 const emp = emps.find((e) => e.toast_guid === p.employee_toast_guid)
                 violations.push({

@@ -34,8 +34,8 @@
  *        como en Toast POS, se clasifica como `NO_SHOW` ("Inasistencia a Turno Programado sin Autorización").
  *      * 3 o más turnos consecutivos ausentes por enfermedad activan `MEDICAL_NOTE_REQUIRED` ("3 o más turnos consecutivos por enfermedad requieren justificante médico").
  * 3. Política de Comida y Descanso en RONOS (`NHP TEG SPANISH.pdf` p. 4 y p. 10 / California Labor Code § 512):
- *    - `LONG_LUNCH`: Duración de comida >= 31 minutos cumplidos (tiempo oficial autorizado: 30 minutos exactos;
- *      PROHIBIDO mencionar cualquier margen de tolerancia en correos o interfaz).
+ *    - `LONG_LUNCH`: Duración de comida >= 33 minutos cumplidos (tiempo oficial autorizado: 30 minutos exactos;
+ *      30m, 31m y 32m cumplidos sin alerta; PROHIBIDO mencionar cualquier margen de tolerancia en correos o interfaz).
  *    - `MEAL_PENALTY_SHORT`: Duración de comida < 30.0 minutos ininterrumpidos.
  *    - `MEAL_PENALTY_LATE`: Primer almuerzo iniciado después de > 5.0 horas de trabajo continuo (Violación de 5ta Hora).
  *    - `MEAL_PENALTY_MISSED`: Turno > 6.0 horas sin registrar comida (`LUNCH`) en RONOS (si registró comida en Toast POS,
@@ -1393,7 +1393,7 @@ export function evaluateRonosMealAndTimecardPolicy(params: {
         })
       }
 
-      // B. LONG_LUNCH (>= 31 minutos cumplidos; tiempo oficial autorizado: 30 minutos exactos; CERO mención de tolerancia)
+      // B. LONG_LUNCH (>= 33 minutos cumplidos; tiempo oficial autorizado: 30 minutos exactos; CERO mención de tolerancia)
       if (completedMinutes >= INTERNAL_LUNCH_MIN_VIOLATION_MINUTES) {
         const excessMinutes = Math.max(1, completedMinutes - AUTHORIZED_LUNCH_MINUTES)
         violations.push({
@@ -2612,7 +2612,7 @@ function formatCompactViolationPillLabel(v: RonosPolicyViolationItem): string {
   if (v.type === 'EARLY_CLOCK_OUT' && safeNum(v.minutes, 0) > 0) {
     return `Salida Temprana (-${Math.round(safeNum(v.minutes, 0))} min)`
   }
-  if (v.type === 'LONG_LUNCH' && safeNum(v.minutes, 0) >= 31) {
+  if (v.type === 'LONG_LUNCH' && safeNum(v.minutes, 0) >= INTERNAL_LUNCH_MIN_VIOLATION_MINUTES) {
     const tot = Math.floor(safeNum(v.minutes, 0))
     const ex = Math.max(1, tot - 30)
     return `Exceso Lunch (${tot}m / +${ex}m)`
