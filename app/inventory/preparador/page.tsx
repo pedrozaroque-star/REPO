@@ -63,6 +63,10 @@
  *   - BLINDAJE TÁCTIL MESWAO B3 / PANTALLA GRANDE 15.6" (2026-11-17):
  *     1) Tick acústico sintetizado en memoria vía Web Audio API + vibración háptica (`0ms`, sin archivo MP3 404).
  *     2) Radar de proximidad multi-toque (`40px`, prioridad `changedTouches` ante gotas/palma en bordes y caché de geometría sin reflows).
+ *   - FIX COLISIÓN DE POLLING 5S VS 10S Y COLA DE SYNC TOAST (2026-11-20, La Puente #228):
+ *     Unifica el polling de `fetchReadyOrders` en un solo temporizador de 5s alternando lectura rápida (`syncToast=false` en ticks impares)
+ *     con sincronización explícita a Toast KDS (`syncToast=true` en ticks pares), y agrega `pendingToastSyncRef` para encolar `syncToast=true`
+ *     si coincide con un refresco Realtime en vuelo, evitando que la tableta pierda sincronización KDS cuando `/order-ready-board` está cerrado.
  *     3) Tarjetas adaptativas gigantes cuando hay 1-4 órdenes activas, `overscroll-y-contain` anti Pull-to-Refresh y pausa de re-renders durante contacto activo.
  *   - OPTIMIZACIÓN POLLING Y CACHÉ (2026-11-19, Paquete 2B):
  *     1) `/api/order-ready/orders` envía `&view=prep` (mantiene cadencia 5s/10s de ÓRDENES intacta al 100%).
@@ -221,6 +225,8 @@ export default function PreparadorPage() {
     const [wakingUpTablet, setWakingUpTablet] = useState(false)
     const fetchReadyOrdersRef = useRef<((isManual?: boolean, syncToastExplicit?: boolean) => Promise<void>) | null>(null)
     const fetchingReadyOrdersRef = useRef<boolean>(false)
+    const pendingToastSyncRef = useRef<boolean>(false)
+    const pendingToastSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const fetchHistoryRef = useRef<((overrideDow?: number, overrideDate?: string) => Promise<void>) | null>(null)
     const fetchManualScheduleRef = useRef<((overrideDow?: number, overrideDate?: string, bypassCache?: boolean) => Promise<void>) | null>(null)
     const fetchRealMeatRef = useRef<((overrideDate?: string) => Promise<void>) | null>(null)
@@ -801,9 +807,18 @@ export default function PreparadorPage() {
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
         if (!storeCode) return
 
-        // Guardia in-flight para evitar solapamiento de peticiones automáticas
-        if (fetchingReadyOrdersRef.current && !isManual) return
+        // Guardia in-flight para evitar solapamiento de peticiones automáticas,
+        // encolando cualquier solicitud explícita de syncToast=true para que jamás se descarte por colisión.
+        if (fetchingReadyOrdersRef.current && !isManual) {
+            if (syncToastExplicit) {
+                pendingToastSyncRef.current = true
+            }
+            return
+        }
         fetchingReadyOrdersRef.current = true
+        if (isManual || syncToastExplicit) {
+            pendingToastSyncRef.current = false
+        }
 
         const shouldSyncToast = isManual || syncToastExplicit
 
@@ -855,6 +870,16 @@ export default function PreparadorPage() {
         } finally {
             fetchingReadyOrdersRef.current = false
             if (isManual) setLoadingReadyOrders(false)
+            if (pendingToastSyncRef.current) {
+                pendingToastSyncRef.current = false
+                if (pendingToastSyncTimeoutRef.current) {
+                    clearTimeout(pendingToastSyncTimeoutRef.current)
+                }
+                pendingToastSyncTimeoutRef.current = setTimeout(() => {
+                    pendingToastSyncTimeoutRef.current = null
+                    fetchReadyOrdersRef.current?.(false, true)
+                }, 150)
+            }
         }
     }
 
@@ -979,20 +1004,25 @@ export default function PreparadorPage() {
 
         setupRealtimeChannel()
 
-        // Polling visual de solo lectura cada 5s (syncToast=false)
+        // Ciclo unificado cada 5s sin auto-colisión entre intervalos:
+        // - Ticks impares (5s, 15s, 25s...): lectura ligera de BD (syncToast=false)
+        // - Ticks pares (10s, 20s, 30s...): detección activa de KDS bump en Toast (syncToast=true cuando pantalla visible)
+        let pollTickCount = 0
         const pollTimer = setInterval(() => {
-            fetchReadyOrdersRef.current?.(false, false)
+            pollTickCount = (pollTickCount + 1) % 1000
+            const shouldSyncToastOnTick =
+                pollTickCount % 2 === 0 &&
+                (typeof document === 'undefined' || document.visibilityState === 'visible')
+            fetchReadyOrdersRef.current?.(false, shouldSyncToastOnTick)
         }, 5000)
-
-        // Flujo explícito separado de detección de KDS bump cada 10s (syncToast=true, protegido por lease distribuido)
-        const explicitToastSyncTimer = setInterval(() => {
-            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-                fetchReadyOrdersRef.current?.(false, true)
-            }
-        }, 10000)
 
         return () => {
             unmounted = true
+            pendingToastSyncRef.current = false
+            if (pendingToastSyncTimeoutRef.current) {
+                clearTimeout(pendingToastSyncTimeoutRef.current)
+                pendingToastSyncTimeoutRef.current = null
+            }
             if (reconnectTimeout) {
                 clearTimeout(reconnectTimeout)
                 reconnectTimeout = null
@@ -1002,7 +1032,6 @@ export default function PreparadorPage() {
                 realtimeDebounceTimer = null
             }
             clearInterval(pollTimer)
-            clearInterval(explicitToastSyncTimer)
             disposeActiveChannel()
         }
     }, [storeId, stores, supabase])
