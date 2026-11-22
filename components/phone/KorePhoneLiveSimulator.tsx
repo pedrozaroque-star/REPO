@@ -641,6 +641,22 @@ export const KorePhoneLiveSimulator = forwardRef<
               return
             }
 
+            const pb = playbackRef.current
+            if (pb?.isEchoShieldActive()) {
+              const echoCutoff = Math.max(0.055, pb.getRecentOutputRms() * 0.38)
+              if (!(Number.isFinite(rms) && rms >= echoCutoff)) {
+                noiseGateRef.current.closeTransientGate()
+                const silentBuf = new ArrayBuffer(pcm.byteLength)
+                const b64 = bytesToBase64(new Uint8Array(silentBuf))
+                ws.send(
+                  JSON.stringify({
+                    realtimeInput: { audio: { data: b64, mimeType: 'audio/pcm;rate=16000' } }
+                  })
+                )
+                return
+              }
+            }
+
             const gateRes = noiseGateRef.current.process(pcm, rms)
             if (gateRes.speechJustEnded) {
               lastSpeechEndAtRef.current = performance.now()
@@ -737,7 +753,9 @@ export const KorePhoneLiveSimulator = forwardRef<
             if (sessionData.greetingPcmBase64 && !initialScenario) {
               const pcmBytes = base64ToBytes(sessionData.greetingPcmBase64)
               const floatSamples = decodePcm16ToFloat32(pcmBytes)
-              playbackRef.current?.enqueue(floatSamples, Number(sessionData.greetingSampleRate) || 24000)
+              playbackRef.current?.enqueue(floatSamples, Number(sessionData.greetingSampleRate) || 24000, {
+                localCompleteClip: true
+              })
             }
 
             if (greetingText) {
@@ -829,6 +847,7 @@ export const KorePhoneLiveSimulator = forwardRef<
             }
 
             if (sc.turnComplete === true) {
+              playbackRef.current?.resetUnderruns()
               currentUserTurnTextRef.current = ''
               setInterimText('')
               const lastBubble = bubblesRef.current[bubblesRef.current.length - 1]
@@ -860,11 +879,22 @@ export const KorePhoneLiveSimulator = forwardRef<
             toolQueueRef.current = toolQueueRef.current.then(async () => {
               if (myGen !== sessionGenRef.current) return
               const functionResponses: Array<{ id?: string; name: string; response: Record<string, unknown> }> = []
-              const recentUser = bubblesRef.current
-                .filter((b) => b.role === 'user')
+              const userBubbles = bubblesRef.current.filter((b) => b.role === 'user')
+              const recentUser = userBubbles
                 .slice(-4)
                 .map((b) => b.text)
                 .join(' | ')
+              const lastUserBubble = userBubbles[userBubbles.length - 1]?.text || ''
+              const lastUserIdx = bubblesRef.current.map((b) => b.role).lastIndexOf('user')
+              let prevAssistantBubble = ''
+              if (lastUserIdx > 0) {
+                for (let bi = lastUserIdx - 1; bi >= 0; bi--) {
+                  if (bubblesRef.current[bi]?.role === 'assistant') {
+                    prevAssistantBubble = bubblesRef.current[bi]?.text || ''
+                    break
+                  }
+                }
+              }
 
               for (const fc of fCalls) {
                 const toolName = String(fc?.name || '')
@@ -883,7 +913,9 @@ export const KorePhoneLiveSimulator = forwardRef<
                       thirdLanguage: activeThirdLangRef.current,
                       toolName,
                       toolArgs,
-                      recentUserTranscript: recentUser
+                      recentUserTranscript: recentUser,
+                      lastUserTranscript: lastUserBubble,
+                      prevAssistantTranscript: prevAssistantBubble
                     })
                   })
                   const j = await res.json().catch(() => null)

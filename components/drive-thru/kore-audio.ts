@@ -14,8 +14,8 @@
  *   de piso de TV/radio `ambientFloorRms * 1.85` con techo `0.040` sin AGC y auto-corte a ~3.68 s `maxContinuousOpenChunks = 115`)
  *   para silenciar monólogos continuos de TV/YouTube sin recortar órdenes cortas ("Un flan") ni pausas naturales del cliente.
  * - Salida de Gemini Live: PCM 16-bit signed, mono, little-endian a 24 000 Hz (se respeta el
- *   `rate=` del mimeType si el servidor manda otro valor), con colchón inicial reducido de 25 ms
- *   (`KORE_INITIAL_JITTER_SEC`) para arranque ultrarrápido sin cortes.
+ *   `rate=` del mimeType si el servidor manda otro valor), con jitter buffer adaptativo anti-cortes
+ *   (`95 ms` inicial / `135 ms` tras underrun Wi-Fi, `20 ms` en clips completos en RAM) y cola acústica `240 ms`.
  * - Barge-in y Takeover inmediato: `KorePlaybackQueue.clear()` / `.stop()` detienen TODAS las fuentes
  *   programadas al instante (<1 ms) cuando el cliente interrumpe o cuando la cajera abre su línea `A1`.
  * - Cierre automático sin corte: `KorePlaybackQueue.remainingMs` expone los milisegundos restantes
@@ -61,8 +61,17 @@ export const KORE_OUTPUT_SAMPLE_RATE = 24000
 /** Muestras por bloque enviado (512 @ 16 kHz = 32 ms). */
 export const KORE_CHUNK_SAMPLES = 512
 
-/** Colchón inicial (jitter buffer) de reproducción en segundos: 25 ms para respuesta rápida. */
-export const KORE_INITIAL_JITTER_SEC = 0.025
+/** Colchón inicial (jitter buffer) para streaming WebSocket en vivo: 95 ms elimina entrecortes en Wi-Fi de tienda. */
+export const KORE_INITIAL_JITTER_SEC = 0.095
+
+/** Colchón adaptativo elevado (135 ms) cuando ocurre >= 1 underrun de red dentro de la misma respuesta en vivo. */
+export const KORE_ADAPTIVE_HIGH_JITTER_SEC = 0.135
+
+/** Colchón ultrarrápido (20 ms) para clips pregrabados completos ya decodificados en RAM (`localCompleteClip: true`). */
+export const KORE_LOCAL_CLIP_JITTER_SEC = 0.020
+
+/** Ventana de cola acústica post-playback (240 ms) mientras el último sample sale del hardware y viaja por aire al mic. */
+export const KORE_ECHO_TAIL_SEC = 0.24
 
 /** Umbral RMS por defecto del Noise Gate en cuarto silencioso (con `autoGainControl: false` preserva sensibilidad suave 0.008+). */
 export const KORE_DEFAULT_NOISE_GATE_RMS = 0.008
@@ -312,12 +321,23 @@ export function parsePcmRate(mimeType: string | undefined | null, fallback = KOR
  * Cola de reproducción sin cortes: agenda cada bloque exactamente al terminar el anterior
  * usando el reloj del AudioContext. `clear()` / `stop()` implementan barge-in y silenciamiento instantáneo.
  */
+export interface KorePlaybackEnvelopeWindow {
+    startSec: number
+    endSec: number
+    rms: number
+}
+
 export class KorePlaybackQueue {
     private ctx: AudioContext
     private output: AudioNode
     private playHead = 0
     private sources = new Set<AudioBufferSourceNode>()
     private onActiveChange: (active: boolean) => void
+    private envelopeWindows: KorePlaybackEnvelopeWindow[] = []
+    private burstStartedAtSec = -1
+    private lastScheduledEndSec = -1
+    private lastNaturalEndSec = -1
+    private recentUnderruns = 0
 
     constructor(ctx: AudioContext, output: AudioNode, onActiveChange: (active: boolean) => void) {
         this.ctx = ctx
@@ -329,6 +349,10 @@ export class KorePlaybackQueue {
         return this.sources.size > 0
     }
 
+    get recentUnderrunCount(): number {
+        return this.recentUnderruns
+    }
+
     /** Milisegundos restantes de audio agendado en el reloj del AudioContext (0 si no hay reproducción). */
     get remainingMs(): number {
         return this.ctx.state === 'closed' || this.sources.size === 0
@@ -336,24 +360,104 @@ export class KorePlaybackQueue {
             : Math.max(0, Math.round((this.playHead - this.ctx.currentTime) * 1000))
     }
 
-    enqueue(samples: Float32Array, sampleRate: number): void {
+    /** Máximo RMS de salida programado en `[currentTime - lookbackSec, currentTime + 0.02]` (0 si el contexto cerró). */
+    getRecentOutputRms(lookbackSec = 0.28): number {
+        if (this.ctx.state === 'closed' || this.envelopeWindows.length === 0) return 0
+        const now = this.ctx.currentTime
+        const winMin = now - Math.max(0, lookbackSec)
+        const winMax = now + 0.02
+        let maxRms = 0
+        for (const w of this.envelopeWindows) {
+            if (w.endSec >= winMin && w.startSec <= winMax && w.rms > maxRms) {
+                maxRms = w.rms
+            }
+        }
+        return maxRms
+    }
+
+    /** Milisegundos transcurridos desde el inicio de la ráfaga activa o dentro de la cola acústica (0 si inactivo). */
+    getPlaybackElapsedMs(): number {
+        if (this.ctx.state === 'closed' || this.burstStartedAtSec < 0 || !this.isEchoShieldActive()) return 0
+        return Math.max(0, Math.round((this.ctx.currentTime - this.burstStartedAtSec) * 1000))
+    }
+
+    /** `true` mientras hay fuentes activas O durante la cola acústica `tailSec` (240 ms) posterior al último sample. */
+    isEchoShieldActive(tailSec = KORE_ECHO_TAIL_SEC): boolean {
+        if (this.ctx.state === 'closed') return false
+        if (this.sources.size > 0) return true
+        return this.lastScheduledEndSec >= 0 && this.ctx.currentTime <= this.lastScheduledEndSec + Math.max(0, tailSec)
+    }
+
+    /** Resetea el contador de underruns al concluir limpiamente un turno (`sc.turnComplete`). */
+    resetUnderruns(): void {
+        this.recentUnderruns = 0
+    }
+
+    enqueue(samples: Float32Array, sampleRate: number, opts?: { localCompleteClip?: boolean }): void {
         if (samples.length === 0 || this.ctx.state === 'closed') return
-        const buffer = this.ctx.createBuffer(1, samples.length, sampleRate)
-        buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0)
+        const safeRate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : KORE_OUTPUT_SAMPLE_RATE
+        const buffer = this.ctx.createBuffer(1, samples.length, safeRate)
+        if (typeof buffer.copyToChannel === 'function') {
+            buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0)
+        } else if (typeof buffer.getChannelData === 'function') {
+            buffer.getChannelData(0).set(samples)
+        }
         const src = this.ctx.createBufferSource()
         src.buffer = buffer
         src.connect(this.output)
         const now = this.ctx.currentTime
-        // Colchón inicial reducido de 25 ms cuando la cola estaba vacía
-        if (this.playHead < now + 0.008) this.playHead = now + KORE_INITIAL_JITTER_SEC
-        src.start(this.playHead)
-        this.playHead += buffer.duration
+        if (this.playHead < now + 0.008) {
+            const hadRecentNaturalEnd = this.lastNaturalEndSec >= 0 && now - this.lastNaturalEndSec < 0.45
+            if (hadRecentNaturalEnd && !opts?.localCompleteClip) {
+                this.recentUnderruns = Math.min(3, this.recentUnderruns + 1)
+            }
+            const jitterSec = opts?.localCompleteClip
+                ? KORE_LOCAL_CLIP_JITTER_SEC
+                : this.recentUnderruns > 0
+                    ? KORE_ADAPTIVE_HIGH_JITTER_SEC
+                    : KORE_INITIAL_JITTER_SEC
+            this.playHead = now + jitterSec
+            if ((this.sources.size === 0 && !hadRecentNaturalEnd) || this.burstStartedAtSec < 0) {
+                this.burstStartedAtSec = this.playHead
+            }
+        }
+        const scheduledStart = this.playHead
+        const durationSec = buffer.duration > 0 ? buffer.duration : samples.length / safeRate
+        src.start(scheduledStart)
+        this.playHead = scheduledStart + durationSec
+        this.lastScheduledEndSec = Math.max(this.lastScheduledEndSec, this.playHead)
+
+        // Ventanas de energía de 32 ms para acoplar umbral anti-eco a outputRms real
+        const pruneBefore = now - 0.40
+        if (this.envelopeWindows.length > 0 && this.envelopeWindows[0].endSec < pruneBefore) {
+            this.envelopeWindows = this.envelopeWindows.filter(w => w.endSec >= pruneBefore)
+        }
+        const winSamples = Math.max(1, Math.round(safeRate * 0.032))
+        for (let offset = 0; offset < samples.length; offset += winSamples) {
+            const endIdx = Math.min(samples.length, offset + winSamples)
+            const count = endIdx - offset
+            let sumSq = 0
+            for (let i = offset; i < endIdx; i++) {
+                const s = samples[i]
+                if (Number.isFinite(s)) sumSq += s * s
+            }
+            const rms = count > 0 ? Math.sqrt(sumSq / count) : 0
+            this.envelopeWindows.push({
+                startSec: scheduledStart + offset / safeRate,
+                endSec: scheduledStart + endIdx / safeRate,
+                rms,
+            })
+        }
+
         const wasActive = this.sources.size > 0
         this.sources.add(src)
         if (!wasActive) this.onActiveChange(true)
         src.onended = () => {
-            src.disconnect()
-            if (this.sources.delete(src) && this.sources.size === 0) this.onActiveChange(false)
+            try { src.disconnect() } catch { /* noop */ }
+            if (this.sources.delete(src) && this.sources.size === 0) {
+                this.lastNaturalEndSec = this.ctx.currentTime
+                this.onActiveChange(false)
+            }
         }
     }
 
@@ -367,6 +471,11 @@ export class KorePlaybackQueue {
         }
         this.sources.clear()
         this.playHead = 0
+        this.envelopeWindows = []
+        this.burstStartedAtSec = -1
+        this.lastScheduledEndSec = -1
+        this.lastNaturalEndSec = -1
+        this.recentUnderruns = 0
         if (hadSources) this.onActiveChange(false)
     }
 

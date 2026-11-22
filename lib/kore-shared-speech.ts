@@ -53,6 +53,10 @@
  *   (`ko`, `zh`, `ja`, `pt`, `fr`, `tl`, `vi`, `ar`, `ru`, `hi`, `hy`, `de`, `it`) sin falsos positivos en español/inglés,
  *   discriminación `hasMeaningfulNonLatinCustomerSpeech` vs `isNonLatinNoiseTranscript` (preservando bloqueo de `"जी के"`, `"だいたい"`,
  *   `"担当者の責任"`, `"ㅋㅋ"`, `"अ"`, `"嗯"`), y soporte multilingüe en audio-check, espera `45 s` y cancelación explícita.
+ * - Calibrado v9 (`2026-11-21`, auditoría forense `CAb2088ea5`): guardias compartidos `shouldAllowPhoneEndCall` (bloquea cierre prematuro
+ *   ante acuses `"Okay, gracias"` sin despedida explícita) y `normalizePhoneCallbackReasonToSpanish`.
+ * - Calibrado v10 (`2026-11-21`, auditoría integral de 60 llamadas): añade guardias puros `hasDisallowedForeignScript`,
+ *   `isPhoneTicketNotFoundAdmission` (`SIN TICKET`) y `isShortEnglishExclamationOnly` (evita saltos ES->EN por `"no my god"`).
  */
 
 export type KoreSpeechChannelMode = 'phone' | 'drive_thru'
@@ -135,8 +139,9 @@ const SPANISH_ENGLISH_QTY_WORDS: Readonly<Record<string, number>> = Object.freez
 function stripDiacriticsLower(raw: string): string {
   return raw
     .normalize('NFC')
-    .replace(/[^\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Arabic}\p{Script=Cyrillic}]+/gu, (seg) =>
-      seg.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(
+      /[^\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}\p{Script=Devanagari}\p{Script=Arabic}\p{Script=Cyrillic}]+/gu,
+      (seg) => seg.normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC')
     )
     .toLowerCase()
     .replace(/đ/g, 'd')
@@ -186,6 +191,8 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     .replace(/\b(?:party|pari)\s+(?:play|plays|plate|plates|trey|treys)\b/gi, 'party tray')
     .replace(/\btacos?\s+plays\b/gi, 'taco plates')
     .replace(/\btacos?\s+play\b/gi, 'taco plate')
+    .replace(/(?<!\b(?:lado\s+de|enfrente\s+de|cerca\s+de|next\s+to|across\s+from)\s+)\btaco\s+bell\b/gi, 'Taco Plate')
+    .replace(/\bfrijol(?:es)?\s+enteros?\b/gi, 'frijoles de la olla')
     // Equivalencia Supreme / Supremo / Suprema -> Super junto a burrito, quesadilla, mulita o nachos
     .replace(
       /\b(?:supreme|supremos?|supremas?)\b(?=\s+(?:(?:de|con|of|with|regular|meat|only|all|a|an|el|la|los|las|asada|pastor|adobada|pollo|chicken|steak|cabeza|lengua|buche|chorizo|carnitas|vegetariano|vegetariana|veggie)\s+){0,3}(?:burritos?|quesadillas?|mulitas?|nachos?)\b)/gi,
@@ -217,8 +224,8 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     )
     .replace(/\b(?:tiquet|tique|tiket|tiquete)(s?)\b/gi, 'ticket$1')
     .replace(/\b(?:cal|call|car)\s+fresh\b/gi, 'calfresh')
-    .replace(/\b(?:e[\s.-]*b[\s.-]*t\.?|i[\s.-]*b[\s.-]*t\.?|e[\s.-]*v[\s.-]*t\.?|i[\s.-]*v[\s.-]*t\.?|ibiti|ebiti)\b/gi, 'ebt')
-    .replace(/\b(?:tarjetas?\s+(?:abc|ibt|evt|ivit)|(?:abc|ibt|evt|ivit)\s+(?:cards?|tarjetas?))\b/gi, 'ebt')
+    .replace(/\b(?:e[\s.-]*b[\s.-]*t\.?|i[\s.-]*b[\s.-]*t\.?|e[\s.-]*v[\s.-]*t\.?|i[\s.-]*v[\s.-]*t\.?|i\s*biti|e\s*biti|ibiti|ebiti)\b/gi, 'EBT')
+    .replace(/\b(?:tarjetas?\s+(?:abc|ibt|evt|ivit)|(?:abc|ibt|evt|ivit)\s+(?:cards?|tarjetas?))\b/gi, 'EBT')
 
   if (!hasMedicalOrLostCrutchesContext) {
     out = out
@@ -420,6 +427,7 @@ export function hasMeaningfulNonLatinCustomerSpeech(rawText: string): boolean {
   if (/\p{Script=Armenian}/u.test(nfc) && NON_LATIN_HY_MEANINGFUL_RE.test(nfc.toLowerCase())) return true
   return false
 }
+
 
 /**
  * Retorna `true` cuando el texto tiene escritura no latina y **NO** contiene habla real de cliente/restaurante,
@@ -985,6 +993,7 @@ export function isCustomerResumingFromHold(
   return false
 }
 
+
 const DANGLING_CLAUSE_CONNECTOR_TAIL_RE =
   /(?:^|\s)(?:y|e|o|u|pero|aunque|porque|que|de|del|con|sin|para|por|en|a|al|el|la|los|las|un|una|unos|unas|es|son|sea|(?:es\s+)?(?:la|el|los|las)\s+mas|cual\s+es\s+(?:la|el)|estoy|estas|voy\s+a|quiero|quisiera|dame|deme|me\s+das?|ponme|and|or|but|because|with|without|for|to|of|in|the|a|an|(?:is\s+)?the\s+most|i\s+want|can\s+i(?:\s+get)?|give\s+me)$/i
 
@@ -1085,6 +1094,116 @@ export function shouldBlockUnconfirmedCancelOrder(
   return !isExplicitWholeOrderCancelIntent(customerTurnText)
 }
 
+const KORE_SELF_ECHO_SIGNATURE_RE =
+  /\b(?:bienvenid[oa]s?\s+a\s+tacos|tacos\s+gavilan|como\s+le\s+podemos\s+ayudar|que\s+se\s+le\s+antoja|que\s+le\s+gustaria\s+ordenar|me\s+podrias?(?:\s+repetir)?|repetir\s+su\s+orden|no\s+le\s+escuche|adelante\s+le\s+escucho|esta\s+correcta\s+su\s+orden|pase\s+a\s+la\s+ventanilla|pasa\s+a\s+la\s+ventana|welcome\s+to\s+tacos|how\s+can\s+we\s+help\s+you|what\s+are\s+you\s+craving|does\s+everything\s+look\s+right|pull\s+forward\s+to\s+the\s+window)\b/i
+
+const KORE_CUSTOMER_OWN_INTENT_VETO_RE =
+  /\b(?:yo|quiero|quisiera|querria|prefiero|dame|deme|me\s+(?:das?|da|pones?|agregas?|cambias?|cobras?|escuchas?|oyes?)|ponme|ponle|agregame|cambialo|cambiame|quitale|cancela|olvidalo|espera(?:me)?|estoy\s+pensando|si|yes|yep|yeah|nope|ok|okay|gracias|thanks|thank\s+you|correcto|exacto|esta\s+bien|todo\s+bien|es\s+todo|ya\s+es\s+todo|nada\s+mas|i\s+(?:want|prefer|would\s+like|need)|i\s*d\s+like|i\s*ll\s+(?:take|have)|can\s+i\s+(?:get|have)|give\s+me|that\s*s\s+all|thats\s+all|hold\s+on|let\s+me\s+think|gostaria|eu\s+quero|je\s+voudrais|vorrei|ich\s+mochte|gusto\s+ko|cho\s+toi)\b/i
+
+const KORE_CUSTOMER_NON_LATIN_INTENT_VETO_RE =
+  /(?:주세요|할게요|로\s*할게|ください|お願いします|にします|にして|はい|いいえ|我要|我想|给我|好的|谢谢|أريد|اريد|من\s+فضلك|можно|хочу|пожалуйста|मुझे|चाहिए)/u
+
+const KORE_PURE_MENU_CHOICE_TOKENS = new Set([
+  'un', 'una', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce',
+  'el', 'la', 'los', 'las', 'de', 'del', 'con', 'sin', 'y', 'o', 'a', 'an', 'the', 'one', 'two', 'three', 'four',
+  'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'all', 'of', 'with', 'without', 'no', 'and',
+  'or', 'ambos', 'ambas', 'todos', 'todas', 'otro', 'otra', 'mas', 'more', 'extra',
+  'taco', 'tacos', 'burrito', 'burritos', 'quesadilla', 'quesadillas', 'mulita', 'mulitas', 'torta', 'tortas',
+  'sope', 'sopes', 'nacho', 'nachos', 'plato', 'platos', 'plate', 'plates', 'combo', 'combos', 'tray', 'platter',
+  'desayuno', 'desayunos', 'breakfast', 'huevo', 'huevos', 'egg', 'eggs', 'rancheros', 'flan', 'flanes',
+  'cheesecake', 'cheesecakes', 'postre', 'postres', 'dessert', 'horchata', 'horchatas', 'jamaica', 'jamaicas',
+  'pina', 'pinas', 'tamarindo', 'tamarindos', 'limonada', 'limonadas', 'lemonade', 'champurrado', 'champurrados',
+  'cafe', 'cafes', 'coffee', 'coca', 'cocas', 'coke', 'sprite', 'fanta', 'soda', 'sodas', 'refresco', 'refrescos',
+  'agua', 'aguas', 'water', 'bebida', 'bebidas', 'drink', 'drinks', 'asada', 'pastor', 'adobada', 'pollo',
+  'chicken', 'steak', 'beef', 'carnitas', 'chorizo', 'cabeza', 'lengua', 'buche', 'milanesa', 'cubana', 'cubano',
+  'vegetariano', 'vegetariana', 'veggie', 'jamon', 'salchicha', 'regular', 'regulares', 'super', 'supreme',
+  'supremo', 'suprema', 'mediana', 'mediano', 'medianas', 'medianos', 'grande', 'grandes', 'medium', 'large',
+  'galon', 'gallon', 'caja', 'box', 'maiz', 'corn', 'harina', 'flour', 'arroz', 'rice', 'frijol', 'frijoles',
+  'beans', 'olla', 'queso', 'cheese', 'jack', 'crema', 'sour', 'cream', 'guacamole', 'cebolla', 'cebollas',
+  'cebollita', 'cebollitas', 'onion', 'onions', 'cilantro', 'salsa', 'salsas', 'roja', 'verde', 'limon',
+  'limones', 'lime', 'limes', 'jalapeno', 'jalapenos', 'todo'
+])
+
+function echoTokensMatch(custTok: string, koreTok: string): boolean {
+  if (custTok === koreTok) return true
+  if (custTok.length >= 4 && koreTok.length >= 4) {
+    if (custTok === `${koreTok}s` || koreTok === `${custTok}s`) return true
+  }
+  return false
+}
+
+
+/**
+ * Detecta cuando `customerText` es en realidad el auto-eco acústico de la bocina reproduciendo `recentKoreText`
+ * (ej. `"¿Me podrías"` frente a `"¿Me podría repetir su orden? Disculpe, no le escuché bien."`, o
+ * `"Bienvenido a Tacos Gavilan"` / `"cómo le podemos ayudar"` / `"está correcta su orden"`),
+ * garantizando CERO falsos positivos en respuestas reales del cliente (`"Un flan"`, `"Super"`, `"Lo prefiero Super"`,
+ * `"Quiero dos tacos de asada"`, `"Sí, está bien, gracias"`).
+ */
+export function isLikelyKoreSelfEchoTranscript(customerText: string, recentKoreText: string): boolean {
+  const rawCust = String(customerText ?? '').trim()
+  const rawKore = String(recentKoreText ?? '').trim()
+  if (!rawCust || !rawKore) return false
+
+  // 1) Soporte para scripts sin espacios (CJK / Kana / Hangul): subcadena exacta >= 4 caracteres sin intención propia nueva
+  const cjkCust = rawCust.normalize('NFC').replace(/[\s\p{P}\p{S}]+/gu, '')
+  const cjkKore = rawKore.normalize('NFC').replace(/[\s\p{P}\p{S}]+/gu, '')
+  if (
+    !/[\p{Script=Latin}0-9]/u.test(cjkCust) &&
+    cjkCust.length >= 4 &&
+    cjkKore.includes(cjkCust) &&
+    (!KORE_CUSTOMER_NON_LATIN_INTENT_VETO_RE.test(rawCust) || rawKore.normalize('NFC').includes(rawCust.normalize('NFC').trim()))
+  ) {
+    return true
+  }
+
+  const custNorm = stripDiacriticsLower(rawCust)
+    .replace(/['’`]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const koreNorm = stripDiacriticsLower(rawKore)
+    .replace(/['’`]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!custNorm || !koreNorm) return false
+  if (/^\d+$/.test(custNorm)) return false
+
+  const hasUnmistakableKoreSignature = KORE_SELF_ECHO_SIGNATURE_RE.test(custNorm)
+  if (!hasUnmistakableKoreSignature) {
+    if (custNorm === 'no' || KORE_CUSTOMER_OWN_INTENT_VETO_RE.test(custNorm) || KORE_CUSTOMER_NON_LATIN_INTENT_VETO_RE.test(rawCust)) {
+      return false
+    }
+  }
+
+  const custTokens = custNorm.split(' ').filter(Boolean)
+  const koreTokens = koreNorm.split(' ').filter(Boolean)
+  if (custTokens.length < 2 || koreTokens.length < custTokens.length) return false
+  if (custTokens.filter((t) => t.length >= 2).length < 2) return false
+
+  // Jamás bloquear respuestas nominales puras del menú que repiten opciones ofrecidas por Kore (ej. "Un flan", "La jamaica", "El burrito regular")
+  if (!hasUnmistakableKoreSignature && custTokens.every((t) => KORE_PURE_MENU_CHOICE_TOKENS.has(t) || /^\d+$/.test(t))) {
+    return false
+  }
+
+  // Coincidencia contigua de tokens dentro de recentKoreText (tolerando -s final como "podrías" vs "podría")
+  for (let start = 0; start <= koreTokens.length - custTokens.length; start++) {
+    let allMatch = true
+    for (let j = 0; j < custTokens.length; j++) {
+      if (!echoTokensMatch(custTokens[j], koreTokens[start + j])) {
+        allMatch = false
+        break
+      }
+    }
+    if (allMatch) return true
+  }
+
+  return false
+}
+
+
 /** Corte oficial de desayunos (regla del dueño, 15 sucursales): disponibles desde las 06:00 hasta antes de las 14:00 PT. */
 export const KORE_BREAKFAST_START_MINUTES = 6 * 60
 export const KORE_BREAKFAST_CUTOFF_MINUTES = 14 * 60
@@ -1125,4 +1244,324 @@ export function isKoreBreakfastOpen(now: Date = new Date()): KoreBreakfastWindow
 /** Platillos exclusivos de desayuno: categoría Toast `Breakfast` (bebidas como Coffee/Champurrado viven en `Misc. Drinks`). */
 export function isKoreBreakfastCategory(category: string | null | undefined): boolean {
   return /^\s*(?:breakfast|desayunos?)\s*$/i.test(String(category || ''))
+}
+
+const EXPLICIT_PHONE_GOODBYE_RE =
+  /\b(es\s+todo|seria\s+todo|eso\s+es\s+todo|ya\s+seria\s+todo|ya\s+es\s+todo|ya\s+estuvo|nada\s+mas|no,?\s*(?:gracias|por\s+ahora|necesito)|adios|bye|hasta\s+luego|nos\s+vemos|cuidate|que\s+tengas|buen\s+dia|buena\s+tarde|buena\s+noche|thats\s+all|that\s+is\s+all|thats\s+it|that\s+is\s+it|nothing\s+else|no,?\s*thank(?:s|\s+you)|(?:im|were)\s+(?:good|fine|all\s+set)|all\s+set|all\s+done|no\s+(?:more|other)\s+questions|have\s+a\s+(?:good|great|nice|wonderful)|goodbye)\b/i
+
+const PHONE_ACK_ONLY_NO_GOODBYE_RE =
+  /^(?:(?:ok(?:ay)?|okey|vale|sale|bien|bueno|esta\s+bien|de\s+acuerdo|muy\s+bien|perfecto|entendido|claro|listo|excelente|genial|va|ya|aha|aja|sip?|yeah?|yep|got\s+it|alright|all\s+right|sounds\s+good|very\s+good|good|nice|cool|fine)(?:[\s,]+(?:muchas\s+)?(?:gracias|thank\s+you|thanks|por\s+favor))?|(?:muchas\s+)?gracias|thank\s+you(?:\s+very\s+much|\s+so\s+much)?|thanks(?:\s+a\s+lot)?)$/i
+
+const PHONE_OFFERED_FURTHER_HELP_RE =
+  /\b(algo\s+mas|ayud(?:o|arte)\s+con\s+algo|otra\s+(?:pregunta|duda)|anything\s+else|help\s+you\s+with\s+anything|other\s+question)\b/i
+
+function foldSpeechCompare(raw: string): string {
+  return String(raw || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/['’]+/g, '')
+    .replace(/[.,!?¿¡"]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Guardia determinista contra cierres prematuros (`end_call`) por simples acuses como `"Okay, gracias."`.
+ * Solo autoriza colgar cuando existe despedida explícita o rechazo tras preguntar `"¿Te puedo ayudar con algo más?"`.
+ */
+export function shouldAllowPhoneEndCall(lastUserText: string, prevAssistantText = ''): boolean {
+  const normU = foldSpeechCompare(lastUserText)
+  if (!normU) return false
+  if (EXPLICIT_PHONE_GOODBYE_RE.test(normU)) return true
+  const normA = foldSpeechCompare(prevAssistantText)
+  if (/^(?:no|nop|nope|todo\s+bien|ya\s+no|ninguna)$/i.test(normU) && PHONE_OFFERED_FURTHER_HELP_RE.test(normA)) {
+    return true
+  }
+  if (PHONE_ACK_ONLY_NO_GOODBYE_RE.test(normU) && !PHONE_OFFERED_FURTHER_HELP_RE.test(normA)) {
+    return false
+  }
+  return false
+}
+
+export type KoreSessionOrderCategory =
+  | 'tacos'
+  | 'taco_plate'
+  | 'burritos'
+  | 'quesadillas'
+  | 'mulitas'
+  | 'tortas'
+  | 'sopes'
+  | 'nachos'
+  | 'platos'
+  | 'coffee'
+  | 'champurrado'
+  | 'drinks'
+  | 'desserts'
+
+const PURE_MENU_AVAILABILITY_QUESTION_RE =
+  /\b(?:que\s+(?:bebidas?|postres?|carnes?|tienes?|tienen|hay|mas\s+tienes?|mas\s+tienen|lleva|trae|precio|cuesta)|(?:bebidas?|postres?|aguas?)\s+(?:calientes?\s+|frias?\s+)?(?:no\s+)?(?:tienes?|tienen|hay|venden|sirven?)|(?:el\s+|un\s+)?(?:cafe|champurrado)\s+(?:lo\s+)?sirve(?:n)?\s+en\s+vaso|cuanto\s+(?:cuesta|cuestan|vale|valen|sale|salen|es)|cual\s+es\s+la\s+diferencia|que\s+precio\s+tiene|do\s+you\s+have\s+(?:any\s+)?(?:drinks?|desserts?|hot\s+drinks?)|what\s+(?:drinks?|desserts?|meats?)\s+do\s+you|how\s+much\s+(?:is|are))\b/i
+
+const AFFIRMATIVE_ORDER_VERB_RE =
+  /\b(?:quiero|quisiera|querria|dame|deme|me\s+(?:das?|da|pones?|pone|agregas?|traes?|sirves?)|ponme|agregame|agrega|llevo|voy\s+a\s+(?:querer|llevar|pedir)|i\s+(?:want|would\s+like)|i\s*d\s+like|can\s+i\s+(?:get|have)|give\s+me|let\s+me\s+get|gostaria|je\s+voudrais|vorrei|ich\s+mochte|gusto\s+ko|cho\s+toi)\b|(?:주세요|할게요|ください|お願いします|我要|我想|给我)/iu
+
+const SESSION_CATEGORY_MATCHERS: ReadonlyArray<readonly [RegExp, KoreSessionOrderCategory]> = [
+  [/\b__cat_taco_plate__\b/, 'taco_plate'],
+  [/(?:\btacos?\b|타코|タコス|塔可|تاكو|тако|ताको|տակո)/iu, 'tacos'],
+  [/(?:\bburritos?\b|부리또|브리또|ブリトー|卷饼|بوريتو|буррито|बुरिटो|բուրիտո)/iu, 'burritos'],
+  [/(?:\bquesadillas?\b|퀘사디아|ケサディーヤ|кесадиль)/iu, 'quesadillas'],
+  [/(?:\bmulitas?\b|물리타|ムリータ)/iu, 'mulitas'],
+  [/(?:\btortas?\b|토르타)/iu, 'tortas'],
+  [/(?:\bsopes?\b|소페)/iu, 'sopes'],
+  [/(?:\bnachos?\b|나초)/iu, 'nachos'],
+  [/\b(?:platos?|plates?)\b/i, 'platos'],
+  [/\b(?:cafes?|coffees?|cafecitos?)\b/i, 'coffee'],
+  [/\bchampurrados?\b/i, 'champurrado'],
+  [
+    /\b(?:horchatas?|jamaicas?|tamarindos?|pinas?|limonadas?|lemonades?|cocas?|cokes?|sprites?|fantas?|sodas?|refrescos?|aguas?\s+(?:frescas?|embotelladas?|naturales?|de\s+\w+)|bottled\s+waters?)\b/i,
+    'drinks'
+  ],
+  [/\b(?:flan(?:es)?|cheesecakes?)\b/i, 'desserts']
+]
+
+/**
+ * Extrae las categorías de platillo/bebida mencionadas con intención afirmativa de pedido en un turno del cliente,
+ * distinguiendo `'tacos'` individuales de `'taco_plate'` e ignorando preguntas puras de disponibilidad (`"¿qué bebidas tienes?"`),
+ * negaciones (`"no quiero X"`, `"sin X"`) y el origen de un reemplazo (`"cambiar X por Y"`, `"en vez de X"`).
+ */
+export function extractMentionedOrderCategories(rawText: string): string[] {
+  const raw = String(rawText ?? '').trim()
+  if (!raw || isNonLatinNoiseTranscript(raw)) return []
+
+  const noisy = extractDirectCustomerIntentFromNoisyTurn(raw)
+  const target = noisy.extractedCustomerSegment || raw
+  const speech = normalizeKoreCustomerSpeech(target, { mode: 'drive_thru' })
+  let norm = stripDiacriticsLower(speech)
+    .replace(/['’`]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s,;.!?-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!norm) return []
+
+  // Si decide pasar adentro por EBT, no contar artículos de comedor como pendientes de Drive-Thru
+  if (/\b(?:pasare\s+al\s+comedor|pasar\s+al\s+comedor|entro\s+enseguida|go\s+inside)\b/i.test(norm)) {
+    return []
+  }
+
+  // Ignorar preguntas puras de menú/precio cuando no hay verbo explícito de pedido
+  if (PURE_MENU_AVAILABILITY_QUESTION_RE.test(norm) && !AFFIRMATIVE_ORDER_VERB_RE.test(norm) && !PURE_MENU_AVAILABILITY_QUESTION_RE.test('')) {
+    if (!/\b(?:quiero|quisiera|dame|deme|ponme|agregame)\b/i.test(norm)) {
+      return []
+    }
+  }
+
+  // Proteger Taco Plate antes de limpiar/buscar "tacos" o "plato"
+  norm = norm
+    .replace(
+      /\b(?:taco\s+plates?|platos?\s+de\s+(?:tres|3)\s+tacos?|combos?\s+de\s+(?:tres|3)\s+tacos?)\b/gi,
+      ' __cat_taco_plate__ '
+    )
+    .replace(/(?:タコス?プレート)/gu, ' __cat_taco_plate__ ')
+    .replace(/\b(?:fiesta\s+platters?|party\s+trays?)\b/gi, ' ')
+    // Retirar el origen X en "cambiar X por Y" / "en vez de X"
+    .replace(
+      /\b(?:cambiar|cambia|cambialo|cambiame)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|cafes?|coffees?|champurrados?)(?:\s+de\s+\w+)?\s+por\b/gi,
+      ' quiero '
+    )
+    .replace(
+      /\b(?:en\s+vez\s+de|en\s+lugar\s+de|instead\s+of)\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|cafes?|coffees?|champurrados?)(?:\s+de\s+\w+)?\b/gi,
+      ' '
+    )
+    // Retirar negaciones directas sobre categorías ("no quiero tacos", "quita el burrito", "sin flan")
+    .replace(
+      /\b(?:no\s+quiero|ya\s+no\s+quiero|quita(?:r|me|le)?|elimina(?:r)?|cancela(?:r)?|sin|without|remove)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|un\s+|una\s+|unos\s+|unas\s+)?(?:__cat_taco_plate__|tacos?|burritos?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|platos?|cafes?|coffees?|champurrados?|horchatas?|jamaicas?|sodas?|refrescos?|flan(?:es)?|cheesecakes?)\b/gi,
+      ' '
+    )
+
+  const hits = new Map<KoreSessionOrderCategory, number>()
+  for (const [re, cat] of SESSION_CATEGORY_MATCHERS) {
+    const m = re.exec(norm)
+    if (m) {
+      const prev = hits.get(cat)
+      if (prev === undefined || m.index < prev) {
+        hits.set(cat, m.index)
+      }
+    }
+  }
+  return Array.from(hits.entries())
+    .sort((a, b) => a[1] - b[1])
+    .map(([cat]) => cat)
+}
+
+function classifyOrderLineToSessionCategories(line: { name: string; category: string }): KoreSessionOrderCategory[] {
+  const n = stripDiacriticsLower(String(line?.name || '')).trim()
+  const c = stripDiacriticsLower(String(line?.category || '')).trim()
+  const out: KoreSessionOrderCategory[] = []
+  if (n === 'taco plate' || /^taco\s+plates?$/.test(c)) {
+    out.push('taco_plate')
+    return out
+  }
+  if (c === 'tacos' || /^tacos?\b/.test(n)) out.push('tacos')
+  if (c === 'burritos' || /\bburritos?\b/.test(n)) out.push('burritos')
+  if (c === 'quesadillas' || /\bquesadillas?\b/.test(n)) out.push('quesadillas')
+  if (c === 'mulitas' || /\bmulitas?\b/.test(n)) out.push('mulitas')
+  if (c === 'tortas' || /\btortas?\b/.test(n)) out.push('tortas')
+  if (c === 'sopes' || /\bsopes?\b/.test(n)) out.push('sopes')
+  if (c === 'nachos' || /\bnachos?\b/.test(n)) out.push('nachos')
+  if (c === 'platos' || c === 'plates' || /^plato\s+/.test(n)) out.push('platos')
+  if (/\b(?:coffee|cafe)\b/.test(n)) {
+    out.push('coffee')
+    out.push('drinks')
+  }
+  if (/\bchampurrado\b/.test(n)) {
+    out.push('champurrado')
+    out.push('drinks')
+  }
+  if (
+    /\b(?:drinks?|aguas?\s+frescas?|fountain\s+drinks?|misc\.\s*drinks?)\b/.test(c) ||
+    /\b(?:horchata|jamaica|pina|tamarindo|lemonade|coke|sprite|fanta|water|tea)\b/.test(n)
+  ) {
+    if (!out.includes('drinks')) out.push('drinks')
+  }
+  if (c === 'desserts' || /\b(?:flan|cheesecake)\b/.test(n)) out.push('desserts')
+  return out
+}
+
+const EXPLICIT_CATEGORY_REMOVAL_PATTERNS: ReadonlyArray<readonly [RegExp, KoreSessionOrderCategory]> = [
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?taco\s+plates?\b/i, 'taco_plate'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?tacos?\b/i, 'tacos'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?burritos?\b/i, 'burritos'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?quesadillas?\b/i, 'quesadillas'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?mulitas?\b/i, 'mulitas'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?tortas?\b/i, 'tortas'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?sopes?\b/i, 'sopes'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(?:cafes?|coffees?)\b/i, 'coffee'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?champurrados?\b/i, 'champurrado'],
+  [/\b(?:quita(?:r|me)?|elimina(?:r)?|cancela(?:r)?|ya\s+no\s+quiero|no\s+quiero|remove|cancel)\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(?:flan(?:es)?|cheesecakes?)\b/i, 'desserts']
+]
+
+/**
+ * Compara todas las categorías pedidas por el cliente a lo largo de `customerTurns` contra las líneas activas en el ticket
+ * (`orderLineCategoriesAndNames`), retornando las categorías que siguen con `0` líneas agregadas (ej. `['tacos']` en `acafb5d0:14`).
+ */
+export function findUnfulfilledSessionOrderCategories(
+  customerTurns: readonly string[],
+  orderLineCategoriesAndNames: readonly { name: string; category: string }[]
+): string[] {
+  if (!Array.isArray(customerTurns) || customerTurns.length === 0) return []
+  const wantedOrder: KoreSessionOrderCategory[] = []
+  const wantedSet = new Set<KoreSessionOrderCategory>()
+
+  for (const turn of customerTurns) {
+    const raw = String(turn ?? '').trim()
+    if (!raw) continue
+    const norm = stripDiacriticsLower(normalizeKoreCustomerSpeech(raw, { mode: 'drive_thru' }))
+    for (const [remRe, remCat] of EXPLICIT_CATEGORY_REMOVAL_PATTERNS) {
+      if (remRe.test(norm)) wantedSet.delete(remCat)
+    }
+    const cats = extractMentionedOrderCategories(raw) as KoreSessionOrderCategory[]
+    for (const c of cats) {
+      if (!wantedSet.has(c)) {
+        wantedSet.add(c)
+        if (!wantedOrder.includes(c)) wantedOrder.push(c)
+      }
+    }
+  }
+
+  const presentSet = new Set<KoreSessionOrderCategory>()
+  for (const line of orderLineCategoriesAndNames || []) {
+    for (const c of classifyOrderLineToSessionCategories(line)) {
+      presentSet.add(c)
+    }
+  }
+
+  return wantedOrder.filter((c) => wantedSet.has(c) && !presentSet.has(c))
+}
+
+/**
+ * Filtra una lista previa de categorías candidatas (`candidateCategories`) contra las líneas ya presentes en el ticket
+ * (`orderLineCategoriesAndNames`), devolviendo solo las que siguen con `0` líneas tras una mutación de orden.
+ */
+export function filterStillUnfulfilledCategories(
+  candidateCategories: readonly string[] | null | undefined,
+  orderLineCategoriesAndNames: readonly { name: string; category: string }[]
+): string[] {
+  if (!Array.isArray(candidateCategories) || candidateCategories.length === 0) return []
+  const presentSet = new Set<string>()
+  for (const line of orderLineCategoriesAndNames || []) {
+    for (const c of classifyOrderLineToSessionCategories(line)) {
+      presentSet.add(c)
+    }
+  }
+  const out: string[] = []
+  for (const raw of candidateCategories) {
+    const clean = String(raw || '').trim().toLowerCase()
+    if (clean && !presentSet.has(clean) && !out.includes(clean)) {
+      out.push(clean)
+    }
+  }
+  return out
+}
+
+/** Garantiza que recados genéricos generados en inglés queden legibles en español en pantalla del gerente. */
+export function normalizePhoneCallbackReasonToSpanish(rawReason: string): string {
+  const clean = String(rawReason || '').trim()
+  if (!clean) return 'Solicita hablar con el gerente en turno.'
+  if (/^(?:the\s+)?(?:caller|customer)\s+(?:requested|asked|wants?)\s+to\s+speak\s+(?:with|to)\s+(?:the|a)\s+manager\.?$/i.test(clean)) {
+    return 'Solicita hablar con el gerente en turno.'
+  }
+  if (/^(?:requested|asked)\s+to\s+speak\s+(?:with|to)\s+(?:the|a)\s+manager\.?$/i.test(clean)) {
+    return 'Solicita hablar con el gerente en turno.'
+  }
+  if (/^(?:speak\s+(?:with|to)\s+(?:the|a)\s+manager|manager\s+callback(?:\s+request)?|callback\s+request|wants\s+manager)\.?$/i.test(clean)) {
+    return 'Solicita hablar con el gerente en turno.'
+  }
+  return clean
+}
+
+/**
+ * Escrituras no latinas estrictamente prohibidas en la salida de voz/transcripción telefónica (solo Español o Inglés).
+ * Evita que alucinaciones STT de audio telefónico (`"जीनस की कहानी की"`, `"だいたい"`, `"ㅋㅋ"`) hagan responder a Kore en Hindi/CJK.
+ */
+export const FORBIDDEN_PHONE_FOREIGN_SCRIPT_RE =
+  /[\p{Script=Devanagari}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Armenian}\p{Script=Thai}]/u
+
+/** Retorna `true` si el texto contiene caracteres no latinos prohibidos en respuesta telefónica bilingüe ES/EN. */
+export function hasDisallowedForeignScript(rawText: string | null | undefined): boolean {
+  const s = String(rawText ?? '').trim()
+  if (!s) return false
+  return FORBIDDEN_PHONE_FOREIGN_SCRIPT_RE.test(s)
+}
+
+/**
+ * Detecta cuando un cliente en llamada confirma explícitamente que no conserva, tiró o no encuentra su recibo/ticket
+ * para destrabar el flujo de `SIN TICKET` tras la advertencia inicial sin atrapar al cliente en bucles infinitos.
+ */
+export function isPhoneTicketNotFoundAdmission(rawText: string | null | undefined): boolean {
+  const norm = stripDiacriticsLower(String(rawText ?? ''))
+    .replace(/['’`]+/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!norm) return false
+  return /\b(?:sin\s+ticket|no\s+(?:tengo|conservo|encuentro|hallo|traigo|me\s+dieron|salio|veo)\s+(?:el\s+|mi\s+|ningun\s+)?(?:ticket|recibo|comprobante|codigo|numero)|lo\s+(?:tire|perdi|bote)|se\s+(?:me\s+)?perdio|(?:tire|perdi|bote)\s+(?:el\s+|mi\s+)?(?:ticket|recibo)|dont\s+have\s+(?:the\s+|a\s+|my\s+)?(?:receipt|ticket)|no\s+(?:receipt|ticket)|threw\s+(?:it|the\s+receipt|my\s+receipt)\s+away|lost\s+(?:it|the\s+receipt|my\s+receipt)|cant\s+find\s+(?:it|the\s+receipt|my\s+receipt)|couldnt\s+find\s+(?:it|the\s+receipt))\b/i.test(
+    norm
+  )
+}
+
+/**
+ * Identifica exclamaciones breves o muletillas en inglés dentro de una llamada en español
+ * (`"no my god"`, `"oh my god"`, `"okay"`, `"ok"`, `"un"`) que jamás deben hacer saltar el idioma base a inglés.
+ */
+export function isShortEnglishExclamationOnly(rawText: string | null | undefined): boolean {
+  const norm = stripDiacriticsLower(String(rawText ?? ''))
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!norm) return true
+  if (norm.split(' ').length > 5) return false
+  return /^(?:oh\s+my\s+god|no\s+my\s+god|my\s+god|ok|okay|bye|yes|yeah|no|oh|um|uh|un|hello|hi|sorry|wait|please)$/.test(
+    norm
+  )
 }

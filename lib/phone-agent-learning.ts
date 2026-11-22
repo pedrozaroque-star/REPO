@@ -798,7 +798,7 @@ const UNOFFICIAL_ADMISSION_RE =
 const OFF_TOPIC_IGNORE_RE =
   /\b(chiste|joke|cancion|canta|song|heroes\s+del\s+silencio|futbol|soccer|nfl|nba|clima|weather|presidente|paneles\s+solares|google\s+listing|prestamo\s+comercial|agencias)\b/i
 const CALLER_CORRECTION_OR_FRICTION_RE =
-  /\b(me\s+pregunta\s+fue|mi\s+pregunta\s+(?:era|fue|es)|lo\s+que\s+(?:te\s+)?pregunt[eé]|(?:pero\s+)?(?:yo\s+)?no\s+(?:te\s+)?(?:dije|pregunt[eé]|ped[ií])\s+eso|eso\s+no\s+(?:fue|es)\s+lo\s+que\s+pregunt[eé]|no\s+me\s+(?:entendiste|entiendes|est[aá]s\s+entendiendo)|me\s+entendiste\s+mal|no\s+(?:contestaste|respondiste)\s+(?:mi\s+pregunta|lo\s+que\s+pregunt[eé])|te\s+estoy\s+preguntando|that'?s\s+not\s+what\s+i\s+(?:asked|said|meant)|you\s+(?:didn'?t\s+understand|misunderstood)|my\s+question\s+was|i\s+was\s+asking)\b/i
+  /\b(me\s+pregunta\s+fue|mi\s+pregunta\s+(?:era|fue|es)|lo\s+que\s+(?:te\s+)?pregunt[eé]|(?:pero\s+)?(?:yo\s+)?no\s+(?:te\s+)?(?:dije|pregunt[eé]|ped[ií])\s+eso|eso\s+no\s+(?:fue|es)\s+lo\s+que\s+pregunt[eé]|no\s+me\s+(?:entendiste|entiendes|est[aá]s\s+entendiendo)|me\s+entendiste\s+mal|no\s+(?:contestaste|respondiste)\s+(?:mi\s+pregunta|lo\s+que\s+pregunt[eé])|te\s+estoy\s+preguntando|no\s+lo\s+quiero\s+visitar|no\s+quiero\s+(?:ir|entrar)\s+a\s+(?:la\s+p[aá]gina|internet|web)|me\s+lo\s+puedes\s+decir\s+t[uú]|no\s+me\s+cuelgues|todav[ií]a\s+no\s+(?:termino|acab[eé])|that'?s\s+not\s+what\s+i\s+(?:asked|said|meant)|you\s+(?:didn'?t\s+understand|misunderstood)|my\s+question\s+was|i\s+was\s+asking)\b/i
 const TRIVIAL_CLOSE_OR_GREETING_RE =
   /^(?:gracias|muchas\s+gracias|es\s+todo(?:\s+gracias)?|eso\s+es\s+todo(?:\s+gracias)?|todo\s+bien|adios|hasta\s+luego|bye|thank\s+you|thanks|that'?s\s+all(?:\s+thank\s+you)?|hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|9)$/i
 
@@ -830,13 +830,13 @@ function areTurnsLikelyRetryPair(prevUserRaw: string | undefined, curUserRaw: st
   return overlap >= 3 || (overlap >= 2 && overlap / Math.min(prevToks.length, curToks.length) >= 0.45)
 }
 
-function extractForensicCallFindings(
+export function extractForensicCallFindings(
   call: any,
   sourceType: PhoneLearningSourceType,
   prewarmCandidates: Map<
     string,
     { text: string; lang: 'es' | 'en'; trigger: string; count: number; callId: string; callIds: Set<string> }
-  >
+  > = new Map()
 ): {
   findings: CandidatePhoneFinding[]
   enrichmentPriority: 0 | 1 | 2 | 3
@@ -1195,6 +1195,92 @@ function extractForensicCallFindings(
       })
     }
 
+    // 7b) Detección determinista de invocación prematura de end_call seguida por más preguntas reales del cliente
+    if (p.toolText && p.toolText.includes('"endingCall":true') && idx < pairs.length - 1) {
+      const nextRealCustomerTurn = pairs.slice(idx + 1).find((nx) => normalizeMatchToken(nx.userText).length >= 6)
+      if (nextRealCustomerTurn) {
+        enrichmentPriority = 3
+        findings.push({
+          storeId: null,
+          sourceCallId: callId,
+          dedupeKey: 'rule:no_premature_end_call_on_ack',
+          sourceType,
+          itemKind: 'doubt_for_owner',
+          status: 'needs_owner_input',
+          appliesToChannels: 'phone_only',
+          category: 'policies',
+          questionOrTrigger: 'Cierre prematuro (end_call) antes de terminar la llamada cuando el cliente solo dijo gracias',
+          triggerKeywords: ['okay gracias', 'gracias', 'cierre prematuro end_call'],
+          customerQuote: sanitizePhoneLearningText(`${p.userText} -> ${nextRealCustomerTurn.userText}`, 240, callLang),
+          koreQuote: sanitizePhoneLearningText(p.assistantText, 240, callLang),
+          doubtForOwner:
+            'En la llamada se disparó end_call tras un acuse breve del cliente y el cliente continuó haciendo preguntas. Confirma mantener bloqueado end_call hasta una despedida explícita ("es todo, gracias" / "adiós").',
+          proposedRuleEs:
+            'Nunca invocar end_call cuando el cliente solo diga "okay, gracias" o "gracias"; preguntar siempre "¿Te puedo ayudar con algo más?" y solo cerrar con despedida explícita.',
+          proposedRuleEn:
+            'Never invoke end_call when the caller only says "okay, thanks" or "thank you"; always ask "Can I help you with anything else?" before closing.',
+          avgLatencyMs: p.latencyMs
+        })
+      }
+    }
+
+    // 7c) Bloqueo determinista de idioma extranjero (Hindi / CJK / Árabe / Cirílico) generado en línea telefónica
+    if (
+      /[\p{Script=Devanagari}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Armenian}\p{Script=Thai}]/u.test(
+        p.assistantText
+      )
+    ) {
+      enrichmentPriority = 3
+      findings.push({
+        storeId: null,
+        sourceCallId: callId,
+        dedupeKey: 'rule:no_foreign_script_output_phone',
+        sourceType,
+        itemKind: 'learned_rule',
+        status: 'auto_applied',
+        appliesToChannels: 'phone_only',
+        category: 'policies',
+        questionOrTrigger: 'Idioma estricto bilingüe Español/Inglés (bloquear respuestas en Hindi, Japonés, Coreano o Chino en teléfono)',
+        triggerKeywords: ['hindi', 'devanagari', 'tercer idioma telefono'],
+        customerQuote: sanitizePhoneLearningText(p.userText, 240, callLang),
+        koreQuote: sanitizePhoneLearningText(p.assistantText, 240, callLang),
+        proposedRuleEs:
+          'En la línea telefónica atendemos exclusivamente en Español e Inglés: prohibido responder en Hindi, Coreano, Japonés o Chino ante alucinaciones STT o ruido vial.',
+        proposedRuleEn:
+          'Phone line operates strictly in Spanish & English only: never reply in Hindi, Korean, Japanese, or Chinese when phone STT hallucinates foreign characters from road noise.',
+        avgLatencyMs: p.latencyMs
+      })
+    }
+
+    // 7d) Bloqueo determinista de falsa promesa "estoy revisando el estatus" sin consulta real en POS/Supabase
+    if (
+      /(?:estoy\s+revisando\s+(?:el\s+)?(?:estatus|estado)|checking\s+the\s+status\s+of\s+your\s+order|revisando\s+tu\s+orden)/i.test(
+        p.assistantText
+      ) &&
+      (!p.toolText || (!p.toolText.includes('validate_order_ticket') && !p.toolText.includes('ticketNumber')))
+    ) {
+      enrichmentPriority = 3
+      findings.push({
+        storeId: null,
+        sourceCallId: callId,
+        dedupeKey: 'rule:no_fake_order_lookup_without_tool',
+        sourceType,
+        itemKind: 'learned_rule',
+        status: 'auto_applied',
+        appliesToChannels: 'phone_only',
+        category: 'policies',
+        questionOrTrigger: 'Prohibido fingir revisión de estatus de orden (Uber Eats/DoorDash/pickup) sin invocar validate_order_ticket',
+        triggerKeywords: ['estatus orden uber eats', 'revisando el estatus', 'validate_order_ticket'],
+        customerQuote: sanitizePhoneLearningText(p.userText, 240, callLang),
+        koreQuote: sanitizePhoneLearningText(p.assistantText, 240, callLang),
+        proposedRuleEs:
+          'Antes de decir que estás revisando una orden o ticket, invoca obligatoriamente validate_order_ticket con el código y/o nombre del cliente.',
+        proposedRuleEn:
+          'Before saying you are checking an order status or ticket, always invoke validate_order_ticket with the order code and/or customer name.',
+        avgLatencyMs: p.latencyMs
+      })
+    }
+
     // 8) Telemetría agrupada de latencia alta (> 3500 ms entre turno user y respuesta assistant)
     if (p.latencyMs !== null && p.latencyMs > 3500) {
       let bucketKey = 'general_llm_turn'
@@ -1354,8 +1440,8 @@ async function extractLlmPhoneCallDoubts(
   if (pairs.length === 0) return []
   try {
     const transcriptCompact = pairs
-      .slice(0, 14)
-      .map((p) => `CLIENTE: ${p.userText.slice(0, 180)}\nKORE: ${p.assistantText.slice(0, 220)}`)
+      .slice(0, 22)
+      .map((p) => `CLIENTE: ${p.userText.slice(0, 180)}\nKORE: ${p.assistantText.slice(0, 240)}`)
       .join('\n---\n')
 
     const coveredSnippet = alreadyCoveredTriggers.slice(0, 35).join(' | ') || 'ninguno'
@@ -1364,7 +1450,7 @@ async function extractLlmPhoneCallDoubts(
       'Si Kore respondió correctamente con datos reales (horario de esa tienda, lista de 6 Drive-Thru, regla de desayunos hasta 2 PM, precios USD) y el cliente no reportó error, DEVUELVE {"items":[]} obligatoriamente.',
       'Solo reporta MÁXIMO 1 hallazgo genuino NO cubierto:',
       '  A) itemKind="stt_synonym": cuando el audio/transcripción deformó una palabra real (ej. "ibt"->"EBT", "hadas"->"asada", "sasada"->"asada", "dritro"->"Drive-Thru") generando confusión o repetición.',
-      '  B) itemKind="doubt_for_owner": cuando Kore dio una respuesta falsa, fuera de tema (ej. responder cancelación cuando preguntan ubicaciones), o faltó una política real de negocio.',
+      '  B) itemKind="doubt_for_owner": cuando Kore dio una respuesta falsa, fuera de tema (ej. responder cancelación cuando preguntan ubicaciones), mandó al cliente a tacosgavilan.com en vez de recitar el menú por voz, omitió categorías/carnes, o intentó despedirse antes de tiempo ante un simple "okay, gracias".',
       `Temas ya cubiertos en sistema/bandeja (NO repetir ni duplicar): ${coveredSnippet}.`,
       'PROHIBIDO reportar: tecla "9" (es nuestro comando DTMF oficial para cambiar Español/Inglés), preguntar por horario o ubicación cuando Kore ya contestó con los datos de su tienda, preguntas sobre el modelo de IA, ruido suelto ("it", "3177") o spam.',
       'Reglas de marca obligatorias: usa "Tacos Gavilan" (jamás "El"), precios en dólares USD (jamás pesos).',

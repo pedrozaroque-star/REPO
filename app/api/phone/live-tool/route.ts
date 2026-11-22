@@ -65,6 +65,8 @@ export async function POST(request: NextRequest) {
         ? (rawToolArgs as Record<string, unknown>)
         : {}
     const recentUserTranscript = String(body.recentUserTranscript || '')
+    const lastUserTranscript = String(body.lastUserTranscript || '')
+    const prevAssistantTranscript = String(body.prevAssistantTranscript || '')
     const thirdLanguage = sanitizeKoreThirdLanguageInput(body.thirdLanguage)
 
     const result = await executePhoneKoreLiveTool({
@@ -75,6 +77,8 @@ export async function POST(request: NextRequest) {
       toolName,
       toolArgs,
       recentUserTranscript,
+      lastUserTranscript,
+      prevAssistantTranscript,
       thirdLanguage
     })
 
