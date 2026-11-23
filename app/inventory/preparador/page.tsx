@@ -1076,9 +1076,9 @@ export default function PreparadorPage() {
                 lastRealtimeRecycleAt = nowTickMs
                 setupRealtimeChannel()
             }
+            // Sincronización activa cada 5s cuando la pantalla es visible (protegida por lease distribuido de 3.5s en PostgreSQL)
             const shouldSyncToastOnTick =
-                pollTickCount % 2 === 0 &&
-                (typeof document === 'undefined' || document.visibilityState === 'visible')
+                typeof document === 'undefined' || document.visibilityState === 'visible'
             fetchReadyOrdersRef.current?.(false, shouldSyncToastOnTick)
         }, 5000)
 

@@ -44,6 +44,7 @@
  * - FIX (2026-11-07, South Gate #315): `evaluateToastOrder` y `extractOrderItemsSummary` delegan en `isToastGiftCardOrNonFoodSelection` para excluir ventas y recargas de Gift Card (`TOAST_CARD_RELOAD` / `Add Value ($)` / `TOAST_CARD_SELL` / `toastGiftCard`) que nunca van al KDS.
  * - FIX (2026-11-09, Paridad 1:1 de Secuencia FIFO con Toast KDS): `evaluateToastOrder` calcula `sentAt` usando la hora real de disparo a cocina (`min(sel.sentDate || sel.createdDate)` de los platillos de cocina, o `order.createdDate`), eliminando la sobrescritura con `order.openedDate` (que en kioskos y segundas cajas registradoras refleja la apertura de pantalla en blanco varios minutos antes de enviar al KDS e invertía el orden de las comandas). Además, `syncStoreFromToast` reconcilia `created_at` en registros existentes cuando difiere >1 s de `ev.sentAt` autoritativo, preservando también la posición original al hacer RECALL en KDS.
  * - FIX (2026-11-20, Reconciliación de Órdenes Huérfanas >25 min — La Puente #228): `ordersBulk` solo devuelve órdenes modificadas en los últimos 25 min (`WINDOW_MINUTES = 25`), mientras que `/inventory/preparador` muestra comandas `IN_PROGRESS` de hasta 90 min. Si la tableta estuvo inactiva >25 min o un webhook tardío revirtió una orden a `IN_PROGRESS`, quedaba fuera de `ordersBulk` hasta cumplir 90 min. Ahora `syncStoreFromToast` cruza las órdenes `IN_PROGRESS` activas en BD (ventana de 95 min del mismo `business_date`, excluyendo bebidas/postres con `isDrinkOrDessertOnlyOrder`) que no vinieron en `ordersBulk` y consulta su estado puntual en `GET /orders/v2/orders/{guid}` (con cooldown de 30 s por GUID y tope de 8 por ciclo), cerrándolas de inmediato cuando Toast ya las tiene `READY` o `COMPLETED`.
+ * - FIX (2026-11-23, Buffer Clock-Skew +2m, Throttle 3.5s y Recuperación COMPLETED -> IN_PROGRESS — Huntington Park #74): amplía `endDate` de `ordersBulk` con `+2 min` para cubrir terminales Toast KDS con reloj adelantado respecto a UTC (~9s en HPARK), reduce `THROTTLE_MS` a `3,500ms` para agilizar aparición tras `Recall` en KDS y añade transición de rescate `COMPLETED -> IN_PROGRESS` cuando se disparan platillos a cocina sobre una cuenta previamente marcada `COMPLETED`.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -491,7 +492,7 @@ export async function getDiningMap(token: string, restaurantGuid: string): Promi
 const lastRun = new Map<string, number>()
 const inflight = new Map<string, Promise<void>>()
 const orphanRecheckAt = new Map<string, number>()
-const THROTTLE_MS = 5000
+const THROTTLE_MS = 3500
 const WINDOW_MINUTES = 25
 const ORPHAN_LOOKBACK_MINUTES = 95
 const ORPHAN_RECHECK_COOLDOWN_MS = 30_000
@@ -568,6 +569,8 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       lastRun.set(storeCode, Date.now())
 
       const end = new Date()
+      // Margen +2 min en endDate para terminales Toast POS/KDS cuyo reloj local esté ligeramente adelantado respecto a UTC
+      const bulkEnd = new Date(end.getTime() + 2 * 60 * 1000)
       const bDayStartMs = getBusinessDayStartMs(end)
       // La ventana no debe traspasar hacia atrás la frontera de las 6:00 AM de hoy
       const windowStartMs = Math.max(end.getTime() - WINDOW_MINUTES * 60 * 1000, bDayStartMs)
@@ -578,7 +581,7 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
       for (let page = 1; page <= 4; page++) {
         const url = new URL(`${apiHost}/orders/v2/ordersBulk`)
         url.searchParams.set('startDate', toastDate(start))
-        url.searchParams.set('endDate', toastDate(end))
+        url.searchParams.set('endDate', toastDate(bulkEnd))
         url.searchParams.set('pageSize', '100')
         url.searchParams.set('page', String(page))
         const res = await fetch(url.toString(), {
@@ -737,12 +740,16 @@ export async function syncStoreFromToast(storeCode: string, force = false): Prom
             if (Number.isFinite(newReadyMs) && (!Number.isFinite(oldReadyMs) || Math.abs(newReadyMs - oldReadyMs) > 1000)) {
               updatePayload.ready_at = ev.readyAt
             }
-          } else if (ev.status === 'IN_PROGRESS' && row.status === 'READY') {
-            // RECALL en Toast KDS (o corrección si un postre marcó READY antes que la cocina):
+          } else if (ev.status === 'IN_PROGRESS' && (row.status === 'READY' || row.status === 'COMPLETED')) {
+            // RECALL en Toast KDS o disparo de platillos sobre orden previamente cerrada/borrador:
             // Vuelve a preparación (IN_PROGRESS), se limpia ready_at y vuelve a aparecer en la tableta del preparador.
             updatePayload.status = 'IN_PROGRESS'
             updatePayload.ready_at = null
             updatePayload.announced = false
+          } else if (ev.status === 'READY' && row.status === 'COMPLETED') {
+            updatePayload.status = 'READY'
+            updatePayload.ready_at = ev.readyAt
+            updatePayload.announced = true
           } else if (ev.status === 'COMPLETED' && row.status !== 'COMPLETED') {
             updatePayload.status = 'COMPLETED'
           }

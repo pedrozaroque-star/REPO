@@ -21,6 +21,7 @@
  * - FIX (2026-11-09, Paridad 1:1 con Toast KDS): prioriza `evaluation.sentAt` / `orderObj.createdDate` sobre `openedDate`, y reconcilia `created_at` en registros existentes cuando llega el timestamp autoritativo de disparo a cocina (`sentAtAuthoritative`).
  * - FIX (2026-11-20, Escudo Anti-Falso-Recall por Webhook Tardío — La Puente #228): bloquea transiciones `READY -> IN_PROGRESS` (y `COMPLETED -> IN_PROGRESS` sin ítems) cuando el webhook `order_updated` carece de `selections` (`evaluation.activeItems === 0`) o cuando su timestamp de modificación (`getLatestToastOrderSnapshotMs`) es anterior o igual al bump real del KDS (`existing.ready_at`), preservando intacto el RECALL legítimo en KDS (`latestSnapshotMs > existingReadyMs`).
  * - BLINDAJE CRIPTOGRÁFICO Y ANTI-SPOOFING WEBHOOK (2026-11-21): cuando `TOAST_WEBHOOK_SECRET` está configurado valida `Toast-Signature` HMAC-SHA256 / Bearer con `crypto.timingSafeEqual`; cuando no está configurado en entorno, exige `restaurantGuid` oficial en `TOAST_STORE_MAP` + `orderGuid` UUID válido y verifica/hidrata la orden directamente contra la API oficial de Toast (`ws-api.toasttab.com`) antes de tocar Supabase (cero downtime en producción y cero inyección de órdenes falsas).
+ * - FIX (2026-11-23, Hidratación de Webhooks de Cabecera y Protección de IN_PROGRESS — Huntington Park #74): impide que un webhook parcial sin `selections` (ej. `approvalStatus: 'APPROVED'`) degrade una orden activa (`IN_PROGRESS`/`READY`) a `COMPLETED`, e hidrata automáticamente desde `GET /orders/v2/orders/{guid}` las órdenes nuevas firmadas cuando el webhook trae `displayNumber` pero omite `selections`, logrando aparición inmediata (<0.3s) en la tableta.
  */
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
@@ -313,18 +314,26 @@ export async function POST(request: Request) {
             latestSnapshotMs <= existingReadyMs + 500))
       const isEmptyReopenAfterComplete =
         existing.status === 'COMPLETED' && status === 'IN_PROGRESS' && evaluation.activeItems === 0
+      const isHeaderOnlyNonVoidStatus =
+        !hasRawSelections &&
+        evaluation.activeItems === 0 &&
+        rawStatus !== 'VOIDED' &&
+        !orderObj.voided &&
+        !orderObj.deleted
 
       const isRecall = isAttemptedRecall && !isStaleOrEmptyRecall
-      const isKdsBump = existing.status === 'IN_PROGRESS' && status === 'READY'
-      const nextStatus = isStaleOrEmptyRecall
-        ? 'READY'
-        : isEmptyReopenAfterComplete
-          ? 'COMPLETED'
-          : isRecall
-            ? 'IN_PROGRESS'
-            : isKdsBump
-              ? 'READY'
-              : status
+      const isKdsBump = existing.status === 'IN_PROGRESS' && status === 'READY' && !isHeaderOnlyNonVoidStatus
+      const nextStatus = isHeaderOnlyNonVoidStatus
+        ? existing.status
+        : isStaleOrEmptyRecall
+          ? 'READY'
+          : isEmptyReopenAfterComplete
+            ? 'COMPLETED'
+            : isRecall
+              ? 'IN_PROGRESS'
+              : isKdsBump
+                ? 'READY'
+                : status
 
       const updateData: any = {}
       if (existing.status !== nextStatus) {
@@ -388,19 +397,25 @@ export async function POST(request: Request) {
     let finalDiningOption: ReturnType<typeof classifyDiningName> = diningOption
 
     let fetchedToastOrder: any = null
-    if (!finalOrderNumber && orderGuid && restaurantId) {
+    let fetchedEval: ReturnType<typeof evaluateToastOrder> | null = null
+    if ((!finalOrderNumber || !hasRawSelections) && orderGuid && restaurantId && rawStatus !== 'VOIDED') {
       try {
         const token = await getAuthToken()
         if (token) {
-          const res = await fetch(`${getToastApiHost()}/orders/v2/orders/${orderGuid}`, {
+          const res = await fetch(`${getToastApiHost()}/orders/v2/orders/${encodeURIComponent(orderGuid)}`, {
             headers: {
               Authorization: `Bearer ${token}`,
               'Toast-Restaurant-External-ID': restaurantId
-            }
+            },
+            signal: AbortSignal.timeout(4500)
           })
           if (res.ok) {
             fetchedToastOrder = await res.json()
-            if (fetchedToastOrder.displayNumber) {
+            fetchedEval = evaluateToastOrder(fetchedToastOrder)
+            if (!hasRawSelections && fetchedEval.activeItems > 0) {
+              status = fetchedEval.status
+            }
+            if (!finalOrderNumber && fetchedToastOrder.displayNumber) {
               finalOrderNumber = String(fetchedToastOrder.displayNumber)
             }
             if (fetchedToastOrder.diningOption?.guid || fetchedToastOrder.diningOption?.name) {
@@ -434,7 +449,9 @@ export async function POST(request: Request) {
     }
 
     const itemsSummary = extractOrderItemsSummary(orderObj) || (fetchedToastOrder ? extractOrderItemsSummary(fetchedToastOrder) : null)
-    const fetchedEval = fetchedToastOrder ? evaluateToastOrder(fetchedToastOrder) : null
+    if (!fetchedEval && fetchedToastOrder) {
+      fetchedEval = evaluateToastOrder(fetchedToastOrder)
+    }
     const effectiveOrderDate =
       evaluation.sentAt ||
       fetchedEval?.sentAt ||

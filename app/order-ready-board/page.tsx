@@ -73,6 +73,7 @@
  *   el llamado automático adaptativo según complejidad de platillos (Nivel 1 Rápida 2m 45s, Nivel 2 Media 4m 15s, Nivel 3 Compleja/Al momento 5m 30s) + ajuste por fila FIFO delante (+20s/orden),
  *   con cancelación automática si se cierra en KDS o si ya fue llamada desde tableta.
  * - OPTIMIZACIÓN TELEMETRÍA BOCINA (2026-11-19): El latido periódico (`heartbeat`) de `speaker_board` pasa de 60s a 300s (5 min) y omite el latido periódico cuando hubo un `playback_ack` exitoso hace `< 4 min` para la misma sucursal, manteniendo intacto el aviso instantáneo (300ms) ante cambios de estado (`isMuted`, `audioUnlocked`, `voiceVolume`, `isFullscreen`) y sin alterar el polling ni locuciones de órdenes.
+ * - DESACTIVACIÓN POR DEFECTO DE RECORDATORIO AUTOMÁTICO (2026-11-23, Huntington Park): `DEFAULT_REMINDER_DELAY_MS = 0` y migración a `teg_order_ready_reminder_sec_v2` (`0s` = Desactivado por defecto en las 15 sucursales, restringido a Admin), eliminando repeticiones automáticas no solicitadas cuando una orden aún sigue en preparación durante horas pico.
  */
 
 'use client'
@@ -207,8 +208,8 @@ function formatTimeOnly(timestamp: string | null | undefined): string {
 
 /** Veces que se anuncia una orden al cerrarse con doble tap en el expediter / KDS (1 sola vez según instrucción de Carlos) */
 const ANNOUNCE_REPEATS = 1
-/** Recordatorio único (1 vez) si la orden sigue en "Listo para recoger" tras este tiempo (por defecto 90s) */
-const DEFAULT_REMINDER_DELAY_MS = 90_000
+/** Recordatorio automático desactivado por defecto (0ms = 100% control manual desde tableta de cocina) */
+const DEFAULT_REMINDER_DELAY_MS = 0
 
 const STORES_LIST = [
   { code: 'LYNWOOD', name: 'Lynwood (#14)' },
@@ -349,16 +350,20 @@ function OrderReadyBoardContent() {
     }
   }
 
-  // Regla de Negocio Tacos Gavilan: Tiempo de recordatorio para órdenes en "Listo para recoger" (por defecto 90s, ajustable en controles)
+  // Regla de Negocio Tacos Gavilan: Recordatorio automático DESACTIVADO por defecto (0s) en las 15 tiendas
+  // para evitar que las órdenes vuelvan a llamarse solas en hora pico mientras siguen en preparación.
   const [reminderSeconds, setReminderSeconds] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('teg_order_ready_reminder_sec')
-      if (saved !== null) {
-        const val = parseInt(saved, 10)
-        if (!isNaN(val) && val >= 0) return val
-      }
+      try {
+        localStorage.removeItem('teg_order_ready_reminder_sec')
+        const saved = localStorage.getItem('teg_order_ready_reminder_sec_v2')
+        if (saved !== null) {
+          const val = parseInt(saved, 10)
+          if (!isNaN(val) && val >= 0) return val
+        }
+      } catch {}
     }
-    return 90
+    return 0
   })
 
   const reminderSecondsRef = useRef<number>(reminderSeconds)
@@ -367,11 +372,14 @@ function OrderReadyBoardContent() {
   }, [reminderSeconds])
 
   const updateReminderSeconds = (val: number) => {
+    if (!isAdmin) return
     const clamped = Math.max(0, Math.min(600, val))
     setReminderSeconds(clamped)
     reminderSecondsRef.current = clamped
     if (typeof window !== 'undefined') {
-      localStorage.setItem('teg_order_ready_reminder_sec', String(clamped))
+      try {
+        localStorage.setItem('teg_order_ready_reminder_sec_v2', String(clamped))
+      } catch {}
     }
   }
 
@@ -3801,14 +3809,15 @@ function OrderReadyBoardContent() {
                     </span>
                   </div>
 
-                  {/* Presets Rápidos: 30s, 45s, 60s, 90s (★), 120s */}
+                  {/* Presets Rápidos: OFF (0s ★), 60s, 90s, 120s, 180s (Solo Admin) */}
                   <div className="grid grid-cols-5 gap-1 mb-1.5">
-                    {[30, 45, 60, 90, 120].map((sec) => (
+                    {[0, 60, 90, 120, 180].map((sec) => (
                       <button
                         key={sec}
                         type="button"
+                        disabled={!isAdmin}
                         onClick={() => updateReminderSeconds(sec)}
-                        className={`py-1 rounded-lg text-[11px] font-bold transition border ${
+                        className={`py-1 rounded-lg text-[11px] font-bold transition border disabled:opacity-50 disabled:cursor-not-allowed ${
                           reminderSeconds === sec
                             ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
                             : isDark
@@ -3816,7 +3825,7 @@ function OrderReadyBoardContent() {
                               : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                         }`}
                       >
-                        {sec}s {sec === 90 ? '★' : ''}
+                        {sec === 0 ? 'OFF ★' : `${sec}s`}
                       </button>
                     ))}
                   </div>
@@ -3828,9 +3837,10 @@ function OrderReadyBoardContent() {
                       min="0"
                       max="300"
                       step="5"
+                      disabled={!isAdmin}
                       value={reminderSeconds}
                       onChange={(e) => updateReminderSeconds(parseInt(e.target.value, 10))}
-                      className={`flex-1 accent-emerald-500 h-1.5 rounded-lg cursor-pointer ${
+                      className={`flex-1 accent-emerald-500 h-1.5 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                         isDark ? 'bg-slate-800' : 'bg-slate-200'
                       }`}
                     />
@@ -3839,6 +3849,7 @@ function OrderReadyBoardContent() {
                         type="number"
                         min="0"
                         max="600"
+                        disabled={!isAdmin}
                         value={reminderSeconds}
                         onChange={(e) => updateReminderSeconds(parseInt(e.target.value, 10) || 0)}
                         className={`w-14 text-center font-bold text-xs py-0.5 rounded-md border focus:outline-none focus:border-emerald-500 ${
