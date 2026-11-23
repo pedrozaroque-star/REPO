@@ -31,6 +31,10 @@
  *   - [2026-11-17] Unificado con `buildPartyTrayVirtualIngredients` (`Party Tray Guidelines`), corrigiendo
  *     tortilla de harina a `358_9604BT Tortilla Regular 8 in` (`1df90372-7648-4ec1-9a6c-fca4032095a6`),
  *     respetando `Fiesta Platters` Delivery como `15-20` y aislando Party Trays de `parseProteinAllocation`.
+ *   - [2026-11-23] FIX CRÍTICO (`food-cost-sales-resolver`): Para el día en curso (intraday), `net_sales` usa el mismo
+ *     snapshot vivo de Toast PMIX (evitando desfase 10-20 min contra `sales_daily_cache` que inflaba Downey a 41.8%
+ *     y Santa Ana a 41.2%, y eliminando sobrescritura en `$0` que dejaba LA Central en `0.0%`). Para días cerrados
+ *     usa `sales_daily_cache` únicamente si `> 0`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
@@ -39,6 +43,11 @@ import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { normalizeToLbs } from '@/lib/inventory/conversions'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
+import {
+    calculateSafeFoodCostPct,
+    getBusinessDateLA,
+    resolveFoodCostNetSales,
+} from '@/lib/inventory/food-cost-sales-resolver'
 import { Recipe, InventoryItem } from '@/types/inventory'
 import { verifyStaffAuth } from '@/lib/auth-server'
 
@@ -542,8 +551,11 @@ export async function GET(request: NextRequest) {
         // ═══ END DEBUG ═══
 
         // ═══ WRITE-THROUGH CACHE & AUTHORITATIVE SALES ═══
-        // Fetch authoritative net_sales from sales_daily_cache (same source as Ventas page)
-        // regardless of range, so the frontend can align sales numbers.
+        // Fetch authoritative net_sales from sales_daily_cache for CLOSED days (exact parity with Ventas).
+        // For TODAY (intraday), keep live PMIX net_sales locked to the exact same Toast ordersBulk snapshot
+        // so lagged sales_daily_cache rows (or $0 error rows) can never skew or zero-out Food Cost %.
+        const todayBusinessDateLA = getBusinessDateLA()
+        const isLiveRange = endDate >= todayBusinessDateLA
         let salesNetSalesMap: Map<string, number> | null = null
         try {
             const supabaseAdmin = await getSupabaseAdminClient()
@@ -585,14 +597,22 @@ export async function GET(request: NextRequest) {
                     agg.total_meat_lbs += item.total_meat_lbs || 0
                 })
 
-                // Override net_sales with sales_daily_cache values when available
+                // Resolve net_sales deterministically: intraday -> live PMIX snapshot; closed days -> positive sales_daily_cache with PMIX fallback
                 const cacheRows = Array.from(storeAgg.values()).map(s => {
                     const authoritativeSales = salesNetSalesMap!.get(s.store_id)
-                    const netSales = authoritativeSales !== undefined ? authoritativeSales : s.net_sales
+                    const resolved = resolveFoodCostNetSales({
+                        startDate,
+                        endDate,
+                        pmixNetSales: s.net_sales,
+                        cachedDailySales: authoritativeSales,
+                        todayBusinessDateLA,
+                    })
+                    const roundedCost = Number(s.total_cost.toFixed(2))
                     return {
                         ...s,
-                        net_sales: netSales,
-                        cost_percentage: netSales > 0 ? Number(((s.total_cost / netSales) * 100).toFixed(2)) : 0,
+                        total_cost: roundedCost,
+                        net_sales: resolved.netSales,
+                        cost_percentage: calculateSafeFoodCostPct(roundedCost, resolved.netSales),
                         updated_at: new Date().toISOString()
                     }
                 })
@@ -604,7 +624,7 @@ export async function GET(request: NextRequest) {
                 if (cacheError) {
                     console.warn('[FoodCostAPI] ⚠️ Cache write failed:', cacheError.message)
                 } else {
-                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate}`)
+                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate} (mode=${isLiveRange ? 'pmix_intraday' : 'closed_authoritative'})`)
                 }
             }
         } catch (err: any) {
@@ -612,10 +632,13 @@ export async function GET(request: NextRequest) {
         }
         // ═══ END WRITE-THROUGH CACHE ═══
 
-        // Include authoritative sales data in response so frontend can use it
+        // Include authoritative sales overrides ONLY for closed historical ranges and strictly positive values
+        // For live intraday ranges, frontend uses the synchronized PMIX net_sales from `report` directly.
         const salesNetSales: Record<string, number> = {}
-        if (salesNetSalesMap) {
-            salesNetSalesMap.forEach((v, k) => salesNetSales[k] = v)
+        if (!isLiveRange && salesNetSalesMap) {
+            salesNetSalesMap.forEach((v, k) => {
+                if (v > 0) salesNetSales[k] = Number(v.toFixed(2))
+            })
         }
 
         // Default Sort: Quantity Desc

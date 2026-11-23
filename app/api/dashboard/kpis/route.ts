@@ -10,6 +10,7 @@
  * - Client -> GET /api/dashboard/kpis -> fetchToastData + food_cost_daily_cache -> JSON Response.
  * @notes
  * - [2026-09-10] FIX: Validates food cost store completeness (>=14 stores) and uses in-process calculation fallback.
+ * - [2026-11-23] FIX: Excluye filas corruptas (`total_cost > 0 && net_sales <= 0`) del promedio global y fuerza recálculo en vivo cuando existe alguna tienda con ventas en `$0`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -17,6 +18,7 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import { fetchToastData, ToastMetricsOptions } from '@/lib/toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
+import { isInvalidFoodCostCacheRow } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,17 +79,24 @@ export async function GET(req: NextRequest) {
 
             let tempCost = 0
             let tempSales = 0
+            let brokenStoreRows = 0
             const distinctStores = new Set<string>()
             fcRows?.forEach(r => {
-                tempCost += Number(r.total_cost || 0)
-                tempSales += Number(r.net_sales || 0)
+                const rowCost = Number(r.total_cost || 0)
+                const rowSales = Number(r.net_sales || 0)
+                if (isInvalidFoodCostCacheRow(rowCost, rowSales)) {
+                    brokenStoreRows += 1
+                    return
+                }
+                tempCost += rowCost
+                tempSales += rowSales
                 if (r.store_id) distinctStores.add(r.store_id)
             })
 
-            // Cache is complete only if all stores (>= 14) are present and sales > 0
-            const isFcCacheComplete = rangeDays === 1
+            // Cache is complete only if all stores (>= 14) are present, sales > 0, and ZERO stores have cost > 0 with sales <= 0
+            const isFcCacheComplete = brokenStoreRows === 0 && (rangeDays === 1
                 ? (distinctStores.size >= 14 && tempSales > 0 && tempCost > 0)
-                : (fcRows && fcRows.length >= rangeDays * 12 && tempSales > 0)
+                : (Boolean(fcRows) && fcRows!.length >= rangeDays * 12 && tempSales > 0))
 
             if (!fcErr && fcRows && fcRows.length > 0 && isFcCacheComplete) {
                 // Cache hit complete — use pre-calculated data

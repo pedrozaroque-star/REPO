@@ -2,21 +2,37 @@
  * @module ventas/reportes/page
  * @description Weekly Operations Report, DSR Labor Log, and Monthly Sales Dashboard for Tacos Gavilan stores.
  * @businessRules
- * - AM Shift (Apertura) spans 6:00 AM to 4:59 PM (hours 6..16).
- * - PM Shift (Cierre) spans 5:00 PM to 5:59 AM next day (hours 17..23, 0..5).
+ * - Business day runs 6:00 AM to 5:59 AM next day in America/Los_Angeles.
+ * - AM Shift (Apertura) spans 6:00 AM to 4:59 PM (hours 6..16 LA).
+ * - PM Shift (Cierre) spans 5:00 PM to 5:59 AM next day (hours 17..23, 0..5 LA).
  * - Inverse color rules for Labor % and Hours differences: negative is green (savings) and positive is red (over-budget).
- * - Weighted average for weekly summary metrics to maintain financial integrity.
+ * - All weekly and monthly percentages/averages (Labor %, Avg Order, SOS Time) use true weighted ratios (sum/sum), never simple means.
+ * - sales_daily_cache stores Drive-Thru car count in guest_count and SOS seconds in ebt_count; EBT dollars live strictly in ebt_amount.
  * @dataFlow
- * - Client -> GET /api/reports/weekly-ops & Toast Daily Cache -> Operations Grid, Labor Log, & Monthly Reports.
+ * - Client -> GET /api/reports/weekly-ops & paginated sales_daily_cache -> Operations Grid, Labor Log, & Monthly Reports.
+ * @notes
+ * - 2026-11-23 Deep Audit Fix: Wrapped hooks inside ProtectedRoute, removed 145 lines of dead calculateWeekStats & dead handleAutoFill,
+ *   fixed UTC/DST preset & month shifts, fixed America/Los_Angeles AM/PM punch/leader windows, fixed weighted Labor % / Avg Order / SOS Time,
+ *   stopped SOS seconds (ebt_count) from leaking into EBT column, fixed Monthly Footer Avg Order dead branch, added cross-month Sunday Week Sales,
+ *   ignored pre-seeded $0 future rows, fixed AbortController & error banners, added formula-safe CSV Export & Print, and full ES/EN i18n.
  */
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { ArrowLeft, FileText, Plus, Save, Calendar, Store, Calculator, Clock, CheckCircle } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { FileText, Calendar, Store, Calculator, Clock, Download, Printer, AlertCircle } from 'lucide-react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useSmartProjections } from '@/app/planificador/hooks/useSmartProjections'
+import { useLanguage } from '@/lib/i18n'
+import {
+    getBusinessDateLA,
+    getLANowParts,
+    getMondayIso,
+    addDaysIso,
+    buildLAInstant,
+    formatSignedUSD,
+    escapeCsvCell
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 // 1. STRUCTURE DEFINITION (Matches Excel Rows)
 const REPORT_STRUCTURE = [
@@ -74,1016 +90,785 @@ const DAYS = [
     { key: 'sunday', label: 'Sunday' },
 ]
 
-import { useLanguage } from '@/lib/i18n'
+function formatSosSeconds(sec: number): string {
+    const rounded = Math.round(sec)
+    if (!Number.isFinite(rounded) || rounded <= 0) return ''
+    const m = Math.floor(rounded / 60)
+    const s = rounded % 60
+    return `${m}:${String(s).padStart(2, '0')}`
+}
 
-export default function ReportesPage() {
+function getIsoWeekdayUTC(isoDate: string): number {
+    const [y, m, d] = isoDate.split('-').map(Number)
+    return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+}
+
+function formatUsDateFromIso(isoDate: string): string {
+    const [y, m, d] = isoDate.split('-')
+    if (!y || !m || !d) return isoDate
+    return `${m}/${d}/${y}`
+}
+
+function getMonthStartIso(year: number, month1Based: number): string {
+    return `${year}-${String(month1Based).padStart(2, '0')}-01`
+}
+
+function getPreviousMonthStartIso(businessDateIso: string): string {
+    const [y, m] = businessDateIso.split('-').map(Number)
+    if (m === 1) return getMonthStartIso(y - 1, 12)
+    return getMonthStartIso(y, m - 1)
+}
+
+function ReportesPageContent() {
     const { t, language } = useLanguage()
-    const router = useRouter()
     const [loading, setLoading] = useState(false)
+    const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
     // Config State
     const [selectedStore, setSelectedStore] = useState('')
-    const [weekDate, setWeekDate] = useState('') // "2026-01-12" (Monday)
+    const [weekDate, setWeekDate] = useState('') // "YYYY-MM-DD" (Monday for ops/labor, YYYY-MM-01 for monthly)
+    const [datePreset, setDatePreset] = useState('')
     const [stores, setStores] = useState<any[]>([])
 
     // Data State (Grid)
-    // Structure: { monday: { projected_sales: 100, ... }, tuesday: { ... } }
     const [gridData, setGridData] = useState<Record<string, Record<string, any>>>({})
     const [monthlyData, setMonthlyData] = useState<Record<string, any>>({}) // Key: "YYYY-MM-DD"
-
-
-    // Projection Optimization State
-    const [targetLaborPct, setTargetLaborPct] = useState(24)
-    const [targetSPLH, setTargetSPLH] = useState(65)
 
     // Tab State
     const [activeTab, setActiveTab] = useState<'ops' | 'labor' | 'monthly'>('ops')
     const [laborLogData, setLaborLogData] = useState<any[]>([])
 
-    // Load Stores
+    const weeklyAbortRef = useRef<AbortController | null>(null)
+    const monthlyReqIdRef = useRef<number>(0)
+
+    // Load Active Stores Only
     useEffect(() => {
+        let cancelled = false
         const loadStores = async () => {
             const supabase = await getSupabaseClient()
-            const { data } = await supabase.from('stores').select('*').order('name')
-            if (data) setStores(data)
+            const { data } = await supabase
+                .from('stores')
+                .select('id, name, external_id, is_active')
+                .eq('is_active', true)
+                .order('name')
+            if (!cancelled && data) setStores(data)
         }
         loadStores()
+        return () => { cancelled = true }
     }, [])
 
-    // Initialize Grid when Week/Store changes
+    // Memoized Monday string & Date object so useSmartProjections never churns on re-renders
+    const mondayIso = useMemo(() => {
+        if (!weekDate) return ''
+        return getMondayIso(weekDate)
+    }, [weekDate])
+
+    const smartProjDate = useMemo(() => {
+        const baseIso = mondayIso || getMondayIso(getBusinessDateLA())
+        return new Date(baseIso + 'T12:00:00')
+    }, [mondayIso])
+
+    const selectedStoreExternalId = useMemo(() => {
+        if (!selectedStore || selectedStore === 'all') return undefined
+        return stores.find(s => String(s.id) === String(selectedStore))?.external_id
+    }, [selectedStore, stores])
+
+    // Initialize empty grid when Store/Week changes
     useEffect(() => {
         if (!weekDate || !selectedStore) return
-
-        // FIX: Ensure we align to Monday even if weekDate is off
-        const [y, m, tempD] = weekDate.split('-').map(Number)
-        const dateBase = new Date(y, m - 1, tempD, 12, 0, 0, 0)
-        const currentDay = dateBase.getDay()
-        const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
-        dateBase.setDate(dateBase.getDate() + distToMon)
-        // dateBase is now strictly Monday 12:00 PM
-
-        const initData: any = {}
-        DAYS.forEach((day, i) => {
+        const initData: Record<string, Record<string, any>> = {}
+        DAYS.forEach((day) => {
             initData[day.key] = {}
-
-            // Calculate specific date for this column
-            const colDate = new Date(dateBase)
-            colDate.setDate(colDate.getDate() + i)
-            const dStr = colDate.toISOString().split('T')[0]
-
-            // Store it for fetch reference?
-            // Actually, fetchReport uses weekDate directly. 
-            // If fetchReport uses Raw weekDate (might be Tuesday), it fetches wrong range.
-            // But fetchReport is triggered manually or by tab change.
-            // We should auto-correct weekDate state if possible, but that causes loop.
-            // Instead, we trust fetchReport will use the same "Snap to Monday" logic.
-
             REPORT_STRUCTURE.forEach(row => {
                 if (row.type !== 'header') initData[day.key][row.id] = ''
             })
         })
         setGridData(initData)
-
-        // Trigger fetch if auto-loading is desired? 
-        // Currently fetch is manual button in logic, but let's leave it be.
     }, [selectedStore, weekDate])
 
-    // --- HOOKS ---
-    // Initialize Smart Projections logic (Client Side Fallback)
-    // 🛡️ FIX: Append T12:00:00 to avoid timezone shift (UTC midnight -> PST previous day)
-    const { calculateProjections } = useSmartProjections(selectedStore ? stores.find(s => String(s.id) === String(selectedStore))?.external_id : undefined, weekDate ? new Date(weekDate + 'T12:00:00') : new Date())
-
-    // --- REPLICATED LOGIC FROM PLANNER (useWeeklyStats) ---
-    const bankersRound = (num: number) => {
-        const n = num * 100;
-        const i = Math.round(n);
-        const remainder = Math.abs(n) % 1;
-        if (Math.abs(remainder - 0.5) < 0.0000001) {
-            const floor = Math.floor(n);
-            return (floor % 2 === 0 ? floor : floor + 1) / 100;
-        }
-        return Math.round(n) / 100;
-    }
-
-    const calcDuration = (s: any) => {
-        if (!s.start_time || !s.end_time) return 0;
-        const start = new Date(s.start_time);
-        const end = new Date(s.end_time);
-        let rawDuration = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-        if (rawDuration < 0) rawDuration += 24;
-        // CA Meal Break: required after 5 hours
-        return (rawDuration > 5) ? rawDuration - 0.5 : Math.max(0, rawDuration);
-    }
-
-    const calculateWeekStats = (shifts: any[], employees: any[], jobs: any[]) => {
-        const shiftStats: Record<string, any> = {};
-
-        employees.forEach(emp => {
-            const empShifts = shifts.filter(s => s.employee_id === emp.id);
-            const sorted = [...empShifts].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
-
-            let regularHoursAccumulator = 0;
-            let dailyHoursAccumulator = 0;
-            let lastShiftDate = "";
-
-            sorted.forEach(s => {
-                const duration = calcDuration(s);
-                if (s.shift_date !== lastShiftDate) {
-                    dailyHoursAccumulator = 0;
-                    lastShiftDate = s.shift_date;
-                }
-
-                // 1. Daily OT
-                let dailyOT = 0;
-                const hoursBeforeThisShift = dailyHoursAccumulator;
-                dailyHoursAccumulator += duration;
-
-                if (hoursBeforeThisShift >= 8) {
-                    dailyOT = duration;
-                } else if (hoursBeforeThisShift + duration > 8) {
-                    dailyOT = (hoursBeforeThisShift + duration) - 8;
-                }
-                const dailyRegular = duration - dailyOT;
-
-                // 2. Weekly OT
-                let weeklyOT = 0;
-                if (regularHoursAccumulator >= 40) {
-                    weeklyOT = dailyRegular;
-                } else if (regularHoursAccumulator + dailyRegular > 40) {
-                    weeklyOT = (regularHoursAccumulator + dailyRegular) - 40;
-                }
-                regularHoursAccumulator += (dailyRegular - weeklyOT);
-
-                // Wage Lookup (Simplified to match Script Logic)
-                let rate = 16.00;
-                if (emp.wage_data && emp.wage_data.length > 0) {
-                    // Script blindly takes index 0. We do the same to ensure numbers match.
-                    rate = emp.wage_data[0].wage;
-                }
-
-                const totalShiftOT = dailyOT + weeklyOT;
-                const regularPaid = duration - totalShiftOT;
-                const cost = (regularPaid * rate) + (totalShiftOT * rate * 1.5);
-                const roundedCost = bankersRound(cost);
-
-                if (s.id) {
-                    shiftStats[s.id] = {
-                        duration,
-                        cost: roundedCost,
-                        hours: duration, // alias
-                        regularHours: regularPaid,
-                        otHours: totalShiftOT
-                    };
-                }
-            });
-        });
-
-        // 2. Process Unassigned Shifts (Open Shifts)
-        const unassigned = shifts.filter(s => !s.employee_id);
-        unassigned.forEach(s => {
-            const duration = calcDuration(s);
-            // Default rate for open shifts (Budget placeholder)
-            const rate = 16.00;
-            const cost = bankersRound(duration * rate);
-
-            if (s.id) {
-                shiftStats[s.id] = {
-                    duration,
-                    cost,
-                    hours: duration,
-                    regularHours: duration,
-                    otHours: 0
-                }
-            }
-        });
-
-        return shiftStats;
-    }
+    // Client-side Smart Projections fallback (only called if single-store DB cache misses a day)
+    const { calculateProjections } = useSmartProjections(selectedStoreExternalId, smartProjDate)
 
 
-    // Load Data if exists
-    const fetchReport = React.useCallback(async () => {
+    // Load Weekly Operations & Labor Log data from /api/reports/weekly-ops
+    const fetchReport = useCallback(async () => {
         if (!weekDate || !selectedStore || stores.length === 0) return
-        setLoading(true)
-        try {
-            const supabase = await getSupabaseClient()
 
-            // 2. Resolve Store GUID from numeric ID
+        // Cancel any in-flight weekly request to prevent race conditions
+        if (weeklyAbortRef.current) weeklyAbortRef.current.abort()
+        const controller = new AbortController()
+        weeklyAbortRef.current = controller
+
+        setLoading(true)
+        setErrorMsg(null)
+        try {
             let queryId = ''
             if (selectedStore === 'all') {
                 queryId = 'all'
             } else {
                 const storeObj = stores.find(s => String(s.id) === String(selectedStore))
                 if (!storeObj?.external_id) {
-                    console.warn(`⚠️ [REPORT] Waiting for store external_id for '${storeObj?.name || 'Unknown'}'...`)
                     setLoading(false)
                     return
                 }
                 queryId = storeObj.external_id
             }
 
-            // Calculate Sunday date (End of Week)
-            // ensure we start from MONDAY
-            const [y, m, tempD] = weekDate.split('-').map(Number)
-            const dateBase = new Date(Date.UTC(y, m - 1, tempD, 12, 0, 0))
-            const currentDay = dateBase.getUTCDay()
-            const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
-            dateBase.setUTCDate(dateBase.getUTCDate() + distToMon)
+            // Strict pure-UTC Monday -> Sunday dates
+            const startStr = getMondayIso(weekDate)
+            const endStr = addDaysIso(startStr, 6)
+            const lookbackStr = addDaysIso(startStr, -35)
 
-            // dateBase is now strictly Monday 12:00 PM. Format to YYYY-MM-DD
-            const startStr = dateBase.toISOString().split('T')[0]
-            const start = new Date(startStr + 'T00:00:00')
-            const end = new Date(start)
-            end.setDate(start.getDate() + 7)
-            
-            // Pure UTC Calculation for End Date (Start + 6 days)
-            const [uY, uM, uD] = startStr.split('-').map(Number)
-            const utcStartObj = new Date(Date.UTC(uY, uM - 1, uD))
-            const utcEndObj = new Date(utcStartObj)
-            utcEndObj.setUTCDate(utcEndObj.getUTCDate() + 6)
-
-            const endStr = utcEndObj.toISOString().split('T')[0]
-
-            // Calculate 4 Weeks Lookback Date for Average Calc
-            const lookbackStart = new Date(start)
-            lookbackStart.setDate(start.getDate() - 35) // 5 Weeks back to be safe
-            const lookbackStr = lookbackStart.toISOString().split('T')[0]
-
-            // --- API CALL (BYPASS RLS) ---
             const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
-            const apiUrl = `/api/reports/weekly-ops?storeId=${queryId}&start=${startStr}&end=${endStr}&lookback=${lookbackStr}`
+            const apiUrl = `/api/reports/weekly-ops?storeId=${encodeURIComponent(queryId)}&start=${startStr}&end=${endStr}&lookback=${lookbackStr}`
             const apiResponse = await fetch(apiUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token || ''}`
-                }
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                signal: controller.signal
             })
+
+            if (!apiResponse.ok) {
+                throw new Error(`HTTP ${apiResponse.status}`)
+            }
+
             const apiData = await apiResponse.json()
+            if (apiData.error) throw new Error(apiData.error)
+            if (controller.signal.aborted) return
 
-        if (apiData.error) throw new Error(apiData.error)
+            const history = Array.isArray(apiData.history) ? apiData.history : []
+            const lookbackHistory = Array.isArray(apiData.lookback) ? apiData.lookback : []
+            const rawAllShifts = Array.isArray(apiData.shifts) ? apiData.shifts : []
+            const shifts = selectedStore === 'all' ? rawAllShifts : rawAllShifts.filter((s: any) => s.store_id === queryId)
 
-        const history = apiData.history
-        const lookbackHistory = apiData.lookback || []
-        const rawAllShifts = apiData.shifts || []
-        // With 'all', we don't filter by store_id
-        const shifts = selectedStore === 'all' ? rawAllShifts : rawAllShifts.filter((s: any) => s.store_id === queryId)
+            const punchesRaw = Array.isArray(apiData.punches) ? apiData.punches : []
+            const employees = Array.isArray(apiData.employees) ? apiData.employees : []
+            const jobs = Array.isArray(apiData.jobs) ? apiData.jobs : []
+            const budgets = Array.isArray(apiData.budgets) ? apiData.budgets : []
+            const projectionsCache = Array.isArray(apiData.projectionsCache) ? apiData.projectionsCache : []
+            const apiShiftStats = apiData.shiftStats || {}
 
-        const punchesRaw = apiData.punches
-        const employees = apiData.employees
-        const jobs = apiData.jobs || []
-        const budgets = apiData.budgets || []
-        const projectionsCache = apiData.projectionsCache || []
-        const apiShiftStats = apiData.shiftStats || {}
+            // Required dates (Mon -> Sun) via pure ISO day arithmetic
+            const requiredKeys: string[] = Array.from({ length: 7 }, (_, i) => addDaysIso(startStr, i))
 
-        // --- PRE-CALCULATE WEEKLY STATS (Planner Logic) ---
-        // --- PRE-CALCULATE WEEKLY STATS (Planner Logic) ---
-        // This ensures OT (daily/weekly) and Meal Breaks are handled exactly like the Budget Tool
+            const finalProjections: Record<string, string> = {}
 
-        // --- 🚨 CRITICAL FILTERING MATCHING PLANNER AUDIT 🚨 ---
-        // 1. Exclude Deleted/Inactive Employees (Camilo, Anabel, Willian, DeletedAt)
-        // 2. Exclude Salary Managers (Carlos Velazquez) from Hourly Scheduled Hours/Cost
+            if (selectedStore === 'all') {
+                stores.forEach(store => {
+                    const sId = store.external_id
+                    if (!sId) return
 
-        const validEmployees = (employees || []).filter((e: any) => {
-            // Exclude Soft Delete
-            if (e.deleted_at && e.deleted_at.length > 5) return false
+                    requiredKeys.forEach(dateKey => {
+                        let val = 0
+                        let foundSrc = 'none'
 
-            // Exclude Specific Ghosts
-            const name = (e.first_name + ' ' + (e.last_name || '')).toLowerCase()
-            if (name.includes('camilo') || name.includes('anabel') || name.includes('willian')) return false
+                        const projCacheRow = projectionsCache.find((p: any) =>
+                            p.store_id === sId && p.business_date === dateKey
+                        )
 
-            return true
-        })
-
-        // Filter Shifts: Robust Logic matching Script
-        const validShifts = shifts.filter((s: any) => {
-            // 1. Keep Open Shifts
-            if (!s.employee_id) return true
-
-            // 2. Check against RAW list to detect Missing/Filtered
-            const rawEmp = employees?.find((e: any) => e.id === s.employee_id)
-            if (!rawEmp) {
-                // Employee missing from download (RLS? Fetch Limit?). 
-                // SAFEGUARD: Include mismatch shifts so we don't lose hours.
-                return true
-            }
-
-            // 3. Check against FILTERED list
-            const isValid = validEmployees.find((e: any) => e.id === s.employee_id)
-            if (!isValid) {
-                // Employee was explicitly filtered (Ghost/Deleted). Exclude Shift.
-                return false
-            }
-
-            // 4. Exclude Salary Managers (Carlos Velazquez) specifically
-            const name = (rawEmp.first_name + ' ' + (rawEmp.last_name || '')).toLowerCase()
-            if (name.includes('carlos velazquez')) return false
-
-            return true
-        })
-
-        const weekShiftStats = calculateWeekStats(validShifts, validEmployees, jobs);
-        console.log("📊 [REPORT] Calculated Shift Stats for", Object.keys(weekShiftStats).length, "shifts");
-
-        // --- ROBUST PROJECTION MERGING ---
-        // 2. Determine Required Dates for this Report Week (Mon -> Sun)
-        const requiredKeys: string[] = [];
-        const [yStart, mStart, dStart] = startStr.split('-').map(Number); // Use startStr instead of weekDate!
-
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(yStart, mStart - 1, dStart + i);
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            requiredKeys.push(`${year}-${month}-${day}`);
-        }
-
-        let finalProjections: Record<string, string> = {};
-
-        if (selectedStore === 'all') {
-            console.log("🧩 [REPORT] Calculating Aggregate Projections for ALL Stores...");
-
-            // Loop through ALL known stores to ensure we cover gaps
-            stores.forEach(store => {
-                const sId = store.external_id;
-                if (!sId) return;
-
-                requiredKeys.forEach(dateKey => {
-                    let val = 0;
-                    let foundSrc = 'none';
-
-                    // A. Try Projections Cache (Single source of truth)
-                    const projCacheRow = projectionsCache.find((p: any) =>
-                        p.store_id === sId &&
-                        p.business_date === dateKey
-                    );
-
-                    if (projCacheRow && projCacheRow.total_sales !== null && projCacheRow.total_sales !== undefined && Number(projCacheRow.total_sales) >= 0) {
-                        val = Number(projCacheRow.total_sales);
-                        foundSrc = 'cache';
-                    } else {
-                        // B. Try DB Budget (Legacy fallback)
-                        // budgets array contains rows with { sales_projections: { 'YYYY-MM-DD': '123' }, store_id: ... }
-                        const budgetRow = budgets.find((b: any) =>
-                            b.store_id === sId &&
-                            b.sales_projections &&
-                            b.sales_projections[dateKey]
-                        );
-
-                        if (budgetRow) {
-                            val = parseFloat(budgetRow.sales_projections[dateKey]);
-                            foundSrc = 'db';
+                        if (projCacheRow && projCacheRow.total_sales !== null && projCacheRow.total_sales !== undefined && Number(projCacheRow.total_sales) >= 0) {
+                            val = Number(projCacheRow.total_sales)
+                            foundSrc = 'cache'
                         } else {
-                            // C. Fallback: Average of Lookback (Same Day of Week)
-                            // lookbackHistory contains { business_date, net_sales, store_id }
-                            const targetDow = new Date(dateKey + 'T12:00:00').getDay();
-                            const historyRows = lookbackHistory.filter((h: any) =>
-                                h.store_id === sId &&
-                                new Date(h.business_date + 'T12:00:00').getDay() === targetDow &&
-                                Number(h.net_sales) > 100 // Basic validity check
-                            );
+                            const budgetRow = budgets.find((b: any) =>
+                                b.store_id === sId &&
+                                b.sales_projections &&
+                                b.sales_projections[dateKey] !== undefined &&
+                                b.sales_projections[dateKey] !== ''
+                            )
 
-                        // Sort desc by date and take recent 4
-                        const recent = historyRows.sort((a: any, b: any) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime()).slice(0, 4);
+                            if (budgetRow) {
+                                const parsed = parseFloat(budgetRow.sales_projections[dateKey])
+                                if (Number.isFinite(parsed) && parsed >= 0) {
+                                    val = parsed
+                                    foundSrc = 'db'
+                                }
+                            } else {
+                                const targetDow = getIsoWeekdayUTC(dateKey)
+                                const historyRows = lookbackHistory.filter((h: any) =>
+                                    h.store_id === sId &&
+                                    h.business_date < startStr &&
+                                    getIsoWeekdayUTC(h.business_date) === targetDow &&
+                                    Number(h.net_sales) > 100
+                                )
+                                const recent = historyRows
+                                    .sort((a: any, b: any) => String(b.business_date).localeCompare(String(a.business_date)))
+                                    .slice(0, 4)
 
-                        if (recent.length > 0) {
-                            const sum = recent.reduce((acc: number, r: any) => acc + (Number(r.net_sales) || 0), 0);
-                            val = sum / recent.length;
-                            foundSrc = `avg(${recent.length})`;
+                                if (recent.length > 0) {
+                                    const sum = recent.reduce((acc: number, r: any) => acc + (Number(r.net_sales) || 0), 0)
+                                    val = sum / recent.length
+                                    foundSrc = `avg(${recent.length})`
+                                }
+                            }
                         }
-                        } // <-- CLOSE Fallback C
-                    } // <-- CLOSE Fallback B
 
-                    // Accumulate (preserve $0 on closed holidays such as Christmas / Good Friday)
-                    if (val > 0 || foundSrc === 'cache') {
-                        const current = parseFloat(finalProjections[dateKey] || '0');
-                        finalProjections[dateKey] = String(current + val);
-                    }
-                });
-            });
+                        if (val > 0 || foundSrc === 'cache' || foundSrc === 'db') {
+                            const current = parseFloat(finalProjections[dateKey] || '0')
+                            finalProjections[dateKey] = String(current + val)
+                        }
+                    })
+                })
+            } else {
+                const mergedDbProjections: Record<string, string> = {}
 
-        } else {
-            // SINGLE STORE LOGIC (Existing)
-
-            // 1. Flatten found budgets and caches
-            let mergedDbProjections: Record<string, string> = {};
-            
-            // First try projectionsCache (accepts >= 0 so $0 closed holidays are respected)
-            if (projectionsCache && Array.isArray(projectionsCache)) {
                 projectionsCache.forEach((p: any) => {
                     if (p.total_sales !== null && p.total_sales !== undefined && Number(p.total_sales) >= 0) {
-                        mergedDbProjections[p.business_date] = p.total_sales.toString();
+                        mergedDbProjections[p.business_date] = String(p.total_sales)
                     }
-                });
-            }
+                })
 
-            // Fallback to weekly_budgets
-            if (budgets && Array.isArray(budgets)) {
                 budgets.forEach((b: any) => {
                     if (b.sales_projections) {
                         Object.keys(b.sales_projections).forEach(key => {
-                            if (mergedDbProjections[key] === undefined) {
-                                mergedDbProjections[key] = b.sales_projections[key];
-                            }
-                        });
-                    }
-                });
-            }
-
-            const missingKeys = requiredKeys.filter(key => mergedDbProjections[key] === undefined || mergedDbProjections[key] === '');
-            const needsBackfill = missingKeys.length > 0;
-            finalProjections = { ...mergedDbProjections };
-
-            // 🛡️ AUTO-GENERATE: Always calculate projections if ANY day is missing
-            if (needsBackfill && calculateProjections) {
-                console.log(`⚠️ [REPORT] Missing Projections for: ${missingKeys.join(', ')}. Auto-Calculating...`)
-                try {
-                    const calculated = await calculateProjections()
-                    if (calculated && Object.keys(calculated).length > 0) {
-                        // Only backfill the MISSING keys, preserve DB values for existing keys
-                        missingKeys.forEach(key => {
-                            if (calculated[key] && Number(calculated[key]) > 0) {
-                                finalProjections[key] = calculated[key]
+                            if (mergedDbProjections[key] === undefined && b.sales_projections[key] !== '') {
+                                mergedDbProjections[key] = String(b.sales_projections[key])
                             }
                         })
-                        console.log(`✅ [REPORT] Backfilled ${missingKeys.length} missing projection(s)`)
                     }
-                } catch (calcError) {
-                    console.error('❌ [REPORT] Failed to calculate projections:', calcError)
-                }
-            }
-        }
-
-        const salesProjections = finalProjections
-
-        console.log("🔍 [DEBUG] Final Used Projections:", salesProjections)
-        console.log("🔍 [DEBUG] Query Keys:", { queryId, weekDate })
-
-        // Find Store Manager (any shift with Title "Manager" in this store this week)
-        const managerShift = shifts?.find((s: any) => {
-            const j = jobs.find((job: any) => job.id === s.job_id)
-            return j?.title === 'Manager'
-        })
-        const managerEmp = managerShift ? employees.find((e: any) => e.id === managerShift.employee_id) : null
-        const globalManagerName = managerEmp
-            ? (managerEmp.chosen_name || `${managerEmp.first_name} ${managerEmp.last_name || ''}`)
-            : ''
-
-        console.log(`✅ [REPORT] Data Loaded: ${history?.length || 0} history, ${shifts?.length || 0} shifts, ${punchesRaw?.length || 0} punches`)
-        console.log(`👤 [REPORT] Detected Manager: ${globalManagerName || 'None'}`)
-
-        // 5. Merge Strategies
-        const newGrid: any = {}
-        const weekLaborLog: any[] = []
-
-        DAYS.forEach((day, i) => {
-            // CRITICAL: Use local date formatting to avoid UTC offset issues
-            // weekDate is already "YYYY-MM-DD", so we parse it properly
-            // Calculate Current Date Key using CORRECTED startStr (Monday)
-            // This ensures Body alignment matches Header alignment
-            const [sY, sM, sD] = startStr.split('-').map(Number)
-            const current = new Date(Date.UTC(sY, sM - 1, sD + i, 12, 0, 0))
-            const dateStr = current.toISOString().split('T')[0]
-
-            // --- LABOR LOG CALCULATION (AM/PM SPLIT) ---
-            // AGGREGATION: Find ALL matching history records for this date
-            const dayHistories = history?.filter((h: any) => h.business_date === dateStr) || []
-
-            // Calc Hourly Sales Sum for AM/PM split logic
-            let hourlySalesSum: Record<string, number> = {}
-            dayHistories.forEach((h: any) => {
-                const hourly = h.hourly_data || {}
-                Object.keys(hourly).forEach(k => {
-                    hourlySalesSum[k] = (hourlySalesSum[k] || 0) + Number(hourly[k] || 0)
                 })
-            })
 
-            const hourlySales = hourlySalesSum
+                const missingKeys = requiredKeys.filter(key => mergedDbProjections[key] === undefined || mergedDbProjections[key] === '')
+                Object.assign(finalProjections, mergedDbProjections)
 
-            // Morning Sales (6 AM to 4:59 PM -> indices 6-16)
-            let morningSales = 0
-            for (let h = 6; h <= 16; h++) morningSales += Number(hourlySales[h] || 0)
-
-            // Night Sales (5 PM to 5:59 AM next day -> indices 17-23, 0-5)
-            let nightSales = 0
-            for (let h = 17; h <= 23; h++) nightSales += Number(hourlySales[h] || 0)
-            for (let h = 0; h <= 5; h++) nightSales += Number(hourlySales[h] || 0)
-
-            // Labor Cost Split
-            const dayPunches = punchesRaw?.filter((p: any) => p.business_date === dateStr) || []
-            const targetDayIndex = new Date(dateStr + 'T12:00:00').getDay()
-            let morningLaborCost = 0
-            let nightLaborCost = 0
-
-            dayPunches.forEach((p: any) => {
-                const emp = employees?.find((e: any) => e.toast_guid === p.employee_toast_guid)
-                const wageEntry = emp?.wage_data?.find((w: any) => w.job_guid === p.job_toast_guid) || emp?.wage_data?.[0]
-                const hourlyRate = wageEntry?.wage || 16.5 // Default fallback
-
-                const reg = Number(p.regular_hours || 0)
-                const ot = Number(p.overtime_hours || 0)
-                const totalPunchCost = (reg * hourlyRate) + (ot * hourlyRate * 1.5)
-
-                // Temporal split logic
-                if (p.clock_in && p.clock_out) {
-                    const start = new Date(p.clock_in)
-                    const end = new Date(p.clock_out)
-                    const totalMs = end.getTime() - start.getTime()
-                    if (totalMs <= 0) return
-
-                    // AM Window: 06:00 AM to 05:00 PM
-                    const amStart = new Date(dateStr + 'T06:00:00')
-                    const amEnd = new Date(dateStr + 'T17:00:00')
-
-                    // PM Window: 05:00 PM to 06:00 AM (Next Day)
-                    const pmStart = new Date(dateStr + 'T17:00:00')
-                    const pmEnd = new Date(dateStr + 'T06:00:00')
-                    pmEnd.setDate(pmEnd.getDate() + 1)
-
-                    const intersect = (s1: Date, e1: Date, s2: Date, e2: Date) => {
-                        const s = Math.max(s1.getTime(), s2.getTime())
-                        const e = Math.min(e1.getTime(), e2.getTime())
-                        return Math.max(0, e - s)
+                if (missingKeys.length > 0 && calculateProjections) {
+                    try {
+                        const calculated = await calculateProjections()
+                        if (controller.signal.aborted) return
+                        if (calculated && Object.keys(calculated).length > 0) {
+                            missingKeys.forEach(key => {
+                                if (calculated[key] !== undefined && calculated[key] !== '' && Number(calculated[key]) >= 0) {
+                                    finalProjections[key] = String(calculated[key])
+                                }
+                            })
+                        }
+                    } catch (calcError) {
+                        console.error('[REPORT] Failed to backfill projections:', calcError)
                     }
+                }
+            }
 
-                    const amMs = intersect(start, end, amStart, amEnd)
-                    const pmMs = intersect(start, end, pmStart, pmEnd)
-                    const totalIntersect = amMs + pmMs
+            const salesProjections = finalProjections
 
-                    if (totalIntersect > 0) {
-                        morningLaborCost += totalPunchCost * (amMs / totalIntersect)
-                        nightLaborCost += totalPunchCost * (pmMs / totalIntersect)
+            // Store Manager detection (single store only — never show random store's manager in 'all' mode)
+            let globalManagerName = ''
+            if (selectedStore !== 'all') {
+                const managerShift = shifts.find((s: any) => {
+                    const j = jobs.find((job: any) => job.id === s.job_id)
+                    const title = String(j?.title || '').trim().toLowerCase()
+                    return (title === 'manager' || title === 'general manager' || title === 'store manager') && !title.includes('asst')
+                })
+                const managerEmp = managerShift ? employees.find((e: any) => e.id === managerShift.employee_id) : null
+                globalManagerName = managerEmp
+                    ? (managerEmp.chosen_name || `${managerEmp.first_name || ''} ${managerEmp.last_name || ''}`.trim())
+                    : ''
+            }
+
+            const newGrid: Record<string, Record<string, any>> = {}
+            const weekLaborLog: any[] = []
+            const todayLA = getBusinessDateLA()
+
+            DAYS.forEach((day, i) => {
+                const dateStr = requiredKeys[i]
+                const targetDayIndex = getIsoWeekdayUTC(dateStr)
+
+                // Filter out pre-seeded $0 future cache rows so future days remain blank
+                const rawDayHistories = history.filter((h: any) => h.business_date === dateStr)
+                const dayHistories = rawDayHistories.filter((h: any) =>
+                    Number(h.net_sales || 0) > 0 ||
+                    Number(h.labor_hours || 0) > 0 ||
+                    Number(h.order_count || 0) > 0 ||
+                    Number(h.guest_count || 0) > 0
+                )
+
+                // --- LABOR LOG CALCULATION (Exact America/Los_Angeles AM/PM Split) ---
+                const hourlySalesSum: Record<string, number> = {}
+                dayHistories.forEach((h: any) => {
+                    const hourly = h.hourly_data || {}
+                    Object.keys(hourly).forEach(k => {
+                        hourlySalesSum[k] = (hourlySalesSum[k] || 0) + Number(hourly[k] || 0)
+                    })
+                })
+
+                let morningSales = 0
+                for (let h = 6; h <= 16; h++) morningSales += Number(hourlySalesSum[h] || 0)
+
+                let nightSales = 0
+                for (let h = 17; h <= 23; h++) nightSales += Number(hourlySalesSum[h] || 0)
+                for (let h = 0; h <= 5; h++) nightSales += Number(hourlySalesSum[h] || 0)
+
+                const dayTotalNetSales = dayHistories.reduce((a: number, b: any) => a + Number(b.net_sales || 0), 0)
+                const totalLaborLogSales = (morningSales + nightSales) > 0 ? (morningSales + nightSales) : dayTotalNetSales
+
+                const dayPunches = punchesRaw.filter((p: any) => p.business_date === dateStr)
+                let morningLaborCost = 0
+                let nightLaborCost = 0
+
+                // Exact PST/PDT windows via buildLAInstant
+                const amStart = buildLAInstant(dateStr, 6, 0)
+                const amEnd = buildLAInstant(dateStr, 17, 0)
+                const pmStart = amEnd
+                const pmEnd = buildLAInstant(addDaysIso(dateStr, 1), 6, 0)
+
+                const intersectMs = (s1: Date, e1: Date, s2: Date, e2: Date) => {
+                    const s = Math.max(s1.getTime(), s2.getTime())
+                    const e = Math.min(e1.getTime(), e2.getTime())
+                    return Math.max(0, e - s)
+                }
+
+                dayPunches.forEach((p: any) => {
+                    const emp = employees.find((e: any) => e.toast_guid === p.employee_toast_guid)
+                    const wageEntry = emp?.wage_data?.find((w: any) => w.job_guid === p.job_toast_guid) || emp?.wage_data?.[0]
+
+                    // Priority: punch hourly_wage -> employee wage_data -> CA fast-food $20.00 floor
+                    const punchWage = p.hourly_wage !== null && p.hourly_wage !== undefined ? Number(p.hourly_wage) : NaN
+                    const empWage = wageEntry?.wage !== null && wageEntry?.wage !== undefined ? Number(wageEntry.wage) : NaN
+                    const hourlyRate = Number.isFinite(punchWage) && punchWage > 0
+                        ? punchWage
+                        : (Number.isFinite(empWage) && empWage > 0 ? empWage : 20.00)
+
+                    const reg = Number(p.regular_hours || 0)
+                    const ot = Number(p.overtime_hours || 0)
+                    const totalPunchCost = (reg * hourlyRate) + (ot * hourlyRate * 1.5)
+                    if (totalPunchCost <= 0) return
+
+                    if (p.clock_in && p.clock_out) {
+                        const start = new Date(p.clock_in)
+                        const end = new Date(p.clock_out)
+                        const totalMs = end.getTime() - start.getTime()
+                        if (!Number.isFinite(totalMs) || totalMs <= 0) return
+
+                        const amMs = intersectMs(start, end, amStart, amEnd)
+                        const pmMs = intersectMs(start, end, pmStart, pmEnd)
+                        const totalIntersect = amMs + pmMs
+
+                        if (totalIntersect > 0) {
+                            morningLaborCost += totalPunchCost * (amMs / totalIntersect)
+                            nightLaborCost += totalPunchCost * (pmMs / totalIntersect)
+                        } else {
+                            const startLAHour = getLANowParts(start).hour
+                            if (startLAHour >= 6 && startLAHour < 17) morningLaborCost += totalPunchCost
+                            else nightLaborCost += totalPunchCost
+                        }
                     } else {
-                        // If entirely outside both (rare for business day logic), assume PM if h < 6, else AM
-                        if (start.getHours() < 6) nightLaborCost += totalPunchCost
-                        else morningLaborCost += totalPunchCost
+                        morningLaborCost += totalPunchCost * 0.5
+                        nightLaborCost += totalPunchCost * 0.5
                     }
-                } else {
-                    // Fallback if no timestamps
-                    morningLaborCost += totalPunchCost * 0.5
-                    nightLaborCost += totalPunchCost * 0.5
+                })
+
+                const morningPct = morningSales > 0 ? (morningLaborCost / morningSales) * 100 : 0
+                const nightPct = nightSales > 0 ? (nightLaborCost / nightSales) * 100 : 0
+                const totalPct = totalLaborLogSales > 0 ? ((morningLaborCost + nightLaborCost) / totalLaborLogSales) * 100 : 0
+
+                weekLaborLog.push({
+                    date: dateStr,
+                    dayKey: day.key,
+                    dayLabel: day.label,
+                    morning: morningPct.toFixed(2),
+                    night: nightPct.toFixed(2),
+                    total: totalPct.toFixed(2),
+                    morningSales,
+                    nightSales,
+                    totalSales: totalLaborLogSales,
+                    morningLaborCost,
+                    nightLaborCost
+                })
+
+                // --- OPERATIONS REPORT GRID ---
+                const daysShifts = shifts.filter((s: any) => s.shift_date === dateStr)
+                let totalSched = 0
+                let totalOT = 0
+                let totalSchedCost = 0
+
+                daysShifts.forEach((s: any) => {
+                    const stat = apiShiftStats[s.id]
+                    if (stat) {
+                        totalSched += Number(stat.hours || 0)
+                        totalOT += Number(stat.otHours || 0)
+                        totalSchedCost += Number(stat.cost || 0)
+                    }
+                })
+
+                // Leaders in America/Los_Angeles (AM: 6:00-16:59, PM: 17:00-05:59) — single store only
+                let morningLeaderName = ''
+                let lateLeaderName = ''
+                if (selectedStore !== 'all') {
+                    const getJobTitle = (jid: string) => String(jobs.find((j: any) => j.id === jid)?.title || '').trim()
+                    const isLeaderJob = (title: string) => /^(asst.?s*manager|assistants*manager|shifts*lead(er)?)$/i.test(title)
+                    const getEmpName = (eid: string) => {
+                        const e = employees.find((emp: any) => emp.id === eid)
+                        return e ? (e.chosen_name || e.first_name || '') : ''
+                    }
+
+                    const amAsst = daysShifts.find((s: any) => {
+                        if (!isLeaderJob(getJobTitle(s.job_id)) || !s.start_time) return false
+                        const laHr = getLANowParts(new Date(s.start_time)).hour
+                        return laHr >= 6 && laHr < 17
+                    })
+                    const pmAsst = daysShifts.find((s: any) => {
+                        if (!isLeaderJob(getJobTitle(s.job_id)) || !s.start_time) return false
+                        const laHr = getLANowParts(new Date(s.start_time)).hour
+                        return laHr >= 17 || laHr < 6
+                    })
+
+                    morningLeaderName = amAsst ? getEmpName(amAsst.employee_id) : globalManagerName
+                    lateLeaderName = pmAsst ? getEmpName(pmAsst.employee_id) : globalManagerName
                 }
-            })
 
-            const morningPct = morningSales > 0 ? (morningLaborCost / morningSales) * 100 : 0
-            const nightPct = nightSales > 0 ? (nightLaborCost / nightSales) * 100 : 0
-            const totalPct = (morningSales + nightSales) > 0 ? ((morningLaborCost + nightLaborCost) / (morningSales + nightSales)) * 100 : 0
+                // Projection for this day (preserves $0 on closed holidays)
+                const rawProj = salesProjections[dateStr]
+                const hasProj = rawProj !== undefined && rawProj !== '' && Number.isFinite(Number(rawProj))
+                const projSales = hasProj ? Number(rawProj) : 0
 
-            weekLaborLog.push({
-                date: dateStr,
-                dayLabel: day.label,
-                morning: morningPct.toFixed(2),
-                night: nightPct.toFixed(2),
-                total: totalPct.toFixed(2)
-            })
+                // Target Avg Order: last 4 DISTINCT prior matching weekdays across all included stores
+                const priorMatching = lookbackHistory.filter((h: any) =>
+                    h.business_date < dateStr &&
+                    getIsoWeekdayUTC(h.business_date) === targetDayIndex &&
+                    Number(h.order_count || 0) > 0
+                )
+                const distinctPriorDates: string[] = Array.from(
+                    new Set<string>(priorMatching.map((h: any) => String(h.business_date)))
+                )
+                    .sort((a, b) => b.localeCompare(a))
+                    .slice(0, 4)
+                const recentDateSet = new Set(distinctPriorDates)
+                const matchingHistory = priorMatching.filter((h: any) => recentDateSet.has(String(h.business_date)))
 
-            // --- OPERATIONS REPORT (Existing Grid) ---
+                const targetSalesSum = matchingHistory.reduce((a: number, b: any) => a + Number(b.net_sales || 0), 0)
+                const targetOrdersSum = matchingHistory.reduce((a: number, b: any) => a + Number(b.order_count || 0), 0)
+                const projAvg = targetOrdersSum > 0 ? targetSalesSum / targetOrdersSum : 0
+                const projLaborPct = projSales > 0 ? ((totalSchedCost / projSales) * 100).toFixed(2) : ''
 
-            // A. Base (pure defaults)
-            let cellData: any = {}
+                // Actual Overtime: when punches exist for the day, show real OT (even 0.00); fall back to scheduled OT only for future/unpunched days
+                const hasPunchesForDay = dayPunches.length > 0
+                const actualOT = dayPunches.reduce((sum: number, p: any) => sum + Number(p.overtime_hours || 0), 0)
+                const otDisplay = hasPunchesForDay
+                    ? actualOT.toFixed(2)
+                    : (dateStr <= todayLA && dayHistories.length > 0 ? '0.00' : (totalOT > 0 ? totalOT.toFixed(2) : ''))
 
-            // B. Calculate Scheduled Hours AND Overtime from Shifts (Planificador)
-            const daysShifts = shifts?.filter((s: any) => s.shift_date === dateStr) || []
+                // Aggregated Actuals + Drive-Thru Cars (guest_count) & SOS Time (ebt_count seconds weighted by guest_count)
+                const sysData = dayHistories.length > 0 ? dayHistories.reduce((acc: any, b: any) => {
+                    const cars = Number(b.guest_count || 0)
+                    const sosSec = Number(b.ebt_count || 0)
+                    acc.net_sales += Number(b.net_sales || 0)
+                    acc.labor_hours += Number(b.labor_hours || 0)
+                    acc.labor_cost += Number(b.labor_cost || 0)
+                    acc.order_count += Number(b.order_count || 0)
+                    acc.cars += cars
+                    if (cars > 0 && sosSec > 0) {
+                        acc.sos_weighted_sec += sosSec * cars
+                        acc.sos_cars += cars
+                    }
+                    return acc
+                }, { net_sales: 0, labor_hours: 0, labor_cost: 0, order_count: 0, cars: 0, sos_weighted_sec: 0, sos_cars: 0 }) : null
 
-            let totalSched = 0
-            let totalOT = 0
-            let totalSchedCost = 0
+                const avgSosSec = sysData && sysData.sos_cars > 0 ? sysData.sos_weighted_sec / sysData.sos_cars : 0
+                const carsDisplay = sysData && sysData.cars > 0
+                    ? sysData.cars.toLocaleString('en-US')
+                    : (dateStr <= todayLA ? t('sales.reports_page.pending') : '')
+                const sosDisplay = avgSosSec > 0
+                    ? formatSosSeconds(avgSosSec)
+                    : (dateStr <= todayLA ? t('sales.reports_page.pending') : '')
 
-            // Find Leaders for this day (In-Memory Lookup)
-            const getJobTitle = (jid: string) => jobs?.find((j: any) => j.id === jid)?.title || ''
-            const getEmpName = (eid: string) => {
-                const e = employees?.find((emp: any) => emp.id === eid)
-                return e ? (e.chosen_name || e.first_name) : ''
-            }
-
-            const amAsst = daysShifts.find((s: any) =>
-                getJobTitle(s.job_id) === 'Asst Manager' &&
-                new Date(s.start_time).getHours() < 12
-            )
-            const pmAsst = daysShifts.find((s: any) =>
-                getJobTitle(s.job_id) === 'Asst Manager' &&
-                new Date(s.start_time).getHours() >= 12
-            )
-
-            const morningLeaderName = amAsst ? getEmpName(amAsst.employee_id) : globalManagerName
-            const lateLeaderName = pmAsst ? getEmpName(pmAsst.employee_id) : globalManagerName
-
-            // USE ACCURATE STATS (SERVER SIDE VERIFIED)
-            daysShifts.forEach((s: any) => {
-                const stat = apiShiftStats[s.id];
-                if (stat) {
-                    // If server calculated stats for this shift, use them directly
-                    totalSched += stat.hours;
-                    totalOT += stat.otHours;
-                    totalSchedCost += stat.cost;
-                }
-            })
-
-            // Get Projection for this day (Planificador saves keys as YYYY-MM-DD, and value as string "12345")
-            // salesProjections is { "2026-01-26": "12500", ... }
-            let rawProj = salesProjections[dateStr]
-            const projSales = Number(rawProj || 0)
-
-            // 🔍 DIAGNOSTIC: Log projection lookup for each day
-            console.log(`📊 [PROJ] ${day.label} (${dateStr}): rawProj=${rawProj}, projSales=${projSales}, keys=${Object.keys(salesProjections).join(', ')}`)
-
-
-            // --- TARGET AVG ORDER CALCULATION ---
-            // Heuristic: Average Ticket of the last 4 matching weekdays from FULL history cache (including lookback)
-            const matchingHistory = (lookbackHistory || []).filter((h: any) => {
-                // Ensure valid date parsing
-                const hd = new Date(h.business_date + 'T12:00:00')
-                return hd.getDay() === targetDayIndex && Number(h.order_count) > 0
-            })
-                // Sort recent first
-                .sort((a: any, b: any) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime())
-                // Take last 4 weeks
-                .slice(0, 4)
-
-            let targetAvgOrder = 0
-            if (matchingHistory.length > 0) {
-                const totalSales = matchingHistory.reduce((a: number, b: any) => a + (Number(b.net_sales) || 0), 0)
-                const totalOrders = matchingHistory.reduce((a: number, b: any) => a + (Number(b.order_count) || 0), 0)
-                if (totalOrders > 0) targetAvgOrder = totalSales / totalOrders
-            }
-
-            const projAvg = targetAvgOrder
-            const projLaborPct = projSales > 0 ? ((totalSchedCost / projSales) * 100).toFixed(2) : ''
-
-
-            // D. Get Actual Overtime from Punches
-            const actualOT = dayPunches.reduce((sum: number, p: any) => sum + (Number(p.overtime_hours) || 0), 0)
-
-            // C. Overlay System Data (AGGREGATED)
-            // We already have dayHistories from Labor Log section
-            const sysData = dayHistories.length > 0 ? {
-                net_sales: dayHistories.reduce((a: number, b: any) => a + (b.net_sales || 0), 0),
-                labor_hours: dayHistories.reduce((a: number, b: any) => a + (b.labor_hours || 0), 0),
-                labor_cost: dayHistories.reduce((a: number, b: any) => a + (b.labor_cost || 0), 0),
-                order_count: dayHistories.reduce((a: number, b: any) => a + (b.order_count || 0), 0),
-            } : null
-
-            // Formatter
-            const formatCurrency = (val: number) => '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-            // 1. ALWAYS Assign Projections (Base Layer)
-            cellData = {
-                ...cellData,
-                projected_sales: projSales > 0 ? formatCurrency(projSales) : '',
-                projected_labor: projLaborPct ? projLaborPct + '%' : '',
-                target_avg_order: projAvg > 0 ? formatCurrency(projAvg) : '',
-                scheduled_hours: totalSched.toFixed(2),
-                overtime_hours: actualOT > 0 ? actualOT.toFixed(2) : (totalOT > 0 ? totalOT.toFixed(2) : ''),
-                morning_leader: cellData.morning_leader || morningLeaderName,
-                late_leader: cellData.late_leader || lateLeaderName,
-                daily_cars: cellData.daily_cars || t('sales.reports_page.pending'),
-                sos_time: cellData.sos_time || t('sales.reports_page.pending')
-            }
-
-            // 2. Overlay Actuals (If available)
-            if (sysData) {
-                const sales = sysData.net_sales || 0
-                const hours = sysData.labor_hours || 0
-                const laborCost = sysData.labor_cost || 0
-                const orders = sysData.order_count || 0
-                const laborPct = sales > 0 ? ((laborCost / sales) * 100).toFixed(2) : '0.00'
-
-                cellData = {
-                    ...cellData,
-                    actual_sales: formatCurrency(sales),
-                    actual_hours: hours.toFixed(2),
-                    actual_labor: laborPct + '%',
-                    actual_avg_order: orders > 0 ? formatCurrency(sales / orders) : '$0.00',
-                }
-            } else {
-                // Explicit empties for Actuals
-                cellData = {
-                    ...cellData,
+                const cellData: Record<string, any> = {
+                    projected_sales: hasProj ? formatSignedUSD(projSales, { decimals: 2 }) : '',
+                    projected_labor: projLaborPct ? projLaborPct + '%' : '',
+                    target_avg_order: projAvg > 0 ? formatSignedUSD(projAvg, { decimals: 2 }) : '',
+                    scheduled_hours: totalSched > 0 ? totalSched.toFixed(2) : '',
+                    overtime_hours: otDisplay,
+                    morning_leader: morningLeaderName,
+                    late_leader: lateLeaderName,
+                    daily_cars: carsDisplay,
+                    sos_time: sosDisplay,
                     actual_sales: '',
                     actual_hours: '',
                     actual_labor: '',
                     actual_avg_order: '',
+                    // Raw weighted accumulators for mathematically exact Weekly Summary
+                    _projSales: projSales,
+                    _schedCost: totalSchedCost,
+                    _targetSales: targetSalesSum,
+                    _targetOrders: targetOrdersSum,
+                    _netSales: 0,
+                    _laborCost: 0,
+                    _orderCount: 0,
+                    _cars: sysData ? sysData.cars : 0,
+                    _sosWeightedSec: sysData ? sysData.sos_weighted_sec : 0,
+                    _sosCars: sysData ? sysData.sos_cars : 0
                 }
-            }
-            newGrid[day.key] = cellData
-        })
 
+                if (sysData) {
+                    const sales = sysData.net_sales
+                    const hours = sysData.labor_hours
+                    const laborCost = sysData.labor_cost
+                    const orders = sysData.order_count
+                    const laborPct = sales > 0 ? ((laborCost / sales) * 100).toFixed(2) : '0.00'
 
+                    cellData.actual_sales = formatSignedUSD(sales, { decimals: 2 })
+                    cellData.actual_hours = hours.toFixed(2)
+                    cellData.actual_labor = laborPct + '%'
+                    cellData.actual_avg_order = orders > 0 ? formatSignedUSD(sales / orders, { decimals: 2 }) : '$0.00'
+                    cellData._netSales = sales
+                    cellData._laborCost = laborCost
+                    cellData._orderCount = orders
+                }
 
-        setGridData(newGrid)
-        setLaborLogData(weekLaborLog)
+                newGrid[day.key] = cellData
+            })
+
+            setGridData(newGrid)
+            setLaborLogData(weekLaborLog)
         } catch (err: any) {
-            console.error("❌ [REPORT] Error loading weekly report:", err)
+            if (err?.name !== 'AbortError') {
+                console.error('[REPORT] Error loading weekly report:', err)
+                setErrorMsg(t('sales.reports_page.alerts.load_error'))
+            }
         } finally {
-            setLoading(false)
+            if (!controller.signal.aborted) {
+                setLoading(false)
+            }
         }
-    }, [selectedStore, weekDate, stores])
+    }, [selectedStore, weekDate, stores, calculateProjections, t])
 
     useEffect(() => {
-        fetchReport()
-    }, [fetchReport])
+        if (activeTab === 'ops' || activeTab === 'labor') {
+            fetchReport()
+        }
+        return () => {
+            if (weeklyAbortRef.current) weeklyAbortRef.current.abort()
+        }
+    }, [activeTab, fetchReport])
 
 
-    // --- MONTHLY REPORT LOGIC ---
+    // --- MONTHLY REPORT LOGIC (Pure UTC month bounds + 6-day lookback for complete first-Sunday Week Sales + paginated fetch) ---
+    const fetchMonthlyReport = useCallback(async () => {
+        if (!weekDate || !selectedStore || stores.length === 0) return
 
-    const fetchMonthlyReport = async () => {
-        if (!weekDate || !selectedStore) return
-
-        // Derive Month from weekDate (assuming weekDate represents the month we want? No, user usually selects a month)
-        // Ideally we need a Month Picker. For now, we'll use the Month of the selected WeekDate.
-        const targetMonth = weekDate.substring(0, 7) // "2026-01"
+        const reqId = ++monthlyReqIdRef.current
+        const targetMonth = weekDate.substring(0, 7) // "YYYY-MM"
         const [y, m] = targetMonth.split('-').map(Number)
+        if (!Number.isFinite(y) || !Number.isFinite(m)) return
 
-        // Calc start/end of month
-        const startOfMonth = new Date(y, m - 1, 1)
-        const endOfMonth = new Date(y, m, 0)
-
-        const startStr = startOfMonth.toISOString().split('T')[0]
-        const endStr = endOfMonth.toISOString().split('T')[0]
+        const daysInMon = new Date(Date.UTC(y, m, 0)).getUTCDate()
+        const startStr = getMonthStartIso(y, m)
+        const endStr = `${y}-${String(m).padStart(2, '0')}-${String(daysInMon).padStart(2, '0')}`
+        // Fetch 6 prior days so the first Sunday of the month has a complete 7-day Week SALES total
+        const fetchStartStr = addDaysIso(startStr, -6)
 
         setLoading(true)
+        setErrorMsg(null)
         try {
             const supabase = await getSupabaseClient()
-            // 2. Resolve Store Query
-            let salesData: any[] = []
-
-            if (selectedStore === 'all') {
-                const { data, error } = await supabase
-                    .from('sales_daily_cache')
-                    .select('*')
-                    .gte('business_date', startStr)
-                    .lte('business_date', endStr)
-
-                if (!error && data) salesData = data
-            } else {
+            let queryId: string | null = null
+            if (selectedStore !== 'all') {
                 const storeObj = stores.find(s => String(s.id) === String(selectedStore))
                 if (!storeObj?.external_id) {
-                    setLoading(false)
+                    if (reqId === monthlyReqIdRef.current) setLoading(false)
                     return
                 }
-                const queryId = storeObj.external_id
-
-            // Fetch Sales Cache for Month
-            const { data, error } = await supabase
-                .from('sales_daily_cache')
-                .select('*')
-                .eq('store_id', queryId)
-                .gte('business_date', startStr)
-                .lte('business_date', endStr)
-
-            if (!error && data) salesData = data
-        }
-
-        const newMonthly: any = {}
-        const daysInMon = endOfMonth.getDate()
-
-        for (let d = 1; d <= daysInMon; d++) {
-            const dateKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-
-            // Find rows for this date
-            const dayRows = salesData.filter((s: any) => s.business_date === dateKey)
-
-            // AGGREGATE IF MULTIPLE ROWS (ALL STORES)
-            let sysData = {
-                net_sales: 0,
-                order_count: 0,
-                guest_count: 0,
-                act_avg_order: 0,
-                open_sales: 0,
-                close_sales: 0,
-                uber_sales: 0,
-                doordash_sales: 0,
-                grubhub_sales: 0,
-                ebt_count: 0,
-                ebt_amount: 0,
-                drivethru_time_sum: 0
+                queryId = storeObj.external_id
             }
 
-            if (dayRows.length > 0) {
-                dayRows.forEach(r => {
-                    sysData.net_sales += (r.net_sales || 0)
-                    sysData.order_count += (r.order_count || 0)
-                    sysData.guest_count += (r.guest_count || 0)
-                    sysData.uber_sales += (r.uber_sales || 0)
-                    sysData.doordash_sales += (r.doordash_sales || 0)
-                    sysData.grubhub_sales += (r.grubhub_sales || 0)
-                    sysData.ebt_amount += (r.ebt_amount || 0)
+            // Paginated fetch to guard against 1,000-row PostgREST cap
+            const salesData: any[] = []
+            const PAGE_SIZE = 1000
+            let offset = 0
+            while (true) {
+                let q = supabase
+                    .from('sales_daily_cache')
+                    .select('business_date, store_id, net_sales, order_count, guest_count, hourly_data, uber_sales, doordash_sales, grubhub_sales, ebt_amount, ebt_count')
+                    .gte('business_date', fetchStartStr)
+                    .lte('business_date', endStr)
+                    .order('business_date', { ascending: true })
+                    .order('store_id', { ascending: true })
+                    .range(offset, offset + PAGE_SIZE - 1)
+                if (queryId) q = q.eq('store_id', queryId)
 
-                    // Sum complete AM shift (hours 6 to 16) and PM shift (hours 17..23, 0..5)
-                    const hourly = r.hourly_data || {}
-                    let openSales = 0
-                    for (let h = 6; h <= 16; h++) openSales += Number(hourly[h] || 0)
-                    let closeSales = 0
-                    for (let h = 17; h <= 23; h++) closeSales += Number(hourly[h] || 0)
-                    for (let h = 0; h <= 5; h++) closeSales += Number(hourly[h] || 0)
-
-                    sysData.open_sales += openSales
-                    sysData.close_sales += closeSales
-                })
-                // Recalc Avg Order globally
-                sysData.act_avg_order = sysData.order_count > 0 ? (sysData.net_sales / sysData.order_count) : 0
-                // Finalize averaging SOS time
-                sysData.ebt_count = sysData.guest_count > 0 ? Math.floor(sysData.drivethru_time_sum / sysData.guest_count) : 0
+                const { data, error } = await q
+                if (error) throw error
+                if (!data || data.length === 0) break
+                salesData.push(...data)
+                if (data.length < PAGE_SIZE) break
+                offset += PAGE_SIZE
             }
 
+            if (reqId !== monthlyReqIdRef.current) return
 
-            // Default Structure
-            newMonthly[dateKey] = {
-                date: dateKey,
-                actual_sales: '',
-                open_sales: '',
-                close_sales: '',
-                actual_avg_order: '',
-                uber_post: '',
-                doordash: '',
-                grubhub: '',
-                ebt: '',
-                daily_cars: '',
-                sos_time: '',
-                week_sales: '',
-            }
+            // Build net_sales lookup for all dates including the 6 leading days (filtering pre-seeded $0 rows)
+            const salesByDate = new Map<string, number>()
+            salesData.forEach((r: any) => {
+                const hasRealData = Number(r.net_sales || 0) > 0 || Number(r.order_count || 0) > 0 || Number(r.guest_count || 0) > 0 || Number(r.ebt_amount || 0) > 0
+                if (!hasRealData) return
+                salesByDate.set(r.business_date, (salesByDate.get(r.business_date) || 0) + Number(r.net_sales || 0))
+            })
 
-            if (dayRows.length > 0) {
-                // Populate from Cache if available
-                const formatCurrency = (val: number) => val ? '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+            const newMonthly: Record<string, any> = {}
+
+            for (let d = 1; d <= daysInMon; d++) {
+                const dateKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+                const dayRows = salesData.filter((s: any) =>
+                    s.business_date === dateKey &&
+                    (Number(s.net_sales || 0) > 0 || Number(s.order_count || 0) > 0 || Number(s.guest_count || 0) > 0 || Number(s.ebt_amount || 0) > 0)
+                )
+
+                const sysData = {
+                    net_sales: 0,
+                    order_count: 0,
+                    guest_count: 0,
+                    act_avg_order: 0,
+                    open_sales: 0,
+                    close_sales: 0,
+                    uber_sales: 0,
+                    doordash_sales: 0,
+                    grubhub_sales: 0,
+                    ebt_amount: 0,
+                    drivethru_time_sum: 0,
+                    drivethru_cars_with_sos: 0,
+                    avg_sos_sec: 0
+                }
+
+                if (dayRows.length > 0) {
+                    dayRows.forEach(r => {
+                        const cars = Number(r.guest_count || 0)
+                        const sosSec = Number(r.ebt_count || 0)
+                        sysData.net_sales += Number(r.net_sales || 0)
+                        sysData.order_count += Number(r.order_count || 0)
+                        sysData.guest_count += cars
+                        sysData.uber_sales += Number(r.uber_sales || 0)
+                        sysData.doordash_sales += Number(r.doordash_sales || 0)
+                        sysData.grubhub_sales += Number(r.grubhub_sales || 0)
+                        sysData.ebt_amount += Number(r.ebt_amount || 0)
+
+                        // Accumulate weighted SOS seconds (ebt_count stores avg seconds per car)
+                        if (cars > 0 && sosSec > 0) {
+                            sysData.drivethru_time_sum += sosSec * cars
+                            sysData.drivethru_cars_with_sos += cars
+                        }
+
+                        const hourly = r.hourly_data || {}
+                        let openSales = 0
+                        for (let h = 6; h <= 16; h++) openSales += Number(hourly[h] || 0)
+                        let closeSales = 0
+                        for (let h = 17; h <= 23; h++) closeSales += Number(hourly[h] || 0)
+                        for (let h = 0; h <= 5; h++) closeSales += Number(hourly[h] || 0)
+
+                        sysData.open_sales += openSales
+                        sysData.close_sales += closeSales
+                    })
+
+                    sysData.act_avg_order = sysData.order_count > 0 ? (sysData.net_sales / sysData.order_count) : 0
+                    sysData.avg_sos_sec = sysData.drivethru_cars_with_sos > 0
+                        ? (sysData.drivethru_time_sum / sysData.drivethru_cars_with_sos)
+                        : 0
+                }
+
+                // Compute complete 7-day Sunday Week SALES (Mon..Sun including prior month overlap)
+                let weekSalesDisplay = ''
+                if (getIsoWeekdayUTC(dateKey) === 0) {
+                    let weekSum = 0
+                    for (let i = 0; i < 7; i++) {
+                        weekSum += salesByDate.get(addDaysIso(dateKey, -i)) || 0
+                    }
+                    if (weekSum > 0) weekSalesDisplay = formatSignedUSD(weekSum, { decimals: 2 })
+                }
+
+                const fmtCur = (val: number) => val !== 0 ? formatSignedUSD(val, { decimals: 2 }) : ''
 
                 newMonthly[dateKey] = {
-                    ...newMonthly[dateKey],
-                    order_count: sysData.order_count, // Explicitly saved for upsert data parsing
-                    actual_sales: formatCurrency(sysData.net_sales),
-                    daily_cars: sysData.guest_count || '',
-                    sos_time: (() => {
-                        const sec = sysData.ebt_count
-                        if (!sec) return ''
-                        const m = Math.floor(sec / 60)
-                        const s = sec % 60
-                        return `${m}:${s.toString().padStart(2, '0')}`
-                    })(),
-                    actual_avg_order: formatCurrency(sysData.act_avg_order),
-
-                    // New Fields
-                    open_sales: formatCurrency(sysData.open_sales),
-                    close_sales: formatCurrency(sysData.close_sales),
-                    uber_post: formatCurrency(sysData.uber_sales),
-                    doordash: formatCurrency(sysData.doordash_sales),
-                    grubhub: formatCurrency(sysData.grubhub_sales),
-                    ebt: sysData.ebt_amount > 0 ? formatCurrency(sysData.ebt_amount) : (sysData.ebt_count > 0 ? String(sysData.ebt_count) : '')
+                    date: dateKey,
+                    actual_sales: dayRows.length > 0 ? fmtCur(sysData.net_sales) : '',
+                    open_sales: dayRows.length > 0 ? fmtCur(sysData.open_sales) : '',
+                    close_sales: dayRows.length > 0 ? fmtCur(sysData.close_sales) : '',
+                    actual_avg_order: dayRows.length > 0 ? fmtCur(sysData.act_avg_order) : '',
+                    uber_post: dayRows.length > 0 ? fmtCur(sysData.uber_sales) : '',
+                    doordash: dayRows.length > 0 ? fmtCur(sysData.doordash_sales) : '',
+                    grubhub: dayRows.length > 0 ? fmtCur(sysData.grubhub_sales) : '',
+                    // Strictly EBT dollars (never leak ebt_count SOS seconds into EBT!)
+                    ebt: dayRows.length > 0 && sysData.ebt_amount > 0 ? fmtCur(sysData.ebt_amount) : '',
+                    daily_cars: dayRows.length > 0 && sysData.guest_count > 0 ? String(sysData.guest_count) : '',
+                    sos_time: dayRows.length > 0 && sysData.avg_sos_sec > 0 ? formatSosSeconds(sysData.avg_sos_sec) : '',
+                    week_sales: weekSalesDisplay,
+                    // Raw accumulators for exact weighted monthly totals
+                    _netSales: sysData.net_sales,
+                    _orderCount: sysData.order_count,
+                    _sosWeightedSec: sysData.drivethru_time_sum,
+                    _sosCars: sysData.drivethru_cars_with_sos
                 }
             }
-        }
-        setMonthlyData(newMonthly)
 
-        // Compute Weekly Totals (Post-Process)
-        setMonthlyData(prev => {
-            const next = { ...prev }
-            Object.keys(next).sort().forEach(dateKey => {
-                const date = new Date(dateKey + 'T12:00:00')
-                if (date.getDay() === 0) { // Sunday
-                    let sum = 0
-                    for (let i = 0; i < 7; i++) {
-                        const d = new Date(date)
-                        d.setDate(d.getDate() - i)
-                        const k = d.toISOString().split('T')[0]
-                        if (next[k]) {
-                            const val = parseFloat(String(next[k].actual_sales).replace(/[^0-9.-]+/g, "") || '0')
-                            sum += val
-                        }
-                    }
-                    next[dateKey] = {
-                        ...next[dateKey],
-                        week_sales: sum > 0 ? '$' + sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
-                    }
-                }
-            })
-            return next
-        })
+            setMonthlyData(newMonthly)
         } catch (err: any) {
-            console.error("❌ [REPORT] Error loading monthly report:", err)
+            if (reqId === monthlyReqIdRef.current) {
+                console.error('[REPORT] Error loading monthly report:', err)
+                setErrorMsg(t('sales.reports_page.alerts.load_error'))
+            }
         } finally {
-            setLoading(false)
+            if (reqId === monthlyReqIdRef.current) {
+                setLoading(false)
+            }
         }
-    }
+    }, [weekDate, selectedStore, stores, t])
 
-    // Effect for Monthly
     useEffect(() => {
         if (activeTab === 'monthly') {
             fetchMonthlyReport()
         }
-    }, [activeTab, selectedStore, weekDate])
-
-
-
+    }, [activeTab, fetchMonthlyReport])
 
     const handleMonthlyInputChange = (dateKey: string, colId: string, val: string) => {
         setMonthlyData(prev => ({
             ...prev,
             [dateKey]: {
                 ...prev[dateKey],
-                [colId]: val
+                [colId]: val,
+                ...(colId === 'actual_sales' ? { _netSales: undefined } : {}),
+                ...(colId === 'actual_avg_order' ? { _orderCount: undefined } : {}),
+                ...(colId === 'sos_time' || colId === 'daily_cars' ? { _sosWeightedSec: undefined, _sosCars: undefined } : {})
             }
         }))
     }
 
-
-
-    const handleAutoFill = async () => {
-        if (!selectedStore || !weekDate) {
-            alert(t('sales.reports_page.alerts.select_store_week') || 'Selecciona Tienda y Semana primero')
-            return
-        }
-
-        const confirmFill = confirm(t('sales.reports_page.alerts.sync_confirm'))
-        if (!confirmFill) return
-
-        setLoading(true)
-        try {
-            // Calculate End Date (Sunday)
-            const start = new Date(weekDate + 'T00:00:00')
-            const end = new Date(start)
-            end.setDate(start.getDate() + 6)
-            const endStr = end.toISOString().split('T')[0]
-
-            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
-            const queryStoreId = selectedStore === 'all' ? 'all' : (storeObj?.external_id || selectedStore)
-            const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
-
-            const res = await fetch(`/api/ventas/autofill?storeId=${queryStoreId}&start=${weekDate}&end=${endStr}&t=${Date.now()}`, {
-                headers: { 'Authorization': `Bearer ${token || ''}` }
-            })
-            const json = await res.json()
-
-            if (json.error) throw new Error(json.error)
-
-            // Merge with current grid
-            setGridData(prev => {
-                const next = { ...prev }
-                Object.keys(json.data).forEach(dateStr => {
-                    // Find which "dayKey" this date belongs to
-                    // Logic: Compare dateStr with calculated dates for monday..sunday
-                    DAYS.forEach((day, i) => {
-                        const d = new Date(weekDate + 'T00:00:00')
-                        d.setDate(d.getDate() + i)
-                        const dStr = d.toISOString().split('T')[0]
-
-                        if (dStr === dateStr) {
-                            // Found match, update fields
-                            // Only update ACTUAL fields, keep projected/scheduled intact
-                            next[day.key] = {
-                                ...next[day.key],
-                                ...json.data[dateStr]
-                            }
-                        }
-                    })
-                })
-                return next
-            })
-            alert(t('sales.reports_page.alerts.sync_success'))
-
-        } catch (e: any) {
-            console.error(e)
-            alert(t('sales.reports_page.alerts.sync_error') + ': ' + e.message)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-
     // CALCULATION LOGIC
     const parseNumber = (val: string | number) => {
-        if (!val) return 0
-        if (typeof val === 'number') return val
-        // Remove commas, currency symbols, and %
-        const clean = String(val).replace(/,/g, '').replace(/\$/g, '').replace(/%/g, '')
-        return parseFloat(clean) || 0
+        if (val === null || val === undefined || val === '') return 0
+        if (typeof val === 'number') return Number.isFinite(val) ? val : 0
+        const clean = String(val).replace(/[^0-9.-]+/g, '')
+        const parsed = parseFloat(clean)
+        return Number.isFinite(parsed) ? parsed : 0
+    }
+
+    const isPendingLabel = (val: any) => {
+        const s = String(val || '').trim().toLowerCase()
+        return s === 'pendiente' || s === 'pending' || s === String(t('sales.reports_page.pending') || '').trim().toLowerCase()
     }
 
     const getCellValue = (dayKey: string, rowId: string) => {
         const dayData = gridData[dayKey] || {}
-
         const getRaw = (id: string) => dayData[id] || ''
 
-        // Computed Rows
         if (rowId === 'diff_sales') {
             const proj = parseNumber(getRaw('projected_sales'))
             const act = parseNumber(getRaw('actual_sales'))
             if (act === 0 || proj === 0) return ''
-            return (act - proj).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            return formatSignedUSD(act - proj, { decimals: 2, showPlus: true })
         }
         if (rowId === 'diff_hours') {
             const sched = parseNumber(getRaw('scheduled_hours'))
             const act = parseNumber(getRaw('actual_hours'))
             if (act === 0 || sched === 0) return ''
-            return (act - sched).toFixed(2) // Hours usually 2 digits
+            const diff = act - sched
+            return `${diff > 0 ? '+' : ''}${diff.toFixed(2)}`
         }
         if (rowId === 'diff_avg_order' || rowId === 'diff_avg') {
             const target = parseNumber(getRaw('target_avg_order'))
             const act = parseNumber(getRaw('actual_avg_order'))
             if (act === 0 || target === 0) return ''
-            return (act - target).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            return formatSignedUSD(act - target, { decimals: 2, showPlus: true })
         }
         if (rowId === 'diff_labor') {
             const proj = parseNumber(getRaw('projected_labor'))
             const act = parseNumber(getRaw('actual_labor'))
             if (act === 0 || proj === 0) return ''
-            return (act - proj).toFixed(2)
+            const diff = act - proj
+            return `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`
         }
 
         return dayData[rowId] || ''
@@ -1094,27 +879,36 @@ export default function ReportesPage() {
             ...prev,
             [dayKey]: {
                 ...prev[dayKey],
-                [rowId]: val
+                [rowId]: val,
+                // Invalidate cached raw accumulators when user edits dependent cell manually
+                ...(rowId === 'actual_sales' ? { _netSales: undefined } : {}),
+                ...(rowId === 'projected_sales' ? { _projSales: undefined } : {}),
+                ...(rowId === 'actual_labor' ? { _laborCost: undefined } : {}),
+                ...(rowId === 'projected_labor' ? { _schedCost: undefined } : {}),
+                ...(rowId === 'actual_avg_order' ? { _orderCount: undefined } : {}),
+                ...(rowId === 'target_avg_order' ? { _targetSales: undefined, _targetOrders: undefined } : {}),
+                ...(rowId === 'sos_time' || rowId === 'daily_cars' ? { _sosWeightedSec: undefined, _sosCars: undefined } : {})
             }
         }))
     }
 
-    // Format on Blur
+    // Format on Blur (preserves pending labels & proper -$ sign)
     const handleInputBlur = (dayKey: string, rowId: string, val: string) => {
-        const num = parseNumber(val)
-        if (num === 0 && val === '') return
+        const trimmed = String(val || '').trim()
+        if (!trimmed || isPendingLabel(trimmed)) return
 
-        // Check Row Type to decide formatting
         const row = REPORT_STRUCTURE.find(r => r.id === rowId)
-        if (!row) return
+        if (!row || row.type === 'text' || row.type === 'time') return
 
-        let formatted = val
+        const num = parseNumber(trimmed)
+        if (!Number.isFinite(num)) return
+
+        let formatted = trimmed
         if (row.type === 'currency') {
-            formatted = '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            formatted = formatSignedUSD(num, { decimals: 2 })
         } else if (row.type === 'percent') {
             formatted = num.toFixed(2) + '%'
         } else if (row.type === 'number') {
-            // Check if it's integer-like or float
             formatted = num.toLocaleString('en-US', { maximumFractionDigits: 2 })
         }
 
@@ -1125,26 +919,15 @@ export default function ReportesPage() {
 
     // Styles for computed cells
     const getComputedStyle = (val: string | number, inverse: boolean = false) => {
-        if (!val) return 'text-slate-400'
+        if (val === '' || val === null || val === undefined) return 'text-slate-400'
         const num = parseNumber(val)
         if (num === 0) return 'text-slate-400'
 
         if (inverse) {
-            // Negative is Good (Green), Positive is Bad (Red) -- e.g. Labor % or Hours
             return num < 0 ? 'text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-900/20' : 'text-rose-600 font-bold bg-rose-50 dark:bg-rose-900/20'
         }
-        // Positive is Good (Green) -- e.g. Sales
         return num > 0 ? 'text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-900/20' : 'text-rose-600 font-bold bg-rose-50 dark:bg-rose-900/20'
     }
-
-
-
-    // ... (rest of the file)
-    // We need to find where the grid is rendered to add the visual.
-    // Looking at the file content provided previously, the render logic is likely below.
-    // I entered 'replace_file_content' but I can't see the render logic in lines 850-950.
-    // I will cancel this replace and view the render logic first.
-
 
     // --- TRANSLATION HELPERS ---
     const getRowLabel = (rowId: string, fallback: string) => {
@@ -1199,93 +982,359 @@ export default function ReportesPage() {
         return t(`sales.reports_page.days.${key.toLowerCase()}`)
     }
 
+    // True Weighted Weekly Summary
     const calculateWeekTotal = (rowId: string, type: string) => {
-        if (type === 'text' || type === 'time' || type === 'header') return ''
-        
-        if (rowId === 'target_avg_order' || rowId === 'actual_avg_order') {
-            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, rowId)) > 0).length
-            if (countDays === 0) return '$0.00'
-            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
-            const avg = sum / countDays
-            const isNeg = avg < 0
-            const formatted = Math.abs(avg).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            return isNeg ? `-$${formatted}` : `$${formatted}`
+        if (type === 'text' || type === 'header') return ''
+
+        if (rowId === 'sos_time') {
+            let totalSec = 0
+            let totalCars = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                if (typeof cell._sosWeightedSec === 'number' && typeof cell._sosCars === 'number' && cell._sosCars > 0) {
+                    totalSec += cell._sosWeightedSec
+                    totalCars += cell._sosCars
+                }
+            })
+            return totalCars > 0 ? formatSosSeconds(totalSec / totalCars) : ''
+        }
+
+        if (type === 'time') return ''
+
+        if (rowId === 'actual_avg_order') {
+            let totalSales = 0
+            let totalOrders = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                const sales = typeof cell._netSales === 'number' ? cell._netSales : parseNumber(cell.actual_sales)
+                const orders = typeof cell._orderCount === 'number'
+                    ? cell._orderCount
+                    : (() => {
+                        const avg = parseNumber(cell.actual_avg_order)
+                        return avg > 0 && sales > 0 ? sales / avg : 0
+                    })()
+                if (sales > 0 && orders > 0) {
+                    totalSales += sales
+                    totalOrders += orders
+                }
+            })
+            return totalOrders > 0 ? formatSignedUSD(totalSales / totalOrders, { decimals: 2 }) : '$0.00'
+        }
+
+        if (rowId === 'target_avg_order') {
+            let totalTargetSales = 0
+            let totalTargetOrders = 0
+            let fallbackSum = 0
+            let fallbackDays = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                if (typeof cell._targetSales === 'number' && typeof cell._targetOrders === 'number' && cell._targetOrders > 0) {
+                    totalTargetSales += cell._targetSales
+                    totalTargetOrders += cell._targetOrders
+                } else {
+                    const v = parseNumber(cell.target_avg_order)
+                    if (v > 0) {
+                        fallbackSum += v
+                        fallbackDays++
+                    }
+                }
+            })
+            if (totalTargetOrders > 0) return formatSignedUSD(totalTargetSales / totalTargetOrders, { decimals: 2 })
+            return fallbackDays > 0 ? formatSignedUSD(fallbackSum / fallbackDays, { decimals: 2 }) : '$0.00'
         }
 
         if (rowId === 'diff_avg_order') {
-            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, 'actual_sales')) > 0).length
-            if (countDays === 0) return '$0.00'
-            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
-            const avg = sum / countDays
-            const isNeg = avg < 0
-            const formatted = Math.abs(avg).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            return isNeg ? `-$${formatted}` : `$${formatted}`
+            let actSales = 0
+            let actOrders = 0
+            let tgtSales = 0
+            let tgtOrders = 0
+            let fallbackDiffSum = 0
+            let activeDays = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                const sales = typeof cell._netSales === 'number' ? cell._netSales : parseNumber(cell.actual_sales)
+                const tgtAvg = parseNumber(cell.target_avg_order)
+                const actAvg = parseNumber(cell.actual_avg_order)
+                if (sales <= 0 || tgtAvg <= 0 || actAvg <= 0) return
+                activeDays++
+                fallbackDiffSum += (actAvg - tgtAvg)
+                if (typeof cell._orderCount === 'number' && cell._orderCount > 0) {
+                    actSales += sales
+                    actOrders += cell._orderCount
+                }
+                if (typeof cell._targetSales === 'number' && typeof cell._targetOrders === 'number' && cell._targetOrders > 0) {
+                    tgtSales += cell._targetSales
+                    tgtOrders += cell._targetOrders
+                }
+            })
+            if (activeDays === 0) return '$0.00'
+            const diff = (actOrders > 0 && tgtOrders > 0)
+                ? (actSales / actOrders) - (tgtSales / tgtOrders)
+                : (fallbackDiffSum / activeDays)
+            return formatSignedUSD(diff, { decimals: 2, showPlus: true })
         }
 
-        if (rowId === 'projected_labor' || rowId === 'actual_labor') {
-            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, rowId)) > 0).length
-            if (countDays === 0) return '0.00%'
-            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
-            return (sum / countDays).toFixed(2) + '%'
+        if (rowId === 'actual_labor') {
+            let totalSales = 0
+            let totalLaborCost = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                const sales = typeof cell._netSales === 'number' ? cell._netSales : parseNumber(cell.actual_sales)
+                const cost = typeof cell._laborCost === 'number'
+                    ? cell._laborCost
+                    : (sales * parseNumber(cell.actual_labor)) / 100
+                if (sales > 0) {
+                    totalSales += sales
+                    totalLaborCost += cost
+                }
+            })
+            return totalSales > 0 ? ((totalLaborCost / totalSales) * 100).toFixed(2) + '%' : '0.00%'
+        }
+
+        if (rowId === 'projected_labor') {
+            let totalProjSales = 0
+            let totalSchedCost = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                const proj = typeof cell._projSales === 'number' ? cell._projSales : parseNumber(cell.projected_sales)
+                const cost = typeof cell._schedCost === 'number'
+                    ? cell._schedCost
+                    : (proj * parseNumber(cell.projected_labor)) / 100
+                if (proj > 0) {
+                    totalProjSales += proj
+                    totalSchedCost += cost
+                }
+            })
+            return totalProjSales > 0 ? ((totalSchedCost / totalProjSales) * 100).toFixed(2) + '%' : '0.00%'
         }
 
         if (rowId === 'diff_labor') {
-            const countDays = DAYS.filter(d => parseNumber(getCellValue(d.key, 'actual_sales')) > 0).length
-            if (countDays === 0) return '0.00%'
-            const sum = DAYS.reduce((s, d) => s + parseNumber(getCellValue(d.key, rowId)), 0)
-            const avg = sum / countDays
-            const isNeg = avg < 0
-            const formatted = Math.abs(avg).toFixed(2)
-            return isNeg ? `-${formatted}%` : `+${formatted}%`
+            // Apples-to-apples weighted Labor % diff strictly over days with BOTH actual and projected sales
+            let actSales = 0
+            let actCost = 0
+            let projSales = 0
+            let schedCost = 0
+            DAYS.forEach(d => {
+                const cell = gridData[d.key] || {}
+                const s = typeof cell._netSales === 'number' ? cell._netSales : parseNumber(cell.actual_sales)
+                const p = typeof cell._projSales === 'number' ? cell._projSales : parseNumber(cell.projected_sales)
+                if (s <= 0 || p <= 0) return
+                const c = typeof cell._laborCost === 'number' ? cell._laborCost : (s * parseNumber(cell.actual_labor)) / 100
+                const sc = typeof cell._schedCost === 'number' ? cell._schedCost : (p * parseNumber(cell.projected_labor)) / 100
+                actSales += s
+                actCost += c
+                projSales += p
+                schedCost += sc
+            })
+            if (actSales <= 0 || projSales <= 0) return '0.00%'
+            const diff = ((actCost / actSales) * 100) - ((schedCost / projSales) * 100)
+            return `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`
         }
 
         let sum = 0
         DAYS.forEach(day => {
-            const val = parseNumber(getCellValue(day.key, rowId))
-            sum += val
+            sum += parseNumber(getCellValue(day.key, rowId))
         })
 
         if (type === 'percent') return sum.toFixed(2) + '%'
         if (type === 'currency') {
-            const isNeg = sum < 0
-            const formatted = Math.abs(sum).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            return isNeg ? `-$${formatted}` : `$${formatted}`
+            return formatSignedUSD(sum, { decimals: 2, showPlus: rowId === 'diff_sales' })
         }
-        return sum.toLocaleString('en-US', { maximumFractionDigits: 2 })
+        const formattedNum = sum.toLocaleString('en-US', { maximumFractionDigits: 2 })
+        return rowId === 'diff_hours' && sum > 0 ? `+${formattedNum}` : formattedNum
     }
 
+    // Weighted Labor Log Weekly Summary (shared between desktop & mobile)
+    const weeklyLaborLogSummary = useMemo(() => {
+        let sumMorningSales = 0
+        let sumMorningCost = 0
+        let sumNightSales = 0
+        let sumNightCost = 0
+        let sumTotalSales = 0
+        let sumTotalCost = 0
+
+        laborLogData.forEach((d: any) => {
+            sumMorningSales += Number(d.morningSales || 0)
+            sumMorningCost += Number(d.morningLaborCost || 0)
+            sumNightSales += Number(d.nightSales || 0)
+            sumNightCost += Number(d.nightLaborCost || 0)
+            sumTotalSales += Number(d.totalSales || 0)
+            sumTotalCost += Number(d.morningLaborCost || 0) + Number(d.nightLaborCost || 0)
+        })
+
+        return {
+            avgMorning: sumMorningSales > 0 ? (sumMorningCost / sumMorningSales) * 100 : 0,
+            avgNight: sumNightSales > 0 ? (sumNightCost / sumNightSales) * 100 : 0,
+            avgTotal: sumTotalSales > 0 ? (sumTotalCost / sumTotalSales) * 100 : 0
+        }
+    }, [laborLogData])
+
+    // Shared Monthly Footer/Summary calculator (fixes dead actual_avg_order branch + adds weighted SOS Time)
+    const getMonthlyFooterValue = useCallback((colId: string, colType: string): string => {
+        const rows = Object.values(monthlyData) as any[]
+        if (colId === 'week_sales') return '—'
+
+        if (colId === 'actual_avg_order') {
+            let totalSales = 0
+            let totalOrders = 0
+            let fallbackSum = 0
+            let fallbackCount = 0
+            rows.forEach((r) => {
+                const sales = typeof r._netSales === 'number' ? r._netSales : parseNumber(r.actual_sales)
+                const orders = typeof r._orderCount === 'number' ? r._orderCount : 0
+                if (sales > 0 && orders > 0) {
+                    totalSales += sales
+                    totalOrders += orders
+                } else {
+                    const avg = parseNumber(r.actual_avg_order)
+                    if (avg > 0) {
+                        fallbackSum += avg
+                        fallbackCount++
+                    }
+                }
+            })
+            if (totalOrders > 0) return formatSignedUSD(totalSales / totalOrders, { decimals: 2 })
+            return fallbackCount > 0 ? formatSignedUSD(fallbackSum / fallbackCount, { decimals: 2 }) : '-'
+        }
+
+        if (colId === 'sos_time') {
+            let totalSec = 0
+            let totalCars = 0
+            rows.forEach((r) => {
+                if (typeof r._sosWeightedSec === 'number' && typeof r._sosCars === 'number' && r._sosCars > 0) {
+                    totalSec += r._sosWeightedSec
+                    totalCars += r._sosCars
+                }
+            })
+            return totalCars > 0 ? formatSosSeconds(totalSec / totalCars) : '-'
+        }
+
+        let sum = 0
+        rows.forEach((r) => {
+            const rawVal = r[colId]
+            if (rawVal !== '' && rawVal !== null && rawVal !== undefined) {
+                sum += parseNumber(rawVal)
+            }
+        })
+
+        if (colType === 'currency') return formatSignedUSD(sum, { decimals: 2 })
+        if (colType === 'number') return Math.round(sum).toLocaleString('en-US')
+        return '-'
+    }, [monthlyData])
+
+    // Export CSV across all 3 tabs (formula-safe UTF-8 BOM)
+    const handleExportCSV = () => {
+        if (!selectedStore || !weekDate) return
+        const storeLabel = selectedStore === 'all'
+            ? t('sales.reports_page.controls.all_stores')
+            : formatStoreName(stores.find(s => String(s.id) === String(selectedStore))?.name || selectedStore)
+        const safeStoreSlug = storeLabel.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+
+        let lines: string[][] = []
+        let filename = ''
+
+        if (activeTab === 'ops') {
+            const monIso = getMondayIso(weekDate)
+            const headers = [
+                t('sales.reports_page.concept'),
+                ...DAYS.map((d, i) => `${getDayLabel(d.key)} (${formatUsDateFromIso(addDaysIso(monIso, i))})`),
+                t('sales.reports_page.weekly_summary')
+            ]
+            lines.push(headers)
+            REPORT_STRUCTURE.filter(r => r.type !== 'header').forEach(row => {
+                lines.push([
+                    getRowLabel(row.id, row.label),
+                    ...DAYS.map(d => String(getCellValue(d.key, row.id) || '')),
+                    String(calculateWeekTotal(row.id, row.type) || '')
+                ])
+            })
+            filename = `ops_${safeStoreSlug}_${monIso}.csv`
+        } else if (activeTab === 'labor') {
+            const monIso = getMondayIso(weekDate)
+            lines.push([
+                t('sales.reports_page.labor_table.day'),
+                t('sales.reports_page.monthly_cols.date'),
+                t('sales.reports_page.labor_table.morning'),
+                t('sales.reports_page.labor_table.night'),
+                t('sales.reports_page.labor_table.total')
+            ])
+            laborLogData.forEach((d: any) => {
+                lines.push([
+                    getDayLabel(d.dayKey || d.dayLabel),
+                    formatUsDateFromIso(d.date),
+                    `${d.morning}%`,
+                    `${d.night}%`,
+                    `${d.total}%`
+                ])
+            })
+            lines.push([
+                t('sales.reports_page.weekly_summary'),
+                '',
+                `${weeklyLaborLogSummary.avgMorning.toFixed(2)}%`,
+                `${weeklyLaborLogSummary.avgNight.toFixed(2)}%`,
+                `${weeklyLaborLogSummary.avgTotal.toFixed(2)}%`
+            ])
+            filename = `labor_log_${safeStoreSlug}_${monIso}.csv`
+        } else {
+            const monthKey = weekDate.substring(0, 7)
+            lines.push(MONTHLY_STRUCTURE.map(col => getMonthlyLabel(col.id, col.label)))
+            Object.keys(monthlyData).sort().forEach(dateKey => {
+                const row = monthlyData[dateKey]
+                lines.push([
+                    formatUsDateFromIso(dateKey),
+                    ...MONTHLY_STRUCTURE.slice(1).map(col => String(row[col.id] || ''))
+                ])
+            })
+            lines.push([
+                t('sales.reports_page.controls.total_label'),
+                ...MONTHLY_STRUCTURE.slice(1).map(col => getMonthlyFooterValue(col.id, col.type))
+            ])
+            filename = `monthly_${safeStoreSlug}_${monthKey}.csv`
+        }
+
+        const csvContent = lines.map(row => row.map(cell => escapeCsvCell(cell)).join(',')).join('\n')
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.setAttribute('href', url)
+        link.setAttribute('download', filename)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+    }
 
     const handleWeekDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.value) {
             setWeekDate('')
+            setDatePreset('')
             return
         }
 
-        // If Monthly Tab, we allow any date selection but we treat it as month selection.
+        setDatePreset('custom')
         if (activeTab === 'monthly') {
-            // Just take the value as is (YYYY-MM) and append -01
-            const val = e.target.value // "2026-01"
-            setWeekDate(val + '-01')
+            setWeekDate(e.target.value + '-01')
             return
         }
 
-        const selectedDate = new Date(e.target.value + 'T12:00:00') // Use noon to avoid timezone rolling
-        const day = selectedDate.getDay()
-        // 0=Sun, 1=Mon...6=Sat
-        // If Sunday(0), back 6 days. Else back (day-1) days.
-        // Target: Monday
-        const diff = selectedDate.getDate() - day + (day === 0 ? -6 : 1)
-        selectedDate.setDate(diff)
-        const mondayStr = selectedDate.toISOString().split('T')[0]
-        setWeekDate(mondayStr)
+        setWeekDate(getMondayIso(e.target.value))
     }
 
+    const activePeriodLabel = useMemo(() => {
+        if (!weekDate) return ''
+        if (activeTab === 'monthly') {
+            const [y, m] = weekDate.split('-').map(Number)
+            const d = new Date(Date.UTC(y, m - 1, 15))
+            return d.toLocaleDateString(language === 'es' ? 'es-MX' : 'en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+        }
+        const mon = getMondayIso(weekDate)
+        const sun = addDaysIso(mon, 6)
+        return `${mon.slice(5).replace('-', '/')} – ${sun.slice(5).replace('-', '/')}`
+    }, [weekDate, activeTab, language])
+
     return (
-        <ProtectedRoute allowedRoles={['admin', 'manager', 'supervisor']}>
-            <div className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-2 md:p-6 pb-32">
-                {/* 🚨 DEBUG PANEL TO DIAGNOSE DATA LOSS 🚨 */}
-                {/* DEBUG PANEL REMOVED */}
-                <div className="max-w-[1800px] mx-auto space-y-6">
+        <div className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-2 md:p-6 pb-32">
+            <div className="max-w-[1800px] mx-auto space-y-6">
 
                     {/* Header Controls */}
                     <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-center gap-4 sticky top-0 z-30">
@@ -1343,84 +1392,60 @@ export default function ReportesPage() {
 
                             <div className="flex items-center bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 p-1">
                                 <select
-                                    className="bg-transparent text-sm font-bold text-slate-700 dark:text-slate-200 outline-none px-3 py-1.5 cursor-pointer max-w-[140px]"
+                                    value={datePreset}
+                                    className="bg-transparent text-sm font-bold text-slate-700 dark:text-slate-200 outline-none px-3 py-1.5 cursor-pointer max-w-[160px]"
                                     onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === 'custom') return;
+                                        const val = e.target.value
+                                        setDatePreset(val)
+                                        if (!val || val === 'custom') return
 
-                                        const now = new Date();
-                                        const getMonday = (d: Date) => {
-                                            const day = d.getDay();
-                                            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-                                            const monday = new Date(d);
-                                            monday.setDate(diff);
-                                            return monday;
-                                        };
+                                        // Always compute from LA 6:00 AM business date (zero UTC/DST drift)
+                                        const todayLA = getBusinessDateLA()
+                                        const thisMonday = getMondayIso(todayLA)
+                                        const [laYear, laMonth] = todayLA.split('-').map(Number)
 
-                                        let newDate = '';
+                                        let newDate = ''
                                         if (val === 'this_week') {
-                                            const m = getMonday(new Date());
-                                            newDate = m.toISOString().split('T')[0];
-                                            setActiveTab('ops'); // Auto-switch to Ops for weekly views
-                                        } else if (val === 'last_7_days') { // Last 7 Days logic (Custom range? Standardizing to Last Week for now or literally last 7 days?) 
-                                            // For 'Last 7 Days', usually implies rolling window. But report structure is fixed Mon-Sun.
-                                            // Let's treat it as 'Last Week' alias or previous 7 days from today?
-                                            // User asked for "Last 7 Days". Let's map it to "Last Week" logic for grid consistency or implement rolling?
-                                            // Grid is Mon-Sun. Let's map to Last Week to keep grid safe.
-                                            const d = new Date();
-                                            d.setDate(d.getDate() - 7);
-                                            const m = getMonday(d);
-                                            newDate = m.toISOString().split('T')[0];
-                                            setActiveTab('ops');
+                                            newDate = thisMonday
+                                            if (activeTab === 'monthly') setActiveTab('ops')
                                         } else if (val === 'last_week') {
-                                            // FIXED: Get PREVIOUS week's Monday
-                                            // 1. Get THIS week's Monday
-                                            const thisMonday = getMonday(new Date());
-                                            // 2. Go back 7 days to get LAST week's Monday
-                                            thisMonday.setDate(thisMonday.getDate() - 7);
-                                            // Format in local time to avoid UTC offset
-                                            const y = thisMonday.getFullYear();
-                                            const month = String(thisMonday.getMonth() + 1).padStart(2, '0');
-                                            const day = String(thisMonday.getDate()).padStart(2, '0');
-                                            newDate = `${y}-${month}-${day}`;
-                                            setActiveTab('ops');
+                                            newDate = addDaysIso(thisMonday, -7)
+                                            if (activeTab === 'monthly') setActiveTab('ops')
                                         } else if (val === 'this_month') {
-                                            const y = now.getFullYear();
-                                            const m = String(now.getMonth() + 1).padStart(2, '0');
-                                            newDate = `${y}-${m}-01`;
-                                            setActiveTab('monthly');
+                                            newDate = getMonthStartIso(laYear, laMonth)
+                                            setActiveTab('monthly')
                                         } else if (val === 'last_month') {
-                                            now.setMonth(now.getMonth() - 1); // Go back 1 month
-                                            const y = now.getFullYear();
-                                            const m = String(now.getMonth() + 1).padStart(2, '0');
-                                            newDate = `${y}-${m}-01`;
-                                            setActiveTab('monthly');
+                                            newDate = getPreviousMonthStartIso(todayLA)
+                                            setActiveTab('monthly')
                                         }
 
-                                        if (newDate) setWeekDate(newDate);
+                                        if (newDate) setWeekDate(newDate)
                                     }}
-                                    defaultValue="custom"
                                 >
-                                    <option value="custom" disabled hidden>{t('sales.select_dates')}</option>
+                                    <option value="" disabled hidden>{t('sales.select_dates')}</option>
                                     <option value="this_week">{t('sales.this_week')}</option>
-                                    <option value="last_7_days">{t('sales.last_7')}</option>
                                     <option value="last_week">{t('sales.last_week')}</option>
                                     <option value="this_month">{t('sales.current_month')}</option>
                                     <option value="last_month">{t('sales.last_month')}</option>
-                                    <option value="custom">{t('sales.custom_date')}</option>
+                                    <option value="custom" disabled hidden>{activePeriodLabel || t('sales.custom_date')}</option>
                                 </select>
 
                                 <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1"></div>
 
-                                <div className="relative group px-2">
-                                    <Calendar size={18} className="text-slate-400 group-hover:text-indigo-500 transition-colors cursor-pointer" />
+                                <div className="relative group px-2 flex items-center gap-1.5">
+                                    <Calendar size={18} className="text-slate-400 group-hover:text-indigo-500 transition-colors cursor-pointer shrink-0" />
+                                    {activePeriodLabel && (
+                                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap hidden sm:inline">
+                                            {activePeriodLabel}
+                                        </span>
+                                    )}
                                     {activeTab === 'monthly' ? (
                                         <input
                                             type="month"
                                             value={weekDate ? weekDate.substring(0, 7) : ''}
                                             onChange={handleWeekDateChange}
                                             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                            title="Select Month"
+                                            title={t('sales.reports_page.controls.select_month')}
                                         />
                                     ) : (
                                         <input
@@ -1428,7 +1453,7 @@ export default function ReportesPage() {
                                             value={weekDate}
                                             onChange={handleWeekDateChange}
                                             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                            title="Select Specific Date"
+                                            title={t('sales.reports_page.controls.select_specific_date')}
                                         />
                                     )}
                                 </div>
@@ -1437,33 +1462,47 @@ export default function ReportesPage() {
 
                         <div className="flex-1"></div>
 
-                        {/* Actions */}
-                        {activeTab === 'ops' && (
-                            <div className="flex items-center gap-2">
-                                {/* Buttons Removed as requested */}
-                            </div>
-                        )}
-
-                        {activeTab === 'labor' && (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={fetchReport}
-                                    disabled={loading || !selectedStore || !weekDate}
-                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-200 transition-colors disabled:opacity-50"
-                                >
-                                    <Calculator size={16} /> {t('sales.refresh')}
-                                </button>
-                            </div>
-                        )}
-
-
+                        {/* Actions (Refresh + CSV Export + Print) */}
+                        <div className="flex flex-wrap items-center gap-2 print:hidden">
+                            <button
+                                type="button"
+                                onClick={() => activeTab === 'monthly' ? fetchMonthlyReport() : fetchReport()}
+                                disabled={loading || !selectedStore || !weekDate}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                                <Calculator size={15} /> {t('sales.refresh')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExportCSV}
+                                disabled={loading || !selectedStore || !weekDate}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                                <Download size={15} /> {t('sales.reports_page.controls.export_csv')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => window.print()}
+                                disabled={loading || !selectedStore || !weekDate}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                                <Printer size={15} /> {t('sales.reports_page.controls.print_report')}
+                            </button>
+                        </div>
                     </div>
+
+                    {errorMsg && (
+                        <div className="flex items-center gap-3 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-sm font-medium">
+                            <AlertCircle size={18} className="shrink-0" />
+                            <span>{errorMsg}</span>
+                        </div>
+                    )}
 
                     {loading ? (
                         <div className="h-96 flex flex-col items-center justify-center text-slate-400 animate-pulse bg-white/50 dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800">
                             <Clock size={48} className="mb-4 animate-spin" />
-                            <p className="font-bold">Processing system data...</p>
-                            <p className="text-xs">Syncing Sales and Labor AM/PM</p>
+                            <p className="font-bold">{t('sales.reports_page.controls.processing_data')}</p>
+                            <p className="text-xs">{t('sales.reports_page.controls.syncing_sales_labor')}</p>
                         </div>
                     ) : selectedStore && weekDate ? (
                         activeTab === 'ops' ? (
@@ -1538,21 +1577,14 @@ export default function ReportesPage() {
 
                                                         {DAYS.map(day => {
                                                             const value = getCellValue(day.key, row.id)
-                                                            const isPending = value === 'pendiente'
+                                                            const isPending = isPendingLabel(value)
 
                                                             if (isComputed) {
                                                                 const style = getComputedStyle(value, isInverse)
-                                                                let displayValue = value
-                                                                if (row.type === 'currency' && value && !String(value).includes('$')) {
-                                                                    displayValue = '$' + value
-                                                                } else if (row.type === 'percent' && value && !String(value).includes('%')) {
-                                                                    displayValue = value + '%'
-                                                                }
-
                                                                 return (
                                                                     <td key={day.key} className="p-0 border-r border-b border-slate-100 dark:border-slate-800">
                                                                         <div className={`w-full h-full py-3 px-2 text-center text-xs md:text-sm font-sans ${style} ${isProjected ? 'font-bold' : 'font-medium'}`}>
-                                                                            {displayValue}
+                                                                            {value}
                                                                         </div>
                                                                     </td>
                                                                 )
@@ -1625,10 +1657,7 @@ export default function ReportesPage() {
                                                         let displayValue: React.ReactNode = value
                                                         if (isComputed) {
                                                             const style = getComputedStyle(value, isInverse)
-                                                            if (row.type === 'currency' && value && !String(value).includes('$')) displayValue = '$' + value
-                                                            else if (row.type === 'percent' && value && !String(value).includes('%')) displayValue = value + '%'
-
-                                                            displayValue = <span className={style}>{displayValue}</span>
+                                                            displayValue = <span className={`px-1.5 py-0.5 rounded ${style}`}>{value}</span>
                                                         } else {
                                                             displayValue = (
                                                                 <input
@@ -1706,15 +1735,9 @@ export default function ReportesPage() {
                                                     <tr key={day.date} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                                                         <td className="px-6 py-4 border-r dark:border-slate-800">
                                                             <div className="flex flex-col">
-                                                                <span className="font-bold text-slate-900 dark:text-white text-sm md:text-base leading-tight">{day.dayLabel}</span>
+                                                                <span className="font-bold text-slate-900 dark:text-white text-sm md:text-base leading-tight">{getDayLabel(day.dayKey || day.dayLabel)}</span>
                                                                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                                                                    {(() => {
-                                                                        const dateObj = new Date(day.date + 'T12:00:00');
-                                                                        const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-                                                                        const dd = String(dateObj.getDate()).padStart(2, '0');
-                                                                        const yyyy = dateObj.getFullYear();
-                                                                        return `${mm}/${dd}/${yyyy}`;
-                                                                    })()}
+                                                                    {formatUsDateFromIso(day.date)}
                                                                 </span>
                                                             </div>
                                                         </td>
@@ -1739,21 +1762,7 @@ export default function ReportesPage() {
                                         </tbody>
                                         <tfoot>
                                             {(() => {
-                                                const validMorning = laborLogData.filter(d => Number(d.morning) > 0)
-                                                const validNight = laborLogData.filter(d => Number(d.night) > 0)
-                                                const validTotal = laborLogData.filter(d => Number(d.total) > 0)
-
-                                                const avgMorning = validMorning.length > 0
-                                                    ? (validMorning.reduce((a, b) => a + Number(b.morning), 0) / validMorning.length)
-                                                    : 0
-
-                                                const avgNight = validNight.length > 0
-                                                    ? (validNight.reduce((a, b) => a + Number(b.night), 0) / validNight.length)
-                                                    : 0
-
-                                                const avgTotal = validTotal.length > 0
-                                                    ? (validTotal.reduce((a, b) => a + Number(b.total), 0) / validTotal.length)
-                                                    : 0
+                                                const { avgMorning, avgNight, avgTotal } = weeklyLaborLogSummary
                                                 const threshold = 21.5
 
                                                 return (
@@ -1796,8 +1805,8 @@ export default function ReportesPage() {
                                             <div key={day.date} className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-4">
                                                 <div className="flex justify-between items-center mb-3">
                                                     <div>
-                                                        <h3 className="font-black text-slate-800 dark:text-white text-lg">{day.dayLabel}</h3>
-                                                        <p className="text-xs text-slate-400 font-bold">{`${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}/${dateObj.getFullYear()}`}</p>
+                                                        <h3 className="font-black text-slate-800 dark:text-white text-lg">{getDayLabel(day.dayKey || day.dayLabel)}</h3>
+                                                        <p className="text-xs text-slate-400 font-bold">{formatUsDateFromIso(day.date)}</p>
                                                     </div>
                                                     <div className={`text-xl font-black ${tNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white'}`}>
                                                         {day.total}%
@@ -1825,21 +1834,7 @@ export default function ReportesPage() {
                                     {/* WEEK SUMMARY CARD */}
                                     <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 p-4 mt-2">
                                         {(() => {
-                                            const validMorning = laborLogData.filter(d => Number(d.morning) > 0)
-                                            const validNight = laborLogData.filter(d => Number(d.night) > 0)
-                                            const validTotal = laborLogData.filter(d => Number(d.total) > 0)
-
-                                            const avgMorning = validMorning.length > 0
-                                                ? (validMorning.reduce((a, b) => a + Number(b.morning), 0) / validMorning.length)
-                                                : 0
-
-                                            const avgNight = validNight.length > 0
-                                                ? (validNight.reduce((a, b) => a + Number(b.night), 0) / validNight.length)
-                                                : 0
-
-                                            const avgTotal = validTotal.length > 0
-                                                ? (validTotal.reduce((a, b) => a + Number(b.total), 0) / validTotal.length)
-                                                : 0
+                                            const { avgMorning, avgNight, avgTotal } = weeklyLaborLogSummary
                                             const threshold = 21.5
 
                                             return (
@@ -1911,34 +1906,15 @@ export default function ReportesPage() {
                                                 )
                                             })}
                                         </tbody>
-                                        {/* Footer - Monthly Totals */}
-                                        <tfoot className="sticky bottom-0 bg-slate-100 dark:bg-slate-800 z-20 font-bold border-t-2 border-slate-200">
+                                        {/* Footer - Monthly Totals (True Weighted Avg Order & SOS Time) */}
+                                        <tfoot className="sticky bottom-0 bg-slate-100 dark:bg-slate-800 z-20 font-bold border-t-2 border-slate-200 dark:border-slate-700">
                                             <tr>
-                                                <td className="p-3 text-center text-xs">TOTAL</td>
-                                                {MONTHLY_STRUCTURE.slice(1).map(col => {
-                                                    // Simple Sum Logic
-                                                    let sum = 0
-                                                    let count = 0
-                                                    Object.values(monthlyData).forEach((r: any) => {
-                                                        const val = parseFloat(String(r[col.id] || '').replace(/[^0-9.-]+/g, ""))
-                                                        if (!isNaN(val)) {
-                                                            sum += val
-                                                            count++
-                                                        }
-                                                    })
-
-                                                    // Format
-                                                    let disp = ''
-                                                    if (col.type === 'currency' || col.label.includes('Sales')) disp = '$' + sum.toLocaleString('en-US', { maximumFractionDigits: 2 })
-                                                    else if (col.type === 'number') disp = sum.toLocaleString('en-US')
-                                                    else if (col.id === 'actual_avg_order') disp = count > 0 ? '$' + (sum / count).toFixed(2) : '-'
-
-                                                    return (
-                                                        <td key={col.id} className="p-2 text-center text-xs">
-                                                            {disp}
-                                                        </td>
-                                                    )
-                                                })}
+                                                <td className="p-3 text-center text-xs">{t('sales.reports_page.controls.total_label')}</td>
+                                                {MONTHLY_STRUCTURE.slice(1).map(col => (
+                                                    <td key={col.id} className="p-2 text-center text-xs font-mono">
+                                                        {getMonthlyFooterValue(col.id, col.type)}
+                                                    </td>
+                                                ))}
                                             </tr>
                                         </tfoot>
                                     </table>
@@ -1950,17 +1926,17 @@ export default function ReportesPage() {
                                         const row = monthlyData[dateKey]
                                         const [y, m, d] = dateKey.split('-')
                                         const dateDisp = `${m}/${d}/${y}`
-                                        const dateObj = new Date(dateKey + 'T12:00:00')
-                                        const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' })
-                                        const isSunday = dateObj.getDay() === 0
+                                        const dateObj = new Date(dateKey + 'T12:00:00Z')
+                                        const dayOfWeek = dateObj.toLocaleDateString(language === 'es' ? 'es-MX' : 'en-US', { weekday: 'short', timeZone: 'UTC' })
+                                        const isSunday = getIsoWeekdayUTC(dateKey) === 0
 
                                         return (
                                             <div key={dateKey} className={`bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden ${isSunday ? 'ring-2 ring-indigo-200 dark:ring-indigo-900' : ''}`}>
                                                 <div className="bg-orange-50 dark:bg-orange-900/20 px-4 py-2 border-b border-orange-100 dark:border-orange-800/30 flex justify-between items-center">
-                                                    <h3 className="font-black text-orange-900 dark:text-orange-200">{dayOfWeek} {dateDisp}</h3>
+                                                    <h3 className="font-black text-orange-900 dark:text-orange-200 capitalize">{dayOfWeek} {dateDisp}</h3>
                                                     {row.week_sales && (
                                                         <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded-md shadow-sm">
-                                                            Week: {row.week_sales}
+                                                            {t('sales.reports_page.controls.week_label')}: {row.week_sales}
                                                         </span>
                                                     )}
                                                 </div>
@@ -1991,27 +1967,14 @@ export default function ReportesPage() {
                                         <h3 className="font-black uppercase text-center mb-4 border-b border-orange-800 pb-2">{t('sales.reports_page.monthly_totals')}</h3>
                                         <div className="grid grid-cols-2 gap-4">
                                             {MONTHLY_STRUCTURE.slice(1).map(col => {
-                                                // Reuse Sum Logic
-                                                let sum = 0
-                                                let count = 0
-                                                Object.values(monthlyData).forEach((r: any) => {
-                                                    const val = parseFloat(String(r[col.id] || '').replace(/[^0-9.-]+/g, ""))
-                                                    if (!isNaN(val)) {
-                                                        sum += val
-                                                        count++
-                                                    }
-                                                })
-                                                let disp = ''
-                                                if (col.type === 'currency' || col.label.includes('Sales')) disp = '$' + sum.toLocaleString('en-US', { maximumFractionDigits: 2 })
-                                                else if (col.type === 'number') disp = sum.toLocaleString('en-US')
-                                                else if (col.id === 'actual_avg_order') disp = count > 0 ? '$' + (sum / count).toFixed(2) : '-'
-
                                                 if (col.id === 'week_sales') return null
+                                                const disp = getMonthlyFooterValue(col.id, col.type)
+                                                if (col.id === 'sos_time' && (!disp || disp === '-')) return null
 
                                                 return (
-                                                    <div key={col.id} className="flex justify-between items-center text-sm border-b border-orange-800/50 pb-1">
-                                                        <span className="text-orange-300 font-medium">{getMonthlyLabel(col.id, col.label)}</span>
-                                                        <span className="font-bold">{disp}</span>
+                                                    <div key={col.id} className="flex justify-between items-center text-sm border-b border-orange-800/50 pb-1 gap-2">
+                                                        <span className="text-orange-300 font-medium truncate">{getMonthlyLabel(col.id, col.label)}</span>
+                                                        <span className="font-bold font-mono shrink-0">{disp}</span>
                                                     </div>
                                                 )
                                             })}
@@ -2021,13 +1984,22 @@ export default function ReportesPage() {
                             </div>
                         )
                     ) : (
-                        <div className="h-96 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl bg-slate-50/50 dark:bg-slate-900/50">
+                        <div className="h-96 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl bg-slate-50/50 dark:bg-slate-900/50 px-4 text-center">
                             <Store size={48} className="mb-4 text-slate-300" />
-                            <p className="font-medium">{t('sales.reports_page.controls.select_store')}</p>
+                            <p className="font-medium">
+                                {!selectedStore ? t('sales.reports_page.controls.select_store') : t('sales.reports_page.controls.select_date_prompt')}
+                            </p>
                         </div>
                     )}
                 </div>
             </div>
+    )
+}
+
+export default function ReportesPage() {
+    return (
+        <ProtectedRoute allowedRoles={['admin', 'manager', 'supervisor']}>
+            <ReportesPageContent />
         </ProtectedRoute>
     )
 }

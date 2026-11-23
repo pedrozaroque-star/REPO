@@ -17,6 +17,7 @@
  * - Implementa caché en Supabase (`sales_daily_cache` y `punches`) para evitar llamadas API costosas y repetitivas.
  * - En caso de requerir reparación de datos corruptos o antiguos, se debe borrar explícitamente la entrada del día en la caché (`.delete().eq('business_date', date)`) antes de invocar el fetch.
  * - [Paquete 2C] `logDebug` escribe vía `console.error` en lugar de `fs.appendFileSync('server-debug.log')` para evitar que `@vercel/nft` empaquete `server-debug.log` (1.46 MB) en 46 Serverless Functions (~67.2 MB por deploy) y evitar fallos `EROFS` en Vercel.
+ * - [2026-11-23] FIX CRÍTICO: Bloqueado cacheo de fechas futuras (`r.date >= todayStr`) que pre-insertaban filas `$0` en `sales_daily_cache`, y propagado `hasError?: boolean` en `MetricRow` para que `sales-live`, `sync-sales` y `sync-sales-today` jamás sobrescriban ventas válidas con `$0` ante un fallo transitorio de Toast API.
  */
 import { getSupabaseClient } from '@/lib/supabase'
 
@@ -75,6 +76,8 @@ export interface MetricRow {
     hourlySales?: Record<number, number>
     hourlyTickets?: Record<number, number>
     hourlyLabor?: Record<number, number>
+    hasError?: boolean
+    laborHasError?: boolean
 }
 
 // Map store generic ID to Toast restaurantGuid - DEPRECATED
@@ -1147,6 +1150,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         .in('store_id', storeList.map(s => s.id))
                         .gte('business_date', options.startDate)
                         .lte('business_date', options.endDate)
+                        .order('business_date', { ascending: true })
+                        .order('store_id', { ascending: true })
                         .range(page * pageSize, (page + 1) * pageSize - 1)
 
                     if (error) throw error
@@ -1214,7 +1219,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // In restaurants, "Yesterday" is not final until the shift ends (often 2-4 AM Today).
                 // If it is before 6 AM in LA, we treat Yesterday as "Today" (Dirty/Dynamic).
                 const nowLA = new Date()
-                const laHour = parseInt(nowLA.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
+                const rawLaHour = parseInt(nowLA.toLocaleTimeString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: 'America/Los_Angeles' }), 10)
+                const laHour = rawLaHour === 24 ? 0 : rawLaHour
                 const todayLAStr = nowLA.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                 const [ty, tm, td] = todayLAStr.split('-').map(Number)
                 const yDate = new Date(ty, tm - 1, td - 1)
@@ -1290,11 +1296,14 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
 
                         // Fetch Labor specifically for this day (Lazy Load)
                         let labor = { hours: 0, laborCost: 0, hourlyLabor: {} }
+                        let laborHasError = false
                         try {
                             const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
                             // laborMap keys are normalized to YYYY-MM-DD
                             if (laborMap[dateStr]) labor = laborMap[dateStr] as any
-                        } catch (e) { /* ignore labor error */ }
+                        } catch (e) {
+                            laborHasError = true
+                        }
 
                         return {
                             store,
@@ -1307,10 +1316,12 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                 grubhubSales: sales.grubhubSales || 0,
                                 ebtCount: sales.ebtCount || 0,
                                 ebtAmount: sales.ebtAmount || 0,
-                                hourlySales: sales.hourlySales || {}
+                                hourlySales: sales.hourlySales || {},
+                                hourlyTickets: sales.hourlyTickets || {}
                             },
                             laborMetrics: labor,
-                            fromCache: false
+                            fromCache: false,
+                            ...(laborHasError ? { laborHasError: true } : {})
                         }
                     } catch (err) {
                         // FALLBACK: Try cache if API fails, even for hourly (better than error)
@@ -1326,15 +1337,15 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                     serviceCharges: Number(cached.service_charges || 0),
                                     orders: cached.order_count,
                                     guests: cached.guest_count,
-                                    hourlySales: {}, // No hourly data in daily cache
-                                    hourlyTickets: {},
+                                    hourlySales: cached.hourly_data || {},
+                                    hourlyTickets: cached.hourly_tickets || {},
                                     uberSales: Number(cached.uber_sales || 0),
                                     doordashSales: Number(cached.doordash_sales || 0),
                                     grubhubSales: Number(cached.grubhub_sales || 0),
                                     ebtCount: Number(cached.ebt_count || 0),
                                     ebtAmount: Number(cached.ebt_amount || 0)
                                 },
-                                laborMetrics: { hours: Number(cached.labor_hours), laborCost: Number(cached.labor_cost) },
+                                laborMetrics: { hours: Number(cached.labor_hours), laborCost: Number(cached.labor_cost), hourlyLabor: cached.hourly_labor || {} },
                                 fromCache: true
                             }
                         }
@@ -1412,7 +1423,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             // 4. BATCH UPDATE CACHE (Only Past Dates, NEVER Today, and Only if Shift is Closed)
             // Re-calculate logic to be safe
             const nowForCache = new Date()
-            const laHourForCache = parseInt(nowForCache.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
+            const rawLaHourForCache = parseInt(nowForCache.toLocaleTimeString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: 'America/Los_Angeles' }), 10)
+            const laHourForCache = rawLaHourForCache === 24 ? 0 : rawLaHourForCache
             const todayLAStr = nowForCache.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
             const [ty, tm, td] = todayLAStr.split('-').map(Number)
             const yDate = new Date(ty, tm - 1, td - 1)
@@ -1426,8 +1438,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // This is the CRITICAL safety lock preventing UI 'fast checks' from corrupting DB
                 if (options.fastMode) return false
 
-                // 3. Never cache TODAY (volatile data, wait for next day)
-                if (r.date === todayStr) return false
+                // 3. Never cache TODAY or FUTURE dates (prevents pre-seeding $0 rows for upcoming dates)
+                if (r.date >= todayStr) return false
 
                 // 4. Never cache YESTERDAY if we are strictly in the "Dirty Window" (<6am)
                 // (Already handled by fetching logic, but ensuring storage safety)
@@ -1478,16 +1490,16 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
 
             // 5. AGGREGATE RESULTS
             for (const res of results) {
-                const { store, date, salesMetrics, laborMetrics } = res
+                const { store, date, salesMetrics, laborMetrics, hasError, laborHasError } = res
                 if (isHourly) {
-                    // Ensure full 24h cycle coverage
+                    // Ensure full 24h business-day cycle coverage (6:00 AM -> 5:59 AM next day)
                     for (let i = 0; i < 24; i++) {
-                        const h = (7 + i) % 24
-                        const isNextDay = (7 + i) >= 24
+                        const h = (6 + i) % 24
+                        const isNextDay = (6 + i) >= 24
                         let displayDate = date
                         if (isNextDay) {
-                            const d2 = new Date(date)
-                            d2.setUTCDate(d2.getUTCDate() + 1)
+                            const [dy, dm, dd] = date.split('-').map(Number)
+                            const d2 = new Date(Date.UTC(dy, dm - 1, dd + 1))
                             displayDate = d2.toISOString().split('T')[0]
                         }
                         const pStart = `${displayDate} ${String(h).padStart(2, '0')}:00`
@@ -1515,18 +1527,28 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             ebtCount: i === 0 ? (salesMetrics.ebtCount || 0) : 0,
                             ebtAmount: i === 0 ? (salesMetrics.ebtAmount || 0) : 0,
                             hourlySales: i === 0 ? (salesMetrics.hourlySales || {}) : {},
-                            hourlyLabor: i === 0 ? (laborMetrics.hourlyLabor || {}) : {}
+                            hourlyTickets: i === 0 ? (salesMetrics.hourlyTickets || {}) : {},
+                            hourlyLabor: i === 0 ? (laborMetrics.hourlyLabor || {}) : {},
+                            ...(hasError ? { hasError: true } : {}),
+                            ...(laborHasError ? { laborHasError: true } : {})
                         })
                     }
                 } else {
-                    const dayDate = new Date(date)
+                    const [dy, dm, dd] = date.split('-').map(Number)
+                    const dayDate = new Date(Date.UTC(dy, dm - 1, dd, 12, 0, 0))
                     let pStart = date
                     let pEnd = date
                     if (options.groupBy === 'week') {
-                        const wi = getISOWeekInfo(dayDate); pStart = wi.monday; pEnd = wi.sunday;
+                        const dow = dayDate.getUTCDay()
+                        const monOffset = dow === 0 ? -6 : 1 - dow
+                        const mon = new Date(Date.UTC(dy, dm - 1, dd + monOffset))
+                        const sun = new Date(Date.UTC(dy, dm - 1, dd + monOffset + 6))
+                        pStart = mon.toISOString().split('T')[0]
+                        pEnd = sun.toISOString().split('T')[0]
                     } else if (options.groupBy === 'month') {
-                        const ms = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}`
-                        pStart = `${ms}-01`; pEnd = `${ms}-30`;
+                        const lastDay = new Date(Date.UTC(dy, dm, 0)).getUTCDate()
+                        const ms = `${dy}-${String(dm).padStart(2, '0')}`
+                        pStart = `${ms}-01`; pEnd = `${ms}-${String(lastDay).padStart(2, '0')}`;
                     }
 
                     let existing = rows.find(r => r.storeId === store.id && r.periodStart === pStart)
@@ -1554,6 +1576,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             ebtCount: 0,
                             ebtAmount: 0,
                             hourlySales: {},
+                            hourlyTickets: {},
                             hourlyLabor: {}
                         }
                         rows.push(existing)
@@ -1581,12 +1604,24 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         existing.hourlySales[h] = (existing.hourlySales[h] || 0) + (hSales[h] || 0)
                     }
 
+                    const hTickets = salesMetrics.hourlyTickets || {}
+                    existing.hourlyTickets = existing.hourlyTickets || {}
+                    for (let h = 0; h < 24; h++) {
+                        existing.hourlyTickets[h] = (existing.hourlyTickets[h] || 0) + (hTickets[h] || 0)
+                    }
+
                     const hLabor = laborMetrics.hourlyLabor || {}
                     existing.hourlyLabor = existing.hourlyLabor || {}
                     for (let h = 0; h < 24; h++) {
                         existing.hourlyLabor[h] = (existing.hourlyLabor[h] || 0) + (hLabor[h] || 0)
                     }
 
+                    if (hasError) {
+                        existing.hasError = true
+                    }
+                    if (laborHasError) {
+                        existing.laborHasError = true
+                    }
                 }
             }
 

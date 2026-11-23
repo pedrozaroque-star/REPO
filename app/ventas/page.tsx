@@ -8,12 +8,12 @@
  * - Dynamic dining options mapping and delivery channel segregation (Uber, DoorDash, Grubhub).
  * @dataFlow
  * - Client -> /api/ventas (Toast + Supabase Cache) -> Live Projections -> Food Cost Sync -> Recharts Dashboard.
- * @notes Self-heals historical discrepancies silently via /api/integrity/verify-day. Validates food cost cache store completeness (>= 14 stores, FC% > 0) before accepting cache.
+ * @notes Self-heals historical discrepancies silently via /api/integrity/verify-day. Validates food cost cache store completeness (>= 14 stores, FC% > 0, and 0 broken stores with cost > 0 & sales <= 0) before accepting cache. [2026-11-23] Guarded against fake green 0.0% FC badges and fixed double $$ typo in mobile store cards.
  */
 'use client'
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Calendar, CalendarDays, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap, Lock } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -23,6 +23,18 @@ import { formatStoreName } from '@/lib/supabase'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { useLanguage } from '@/lib/i18n'
+import {
+    FOOD_COST_HEALTHY_MAX,
+    FOOD_COST_WARNING_MAX,
+    addDaysIso,
+    diffCalendarDays,
+    escapeCsvCell,
+    formatSignedUSD,
+    getBusinessDateLA,
+    getLANowParts,
+    getMondayIso,
+    isValidIsoDate,
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 // Helper to filter a single row by a time range
 // Returns null for hourly rows outside the range (to be filtered out)
@@ -30,10 +42,13 @@ const applyTimeFilterToRow = (row: any, timeFilter: string): any | null => {
     if (timeFilter === 'all') return row
 
     const [startH, endH] = timeFilter.split('-').map(Number)
-    let hours: number[] = []
+    if (Number.isNaN(startH) || Number.isNaN(endH)) return row
+    const hours: number[] = []
 
-    if (startH > endH) {
-        // Wrapping range (e.g. 23-4 = 23,0,1,2,3)
+    if (startH === endH) {
+        hours.push(startH)
+    } else if (startH > endH) {
+        // Wrapping range (e.g. 23-6 = 23,0,1,2,3,4,5)
         for (let i = startH; i < 24; i++) hours.push(i)
         for (let i = 0; i < endH; i++) hours.push(i)
     } else {
@@ -53,28 +68,53 @@ const applyTimeFilterToRow = (row: any, timeFilter: string): any | null => {
     let netSales = 0
     let laborCost = 0
     let orderCount = 0
+    const hasHourlyTickets = Boolean(row.hourlyTickets && Object.keys(row.hourlyTickets).length > 0)
 
     hours.forEach(h => {
-        netSales += (row.hourlySales?.[h] || 0)
-        laborCost += (row.hourlyLabor?.[h] || 0)
-        orderCount += (row.hourlyTickets?.[h] || 0)
+        netSales += Number(row.hourlySales?.[h] || 0)
+        laborCost += Number(row.hourlyLabor?.[h] || 0)
+        if (hasHourlyTickets) {
+            orderCount += Number(row.hourlyTickets?.[h] || 0)
+        }
     })
 
     // Proportional estimate for fields without hourly breakdown
-    const totalNetSales = row.netSales || 0
+    const totalNetSales = Number(row.netSales || 0)
     const proportion = totalNetSales > 0 ? netSales / totalNetSales : 0
+    if (!hasHourlyTickets) {
+        orderCount = Math.round(Number(row.orderCount || 0) * proportion)
+    }
+
+    // Scale projectedSales & projectedHourly to the filtered hours window
+    let projectedSales = Number(row.projectedSales || 0)
+    let projectedHourly = row.projectedHourly
+    if (row.projectedHourly && Object.keys(row.projectedHourly).length > 0) {
+        const filteredProjHourly: Record<number, number> = {}
+        let sumProj = 0
+        hours.forEach(h => {
+            const v = Number(row.projectedHourly[h] ?? row.projectedHourly[h < 6 ? h + 24 : h] ?? 0)
+            filteredProjHourly[h] = v
+            sumProj += v
+        })
+        projectedSales = sumProj
+        projectedHourly = filteredProjHourly
+    } else if (projectedSales > 0) {
+        projectedSales = projectedSales * proportion
+    }
 
     return {
         ...row,
         netSales,
         laborCost,
         orderCount,
-        grossSales: (row.grossSales || 0) * proportion,
-        discounts: (row.discounts || 0) * proportion,
-        tips: (row.tips || 0) * proportion,
-        taxes: (row.taxes || 0) * proportion,
-        guestCount: Math.round((row.guestCount || 0) * proportion),
-        totalHours: (row.totalHours || 0) * proportion
+        projectedSales,
+        projectedHourly,
+        grossSales: Number(row.grossSales || 0) * proportion,
+        discounts: Number(row.discounts || 0) * proportion,
+        tips: Number(row.tips || 0) * proportion,
+        taxes: Number(row.taxes || 0) * proportion,
+        guestCount: Math.round(Number(row.guestCount || 0) * proportion),
+        totalHours: Number(row.totalHours || 0) * proportion
     }
 }
 
@@ -82,38 +122,72 @@ const applyTimeFilterToRow = (row: any, timeFilter: string): any | null => {
 // se redondea a dólares enteros para que las 9-10 columnas quepan sin scroll lateral enorme.
 // (Math.abs===0 evita mostrar "-0" cuando el valor negativo se redondea a cero.)
 const MoneyCell = ({ value, prefix = '' }: { value: number; prefix?: string }) => {
-    const rounded = Math.round(value)
-    const whole = Math.abs(rounded)
+    const safe = Number.isFinite(value) ? value : 0
+    const showPlus = prefix === '+'
     return (
         <>
-            <span className="lg:hidden">{rounded < 0 ? '-' : prefix}${whole.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
-            <span className="hidden lg:inline">{value < 0 ? '-' : prefix}${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="lg:hidden">{formatSignedUSD(safe, { decimals: 0, showPlus })}</span>
+            <span className="hidden lg:inline">{formatSignedUSD(safe, { decimals: 2, showPlus })}</span>
         </>
     )
 }
 
 function SalesPageContent() {
+    const router = useRouter()
     const urlParams = useSearchParams()
     const [loading, setLoading] = useState(false)
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
         const p = urlParams.get('period')
         if (p && ['today','yesterday','week','month','quarter','custom','last_week','last_7','last_month'].includes(p)) return p as any
-        // If startDate/endDate are passed, treat as custom
         if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
         return 'today'
     })
-    const getLocalDateString = () => {
-        const now = new Date()
-        const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        if (laTime.getHours() < 6) laTime.setDate(laTime.getDate() - 1)
-        const year = laTime.getFullYear()
-        const month = String(laTime.getMonth() + 1).padStart(2, '0')
-        const day = String(laTime.getDate()).padStart(2, '0')
-        return `${year}-${month}-${day}`
+    const getLocalDateString = () => getBusinessDateLA()
+
+    const resolvePeriodDates = (p: string, curStart: string, curEnd: string): { s: string; e: string } => {
+        const todayIso = getBusinessDateLA()
+        if (p === 'today') return { s: todayIso, e: todayIso }
+        if (p === 'yesterday') {
+            const y = addDaysIso(todayIso, -1)
+            return { s: y, e: y }
+        }
+        if (p === 'week') return { s: getMondayIso(todayIso), e: todayIso }
+        if (p === 'last_week') {
+            if (isValidIsoDate(curStart) && isValidIsoDate(curEnd) && curStart !== todayIso) return { s: curStart, e: curEnd }
+            const lastMon = addDaysIso(getMondayIso(todayIso), -7)
+            return { s: lastMon, e: addDaysIso(lastMon, 6) }
+        }
+        if (p === 'last_7') return { s: addDaysIso(todayIso, -6), e: todayIso }
+        if (p === 'month') return { s: `${todayIso.slice(0, 7)}-01`, e: todayIso }
+        if (p === 'last_month') {
+            if (isValidIsoDate(curStart) && isValidIsoDate(curEnd) && curStart !== todayIso) return { s: curStart, e: curEnd }
+            const [y, m] = todayIso.split('-').map(Number)
+            const prevY = m === 1 ? y - 1 : y
+            const prevM = m === 1 ? 12 : m - 1
+            const lastDay = new Date(Date.UTC(prevY, prevM, 0)).getUTCDate()
+            const mm = String(prevM).padStart(2, '0')
+            return { s: `${prevY}-${mm}-01`, e: `${prevY}-${mm}-${String(lastDay).padStart(2, '0')}` }
+        }
+        if (p === 'quarter') {
+            const [y, m] = todayIso.split('-').map(Number)
+            const qStartM = Math.floor((m - 1) / 3) * 3 + 1
+            return { s: `${y}-${String(qStartM).padStart(2, '0')}-01`, e: todayIso }
+        }
+        return {
+            s: isValidIsoDate(curStart) ? curStart : todayIso,
+            e: isValidIsoDate(curEnd) ? curEnd : todayIso,
+        }
     }
 
-    const [startDate, setStartDate] = useState(() => urlParams.get('startDate') || getLocalDateString())
-    const [endDate, setEndDate] = useState(() => urlParams.get('endDate') || getLocalDateString())
+    const initialDates = (() => {
+        const uS = urlParams.get('startDate') || ''
+        const uE = urlParams.get('endDate') || ''
+        if (isValidIsoDate(uS) && isValidIsoDate(uE)) return { s: uS, e: uE }
+        return resolvePeriodDates(period, uS, uE)
+    })()
+
+    const [startDate, setStartDate] = useState(() => initialDates.s)
+    const [endDate, setEndDate] = useState(() => initialDates.e)
     const [isLiveSyncing, setIsLiveSyncing] = useState(false)
     const [data, setData] = useState<any>(null)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
@@ -131,7 +205,13 @@ function SalesPageContent() {
     const [showMobileFormula, setShowMobileFormula] = useState(false)
     const { user } = useAuth()
     const { t, language } = useLanguage()
-    const isAdmin = user?.role === 'admin'
+    const normalizedRole = (user?.role || '').trim().toLowerCase()
+    const isAdmin = normalizedRole === 'admin' || normalizedRole === 'administrador'
+    const canAutoVerifyIntegrity = isAdmin || normalizedRole === 'supervisor'
+    const getAuthHeaders = (): Record<string, string> => {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
+        return token && token !== 'null' && token !== 'undefined' ? { Authorization: `Bearer ${token}` } : {}
+    }
 
     // Food Cost Integration State
     const [foodCostData, setFoodCostData] = useState<{ totalCost: number, totalSales: number, costPercentage: number, byStore?: Record<string, { totalCost: number, netSales: number, costPercentage: number }>, byStoreName?: Record<string, { totalCost: number, netSales: number, costPercentage: number }> } | null>(null)
@@ -144,33 +224,42 @@ function SalesPageContent() {
 
 
     const shiftDate = (days: number) => {
-        const [sYear, sMonth, sDay] = startDate.split('-').map(Number);
-        const [eYear, eMonth, eDay] = endDate.split('-').map(Number);
-        
-        const currentStart = new Date(sYear, sMonth - 1, sDay);
-        const currentEnd = new Date(eYear, eMonth - 1, eDay);
-        
-        currentStart.setDate(currentStart.getDate() + days);
-        currentEnd.setDate(currentEnd.getDate() + days);
-        
-        const formatD = (d: Date) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-        
-        setPeriod('custom');
-        setStartDate(formatD(currentStart));
-        setEndDate(formatD(currentEnd));
+        if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate)) return
+        setPeriod('custom')
+        setDayOfWeekFilter(null)
+        setStartDate(addDaysIso(startDate, days))
+        setEndDate(addDaysIso(endDate, days))
     }
 
-    const todayStr = (() => {
-        const d = new Date();
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1);
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    })();
-    const isTodayOrFuture = endDate >= todayStr;
+    const todayStr = getBusinessDateLA()
+    const isTodayOrFuture = endDate >= todayStr
+    // Unified active-period flag across Table, Mobile Cards, CSV, and SalesCharts
+    const isActivePeriod = isValidIsoDate(startDate) && isValidIsoDate(endDate) && startDate <= todayStr && endDate >= todayStr
+
+    // Auto-clear dayOfWeekFilter if range becomes single-day or no longer contains that weekday
+    useEffect(() => {
+        if (dayOfWeekFilter === null) return
+        if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate === endDate) {
+            setDayOfWeekFilter(null)
+            return
+        }
+        const totalSpan = diffCalendarDays(startDate, endDate)
+        if (totalSpan >= 6) return
+        const present = new Set<number>()
+        for (let i = 0; i <= totalSpan; i++) {
+            const iso = addDaysIso(startDate, i)
+            const [y, m, d] = iso.split('-').map(Number)
+            present.add(new Date(Date.UTC(y, m - 1, d)).getUTCDay())
+        }
+        if (!present.has(dayOfWeekFilter)) {
+            setDayOfWeekFilter(null)
+        }
+    }, [startDate, endDate, dayOfWeekFilter])
 
     const handleStoreClick = (storeId: string) => {
         if (!storeId) return
-        const url = `/planificador?store=${storeId}&date=${startDate}`
-        window.open(url, '_blank')
+        const url = `/planificador?store=${encodeURIComponent(storeId)}&date=${encodeURIComponent(startDate)}`
+        window.open(url, '_blank', 'noopener,noreferrer')
     }
 
     // Sort Config
@@ -184,126 +273,148 @@ function SalesPageContent() {
         setSortConfig({ key, direction })
     }
 
+    const getValidStoreFC = (storeId?: string, storeName?: string) => {
+        if (!foodCostData) return null
+        const fc =
+            (storeId ? foodCostData.byStore?.[storeId] : undefined) ||
+            (storeName ? foodCostData.byStoreName?.[storeName] : undefined)
+        if (!fc || fc.netSales <= 0 || fc.totalCost <= 0 || fc.costPercentage <= 0) return null
+        return fc
+    }
+
+    // Helper: redistribute hourly rows using REAL hourlyLabor & hourlyTickets before time filtering
+    const filterAndRedistributeRows = (rawRows: any[], groupByMode: string, dowFilter: number | null, resolvedTime: string) => {
+        let filteredRows = rawRows
+
+        if (dowFilter !== null && groupByMode !== 'week') {
+            filteredRows = filteredRows.filter((r: any) => {
+                if (!r.periodStart) return false
+                const [datePart, timePart] = String(r.periodStart).split(' ')
+                let bizDate = datePart
+                if (timePart) {
+                    const hr = parseInt(timePart.split(':')[0], 10)
+                    if (!Number.isNaN(hr) && hr < 6) bizDate = addDaysIso(datePart, -1)
+                }
+                const [y, m, d] = bizDate.split('-').map(Number)
+                return new Date(Date.UTC(y, m - 1, d)).getUTCDay() === dowFilter
+            })
+        }
+
+        if (resolvedTime !== 'all') {
+            const [sH, eH] = resolvedTime.split('-').map(Number)
+            const allowedHours = new Set<number>()
+            if (!Number.isNaN(sH) && !Number.isNaN(eH)) {
+                if (sH === eH) allowedHours.add(sH)
+                else if (sH > eH) {
+                    for (let i = sH; i < 24; i++) allowedHours.add(i)
+                    for (let i = 0; i < eH; i++) allowedHours.add(i)
+                } else {
+                    for (let i = sH; i < eH; i++) allowedHours.add(i)
+                }
+            }
+
+            if (groupByMode === 'hour') {
+                const storeGroups = new Map<string, any[]>()
+                filteredRows.forEach((r: any) => {
+                    if (!storeGroups.has(r.storeId)) storeGroups.set(r.storeId, [])
+                    storeGroups.get(r.storeId)!.push(r)
+                })
+                const redistributed: any[] = []
+                storeGroups.forEach((rows) => {
+                    const concRow = rows.find((r: any) => (r.orderCount || 0) > 0 || (r.laborCost || 0) > 0 || (r.hourlyLabor && Object.keys(r.hourlyLabor).length > 0))
+                    const totalSales = rows.reduce((sum: number, r: any) => sum + Number(r.netSales || 0), 0)
+                    const hLaborMap = concRow?.hourlyLabor && Object.keys(concRow.hourlyLabor).length > 0 ? concRow.hourlyLabor : null
+                    const hTicketsMap = concRow?.hourlyTickets && Object.keys(concRow.hourlyTickets).length > 0 ? concRow.hourlyTickets : null
+
+                    // Filter projectedHourly & compute filtered projectedSales for this store
+                    let filteredProjHourly = concRow?.projectedHourly
+                    let filteredProjSales = Number(concRow?.projectedSales || 0)
+                    if (concRow?.projectedHourly && Object.keys(concRow.projectedHourly).length > 0 && allowedHours.size > 0) {
+                        const subProj: Record<number, number> = {}
+                        let sumP = 0
+                        allowedHours.forEach((h) => {
+                            const val = Number(concRow.projectedHourly[h] ?? concRow.projectedHourly[h < 6 ? h + 24 : h] ?? 0)
+                            subProj[h] = val
+                            sumP += val
+                        })
+                        filteredProjHourly = subProj
+                        filteredProjSales = sumP
+                    }
+
+                    rows.forEach((r: any) => {
+                        const hr = parseInt(String(r.periodStart || '').split(' ')[1]?.split(':')[0] || '0', 10)
+                        const proportion = totalSales > 0 ? Number(r.netSales || 0) / totalSales : (rows.length > 0 ? 1 / rows.length : 0)
+                        const realHourLabor = hLaborMap ? Number(hLaborMap[hr] || 0) : (concRow ? Number(concRow.laborCost || 0) * proportion : 0)
+                        const realHourOrders = hTicketsMap ? Number(hTicketsMap[hr] || 0) : (concRow ? Math.round(Number(concRow.orderCount || 0) * proportion) : 0)
+                        redistributed.push({
+                            ...r,
+                            orderCount: realHourOrders,
+                            guestCount: concRow ? Math.round(Number(concRow.guestCount || 0) * proportion) : 0,
+                            laborCost: realHourLabor,
+                            totalHours: concRow ? Number(concRow.totalHours || 0) * proportion : 0,
+                            grossSales: concRow ? Number(concRow.grossSales || 0) * proportion : 0,
+                            discounts: concRow ? Number(concRow.discounts || 0) * proportion : 0,
+                            tips: concRow ? Number(concRow.tips || 0) * proportion : 0,
+                            taxes: concRow ? Number(concRow.taxes || 0) * proportion : 0,
+                            hourlyLabor: hLaborMap || r.hourlyLabor,
+                            projectedSales: filteredProjSales,
+                            projectedHourly: filteredProjHourly,
+                        })
+                    })
+                })
+                filteredRows = redistributed
+            }
+            filteredRows = filteredRows.map((r: any) => applyTimeFilterToRow(r, resolvedTime)).filter(Boolean)
+        }
+
+        return filteredRows
+    }
+
     const sortedStoreData = useMemo(() => {
         if (!data?.storeData) return []
         let sourceData = [...data.storeData]
 
-        // Resolve 'custom' to actual hour range
         const resolvedTime = timeFilter === 'custom' ? `${customHourStart}-${customHourEnd}` : timeFilter
 
-        // 📅 When day-of-week or time filter is active, re-aggregate store data from filtered raw rows
+        // Delegate filtered store re-aggregation to processData so projectedToDate, manualOverride & real hourlyLabor stay intact
         if ((dayOfWeekFilter !== null || resolvedTime !== 'all') && data.rawRows) {
-            let filteredRows = data.rawRows
-
-            if (dayOfWeekFilter !== null) {
-                filteredRows = filteredRows.filter((r: any) => {
-                    if (!r.periodStart) return false
-                    const dateStr = r.periodStart.split(' ')[0]
-                    const d = new Date(dateStr + 'T12:00:00')
-                    return d.getDay() === dayOfWeekFilter
-                })
-            }
-
-            if (resolvedTime !== 'all') {
-                if (data.groupByMode === 'hour') {
-                    const storeGroups = new Map<string, any[]>()
-                    filteredRows.forEach((r: any) => {
-                        if (!storeGroups.has(r.storeId)) storeGroups.set(r.storeId, [])
-                        storeGroups.get(r.storeId)!.push(r)
-                    })
-                    const redistributed: any[] = []
-                    storeGroups.forEach((rows) => {
-                        const concRow = rows.find((r: any) => (r.orderCount || 0) > 0 || (r.laborCost || 0) > 0)
-                        const totalSales = rows.reduce((sum: number, r: any) => sum + (r.netSales || 0), 0)
-                        rows.forEach((r: any) => {
-                            const proportion = totalSales > 0 ? (r.netSales || 0) / totalSales : 0
-                            redistributed.push({
-                                ...r,
-                                orderCount: concRow ? Math.round((concRow.orderCount || 0) * proportion) : 0,
-                                guestCount: concRow ? Math.round((concRow.guestCount || 0) * proportion) : 0,
-                                laborCost: concRow ? (concRow.laborCost || 0) * proportion : 0,
-                                totalHours: concRow ? (concRow.totalHours || 0) * proportion : 0,
-                            })
-                        })
-                    })
-                    filteredRows = redistributed
-                }
-                filteredRows = filteredRows.map((r: any) => applyTimeFilterToRow(r, resolvedTime)).filter(Boolean)
-            }
-            // Re-aggregate by store from the filtered rows
-            const storeMap = new Map<string, any>()
-            const seenDayStores = new Set<string>()
-            filteredRows.forEach((row: any) => {
-                const storeName = row.storeName || 'Unknown'
-                if (!storeMap.has(storeName)) {
-                    storeMap.set(storeName, {
-                        name: storeName, storeName, storeId: row.storeId,
-                        amount: 0, netSales: 0, orderCount: 0, guestCount: 0,
-                        laborCost: 0, laborPercentage: 0, totalHours: 0,
-                        projectedSales: 0, projectedToDate: 0
-                    })
-                }
-                const s = storeMap.get(storeName)
-                s.amount += (row.netSales || 0)
-                s.netSales += (row.netSales || 0)
-                s.orderCount += (row.orderCount || 0)
-                s.guestCount += (row.guestCount || 0)
-                s.laborCost += (row.laborCost || 0)
-                s.totalHours += (row.totalHours || 0)
-                if (data?.groupByMode === 'hour' || row.periodStart?.includes(':')) {
-                    s.projectedSales = (row.projectedSales || 0)
-                    s.projectedToDate = (row.projectedToDate || 0)
-                } else {
-                    const dayStoreKey = `${row.storeId}_${row.periodStart}`
-                    if (!seenDayStores.has(dayStoreKey)) {
-                        seenDayStores.add(dayStoreKey)
-                        s.projectedSales += (row.projectedSales || 0)
-                        s.projectedToDate += (row.projectedToDate || 0)
-                    }
-                }
-            })
-            sourceData = Array.from(storeMap.values()).map((s: any) => ({
-                ...s,
-                laborPercentage: s.netSales > 0 ? (s.laborCost / s.netSales) * 100 : 0
-            }))
+            const filteredRows = filterAndRedistributeRows(data.rawRows, data.groupByMode, dayOfWeekFilter, resolvedTime)
+            sourceData = processData(filteredRows, data.groupByMode, startDate).storeData
         }
 
-        let sortableItems = [...sourceData]
+        const sortableItems = [...sourceData]
         if (sortConfig !== null) {
             sortableItems.sort((a: any, b: any) => {
                 let aValue: any = a[sortConfig.key]
                 let bValue: any = b[sortConfig.key]
 
-                // Handle derived columns
                 if (sortConfig.key === 'diff') {
-                    const isCurrentPeriod = ['today', 'week', 'month'].includes(period)
-                    aValue = a.amount - (isCurrentPeriod ? (a.projectedToDate || 0) : (a.projectedSales || 0))
-                    bValue = b.amount - (isCurrentPeriod ? (b.projectedToDate || 0) : (b.projectedSales || 0))
+                    aValue = Number(a.amount || 0) - (isActivePeriod ? Number(a.projectedToDate || 0) : Number(a.projectedSales || 0))
+                    bValue = Number(b.amount || 0) - (isActivePeriod ? Number(b.projectedToDate || 0) : Number(b.projectedSales || 0))
                 } else if (sortConfig.key === 'avgTicket') {
-                    aValue = a.amount / (a.orderCount || 1)
-                    bValue = b.amount / (b.orderCount || 1)
+                    aValue = Number(a.orderCount || 0) > 0 ? Number(a.amount || 0) / Number(a.orderCount) : 0
+                    bValue = Number(b.orderCount || 0) > 0 ? Number(b.amount || 0) / Number(b.orderCount) : 0
                 } else if (sortConfig.key === 'name') {
                     aValue = (a.name || a.storeName || '').toLowerCase()
                     bValue = (b.name || b.storeName || '').toLowerCase()
                 } else if (sortConfig.key === 'laborPercentage') {
-                    aValue = Number(a.laborPercentage)
-                    bValue = Number(b.laborPercentage)
+                    aValue = Number(a.laborPercentage || 0)
+                    bValue = Number(b.laborPercentage || 0)
                 } else if (sortConfig.key === 'foodCostPct') {
-                    aValue = foodCostData?.byStore?.[a.storeId]?.costPercentage || 0
-                    bValue = foodCostData?.byStore?.[b.storeId]?.costPercentage || 0
+                    const missingSentinel = sortConfig.direction === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
+                    const fcA = getValidStoreFC(a.storeId, a.storeName || a.name)
+                    const fcB = getValidStoreFC(b.storeId, b.storeName || b.name)
+                    aValue = fcA ? fcA.costPercentage : missingSentinel
+                    bValue = fcB ? fcB.costPercentage : missingSentinel
                 }
 
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1
-                }
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1
                 return 0
             })
         }
         return sortableItems
-    }, [data, sortConfig, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd, foodCostData, period])
+    }, [data, sortConfig, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd, foodCostData, isActivePeriod, startDate])
 
     // Helper to process raw rows into UI Data Structure
     const processData = (rows: any[], groupByMode: string, referenceDate: string) => {
@@ -322,22 +433,42 @@ function SalesPageContent() {
 
         summary.laborPercentage = summary.netSales > 0 ? (summary.laborCost / summary.netSales) * 100 : 0
 
-        const now = new Date();
-        const bizNow = new Date(now);
-        if (bizNow.getHours() < 6) bizNow.setDate(bizNow.getDate() - 1);
-        const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:00`;
-        const nowDateStr = `${bizNow.getFullYear()}-${String(bizNow.getMonth() + 1).padStart(2, '0')}-${String(bizNow.getDate()).padStart(2, '0')}`;
-        const currentMinuteRatio = now.getMinutes() / 60;
+        const laNow = getLANowParts()
+        const nowStr = laNow.hourKey
+        const nowDateStr = laNow.businessDate
+        const currentMinuteRatio = laNow.minuteRatio
+        const currentBizHour = laNow.hour < 6 ? laNow.hour + 24 : laNow.hour
+        const elapsedTodayFraction = Math.min(Math.max((currentBizHour - 6 + currentMinuteRatio) / 24, 0), 1)
 
-        // Store Data
+        const computeHourlyProjToDate = (projectedHourly: Record<string, any>, baseDateStr: string) => {
+            const nextDateStr = addDaysIso(baseDateStr, 1)
+            let acc = 0
+            Object.entries(projectedHourly).forEach(([h, amount]) => {
+                let hourInt = parseInt(h, 10)
+                if (Number.isNaN(hourInt)) return
+                let isNext = hourInt < 6
+                if (hourInt >= 24) {
+                    hourInt -= 24
+                    isNext = true
+                }
+                const dStr = isNext ? nextDateStr : baseDateStr
+                const timeStr = `${dStr} ${String(hourInt).padStart(2, '0')}:00`
+                if (timeStr < nowStr) acc += Number(amount) || 0
+                else if (timeStr === nowStr) acc += (Number(amount) || 0) * currentMinuteRatio
+            })
+            return acc
+        }
+
+        // Store Data (keyed by storeId when available to avoid name-variation splits)
         const storeMap = new Map()
         rows.forEach((row: any) => {
             const storeName = row.storeName || t('sales.unknown_store')
-            if (!storeMap.has(storeName)) {
-                storeMap.set(storeName, {
+            const storeKey = row.storeId || storeName
+            if (!storeMap.has(storeKey)) {
+                storeMap.set(storeKey, {
                     name: storeName,
                     storeName: storeName,
-                    storeId: row.storeId, // Toast GUID
+                    storeId: row.storeId,
                     amount: 0,
                     netSales: 0,
                     orderCount: 0,
@@ -350,41 +481,29 @@ function SalesPageContent() {
                 })
             }
 
-            let rowProjToDate = 0;
-            if (groupByMode === 'hour' && row.projectedHourly) {
-                const baseDateStr = referenceDate;
-                const nextDate = new Date(baseDateStr + 'T00:00:00');
-                nextDate.setDate(nextDate.getDate() + 1);
-                const nextDateStr = nextDate.toISOString().split('T')[0];
-
-                Object.entries(row.projectedHourly).forEach(([h, amount]) => {
-                    let hourInt = parseInt(h);
-                    let isNext = hourInt < 6;
-                    if (hourInt >= 24) {
-                        hourInt -= 24;
-                        isNext = true;
-                    }
-                    const dStr = isNext ? nextDateStr : baseDateStr;
-                    const timeStr = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`;
-
-                    if (timeStr < nowStr) {
-                        rowProjToDate += Number(amount) || 0;
-                    } else if (timeStr === nowStr) {
-                        rowProjToDate += (Number(amount) || 0) * currentMinuteRatio;
-                    }
-                });
+            let rowProjToDate = 0
+            const hasHourlyProj = Boolean(row.projectedHourly && Object.keys(row.projectedHourly).length > 0)
+            if (groupByMode === 'hour' && hasHourlyProj) {
+                rowProjToDate = computeHourlyProjToDate(row.projectedHourly, referenceDate)
+            } else if (groupByMode === 'week' && row.periodStart && isValidIsoDate(row.periodStart)) {
+                const daysSinceMon = diffCalendarDays(row.periodStart, nowDateStr)
+                if (daysSinceMon >= 7) {
+                    rowProjToDate = Number(row.projectedSales || 0)
+                } else if (daysSinceMon >= 0) {
+                    rowProjToDate = Number(row.projectedSales || 0) * Math.min((daysSinceMon + elapsedTodayFraction) / 7, 1)
+                }
             } else {
                 if (row.periodStart && row.periodStart < nowDateStr) {
-                    rowProjToDate = row.projectedSales || 0;
+                    rowProjToDate = Number(row.projectedSales || 0)
                 } else if (!row.periodStart || row.periodStart === nowDateStr) {
-                    const currentBizHour = now.getHours() < 6 ? now.getHours() + 24 : now.getHours();
-                    const elapsedHours = currentBizHour - 6;
-                    const elapsedFraction = elapsedHours < 0 ? 0 : Math.min((elapsedHours + currentMinuteRatio) / 24, 1);
-                    rowProjToDate = (row.projectedSales || 0) * elapsedFraction;
+                    // Use exact projectedHourly curve for Today inside week/month views when available
+                    rowProjToDate = hasHourlyProj
+                        ? computeHourlyProjToDate(row.projectedHourly, nowDateStr)
+                        : Number(row.projectedSales || 0) * elapsedTodayFraction
                 }
             }
 
-            const s = storeMap.get(storeName)
+            const s = storeMap.get(storeKey)
             s.amount += (row.netSales || 0)
             s.netSales += (row.netSales || 0)
             s.orderCount += (row.orderCount || 0)
@@ -422,27 +541,19 @@ function SalesPageContent() {
         const projMap = new Map<string, number>()
 
         if (groupByMode === 'hour') {
-            // 1. Initialize hours using the reference date
-            // Use the passed referenceDate instead of potentially stale startDate state
+            // Full 24h Tacos Gavilan business day: 6:00 AM -> 5:59 AM next day
             const baseDateStr = referenceDate
-            const nextDate = new Date(baseDateStr + 'T00:00:00')
-            nextDate.setDate(nextDate.getDate() + 1)
-            const nextDateStr = nextDate.toISOString().split('T')[0]
+            const nextDateStr = addDaysIso(baseDateStr, 1)
 
-            // Horas de interés: 7, 8... 23, 0, 1... 5
-            const hoursOfInterest = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+            const hoursOfInterest = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
 
             hoursOfInterest.forEach(h => {
                 const isNextDay = h < 6
                 const dateP = isNextDay ? nextDateStr : baseDateStr
                 const timeKey = `${dateP} ${h.toString().padStart(2, '0')}:00`
                 trendMap.set(timeKey, { amount: 0, labor: 0 })
-                projMap.set(timeKey, 0) // Initialize projections too
+                projMap.set(timeKey, 0)
             })
-
-            // Collect hourly projections from historical data (same day of week)
-            // Using rows that have projectedHourly data
-            const hourlyProjCounts: Record<string, { sum: number, count: number }> = {}
 
             // ⚠️ CRITICAL — DO NOT SIMPLIFY THIS SECTION ⚠️
             // In hourly mode, the API concentrates ALL laborCost on the FIRST row (i=0, hour 7AM) per store.
@@ -529,14 +640,13 @@ function SalesPageContent() {
                 laborPercentage: val.amount > 0 ? (val.labor / val.amount) * 100 : null, // Null if 0 to avoid drawing line at 0
                 projected: projMap.get(time) || 0 // Add projected field
             }))
-            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+            .sort((a, b) => String(a.time).localeCompare(String(b.time)))
 
         return { summary, trendData, storeData, rows }
     }
 
-    const refreshData = async (forceLive = false, isBackground = false) => {
-        // Use the current abort signal (set by useEffect)
-        const signal = abortControllerRef.current?.signal
+    const refreshData = async (forceLive = false, isBackground = false, externalSignal?: AbortSignal): Promise<boolean> => {
+        const signal = externalSignal || abortControllerRef.current?.signal
 
         if (!isBackground) {
             setLoading(true)
@@ -545,73 +655,27 @@ function SalesPageContent() {
             setIsLiveSyncing(true)
         }
         try {
-            const now = new Date()
-            if (now.getHours() < 6) now.setDate(now.getDate() - 1)
-            const today = now
-
-            let start = new Date(today)
-            let end = new Date(today)
+            const { s: startIso, e: endIso } = resolvePeriodDates(period, startDate, endDate)
+            const diff = diffCalendarDays(startIso, endIso)
             let groupBy = 'day'
 
-            if (period === 'custom' || period === 'last_week' || period === 'last_7' || period === 'last_month') {
-                // For these presets, we TRUST the startDate/endDate passed from the filter component
-                const s = new Date(startDate + 'T00:00:00')
-                const e = new Date(endDate + 'T00:00:00')
-                start = s
-                end = e
-                const diff = (e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)
-                // Single day = hourly view, multi-day = daily or weekly
-                if (diff === 0) {
-                    groupBy = 'hour'
-                } else if (diff > 31 && dayOfWeekFilter === null && timeFilter === 'all') {
-                    groupBy = 'week'
-                } else {
-                    groupBy = 'day'
-                }
-            } else if (period === 'today') {
-                start = today
-                end = today
+            if (period === 'today' || period === 'yesterday' || diff === 0) {
                 groupBy = 'hour'
-            } else if (period === 'yesterday') {
-                const y = new Date(today)
-                y.setDate(y.getDate() - 1)
-                start = y
-                end = y
-                groupBy = 'hour'
-            } else if (period === 'week') {
-                const day = today.getDay()
-                const diff = today.getDate() - day + (day === 0 ? -6 : 1)
-                const wStart = new Date(today)
-                wStart.setDate(diff)
-                start = wStart
-                end = today
-                groupBy = 'day'
-            } else if (period === 'month') {
-                start = new Date(today.getFullYear(), today.getMonth(), 1)
-                groupBy = 'day'
             } else if (period === 'quarter') {
-                // Últimos 90 días, agrupado por SEMANA (or day if day-of-week/time filter active)
-                const quarterAgo = new Date(today)
-                quarterAgo.setDate(quarterAgo.getDate() - 90)
-                start = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1)
                 groupBy = (dayOfWeekFilter !== null || timeFilter !== 'all') ? 'day' : 'week'
+            } else if (diff > 31 && dayOfWeekFilter === null && timeFilter === 'all') {
+                groupBy = 'week'
+            } else {
+                groupBy = 'day'
             }
 
-            const formatDate = (d: Date) => {
-                const year = d.getFullYear()
-                const month = String(d.getMonth() + 1).padStart(2, '0')
-                const day = String(d.getDate()).padStart(2, '0')
-                return `${year}-${month}-${day}`
-            }
-
-            // Adjust for ISO string part
-            setStartDate(formatDate(start))
-            setEndDate(formatDate(end))
+            if (startIso !== startDate) setStartDate(startIso)
+            if (endIso !== endDate) setEndDate(endIso)
 
             const query = new URLSearchParams({
                 storeIds: 'all',
-                startDate: formatDate(start),
-                endDate: formatDate(end),
+                startDate: startIso,
+                endDate: endIso,
                 groupBy: groupBy
             })
 
@@ -620,25 +684,26 @@ function SalesPageContent() {
             }
 
             if (!isBackground) setLoadingMessage(t('sales.loading_fetching'))
-            // Get Token
-            const token = localStorage.getItem('teg_token')
-
             const res = await fetch(`/api/ventas?${query}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                signal // Attach abort signal — request is cancelled if user changes filter
+                headers: getAuthHeaders(),
+                signal
             })
+
+            if (signal?.aborted) return false
 
             if (res.status === 401 || res.status === 403) {
                 if (!isBackground) setLoadingMessage(t('sales.access_denied'))
-                setLoading(false)
-                setIsLiveSyncing(false)
-                return
+                return false
+            }
+
+            if (!res.ok) {
+                setConnError(`HTTP ${res.status}`)
+                return false
             }
 
             if (!isBackground) setLoadingMessage(t('sales.loading_processing'))
             const json = await res.json()
+            if (signal?.aborted) return false
 
             if (json.meta?.connectionError) {
                 setConnError(json.meta.connectionError)
@@ -647,9 +712,9 @@ function SalesPageContent() {
             }
 
             if (json.data) {
-                const processed = processData(json.data, groupBy, formatDate(start))
-                setData({ ...processed, rawRows: json.data, groupByMode: groupBy })
-                // Extract unique store names for filter dropdown
+                const effectiveGroupBy = json.meta?.effectiveGroupBy || groupBy
+                const processed = processData(json.data, effectiveGroupBy, startIso)
+                setData({ ...processed, rawRows: json.data, groupByMode: effectiveGroupBy })
                 const uniqueStores = [...new Set(json.data.map((r: any) => r.storeName || t('sales.unknown_store')))] as string[]
                 const sortedStores = uniqueStores.sort()
                 setStoreList(sortedStores)
@@ -664,22 +729,26 @@ function SalesPageContent() {
                     )
                     return matchedRow?.storeName || prev
                 })
+                return true
             } else {
                 setData(null)
                 setStoreList([])
+                return false
             }
 
         } catch (e: any) {
-            // AbortError is expected when user changes filter — silently ignore
-            if (e?.name === 'AbortError') return
+            if (e?.name === 'AbortError') return false
             console.error('Error fetching sales data:', e)
+            return false
         } finally {
-            setLastUpdated(new Date())
-            if (!isBackground) {
-                setLoading(false)
-                setLoadingMessage('')
-            } else {
-                setIsLiveSyncing(false)
+            if (!signal?.aborted) {
+                setLastUpdated(new Date())
+                if (!isBackground) {
+                    setLoading(false)
+                    setLoadingMessage('')
+                } else {
+                    setIsLiveSyncing(false)
+                }
             }
         }
     }
@@ -691,25 +760,33 @@ function SalesPageContent() {
     const fetchFoodCost = async (sDate: string, eDate: string, signal?: AbortSignal) => {
         setFoodCostLoading(true)
         try {
+            const authHeaders = getAuthHeaders()
             // Step 1: Try Cache (instant ~50ms)
-            const cacheRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`, { signal })
+            const cacheRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`, { headers: authHeaders, signal })
+            if (!cacheRes.ok) {
+                if (!signal?.aborted) setFoodCostData(null)
+                return
+            }
             const cacheJson = await cacheRes.json()
 
-            // Calculate how many days are in this range
-            const rangeDays = Math.floor(
-                (new Date(eDate + 'T00:00:00').getTime() - new Date(sDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
-            ) + 1
+            // Pure UTC calendar day count (immune to DST 23h/25h transitions)
+            const rangeDays = diffCalendarDays(sDate, eDate) + 1
 
-            const cachedStoresCount = Object.keys(cacheJson.byStore || {}).length
+            const cachedStoreEntries = Object.values(cacheJson.byStore || {}) as Array<{ totalCost: number, netSales: number, costPercentage: number }>
+            const cachedStoresCount = cachedStoreEntries.length
+            const hasBrokenStoreFC = (cacheJson.invalidStoresCount || 0) > 0 ||
+                cachedStoreEntries.some(s => (s.totalCost || 0) > 0 && (s.netSales || 0) <= 0)
 
             // Cache is considered complete only if:
             // 1) All days in range are represented
             // 2) At least 14 stores are present (out of 15 active stores in Tacos Gavilan)
             // 3) Food cost percentage > 0 and totalSales > 0
+            // 4) Zero stores have broken cost > 0 with netSales <= 0 (prevents stale/0% LA Central badge)
             const isCacheComplete = cacheJson.daysWithData >= rangeDays &&
                 cachedStoresCount >= 14 &&
                 cacheJson.costPercentage > 0 &&
-                cacheJson.totalSales > 0
+                cacheJson.totalSales > 0 &&
+                !hasBrokenStoreFC
 
             if (cacheJson.totalCost > 0) {
                 if (signal?.aborted) return
@@ -734,35 +811,45 @@ function SalesPageContent() {
             // This handles "Today" and "Yesterday" reliably by reading the API response directly
             if (sDate === eDate) {
                 console.log(`[FoodCost] 🔄 Cache miss or partial for ${sDate}, falling back to full calculation...`)
-                const fullRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${sDate}&endDate=${eDate}`, { signal })
+                const fullRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${sDate}&endDate=${eDate}`, { headers: authHeaders, signal })
+                if (!fullRes.ok) {
+                    if (!signal?.aborted) setFoodCostData(null)
+                    return
+                }
                 const fullJson = await fullRes.json()
-                
+
                 if (signal?.aborted) return
 
                 if (fullJson.data && fullJson.data.length > 0) {
-                    let totalCost = 0
-                    let totalSales = 0
+                    const authSalesByStore: Record<string, number> = fullJson.salesNetSales || {}
                     const storeMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
                     const storeNameMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
+                    const nameByStoreId: Record<string, string> = {}
+
                     fullJson.data.forEach((item: any) => {
-                        totalCost += item.total_cost || 0
-                        totalSales += item.net_sales || 0
                         const sid = item.store_id || 'unknown'
                         const sname = item.store_name || sid
+                        nameByStoreId[sid] = sname
                         if (!storeMap[sid]) storeMap[sid] = { totalCost: 0, netSales: 0, costPercentage: 0 }
-                        storeMap[sid].totalCost += item.total_cost || 0
-                        storeMap[sid].netSales += item.net_sales || 0
+                        storeMap[sid].totalCost += Number(item.total_cost || 0)
+                        storeMap[sid].netSales += Number(item.net_sales || 0)
+                    })
 
-                        if (!storeNameMap[sname]) storeNameMap[sname] = { totalCost: 0, netSales: 0, costPercentage: 0 }
-                        storeNameMap[sname].totalCost += item.total_cost || 0
-                        storeNameMap[sname].netSales += item.net_sales || 0
-                    })
-                    Object.values(storeMap).forEach(s => {
+                    let totalCost = 0
+                    let totalSales = 0
+                    Object.entries(storeMap).forEach(([sid, s]) => {
+                        const authSales = Number(authSalesByStore[sid] || 0)
+                        if (authSales > 0) s.netSales = authSales
                         s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
+                        const sname = nameByStoreId[sid] || sid
+                        storeNameMap[sname] = { ...s }
+                        // Isolate broken stores (cost > 0 && sales <= 0) from global KPI ratio
+                        if (!(s.totalCost > 0 && s.netSales <= 0)) {
+                            totalCost += s.totalCost
+                            totalSales += s.netSales
+                        }
                     })
-                    Object.values(storeNameMap).forEach(s => {
-                        s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
-                    })
+
                     const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
                     setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap, byStoreName: storeNameMap })
                     console.log(`[FoodCost] ✅ Calculated & cached for ${sDate}`)
@@ -787,27 +874,38 @@ function SalesPageContent() {
                 // For each date without complete cache, trigger full calculation (auto-caches via write-through)
                 let filledAny = false
                 for (const date of allDates) {
-                    // Quick check: does this specific day have complete cache?
-                    const dayCheck = await fetch(`/api/inventory/food-cost-cache?startDate=${date}&endDate=${date}`)
-                    const dayJson = await dayCheck.json()
-                    const dayStoresCount = Object.keys(dayJson.byStore || {}).length
-                    if (dayJson.totalCost > 0 && dayStoresCount >= 14 && dayJson.costPercentage > 0) {
-                        continue // Already cached and complete, skip
+                    if (signal?.aborted) return
+                    const dayCheck = await fetch(`/api/inventory/food-cost-cache?startDate=${date}&endDate=${date}`, { headers: authHeaders, signal })
+                    if (dayCheck.ok) {
+                        const dayJson = await dayCheck.json()
+                        const dayStoreEntries = Object.values(dayJson.byStore || {}) as Array<{ totalCost: number, netSales: number }>
+                        const dayStoresCount = dayStoreEntries.length
+                        const dayHasBrokenStore = (dayJson.invalidStoresCount || 0) > 0 ||
+                            dayStoreEntries.some(s => (s.totalCost || 0) > 0 && (s.netSales || 0) <= 0)
+                        if (dayJson.totalCost > 0 && dayStoresCount >= 14 && dayJson.costPercentage > 0 && !dayHasBrokenStore) {
+                            continue
+                        }
                     }
 
-                    // Cache miss for this day — calculate (also writes to cache via write-through)
+                    if (signal?.aborted) return
                     console.log(`[FoodCost] 🔄 Gap-fill: calculating ${date}...`)
                     try {
-                        await fetch(`/api/inventory/food-cost?storeId=all&startDate=${date}&endDate=${date}`, { signal })
-                        filledAny = true
-                    } catch (dayErr) {
+                        const calcRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${date}&endDate=${date}`, { headers: authHeaders, signal })
+                        if (calcRes.ok) filledAny = true
+                    } catch (dayErr: any) {
+                        if (dayErr?.name === 'AbortError') throw dayErr
                         console.warn(`[FoodCost] ⚠️ Failed to calculate ${date}:`, dayErr)
                     }
                 }
 
+                if (signal?.aborted) return
                 // Re-read cache with all gaps filled
-                if (filledAny || cacheJson.totalCost === 0) {
-                    const finalRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`, { signal })
+                if (filledAny || !(cacheJson.totalCost > 0)) {
+                    const finalRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`, { headers: authHeaders, signal })
+                    if (!finalRes.ok) {
+                        if (!signal?.aborted) setFoodCostData(null)
+                        return
+                    }
                     const finalJson = await finalRes.json()
 
                     if (signal?.aborted) return
@@ -827,7 +925,7 @@ function SalesPageContent() {
             }
 
             // Step 3: No data available (long ranges without cache, or calculation returned empty)
-            if (cacheJson.totalCost === 0) {
+            if (!(cacheJson.totalCost > 0)) {
                 if (!signal?.aborted) setFoodCostData(null)
                 console.log(`[FoodCost] ℹ️ No cached data for ${rangeDays}-day range.`)
             }
@@ -841,82 +939,84 @@ function SalesPageContent() {
     }
 
     useEffect(() => {
-        // Cancel any in-flight requests from the previous filter
         if (abortControllerRef.current) {
             abortControllerRef.current.abort()
         }
-        // Create a new controller for this filter's requests
-        abortControllerRef.current = new AbortController()
+        const controller = new AbortController()
+        abortControllerRef.current = controller
+        const { s: effectiveStart, e: effectiveEnd } = resolvePeriodDates(period, startDate, endDate)
 
         const loadAndSync = async () => {
-            // 1. Initial Load (Fast from Cache if available)
-            await refreshData(false, false)
-            
-            // 2. Background Sync for "Today" (Stale-While-Revalidate pattern)
-            if (period === 'today') {
-                refreshData(true, true)
+            const ok = await refreshData(false, false, controller.signal)
+            if (ok && !controller.signal.aborted && period === 'today') {
+                await refreshData(true, true, controller.signal)
             }
         }
         loadAndSync()
-        
-        // 3. Parallel Food Cost Fetch (non-blocking)
-        if (abortControllerRef.current) {
-            fetchFoodCost(startDate, endDate, abortControllerRef.current.signal)
-        }
-        
-        setIntegrityStatus('idle') // Reset status on new fetch
 
-        // Cleanup: cancel requests if component unmounts
+        // Parallel Food Cost Fetch using resolved period dates (avoids stale-date fetch on URL load)
+        fetchFoodCost(effectiveStart, effectiveEnd, controller.signal)
+
+        setIntegrityStatus('idle')
+
         return () => {
-            abortControllerRef.current?.abort()
+            controller.abort()
         }
-    }, [period, startDate, endDate, dayOfWeekFilter !== null, timeFilter !== 'all']) // Only re-fetch on groupBy-affecting transitions; day/hour changes are client-side via useMemo
+    }, [period, startDate, endDate, dayOfWeekFilter !== null, timeFilter !== 'all'])
 
-    // INTEGRITY CHECK HOOK
+    // INTEGRITY CHECK HOOK (admins & supervisors only, strictly on closed Yesterday, preserving hourly chart & projections)
     useEffect(() => {
-        if (!data || loading || verifying) return
+        if (!canAutoVerifyIntegrity || !data || loading || verifying) return
+        if (period !== 'yesterday' || integrityStatus !== 'idle') return
 
-        // Only run for Recent History (Yesterday) - User requested to SKIP Today to keep it volatile
-        if (period === 'yesterday') {
-            // Only run if we haven't verified yet this session
-            if (integrityStatus === 'idle') {
-                const runVerify = async () => {
-                    setVerifying(true)
-                    setIntegrityStatus('verifying')
-                    try {
-                        // Use startDate because in 'yesterday' mode, startDate is set correctly to Y-M-D
-                        const res = await fetch('/api/integrity/verify-day', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ date: startDate, storeIds: 'all' })
-                        })
-                        const json = await res.json()
-
-                        if (json.status === 'corrected' && json.freshData) {
-                            console.log("🛠️ [AUTO-HEAL] Discrepancias corregidas. Actualizando UI silenciosamente...")
-                            setIntegrityStatus('fixed')
-                            // SILENT UPDATE: Update data directly without full reload/spinner
-                            // FIX: Process data to generate storeData/trendData needed by UI and preserve rawRows/groupByMode
-                            const freshProcessed = processData(json.freshData.data, 'day', startDate)
-                            setData({ ...freshProcessed, rawRows: json.freshData.data, groupByMode: 'day' })
-                            setLastUpdated(new Date())
-                        } else {
-                            setIntegrityStatus('ok')
-                        }
-                    } catch (e) {
-                        console.warn("Integrity check skipped", e)
-                        setIntegrityStatus('idle')
-                    } finally {
-                        setVerifying(false)
-                    }
+        const controller = new AbortController()
+        const runVerify = async () => {
+            setVerifying(true)
+            setIntegrityStatus('verifying')
+            try {
+                const res = await fetch('/api/integrity/verify-day', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...getAuthHeaders(),
+                    },
+                    body: JSON.stringify({ date: startDate, storeIds: 'all' }),
+                    signal: controller.signal,
+                })
+                if (controller.signal.aborted) return
+                if (!res.ok) {
+                    setIntegrityStatus('idle')
+                    return
                 }
+                const json = await res.json()
+                if (controller.signal.aborted) return
 
-                // Small delay to allow render
-                const timer = setTimeout(runVerify, 2000)
-                return () => clearTimeout(timer)
+                if (json.status === 'corrected') {
+                    console.log('🛠️ [AUTO-HEAL] Discrepancias corregidas. Re-cargando vista horaria y proyecciones...')
+                    setIntegrityStatus('fixed')
+                    // Re-fetch cleanly from newly healed cache so hourly breakdown + projections remain intact
+                    await refreshData(false, true, controller.signal)
+                } else if (json.status === 'ok') {
+                    setIntegrityStatus('ok')
+                } else {
+                    setIntegrityStatus('idle')
+                }
+            } catch (e: any) {
+                if (e?.name !== 'AbortError') {
+                    console.warn('Integrity check skipped', e)
+                    setIntegrityStatus('idle')
+                }
+            } finally {
+                if (!controller.signal.aborted) setVerifying(false)
             }
         }
-    }, [data, loading, period, startDate])
+
+        const timer = setTimeout(runVerify, 2000)
+        return () => {
+            clearTimeout(timer)
+            controller.abort()
+        }
+    }, [canAutoVerifyIntegrity, data, loading, period, startDate, integrityStatus])
 
     // 🔍 FILTERED DATA: Compute filtered summary and trend for selected store
     // This useMemo MUST be before any early returns to maintain hooks order
@@ -933,89 +1033,45 @@ function SalesPageContent() {
         laborPercentage: 0
     }
 
-    const { filteredSummary, filteredTrendData, storeRanking } = useMemo(() => {
+    const { filteredSummary, filteredTrendData, filteredProjectedToDate } = useMemo(() => {
         if (!data || !data.rawRows) {
-            return { filteredSummary: defaultSummary, filteredTrendData: [], storeRanking: [] }
+            return { filteredSummary: defaultSummary, filteredTrendData: [], filteredProjectedToDate: null }
         }
 
-        // Filter rows by selected store - if 'all', use all rows
-        let filteredRows = selectedStore === 'all'
+        const storeRows = selectedStore === 'all'
             ? data.rawRows
             : data.rawRows.filter((r: any) => {
                 const rawName = r.storeName || t('sales.unknown_store')
                 return rawName === selectedStore || r.storeId === selectedStore || formatStoreName(rawName).toLowerCase().trim() === formatStoreName(selectedStore).toLowerCase().trim()
             })
 
-        // 📅 DAY-OF-WEEK FILTER: Filter rows to only include a specific day of the week
-        if (dayOfWeekFilter !== null) {
-            filteredRows = filteredRows.filter((r: any) => {
-                if (!r.periodStart) return false
-                const dateStr = r.periodStart.split(' ')[0] // Safety: handle "2026-05-06" or "2026-05-06 00:00"
-                const d = new Date(dateStr + 'T12:00:00') // Use noon to avoid timezone edge cases
-                return d.getDay() === dayOfWeekFilter
-            })
-        }
-
-        // 🕒 TIME FILTER: Filter hourly data within rows
         const resolvedTime = timeFilter === 'custom' ? `${customHourStart}-${customHourEnd}` : timeFilter
-        if (resolvedTime !== 'all') {
-            // For hourly rows (single-day view), redistribute concentrated values
-            // before filtering. Orders, guests, labor, gross are ALL on the i=0 row (hour 7).
-            // We need to spread them proportionally across all hours by netSales share.
-            if (data.groupByMode === 'hour') {
-                const storeGroups = new Map<string, any[]>()
-                filteredRows.forEach((r: any) => {
-                    if (!storeGroups.has(r.storeId)) storeGroups.set(r.storeId, [])
-                    storeGroups.get(r.storeId)!.push(r)
-                })
-
-                const redistributed: any[] = []
-                storeGroups.forEach((rows) => {
-                    // Find the concentrated row (has orderCount > 0 or laborCost > 0)
-                    const concRow = rows.find((r: any) => (r.orderCount || 0) > 0 || (r.laborCost || 0) > 0)
-                    const totalSales = rows.reduce((sum: number, r: any) => sum + (r.netSales || 0), 0)
-
-                    rows.forEach((r: any) => {
-                        const proportion = totalSales > 0 ? (r.netSales || 0) / totalSales : 0
-                        redistributed.push({
-                            ...r,
-                            orderCount: concRow ? Math.round((concRow.orderCount || 0) * proportion) : 0,
-                            guestCount: concRow ? Math.round((concRow.guestCount || 0) * proportion) : 0,
-                            laborCost: concRow ? (concRow.laborCost || 0) * proportion : 0,
-                            totalHours: concRow ? (concRow.totalHours || 0) * proportion : 0,
-                            grossSales: concRow ? (concRow.grossSales || 0) * proportion : 0,
-                            discounts: concRow ? (concRow.discounts || 0) * proportion : 0,
-                            tips: concRow ? (concRow.tips || 0) * proportion : 0,
-                            taxes: concRow ? (concRow.taxes || 0) * proportion : 0,
-                        })
-                    })
-                })
-                filteredRows = redistributed
-            }
-
-            filteredRows = filteredRows.map((r: any) => applyTimeFilterToRow(r, resolvedTime)).filter(Boolean)
-        }
-
-        // ALWAYS Reprocess data to ensure correct Date Reference in trendMap
+        const filteredRows = filterAndRedistributeRows(storeRows, data.groupByMode, dayOfWeekFilter, resolvedTime)
         const reprocessed = processData(filteredRows, data.groupByMode, startDate)
+        const sumProjToDate = reprocessed.storeData.reduce((acc: number, s: any) => acc + Number(s.projectedToDate || 0), 0)
 
         return {
             filteredSummary: reprocessed.summary,
             filteredTrendData: reprocessed.trendData,
-            storeRanking: data.storeData || [] // Always full data for Top 5 and Detail
+            filteredProjectedToDate: sumProjToDate > 0 ? sumProjToDate : null,
         }
-    }, [data, selectedStore, startDate, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd]) // Include timeFilter + custom hours in dependency array
+    }, [data, selectedStore, startDate, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd])
 
-    // 🍽️ FILTERED FOOD COST: Recompute food cost for selected store
+    // 🍽️ FILTERED FOOD COST: Recompute food cost for selected store (hidden when sub-day/weekday filter is active to avoid invalid Prime Cost)
     const filteredFoodCost = useMemo(() => {
+        if (dayOfWeekFilter !== null || timeFilter !== 'all') return null
         if (!foodCostData || foodCostLoading) {
             return foodCostLoading ? { totalCost: 0, costPercentage: 0, loading: true } : null
         }
 
-        // When a specific store is selected, look up by storeName first (ventas uses storeName as filter key)
         if (selectedStore !== 'all') {
-            // Try byStoreName first (name-based lookup from cache API)
-            const storeFC = foodCostData.byStoreName?.[selectedStore] || foodCostData.byStore?.[selectedStore]
+            const matchedStore = data?.storeData?.find((s: any) =>
+                s.storeId === selectedStore ||
+                s.storeName === selectedStore ||
+                s.name === selectedStore ||
+                formatStoreName(s.storeName || s.name || '').toLowerCase().trim() === formatStoreName(selectedStore).toLowerCase().trim()
+            )
+            const storeFC = getValidStoreFC(matchedStore?.storeId || selectedStore, matchedStore?.storeName || selectedStore)
             if (storeFC) {
                 return {
                     totalCost: storeFC.totalCost,
@@ -1023,33 +1079,54 @@ function SalesPageContent() {
                     loading: false
                 }
             }
-            // Store not found in food cost data — no FC for this store
             return null
         }
 
-        // "All" stores — use the raw aggregated data
+        if (foodCostData.totalCost <= 0 || foodCostData.costPercentage <= 0) return null
         return {
             totalCost: foodCostData.totalCost,
             costPercentage: foodCostData.costPercentage,
             loading: false
         }
-    }, [foodCostData, foodCostLoading, selectedStore])
+    }, [foodCostData, foodCostLoading, selectedStore, data?.storeData, dayOfWeekFilter, timeFilter])
 
-    // CSV Export Handler
+    // CSV Export Handler (sanitized anti-formula-injection, UTF-8 BOM, i18n headers, aligned Difference + Food Cost %)
     const handleExportCSV = () => {
         if (!sortedStoreData || sortedStoreData.length === 0) return
-        const headers = ['Store', 'Net Sales', 'Orders', 'Avg Ticket', 'Labor %', 'Labor Cost', 'Projected', 'Difference']
-        const rows = sortedStoreData.map((s: any) => [
-            `"${formatStoreName(s.name || s.storeName)}"`,
-            (s.amount || s.netSales || 0).toFixed(2),
-            s.orderCount || 0,
-            ((s.amount || 0) / (s.orderCount || 1)).toFixed(2),
-            Number(s.laborPercentage || 0).toFixed(2),
-            (s.laborCost || 0).toFixed(2),
-            (s.projectedSales || 0).toFixed(2),
-            ((s.amount || 0) - (s.projectedSales || 0)).toFixed(2)
-        ])
-        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+        const headers = [
+            escapeCsvCell(t('sales.store')),
+            escapeCsvCell(t('sales.table.proj_to_date')),
+            escapeCsvCell(t('sales.table.actual')),
+            escapeCsvCell(t('sales.table.projected_col')),
+            escapeCsvCell(t('sales.table.variance')),
+            escapeCsvCell(t('sales.orders')),
+            escapeCsvCell(t('sales.avg_ticket')),
+            escapeCsvCell(t('sales.labor_pct')),
+            escapeCsvCell(t('sales.labor_cost_legend')),
+            escapeCsvCell(t('sales.food_label')),
+        ]
+        const rows = sortedStoreData.map((s: any) => {
+            const amt = Number(s.amount || s.netSales || 0)
+            const orders = Number(s.orderCount || 0)
+            const avgTicket = orders > 0 ? amt / orders : 0
+            const projToDate = Number(s.projectedToDate || 0)
+            const projFull = Number(s.projectedSales || 0)
+            const diffBase = isActivePeriod ? projToDate : projFull
+            const storeFC = getValidStoreFC(s.storeId, s.storeName || s.name)
+            return [
+                escapeCsvCell(formatStoreName(s.name || s.storeName)),
+                projToDate.toFixed(2),
+                amt.toFixed(2),
+                projFull.toFixed(2),
+                (amt - diffBase).toFixed(2),
+                orders,
+                avgTicket.toFixed(2),
+                Number(s.laborPercentage || 0).toFixed(2),
+                Number(s.laborCost || 0).toFixed(2),
+                storeFC ? storeFC.costPercentage.toFixed(1) : '',
+            ]
+        })
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
@@ -1058,6 +1135,7 @@ function SalesPageContent() {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
     }
 
     // Early return for loading state
@@ -1075,40 +1153,7 @@ function SalesPageContent() {
     // Use filtered data for KPIs
     const summary = filteredSummary
 
-    // We don't really use these consts anymore in the JSX since we pass 'summary' object directly
-    // but leaving them for clarity if logic needs them later
-    const totalSales = summary.netSales || 0
-    const totalGuests = summary.guestCount || 0
-    const totalLabor = summary.laborCost || 0
-    const laborPercent = summary.laborPercentage || 0
-
-    // Chart Data: Filtered for Trend, Full for Store charts
     const timelineData = filteredTrendData || []
-
-    const getDateLabel = () => {
-        if (!startDate || !endDate) return ''
-
-        const parseDate = (str: string) => {
-            const [y, m, d] = str.split('-').map(Number)
-            return new Date(y, m - 1, d)
-        }
-
-        const start = parseDate(startDate)
-        const end = parseDate(endDate)
-
-        const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' } // e.g. 19 Ene
-        const startStr = start.toLocaleDateString('es-ES', options)
-        const endStr = end.toLocaleDateString('es-ES', options)
-
-        if (period === 'today') return `${t('sales.today')}, ${startStr}`
-        if (period === 'yesterday') return `${t('sales.yesterday')}, ${startStr}`
-        if (period === 'week') return `${t('sales.this_week')} (${startStr} - ${endStr})`
-        if (period === 'month') return `${t('sales.current_month')} (${startStr} - ${endStr})`
-        if (period === 'quarter') return `${t('sales.quarter')} (${startStr} - ${endStr})`
-        if (startDate === endDate) return startStr
-
-        return `${startStr} - ${endStr}`
-    }
 
     return (
         <div className="min-h-screen bg-transparent text-slate-900 dark:text-white font-sans pb-24">
@@ -1166,8 +1211,11 @@ function SalesPageContent() {
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
                         <div>
                             <div className="flex items-center gap-3 mb-2 flex-wrap">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 shadow-sm">
-                                    {t('sales.live_connected')}
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border shadow-sm ${connError
+                                    ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/30'
+                                    : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30'
+                                }`}>
+                                    {connError ? t('sales.connection_interrupted') : t('sales.live_connected')}
                                 </span>
                                 <span className="text-xs text-slate-600 dark:text-slate-500 flex items-center gap-1 font-medium italic opacity-80">
                                     <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
@@ -1180,7 +1228,7 @@ function SalesPageContent() {
                                             <CheckCircle size={10} /> {t('sales.corrected')}
                                         </span>
                                     ) : (
-                                        <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                                        <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                                     )}
                                 </span>
                                 {data?.rawRows?.some((r: any) => r.projectionMeta) && (
@@ -1191,7 +1239,13 @@ function SalesPageContent() {
                                             {(() => {
                                                 let targetRows = data.rawRows;
                                                 if (selectedStore !== 'all') {
-                                                    targetRows = targetRows.filter((r: any) => r.storeName === selectedStore || r.name === selectedStore || r.storeId === selectedStore);
+                                                    const normSel = formatStoreName(selectedStore).toLowerCase().trim()
+                                                    targetRows = targetRows.filter((r: any) =>
+                                                        r.storeName === selectedStore ||
+                                                        r.name === selectedStore ||
+                                                        r.storeId === selectedStore ||
+                                                        formatStoreName(r.storeName || r.name || '').toLowerCase().trim() === normSel
+                                                    );
                                                 }
                                                 const projectionFingerprint = (r: any) => {
                                                     // In hourly mode, midnight–5:59 AM belongs to the selected
@@ -1246,8 +1300,9 @@ function SalesPageContent() {
                                                         isV3 = true;
                                                     }
                                                     if (m.avg_check_used && Number(m.avg_check_used) > 0) {
-                                                        sumAvgCheck += Number(m.avg_check_used);
-                                                        countAvgCheck++;
+                                                        const wTickets = Number(m.base_tickets || 0)
+                                                        sumAvgCheck += wTickets > 0 ? Number(m.avg_check_used) * wTickets : Number(m.avg_check_used)
+                                                        countAvgCheck += wTickets > 0 ? wTickets : 1
                                                     }
                                                     if (m.ticket_growth_factor) {
                                                         sumTicketGrowth += (Number(m.ticket_growth_factor) - 1) * 100;
@@ -1317,6 +1372,7 @@ function SalesPageContent() {
                                                     if (hasWeather) {
                                                         explanation += ` 🌧️ -${weatherPenalty || 5}% ${t('sales.projection.weather_adjusted_label')}`;
                                                     }
+                                                } else {
                                                     if (totalBase > 0) {
                                                         explanation += ` ${t('sales.projection.base_of')} $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
                                                     } else {
@@ -1411,8 +1467,8 @@ function SalesPageContent() {
                                         setPeriod(p as any)
                                         setStartDate(s)
                                         setEndDate(e)
-                                        // Reset day-of-week filter when switching to single-day views
-                                        if (['today', 'yesterday'].includes(p)) {
+                                        // Reset day-of-week filter whenever switching to any single-day view
+                                        if (['today', 'yesterday'].includes(p) || s === e) {
                                             setDayOfWeekFilter(null)
                                         }
                                     }}
@@ -1510,8 +1566,6 @@ function SalesPageContent() {
                                         onChange={(e) => {
                                             const val = e.target.value
                                             if (val === 'custom') {
-                                                setTimeFilter(`${customHourStart}-${customHourEnd}`)
-                                                // We'll show the pickers via a separate flag
                                                 setTimeFilter('custom')
                                             } else {
                                                 setTimeFilter(val)
@@ -1527,7 +1581,7 @@ function SalesPageContent() {
                                         <option value="6-11">{t('sales.time_filter.breakfast')}</option>
                                         <option value="11-16">{t('sales.time_filter.lunch')}</option>
                                         <option value="16-23">{t('sales.time_filter.dinner')}</option>
-                                        <option value="23-4">{t('sales.time_filter.late_night')}</option>
+                                        <option value="23-6">{t('sales.time_filter.late_night')}</option>
                                         <option value="custom">{t('sales.time_filter.custom')}</option>
                                     </select>
                                     <Clock size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${timeFilter !== 'all' ? 'text-fuchsia-500' : 'text-slate-400'}`} />
@@ -1583,19 +1637,19 @@ function SalesPageContent() {
                             )}
 
                             <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
-                                {isAdmin && (
-                                    <button
-                                        onClick={() => window.location.href = '/ventas/historial'}
-                                        className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0 min-h-[38px]"
-                                        title={t('sales.history')}
-                                    >
-                                        <Clock size={16} className="sm:w-[18px] sm:h-[18px]" />
-                                        <span className="text-[11px] sm:text-xs font-medium">{t('sales.history')}</span>
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => router.push('/ventas/historial')}
+                                    className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0 min-h-[38px]"
+                                    title={t('sales.history')}
+                                >
+                                    <Clock size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                    <span className="text-[11px] sm:text-xs font-medium">{t('sales.history')}</span>
+                                </button>
 
                                 <button
-                                    onClick={() => window.location.href = '/ventas/reportes'}
+                                    type="button"
+                                    onClick={() => router.push('/ventas/reportes')}
                                     className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0 min-h-[38px]"
                                     title={t('sales.reports')}
                                 >
@@ -1604,6 +1658,7 @@ function SalesPageContent() {
                                 </button>
 
                                 <button
+                                    type="button"
                                     onClick={() => refreshData(true)}
                                     disabled={loading || isLiveSyncing}
                                     className={`p-2 min-h-[38px] min-w-[38px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 ${isLiveSyncing ? 'opacity-70 cursor-wait' : ''}`}
@@ -1628,24 +1683,29 @@ function SalesPageContent() {
                 ) : (
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         <SalesSummary data={summary} foodCost={filteredFoodCost} />
-                        <SalesCharts trendData={timelineData} period={period} />
+                        <SalesCharts
+                            trendData={timelineData}
+                            period={period}
+                            groupByMode={data?.groupByMode}
+                            projectedToDateOverride={filteredProjectedToDate}
+                            isCurrentPeriodOverride={isActivePeriod}
+                        />
 
-                        {/* Table */}
+                        {/* Table Container (wraps header + mobile cards + desktop table cleanly) */}
                         <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl shadow-xl shadow-black/5">
                             <div className="px-6 py-4 border-b border-black/5 dark:border-slate-800 flex justify-between items-center">
                                 <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 text-lg">
                                     <Store size={18} className="text-emerald-500" />
                                     {t('sales.detail_by_store')}
                                 </h3>
-                                <button 
+                                <button
+                                    type="button"
                                     onClick={handleExportCSV}
                                     className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:opacity-80 flex items-center gap-1 uppercase tracking-wider transition-opacity cursor-pointer"
                                 >
                                     <Download size={14} /> {t('sales.export_csv')}
                                 </button>
                             </div>
-
-                        </div>
 
                         {/* Mobile Card View (Visible ONLY on small screens) */}
                         <div className="md:hidden flex flex-col gap-3 p-3 sm:p-4 bg-slate-50/50 dark:bg-slate-900/20">
@@ -1661,6 +1721,7 @@ function SalesPageContent() {
                                             className="bg-slate-100 dark:bg-slate-700/60 text-slate-800 dark:text-slate-200 rounded-xl px-2.5 py-1.5 text-base sm:text-xs font-bold border border-slate-200 dark:border-slate-600 focus:outline-none min-w-0 max-w-[180px]"
                                         >
                                             <option value="amount">{t('sales.sales_label')}</option>
+                                            {isActivePeriod && <option value="projectedToDate">{t('sales.table.proj_to_date')}</option>}
                                             <option value="projectedSales">{t('sales.table.projected_col')}</option>
                                             <option value="diff">{t('sales.variance_short')}</option>
                                             <option value="orderCount">{t('sales.orders_label')}</option>
@@ -1669,13 +1730,13 @@ function SalesPageContent() {
                                             {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
                                                 <option value="foodCostPct">{t('sales.food_label')}</option>
                                             )}
-                                            <option value="name">A–Z</option>
+                                            <option value="name">{t('sales.store')} (A–Z)</option>
                                         </select>
                                         <button
                                             type="button"
                                             onClick={() => setSortConfig(prev => ({ key: prev?.key || 'amount', direction: prev?.direction === 'asc' ? 'desc' : 'asc' }))}
                                             className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 active:scale-95 transition-transform"
-                                            aria-label="Toggle sort direction"
+                                            aria-label={t('sales.table.toggle_sort')}
                                         >
                                             {sortConfig?.direction === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                         </button>
@@ -1683,19 +1744,27 @@ function SalesPageContent() {
                                 </div>
                             )}
 
+                            {sortedStoreData.length === 0 && (
+                                <div className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                                    {t('sales.table.no_store_data')}
+                                </div>
+                            )}
+
                             {sortedStoreData.map((store: any, idx: number) => {
-                                const actualOrders = store.orderCount || 0
+                                const actualOrders = Number(store.orderCount || 0)
+                                const storeAmount = Number(store.amount || 0)
+                                const avgTicket = actualOrders > 0 ? storeAmount / actualOrders : 0
                                 const laborPct = Number(store.laborPercentage || 0).toFixed(2)
-                                const avgTicket = actualOrders > 0 ? (store.amount || 0) / actualOrders : 0
-                                const storeFC = foodCostData?.byStore?.[store.storeId]
-                                const fcPct = storeFC?.costPercentage ?? null
-                                const baselineProj = ['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)
-                                const varianceVal = (store.amount || 0) - baselineProj
-                                const projectedTotal = store.projectedSales || 0
+                                const storeFC = getValidStoreFC(store.storeId, store.storeName || store.name)
+                                const fcPct = storeFC ? storeFC.costPercentage : null
+                                const projToDateVal = Number(store.projectedToDate || 0)
+                                const projectedTotal = Number(store.projectedSales || 0)
+                                const baselineProj = isActivePeriod ? projToDateVal : projectedTotal
+                                const varianceVal = storeAmount - baselineProj
 
                                 return (
                                     <div
-                                        key={idx}
+                                        key={store.storeId || store.name || idx}
                                         onClick={() => handleStoreClick(store.storeId)}
                                         className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-3 cursor-pointer hover:ring-2 hover:ring-emerald-500/30 transition-all active:scale-[0.98]"
                                     >
@@ -1720,11 +1789,11 @@ function SalesPageContent() {
                                                         type="button"
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            window.open(`/admin/food-cost?store=${store.storeId}&startDate=${startDate}&endDate=${endDate}`, '_blank')
+                                                            window.open(`/admin/food-cost?store=${encodeURIComponent(store.storeId)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`, '_blank', 'noopener,noreferrer')
                                                         }}
-                                                        className={`px-2 py-0.5 rounded-md text-xs font-bold underline decoration-dotted underline-offset-2 ${fcPct < 30
+                                                        className={`px-2 py-0.5 rounded-md text-xs font-bold underline decoration-dotted underline-offset-2 ${fcPct <= FOOD_COST_HEALTHY_MAX
                                                             ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-                                                            : fcPct > 35
+                                                            : fcPct > FOOD_COST_WARNING_MAX
                                                                 ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
                                                                 : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
                                                             }`}
@@ -1740,7 +1809,7 @@ function SalesPageContent() {
                                             <div className="flex flex-col min-w-0">
                                                 <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider truncate">{t('sales.sales_label')}</span>
                                                 <FitValue
-                                                    text={`$${store.amount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+                                                    text={formatSignedUSD(storeAmount, { decimals: 0 })}
                                                     maxPx={18}
                                                     minPx={12}
                                                     className="text-emerald-600 dark:text-emerald-400 font-bold"
@@ -1758,7 +1827,7 @@ function SalesPageContent() {
                                             <div className="flex flex-col min-w-0 border-l border-slate-100 dark:border-slate-700 pl-2">
                                                 <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider text-right truncate">{t('sales.ticket_label')}</span>
                                                 <FitValue
-                                                    text={`$${avgTicket.toLocaleString('en-US', { maximumFractionDigits: 2 })}`}
+                                                    text={formatSignedUSD(avgTicket, { decimals: 2 })}
                                                     maxPx={16}
                                                     minPx={12}
                                                     className="text-slate-500 dark:text-slate-400 font-medium text-right"
@@ -1766,23 +1835,31 @@ function SalesPageContent() {
                                             </div>
                                         </div>
 
-                                        {/* Projected & Variance Strip (Matching Desktop Table) */}
+                                        {/* Projected & Variance Strip (Matching Desktop Table including Proj. to Date) */}
                                         {(projectedTotal > 0 || baselineProj > 0) && (
-                                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/70 text-xs">
-                                                <div className="flex items-center justify-between gap-1 min-w-0">
-                                                    <span className="text-[10px] uppercase font-bold text-slate-400 truncate">{t('sales.table.projected_col')}</span>
+                                            <div className={`grid ${isActivePeriod ? 'grid-cols-3' : 'grid-cols-2'} gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/70 text-xs`}>
+                                                {isActivePeriod && (
+                                                    <div className="flex flex-col min-w-0">
+                                                        <span className="text-[9px] uppercase font-bold text-cyan-600/80 dark:text-cyan-400/80 truncate">{t('sales.table.proj_to_date')}</span>
+                                                        <span className="font-mono font-bold truncate text-cyan-600 dark:text-cyan-400">
+                                                            {formatSignedUSD(projToDateVal, { decimals: 0 })}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className={`flex flex-col min-w-0 ${isActivePeriod ? 'border-l border-slate-100 dark:border-slate-700 pl-2' : ''}`}>
+                                                    <span className="text-[9px] uppercase font-bold text-slate-400 truncate">{t('sales.table.projected_col')}</span>
                                                     <span
                                                         className={`font-mono font-bold truncate inline-flex items-center gap-1 ${(store.manualOverride || store.manualOverrideDays > 0) ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400'}`}
-                                                        title={(store.manualOverride || store.manualOverrideDays > 0) ? `Ajustado manualmente en Planificador (IA original: $${Math.round(Number(store.aiBaseSales || 0)).toLocaleString('en-US')})` : undefined}
+                                                        title={(store.manualOverride || store.manualOverrideDays > 0) ? `${t('sales.table.manual_override_tooltip')} (${t('sales.table.ai_original')}: ${formatSignedUSD(Math.round(Number(store.aiBaseSales || 0)), { decimals: 0 })})` : undefined}
                                                     >
                                                         {(store.manualOverride || store.manualOverrideDays > 0) && <Lock size={11} className="shrink-0" />}
-                                                        $${projectedTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                        {formatSignedUSD(projectedTotal, { decimals: 0 })}
                                                     </span>
                                                 </div>
-                                                <div className="flex items-center justify-between gap-1 min-w-0 border-l border-slate-100 dark:border-slate-700 pl-2">
-                                                    <span className="text-[10px] uppercase font-bold text-slate-400 truncate">{t('sales.variance_short')}</span>
-                                                    <span className={`font-mono font-bold truncate ${varianceVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                                        {varianceVal >= 0 ? '+' : '-'}$${Math.abs(varianceVal).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                <div className="flex flex-col items-end min-w-0 border-l border-slate-100 dark:border-slate-700 pl-2">
+                                                    <span className="text-[9px] uppercase font-bold text-slate-400 truncate">{t('sales.variance_short')}</span>
+                                                    <span className={`font-mono font-bold truncate ${Math.round(varianceVal) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                        {formatSignedUSD(varianceVal, { decimals: 0, showPlus: true })}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1806,7 +1883,7 @@ function SalesPageContent() {
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                             </div>
                                         </th>
-                                        {['today', 'week', 'month'].includes(period) && (
+                                        {isActivePeriod && (
                                             <th className="px-2.5 py-3 lg:px-6 lg:py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
                                                 <div className="flex items-center justify-end gap-1 text-cyan-500">
                                             {t('sales.table.proj_to_date')}
@@ -1877,15 +1954,31 @@ function SalesPageContent() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-black/5 dark:divide-slate-800">
+                                    {sortedStoreData.length === 0 && (
+                                        <tr>
+                                            <td colSpan={10} className="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                                                {t('sales.table.no_store_data')}
+                                            </td>
+                                        </tr>
+                                    )}
                                     {sortedStoreData.map((store: any, idx: number) => {
-                                        const orders = store.orderCount || 1
+                                        const storeAmount = Number(store.amount || 0)
+                                        const actualOrders = Number(store.orderCount || 0)
+                                        const avgTicket = actualOrders > 0 ? storeAmount / actualOrders : 0
                                         const laborPct = Number(store.laborPercentage || 0).toFixed(2)
+                                        const diffVal = storeAmount - (isActivePeriod ? Number(store.projectedToDate || 0) : Number(store.projectedSales || 0))
+                                        const isSelectedRow = selectedStore !== 'all' && (
+                                            store.storeId === selectedStore ||
+                                            store.storeName === selectedStore ||
+                                            store.name === selectedStore ||
+                                            formatStoreName(store.storeName || store.name || '').toLowerCase().trim() === formatStoreName(selectedStore).toLowerCase().trim()
+                                        )
 
                                         return (
                                             <tr
-                                                key={idx}
+                                                key={store.storeId || store.name || idx}
                                                 onClick={() => handleStoreClick(store.storeId)}
-                                                className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors group cursor-pointer"
+                                                className={`hover:bg-black/5 dark:hover:bg-white/5 transition-colors group cursor-pointer ${isSelectedRow ? 'bg-emerald-50/70 dark:bg-emerald-950/30' : ''}`}
                                             >
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-center text-slate-400 font-mono text-sm">
                                                     {idx + 1}
@@ -1893,34 +1986,34 @@ function SalesPageContent() {
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 font-semibold text-slate-900 dark:text-white text-sm lg:text-lg">
                                                     {formatStoreName(store.name || store.storeName)}
                                                 </td>
-                                                {['today', 'week', 'month'].includes(period) && (
+                                                {isActivePeriod && (
                                                     <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-cyan-600 dark:text-cyan-400 font-mono font-bold text-sm lg:text-lg whitespace-nowrap">
-                                                        <MoneyCell value={store.projectedToDate || 0} />
+                                                        <MoneyCell value={Number(store.projectedToDate || 0)} />
                                                     </td>
                                                 )}
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-sm lg:text-lg whitespace-nowrap">
-                                                    <MoneyCell value={store.amount} />
+                                                    <MoneyCell value={storeAmount} />
                                                 </td>
                                                 <td
                                                     className={`px-2.5 py-3 lg:px-6 lg:py-4 text-right font-mono font-bold text-sm lg:text-lg whitespace-nowrap ${(store.manualOverride || store.manualOverrideDays > 0) ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-500 dark:text-indigo-400'}`}
-                                                    title={(store.manualOverride || store.manualOverrideDays > 0) ? `Ajustado manualmente en Planificador${store.overriddenBy ? ` por ${store.overriddenBy}` : ''} (IA original: $${Math.round(Number(store.aiBaseSales || 0)).toLocaleString('en-US')})` : undefined}
+                                                    title={(store.manualOverride || store.manualOverrideDays > 0) ? `${t('sales.table.manual_override_tooltip')}${store.overriddenBy ? ` ${t('sales.table.manual_override_by')} ${store.overriddenBy}` : ''} (${t('sales.table.ai_original')}: ${formatSignedUSD(Math.round(Number(store.aiBaseSales || 0)), { decimals: 0 })})` : undefined}
                                                 >
                                                     <span className="inline-flex items-center justify-end gap-1">
                                                         {(store.manualOverride || store.manualOverrideDays > 0) && <Lock size={13} className="shrink-0" />}
-                                                        <MoneyCell value={store.projectedSales || 0} />
+                                                        <MoneyCell value={Number(store.projectedSales || 0)} />
                                                     </span>
                                                 </td>
-                                                <td className={`px-2.5 py-3 lg:px-6 lg:py-4 text-right font-mono font-bold text-sm lg:text-lg whitespace-nowrap ${store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                <td className={`px-2.5 py-3 lg:px-6 lg:py-4 text-right font-mono font-bold text-sm lg:text-lg whitespace-nowrap ${Math.round(diffVal * 100) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                                     <MoneyCell
-                                                        value={store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0))}
-                                                        prefix={store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? '+' : ''}
+                                                        value={diffVal}
+                                                        prefix={Math.round(diffVal * 100) >= 0 ? '+' : ''}
                                                     />
                                                 </td>
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-slate-700 dark:text-white font-medium">
-                                                    {(store.orderCount ?? 0).toLocaleString('en-US')}
+                                                    {actualOrders.toLocaleString('en-US')}
                                                 </td>
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right text-slate-500 dark:text-slate-300">
-                                                    ${(store.amount / orders).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    {formatSignedUSD(avgTicket, { decimals: 2 })}
                                                 </td>
                                                 <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right">
                                                     <span className={`px-2 py-0.5 lg:px-2.5 lg:py-1 rounded-lg font-bold text-sm lg:text-lg inline-flex items-center gap-1 ${Number(laborPct) < 21.5
@@ -1935,21 +2028,24 @@ function SalesPageContent() {
                                                 {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
                                                     <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                         {(() => {
-                                                            const storeFC = foodCostData.byStore[store.storeId]
-                                                            if (!storeFC) return <span className="text-slate-400 text-sm">—</span>
+                                                            const storeFC = getValidStoreFC(store.storeId, store.storeName || store.name)
+                                                            if (!storeFC) {
+                                                                return <span className="text-slate-400 text-sm">—</span>
+                                                            }
                                                             const fcPct = storeFC.costPercentage
                                                             return (
-                                                                <span
-                                                                    onClick={() => window.open(`/admin/food-cost?store=${store.storeId}&startDate=${startDate}&endDate=${endDate}`, '_blank')}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => window.open(`/admin/food-cost?store=${encodeURIComponent(store.storeId)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`, '_blank', 'noopener,noreferrer')}
                                                                     className={`px-2 py-0.5 lg:px-2.5 lg:py-1 rounded-lg font-bold text-sm lg:text-lg inline-flex items-center gap-1 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-teal-400/50 transition-all ${
-                                                                    fcPct < 30
+                                                                    fcPct <= FOOD_COST_HEALTHY_MAX
                                                                         ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                                                        : fcPct > 35
+                                                                        : fcPct > FOOD_COST_WARNING_MAX
                                                                             ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
                                                                             : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
                                                                 }`}>
                                                                     {fcPct.toFixed(1)}%
-                                                                </span>
+                                                                </button>
                                                             )
                                                         })()}
                                                     </td>
@@ -1959,6 +2055,7 @@ function SalesPageContent() {
                                     })}
                                 </tbody>
                             </table>
+                        </div>
                         </div>
                     </div>
                 )}

@@ -255,9 +255,9 @@ export default function FoodCostPage() {
         })
 
         const chartArr = Array.from(storeMap.entries()).map(([sn, vals]) => {
-            // Use authoritative sales from sales_daily_cache when available (KPI parity with Ventas)
+            // Use authoritative sales from sales_daily_cache ONLY when positive (closed days); never clobber PMIX with $0
             const authSales = (salesNetSales && selectedStore === 'all') ? salesNetSales[vals.store_id] : undefined
-            const displaySales = authSales !== undefined ? authSales : vals.totalSales
+            const displaySales = (authSales !== undefined && authSales > 0) ? authSales : vals.totalSales
             return {
                 store_id: vals.store_id,
                 storeName: sn,
@@ -286,11 +286,11 @@ export default function FoodCostPage() {
             return sortConfig.direction === 'asc' ? ((aVal as number) - (bVal as number)) : ((bVal as number) - (aVal as number))
         })
 
-        // Override summary totalSales with authoritative values when viewing all stores
-        if (salesNetSales && selectedStore === 'all') {
-            const authTotal = Object.values(salesNetSales).reduce((s, v) => s + v, 0)
-            if (authTotal > 0) {
-                sumData.totalSales = authTotal
+        // Keep summary totalSales consistent with chartArr (authoritative closed-day sales with PMIX fallback per store)
+        if (salesNetSales && selectedStore === 'all' && Object.keys(salesNetSales).length > 0 && !filterTerm) {
+            const alignedTotal = chartArr.reduce((s, st) => s + st.totalSales, 0)
+            if (alignedTotal > 0) {
+                sumData.totalSales = alignedTotal
             }
         }
 

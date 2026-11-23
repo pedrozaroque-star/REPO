@@ -11,10 +11,12 @@
  *
  * @notes
  * - Protegido con `verifyStaffAuth` para personal interno autenticado.
+ * - [2026-11-23] Aísla filas corruptas (`total_cost > 0` con `net_sales <= 0`) para que no distorsionen el % global de la cadena y reporta `invalidStoresCount` para disparar auto-reparación en `/ventas`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
+import { calculateSafeFoodCostPct, isInvalidFoodCostCacheRow } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,17 +70,27 @@ export async function GET(request: NextRequest) {
         }
 
         // Aggregate totals across all stores and days
+        // Isolate broken rows (total_cost > 0 with net_sales <= 0) so 1 poisoned store cannot inflate chain-wide FC%
         let totalCost = 0
         let totalSales = 0
         const uniqueDates = new Set<string>()
+        const invalidStoreIds = new Set<string>()
 
         // Also aggregate by store for per-store table columns
         const storeAgg = new Map<string, { totalCost: number, netSales: number }>()
         const storeNameAgg = new Map<string, { totalCost: number, netSales: number }>()
 
         data.forEach(row => {
-            totalCost += Number(row.total_cost) || 0
-            totalSales += Number(row.net_sales) || 0
+            const rowCost = Number(row.total_cost) || 0
+            const rowSales = Number(row.net_sales) || 0
+            const isBrokenRow = isInvalidFoodCostCacheRow(rowCost, rowSales)
+
+            if (isBrokenRow) {
+                invalidStoreIds.add(row.store_id)
+            } else {
+                totalCost += rowCost
+                totalSales += rowSales
+            }
             uniqueDates.add(row.business_date)
 
             // Per-store aggregation by store_id
@@ -87,8 +99,8 @@ export async function GET(request: NextRequest) {
                 storeAgg.set(sid, { totalCost: 0, netSales: 0 })
             }
             const s = storeAgg.get(sid)!
-            s.totalCost += Number(row.total_cost) || 0
-            s.netSales += Number(row.net_sales) || 0
+            s.totalCost += rowCost
+            s.netSales += rowSales
 
             // Per-store aggregation by store_name (used by ventas module filter)
             const sname = row.store_name || sid
@@ -96,11 +108,11 @@ export async function GET(request: NextRequest) {
                 storeNameAgg.set(sname, { totalCost: 0, netSales: 0 })
             }
             const sn = storeNameAgg.get(sname)!
-            sn.totalCost += Number(row.total_cost) || 0
-            sn.netSales += Number(row.net_sales) || 0
+            sn.totalCost += rowCost
+            sn.netSales += rowSales
         })
 
-        const costPercentage = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
+        const costPercentage = calculateSafeFoodCostPct(totalCost, totalSales)
         const totalDaysInRange = getDayCount(startDate, endDate)
 
         // Build per-store response (by store_id)
@@ -109,7 +121,7 @@ export async function GET(request: NextRequest) {
             byStore[storeId] = {
                 totalCost: Number(val.totalCost.toFixed(2)),
                 netSales: Number(val.netSales.toFixed(2)),
-                costPercentage: val.netSales > 0 ? Number(((val.totalCost / val.netSales) * 100).toFixed(2)) : 0
+                costPercentage: calculateSafeFoodCostPct(val.totalCost, val.netSales)
             }
         })
 
@@ -119,16 +131,17 @@ export async function GET(request: NextRequest) {
             byStoreName[storeName] = {
                 totalCost: Number(val.totalCost.toFixed(2)),
                 netSales: Number(val.netSales.toFixed(2)),
-                costPercentage: val.netSales > 0 ? Number(((val.totalCost / val.netSales) * 100).toFixed(2)) : 0
+                costPercentage: calculateSafeFoodCostPct(val.totalCost, val.netSales)
             }
         })
 
         return NextResponse.json({
             totalCost: Number(totalCost.toFixed(2)),
             totalSales: Number(totalSales.toFixed(2)),
-            costPercentage: Number(costPercentage.toFixed(2)),
+            costPercentage,
             daysWithData: uniqueDates.size,
             totalDaysInRange,
+            invalidStoresCount: invalidStoreIds.size,
             byStore,
             byStoreName,
             cached: true,

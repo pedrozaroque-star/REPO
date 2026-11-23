@@ -989,7 +989,7 @@ export const dictionaries: Record<Language, Dictionary> = {
             },
             title: 'Dashboard de Ventas',
             subtitle: 'Monitoreo en tiempo real de 15 sucursales (Toast API)',
-            live_connected: 'LIVE API CONNECTED',
+            live_connected: 'API EN VIVO CONECTADA',
             connection_interrupted: 'Conexión con Toast Interrumpida',
             cache_warning: 'Mostrando datos almacenados en caché o limitados.',
             validating: 'Validando Integridad...',
@@ -1026,6 +1026,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                 view_curves: 'Curvas',
                 peak_hour: 'Hora Pico',
                 peak_day: 'Día Pico',
+                peak_week: 'Semana Pico',
                 now_marker: 'AHORA',
                 subtitle_today: 'Monitoreo intradía en tiempo real de ventas, meta inteligente y mano de obra',
                 subtitle_range: 'Evolución periódica de ventas consolidadas',
@@ -1095,7 +1096,12 @@ export const dictionaries: Record<Language, Dictionary> = {
                 proj_to_date: 'PROY. A LA FECHA',
                 actual: 'REAL',
                 projected_col: 'PROYECTADO',
-                variance: 'DIFERENCIA'
+                variance: 'DIFERENCIA',
+                manual_override_tooltip: 'Ajustado manualmente en Planificador',
+                manual_override_by: 'por',
+                ai_original: 'IA original',
+                toggle_sort: 'Invertir orden',
+                no_store_data: 'No hay datos de sucursales para los filtros seleccionados.'
             },
             projection: {
                 title: 'Proyección Inteligente',
@@ -1183,17 +1189,30 @@ export const dictionaries: Record<Language, Dictionary> = {
                 export_csv: "Exportar CSV",
                 new_store: "Nueva Tienda",
                 closed_store: "Cerrada",
-                no_data: "No hay registros de ventas disponibles"
+                no_data: "No hay registros de ventas disponibles",
+                ytd_exact: "YTD cerrado al",
+                vs_total: "Vs. Total",
+                ytd_building: "YTD en construcción (primer día laboral del año)",
+                no_prev_year_data: "Sin registros históricos del año anterior para comparativa YoY.",
+                all_positive_growth: "Todas en positivo (menor crecimiento)",
+                same_store_growth: "Tiendas Comparables",
+                new_badge: "Nueva",
+                in_progress_month: "Mes en curso",
+                error_loading: "No se pudieron cargar los datos históricos. Intenta nuevamente.",
+                print_report: "Imprimir",
+                back_aria: "Volver a Ventas"
             },
             reports_page: {
                 title: "Reportes Operativos",
                 subtitle: "Edición Digital",
                 pending: "pendiente",
                 alerts: {
+                    select_store_week: "Selecciona Tienda y Semana primero",
                     sync_confirm: "¿Conectar a Toast y sobrescribir datos reales (Ventas, Labor, etc)?",
                     sync_success: "Datos sincronizados con Toast exitosamente 🍞✅",
                     sync_error: "Error al sincronizar",
-                    monthly_updated: "Reporte Mensual actualizado 📊"
+                    monthly_updated: "Reporte Mensual actualizado 📊",
+                    load_error: "No se pudieron cargar los datos del reporte. Intenta nuevamente."
                 },
                 concept: "Concepto",
                 weekly_summary: "Resumen Semanal",
@@ -1209,7 +1228,16 @@ export const dictionaries: Record<Language, Dictionary> = {
                     all_stores: "Todas las Tiendas",
                     week_of: "Semana del",
                     update: "Actualizar",
-                    export_pdf: "Exportar PDF"
+                    export_pdf: "Exportar PDF",
+                    export_csv: "Exportar CSV",
+                    print_report: "Imprimir",
+                    select_month: "Seleccionar Mes",
+                    select_specific_date: "Seleccionar Fecha Específica",
+                    processing_data: "Procesando datos del sistema...",
+                    syncing_sales_labor: "Sincronizando Ventas y Labor AM/PM",
+                    total_label: "TOTAL",
+                    week_label: "Semana",
+                    select_date_prompt: "Selecciona una semana o mes para consultar el reporte."
                 },
                 tabs: {
                     ops: "Operaciones",
@@ -10538,6 +10566,7 @@ export const dictionaries: Record<Language, Dictionary> = {
                 view_curves: 'Curves',
                 peak_hour: 'Peak Hour',
                 peak_day: 'Peak Day',
+                peak_week: 'Peak Week',
                 now_marker: 'NOW',
                 subtitle_today: 'Real-time intraday monitoring of sales, smart targets, and labor costs',
                 subtitle_range: 'Consolidated sales trend across selected period',
@@ -10607,7 +10636,12 @@ export const dictionaries: Record<Language, Dictionary> = {
                 proj_to_date: 'PROJ. TO DATE',
                 actual: 'ACTUAL',
                 projected_col: 'PROJECTED',
-                variance: 'VARIANCE'
+                variance: 'VARIANCE',
+                manual_override_tooltip: 'Manually adjusted in Planner',
+                manual_override_by: 'by',
+                ai_original: 'Original AI',
+                toggle_sort: 'Toggle sort direction',
+                no_store_data: 'No store data available for the selected filters.'
             },
             projection: {
                 title: 'Smart Projection',
@@ -10695,17 +10729,30 @@ export const dictionaries: Record<Language, Dictionary> = {
                 export_csv: "Export CSV",
                 new_store: "New Store",
                 closed_store: "Closed",
-                no_data: "No sales records available"
+                no_data: "No sales records available",
+                ytd_exact: "Closed YTD through",
+                vs_total: "Vs. Total",
+                ytd_building: "YTD building (first business day of the year)",
+                no_prev_year_data: "No prior-year historical records available for YoY comparison.",
+                all_positive_growth: "All positive (lowest growth)",
+                same_store_growth: "Same-Store",
+                new_badge: "New",
+                in_progress_month: "Month in progress",
+                error_loading: "Failed to load historical sales data. Please try again.",
+                print_report: "Print",
+                back_aria: "Back to Sales"
             },
             reports_page: {
                 title: "Operational Reports",
                 subtitle: "Digital Edition",
                 pending: "pending",
                 alerts: {
+                    select_store_week: "Please select a Store and Week first",
                     sync_confirm: "Connect to Toast and overwrite real data (Sales, Labor, etc)?",
                     sync_success: "Data synced with Toast successfully 🍞✅",
                     sync_error: "Sync error",
-                    monthly_updated: "Monthly Report updated 📊"
+                    monthly_updated: "Monthly Report updated 📊",
+                    load_error: "Failed to load report data. Please try again."
                 },
                 concept: "Concept",
                 weekly_summary: "Weekly Summary",
@@ -10721,7 +10768,16 @@ export const dictionaries: Record<Language, Dictionary> = {
                     all_stores: "All Stores",
                     week_of: "Week of",
                     update: "Update",
-                    export_pdf: "Export PDF"
+                    export_pdf: "Export PDF",
+                    export_csv: "Export CSV",
+                    print_report: "Print",
+                    select_month: "Select Month",
+                    select_specific_date: "Select Specific Date",
+                    processing_data: "Processing system data...",
+                    syncing_sales_labor: "Syncing Sales and AM/PM Labor",
+                    total_label: "TOTAL",
+                    week_label: "Week",
+                    select_date_prompt: "Select a week or month to view the report."
                 },
                 tabs: {
                     ops: "Operations",

@@ -12,11 +12,13 @@
  *
  * @notes
  * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
+ * - [2026-11-23] Filtra filas con `hasError` y protege ventas positivas previas contra sobrescrituras `$0` ante fallos parciales de Toast API.
  */
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
+import { shouldAllowSalesCacheUpsert } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -62,15 +64,30 @@ export async function GET(request: Request) {
                     skipCache: true
                 })
 
-                if (connectionError && rows.length === 0) {
+                const existingSalesMap = new Map<string, number>()
+                if (rows.length > 0) {
+                    const { data: existingRows } = await supabase
+                        .from('sales_daily_cache')
+                        .select('store_id, net_sales')
+                        .eq('business_date', dateStr)
+                    existingRows?.forEach((er: any) => {
+                        existingSalesMap.set(er.store_id, Number(er.net_sales) || 0)
+                    })
+                }
+
+                const safeRows = rows.filter(r =>
+                    shouldAllowSalesCacheUpsert(r, existingSalesMap.get(r.storeId))
+                )
+
+                if (connectionError && safeRows.length === 0) {
                     console.error(`❌ [CRON] Error conectando a Toast para ${dateStr}: ${connectionError}`)
                     results.push({ date: dateStr, success: false, error: connectionError })
                     continue
                 }
 
                 // --- SAVE TO SUPABASE ---
-                if (rows.length > 0) {
-                    const dbRows = rows.map(r => ({
+                if (safeRows.length > 0) {
+                    const dbRows = safeRows.map(r => ({
                         store_id: r.storeId,
                         store_name: r.storeName || 'Unknown Store',
                         business_date: dateStr,
@@ -104,8 +121,9 @@ export async function GET(request: Request) {
                         results.push({ date: dateStr, success: false, error: upsertError.message })
                         continue
                     }
-                    console.log(`💾 [CRON] Guardado en DB para ${dateStr}: ${dbRows.length} filas.`)
-                    results.push({ date: dateStr, success: true, count: dbRows.length })
+                    const skippedCount = rows.length - safeRows.length
+                    console.log(`💾 [CRON] Guardado en DB para ${dateStr}: ${dbRows.length} filas${skippedCount > 0 ? ` (${skippedCount} omitidas por error/anti-cero)` : ''}.`)
+                    results.push({ date: dateStr, success: true, count: dbRows.length, skipped: skippedCount })
                 } else {
                     results.push({ date: dateStr, success: true, count: 0 })
                 }

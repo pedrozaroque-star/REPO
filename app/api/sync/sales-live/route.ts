@@ -9,6 +9,7 @@
  * - Client / Background Sync -> POST /api/sync/sales-live -> Toast API & syncToastPunches -> Supabase -> Response.
  * @notes
  * - Protegido con `verifyStaffAuth` (`admin`, `supervisor` o `CRON_SECRET`, y `manager` exclusivamente cuando provee `storeId` autorizado vía `authorizeStoreScope`).
+ * - [2026-11-23] Blindado con `shouldAllowSalesCacheUpsert`: ignora filas con `hasError` y jamás sobrescribe ventas positivas ya cacheadas en `sales_daily_cache` con `$0 / 0 órdenes`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,6 +17,7 @@ import { fetchToastData } from '@/lib/toast-api'
 import { syncToastPunches } from '@/lib/toast-labor'
 import { verifyStaffAuth, getServerUser, authorizeStoreScope } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { shouldAllowSalesCacheUpsert } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 
@@ -149,13 +151,31 @@ export async function POST(request: NextRequest) {
 
         const salesRes = await salesPromise
 
-        if (salesRes.connectionError && salesRes.rows.length === 0) {
+        const incomingRows = salesRes.rows || []
+        const storeIdsToCheck = incomingRows.map((r: any) => r.storeId).filter(Boolean)
+        const existingSalesMap = new Map<string, number>()
+        if (storeIdsToCheck.length > 0) {
+            const { data: existingRows } = await supabase
+                .from('sales_daily_cache')
+                .select('store_id, net_sales')
+                .eq('business_date', todayStr)
+                .in('store_id', storeIdsToCheck)
+            existingRows?.forEach((er: any) => {
+                existingSalesMap.set(er.store_id, Number(er.net_sales) || 0)
+            })
+        }
+
+        const safeRows = incomingRows.filter((r: any) =>
+            shouldAllowSalesCacheUpsert(r, existingSalesMap.get(r.storeId))
+        )
+
+        if (salesRes.connectionError && safeRows.length === 0) {
             return NextResponse.json({ error: salesRes.connectionError }, { status: 502 })
         }
 
-        // Explicit Upsert into sales_daily_cache for today's live sales
-        if (salesRes.rows && salesRes.rows.length > 0) {
-            const dbRows = salesRes.rows.map((r: any) => ({
+        // Explicit Upsert into sales_daily_cache for today's live sales (excluding errored/$0-clobber rows)
+        if (safeRows.length > 0) {
+            const dbRows = safeRows.map((r: any) => ({
                 store_id: r.storeId,
                 business_date: todayStr,
                 store_name: r.storeName,
@@ -187,9 +207,10 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            sales_records: salesRes.rows.length,
+            sales_records: safeRows.length,
+            skipped_errored: incomingRows.length - safeRows.length,
             labor_records: laborCount,
-            message: `Updated Live Data for ${todayStr}. Sales: ${salesRes.rows.length}, Punches: ${laborCount}`
+            message: `Updated Live Data for ${todayStr}. Sales: ${safeRows.length}, Punches: ${laborCount}`
         })
 
     } catch (error: any) {

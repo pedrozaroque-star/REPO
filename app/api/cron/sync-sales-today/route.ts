@@ -11,12 +11,14 @@
  * @notes
  * - 2026-11-19 (Paquete 2A): Conservado salto de ventana muerta `4:15–6:59 AM LA` y agregado throttle de 30 min en madrugada (`1:00–4:14 AM LA`, `laMinute % 30 < 10`, conservando barrida final 4:00 AM) con soporte `?force=1`.
  * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
+ * - [2026-11-23] Tolerancia a fallos parciales: filtra filas con `hasError` y protege ventas positivas existentes contra sobrescrituras en `$0`, permitiendo guardar las sucursales sanas aunque 1 tienda sufra un 429/timeout de Toast API.
  */
 
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
+import { shouldAllowSalesCacheUpsert } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 
@@ -87,16 +89,31 @@ export async function GET(request: Request) {
             readOnly: true
         })
 
-        if (connectionError) {
+        const supabase = await getSupabaseAdminClient()
+        const existingSalesMap = new Map<string, number>()
+        if (rows.length > 0) {
+            const { data: existingRows } = await supabase
+                .from('sales_daily_cache')
+                .select('store_id, net_sales')
+                .eq('business_date', todayStr)
+            existingRows?.forEach((er: any) => {
+                existingSalesMap.set(er.store_id, Number(er.net_sales) || 0)
+            })
+        }
+
+        // Tolerancia a fallos parciales: guarda sucursales sanas y bloquea filas con hasError o $0 sobre ventas previas
+        const safeRows = rows.filter(r =>
+            shouldAllowSalesCacheUpsert(r, existingSalesMap.get(r.storeId))
+        )
+
+        if (connectionError && safeRows.length === 0) {
             console.error(`❌ [CRON TODAY] Error conectando a Toast para ${todayStr}: ${connectionError}`)
             return NextResponse.json({ success: false, error: connectionError }, { status: 502 })
         }
 
         // --- SAVE TO SUPABASE ---
-        if (rows.length > 0) {
-            const supabase = await getSupabaseAdminClient()
-
-            const dbRows = rows.map(r => ({
+        if (safeRows.length > 0) {
+            const dbRows = safeRows.map(r => ({
                 store_id: r.storeId,
                 store_name: r.storeName || 'Unknown Store',
                 business_date: todayStr,
@@ -129,7 +146,8 @@ export async function GET(request: Request) {
                 console.error(`❌ [CRON TODAY] DB Save Error para ${todayStr}:`, upsertError)
                 return NextResponse.json({ success: false, error: upsertError.message }, { status: 500 })
             }
-            console.log(`💾 [CRON TODAY] Guardado en DB para ${todayStr}: ${dbRows.length} filas.`)
+            const skippedCount = rows.length - safeRows.length
+            console.log(`💾 [CRON TODAY] Guardado en DB para ${todayStr}: ${dbRows.length} filas${skippedCount > 0 ? ` (${skippedCount} omitidas por error/anti-cero)` : ''}.`)
         }
 
         console.log(`✅ [CRON TODAY] Sincronización de 'Hoy' completada.`)
@@ -137,7 +155,9 @@ export async function GET(request: Request) {
         return NextResponse.json({
             success: true,
             date: todayStr,
-            stores_synced: rows.length
+            stores_synced: safeRows.length,
+            skipped_errored: rows.length - safeRows.length,
+            ...(connectionError ? { partial_error: connectionError } : {})
         })
 
     } catch (error: any) {
