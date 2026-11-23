@@ -12,6 +12,9 @@
  * - v9 Ultra-Low-CPU (2026-11-21): ring buffer `Float32Array` pre-alocado para `preRoll` (0 asignaciones GC y 0 `Math.round`
  *   en silencio), `uint8ToBase64` vía `TextDecoder("ascii")` (~12× más rápido que `array.push` en V8) y `decodeBase64Into`
  *   in-place sin crear arrays temporales por trama de 20 ms.
+ * - v13 Ultra-Low-CPU (2026-11-23): tabla `MULAW_FLOAT_TABLE` pre-escalada a [-1, 1] (elimina 8,000 mul/s en entrada) y
+ *   buffer `Int16Array` reutilizable con `copyWithin` in-place + redondeo entero sin `Math.round` en `StatefulPcm24kToMulaw8k`
+ *   para evitar `CPU Time exceeded` en llamadas largas.
  */
 
 const MULAW_BIAS = 0x84
@@ -29,6 +32,12 @@ const MULAW_DECODE_TABLE: Int16Array = (() => {
     table[i] = sign !== 0 ? -sample : sample
   }
   return table
+})()
+
+const MULAW_FLOAT_TABLE: Float32Array = (() => {
+  const t = new Float32Array(256)
+  for (let i = 0; i < 256; i++) t[i] = MULAW_DECODE_TABLE[i] * (1 / 32768)
+  return t
 })()
 
 function computeMulawByteFromPcm16(sampleRaw: number): number {
@@ -184,7 +193,7 @@ export class StatefulMulaw8kToPcm16k {
     let hpY = this.hpPrevY
     let sumSq = 0
     for (let i = 0; i < n; i++) {
-      const x = MULAW_DECODE_TABLE[mulawBytes[i]] * (1 / 32768)
+      const x = MULAW_FLOAT_TABLE[mulawBytes[i]]
       const y = 0.93 * (hpY + x - hpX)
       hpX = x
       hpY = y
@@ -317,19 +326,30 @@ export class StatefulMulaw8kToPcm16k {
 
 export class StatefulPcm24kToMulaw8k {
   private carryByte: number | null = null
-  private sampleBuffer: Int16Array = new Int16Array(0)
+  private scratch: Int16Array = new Int16Array(16384)
+  private bufLen = 0
   private readPos = 4
   private initialized = false
+  private readonly emptyOut = new Uint8Array(0)
 
   reset(): void {
     this.carryByte = null
-    this.sampleBuffer = new Int16Array(0)
+    this.bufLen = 0
     this.readPos = 4
     this.initialized = false
   }
 
+  private ensureCapacity(needed: number): void {
+    if (needed <= this.scratch.length) return
+    let nextCap = this.scratch.length
+    while (nextCap < needed) nextCap <<= 1
+    const grown = new Int16Array(nextCap)
+    if (this.bufLen > 0) grown.set(this.scratch.subarray(0, this.bufLen), 0)
+    this.scratch = grown
+  }
+
   process(pcm24kBytes: Uint8Array): Uint8Array {
-    if (pcm24kBytes.length === 0) return new Uint8Array(0)
+    if (pcm24kBytes.length === 0) return this.emptyOut
 
     let bytes = pcm24kBytes
     if (this.carryByte !== null) {
@@ -346,37 +366,36 @@ export class StatefulPcm24kToMulaw8k {
     }
 
     const newSampleCount = bytes.length >> 1
-    if (newSampleCount === 0) return new Uint8Array(0)
+    if (newSampleCount === 0) return this.emptyOut
 
-    const firstLo = bytes[0]
-    const firstHi = bytes[1]
-    const firstSample = ((firstLo | (firstHi << 8)) << 16) >> 16
-
-    let combined: Int16Array
     if (!this.initialized) {
-      combined = new Int16Array(4 + newSampleCount)
-      combined[0] = firstSample
-      combined[1] = firstSample
-      combined[2] = firstSample
-      combined[3] = firstSample
+      this.ensureCapacity(4 + newSampleCount)
+      const buf = this.scratch
+      const firstSample = ((bytes[0] | (bytes[1] << 8)) << 16) >> 16
+      buf[0] = firstSample
+      buf[1] = firstSample
+      buf[2] = firstSample
+      buf[3] = firstSample
       for (let i = 0, b = 0; i < newSampleCount; i++, b += 2) {
-        combined[4 + i] = ((bytes[b] | (bytes[b + 1] << 8)) << 16) >> 16
+        buf[4 + i] = ((bytes[b] | (bytes[b + 1] << 8)) << 16) >> 16
       }
+      this.bufLen = 4 + newSampleCount
       this.readPos = 4
       this.initialized = true
     } else {
-      const prevLen = this.sampleBuffer.length
-      combined = new Int16Array(prevLen + newSampleCount)
-      combined.set(this.sampleBuffer, 0)
+      const prevLen = this.bufLen
+      this.ensureCapacity(prevLen + newSampleCount)
+      const buf = this.scratch
       for (let i = 0, b = 0; i < newSampleCount; i++, b += 2) {
-        combined[prevLen + i] = ((bytes[b] | (bytes[b + 1] << 8)) << 16) >> 16
+        buf[prevLen + i] = ((bytes[b] | (bytes[b + 1] << 8)) << 16) >> 16
       }
+      this.bufLen = prevLen + newSampleCount
     }
 
-    const maxCenter = combined.length - 5
+    const buf = this.scratch
+    const maxCenter = this.bufLen - 5
     if (this.readPos > maxCenter) {
-      this.sampleBuffer = combined
-      return new Uint8Array(0)
+      return this.emptyOut
     }
 
     const outCount = Math.floor((maxCenter - this.readPos) / 3) + 1
@@ -384,29 +403,33 @@ export class StatefulPcm24kToMulaw8k {
 
     let center = this.readPos
     for (let o = 0; o < outCount; o++, center += 3) {
-      // Filtro FIR simétrico desenrollado (omitidos taps 0.0 en ±3) + lookup O(1) μ-law
+      // Filtro FIR simétrico desenrollado (omitidos taps 0.0 en ±3) + lookup O(1) μ-law sin Math.round
       const acc =
-        (combined[center - 4] + combined[center + 4]) * -0.015 +
-        (combined[center - 2] + combined[center + 2]) * 0.085 +
-        (combined[center - 1] + combined[center + 1]) * 0.24 +
-        combined[center] * 0.38
-      let rounded = Math.round(acc)
+        (buf[center - 4] + buf[center + 4]) * -0.015 +
+        (buf[center - 2] + buf[center + 2]) * 0.085 +
+        (buf[center - 1] + buf[center + 1]) * 0.24 +
+        buf[center] * 0.38
+      let rounded = acc >= 0 ? (acc + 0.5) | 0 : (acc - 0.5) | 0
       if (rounded > 32767) rounded = 32767
       else if (rounded < -32768) rounded = -32768
       outMulaw[o] = PCM16_TO_MULAW_TABLE[rounded + 32768]
     }
 
     const keepFrom = center > 4 ? center - 4 : 0
-    this.sampleBuffer = combined.subarray(keepFrom).slice()
+    const keepLen = this.bufLen - keepFrom
+    if (keepFrom > 0 && keepLen > 0) {
+      buf.copyWithin(0, keepFrom, this.bufLen)
+    }
+    this.bufLen = keepLen > 0 ? keepLen : 0
     this.readPos = center - keepFrom
     return outMulaw
   }
 
   flush(): Uint8Array {
-    if (!this.initialized || this.sampleBuffer.length <= this.readPos) {
-      return new Uint8Array(0)
+    if (!this.initialized || this.bufLen <= this.readPos) {
+      return this.emptyOut
     }
-    const lastSample = this.sampleBuffer[this.sampleBuffer.length - 1]
+    const lastSample = this.scratch[this.bufLen - 1]
     const padBytes = new Uint8Array(8)
     const padView = new DataView(padBytes.buffer)
     for (let i = 0; i < 4; i++) padView.setInt16(i * 2, lastSample, true)

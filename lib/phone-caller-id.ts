@@ -15,8 +15,9 @@
  *      no resolvieron nada, guardando en `phone_caller_id_cache` por 30 días (incluyendo misses negativos para no repetir cobros).
  * - **Higiene estricta de CNAM**: convierte formato `APELLIDO,NOMBRE` (`MONAE,DEJA` -> `Deja Monae`) para consumidores,
  *   descarta `WIRELESS CALLER`, `CELL PHONE`, `UNKNOWN`, `SPAM RISK`, números telefónicos crudos y nombres de ciudad/estado.
- * - **Confirmación rápida por Caller ID**: formatea los últimos 4 dígitos separados por guiones (`7-0-4-3`) para que Kore
- *   confirme el número del que llama en lugar de hacer dictar los 10 dígitos.
+ * - **Privacidad por Diseño (CCPA/CPRA — Zero-Leak)**: el nombre resuelto (`caller_name` / `caller_name_source`) se guarda
+ *   ÚNICAMENTE para visibilidad interna de gerentes/admins en `/admin/llamadas` y JAMÁS se inyecta en el prompt verbal de Kore
+ *   ni se pronuncia al aire (Kore siempre pide el nombre de viva voz y solo confirma los últimos 4 dígitos del teléfono `7-0-4-3`).
  * - **Resúmenes legibles de llamada**: reemplaza el patrón truncado `último turno -> última respuesta` por un resumen
  *   útil del motivo real o del recado registrado para `/admin/llamadas`.
  *
@@ -521,24 +522,180 @@ export function isTrivialAckOrFarewellTurn(text: string): boolean {
     .trim()
   if (!norm || norm.length <= 2) return true
   if (
-    /^(ok|okay|okey|si|yes|yeah|yep|yup|no|nope|nah|gracias|muchas gracias|thank you|thanks|thanks a lot|perfecto|perfect|excelente|entendido|claro|listo|esta bien|all good|sounds good|got it|alright|all right|bye|goodbye|good bye|adios|hasta luego|nos vemos|que tenga buen dia|have a good day|have a good night|buenas noches|buenos dias|buenas tardes|hola|hello|hi|hey|eso es todo|es todo|nada mas|thats all|that is all|thats it|nothing else|im good|i am good|no gracias|no thank you|no thanks|ok gracias|okay gracias|ok thanks|okay thanks|okay thank you|ok thank you|si gracias|yes thank you|yes thanks|no eso es todo|no thats all|no nothing else|alright bye|okay bye|ok bye|gracias adios|thanks bye|thank you bye|bye bye)$/.test(
+    /^(ok|okay|okey|si|yes|yeah|yep|yup|no|nope|nah|gracias|muchas gracias|muchisimas gracias|thank you|thanks|thanks a lot|thank you so much|perfecto|perfect|excelente|entendido|claro|listo|esta bien|all good|sounds good|got it|alright|all right|bye|goodbye|good bye|adios|hasta luego|nos vemos|que tenga buen dia|que tengas buen dia|have a good day|have a good night|have a great day|buenas noches|buenos dias|buenas tardes|hola|hello|hi|hey|eso es todo|eso seria todo|seria todo|es todo|nada mas|eso seria todo gracias|seria todo gracias|no eso seria todo|no seria todo|no gracias eso seria todo|no nada mas|nada mas gracias|ningun detalle adicional|sin detalles adicionales|thats all|that is all|thats it|nothing else|im good|i am good|no gracias|no thank you|no thanks|ok gracias|okay gracias|ok thanks|okay thanks|okay thank you|ok thank you|si gracias|yes thank you|yes thanks|no eso es todo|no thats all|no nothing else|alright bye|okay bye|ok bye|gracias adios|thanks bye|thank you bye|bye bye)$/.test(
       norm
     )
   ) {
     return true
   }
   // Cadenas cortas compuestas solo de cortesías / despedidas
-  const words = norm.split(' ')
+  const words = norm.split(' ').filter(Boolean)
   const fillerWords = new Set([
-    'ok', 'okay', 'okey', 'si', 'yes', 'yeah', 'no', 'gracias', 'muchas', 'thank', 'thanks',
-    'you', 'bye', 'goodbye', 'adios', 'hasta', 'luego', 'eso', 'es', 'todo', 'nada', 'mas',
-    'that', 'thats', 'is', 'all', 'nothing', 'else', 'perfect', 'perfecto', 'good', 'great',
-    'alright', 'right', 'fine', 'awesome', 'cool', 'hola', 'hello', 'hi', 'hey', 'uh', 'um', 'ah'
+    'ok', 'okay', 'okey', 'si', 'yes', 'yeah', 'yep', 'yup', 'no', 'nope', 'nah',
+    'gracias', 'muchas', 'muchisimas', 'thank', 'thanks', 'you', 'so', 'much',
+    'bye', 'goodbye', 'adios', 'hasta', 'luego', 'eso', 'es', 'seria', 'serian',
+    'todo', 'nada', 'mas', 'that', 'thats', 'is', 'all', 'nothing', 'else',
+    'perfect', 'perfecto', 'good', 'great', 'alright', 'right', 'fine', 'awesome',
+    'cool', 'bien', 'listo', 'claro', 'entendido', 'vale', 'sale', 'hola', 'hello',
+    'hi', 'hey', 'uh', 'um', 'ah', 'ningun', 'ninguna', 'detalle', 'detalles',
+    'adicional', 'adicionales'
   ])
-  if (words.length <= 6 && words.every((w) => fillerWords.has(w))) {
+  if (words.length <= 7 && words.every((w) => fillerWords.has(w))) {
     return true
   }
   return false
+}
+
+function normPhoneTextBasic(text: string): string {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const ORDER_ITEM_NOUN_RE =
+  /\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|sopes?|nachos?|platos?|plates?|combos?|flan(?:es)?|cheesecakes?|aguas?|horchatas?|jamaicas?|pinas?|tamarindos?|sodas?|cocas?|cokes?|sprites?|fantas?|cafes?|coffees?|champurrados?|arroz|rice|frijol(?:es)?|beans?|carnes?|meats?|asadas?|pastor(?:es)?|pollos?|chicken|cabezas?|lenguas?|buches?|chorizos?|carnitas|huevos?|eggs?|desayunos?|breakfast|tortillas?|salsas?|guacamole|guac|crema|queso|cheese|cebolla|onion|cilantro|limon(?:es)?|limes?|chiles?|jalapenos?|chips|bebidas?|drinks?|platters?|charolas?|trays?|postres?|desserts?|bolsas?|bags?|utensilios|servilletas|napkins|cupon|gift\s*card)\b/i
+
+const CONCRETE_ORDER_DEFECT_RE =
+  /\b(crud[oa]s?|raw|fri[oa]s?|cold|quemad[oa]s?|burnt|echad[oa]\s+a\s+perder|spoiled|pelo|cabello|hair|plastico|plastic|doble\s+cobro|charged\s+twice|overcharged|cobro\s+de\s+mas|cobro\s+extra|me\s+cobraron|mal\s+estado|acido|rancio|caducado|enferm|food\s+poison|equivocad[oa]\s+de\s+carne|wrong\s+meat|sin\s+queso|no\s+cheese|con\s+queso|sin\s+cebolla|no\s+onion|sin\s+cilantro|no\s+cilantro|en\s+vez\s+de|instead\s+of|me\s+dieron\s+otra\s+orden|someone\s+else'?s\s+order)\b/i
+
+const REFUSE_DETAIL_RE =
+  /\b(no\s+quiero\s+decir|solo\s+quiero\s+hablar\s+con\s+el\s+gerente|prefiero\s+decirle\s+al\s+gerente|just\s+(?:want\s+to\s+)?(?:speak|talk)\s+to\s+(?:the\s+)?manager|tell\s+(?:the\s+)?manager\s+directly|prefer\s+to\s+tell\s+(?:the\s+)?manager)\b/i
+
+/** Valida que un reclamo `missing_or_wrong_item` especifique qué platillo faltó o qué estuvo mal antes de crear el recado. */
+export function hasSpecificOrderIssueDetails(summary: string, userContext: string): boolean {
+  const combined = normPhoneTextBasic(`${summary || ''} ${userContext || ''}`)
+  if (!combined) return false
+  if (ORDER_ITEM_NOUN_RE.test(combined)) return true
+  if (CONCRETE_ORDER_DEFECT_RE.test(combined)) return true
+  if (REFUSE_DETAIL_RE.test(combined)) return true
+  return false
+}
+
+/** Detecta si el cliente confirmó durante la llamada que encontró su comida o pidió cancelar la alerta. */
+export function isFoundItemOrCancelResolution(summary: string, userText: string): boolean {
+  const combined = normPhoneTextBasic(`${summary || ''} ${userText || ''}`)
+  if (!combined) return false
+  return /\b(ya\s+encontre|ya\s+lo\s+encontre|ya\s+la\s+encontre|lo\s+encontre|la\s+encontre|encontro\s+su|encontro\s+la|encontro\s+el|found\s+my|i\s+found\s+it|found\s+the|found\s+my\s+food|found\s+my\s+plate|found\s+my\s+order|here\s+in\s+my\s+car|aqui\s+en\s+mi\s+carro|esta\s+en\s+mi\s+carro|never\s*mind\s+i\s+found|cancel\s+(?:the\s+)?(?:callback|alert|request)|cancelar\s+(?:el\s+)?(?:recado|alerta)|ya\s+no\s+hace\s+falta|ya\s+no\s+necesito\s+(?:que\s+me\s+llamen|el\s+recado)|everything\s+is\s+here|esta\s+todo\s+completo)\b/i.test(
+    combined
+  )
+}
+
+function isVagueDraftSegment(seg: string): boolean {
+  const norm = normPhoneTextBasic(seg)
+  if (!norm) return true
+  if (norm.length < 95 && !ORDER_ITEM_NOUN_RE.test(norm) && !CONCRETE_ORDER_DEFECT_RE.test(norm)) {
+    if (/(reporta\s+problema|problema\s+en\s+drive|problema\s+con\s+su\s+orden|solicita\s+hablar|sin\s+numero\s+de\s+ticket|sin\s+especificar)/i.test(norm)) {
+      return true
+    }
+  }
+  return false
+}
+
+function extractSegmentTokens(seg: string): string[] {
+  const stop = new Set([
+    'cliente', 'reporta', 'solicita', 'hablar', 'gerente', 'orden', 'pedido', 'tienda', 'sucursal',
+    'ticket', 'numero', 'para', 'con', 'sin', 'que', 'por', 'del', 'las', 'los', 'una', 'uno', 'esta',
+    'nota', 'adicional', 'hoy', 'ayer', 'drive', 'thru'
+  ])
+  return Array.from(new Set(normPhoneTextBasic(seg).split(' ').filter((w) => w.length >= 4 && !stop.has(w))))
+}
+
+/**
+ * Fusiona resúmenes de un mismo recado sin duplicar etiquetas (`[SIN TICKET]`, `[Llamó a #...]`)
+ * ni apilar borradores redundantes, reemplazando borradores vagos por el detalle más completo.
+ */
+export function mergeCallbackReasonSummaries(prevSummary: string, nextSummary: string): string {
+  const rawPrev = String(prevSummary || '').replace(/\s+/g, ' ').trim()
+  const rawNext = String(nextSummary || '').replace(/\s+/g, ' ').trim()
+  if (!rawPrev) return rawNext.slice(0, 2000)
+  if (!rawNext) return rawPrev.slice(0, 2000)
+
+  const routeTags: string[] = []
+  const statusTags: string[] = []
+  const seenTagNorms = new Set<string>()
+
+  const stripAndCollectTags = (input: string): string =>
+    input
+      .replace(/\[[^\]]+\]/g, (m) => {
+        const cleanTag = m.replace(/\s+/g, ' ').trim()
+        const normTag = normPhoneTextBasic(cleanTag)
+        if (!seenTagNorms.has(normTag)) {
+          seenTagNorms.add(normTag)
+          if (/^\[llam[oó]\s+a\s+#/i.test(cleanTag)) {
+            routeTags.push(cleanTag)
+          } else {
+            statusTags.push(cleanTag)
+          }
+        }
+        return ' '
+      })
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const prevBody = stripAndCollectTags(rawPrev)
+  const nextBody = stripAndCollectTags(rawNext)
+  const rawSegments = [
+    ...prevBody.split('|').map((s) => s.trim()),
+    ...nextBody.split('|').map((s) => s.trim())
+  ].filter(Boolean)
+
+  const kept: string[] = []
+  for (const cand of rawSegments) {
+    if (/^nota adicional del cliente:\s*(ning[uú]n\s+detalle|sin\s+detalles|nada|none)\b/i.test(cand)) continue
+    const normCand = normPhoneTextBasic(cand)
+    if (!normCand) continue
+    const candTokens = extractSegmentTokens(cand)
+
+    let handled = false
+    for (let i = 0; i < kept.length; i++) {
+      const existing = kept[i]
+      const normEx = normPhoneTextBasic(existing)
+      if (normCand === normEx || normEx.includes(normCand)) {
+        handled = true
+        break
+      }
+      if (normCand.includes(normEx)) {
+        kept[i] = cand
+        handled = true
+        break
+      }
+      if (isVagueDraftSegment(existing) && !isVagueDraftSegment(cand) && cand.length >= 24) {
+        kept[i] = cand
+        handled = true
+        break
+      }
+      if (isVagueDraftSegment(cand) && !isVagueDraftSegment(existing)) {
+        handled = true
+        break
+      }
+      const exTokens = extractSegmentTokens(existing)
+      const minLen = Math.min(candTokens.length, exTokens.length)
+      if (minLen >= 2) {
+        const exSet = new Set(exTokens)
+        let overlap = 0
+        for (const t of candTokens) {
+          if (exSet.has(t)) overlap++
+        }
+        if (overlap / minLen >= 0.6) {
+          if (cand.length > existing.length) kept[i] = cand
+          handled = true
+          break
+        }
+      }
+    }
+    if (!handled) kept.push(cand)
+  }
+
+  const hasValidatedTicket = statusTags.some((t) => /validado en pos/i.test(t))
+  const finalStatusTags = statusTags.filter((t) => !(hasValidatedTicket && /(sin ticket|pendiente validar)/i.test(t)))
+  const prefix = routeTags.length > 0 ? `${routeTags[routeTags.length - 1]} ` : ''
+  const body = kept.join(' | ').trim()
+  const suffix = finalStatusTags.length > 0 ? ` ${finalStatusTags.join(' ')}` : ''
+  return `${prefix}${body}${suffix}`.replace(/\s+/g, ' ').trim().slice(0, 2000)
 }
 
 /**

@@ -44,7 +44,7 @@ import {
   resolveStoreFromIncomingCall,
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
-import { SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
+import { SUPABASE_PHONE_LIVE_BRIDGE_HTTP_URL, SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
 import { resolvePhoneCallerIdentity } from '@/lib/phone-caller-id'
 
 export const dynamic = 'force-dynamic'
@@ -424,15 +424,20 @@ export async function POST(request: Request) {
   </Connect>`
       : ''
 
+    const resumeBridgeUrl = `${SUPABASE_PHONE_LIVE_BRIDGE_HTTP_URL}?storeId=${store.id}&resume=1&attempt=1`
+    const postConnectFallbackBlock = liveStreamBlock
+      ? `  <Redirect method="POST">${escapeXml(resumeBridgeUrl)}</Redirect>`
+      : `  <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>
+    ${questionTag}
+  </Gather>
+  <Redirect method="POST">${escapeXml(respondUrl)}&amp;silence=1</Redirect>`
+
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="1" timeout="1" action="${escapeXml(respondUrl)}&amp;preconsent=1" method="POST">
     ${disclosureTag}
   </Gather>${liveStreamBlock}
-  <Gather ${buildTwilioGatherAttrs(lang, respondUrl)}>
-    ${questionTag}
-  </Gather>
-  <Redirect method="POST">${escapeXml(respondUrl)}&amp;silence=1</Redirect>
+${postConnectFallbackBlock}
 </Response>`
 
     return new Response(twiml, {

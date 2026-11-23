@@ -253,7 +253,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { getGeminiKeyPoolWithRemote, VoiceId, resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import { PARTY_TRAY_GUIDELINES } from '@/lib/inventory/party-tray-guidelines'
-import { buildMeaningfulCallSummary, formatLast4ForSpeech, normalizeUsPhoneDigits10 } from '@/lib/phone-caller-id'
+import { buildMeaningfulCallSummary, formatLast4ForSpeech, mergeCallbackReasonSummaries, normalizeUsPhoneDigits10 } from '@/lib/phone-caller-id'
 import { getOfficialStoreHolidaySchedule, getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
 import { extractPhoneDigits, isFictitiousNanpPhone, normalizeUsPhoneE164 } from '@/lib/phone-agent-access'
 import {
@@ -1641,9 +1641,9 @@ export function recommendFiestaPlatters(
       ? Math.round(rawGuests)
       : NaN
   let recommendationEs =
-    'Se ordenan en línea en tacosgavilan.com (para recoger o con envío vía order.online) o por plataformas de delivery (Uber Eats, DoorDash, Grubhub) con mínimo 1 hora de anticipación. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina a elegir, salsas, verdura y desechables completos.'
+    'Se pueden ordenar directamente en caja, en tacosgavilan.com (para recoger o con envío vía order.online) o por plataformas de delivery (Uber Eats, DoorDash, Grubhub) con mínimo 1 hora de anticipación. Carnes a elegir: Carne Asada, Pollo o Al Pastor. Aguas Frescas: Horchata, Jamaica, Piña o Tamarindo. Todos incluyen arroz, frijol, tortillas de maíz o harina a elegir, salsas, verdura y desechables completos.'
   let recommendationEn =
-    'Order online at tacosgavilan.com (for pickup or delivery via order.online) or through delivery platforms (Uber Eats, DoorDash, Grubhub) with at least 1 hour advance notice. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas of your choice, salsas, toppings, and utensils.'
+    'You can order directly at the counter/register, online at tacosgavilan.com (for pickup or delivery via order.online), or through delivery platforms (Uber Eats, DoorDash, Grubhub) with at least 1 hour advance notice. Meats: Carne Asada, Chicken, or Al Pastor. Aguas Frescas: Horchata, Jamaica, Pineapple, or Tamarind. All packages include rice, beans, corn or flour tortillas of your choice, salsas, toppings, and utensils.'
 
   if (Number.isFinite(guests) && guests > 0) {
     if (guests <= 20) {
@@ -1745,9 +1745,9 @@ export function recommendFiestaPlatters(
 
   return {
     advanceNoticeRuleEs:
-      'Mínimo 1 hora de anticipación ordenando en tacosgavilan.com (delivery vía order.online o para recoger) o en plataformas de delivery (Uber Eats, DoorDash, Grubhub)',
+      'Mínimo 1 hora de anticipación ordenando directamente en caja, en tacosgavilan.com (delivery vía order.online o para recoger) o en plataformas de delivery (Uber Eats, DoorDash, Grubhub)',
     advanceNoticeRuleEn:
-      'Minimum 1 hour advance notice via tacosgavilan.com (delivery via order.online or pickup) or delivery platforms (Uber Eats, DoorDash, Grubhub)',
+      'Minimum 1 hour advance notice ordering directly at the counter/register, via tacosgavilan.com (delivery via order.online or pickup), or on delivery platforms (Uber Eats, DoorDash, Grubhub)',
     urgentUnderOneHourEs:
       'Si el cliente necesita comida para el grupo en MENOS de 1 hora: ofrece proactivamente (a) pasar directo al mostrador o Drive-Thru para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, O (b) tomar su nombre y teléfono de 10 dígitos con create_manager_callback (urgency: "high") para que el gerente en turno revise de inmediato capacidad de cocina.',
     urgentUnderOneHourEn:
@@ -4274,8 +4274,11 @@ export async function createManagerCallbackRequest(params: {
 
       const patch: Record<string, any> = {}
       const prevSummary = String(winner.reason_summary || '')
-      if (payload.reason_summary && !prevSummary.includes(payload.reason_summary)) {
-        patch.reason_summary = `${prevSummary} | ${payload.reason_summary}`.slice(0, 2000)
+      if (payload.reason_summary) {
+        const mergedSummary = mergeCallbackReasonSummaries(prevSummary, payload.reason_summary)
+        if (mergedSummary && mergedSummary !== prevSummary.trim()) {
+          patch.reason_summary = mergedSummary
+        }
       }
       if (payload.caller_phone && payload.caller_phone !== 'No proporcionado' && extractPhoneDigits(payload.caller_phone).length >= 10) {
         patch.caller_phone = payload.caller_phone
@@ -7437,13 +7440,26 @@ export function resolveCanonicalPreparedReply(params: {
         toolsUsedToAdd: ['get_store_hours_and_status']
       }
     }
-    case 'closing':
+    case 'closing': {
+      const isFrustratedBye =
+        /\b(not helpful|no help|useless|terrible|horrible|worst|waste of time|unhelpful|frustrat|annoying|ridiculous|pathetic|no sirves|no ayudas|no me ayudaste|pesim[oa]|mal servicio|inutil|perdida de tiempo)\b/i.test(
+          normUser
+        )
+      if (isFrustratedBye) {
+        return {
+          replyText:
+            lang === 'en'
+              ? 'I am truly sorry we were not able to resolve this for you today. Thank you for calling Tacos Gavilan.'
+              : 'Lamento mucho no haber podido ayudarte mejor hoy. Gracias por llamar a Tacos Gavilan.'
+        }
+      }
       return {
         replyText:
           lang === 'en'
             ? 'You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!'
             : 'Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!'
       }
+    }
     case 'spam':
       return {
         replyText:
@@ -7519,22 +7535,35 @@ export function resolveCanonicalPreparedReply(params: {
             ? `I apologize, we do not take orders over the phone. You can easily place your order at tacosgavilan.com for pickup, or ${store.has_drive_thru ? 'directly at the counter or Drive-Thru.' : 'directly at the counter.'} How else can I help you?`
             : `Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o ${store.has_drive_thru ? 'pedir directamente en caja o por el Drive-Thru.' : 'pedir directamente en caja.'} ¿Te ayudo con algo más?`
       }
-    case 'today_hours':
+    case 'today_hours': {
+      const centralNoteEs =
+        Number(store.id) === 6
+          ? ' Aquí el comedor cierra 1 hora antes y el Drive-Thru continúa abierto hasta el cierre.'
+          : ''
+      const centralNoteEn =
+        Number(store.id) === 6
+          ? ' Here our dining room closes 1 hour earlier while the Drive-Thru stays open until closing.'
+          : ''
       return {
         replyText:
           lang === 'en'
-            ? `${scheduleEval.statusMessageEn} How else can I help you?`
-            : `${scheduleEval.statusMessageEs} ¿Te puedo ayudar con algo más?`,
+            ? `${scheduleEval.statusMessageEn}${centralNoteEn} How else can I help you?`
+            : `${scheduleEval.statusMessageEs}${centralNoteEs} ¿Te puedo ayudar con algo más?`,
         toolsUsedToAdd: ['get_store_hours_and_status']
       }
+    }
     case 'today_hours_and_drive_thru': {
       const dtSentence =
         lang === 'en'
           ? store.has_drive_thru
-            ? 'Yes, this location has Drive-Thru service.'
+            ? Number(store.id) === 6
+              ? 'Yes, this location has Drive-Thru service; our dining room closes 1 hour earlier while the Drive-Thru stays open until closing.'
+              : 'Yes, this location has Drive-Thru service.'
             : 'This location does not have a Drive-Thru, only counter and dining room service.'
           : store.has_drive_thru
-            ? 'Sí contamos con servicio de Drive-Thru en esta sucursal.'
+            ? Number(store.id) === 6
+              ? 'Sí contamos con Drive-Thru; aquí el comedor cierra 1 hora antes y el Drive-Thru continúa abierto hasta el cierre.'
+              : 'Sí contamos con servicio de Drive-Thru en esta sucursal.'
             : 'Esta sucursal no cuenta con Drive-Thru, solo servicio en caja y comedor.'
       return {
         replyText:
@@ -7984,8 +8013,14 @@ export function resolveCanonicalPreparedReply(params: {
       )
       if (hasCateringStoreOverride || !platterInfo) return null
       const baseRec = lang === 'en' ? platterInfo.recommendationEn : platterInfo.recommendationEs
+      const hasChannelsAlready = /tacosgavilan\.com/i.test(baseRec)
+      const channelsTail = hasChannelsAlready
+        ? ''
+        : lang === 'en'
+          ? ' You can order directly at the counter, on tacosgavilan.com, or via delivery apps with 1 hour notice.'
+          : ' Puedes pedirlo directamente en caja, en tacosgavilan.com o por apps de delivery con 1 hora de anticipación.'
       return {
-        replyText: `${baseRec} ${lang === 'en' ? 'Anything else?' : '¿Te ayudo con algo más?'}`,
+        replyText: `${baseRec}${channelsTail} ${lang === 'en' ? 'Anything else?' : '¿Te ayudo con algo más?'}`,
         toolsUsedToAdd: ['get_fiesta_platter_packages']
       }
     }
@@ -8548,7 +8583,7 @@ export async function processPhoneAgentTurn(params: {
     isEarlyBgMediaFastPath ? [] : liveMenuItems
   )
   const platterPreContext = wantsFiestaContext
-    ? `\nCHAROLAS FIESTA PLATTER OFICIALES — PARTY TRAY GUIDELINES (orden exclusivo en línea en tacosgavilan.com con mínimo 1 hora de anticipación; carnes a elegir: Carne Asada, Pollo o Al Pastor [en orden en línea Toast también permite elegir entre las 8 carnes]; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas recién hechas de maíz o harina a elegir, salsas roja y verde, condimentos y utensilios completos):\n` +
+    ? `\nCHAROLAS FIESTA PLATTER OFICIALES — PARTY TRAY GUIDELINES (se ordenan directamente en caja/mostrador, en línea en tacosgavilan.com [pickup o delivery vía order.online] o en plataformas de delivery [Uber Eats, DoorDash, Grubhub] con mínimo 1 hora de anticipación; carnes a elegir: Carne Asada, Pollo o Al Pastor [en orden en línea Toast también permite elegir entre las 8 carnes]; aguas frescas: Horchata, Jamaica, Piña o Tamarindo; incluye arroz, frijol, tortillas recién hechas de maíz o harina a elegir, salsas roja y verde, condimentos y utensilios completos):\n` +
       platterInfo.packages
         .map(
           (p) =>
@@ -8678,7 +8713,7 @@ Operamos exclusivamente en California, EE. UU.: **TODOS los precios son en dóla
 
 DATOS EN VIVO DE ESTA SUCURSAL (${customerBranchDisplay}):
 ${calendarDateLine}
-- Estado actual en vivo (Zona Horaria Pacífico): ${turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs}
+- Estado actual en vivo (Zona Horaria Pacífico): ${turnLangGuess === 'en' ? scheduleEval.statusMessageEn : scheduleEval.statusMessageEs}${!scheduleEval.isOpenNow ? '\n- **ALERTA ROJA — SUCURSAL CERRADA AHORA MISMO**: Si cualquier persona o bot automático (Uber Eats, DoorDash, Grubhub) pregunta si estamos abiertos ahora ("are you open right now?"), PROHIBIDO comenzar con "Yes"/"Sí" o decir "open for business". Responde rotundamente "No, we are currently CLOSED right now..." / "No, en este momento estamos CERRADOS..." y solo después indica la hora de apertura.' : ''}
 - Horario Oficial de Desayunos (las 15 sucursales): Disponibles todos los días desde la apertura hasta las ${KORE_BREAKFAST_CUTOFF_LABEL} (${liveBreakfastWin.localTimeLabel} ahora -> ${liveBreakfastWin.open && scheduleEval.isOpenNow ? 'DESAYUNOS DISPONIBLES AHORA' : liveBreakfastWin.open ? 'DESAYUNOS AL ABRIR HASTA LAS 2:00 PM' : 'DESAYUNOS YA TERMINARON POR HOY — ofrecer menú regular; Café y Champurrado sí siguen disponibles'}).
 - Horario de la semana: ${turnLangGuess === 'en' ? scheduleEval.weeklySummaryEn : scheduleEval.weeklySummaryEs}
 ${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para decir por teléfono (SIN abreviaturas): ${spokenStoreAddress}${customerBranchCrossStreets ? ` (Entrecalles / esquina: ${customerBranchCrossStreets})` : ''}${storeZipCode ? ` (Código postal solo si lo piden: ${storeZipCode})` : ''}${laAddressReminder}
@@ -8687,20 +8722,15 @@ ${holidaysContextLine ? holidaysContextLine + '\n' : ''}- Dirección exacta para
 - Pagos / EBT: ${config.accepts_ebt ? (store.has_drive_thru ? 'Aceptamos efectivo, tarjetas y Apple Pay/Google Pay; EBT CalFresh se acepta ÚNICAMENTE adentro en el mostrador del comedor (NO disponible en la ventanilla de Drive-Thru).' : 'Aceptamos EBT CalFresh en el mostrador del comedor, efectivo, tarjetas y Apple Pay/Google Pay.') : 'NO aceptamos EBT CalFresh en esta sucursal; sí efectivo, tarjetas y Apple Pay/Google Pay.'}
 - Web / Ordenar en línea: tacosgavilan.com (NUNCA dictes URLs largas ni IDs numéricos)
 - Privacidad de la llamada: El sistema NO graba audio de las llamadas; únicamente guarda la transcripción escrita de la conversación para atenderte mejor.${(() => {
-    const resolvedCallerName = String(callerName || existingCallRes.data?.caller_name || '').trim()
-    const resolvedCallerNameSource = String(callerNameSource || existingCallRes.data?.caller_name_source || '').trim()
+    // PRIVACIDAD ESTRICTA (CCPA/CPRA): caller_name de directorio interno o CNAM es solo interno para /admin/llamadas y JAMÁS entra al prompt verbal.
+    void callerName
+    void callerNameSource
     const ownTenSet = new Set([extractPhoneDigits(store.phone).slice(-10), extractPhoneDigits(config.twilio_phone_number).slice(-10)].filter(Boolean))
     const callerTen10 = source === 'twilio' ? normalizeUsPhoneDigits10(callerNumber) : null
     const safeE164 = callerTen10 && !ownTenSet.has(callerTen10) ? `+1${callerTen10}` : null
     const last4Sp = safeE164 ? formatLast4ForSpeech(safeE164) : null
     if (!safeE164 || !last4Sp) return ''
-    const isHighConf = ['employee', 'store', 'vendor', 'loyalty', 'returning_caller'].includes(resolvedCallerNameSource)
-    const nameHint = resolvedCallerName
-      ? isHighConf
-        ? ` | Nombre detectado (directorio/historial Tacos Gavilan): "${resolvedCallerName}" — confírmalo de forma natural ("¿Hablo con ${resolvedCallerName}?" / "Am I speaking with ${resolvedCallerName}?").`
-        : ` | Nombre en Caller ID CNAM: "${resolvedCallerName}" — confírmalo con tacto ("¿Me confirmas tu nombre? Me aparece ${resolvedCallerName}" / "Could you confirm your name? I see ${resolvedCallerName} on Caller ID") y guarda el nombre que diga la persona.`
-      : ''
-    return `\n- IDENTIFICADOR DE LLAMADAS ACTIVO (Caller ID): Twilio detectó ${safeE164} (terminado en ${last4Sp})${nameHint} PROHIBIDO hacer dictar los 10 dígitos: confirma únicamente si podemos contactarle al mismo número terminado en ${last4Sp} ("¿Te podemos contactar a este mismo número terminado en ${last4Sp}, o prefieres otro?" / "Is this number ending in ${last4Sp} the best one to reach you, or would you prefer another?") y envía caller_phone="CALLER_ID" si acepta.`
+    return `\n- IDENTIFICADOR DE TELÉFONO ACTIVO (Caller ID — SOLO ÚLTIMOS 4 DÍGITOS, PRIVACIDAD ESTRICTA DE NOMBRE): Twilio detectó ${safeE164} (terminado en ${last4Sp}). PROHIBIDO hacer dictar los 10 dígitos: pide SIEMPRE su nombre de viva voz y en la misma pregunta confirma únicamente si podemos contactarle al mismo número terminado en ${last4Sp} ("¿Me compartes tu nombre y me confirmas si te podemos contactar a este mismo número terminado en ${last4Sp}, o prefieres otro?" / "May I have your name, and is this number ending in ${last4Sp} the best one to reach you, or would you prefer another?") y envía caller_phone="CALLER_ID" si acepta. Por privacidad, JAMÁS adivines ni asumas el nombre de quien llama.`
   })()}
 ${parkingNotesBlock}${priorCallbackNote}
 ${storesDirectoryBlock}
@@ -8865,6 +8895,14 @@ ${postOrderRulesBlock}
         phone: store.phone,
         hasDriveThru: store.has_drive_thru,
         acceptsEbt: config.accepts_ebt,
+        diningRoomVsDriveThruNoteEs:
+          Number(store.id) === 6
+            ? 'Únicamente en #6 Los Ángeles (Central y Washington) el comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre.'
+            : 'El comedor cierra a la hora publicada de la sucursal.',
+        diningRoomVsDriveThruNoteEn:
+          Number(store.id) === 6
+            ? 'Only at #6 Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close.'
+            : 'The dining room closes at the store\'s published closing time.',
         ...scheduleEval,
         upcomingHolidays: upcomingHolidays.slice(0, 7)
       }

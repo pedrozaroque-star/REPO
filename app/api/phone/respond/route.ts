@@ -41,7 +41,7 @@ import {
   processPhoneAgentTurn,
   verifyTwilioWebhookSignature
 } from '@/lib/phone-agent'
-import { SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
+import { SUPABASE_PHONE_LIVE_BRIDGE_HTTP_URL, SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL, signTwilioStreamParams } from '@/lib/phone-live-kore'
 import { resolvePhoneCallerIdentity } from '@/lib/phone-caller-id'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
@@ -186,7 +186,7 @@ export async function POST(request: Request) {
     const reqUrl = new URL(request.url)
     const baseUrl = resolvePublicWebhookBaseUrl(request)
 
-    const currentLang = (reqUrl.searchParams.get('lang') === 'en' ? 'en' : 'es') as PhoneLang
+    let currentLang = (reqUrl.searchParams.get('lang') === 'en' ? 'en' : 'es') as PhoneLang
     const isRetry = reqUrl.searchParams.get('retry') === '1'
     const isTurn0 = reqUrl.searchParams.get('turn0') === '1'
     const isPreconsent = reqUrl.searchParams.get('preconsent') === '1'
@@ -194,6 +194,19 @@ export async function POST(request: Request) {
     const callSid = (params.CallSid || `TWILIO_${Date.now()}`).trim()
     const speechResult = (params.SpeechResult || '').trim()
     const digits = (params.Digits || '').trim()
+
+    // Honrar el idioma real persistido en phone_calls (ej. cuando la llamada ya cambió a inglés en Kore Live o tecla 9)
+    // para jamás regresar a español por una URL stale `?lang=es`.
+    if (callSid && !isPreconsent && digits !== '9') {
+      const { data: langRow } = await supabaseAdmin
+        .from('phone_calls')
+        .select('language')
+        .eq('call_sid', callSid)
+        .maybeSingle()
+      if (langRow?.language === 'en' || langRow?.language === 'es') {
+        currentLang = langRow.language as PhoneLang
+      }
+    }
 
     const parsedStoreId = Number(reqUrl.searchParams.get('storeId'))
     const requestedStoreId = Number.isFinite(parsedStoreId) && parsedStoreId > 0 ? parsedStoreId : null
@@ -352,14 +365,19 @@ export async function POST(request: Request) {
   </Connect>`
           : ''
 
+        const resumeBridgeUrl = `${SUPABASE_PHONE_LIVE_BRIDGE_HTTP_URL}?storeId=${storeId}&resume=1&attempt=1`
+        const postSwitchedBlock = switchedLiveStreamBlock
+          ? `  <Redirect method="POST">${escapeXml(resumeBridgeUrl)}</Redirect>`
+          : `  <Gather ${buildTwilioGatherAttrs(switchedLang, nextUrl)}>
+    ${qTag}
+  </Gather>
+  <Redirect method="POST">${escapeXml(nextUrl)}&amp;silence=1</Redirect>`
+
         return new Response(
           `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${discTag}${switchedLiveStreamBlock}
-  <Gather ${buildTwilioGatherAttrs(switchedLang, nextUrl)}>
-    ${qTag}
-  </Gather>
-  <Redirect method="POST">${escapeXml(nextUrl)}&amp;silence=1</Redirect>
+${postSwitchedBlock}
 </Response>`,
           { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } }
         )

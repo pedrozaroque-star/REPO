@@ -31,6 +31,16 @@
  *   `phone_caller_id_cache`), confirmación rápida por últimos 4 dígitos del Caller ID sin hacer dictar los 10 dígitos,
  *   regla obligatoria de detalle previo y re-invocación de `create_manager_callback` + PATCH con fusión segura sin pérdida,
  *   red de seguridad automática post-recado (traduce y anexa detalles dichos tras el recado) y resúmenes reales en `phone_calls.summary`.
+ * - v13 (2026-11-23): relevo transparente de worker (`resume=1` + refresh proactivo de CPU a los 140s sin replay CIPA ni caída a
+ *   español en `/api/phone/respond`), DSP optimizado + batching 100ms, VAD ampliado (`silenceDurationMs: 1050` / `postSpeechSilenceRemaining: 14`),
+ *   bloqueo bilingüe estricto ES<->EN (cambio inmediato en turno 1 + candado anti-rebote por acento/platillos mexicanos),
+ *   alerta roja de sucursal cerrada (anti-falsos positivos con bots de Uber Eats/DoorDash), candado anti-recados vagos en
+ *   `missing_or_wrong_item`, fusión limpia sin duplicar `[SIN TICKET]`, auto-resolución si el cliente encuentra su platillo,
+ *   filtro ampliado de despedidas ("Eso sería todo. Gracias." -> sin "Ningún detalle adicional") y `PARTY_TRAYS` sincronizados
+ *   con Party Tray Guidelines oficiales (`6/7.5/10/12` lbs carne, `3/4/6/10` lbs arroz/frijol, `3/4/5/6` gal agua fresca).
+ * - v14 (2026-11-23, Privacy by Design / CCPA-CPRA): el nombre resuelto del directorio interno (`toast_employees`/`users`/lealtad)
+ *   y CNAM se conserva exclusivamente para uso interno en `phone_calls.caller_name` (`/admin/llamadas`) y JAMÁS se inyecta en el
+ *   system prompt de Kore ni se pronuncia al aire; Kore solo confirma los últimos 4 dígitos del teléfono y siempre pide el nombre de viva voz.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -123,10 +133,10 @@ const LA_CROSS_STREETS: Record<
 }
 
 const PARTY_TRAYS = [
-  { key: "15-20", guests: "15 a 20 personas", meatLbs: 6, aguasGal: 1, cornDoz: 10, flourDoz: 5 },
-  { key: "20-25", guests: "20 a 25 personas", meatLbs: 8, aguasGal: 2, cornDoz: 15, flourDoz: 7 },
-  { key: "25-30", guests: "25 a 30 personas", meatLbs: 10, aguasGal: 2, cornDoz: 20, flourDoz: 9 },
-  { key: "30-40", guests: "30 a 40 personas", meatLbs: 13, aguasGal: 3, cornDoz: 25, flourDoz: 12 }
+  { key: "15-20", guests: "15 a 20 personas", meatLbs: 6, riceLbs: 3, beansLbs: 3, aguasGal: 3, cornDoz: 10, flourDoz: 5 },
+  { key: "20-25", guests: "20 a 25 personas", meatLbs: 7.5, riceLbs: 4, beansLbs: 4, aguasGal: 4, cornDoz: 15, flourDoz: 7 },
+  { key: "25-30", guests: "25 a 30 personas", meatLbs: 10, riceLbs: 6, beansLbs: 6, aguasGal: 5, cornDoz: 20, flourDoz: 9 },
+  { key: "30-40", guests: "30 a 40 personas", meatLbs: 12, riceLbs: 10, beansLbs: 10, aguasGal: 6, cornDoz: 25, flourDoz: 12 }
 ]
 
 /** Busca el item Fiesta Platter en app_menu_cache tolerando guiones con espacios ("15 - 20 People") o palabras ("15 to 20"). */
@@ -988,7 +998,7 @@ function isBridgeTrivialAckOrFarewell(text: string): boolean {
   const norm = normalizeSearch(text)
   if (!norm || norm.length <= 2) return true
   if (
-    /^(ok|okay|okey|si|yes|yeah|yep|yup|no|nope|nah|gracias|muchas gracias|thank you|thanks|thanks a lot|perfecto|perfect|excelente|entendido|claro|listo|esta bien|all good|sounds good|got it|alright|all right|bye|goodbye|good bye|adios|hasta luego|nos vemos|que tenga buen dia|have a good day|have a good night|buenas noches|buenos dias|buenas tardes|hola|hello|hi|hey|eso es todo|es todo|nada mas|thats all|that is all|thats it|nothing else|im good|i am good|no gracias|no thank you|no thanks|ok gracias|okay gracias|ok thanks|okay thanks|okay thank you|ok thank you|si gracias|yes thank you|yes thanks|no eso es todo|no thats all|no nothing else|alright bye|okay bye|ok bye|gracias adios|thanks bye|thank you bye|bye bye)$/.test(
+    /^(ok|okay|okey|si|yes|yeah|yep|yup|no|nope|nah|gracias|muchas gracias|muchisimas gracias|thank you|thanks|thanks a lot|thank you so much|perfecto|perfect|excelente|entendido|claro|listo|esta bien|all good|sounds good|got it|alright|all right|bye|goodbye|good bye|adios|hasta luego|nos vemos|que tenga buen dia|que tengas buen dia|have a good day|have a good night|have a great day|buenas noches|buenos dias|buenas tardes|hola|hello|hi|hey|eso es todo|eso seria todo|seria todo|es todo|nada mas|eso seria todo gracias|seria todo gracias|no eso seria todo|no seria todo|no gracias eso seria todo|no nada mas|nada mas gracias|ningun detalle adicional|sin detalles adicionales|thats all|that is all|thats it|nothing else|im good|i am good|no gracias|no thank you|no thanks|ok gracias|okay gracias|ok thanks|okay thanks|okay thank you|ok thank you|si gracias|yes thank you|yes thanks|no eso es todo|no thats all|no nothing else|alright bye|okay bye|ok bye|gracias adios|thanks bye|thank you bye|bye bye)$/.test(
       norm
     )
   ) {
@@ -996,12 +1006,16 @@ function isBridgeTrivialAckOrFarewell(text: string): boolean {
   }
   const words = norm.split(" ").filter(Boolean)
   const fillers = new Set([
-    "ok", "okay", "okey", "si", "yes", "yeah", "no", "gracias", "muchas", "thank", "thanks",
-    "you", "bye", "goodbye", "adios", "hasta", "luego", "eso", "es", "todo", "nada", "mas",
-    "that", "thats", "is", "all", "nothing", "else", "perfect", "perfecto", "good", "great",
-    "alright", "right", "fine", "awesome", "cool", "hola", "hello", "hi", "hey", "uh", "um", "ah"
+    "ok", "okay", "okey", "si", "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+    "gracias", "muchas", "muchisimas", "thank", "thanks", "you", "so", "much",
+    "bye", "goodbye", "adios", "hasta", "luego", "eso", "es", "seria", "serian",
+    "todo", "nada", "mas", "that", "thats", "is", "all", "nothing", "else",
+    "perfect", "perfecto", "good", "great", "alright", "right", "fine", "awesome",
+    "cool", "bien", "listo", "claro", "entendido", "vale", "sale", "hola", "hello",
+    "hi", "hey", "uh", "um", "ah", "ningun", "ninguna", "detalle", "detalles",
+    "adicional", "adicionales"
   ])
-  return words.length <= 6 && words.every((w) => fillers.has(w))
+  return words.length <= 7 && words.every((w) => fillers.has(w))
 }
 
 function extractBridgePostCallbackUserTurns(entries: TranscriptEntry[]): string[] {
@@ -1120,16 +1134,214 @@ function buildBridgeMeaningfulSummary(params: {
   return `${intentPrefix}${topic.slice(0, 145)}${matchedReply ? ` -> ${matchedReply.slice(0, 150)}` : ""}`.slice(0, 320)
 }
 
+const BRIDGE_ORDER_ITEM_NOUN_RE =
+  /\b(tacos?|burritos?|mulitas?|quesadillas?|tortas?|sopes?|nachos?|platos?|plates?|combos?|flan(?:es)?|cheesecakes?|aguas?|horchatas?|jamaicas?|pinas?|tamarindos?|sodas?|cocas?|cokes?|sprites?|fantas?|cafes?|coffees?|champurrados?|arroz|rice|frijol(?:es)?|beans?|carnes?|meats?|asadas?|pastor(?:es)?|pollos?|chicken|cabezas?|lenguas?|buches?|chorizos?|carnitas|huevos?|eggs?|desayunos?|breakfast|tortillas?|salsas?|guacamole|guac|crema|queso|cheese|cebolla|onion|cilantro|limon(?:es)?|limes?|chiles?|jalapenos?|chips|bebidas?|drinks?|platters?|charolas?|trays?|postres?|desserts?|bolsas?|bags?|utensilios|servilletas|napkins|cupon|gift\s*card)\b/i
+
+const BRIDGE_CONCRETE_DEFECT_RE =
+  /\b(crud[oa]s?|raw|fri[oa]s?|cold|quemad[oa]s?|burnt|echad[oa]\s+a\s+perder|spoiled|pelo|cabello|hair|plastico|plastic|doble\s+cobro|charged\s+twice|overcharged|cobro\s+de\s+mas|cobro\s+extra|me\s+cobraron|mal\s+estado|acido|rancio|caducado|enferm|food\s+poison|equivocad[oa]\s+de\s+carne|wrong\s+meat|sin\s+queso|no\s+cheese|con\s+queso|sin\s+cebolla|no\s+onion|sin\s+cilantro|no\s+cilantro|en\s+vez\s+de|instead\s+of|me\s+dieron\s+otra\s+orden|someone\s+else'?s\s+order)\b/i
+
+const BRIDGE_REFUSE_DETAIL_RE =
+  /\b(no\s+quiero\s+decir|solo\s+quiero\s+hablar\s+con\s+el\s+gerente|prefiero\s+decirle\s+al\s+gerente|just\s+(?:want\s+to\s+)?(?:speak|talk)\s+to\s+(?:the\s+)?manager|tell\s+(?:the\s+)?manager\s+directly|prefer\s+to\s+tell\s+(?:the\s+)?manager)\b/i
+
+function hasBridgeSpecificOrderIssueDetails(summary: string, userContext: string): boolean {
+  const combined = normalizeSearch(`${summary || ""} ${userContext || ""}`)
+  if (!combined) return false
+  if (BRIDGE_ORDER_ITEM_NOUN_RE.test(combined)) return true
+  if (BRIDGE_CONCRETE_DEFECT_RE.test(combined)) return true
+  if (BRIDGE_REFUSE_DETAIL_RE.test(combined)) return true
+  return false
+}
+
+function isBridgeFoundItemOrCancelResolution(summary: string, userText: string): boolean {
+  const combined = normalizeSearch(`${summary || ""} ${userText || ""}`)
+  if (!combined) return false
+  return /\b(ya\s+encontre|ya\s+lo\s+encontre|ya\s+la\s+encontre|lo\s+encontre|la\s+encontre|encontro\s+su|encontro\s+la|encontro\s+el|found\s+my|i\s+found\s+it|found\s+the|found\s+my\s+food|found\s+my\s+plate|found\s+my\s+order|here\s+in\s+my\s+car|aqui\s+en\s+mi\s+carro|esta\s+en\s+mi\s+carro|never\s*mind\s+i\s+found|cancel\s+(?:the\s+)?(?:callback|alert|request)|cancelar\s+(?:el\s+)?(?:recado|alerta)|ya\s+no\s+hace\s+falta|ya\s+no\s+necesito\s+(?:que\s+me\s+llamen|el\s+recado)|everything\s+is\s+here|esta\s+todo\s+completo)\b/i.test(
+    combined
+  )
+}
+
+function detectBridgeExplicitEnglishRequest(text: string): boolean {
+  const norm = normalizeSearch(text)
+  if (!norm) return false
+  return /\b(english|speak\s+english|in\s+english|english\s+please|don\s*t\s+speak\s+spanish|do\s+not\s+speak\s+spanish|no\s+hablo\s+espanol|no\s+spanish)\b/i.test(
+    norm
+  )
+}
+
+function detectBridgeExplicitSpanishRequest(text: string): boolean {
+  const norm = normalizeSearch(text)
+  if (!norm) return false
+  return /\b(en\s+espanol|habla\s+espanol|hablas\s+espanol|speak\s+spanish|in\s+spanish|spanish\s+please|prefiero\s+espanol)\b/i.test(
+    norm
+  )
+}
+
+const BRIDGE_SPANISH_ANCHOR_WORDS = new Set([
+  "que", "para", "como", "donde", "cuando", "quiero", "queria", "tienen", "tienes", "puedo",
+  "pueden", "buenos", "buenas", "disculpa", "disculpe", "por", "favor", "cuanto", "cuanta",
+  "cuesta", "cuestan", "orden", "recibo", "falta", "falto", "faltaron", "sucursal", "tienda",
+  "gerente", "horario", "horarios", "abierto", "abiertos", "cerrado", "cerrados", "gracias",
+  "hola", "ayuda", "necesito", "preguntar", "saber", "venden", "charola", "charolas", "personas"
+])
+
+const BRIDGE_ENGLISH_ANCHOR_WORDS = new Set([
+  "what", "where", "when", "how", "much", "are", "you", "guys", "open", "close", "closed",
+  "hours", "today", "tonight", "tomorrow", "order", "ordered", "missing", "wrong", "didnt",
+  "give", "gave", "food", "party", "tray", "trays", "platter", "platters", "catering",
+  "people", "guests", "delivery", "pickup", "drive", "thru", "through", "can", "could",
+  "would", "wondering", "please", "need", "want", "looking", "asking", "calling", "about",
+  "with", "from", "this", "that", "there", "here", "they", "them", "my", "our", "your",
+  "store", "location", "manager", "number", "phone", "receipt", "ticket", "refund", "charge",
+  "charged", "breakfast", "menu", "price", "prices", "come", "comes", "include", "includes",
+  "still", "right", "now", "check", "checking", "help", "just", "went", "bought", "got",
+  "forgot", "left", "bag", "plate", "meat", "drinks", "gallons", "dozen", "speak", "someone",
+  "placed", "actually", "double", "business", "hello", "hi"
+])
+
+function detectBridgeClearEnglishTurn(text: string): boolean {
+  const norm = normalizeSearch(text)
+  if (!norm || norm.length < 6) return false
+  if (detectBridgeExplicitEnglishRequest(norm)) return true
+  const words = norm.split(" ").filter(Boolean)
+  if (words.length < 3) return false
+  let esHits = 0
+  let enHits = 0
+  const seenEn = new Set<string>()
+  for (const w of words) {
+    if (BRIDGE_SPANISH_ANCHOR_WORDS.has(w)) esHits++
+    if (BRIDGE_ENGLISH_ANCHOR_WORDS.has(w) && !seenEn.has(w)) {
+      seenEn.add(w)
+      enHits++
+    }
+  }
+  return esHits === 0 && enHits >= 3
+}
+
+function isVagueOrderDraftSegment(seg: string): boolean {
+  const norm = normalizeSearch(seg)
+  if (!norm) return true
+  if (norm.length < 95 && !BRIDGE_ORDER_ITEM_NOUN_RE.test(norm) && !BRIDGE_CONCRETE_DEFECT_RE.test(norm)) {
+    if (/(reporta\s+problema|problema\s+en\s+drive|problema\s+con\s+su\s+orden|solicita\s+hablar|sin\s+numero\s+de\s+ticket|sin\s+especificar)/i.test(norm)) {
+      return true
+    }
+  }
+  return false
+}
+
+function segmentContentTokens(seg: string): string[] {
+  const stop = new Set([
+    "cliente", "reporta", "solicita", "hablar", "gerente", "orden", "pedido", "tienda", "sucursal",
+    "ticket", "numero", "para", "con", "sin", "que", "por", "del", "las", "los", "una", "uno", "esta",
+    "nota", "adicional", "hoy", "ayer", "drive", "thru"
+  ])
+  return Array.from(
+    new Set(
+      normalizeSearch(seg)
+        .split(" ")
+        .filter((w) => w.length >= 4 && !stop.has(w))
+    )
+  )
+}
+
 function mergeBridgeCallbackSummaries(prevSummary: string, nextSummary: string): string {
-  const prev = String(prevSummary || "").replace(/\s+/g, " ").trim()
-  const next = String(nextSummary || "").replace(/\s+/g, " ").trim()
-  if (!prev) return next.slice(0, 2000)
-  if (!next) return prev.slice(0, 2000)
-  const normPrev = normalizeSearch(prev)
-  const normNext = normalizeSearch(next)
-  if (normNext.includes(normPrev)) return next.slice(0, 2000)
-  if (normPrev.includes(normNext)) return prev.slice(0, 2000)
-  return `${prev} | ${next}`.slice(0, 2000)
+  const rawPrev = String(prevSummary || "").replace(/\s+/g, " ").trim()
+  const rawNext = String(nextSummary || "").replace(/\s+/g, " ").trim()
+  if (!rawPrev) return rawNext.slice(0, 2000)
+  if (!rawNext) return rawPrev.slice(0, 2000)
+
+  const routeTags: string[] = []
+  const statusTags: string[] = []
+  const seenTagNorms = new Set<string>()
+
+  const stripAndCollectTags = (input: string): string => {
+    return input
+      .replace(/\[[^\]]+\]/g, (m) => {
+        const cleanTag = m.replace(/\s+/g, " ").trim()
+        const normTag = normalizeSearch(cleanTag)
+        if (!seenTagNorms.has(normTag)) {
+          seenTagNorms.add(normTag)
+          if (/^\[llam[oó]\s+a\s+#/i.test(cleanTag)) {
+            routeTags.push(cleanTag)
+          } else {
+            statusTags.push(cleanTag)
+          }
+        }
+        return " "
+      })
+      .replace(/\s+/g, " ")
+      .trim()
+  }
+
+  const prevBody = stripAndCollectTags(rawPrev)
+  const nextBody = stripAndCollectTags(rawNext)
+
+  const rawSegments = [
+    ...prevBody.split("|").map((s) => s.trim()),
+    ...nextBody.split("|").map((s) => s.trim())
+  ].filter(Boolean)
+
+  const kept: string[] = []
+  for (const cand of rawSegments) {
+    if (/^nota adicional del cliente:\s*(ning[uú]n\s+detalle|sin\s+detalles|nada|none)\b/i.test(cand)) {
+      continue
+    }
+    const normCand = normalizeSearch(cand)
+    if (!normCand) continue
+    const candTokens = segmentContentTokens(cand)
+
+    let handled = false
+    for (let i = 0; i < kept.length; i++) {
+      const existing = kept[i]
+      const normEx = normalizeSearch(existing)
+      if (normCand === normEx || normEx.includes(normCand)) {
+        handled = true
+        break
+      }
+      if (normCand.includes(normEx)) {
+        kept[i] = cand
+        handled = true
+        break
+      }
+      // Si el borrador previo era vago y el nuevo trae detalles concretos, reemplazar el borrador vago
+      if (isVagueOrderDraftSegment(existing) && !isVagueOrderDraftSegment(cand) && cand.length >= 24) {
+        kept[i] = cand
+        handled = true
+        break
+      }
+      if (isVagueOrderDraftSegment(cand) && !isVagueOrderDraftSegment(existing)) {
+        handled = true
+        break
+      }
+      // Si comparten >= 60% de palabras clave sustantivas, conservar el más completo sin duplicar
+      const exTokens = segmentContentTokens(existing)
+      const minLen = Math.min(candTokens.length, exTokens.length)
+      if (minLen >= 2) {
+        const exSet = new Set(exTokens)
+        let overlap = 0
+        for (const t of candTokens) {
+          if (exSet.has(t)) overlap++
+        }
+        if (overlap / minLen >= 0.6) {
+          if (cand.length > existing.length) kept[i] = cand
+          handled = true
+          break
+        }
+      }
+    }
+    if (!handled) kept.push(cand)
+  }
+
+  // Si hay ticket validado en POS o estado RESUELTO, descartar tags obsoletos de SIN TICKET / pendiente
+  const hasValidatedTicket = statusTags.some((t) => /validado en pos/i.test(t))
+  const finalStatusTags = statusTags.filter((t) => {
+    if (hasValidatedTicket && /(sin ticket|pendiente validar)/i.test(t)) return false
+    return true
+  })
+
+  const prefix = routeTags.length > 0 ? `${routeTags[routeTags.length - 1]} ` : ""
+  const body = kept.join(" | ").trim()
+  const suffix = finalStatusTags.length > 0 ? ` ${finalStatusTags.join(" ")}` : ""
+  return `${prefix}${body}${suffix}`.replace(/\s+/g, " ").trim().slice(0, 2000)
 }
 
 function isPhoneFragmentOfCallerId(rawArg: string, callerIdE164: string): boolean {
@@ -1149,11 +1361,18 @@ async function translatePostCallbackNoteToSpanish(
   existingSummary: string,
   geminiKeys: string[] | undefined
 ): Promise<string> {
-  const joined = extraTurns.join(" / ").replace(/\s+/g, " ").trim()
+  const cleanedTurns = extraTurns.filter((t) => !isBridgeTrivialAckOrFarewell(t))
+  if (cleanedTurns.length === 0) return ""
+  const joined = cleanedTurns.join(" / ").replace(/\s+/g, " ").trim()
+  if (!joined) return ""
   const fallback = `Nota adicional del cliente: ${joined}`.slice(0, 400)
   if (!geminiKeys || geminiKeys.length === 0) return fallback
 
-  const prompt = `Resume y traduce al ESPAÑOL claro y breve (máximo 1 oración corta para la pantalla del gerente de un restaurante) estos detalles adicionales que dijo el cliente DESPUÉS de crear su recado. No repitas lo que ya dice el recado actual. Responde SOLO la nota en español sin comillas ni prefijos.\nRecado actual: ${existingSummary}\nDetalles nuevos del cliente: ${joined}`
+  const prompt = `Analiza estos turnos que dijo el cliente DESPUÉS de crear su recado en un restaurante.
+Si NO contienen información sustantiva nueva (por ejemplo: solo despedidas, agradecimientos, "eso sería todo", "nada más", o únicamente repiten lo que ya está en el recado actual), responde EXACTAMENTE la palabra: NONE
+De lo contrario, resume y traduce al ESPAÑOL claro y breve (máximo 1 oración corta para la pantalla del gerente) SOLO los datos nuevos sin comillas ni prefijos.
+Recado actual: ${existingSummary}
+Turnos nuevos del cliente: ${joined}`
   const models = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite-preview"]
   for (const model of models) {
     const key = geminiKeys[0]
@@ -1179,6 +1398,16 @@ async function translatePostCallbackNoteToSpanish(
           .replace(/\s+/g, " ")
           .replace(/^["']|["']$/g, "")
           .trim()
+        const normOut = normalizeSearch(text)
+        if (
+          !normOut ||
+          /^(none|ningun\s+detalle|sin\s+detalles|no\s+hay\s+detalles|nada\s+(?:mas|nuevo|adicional)|solo\s+(?:despedida|agradecimiento)|no\s+contiene\s+informacion)/.test(
+            normOut
+          )
+        ) {
+          clearTimeout(timer)
+          return ""
+        }
         if (text.length >= 4) {
           clearTimeout(timer)
           return `Nota adicional del cliente: ${text}`.slice(0, 420)
@@ -1216,6 +1445,9 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
   const forwardedFrom = (params.ForwardedFrom || "").trim()
   const digits = (params.Digits || "").trim()
   const isPreconsentSwitch = reqUrl.searchParams.get("preconsent") === "1" && digits === "9"
+  const isResume = reqUrl.searchParams.get("resume") === "1"
+  const resumeAttempt = Math.max(0, Math.min(10, Number(reqUrl.searchParams.get("attempt") || "0") || 0))
+  const twilioCallStatus = String(params.CallStatus || "").trim().toLowerCase()
 
   const [stores, configs, specialHours] = await Promise.all([
     pgSelect("stores?is_active=eq.true&select=id,name,code,external_id,address,phone,has_drive_thru,weekly_hours&order=id.asc"),
@@ -1289,10 +1521,95 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
     )
   }
 
+  const wssBridgeUrl = `wss://${new URL(SUPABASE_URL).host}/functions/v1/phone-live-bridge`
+
+  // RELEVO TRANSPARENTE DE WORKER (resume=1): evita corte de llamada por CPU limit y JAMÁS vuelve a reproducir CIPA ni español
+  if (isResume) {
+    if (["completed", "canceled", "busy", "failed", "no-answer"].includes(twilioCallStatus)) {
+      return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`, {
+        status: 200,
+        headers: { "Content-Type": "text/xml; charset=utf-8" }
+      })
+    }
+    const existingCallRows = await pgSelect(
+      `phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,status,language,caller_name,caller_name_source,ended_at,turns_count&limit=1`
+    )
+    const existingCall = existingCallRows[0]
+    if (
+      existingCall?.ended_at ||
+      ["completed", "canceled", "busy", "failed", "no-answer"].includes(String(existingCall?.status || "").toLowerCase())
+    ) {
+      return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`, {
+        status: 200,
+        headers: { "Content-Type": "text/xml; charset=utf-8" }
+      })
+    }
+
+    const resumedLang: PhoneLang =
+      existingCall?.language === "en" ? "en" : existingCall?.language === "es" ? "es" : activeLang
+    const resumedName = String(existingCall?.caller_name || callerIdentity.displayName || "").trim()
+    const resumedSource = String(existingCall?.caller_name_source || callerIdentity.source || "").trim()
+    const existingTurns = Number(existingCall?.turns_count || 0)
+
+    // Si Gemini Live no pudo arrancar ni con 1 reintento (0 turnos) o agotó 4 relevos (>11 min), caer al respaldo clásico EN EL IDIOMA REAL
+    if (resumeAttempt > 4 || (resumeAttempt >= 2 && existingTurns === 0)) {
+      const vercelFallbackRespond = `${secrets.publicAppBaseUrl}/api/phone/respond?storeId=${store.id}&lang=${resumedLang}&turn0=${existingTurns === 0 ? "1" : "0"}`
+      const resumePromptText =
+        resumedLang === "en"
+          ? existingTurns === 0
+            ? "How can I help you today?"
+            : "I'm still here with you, how can I help?"
+          : existingTurns === 0
+            ? "¿En qué te ayudo hoy?"
+            : "Aquí sigo contigo, ¿en qué te ayudo?"
+      const fallbackPlayUrl = await signTtsUrl(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, resumePromptText, resumedLang)
+      const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather input="speech dtmf" numDigits="1" language="${resumedLang === "en" ? "en-US" : "es-US"}" speechTimeout="1" timeout="5" actionOnEmptyResult="true" action="${escapeXml(vercelFallbackRespond)}" method="POST">
+    <Play>${escapeXml(fallbackPlayUrl)}</Play>
+  </Gather>
+  <Redirect method="POST">${escapeXml(vercelFallbackRespond)}&amp;silence=1</Redirect>
+</Response>`
+      return new Response(fallbackTwiml, {
+        status: 200,
+        headers: { "Content-Type": "text/xml; charset=utf-8" }
+      })
+    }
+
+    const resumeTs = Date.now()
+    const resumeSig = await hmacSha256Hex(
+      secrets.twilioAuthToken,
+      `${callSid}|${store.id}|${resumedLang}|${resumeTs}`
+    )
+    const nextResumeUrl = `https://${new URL(SUPABASE_URL).host}/functions/v1/phone-live-bridge?storeId=${store.id}&resume=1&attempt=${resumeAttempt + 1}`
+    const resumeTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${escapeXml(wssBridgeUrl)}">
+      <Parameter name="callSid" value="${escapeXml(callSid)}" />
+      <Parameter name="storeId" value="${store.id}" />
+      <Parameter name="lang" value="${resumedLang}" />
+      <Parameter name="resume" value="1" />
+      <Parameter name="callerNumber" value="${escapeXml(fromNumber)}" />
+      <Parameter name="callerName" value="${escapeXml(resumedName)}" />
+      <Parameter name="callerNameSource" value="${escapeXml(resumedSource)}" />
+      <Parameter name="toNumber" value="${escapeXml(toNumber)}" />
+      <Parameter name="forwardedFrom" value="${escapeXml(forwardedFrom)}" />
+      <Parameter name="ts" value="${resumeTs}" />
+      <Parameter name="sig" value="${escapeXml(resumeSig)}" />
+    </Stream>
+  </Connect>
+  <Redirect method="POST">${escapeXml(nextResumeUrl)}</Redirect>
+</Response>`
+    return new Response(resumeTwiml, {
+      status: 200,
+      headers: { "Content-Type": "text/xml; charset=utf-8" }
+    })
+  }
+
   const greetings = buildInitialGreetingTexts(store, activeLang, schedEval, !isPreconsentSwitch)
-  const [discPlayUrl, qPlayUrl] = await Promise.all([
-    signTtsUrl(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.disclosureOnly, activeLang),
-    signTtsUrl(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.questionOnly, activeLang)
+  const [discPlayUrl] = await Promise.all([
+    signTtsUrl(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.disclosureOnly, activeLang)
   ])
 
   const initialTranscript: TranscriptEntry[] = [
@@ -1388,9 +1705,8 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
     secrets.twilioAuthToken,
     `${callSid}|${store.id}|${activeLang}|${streamTs}`
   )
-  const wssBridgeUrl = `wss://${new URL(SUPABASE_URL).host}/functions/v1/phone-live-bridge`
   const selfHttpUrl = `https://${new URL(SUPABASE_URL).host}/functions/v1/phone-live-bridge?storeId=${store.id}&lang=${activeLang}&preconsent=1`
-  const vercelFallbackRespond = `${secrets.publicAppBaseUrl}/api/phone/respond?storeId=${store.id}&lang=${activeLang}&turn0=1`
+  const resumeSelfUrl = `https://${new URL(SUPABASE_URL).host}/functions/v1/phone-live-bridge?storeId=${store.id}&resume=1&attempt=1`
 
   const disclosureBlock = isPreconsentSwitch
     ? `<Play>${escapeXml(discPlayUrl)}</Play>`
@@ -1415,10 +1731,7 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
       <Parameter name="sig" value="${escapeXml(streamSig)}" />
     </Stream>
   </Connect>
-  <Gather input="speech dtmf" numDigits="1" language="${activeLang === "en" ? "en-US" : "es-US"}" speechTimeout="1" timeout="4" actionOnEmptyResult="true" action="${escapeXml(vercelFallbackRespond)}" method="POST">
-    <Play>${escapeXml(qPlayUrl)}</Play>
-  </Gather>
-  <Redirect method="POST">${escapeXml(vercelFallbackRespond)}&amp;silence=1</Redirect>
+  <Redirect method="POST">${escapeXml(resumeSelfUrl)}</Redirect>
 </Response>`
 
   return new Response(twiml, {
@@ -1564,7 +1877,7 @@ async function getPrewarmedOrBuildBridgeData(
   callerName = "",
   callerNameSource = ""
 ): Promise<BridgePromptData> {
-  const key = `${storeId}|${lang}|${callerNumber || ""}|${callerName || ""}`
+  const key = `${storeId}|${lang}|${callerNumber || ""}`
   const hit = prewarmedBridgeCache.get(key)
   if (hit && Date.now() - hit.at < 45_000) {
     prewarmedBridgeCache.delete(key)
@@ -1628,7 +1941,7 @@ async function buildBridgeSystemPromptAndData(
   const trayLines = PARTY_TRAYS.map((t) => {
     const found = findPartyTrayMenuItem(menuItems, t.key)
     const p = found ? `$${Number(found.price).toFixed(2)} USD` : "consultar en tacosgavilan.com"
-    return `- Fiesta Platter ${t.key} (${t.guests}): ${p} — ${t.meatLbs} lbs carne (Asada/Pollo/Pastor), arroz y frijol, ${t.cornDoz} docenas maíz o ${t.flourDoz} docenas harina, ${t.aguasGal} gal agua fresca, salsas y utensilios.`
+    return `- Fiesta Platter ${t.key} (${t.guests}): ${p} — ${t.meatLbs} lbs carne (Asada/Pollo/Pastor), ${t.riceLbs} lbs arroz y ${t.beansLbs} lbs frijol, ${t.cornDoz} docenas maíz o ${t.flourDoz} docenas harina (o mitad y mitad), ${t.aguasGal} galones agua fresca, salsas, limones, cilantro/cebolla, platos, vasos y utensilios.`
   }).join("\n")
 
   // Directorio compacto con estatus en vivo y horario de HOY (para consultar horario semanal de otra tienda usar find_other_stores)
@@ -1683,8 +1996,8 @@ async function buildBridgeSystemPromptAndData(
 
   const baseLangAnchor =
     lang === "en"
-      ? "ACTIVE BASE LANGUAGE: ENGLISH (primary: Spanish & English; universal multilingual mirror & strict session_language lock enabled). Greeted in English. While the call is in English or Spanish, mirror complete sentences between warm American English and Southern California Mexican Spanish (NEVER flip language on brief interjections like 'no my god', 'oh my god', 'okay', 'bye', 'un', and NEVER switch language or respond to strange characters from road/engine noise like 'क्या से है...'). If the caller genuinely initiates clear restaurant/customer sentences in a 3rd language (Korean, Chinese Mandarin/Cantonese, Japanese, Portuguese, French, Tagalog, Vietnamese, Arabic, Russian, Armenian, Hindi, German, Italian), keep session_language STRICTLY LOCKED to that language throughout the call (unless they explicitly ask 'in Spanish' / 'in English'), keeping prices strictly in USD ($)."
-      : "IDIOMA BASE ACTIVO: ESPAÑOL (principales: Español e Inglés; espejo multilingüe universal y bloqueo estricto session_language activos). Ya saludaste en español. Mientras la llamada transcurra en español o inglés, responde en español cálido del Sur de California (o 100% inglés si habla oraciones completas claras en inglés o presiona 9), JAMÁS saltes al inglés por muletillas aisladas como 'no my god', 'oh my god', 'okay', 'bye' o 'un', y JAMÁS cambies de idioma ni respondas a sílabas/caracteres extraños generados por ruido vial o de motor ('क्या से है...'). Y si el llamante inicia genuinamente con oraciones claras de consulta/restaurante en un 3.er idioma (Coreano, Chino Mandarín/Cantonés, Japonés, Portugués, Francés, Tagalo, Vietnamita, Árabe, Ruso, Armenio, Hindi, Alemán, Italiano), mantén session_language ESTRICTAMENTE FIJO en ese idioma durante toda la llamada (salvo petición explícita 'en español' / 'in English'), con todos los precios en dólares USD ($)."
+      ? "ACTIVE BASE LANGUAGE: ENGLISH — STRICT ENGLISH LOCK ENABLED. You are speaking with an English-speaking caller. Respond 100% in warm, natural American English throughout the ENTIRE call. STRICTLY FORBIDDEN to switch back to Spanish just because the caller has a Hispanic/bilingual accent, says Mexican food names (champurrado, tamales, mulita, asada, carnitas, quesadilla, horchata, salsa, chiles), or says a brief filler word. Switch to Spanish ONLY if the caller explicitly requests 'en español' / 'habla español' or presses 9. NEVER respond to strange non-Latin characters from road/engine noise ('क्या से है...'). Keep all prices strictly in USD ($)."
+      : "IDIOMA BASE ACTIVO: ESPAÑOL — CAMBIO INMEDIATO A INGLÉS + BLOQUEO ESTRICTO. Ya saludaste en español. REGLA CRÍTICA DE IDIOMA: (1) Si el cliente responde en INGLÉS con una oración clara (ej. 'Hello, I was wondering...', 'Hi, are you open right now?', 'How much is a party tray?', 'I'm calling about my order') SIN haber presionado 9, CAMBIA DE INMEDIATO desde ese MISMO primer turno a inglés americano cálido y natural — NUNCA le respondas en español ni esperes a que diga 'English' — y una vez en inglés, QUÉDATE 100% BLOQUEADO EN INGLÉS el resto de la llamada incluso si el cliente tiene acento hispano o dice nombres de comida mexicana (champurrado, tamales, mulita, carnitas, asada, quesadilla). (2) Si el cliente habla en español, responde en español cálido del Sur de California y JAMÁS saltes al inglés por muletillas aisladas ('okay', 'bye', 'oh my god'). (3) JAMÁS cambies de idioma ni respondas a ruido vial/motor ('क्या से है...'). (4) Si el llamante inicia genuinamente oraciones claras en un 3.er idioma (Coreano, Chino, Japonés, Portugués, Francés, Tagalo, Vietnamita, etc.), mantén session_language fijo en ese idioma, siempre con precios en USD ($)."
 
   const callbackOutcome = schedEval.isOpenNow
     ? "confírmale con calidez que el gerente en turno ya recibió la alerta prioritaria en su pantalla y se comunicará en cuanto sea posible / as soon as possible (PROHIBIDO prometer 'enseguida', 'de inmediato', 'ahorita', 'right away' o 'immediately')."
@@ -1694,10 +2007,12 @@ async function buildBridgeSystemPromptAndData(
   const validCallerE164 = cleanUsTenPhone(callerNumber)
   const safeCallerE164 = validCallerE164 && !ownPromptTen.has(normalizeDigits10(validCallerE164)) ? validCallerE164 : null
   const callerLast4Spoken = safeCallerE164 ? formatBridgeLast4Spoken(safeCallerE164) : null
-  const cleanPromptCallerName = String(callerName || "").trim()
-  const isHighConfCallerName = ["employee", "store", "vendor", "loyalty", "returning_caller"].includes(String(callerNameSource || ""))
+  // PRIVACIDAD ESTRICTA (CCPA/CPRA — Privacy by Design): callerName / callerNameSource del directorio interno o CNAM
+  // son SOLO para uso interno en phone_calls (/admin/llamadas) y JAMÁS se inyectan en el prompt verbal de Kore.
+  void callerName
+  void callerNameSource
   const callerIdGuidanceLine = safeCallerE164 && callerLast4Spoken
-    ? `   - **IDENTIFICADOR DE LLAMADAS ACTIVO (Caller ID — CERO DICTADO INNECESARIO DE 10 DÍGITOS)**: Twilio ya detectó el teléfono real del llamante (${safeCallerE164}, terminado en ${callerLast4Spoken})${cleanPromptCallerName ? ` y el identificador muestra el nombre "${cleanPromptCallerName}" (${isHighConfCallerName ? "directorio/historial Tacos Gavilan" : "Caller ID CNAM — puede ser nombre legal o de familiar"})` : ""}. **PROHIBIDO hacer que el cliente dicte los 10 dígitos de su teléfono**: cuando necesites teléfono para cualquier recado o nota de empaque, SOLO confirma en la misma pregunta si podemos contactarle al mismo número terminado en ${callerLast4Spoken} (ES: "¿Te podemos contactar a este mismo número terminado en ${callerLast4Spoken}, o prefieres otro?" / EN: "Is this number ending in ${callerLast4Spoken} the best one to reach you, or would you prefer another?"). Si responde que sí o no da otro, envía \`caller_phone: "CALLER_ID"\`. Solo pide otro número de 10 dígitos si el cliente indica que prefiere uno distinto.${cleanPromptCallerName ? (isHighConfCallerName ? ` Para el nombre, confírmalo de forma natural en la misma pregunta (ES: "¿Hablo con ${cleanPromptCallerName}?" / EN: "Am I speaking with ${cleanPromptCallerName}?") y guarda siempre el nombre que confirme.` : ` Para el nombre, confírmalo con tacto (ES: "¿Me confirmas tu nombre? Me aparece ${cleanPromptCallerName}" / EN: "Could you confirm your name? I see ${cleanPromptCallerName} on Caller ID") y guarda SIEMPRE el nombre que te indique la persona.`) : ""}`
+    ? `   - **IDENTIFICADOR DE TELÉFONO ACTIVO (Caller ID — SOLO ÚLTIMOS 4 DÍGITOS, PRIVACIDAD ESTRICTA DE NOMBRE)**: Twilio ya detectó el teléfono desde el que llama (${safeCallerE164}, terminado en ${callerLast4Spoken}). **PROHIBIDO hacer que el cliente dicte los 10 dígitos de su teléfono**: cuando necesites datos para cualquier recado o nota de empaque, pide SIEMPRE su nombre de viva voz y en la misma pregunta SOLO confirma si podemos contactarle a este mismo número terminado en ${callerLast4Spoken} (ES: "¿Me compartes tu nombre y me confirmas si te podemos contactar a este mismo número terminado en ${callerLast4Spoken}, o prefieres otro?" / EN: "May I have your name, and is this number ending in ${callerLast4Spoken} the best one to reach you, or would you prefer another?"). Si responde que sí o no da otro teléfono, envía \`caller_phone: "CALLER_ID"\`. Solo pide otro número de 10 dígitos si el cliente indica que prefiere uno distinto. Por privacidad, JAMÁS adivines ni asumas el nombre de quien llama.`
     : `   - **Sin Caller ID visible**: solicita amablemente nombre real y teléfono de 10 dígitos con código de área.`
 
   const systemText = [
@@ -1715,6 +2030,9 @@ async function buildBridgeSystemPromptAndData(
     `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo 'Broadway', 'Central', 'Slauson', 'LA Broadway' o 'LA Central'. SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway). Pronuncia las calles completas sin abreviaturas.`,
     `4. HORARIOS Y DESAYUNOS EN VIVO (Hoy ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]} ${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT${pt.hour < 6 ? " — ES MADRUGADA: si reabrimos esta misma mañana, di SIEMPRE 'hoy' / 'today', JAMÁS 'mañana' / 'tomorrow'" : ""}):`,
     `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn}`,
+    !schedEval.isOpenNow
+      ? `   - **ALERTA ROJA — SUCURSAL CERRADA EN ESTE MOMENTO (CRÍTICO PARA UBER EATS / DOORDASH / SISTEMAS AUTOMÁTICOS)**: Esta sucursal está **CERRADA AHORA MISMO** (${schedEval.statusEs} / ${schedEval.statusEn}). Si cualquier persona o sistema automático (Uber Eats, DoorDash, Grubhub) pregunta 'are you open right now?', 'just double checking you're actually open' o '¿están abiertos ahorita?', **ESTÁ ESTRICTAMENTE PROHIBIDO** comenzar tu respuesta con 'Yes' o 'Sí', y **ESTÁ ESTRICTAMENTE PROHIBIDO** decir 'we are definitely open for business' o 'sí estamos abiertos'. Empieza SIEMPRE de forma rotunda con **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** y solo después indica la hora de apertura.`
+      : "",
     `   - Horario semanal aquí: ${compactWeeklySummary(store.weekly_hours)}`,
     `   - Festivos anuales oficiales: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM en Thanksgiving, Nochebuena (24 dic) y Fin de Año (31 dic); abre 11:00 AM en Año Nuevo (1 ene) y Black Friday.`,
     `   - **Desayunos (las 15 sucursales)**: Todos los días desde la apertura hasta las **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON POR HOY — ofrece nuestro menú regular"}). **Café caliente (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ disponibles TODO EL DÍA**.`,
@@ -1727,7 +2045,7 @@ async function buildBridgeSystemPromptAndData(
     `   - Jamás digas 'tamaño'/'size' en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (Burrito Regular = carne, arroz y frijol; Super añade queso, guacamole y crema; Mulita y Quesadilla Regular ya incluyen queso y Super añade guacamole y crema; Supreme/Supremo = Super).`,
     `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas); **Champurrado 16 oz y Caja 96 oz, Café 16 oz**. PROHIBIDO decir 'chica', 'pequeña' o 'small'.`,
     `   - Postres: **SOLO Flan y Cheesecake individuales** (NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni alcohol).`,
-    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se ordenan en **tacosgavilan.com** con mínimo 1 hora de anticipación (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. 'ya los quiero para ahorita en media hora', '¿qué hago?'), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para no perder su evento: **(a)** pasar directo al mostrador${store.has_drive_thru ? " o al Drive-Thru" : ""} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y confirmar su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken}` : "teléfono de 10 dígitos"}) con \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
+    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se pueden ordenar **directamente en caja/mostrador**, en **tacosgavilan.com** (pickup o delivery vía order.online) o en **plataformas de delivery (Uber Eats, DoorDash, Grubhub)** con mínimo **1 hora de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. 'ya los quiero para ahorita en media hora', '¿qué hago?'), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para no perder su evento: **(a)** pasar directo al mostrador${store.has_drive_thru ? " o al Drive-Thru" : ""} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y confirmar su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken}` : "teléfono de 10 dígitos"}) con \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
     `   - Correcciones fonéticas naturales (ES + EN): 'torta corona'/'cubana crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'moo lita'/'malita'='mulita', 'case a dia'='quesadilla', 'so pay'/'soapy'='sope', 'or chata'='horchata', 'a plan'='flan' (en comida/postre), 'whole beans'/'whole pinto beans'/'pot beans'='frijol de la olla ($0.00)', 'Dortmund'/'Door Dash'='DoorDash', 'ibt'/'evt'/'tarjetas abc'='EBT', 'dritro'/'through the drive'='Drive-Thru'.`,
     `7. RECADOS AL GERENTE Y RECLAMOS CON VALIDACIÓN REAL DE TICKET (CERO TRANSFERENCIAS TELEFÓNICAS):`,
     `   - Nunca transferimos llamadas a celulares personales. Usa \`create_manager_callback\` para alertas prioritarias en la pantalla de tienda y escribe \`reason_summary\` **SIEMPRE EN ESPAÑOL** claro para el gerente.`,
@@ -1736,8 +2054,8 @@ async function buildBridgeSystemPromptAndData(
     `   - **Condimentos gratis en orden existente vs productos pagados**: para salsas, chiles, limones, cebollas o servilletas gratis en orden YA hecha (sin costo), pregunta qué condimentos desea, nombre, número/código de orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` (\`reason_category: 'condiments_note'\`, \`urgency: 'normal'\`), aclarando que aplican sin costo si la orden aún no ha salido (para agregar comida o bebidas con costo diles pedirlas aparte en **tacosgavilan.com** o en caja).`,
     `   - **Uber Eats / DoorDash / Grubhub (Estatus y Ajustes Sin Costo)**: si preguntan el estatus real de una orden de delivery o pickup por código o nombre (ej. 'Enrique 012234' o 'Asia'), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir 'estoy revisando'. Cambios con costo, agregar comida, dirección, cancelación o reembolso se gestionan en **Ayuda (Help)** de su app. Para un **ajuste menor sin costo** en una orden activa (ej. quitar queso, cebolla o cilantro) o avisar retraso al gerente, pregunta **qué ajuste exacto y en qué platillo**, su nombre, código de orden (si no lo tiene, usa \`'SIN TICKET'\` sin bucle) y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` (\`reason_category: 'delivery_issue'\`), aclarando que aplica solo si cocina aún no ha sellado la orden.`,
     `   - **Sucursal equivocada en tacosgavilan.com**: pregunta en cuál tienda cayó, nombre, orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` con \`target_store_id\` (\`reason_category: 'wrong_store_order'\`).`,
-    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL OBLIGATORIA)**: pide con respeto los **4 datos obligatorios**: **1) número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : "10 dígitos"})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** ('Without the ticket number, it is unlikely we can verify the mistake'). **REGLA CRÍTICA**: en cuanto el cliente diga un número de ticket u orden (ej. '1600 del día de hoy'), **INVOCA DE INMEDIATO \`validate_order_ticket\`**: si \`found: true\`, confirma con amabilidad que ya localizaste su orden y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (mencionando si el sistema indica el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si confirma que perdió, tiró o no encuentra su ticket, NO repitas el pedido del ticket ni lo atrapes: pasa directo a registrar con \`ticket_or_order_number: 'SIN TICKET'\` sin prometer reposición. Cuando invoques una herramienta bloqueante espera su respuesta en silencio antes de hablar (nunca repitas dos veces 'Gracias, solo me falta...'). EJECUTA \`create_manager_callback\` ANTES de confirmar, y luego ${callbackOutcome}`,
-    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta confirma nombre, teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone='CALLER_ID'` : "real de 10 dígitos"}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmar y ${callbackOutcome}`,
+    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL + DETALLE OBLIGATORIO)**: ANTES de guardar el recado DEBES saber **qué platillo faltó o qué estuvo mal** (PROHIBIDO guardar un recado vago tipo 'problema en Drive-Thru' sin preguntar primero qué faltó). Pide con respeto los **4 datos obligatorios**: **1) qué artículo faltó/estuvo mal + número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : "10 dígitos"})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** ('Without the ticket number, it is unlikely we can verify the mistake'). **REGLA CRÍTICA DE SUCURSAL Y TICKET**: en cuanto el cliente diga un número de ticket u orden (ej. '220 de hoy' o '1600'), **INVOCA DE INMEDIATO \`validate_order_ticket\`** — **Y SI EL CLIENTE MENCIONA OTRA SUCURSAL** (ej. South Gate #15, Lynwood #14, Vernon y Broadway #5), **PASA SIEMPRE SU \`target_store_id\`** en \`validate_order_ticket\` ANTES de decirle que el ticket no existe. Si \`found: true\`, confirma con amabilidad que ya localizaste su orden y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (mencionando el rango de tickets del día si el sistema lo entrega) y pídele verificar recibo, sucursal o plataforma. **SALIDA SIN BUCLE**: si confirma que perdió, tiró o no tiene su ticket, NO vuelvas a pedirlo: pasa directo a registrar con \`ticket_or_order_number: 'SIN TICKET'\` sin prometer reposición. **SI EL CLIENTE ENCUENTRA SU COMIDA DURANTE LA LLAMADA** (ej. 'Oh, I found my carnitas plate in my car'), vuelve a invocar \`create_manager_callback\` con \`reason_summary: 'Cliente confirmó que encontró su platillo durante la llamada'\` para cerrar automáticamente la alerta sin molestar al gerente. Cuando invoques una herramienta bloqueante espera su respuesta en silencio antes de hablar. EJECUTA \`create_manager_callback\` ANTES de confirmar, y luego ${callbackOutcome}`,
+    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta pide su nombre, confirma teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone='CALLER_ID'` : "real de 10 dígitos"}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmar y ${callbackOutcome}`,
     `8. CERO CUELGUES ANTE FRUSTRACIÓN, RUIDO VIAL Y CIERRE LIMPIO: Ignora ruidos breves de carretera/motor en el carro que suenen como sílabas ajenas sin sentido (jamás interrumpas diciendo 'la llamada no se escucha claramente' por ruido vial). Si el cliente te interrumpe diciendo '¿qué?', 'perdón' o 'repite' mientras enumerabas carnes o platillos, repite la lista COMPLETA desde el principio. **PROHIBIDO COLGAR O INVOCAR \`end_call\`** si el cliente expresa frustración, molestia, queja, '¿qué hago?', **'me voy con la competencia'** o **'¿por qué me colgaste?'** sin despedirse explícitamente ('adiós', 'bye', 'hasta luego', 'eso es todo, gracias'): ante frustración retén al cliente con empatía ofreciendo soluciones reales o avisar urgente al gerente (y si pregunta por qué se cortó una llamada previa, discúlpate con calidez aclarando que nunca colgamos a propósito y atiéndelo al instante). Tampoco invoques \`end_call\` cuando solo diga 'okay, gracias', 'gracias' o 'perfecto' (pregunta primero '¿Te puedo ayudar con algo más?'). Solo cuando confirme explícitamente que ya terminó o se despida ('es todo, gracias', 'no gracias, bye', 'adiós', 'that is all, thank you'), despídete cálidamente en una oración sin preguntas e invoca \`end_call\`.`,
     "",
     `DIRECTORIO EN VIVO DE LAS 15 SUCURSALES:`,
@@ -1765,7 +2083,7 @@ async function buildBridgeSystemPromptAndData(
     spokenAddr,
     systemText
   }
-  prewarmedBridgeCache.set(`${storeId}|${lang}|${callerNumber || ""}|${callerName || ""}`, { at: Date.now(), data: built })
+  prewarmedBridgeCache.set(`${storeId}|${lang}|${callerNumber || ""}`, { at: Date.now(), data: built })
   return built
 }
 
@@ -2936,6 +3254,14 @@ async function executeLiveTool(params: {
         isOpenNow: schedEval.isOpenNow,
         statusEs: schedEval.statusEs,
         statusEn: schedEval.statusEn,
+        diningRoomClosingNoteEs:
+          Number(store.id) === 6
+            ? "ÚNICAMENTE aquí en Los Ángeles (Central y Washington) el salón comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre."
+            : "El comedor cierra a la hora oficial publicada de la sucursal.",
+        diningRoomClosingNoteEn:
+          Number(store.id) === 6
+            ? "ONLY here at Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close."
+            : "The dining room closes at the published closing time.",
         weeklyHours: compactWeeklySummary(store.weekly_hours)
       },
       shouldEndCall: false,
@@ -2996,6 +3322,8 @@ async function executeLiveTool(params: {
         priceNum,
         priceUsd: priceNum !== null ? `$${priceNum.toFixed(2)} USD` : "ver tacosgavilan.com",
         meatLbs: t.meatLbs,
+        riceLbs: t.riceLbs,
+        beansLbs: t.beansLbs,
         aguasGallons: t.aguasGal,
         cornDozens: t.cornDoz,
         flourDozens: t.flourDoz
@@ -3072,16 +3400,20 @@ async function executeLiveTool(params: {
       response: {
         requestedGuests: guests,
         orderOnlineOnly:
-          "tacosgavilan.com (delivery vía order.online o pickup) y plataformas de delivery (Uber Eats, DoorDash, Grubhub) con mínimo 1 hora de anticipación",
+          "directamente en caja/mostrador, en tacosgavilan.com (tanto para pickup como para delivery a domicilio vía order.online) y en plataformas de delivery (Uber Eats, DoorDash, Grubhub) con mínimo 1 hora de anticipación",
+        orderChannelsEn:
+          "in-store at the counter, online at tacosgavilan.com (for BOTH pickup and delivery via order.online), or on Uber Eats, DoorDash, and Grubhub with at least 1 hour advance notice",
         urgentUnderOneHourSolutionsEs: `Si el cliente necesita comida para el grupo en MENOS de 1 hora, NO cierres la venta: ofrécele (1) pasar directo ${walkInEs} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, O (2) confirmar su nombre y su número del Caller ID (o uno alterno) con create_manager_callback (urgency: 'high') para que el gerente en turno revise de inmediato la capacidad de cocina.`,
         urgentUnderOneHourSolutionsEn: `If the caller needs food in LESS than 1 hour, DO NOT turn them away: proactively offer (1) coming straight ${walkInEn} to prepare fresh individual orders of tacos, burritos, mulitas, or plates on the spot, OR (2) confirming their name and Caller ID phone number (or an alternate number) via create_manager_callback (urgency: 'high') so the manager on duty can check kitchen capacity right away.`,
         recommendationEs,
         recommendationEn,
-        packages: packages.map(({ package: pkg, serves, priceUsd, meatLbs, aguasGallons, cornDozens, flourDozens }) => ({
+        packages: packages.map(({ package: pkg, serves, priceUsd, meatLbs, riceLbs, beansLbs, aguasGallons, cornDozens, flourDozens }) => ({
           package: pkg,
           serves,
           priceUsd,
           meatLbs,
+          riceLbs,
+          beansLbs,
           aguasGallons,
           cornDozens,
           flourDozens
@@ -3331,15 +3663,24 @@ async function executeLiveTool(params: {
         : taggedReason
 
     const urgencyRank: Record<string, number> = { normal: 1, medium: 2, high: 3, urgent: 4, critical: 5 }
+    const isResolvedByCallerNow = isBridgeFoundItemOrCancelResolution(
+      String(toolArgs?.reason_summary || ""),
+      lastUserText || recentUserText
+    )
 
-    const applyPatchExisting = async (existingRow: any): Promise<{ ok: boolean; savedSummary: string; savedTicket: string | null; savedId: string }> => {
-      const mergedSummary = mergeBridgeCallbackSummaries(existingRow.reason_summary || "", finalSummary)
+    const applyPatchExisting = async (existingRow: any): Promise<{ ok: boolean; savedSummary: string; savedTicket: string | null; savedId: string; resolvedNow: boolean }> => {
+      const resolvedTag = isResolvedByCallerNow ? " [RESUELTO: Cliente confirmó que encontró su comida durante la llamada]" : ""
+      const mergedSummary = mergeBridgeCallbackSummaries(existingRow.reason_summary || "", `${finalSummary}${resolvedTag}`)
       const prevTicket = existingRow.ticket_or_order_number ? String(existingRow.ticket_or_order_number) : null
       const nextTicketIsNoTicket = !ticketFormatted || /^SIN TICKET/i.test(ticketFormatted)
       const prevTicketIsReal = Boolean(prevTicket && !/^SIN TICKET/i.test(prevTicket))
       const mergedTicket = prevTicketIsReal && nextTicketIsNoTicket ? prevTicket : ticketFormatted || prevTicket
       const prevUrg = String(existingRow.urgency || "normal").toLowerCase()
-      const mergedUrgency = (urgencyRank[urgency] || 1) >= (urgencyRank[prevUrg] || 1) ? urgency : prevUrg
+      const mergedUrgency = isResolvedByCallerNow
+        ? "normal"
+        : (urgencyRank[urgency] || 1) >= (urgencyRank[prevUrg] || 1)
+          ? urgency
+          : prevUrg
       const prevCat = String(existingRow.reason_category || "other")
       const mergedCategory = prevCat === "condiments_note" && category !== "condiments_note" ? category : category || prevCat
 
@@ -3354,6 +3695,12 @@ async function executeLiveTool(params: {
         store_id: Number(destStore.id),
         origin_store_id: Number(destStore.id) !== Number(store.id) ? Number(store.id) : existingRow.origin_store_id ?? null
       }
+      if (isResolvedByCallerNow) {
+        patchBody.status = "resolved"
+        patchBody.resolved_at = new Date().toISOString()
+        patchBody.resolved_by = "Kore IA (cliente encontró su orden)"
+        patchBody.resolution_notes = "El cliente confirmó durante la llamada que encontró su comida / ya no requiere seguimiento."
+      }
 
       const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests?id=eq.${existingRow.id}`, {
         method: "PATCH",
@@ -3364,7 +3711,8 @@ async function executeLiveTool(params: {
         ok: Boolean(patchRes && patchRes.ok),
         savedSummary: mergedSummary,
         savedTicket: mergedTicket,
-        savedId: String(existingRow.id)
+        savedId: String(existingRow.id),
+        resolvedNow: isResolvedByCallerNow
       }
     }
 
@@ -3375,10 +3723,31 @@ async function executeLiveTool(params: {
         )
       : []
 
+    // COMPUERTA ANTI-RECADO VAGO: en creación inicial de missing_or_wrong_item, exigir saber QUÉ faltó o estuvo mal antes de guardar
+    if (
+      existingCb.length === 0 &&
+      category === "missing_or_wrong_item" &&
+      !isResolvedByCallerNow &&
+      !hasBridgeSpecificOrderIssueDetails(String(toolArgs?.reason_summary || ""), fullUserContext)
+    ) {
+      return {
+        response: {
+          ok: false,
+          success: false,
+          missingOrderIssueDetails: true,
+          message:
+            "Aún no sabes qué platillo o artículo faltó o cuál fue el problema exacto con su orden. Pregúntale primero con amabilidad qué faltó o qué estuvo mal ANTES de registrar el recado al gerente."
+        },
+        shouldEndCall: false,
+        hadCallback: false
+      }
+    }
+
     let savedId: string | null = null
     let savedSummary = finalSummary
     let savedTicket = ticketFormatted
     let wasUpdated = false
+    let wasAutoResolved = false
 
     if (existingCb.length > 0) {
       const pRes = await applyPatchExisting(existingCb[0])
@@ -3386,6 +3755,7 @@ async function executeLiveTool(params: {
       savedSummary = pRes.savedSummary
       savedTicket = pRes.savedTicket
       wasUpdated = true
+      wasAutoResolved = pRes.resolvedNow
     } else {
       const insertBody: Record<string, unknown> = {
         call_id: callId,
@@ -3424,6 +3794,7 @@ async function executeLiveTool(params: {
           savedSummary = pRes.savedSummary
           savedTicket = pRes.savedTicket
           wasUpdated = true
+          wasAutoResolved = pRes.resolvedNow
         }
       } else {
         console.error("[phone-live-bridge] create_manager_callback POST failed:", postRes?.status || "network_error")
@@ -3440,8 +3811,8 @@ async function executeLiveTool(params: {
     }
 
     const callPatch: Record<string, unknown> = {
-      status: "callback_requested",
-      resolved_by_ai: false,
+      status: wasAutoResolved ? "completed" : "callback_requested",
+      resolved_by_ai: wasAutoResolved,
       primary_intent: category
     }
     if (!callHasExistingName) {
@@ -3458,20 +3829,23 @@ async function executeLiveTool(params: {
       response: {
         success: true,
         updatedExisting: wasUpdated,
+        resolvedAutomatically: wasAutoResolved,
         callbackId: savedId,
         routedToStoreName: destDisplay,
         reasonCategory: category,
         storeOpenNow: destSchedEval.isOpenNow,
-        message: wasUpdated
-          ? `Recado actualizado en vivo en la pantalla de ${destDisplay} con todos los detalles acumulados; confírmalo brevemente al cliente.`
-          : category === "condiments_note"
-            ? `Nota de empaque enviada en vivo a ${destDisplay}; recuérdale que se incluirán si la orden aún no ha salido.`
-            : destSchedEval.isOpenNow
-              ? `Alerta prioritaria enviada a la pantalla del gerente de ${destDisplay}; confirma que se comunicarán en cuanto sea posible.`
-              : `Recado registrado en ${destDisplay}; como está cerrada ahora, el gerente se comunicará en cuanto abran.`
+        message: wasAutoResolved
+          ? `Alerta marcada automáticamente como RESUELTA en ${destDisplay} porque el cliente confirmó que encontró su comida; respóndele con calidez que qué bueno que ya la tiene.`
+          : wasUpdated
+            ? `Recado actualizado en vivo en la pantalla de ${destDisplay} con todos los detalles acumulados; confírmalo brevemente al cliente.`
+            : category === "condiments_note"
+              ? `Nota de empaque enviada en vivo a ${destDisplay}; recuérdale que se incluirán si la orden aún no ha salido.`
+              : destSchedEval.isOpenNow
+                ? `Alerta prioritaria enviada a la pantalla del gerente de ${destDisplay}; confirma que se comunicarán en cuanto sea posible.`
+                : `Recado registrado en ${destDisplay}; como está cerrada ahora, el gerente se comunicará en cuanto abran.`
       },
       shouldEndCall: false,
-      hadCallback: true,
+      hadCallback: !wasAutoResolved,
       callbackMeta: {
         id: savedId,
         summary: savedSummary,
@@ -3504,11 +3878,19 @@ function handleTwilioWebSocket(req: Request): Response {
   let callerName = ""
   let callerNameSource = ""
   let authenticated = false
+  let isResumeSession = false
+  let strictEnglishLock = false
+  let strictSpanishLock = false
   let startedAtMs = Date.now()
+  let workerStartedAtMs = Date.now()
+  const WORKER_CPU_REFRESH_AFTER_MS = 140_000
 
   let geminiWs: WebSocket | null = null
   let geminiReady = false
   let closed = false
+  let isRefreshingWorker = false
+  let awaitingRefreshMark = ""
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
   let hadCallback = false
   let latestCallbackId = ""
   let latestCallbackSummary = ""
@@ -3557,6 +3939,75 @@ function handleTwilioWebSocket(req: Request): Response {
         hasGenuineNonLatinCallerTurn = true
       }
       transcript.push({ role: "user", text: clean, timestamp: openUserStartedAtIso || new Date().toISOString() })
+      const wantsEn =
+        activeLang === "es" &&
+        (detectBridgeExplicitEnglishRequest(clean) || (!strictSpanishLock && detectBridgeClearEnglishTurn(clean)))
+      const wantsEs = activeLang === "en" && detectBridgeExplicitSpanishRequest(clean)
+      if (wantsEn) {
+        activeLang = "en"
+        strictEnglishLock = true
+        strictSpanishLock = false
+        if (callSid) {
+          void fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+            method: "PATCH",
+            headers: dbHeaders(),
+            body: JSON.stringify({ language: "en" })
+          }).catch(() => null)
+        }
+        if (geminiReady && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+          try {
+            geminiWs.send(
+              JSON.stringify({
+                clientContent: {
+                  turns: [
+                    {
+                      role: "user",
+                      parts: [
+                        {
+                          text: "[SYSTEM LANGUAGE LOCK: ENGLISH] The caller is speaking English. Respond 100% in warm American English from now on. NEVER switch back to Spanish even if the caller has a Hispanic accent or mentions Mexican food names (champurrado, tamales, mulita, asada, carnitas, quesadilla, horchata), unless they explicitly ask for Spanish."
+                        }
+                      ]
+                    }
+                  ],
+                  turnComplete: false
+                }
+              })
+            )
+          } catch {}
+        }
+      } else if (wantsEs) {
+        activeLang = "es"
+        strictEnglishLock = false
+        strictSpanishLock = true
+        if (callSid) {
+          void fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+            method: "PATCH",
+            headers: dbHeaders(),
+            body: JSON.stringify({ language: "es" })
+          }).catch(() => null)
+        }
+        if (geminiReady && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+          try {
+            geminiWs.send(
+              JSON.stringify({
+                clientContent: {
+                  turns: [
+                    {
+                      role: "user",
+                      parts: [
+                        {
+                          text: "[SYSTEM LANGUAGE LOCK: ESPAÑOL] El cliente solicitó hablar en español. Responde 100% en español cálido del Sur de California a partir de ahora."
+                        }
+                      ]
+                    }
+                  ],
+                  turnComplete: false
+                }
+              })
+            )
+          } catch {}
+        }
+      }
     }
     openUserText = ""
     openUserStartedAtIso = ""
@@ -3623,7 +4074,8 @@ function handleTwilioWebSocket(req: Request): Response {
       `phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,status,primary_intent,unanswered_question,ended_at,duration_seconds,caller_name&limit=1`
     )
     const existing = existingRows[0]
-    const effectiveCb = hadCallback || existing?.status === "callback_requested"
+    let effectiveCb = hadCallback || existing?.status === "callback_requested"
+    let resolvedDuringCall = false
 
     // RED DE SEGURIDAD POST-RECADO: si el cliente dijo detalles sustantivos DESPUÉS de create_manager_callback
     // (ej. "Just tell them no cheese" / "for the taco plate") y Gemini olvidó re-invocar la herramienta, actualizar el recado ahora
@@ -3641,37 +4093,67 @@ function handleTwilioWebSocket(req: Request): Response {
           latestCallbackTicket = String(pendingCb.ticket_or_order_number)
         }
         if (extraUserTurns.length > 0) {
-          const normExistingCb = normalizeSearch(String(pendingCb.reason_summary || ""))
-          const uncaptured = extraUserTurns.filter((u) => {
-            const tokens = normalizeSearch(u)
-              .split(" ")
-              .filter((w) => w.length >= 4 && !["just", "tell", "them", "this", "that", "with", "solo", "diles", "para", "esto"].includes(w))
-            if (tokens.length === 0) return false
-            return !tokens.every((tok) => normExistingCb.includes(tok))
-          })
-          if (uncaptured.length > 0) {
-            const addendumEs = await translatePostCallbackNoteToSpanish(
-              uncaptured,
+          const postJoined = extraUserTurns.join(" | ")
+          if (isBridgeFoundItemOrCancelResolution("", postJoined)) {
+            const resolvedSummary = mergeBridgeCallbackSummaries(
               String(pendingCb.reason_summary || ""),
-              secretsCache?.geminiKeys
+              "[RESUELTO: Cliente confirmó durante la llamada que encontró su comida]"
             )
-            const enrichedSummary = mergeBridgeCallbackSummaries(String(pendingCb.reason_summary || ""), addendumEs)
             await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests?id=eq.${pendingCb.id}`, {
               method: "PATCH",
               headers: dbHeaders(),
-              body: JSON.stringify({ reason_summary: enrichedSummary })
+              body: JSON.stringify({
+                status: "resolved",
+                urgency: "normal",
+                resolved_at: new Date().toISOString(),
+                resolved_by: "Kore IA (cliente encontró su orden)",
+                resolution_notes: "El cliente confirmó durante la llamada que encontró su comida / resolvió el inconveniente.",
+                reason_summary: resolvedSummary
+              })
             }).catch(() => null)
-            latestCallbackSummary = enrichedSummary
+            latestCallbackSummary = resolvedSummary
+            hadCallback = false
+            effectiveCb = false
+            resolvedDuringCall = true
+          } else {
+            const normExistingCb = normalizeSearch(String(pendingCb.reason_summary || ""))
+            const uncaptured = extraUserTurns.filter((u) => {
+              const tokens = normalizeSearch(u)
+                .split(" ")
+                .filter((w) => w.length >= 4 && !["just", "tell", "them", "this", "that", "with", "solo", "diles", "para", "esto"].includes(w))
+              if (tokens.length === 0) return false
+              return !tokens.every((tok) => normExistingCb.includes(tok))
+            })
+            if (uncaptured.length > 0) {
+              const addendumEs = await translatePostCallbackNoteToSpanish(
+                uncaptured,
+                String(pendingCb.reason_summary || ""),
+                secretsCache?.geminiKeys
+              )
+              if (addendumEs) {
+                const enrichedSummary = mergeBridgeCallbackSummaries(String(pendingCb.reason_summary || ""), addendumEs)
+                if (enrichedSummary && enrichedSummary !== String(pendingCb.reason_summary || "").trim()) {
+                  await fetch(`${SUPABASE_URL}/rest/v1/phone_callback_requests?id=eq.${pendingCb.id}`, {
+                    method: "PATCH",
+                    headers: dbHeaders(),
+                    body: JSON.stringify({ reason_summary: enrichedSummary })
+                  }).catch(() => null)
+                  latestCallbackSummary = enrichedSummary
+                }
+              }
+            }
           }
         }
       }
     }
 
-    const nextStatus = effectiveCb
-      ? "callback_requested"
-      : existing?.status && !["in_progress", "completed"].includes(existing.status)
-        ? existing.status
-        : "completed"
+    const nextStatus = resolvedDuringCall
+      ? "completed"
+      : effectiveCb
+        ? "callback_requested"
+        : existing?.status && !["in_progress", "completed"].includes(existing.status)
+          ? existing.status
+          : "completed"
     const resolvedByAi = userTurns.length > 0 && nextStatus === "completed" && !effectiveCb && !existing?.unanswered_question
     const finalSummary = buildBridgeMeaningfulSummary({
       transcript,
@@ -3719,9 +4201,36 @@ function handleTwilioWebSocket(req: Request): Response {
     return snapshotChain
   }
 
+  const refreshWorkerCleanly = async () => {
+    if (closed) return
+    isRefreshingWorker = true
+    closed = true
+    if (refreshTimer) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
+    if (hangupTimer) {
+      clearTimeout(hangupTimer)
+      hangupTimer = null
+    }
+    await toolChain.catch(() => null)
+    try {
+      if (geminiWs && geminiWs.readyState === WebSocket.OPEN) geminiWs.close(1000, "cpu_refresh")
+    } catch {}
+    await persistCallSnapshot(false)
+    try {
+      if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close(1000, "cpu_refresh")
+    } catch {}
+    resolveSessionDone()
+  }
+
   const hangupTwilioCallCleanly = async () => {
     if (closed) return
     closed = true
+    if (refreshTimer) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
     if (hangupTimer) {
       clearTimeout(hangupTimer)
       hangupTimer = null
@@ -3793,6 +4302,11 @@ function handleTwilioWebSocket(req: Request): Response {
           outboundAudioDrainUntilMs = 0
           pendingEndCall = false
           awaitingHangupMark = ""
+          awaitingRefreshMark = ""
+          if (refreshTimer) {
+            clearTimeout(refreshTimer)
+            refreshTimer = null
+          }
           if (hangupTimer) {
             clearTimeout(hangupTimer)
             hangupTimer = null
@@ -3809,6 +4323,21 @@ function handleTwilioWebSocket(req: Request): Response {
           const trimmedIn = openUserText.replace(/\s+/g, " ").trim()
           if (/[\p{Script=Latin}0-9]/u.test(trimmedIn)) {
             suppressNoiseReplyTurn = false
+            if (
+              activeLang === "es" &&
+              !strictSpanishLock &&
+              (detectBridgeExplicitEnglishRequest(trimmedIn) || detectBridgeClearEnglishTurn(trimmedIn))
+            ) {
+              activeLang = "en"
+              strictEnglishLock = true
+              if (callSid) {
+                void fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+                  method: "PATCH",
+                  headers: dbHeaders(),
+                  body: JSON.stringify({ language: "en" })
+                }).catch(() => null)
+              }
+            }
           } else if (isBridgeNonLatinRoadNoise(trimmedIn, hasLatinCallerTurn)) {
             suppressNoiseReplyTurn = true
           }
@@ -3936,6 +4465,17 @@ function handleTwilioWebSocket(req: Request): Response {
             hangupTimer = setTimeout(() => {
               void hangupTwilioCallCleanly()
             }, 6500)
+          } else if (
+            Date.now() - workerStartedAtMs >= WORKER_CPU_REFRESH_AFTER_MS &&
+            !awaitingRefreshMark &&
+            !isRefreshingWorker
+          ) {
+            awaitingRefreshMark = markName
+            void persistCallSnapshot(false)
+            if (refreshTimer) clearTimeout(refreshTimer)
+            refreshTimer = setTimeout(() => {
+              void refreshWorkerCleanly()
+            }, 4500)
           } else {
             void persistCallSnapshot(false)
           }
@@ -4025,10 +4565,13 @@ function handleTwilioWebSocket(req: Request): Response {
 
     gws.onclose = () => {
       if (!closed) {
+        const shouldReconnectViaResume = !pendingEndCall && !isRefreshingWorker && twilioWs.readyState === WebSocket.OPEN
         closed = true
-        void persistCallSnapshot(true).finally(() => {
+        void persistCallSnapshot(!shouldReconnectViaResume).finally(() => {
           try {
-            if (twilioWs.readyState === WebSocket.OPEN) twilioWs.close(1000, "upstream_closed")
+            if (twilioWs.readyState === WebSocket.OPEN) {
+              twilioWs.close(1000, shouldReconnectViaResume ? "upstream_reconnect" : "upstream_closed")
+            }
           } catch {}
           resolveSessionDone()
         })
@@ -4055,10 +4598,10 @@ function handleTwilioWebSocket(req: Request): Response {
 
     if (res.speechActive && res.writtenBytes > 0) {
       silenceFramesTotal = 0
-      postSpeechSilenceRemaining = 8 // 800 ms post-voz enviando cada 100 ms para disparo ágil de Gemini VAD
+      postSpeechSilenceRemaining = 14 // 1,400 ms post-voz enviando cada 100 ms acorde a silenceDurationMs: 1050
       if (res.pcmBytes.buffer === speechBatchBuf.buffer) {
         speechBatchPos += res.writtenBytes
-        if (speechBatchPos >= 1920) {
+        if (speechBatchPos >= 3200) {
           flushSpeechBatchToGemini()
         }
       } else {
@@ -4106,9 +4649,12 @@ function handleTwilioWebSocket(req: Request): Response {
       callerNumber = String(cp.callerNumber || "").trim()
       callerName = String(cp.callerName || "").trim()
       callerNameSource = String(cp.callerNameSource || "").trim()
+      isResumeSession = cp.resume === "1"
+      strictEnglishLock = activeLang === "en"
       const ts = Number(cp.ts || 0)
       const sig = String(cp.sig || "").trim()
-      startedAtMs = Date.now()
+      workerStartedAtMs = Date.now()
+      startedAtMs = workerStartedAtMs
 
       try {
         secretsCache = await loadSecrets()
@@ -4125,6 +4671,57 @@ function handleTwilioWebSocket(req: Request): Response {
         }
         authenticated = true
 
+        let resumedTurnsSeed: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> | null = null
+        if (isResumeSession && callSid) {
+          const prevRows = await pgSelect(
+            `phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id,status,language,caller_name,caller_name_source,primary_intent,transcript,created_at&limit=1`
+          )
+          const prev = prevRows[0]
+          if (prev) {
+            if (prev.language === "en" || prev.language === "es") {
+              activeLang = prev.language
+              strictEnglishLock = activeLang === "en"
+            }
+            if (!callerName && prev.caller_name) {
+              callerName = String(prev.caller_name)
+              callerNameSource = String(prev.caller_name_source || callerNameSource)
+            }
+            if (prev.primary_intent) latestIntent = String(prev.primary_intent)
+            if (prev.created_at) {
+              const origMs = Date.parse(String(prev.created_at))
+              if (Number.isFinite(origMs) && origMs > 0) startedAtMs = origMs
+            }
+            if (Array.isArray(prev.transcript) && prev.transcript.length > 0) {
+              for (const entry of prev.transcript) {
+                if (entry && (entry.role === "user" || entry.role === "assistant" || entry.role === "tool") && typeof entry.text === "string") {
+                  transcript.push({
+                    role: entry.role,
+                    text: entry.text,
+                    timestamp: String(entry.timestamp || new Date().toISOString()),
+                    ...(entry.toolName ? { toolName: String(entry.toolName) } : {})
+                  })
+                  if (entry.role === "user" && /[\p{Script=Latin}]{2,}/u.test(entry.text)) {
+                    hasLatinCallerTurn = true
+                  }
+                }
+              }
+            }
+            if (prev.id) {
+              const cbRows = await pgSelect(
+                `phone_callback_requests?call_id=eq.${prev.id}&status=eq.pending&select=id,caller_name,reason_summary,ticket_or_order_number,reason_category&limit=1`
+              )
+              if (cbRows[0]) {
+                hadCallback = true
+                latestCallbackId = String(cbRows[0].id || "")
+                latestCallbackSummary = String(cbRows[0].reason_summary || "")
+                latestCallbackCallerName = String(cbRows[0].caller_name || "")
+                latestCallbackTicket = cbRows[0].ticket_or_order_number ? String(cbRows[0].ticket_or_order_number) : null
+                if (cbRows[0].reason_category) latestIntent = String(cbRows[0].reason_category)
+              }
+            }
+          }
+        }
+
         // Si el WS abrió sin callerName (ej. Lookup v2 terminó durante el aviso CIPA o vino de /api/phone/incoming), resolver en ~12ms desde RPC/caché
         if (!callerName && callerNumber) {
           const wsIdentity = await resolveBridgeCallerIdentity({
@@ -4140,11 +4737,31 @@ function handleTwilioWebSocket(req: Request): Response {
         }
 
         bridgeData = await getPrewarmedOrBuildBridgeData(storeId, activeLang, callerNumber, callerName, callerNameSource)
-        transcript.push({
-          role: "assistant",
-          text: bridgeData.greetings.fullGreeting,
-          timestamp: new Date().toISOString()
-        })
+        if (!isResumeSession || transcript.length === 0) {
+          transcript.push({
+            role: "assistant",
+            text: bridgeData.greetings.fullGreeting,
+            timestamp: new Date().toISOString()
+          })
+        } else {
+          const dialogTurns = transcript.filter(
+            (e) => (e.role === "user" || e.role === "assistant") && String(e.text || "").trim().length > 0
+          ).slice(-18)
+          const resumeBanner =
+            activeLang === "en"
+              ? "[SEAMLESS AUDIO CHANNEL REFRESH — DO NOT RE-GREET. STAY STRICTLY LOCKED IN ENGLISH. Continue naturally from the conversation below and listen to the caller.]"
+              : "[RECONEXIÓN TRANSPARENTE DE AUDIO — NO VUELVAS A SALUDAR. Mantén el idioma activo y continúa la conversación exactamente donde quedó escuchando al cliente.]"
+          resumedTurnsSeed = [{ role: "user", parts: [{ text: resumeBanner }] }]
+          for (const d of dialogTurns) {
+            const r: "user" | "model" = d.role === "assistant" ? "model" : "user"
+            const last = resumedTurnsSeed[resumedTurnsSeed.length - 1]
+            if (last && last.role === r) {
+              last.parts[0].text += ` | ${d.text}`
+            } else {
+              resumedTurnsSeed.push({ role: r, parts: [{ text: d.text }] })
+            }
+          }
+        }
 
         const setupPayload = {
           model: GEMINI_LIVE_MODEL,
@@ -4159,7 +4776,7 @@ function handleTwilioWebSocket(req: Request): Response {
               startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
               endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
               prefixPaddingMs: 120,
-              silenceDurationMs: 550
+              silenceDurationMs: 1050
             }
           },
           systemInstruction: { parts: [{ text: bridgeData.systemText }] },
@@ -4168,18 +4785,20 @@ function handleTwilioWebSocket(req: Request): Response {
           outputAudioTranscription: {}
         }
 
-        // En paralelo: enviar "¿En qué te ayudo hoy?" al instante en cuanto cargue sin esperar a Gemini (~550 ms)
-        const promptPromise = fetchMulawPromptClip(
-          secretsCache.publicAppBaseUrl,
-          secretsCache.ttsSigningSecret,
-          bridgeData.greetings.questionOnly,
-          activeLang
-        ).then((clip) => {
-          if (!closed && clip && clip.length > 0 && turnCounter === 0) {
-            sendMulawToTwilio(clip)
-          }
-          return clip
-        })
+        // En llamada nueva: enviar "¿En qué te ayudo hoy?" al instante. En relevo resume=1: silencio total sin re-saludar.
+        const promptPromise = isResumeSession
+          ? Promise.resolve(null)
+          : fetchMulawPromptClip(
+              secretsCache.publicAppBaseUrl,
+              secretsCache.ttsSigningSecret,
+              bridgeData.greetings.questionOnly,
+              activeLang
+            ).then((clip) => {
+              if (!closed && clip && clip.length > 0 && turnCounter === 0) {
+                sendMulawToTwilio(clip)
+              }
+              return clip
+            })
 
         const connectedGws = await connectGeminiLiveWithHedge(secretsCache.geminiKeys, setupPayload)
         await promptPromise.catch(() => null)
@@ -4194,11 +4813,11 @@ function handleTwilioWebSocket(req: Request): Response {
         geminiWs = connectedGws
         attachGeminiHandlers(connectedGws)
 
-        // Sembrar el saludo ya dicho para que Kore NO salude dos veces y escuche de inmediato
+        // Sembrar historial previo (en resume=1) o saludo ya dicho (en inicio) para continuidad exacta
         connectedGws.send(
           JSON.stringify({
             clientContent: {
-              turns: [
+              turns: resumedTurnsSeed || [
                 { role: "user", parts: [{ text: "[TELEPHONE LINE CONNECTED]" }] },
                 { role: "model", parts: [{ text: bridgeData.greetings.fullGreeting }] }
               ],
@@ -4242,14 +4861,23 @@ function handleTwilioWebSocket(req: Request): Response {
       const digit = String(msg.dtmf?.digit || "")
       if (digit === "9" && geminiReady && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
         activeLang = activeLang === "en" ? "es" : "en"
+        strictEnglishLock = activeLang === "en"
+        strictSpanishLock = activeLang === "es"
+        if (callSid) {
+          void fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+            method: "PATCH",
+            headers: dbHeaders(),
+            body: JSON.stringify({ language: activeLang })
+          }).catch(() => null)
+        }
         outResampler.reset()
         if (streamSid && twilioWs.readyState === WebSocket.OPEN) {
           twilioWs.send(JSON.stringify({ event: "clear", streamSid }))
         }
         const cue =
           activeLang === "en"
-            ? "[CALLER PRESSED 9 TO SWITCH TO ENGLISH] Switch to warm American English immediately and say: Of course, we can continue in English! How can I help you today?"
-            : "[EL CLIENTE PRESIONÓ 9 PARA ESPAÑOL] Cambia a español de inmediato y di: Con gusto continuamos en español. ¿En qué te ayudo hoy?"
+            ? "[CALLER PRESSED 9 — STRICT ENGLISH LOCK ENABLED] Switch IMMEDIATELY to warm American English and STAY 100% IN ENGLISH for the rest of the call, even if the caller has a Hispanic accent or mentions Mexican food words (champurrado, tamales, mulita, asada, carnitas, quesadilla). Say warmly: Of course, we can continue in English! How can I help you today?"
+            : "[EL CLIENTE PRESIONÓ 9 PARA ESPAÑOL — BLOQUEO EN ESPAÑOL] Cambia a español de inmediato y mantente en español cálido del Sur de California. Di: Con gusto continuamos en español. ¿En qué te ayudo hoy?"
         geminiWs.send(
           JSON.stringify({
             clientContent: {
@@ -4273,6 +4901,15 @@ function handleTwilioWebSocket(req: Request): Response {
         setTimeout(() => {
           void hangupTwilioCallCleanly()
         }, 250)
+      } else if (awaitingRefreshMark && mName === awaitingRefreshMark) {
+        awaitingRefreshMark = ""
+        if (refreshTimer) {
+          clearTimeout(refreshTimer)
+          refreshTimer = null
+        }
+        setTimeout(() => {
+          void refreshWorkerCleanly()
+        }, 120)
       }
       return
     }
@@ -4280,6 +4917,10 @@ function handleTwilioWebSocket(req: Request): Response {
     if (msg.event === "stop") {
       if (!closed) {
         closed = true
+        if (refreshTimer) {
+          clearTimeout(refreshTimer)
+          refreshTimer = null
+        }
         if (hangupTimer) {
           clearTimeout(hangupTimer)
           hangupTimer = null
@@ -4329,6 +4970,10 @@ function handleTwilioWebSocket(req: Request): Response {
   twilioWs.onclose = () => {
     if (!closed) {
       closed = true
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+        refreshTimer = null
+      }
       if (hangupTimer) {
         clearTimeout(hangupTimer)
         hangupTimer = null
@@ -4355,7 +5000,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v12",
+      version: "v14",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"

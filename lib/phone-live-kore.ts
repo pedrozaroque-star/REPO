@@ -72,6 +72,9 @@ import {
   buildMeaningfulCallSummary,
   extractSubstantivePostCallbackUserTurns,
   formatLast4ForSpeech,
+  hasSpecificOrderIssueDetails,
+  isFoundItemOrCancelResolution,
+  mergeCallbackReasonSummaries,
   normalizeUsPhoneDigits10
 } from '@/lib/phone-caller-id'
 import { loadActivePhoneLearnedRules } from '@/lib/phone-agent-learning'
@@ -114,6 +117,7 @@ export const PHONE_KORE_LIVE_WS_CONSTRAINED_URL = KORE_WS_CONSTRAINED_URL
 export const SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL =
   process.env.PHONE_LIVE_BRIDGE_WSS_URL ||
   'wss://ywwwdcvgfculqmcfkihq.supabase.co/functions/v1/phone-live-bridge'
+export const SUPABASE_PHONE_LIVE_BRIDGE_HTTP_URL = SUPABASE_PHONE_LIVE_BRIDGE_WSS_URL.replace(/^wss:/i, 'https:')
 
 const SPOKEN_DIGIT_MAP: Readonly<Record<string, string>> = Object.freeze({
   cero: '0',
@@ -457,8 +461,8 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
 
   const baseLangAnchor =
     lang === 'en'
-      ? `ACTIVE BASE LANGUAGE: ENGLISH (primary: Spanish & English; universal multilingual mirror & strict session_language lock enabled). Greeted in English. Mirror the caller's spoken language on complete sentences: if Spanish, answer 100% in Southern California Mexican Spanish; if English, answer 100% in warm American English (NEVER switch languages on brief interjections like "no my god", "oh my god", "okay", "bye", "un", and NEVER respond to or switch language on strange characters caused by road/engine noise like "क्या से है..."). If the caller genuinely initiates clear restaurant/customer sentences in a 3rd language (Korean, Chinese Mandarin/Cantonese, Japanese, Portuguese, French, Tagalog, Vietnamese, Arabic, Russian, Armenian, Hindi, German, Italian, or [SYSTEM LANGUAGE SWITCH -> ...]), keep session_language STRICTLY LOCKED to that language throughout the call (ignoring background bystander remarks like "Las dos se quedaron calladas" unless the caller explicitly requests "in Spanish" / "in English"), keeping Tacos Gavilan dish names clear, prices strictly in USD dollars ($), and obeying all business rules.`
-      : `IDIOMA BASE ACTIVO: ESPAÑOL (principales: Español e Inglés; espejo multilingüe universal y bloqueo estricto session_language activos). Ya saludaste en español. Mientras la llamada transcurra en español o inglés, responde 100% en español cálido del Sur de California (o 100% en inglés si el llamante habla oraciones completas claras en inglés o presiona 9), JAMÁS saltes al inglés por muletillas aisladas como "no my god", "oh my god", "okay", "bye" o "un", y JAMÁS cambies de idioma ni respondas a sílabas/caracteres extraños generados por ruido vial o de motor ("क्या से है..."). Y si el llamante inicia genuinamente con oraciones claras de consulta/restaurante en un 3.er idioma (Coreano, Chino Mandarín/Cantonés, Japonés, Portugués, Francés, Tagalo, Vietnamita, Árabe, Ruso, Armenio, Hindi, Alemán, Italiano o recibes [SYSTEM LANGUAGE SWITCH -> ...]), mantén session_language ESTRICTAMENTE FIJO en ese idioma durante toda la llamada (ignorando voces externas de fondo como "Las dos se quedaron calladas" salvo petición explícita "en español" / "in English"), manteniendo claros los platillos de Tacos Gavilan, precios en dólares USD ($) y el 100% de reglas del negocio.`
+      ? `ACTIVE BASE LANGUAGE: ENGLISH — STRICT ENGLISH LOCK ENABLED. You are speaking with an English-speaking caller. Respond 100% in warm, natural American English throughout the ENTIRE call. STRICTLY FORBIDDEN to switch back to Spanish just because the caller has a Hispanic/bilingual accent, says Mexican food names (champurrado, tamales, mulita, asada, carnitas, quesadilla, horchata, salsa, chiles), or says a brief filler word. Switch to Spanish ONLY if the caller explicitly requests "en español" / "habla español" or presses 9. NEVER respond to strange non-Latin characters from road/engine noise ("क्या से है..."). If the caller genuinely initiates clear restaurant/customer sentences in a 3rd language (or [SYSTEM LANGUAGE SWITCH -> ...]), keep session_language STRICTLY LOCKED to that language, keeping prices strictly in USD ($).`
+      : `IDIOMA BASE ACTIVO: ESPAÑOL — CAMBIO INMEDIATO A INGLÉS + BLOQUEO ESTRICTO. Ya saludaste en español. REGLA CRÍTICA DE IDIOMA: (1) Si el cliente responde en INGLÉS con una oración clara (ej. "Hello, I was wondering...", "Hi, are you open right now?", "How much is a party tray?") SIN haber presionado 9, CAMBIA DE INMEDIATO desde ese MISMO primer turno a inglés americano cálido y natural — NUNCA le respondas en español ni esperes a que diga "English" — y una vez en inglés, QUÉDATE 100% BLOQUEADO EN INGLÉS el resto de la llamada incluso si tiene acento hispano o dice nombres de comida mexicana (champurrado, tamales, mulita, carnitas, asada, quesadilla). (2) Si habla español, responde en español cálido del Sur de California y JAMÁS saltes al inglés por muletillas aisladas ("okay", "bye", "oh my god"). (3) JAMÁS cambies de idioma ni respondas a ruido vial/motor ("क्या से है..."). (4) Si el llamante inicia genuinamente oraciones claras en un 3.er idioma (o [SYSTEM LANGUAGE SWITCH -> ...]), mantén session_language fijo en ese idioma, siempre con precios en USD ($).`
 
   const callbackOutcomeInstruction = scheduleEval.isOpenNow
     ? 'confirma con calidez que el gerente en turno ya recibió la alerta prioritaria en su pantalla y se comunicará en cuanto sea posible / as soon as possible (PROHIBIDO prometer "enseguida", "de inmediato", "ahorita", "right away" o "immediately").'
@@ -470,11 +474,13 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
   const callerTen = source === 'twilio' ? normalizeUsPhoneDigits10(callerNumber) : null
   const safeCallerE164 = callerTen && !ownPromptTen.has(callerTen) ? `+1${callerTen}` : null
   const callerLast4Spoken = safeCallerE164 ? formatLast4ForSpeech(safeCallerE164) : null
-  const cleanPromptCallerName = String(callerName || '').trim()
-  const isHighConfCallerName = ['employee', 'store', 'vendor', 'loyalty', 'returning_caller'].includes(String(callerNameSource || ''))
+  // PRIVACIDAD ESTRICTA (CCPA/CPRA — Privacy by Design): callerName / callerNameSource del directorio interno o CNAM
+  // se almacenan únicamente en phone_calls para /admin/llamadas y JAMÁS se inyectan en el prompt verbal de Kore.
+  void callerName
+  void callerNameSource
   const callerIdGuidanceLine =
     safeCallerE164 && callerLast4Spoken
-      ? `   - **IDENTIFICADOR DE LLAMADAS ACTIVO (Caller ID — CERO DICTADO INNECESARIO DE 10 DÍGITOS)**: Twilio ya detectó el teléfono real del llamante (${safeCallerE164}, terminado en ${callerLast4Spoken})${cleanPromptCallerName ? ` y el identificador muestra el nombre "${cleanPromptCallerName}" (${isHighConfCallerName ? 'directorio/historial Tacos Gavilan' : 'Caller ID CNAM — puede ser nombre legal o de familiar'})` : ''}. **PROHIBIDO hacer que el cliente dicte los 10 dígitos de su teléfono**: cuando necesites teléfono para cualquier recado o nota de empaque, SOLO confirma en la misma pregunta si podemos contactarle al mismo número terminado en ${callerLast4Spoken} (ES: "¿Te podemos contactar a este mismo número terminado en ${callerLast4Spoken}, o prefieres otro?" / EN: "Is this number ending in ${callerLast4Spoken} the best one to reach you, or would you prefer another?"). Si responde que sí o no da otro, envía \`caller_phone: "CALLER_ID"\`. Solo pide otro número de 10 dígitos si indica que prefiere uno distinto.${cleanPromptCallerName ? (isHighConfCallerName ? ` Para el nombre, confírmalo de forma natural en la misma pregunta (ES: "¿Hablo con ${cleanPromptCallerName}?" / EN: "Am I speaking with ${cleanPromptCallerName}?") y guarda siempre el nombre que confirme.` : ` Para el nombre, confírmalo con tacto (ES: "¿Me confirmas tu nombre? Me aparece ${cleanPromptCallerName}" / EN: "Could you confirm your name? I see ${cleanPromptCallerName} on Caller ID") y guarda SIEMPRE el nombre que indique la persona.`) : ''}`
+      ? `   - **IDENTIFICADOR DE TELÉFONO ACTIVO (Caller ID — SOLO ÚLTIMOS 4 DÍGITOS, PRIVACIDAD ESTRICTA DE NOMBRE)**: Twilio ya detectó el teléfono desde el que llama (${safeCallerE164}, terminado en ${callerLast4Spoken}). **PROHIBIDO hacer que el cliente dicte los 10 dígitos de su teléfono**: cuando necesites datos para cualquier recado o nota de empaque, pide SIEMPRE su nombre de viva voz y en la misma pregunta SOLO confirma si podemos contactarle a este mismo número terminado en ${callerLast4Spoken} (ES: "¿Me compartes tu nombre y me confirmas si te podemos contactar a este mismo número terminado en ${callerLast4Spoken}, o prefieres otro?" / EN: "May I have your name, and is this number ending in ${callerLast4Spoken} the best one to reach you, or would you prefer another?"). Si responde que sí o no da otro teléfono, envía \`caller_phone: "CALLER_ID"\`. Solo pide otro número de 10 dígitos si indica que prefiere uno distinto. Por privacidad, JAMÁS adivines ni asumas el nombre de quien llama.`
       : `   - **Sin Caller ID visible**: solicita amablemente nombre real y teléfono de 10 dígitos con código de área.`
 
   const systemText = [
@@ -488,6 +494,9 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo "Broadway", "Central", "Slauson", "LA Broadway" o "LA Central". SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway, en Los Ángeles); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, en Los Ángeles, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway, en Los Ángeles).${isLosAngelesCrossStore ? ` Al dar la dirección de esta sucursal di siempre "${spokenStoreAddress}, en Los Ángeles, en la esquina de ${customerBranchCrossStreets}".` : ''} Pronuncia las calles completas sin abreviaturas ("South", "East", "Avenue", "Boulevard", "Road", "Highway").`,
     `4. HORARIOS Y DESAYUNOS EN VIVO (Hoy ${['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'][ptNow.dayOfWeek]} ${ptNow.dateStr}, ${breakfastWin.localTimeLabel} PT${ptNow.hour < 6 ? ' — ES MADRUGADA: si reabrimos esta misma mañana, di SIEMPRE "hoy" / "today", JAMÁS "mañana" / "tomorrow"' : ''}):`,
     `   - Estado actual de esta sucursal: ${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}`,
+    !scheduleEval.isOpenNow
+      ? `   - **ALERTA ROJA — SUCURSAL CERRADA EN ESTE MOMENTO (CRÍTICO PARA UBER EATS / DOORDASH / SISTEMAS AUTOMÁTICOS)**: Esta sucursal está **CERRADA AHORA MISMO** (${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}). Si alguien o un sistema automático pregunta "are you open right now?", "just double checking you're actually open" o "¿están abiertos ahorita?", **ESTÁ ESTRICTAMENTE PROHIBIDO** comenzar con "Yes" / "Sí" o decir "we are definitely open for business". Empieza SIEMPRE de forma rotunda con **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** y luego indica la hora de apertura.`
+      : '',
     `   - Horario semanal: ${scheduleEval.weeklySummaryEs}`,
     `   - Próximos festivos oficiales: ${holidaysSummary || 'Viernes Santo y Navidad cerrado; Thanksgiving, 24 dic y 31 dic cierra 4:00 PM; 1 ene y Black Friday abre 11:00 AM.'}`,
     `   - **Desayunos (15 sucursales)**: Disponibles todos los días desde que abrimos hasta las **${KORE_BREAKFAST_CUTOFF_LABEL}** (${breakfastWin.open && scheduleEval.isOpenNow ? 'AHORA DISPONIBLES' : 'YA TERMINARON POR HOY — ofrecer menú regular'}). **Café caliente (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ están disponibles TODO EL DÍA**.`,
@@ -500,7 +509,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - PROHIBIDO decir "tamaño" o "size" en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; "Supreme/Supremo" = Super). Diferencia exacta: Burrito Regular = carne, arroz y frijol (Super suma queso Monterey Jack, guacamole y crema); **Mulita y Quesadilla Regular YA incluyen queso Monterey Jack derretido** (Super solo suma guacamole y crema). Si preguntan qué sale más barato al quitar un ingrediente de un Super (ej. Mulita sin crema), calcula con exactitud los precios del catálogo en vivo antes de responder (nunca afirmes sin sumar que Super siempre es más barato).`,
     `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas). PROHIBIDO decir "chica", "pequeña" o "small".`,
     `   - Postres: **SOLO Flan y Cheesecake individuales**. NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni cerveza/alcohol.`,
-    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se ordenan en **tacosgavilan.com** con mínimo 1 hora de anticipación (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. "ya los quiero para ahorita en media hora", "¿qué hago?"), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para atender su evento hoy mismo: **(a)** pasar directo al mostrador${store.has_drive_thru ? ' o al Drive-Thru' : ''} para prepararles al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y teléfono de 10 dígitos con \`create_manager_callback\` (\`urgency: "high"\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
+    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se pueden ordenar **directamente en caja/mostrador**, en línea en **tacosgavilan.com** (para recoger o con envío vía \`order.online\`) o en **plataformas de delivery (Uber Eats, DoorDash, Grubhub)** con mínimo **1 hora de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. "ya los quiero para ahorita en media hora", "¿qué hago?"), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para atender su evento hoy mismo: **(a)** pasar directo al mostrador${store.has_drive_thru ? ' o al Drive-Thru' : ''} para prepararles al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y teléfono de 10 dígitos con \`create_manager_callback\` (\`urgency: "high"\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
     `   - Correcciones fonéticas naturales (ES + EN): "torta corona"/"cubana crota"="torta cubana", "sasada"/"a sada"/"salad burrito"/"pasada"/"hadas"="asada", "adobada"/"al pasture"="pastor", "muleta"/"moo lita"/"malita"="mulita", "case a dia"="quesadilla", "so pay"/"soapy"="sope", "or chata"="horchata", "a plan"="flan" (en comida/postre), "whole beans"/"whole pinto beans"/"pot beans"="frijol de la olla ($0.00)", "Dortmund"/"Door Dash"="DoorDash", "ibt"/"evt"/"tarjetas abc"="EBT", "dritro"/"through the drive"="Drive-Thru". Ignora ruido de TV/radio de fondo.`,
     `8. RECADOS AL GERENTE, NOTAS DE EMPAQUE Y RECLAMOS CON VALIDACIÓN REAL DE TICKET (CERO TRANSFERENCIAS TELEFÓNICAS):`,
     `   - Nunca transferimos llamadas a celulares personales. Toda atención gerencial se envía en vivo a la pantalla de la tienda con \`create_manager_callback\` y \`reason_summary\` SIEMPRE EN ESPAÑOL.`,
@@ -509,8 +518,8 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - **Condimentos gratis en orden existente vs productos pagados**: para salsas, chiles, limones, cebollas o servilletas gratis en una orden YA hecha (sin costo), pregunta qué condimentos desea, nombre, número/código de orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}) -> ejecuta \`create_manager_callback\` (\`reason_category: "condiments_note"\`, \`urgency: "normal"\`) aclarando que se incluyen sin costo si la orden aún no ha salido (para agregar comida o bebidas con costo diles que deben pedirlas aparte en **tacosgavilan.com** o en caja).`,
     `   - **Uber Eats / DoorDash / Grubhub (Estatus y Ajustes Sin Costo)**: si preguntan el estatus real de una orden de delivery o pickup por nombre/código (ej. "Enrique 012234" o "Asia"), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir "estoy revisando". Cambios con costo, agregar comida, dirección, cancelaciones o reembolsos se gestionan en **Ayuda (Help)** de su app. Para un **ajuste menor sin costo** en una orden activa (ej. quitar queso, cebolla o cilantro) o avisar retraso al gerente, pregunta **qué ajuste exacto y en qué platillo**, su nombre, código de orden (si no lo tiene, usa "SIN TICKET" sin bucle) y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}) -> \`create_manager_callback\` (\`reason_category: "delivery_issue"\`), aclarando que aplica solo si cocina aún no ha sellado la orden.`,
     `   - **Pidió en sucursal equivocada en tacosgavilan.com**: pregunta en cuál sucursal cayó, nombre, orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}), y llama \`create_manager_callback\` con \`target_store_id\` de esa tienda (\`reason_category: "wrong_store_order"\`).`,
-    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL OBLIGATORIA)**: solicita con respeto los **4 datos obligatorios**: **1) número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : '10 dígitos'})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** (*"Without the ticket number, it is unlikely we can verify the mistake"*). **REGLA CRÍTICA**: en cuanto el cliente te diga un número de ticket u orden (ej. "el ticket es el 1600 del día de hoy"), **INVOCA DE INMEDIATO \`validate_order_ticket\`**: si \`found: true\`, confirma que ya localizaste su orden en el sistema y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (incluyendo si el sistema indica el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si el cliente confirma que no lo encuentra, lo tiró o no lo tiene, NO lo atrapes repitiendo la petición del ticket: pasa de inmediato a registrar el recado con \`ticket_or_order_number: "SIN TICKET"\` sin prometer reposición. Cuando invoques una herramienta bloqueante espera su resultado en silencio (NO repitas dos veces "Gracias, solo me falta..."). EJECUTA \`create_manager_callback\` ANTES de confirmar al cliente, y luego ${callbackOutcomeInstruction}`,
-    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta confirma nombre, teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone="CALLER_ID"` : 'real de 10 dígitos'}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin volver a frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmarlo y ${callbackOutcomeInstruction}`,
+    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL + DETALLE OBLIGATORIO)**: ANTES de guardar el recado DEBES saber **qué platillo faltó o qué estuvo mal** (PROHIBIDO guardar un recado vago tipo "problema en Drive-Thru" sin preguntar primero qué faltó). Solicita con respeto los **4 datos obligatorios**: **1) qué artículo faltó/estuvo mal + número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : '10 dígitos'})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** (*"Without the ticket number, it is unlikely we can verify the mistake"*). **REGLA CRÍTICA DE SUCURSAL Y TICKET**: en cuanto el cliente te diga un número de ticket u orden, **INVOCA DE INMEDIATO \`validate_order_ticket\`** — **Y SI EL CLIENTE MENCIONA OTRA SUCURSAL** (ej. South Gate #15, Lynwood #14), **PASA SIEMPRE SU \`target_store_id\`** en \`validate_order_ticket\` ANTES de decirle que no existe. Si \`found: true\`, confirma que ya localizaste su orden en el sistema y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (incluyendo el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si confirma que no lo tiene, pasa directo a registrar con \`ticket_or_order_number: "SIN TICKET"\` sin prometer reposición. **SI ENCUENTRA SU COMIDA DURANTE LA LLAMADA**, vuelve a invocar \`create_manager_callback\` indicando que encontró su platillo para cerrar la alerta automáticamente. Cuando invoques una herramienta bloqueante espera su resultado en silencio. EJECUTA \`create_manager_callback\` ANTES de confirmar al cliente, y luego ${callbackOutcomeInstruction}`,
+    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta pide su nombre, confirma teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone="CALLER_ID"` : 'real de 10 dígitos'}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin volver a frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmarlo y ${callbackOutcomeInstruction}`,
     `9. CERO CUELGUES ANTE FRUSTRACIÓN, REPETICIÓN COMPLETA Y CIERRE LIMPIO: Si el cliente te interrumpe diciendo "¿qué?", "perdón" o "repite" mientras enumerabas algo, repite la lista COMPLETA desde el principio (incluyendo el primer elemento). **PROHIBIDO COLGAR O INVOCAR \`end_call\`** si el cliente expresa frustración, molestia, queja, "¿qué hago?", **"me voy con la competencia"** o **"¿por qué me colgaste?"** sin despedirse explícitamente ("adiós", "bye", "hasta luego", "eso es todo, gracias"): ante frustración retén al cliente con empatía ofreciendo alternativas inmediatas o avisar urgente al gerente en turno (y si pregunta por qué se cortó una llamada anterior, discúlpate con calidez explicando que nunca colgamos a propósito y atiéndelo al instante). Tampoco invoques \`end_call\` cuando solo diga "okay, gracias", "gracias" o "perfecto" (pregunta primero "¿Te puedo ayudar con algo más?"). Solo cuando confirme explícitamente que terminó o se despida ("es todo, gracias", "no gracias, bye", "adiós", "that's all, thank you"), despídete cálidamente en una oración sin preguntas e invoca \`end_call\`.`,
     config.parking_notes_es ? `Notas de estacionamiento (ES): ${config.parking_notes_es}` : '',
     config.parking_notes_en ? `Parking notes (EN): ${config.parking_notes_en}` : '',
@@ -519,7 +528,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     directoryLines,
     crossComparison ? `\nCOMPARATIVA HORARIA:\n${crossComparison}` : '',
     '',
-    `CHAROLAS FIESTA PLATTER (tacosgavilan.com, mín. 1h anticipación):`,
+    `CHAROLAS FIESTA PLATTER (en caja, tacosgavilan.com / order.online o apps de delivery, mín. 1h anticipación):`,
     plattersSummary,
     '',
     kbLines ? `BASE DE CONOCIMIENTO OFICIAL:\n${kbLines}\n` : '',
@@ -1213,6 +1222,80 @@ async function executePhoneKoreLiveToolCore(params: {
         ? `[Llamó a #${store.id} ${customerBranchDisplay} -> Enrutada a #${destStore.id} ${destDisplay}] ${summaryWithTag}`
         : summaryWithTag
 
+    const existingPendingCb = callRow?.id
+      ? (
+          await supabaseAdmin
+            .from('phone_callback_requests')
+            .select('id, reason_summary')
+            .eq('call_id', callRow.id)
+            .eq('status', 'pending')
+            .maybeSingle()
+        ).data
+      : null
+
+    const isResolvedByCallerNow = isFoundItemOrCancelResolution(
+      String(toolArgs?.reason_summary || ''),
+      recentUserTranscript
+    )
+
+    if (
+      !existingPendingCb &&
+      category === 'missing_or_wrong_item' &&
+      !isResolvedByCallerNow &&
+      !hasSpecificOrderIssueDetails(String(toolArgs?.reason_summary || ''), recentUserTranscript)
+    ) {
+      return {
+        response: {
+          ok: false,
+          success: false,
+          missingOrderIssueDetails: true,
+          message:
+            'Aún no sabes qué platillo o artículo faltó o cuál fue el problema exacto con su orden. Pregúntale primero con amabilidad qué faltó o qué estuvo mal ANTES de registrar el recado al gerente.'
+        },
+        callbackCreated: null,
+        unansweredFlagged: null,
+        shouldEndCall: false
+      }
+    }
+
+    if (existingPendingCb && isResolvedByCallerNow) {
+      const resolvedSummary = mergeCallbackReasonSummaries(
+        String(existingPendingCb.reason_summary || ''),
+        `${finalSummary} [RESUELTO: Cliente confirmó que encontró su comida durante la llamada]`
+      )
+      await supabaseAdmin
+        .from('phone_callback_requests')
+        .update({
+          status: 'resolved',
+          urgency: 'normal',
+          resolved_at: new Date().toISOString(),
+          resolved_by: 'Kore IA (cliente encontró su orden)',
+          resolution_notes: 'El cliente confirmó durante la llamada que encontró su comida / ya no requiere seguimiento.',
+          reason_summary: resolvedSummary
+        })
+        .eq('id', existingPendingCb.id)
+      await supabaseAdmin
+        .from('phone_calls')
+        .update({ status: 'completed', resolved_by_ai: true, primary_intent: category })
+        .eq('call_sid', callSid)
+      return {
+        response: {
+          success: true,
+          updatedExisting: true,
+          resolvedAutomatically: true,
+          callbackId: existingPendingCb.id,
+          routedToStoreId: Number(destStore.id),
+          routedToStoreName: destDisplay,
+          reasonCategory: category,
+          storeOpenNow: destScheduleEval.isOpenNow,
+          message: `Alerta marcada automáticamente como RESUELTA en ${destDisplay} porque el cliente confirmó que encontró su comida; respóndele con calidez que qué bueno que ya la tiene.`
+        },
+        callbackCreated: null,
+        unansweredFlagged: null,
+        shouldEndCall: false
+      }
+    }
+
     const created = await createManagerCallbackRequest({
       callId: callRow?.id || null,
       storeId: Number(destStore.id),
@@ -1352,6 +1435,7 @@ export async function finalizePhoneKoreLiveCall(params: {
 
   // Red de seguridad post-recado: anexar cualquier detalle sustantivo dicho por el cliente DESPUÉS de create_manager_callback
   let callbackInfo: { summary?: string | null; callerName?: string | null; ticket?: string | null } | undefined
+  let resolvedCallbackDuringCall = false
   if (hadCallback && existing?.id) {
     const { data: pendingCb } = await supabaseAdmin
       .from('phone_callback_requests')
@@ -1363,20 +1447,43 @@ export async function finalizePhoneKoreLiveCall(params: {
       let cbSummary = String(pendingCb.reason_summary || '').trim()
       const extraUserTurns = extractSubstantivePostCallbackUserTurns(cleanTranscript)
       if (extraUserTurns.length > 0) {
-        const normExisting = normalizeSearchText(cbSummary)
-        const uncaptured = extraUserTurns.filter((u) => {
-          const tokens = normalizeSearchText(u)
-            .split(' ')
-            .filter((w) => w.length >= 4 && !['just', 'tell', 'them', 'this', 'that', 'with', 'solo', 'diles', 'para', 'esto'].includes(w))
-          return tokens.length > 0 && !tokens.every((tok) => normExisting.includes(tok))
-        })
-        if (uncaptured.length > 0) {
-          const addendum = `Nota adicional del cliente: ${uncaptured.join(' / ')}`.slice(0, 420)
-          cbSummary = cbSummary ? `${cbSummary} | ${addendum}`.slice(0, 2000) : addendum
+        const postJoined = extraUserTurns.join(' | ')
+        if (isFoundItemOrCancelResolution('', postJoined)) {
+          cbSummary = mergeCallbackReasonSummaries(
+            cbSummary,
+            '[RESUELTO: Cliente confirmó durante la llamada que encontró su comida]'
+          )
           await supabaseAdmin
             .from('phone_callback_requests')
-            .update({ reason_summary: cbSummary })
+            .update({
+              status: 'resolved',
+              urgency: 'normal',
+              resolved_at: new Date().toISOString(),
+              resolved_by: 'Kore IA (cliente encontró su orden)',
+              resolution_notes: 'El cliente confirmó durante la llamada que encontró su comida / resolvió el inconveniente.',
+              reason_summary: cbSummary
+            })
             .eq('id', pendingCb.id)
+          resolvedCallbackDuringCall = true
+        } else {
+          const normExisting = normalizeSearchText(cbSummary)
+          const uncaptured = extraUserTurns.filter((u) => {
+            const tokens = normalizeSearchText(u)
+              .split(' ')
+              .filter((w) => w.length >= 4 && !['just', 'tell', 'them', 'this', 'that', 'with', 'solo', 'diles', 'para', 'esto'].includes(w))
+            return tokens.length > 0 && !tokens.every((tok) => normExisting.includes(tok))
+          })
+          if (uncaptured.length > 0) {
+            const addendum = `Nota adicional del cliente: ${uncaptured.join(' / ')}`.slice(0, 420)
+            const merged = mergeCallbackReasonSummaries(cbSummary, addendum)
+            if (merged && merged !== cbSummary) {
+              cbSummary = merged
+              await supabaseAdmin
+                .from('phone_callback_requests')
+                .update({ reason_summary: cbSummary })
+                .eq('id', pendingCb.id)
+            }
+          }
         }
       }
       callbackInfo = {
@@ -1387,13 +1494,16 @@ export async function finalizePhoneKoreLiveCall(params: {
     }
   }
 
-  const meta = inferLiveCallSummaryAndIntent(cleanTranscript, hadCallback, unanswered, callbackInfo)
+  const effectiveHadCallback = hadCallback && !resolvedCallbackDuringCall
+  const meta = inferLiveCallSummaryAndIntent(cleanTranscript, effectiveHadCallback, unanswered, callbackInfo)
 
-  const nextStatus = hadCallback
-    ? 'callback_requested'
-    : existing?.status && !['in_progress', 'completed'].includes(existing.status)
-      ? existing.status
-      : 'completed'
+  const nextStatus = resolvedCallbackDuringCall
+    ? 'completed'
+    : effectiveHadCallback
+      ? 'callback_requested'
+      : existing?.status && !['in_progress', 'completed'].includes(existing.status)
+        ? existing.status
+        : 'completed'
 
   const resolvedByAi =
     userTurnsCount > 0 &&
