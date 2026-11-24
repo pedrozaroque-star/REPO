@@ -11,8 +11,8 @@
  *   incluyendo los datos del ingrediente (precio, qty_per_unit, yield, etc.).
  * - POST: Borra la receta anterior y reinserta los ingredientes nuevos.
  *   Si `recipe_na` es true, se marca el platillo como "sin receta" y se borran ingredientes.
- * - Al guardar una receta, se invalida la caché de food cost del día actual
- *   (`food_cost_daily_cache`) para que el dashboard muestre costos actualizados de inmediato.
+ * - Al guardar una receta, se invalida la caché de food cost de los últimos 7 días laborales LA
+ *   (`food_cost_daily_cache`, rollover 6:00 AM `America/Los_Angeles`) para que el dashboard muestre costos actualizados de inmediato.
  * - **Validación de anomalías**: Al guardar, calcula costo teórico unitario y devuelve
  *   advertencias si: (a) un ingrediente individual cuesta >$15, (b) la receta pide 'pza'
  *   pero el inventario está en lb/gal (riesgo de cobrar bolsa completa), (c) costo total >$20.
@@ -20,7 +20,7 @@
  * @dataFlow
  * - Lee de: `recipes`, `toast_menu_items`, `inventory_items`
  * - Escribe en: `recipes`, `toast_menu_items` (flag recipe_na)
- * - Invalida: `food_cost_daily_cache` (al hacer POST)
+ * - Invalida: `food_cost_daily_cache` (al hacer POST + trigger `trg_invalidate_fc_cache_on_recipe_change`)
  *
  * @notes
  * - [2026-07-26] Agregada invalidación automática de food_cost_daily_cache al guardar receta.
@@ -28,13 +28,15 @@
  *   el motor cobraba la bolsa completa ($26.43) por 1 pieza. Food cost inflado 5 meses.
  *   Agregada validación automática post-save con 3 capas: costo unitario, unit mismatch,
  *   y costo total de receta.
+ * - [2026-11-23] Migrado GET a `getSupabaseAdminClient()` tras `verifyStaffAuth` (`no-store`),
+ *   validación de cantidades numéricas no negativas y alineación de invalidación de caché
+ *   a 7 días laborales `America/Los_Angeles` (`getBusinessDateLA()` - 7 días).
  */
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { verifyStaffAuth } from '@/lib/auth-server'
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
+import { addDaysIso, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-resolver'
 
 const RECIPE_WRITE_ROLES = [
     'admin',
@@ -58,16 +60,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Missing guid' }, { status: 400 })
     }
 
-    const cookieStore = await cookies()
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) { return cookieStore.get(name)?.value },
-            },
-        }
-    )
+    const supabase = await getSupabaseAdminClient()
 
     // 1. Fetch Recipes
     const { data: recipes, error } = await supabase
@@ -100,12 +93,19 @@ export async function GET(request: Request) {
         .eq('guid', guid)
         .single()
 
-    return NextResponse.json({
-        recipes: recipes || [],
-        meta: {
-            recipe_na: itemData?.recipe_na || false
+    return NextResponse.json(
+        {
+            recipes: recipes || [],
+            meta: {
+                recipe_na: itemData?.recipe_na || false,
+            },
+        },
+        {
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+            },
         }
-    })
+    )
 }
 
 export async function POST(request: Request) {
@@ -153,10 +153,20 @@ export async function POST(request: Request) {
     const warnings: string[] = []
 
     if (!recipe_na && ingredients && ingredients.length > 0) {
+        for (const ing of ingredients) {
+            const qtyNum = Number(ing?.quantity)
+            if (!ing?.inventory_item_id || !Number.isFinite(qtyNum) || qtyNum < 0) {
+                return NextResponse.json(
+                    { error: 'Invalid ingredient quantity or missing inventory_item_id' },
+                    { status: 400 }
+                )
+            }
+        }
+
         const payload = ingredients.map((ing: any) => ({
             toast_menu_item_guid: toast_guid,
             inventory_item_id: ing.inventory_item_id,
-            quantity: ing.quantity,
+            quantity: Number(ing.quantity),
             unit: ing.unit,
             type: ing.type || 'food'
         }))
@@ -233,12 +243,12 @@ export async function POST(request: Request) {
         }
     }
 
-    // Invalidar caché de food cost del día actual para que el dashboard
-    // muestre los costos actualizados inmediatamente después de editar una receta
+    // Invalidar caché de food cost de los últimos 7 días laborales LA (6:00 AM rollover)
+    // para que el dashboard y comparativos semanales muestren costos actualizados inmediatamente
     try {
-        const today = new Date().toISOString().split('T')[0]
-        await supabase.from('food_cost_daily_cache').delete().eq('business_date', today)
-        console.log(`[Recipes] 🗑️ Caché de food cost invalidada para ${today} por edición de receta (guid: ${toast_guid})`)
+        const cutoffStr = addDaysIso(getBusinessDateLA(), -7)
+        await supabase.from('food_cost_daily_cache').delete().gte('business_date', cutoffStr)
+        console.log(`[Recipes] 🗑️ Caché de food cost invalidada desde ${cutoffStr} (LA 7d) por edición de receta (guid: ${toast_guid})`)
     } catch (cacheErr: any) {
         console.error('[Recipes] ⚠️ Error invalidando caché de food cost:', cacheErr.message)
     }

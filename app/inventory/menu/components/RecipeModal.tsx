@@ -7,6 +7,10 @@
  * @dataFlow toast_menu_items → recipes → inventario, Food Cost y consumo teórico.
  * @notes [2026-09-23] Se eliminó el filtro que impedía seleccionar artículos de Bodega,
  *        como Galones Vacíos y carnes, desde una receta.
+ *        [2026-11-23] FIX CRÍTICO: `is_packaging` ahora solo es `true` cuando `r.type?.startsWith('cogs_')`
+ *        (nunca para `'raw'` ni `'cooked'`), preservando `'raw'`/`'cooked'`/`'food'` al guardar,
+ *        pasando `ing.type` como 4to argumento a `calculateIngredientCost`, e inspeccionando
+ *        `ing.unit_measure` (con fallback seguro a `unit_type`) en el selector de unidades.
  */
 'use client'
 
@@ -15,6 +19,53 @@ import { X, Plus, Trash2, Save, Search, AlertCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
 import { getPartyTrayDozenCounts, getPartyTrayFoodTrayAllocation, isPartyTrayMenuItem, PARTY_TRAY_GUIDELINES, resolvePartyTraySizeWithChannel } from '@/lib/inventory/party-tray-guidelines'
+
+function isPackagingRecipeType(type?: string | null): boolean {
+    return typeof type === 'string' && type.trim().toLowerCase().startsWith('cogs_')
+}
+
+function buildSmartUnitOptions(ing: { unit?: string; unit_measure?: string; unit_type?: string }): string[] {
+    const rawMeasure = String(ing.unit_measure || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase()
+    const rawType = String(ing.unit_type || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase()
+
+    const isWeight =
+        ['lb', 'lbs', 'pound', 'pounds', 'libra', 'libras', 'oz', 'ounce', 'ounces', 'onza', 'onzas', 'kg', 'kgs', 'kilo', 'kilos', 'g', 'gr', 'gram', 'grams', 'gramo', 'gramos'].includes(rawMeasure) ||
+        (/(?:^|[\s\d/(-])(?:lb|lbs|pounds?|libras?|oz|ounces?|onzas?|kg|kgs|kilos?|g|gr|grams?|gramos?)(?:$|[\s/.,)-])/i.test(rawType) &&
+            !/(?:^|[\s\d/(-])fl\.?\s*oz/i.test(rawType))
+
+    const isVolume =
+        ['gal', 'gals', 'gallon', 'gallons', 'galon', 'galones', 'fl oz', 'floz', 'l', 'lt', 'lts', 'ltr', 'ltrs', 'liter', 'liters', 'litro', 'litros', 'ml', 'mls', 'milliliter', 'milliliters', 'mililitro', 'mililitros'].includes(rawMeasure) ||
+        /(?:^|[\s\d/(-])(?:fl\.?\s*oz|gal|gals|gallons?|galon(?:es)?|ml|mls|milliliters?|mililitros?|lt|lts|ltr|ltrs|liters?|litres?|litros?)(?:$|[\s/.,)-])/i.test(rawType) ||
+        /^l$/i.test(rawType)
+
+    let candidates: Array<string | undefined>
+    if (isWeight) {
+        candidates = [ing.unit, ing.unit_measure, 'oz', 'lb', 'g', 'kg', ing.unit_type, 'pza']
+    } else if (isVolume) {
+        candidates = [ing.unit, ing.unit_measure, 'fl oz', 'oz', 'ml', 'l', 'gal', ing.unit_type, 'pza']
+    } else {
+        candidates = [ing.unit, ing.unit_measure, 'pza', 'dz', ing.unit_type]
+    }
+
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const c of candidates) {
+        const clean = typeof c === 'string' ? c.trim() : ''
+        if (clean && !seen.has(clean)) {
+            seen.add(clean)
+            result.push(clean)
+        }
+    }
+    return result.length > 0 ? result : ['pza']
+}
 
 interface RecipeModalProps {
     isOpen: boolean
@@ -46,8 +97,8 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
     async function fetchData() {
         setLoading(true)
         try {
-            // 1. Load available inventory items
-            const resItems = await fetch('/api/inventory/items')
+            // 1. Load available inventory items (no-store so recent price/unit edits reflect immediately)
+            const resItems = await fetch('/api/inventory/items', { cache: 'no-store' })
             const dataItems = await resItems.json()
             const allItems = dataItems.items || []
             // Una venta de restaurante puede consumir artículos de Bodega (p. ej. carnes,
@@ -55,7 +106,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             setAvailableItems(allItems)
 
             // 2. Load existing recipe
-            const resRecipe = await fetch(`/api/inventory/recipes?guid=${item?.guid}`)
+            const resRecipe = await fetch(`/api/inventory/recipes?guid=${item?.guid}`, { cache: 'no-store' })
             const data = await resRecipe.json()
 
             // Handle new response format vs old format for backward compat
@@ -64,10 +115,14 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
 
             setIsNa(!!meta.recipe_na)
 
-            // Map to local state
+            // Map to local state — CRITICAL: only `cogs_*` types are packaging; preserve `'raw'`, `'cooked'`, `'food'`!
             const map = new Map<string, any>()
             ;(recipeList || []).forEach((r: any) => {
+                if (!r?.inventory_item?.id) return
                 const id = r.inventory_item.id
+                const rType = typeof r.type === 'string' && r.type.trim() ? r.type.trim() : 'food'
+                const isPkg = isPackagingRecipeType(rType)
+
                 if (!map.has(id)) {
                     map.set(id, {
                         inventory_item_id: id,
@@ -79,19 +134,27 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                         quantity_per_unit: r.inventory_item.quantity_per_unit,
                         unit_measure: r.inventory_item.unit_measure,
                         yield_percent: r.inventory_item.yield_percent,
-                        is_packaging: r.type && r.type !== 'food',
+                        type: rType,
+                        food_type: isPkg ? 'food' : rType,
+                        is_packaging: isPkg,
                         channels: {
-                            dine_in: r.type === 'cogs_dine_in',
-                            takeout: r.type === 'cogs_takeout',
-                            delivery: r.type === 'cogs_delivery'
+                            dine_in: rType === 'cogs_dine_in',
+                            takeout: rType === 'cogs_takeout',
+                            delivery: rType === 'cogs_delivery'
                         }
                     })
                 } else {
                     const itemConf = map.get(id)
-                    if (r.type !== 'food') itemConf.is_packaging = true
-                    if (r.type === 'cogs_dine_in') itemConf.channels.dine_in = true
-                    if (r.type === 'cogs_takeout') itemConf.channels.takeout = true
-                    if (r.type === 'cogs_delivery') itemConf.channels.delivery = true
+                    if (isPkg) {
+                        itemConf.is_packaging = true
+                        if (rType === 'cogs_dine_in') itemConf.channels.dine_in = true
+                        if (rType === 'cogs_takeout') itemConf.channels.takeout = true
+                        if (rType === 'cogs_delivery') itemConf.channels.delivery = true
+                    } else {
+                        itemConf.is_packaging = false
+                        itemConf.type = rType
+                        itemConf.food_type = rType
+                    }
                 }
             })
             setIngredients(Array.from(map.values()))
@@ -127,12 +190,14 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             name: invItem.name,
             unit_type: invItem.unit_type,
             quantity: 1, // default
-            unit: invItem.unit_type, // default to buy unit
+            unit: invItem.unit_measure || invItem.unit_type || 'pza', // default to measure unit to avoid charging whole case
             // Cost Data
             purchase_unit_cost: invItem.purchase_unit_cost,
             quantity_per_unit: invItem.quantity_per_unit,
             unit_measure: invItem.unit_measure,
             yield_percent: invItem.yield_percent,
+            type: 'food',
+            food_type: 'food',
             is_packaging: false,
             channels: { dine_in: false, takeout: false, delivery: false }
         }])
@@ -168,18 +233,49 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
         })
     }
 
+    function updateIngredientUsage(invId: string, usageValue: string) {
+        setIngredients(ingredients.map(i => {
+            if (i.inventory_item_id !== invId) return i
+            if (usageValue === 'packaging') {
+                return { ...i, is_packaging: true, type: 'cogs_takeout' }
+            }
+            if (usageValue === 'raw') {
+                return { ...i, is_packaging: false, type: 'raw', food_type: 'raw' }
+            }
+            const restoredFoodType =
+                i.food_type && i.food_type !== 'raw' && !isPackagingRecipeType(i.food_type)
+                    ? i.food_type
+                    : 'food'
+            return { ...i, is_packaging: false, type: restoredFoodType, food_type: restoredFoodType }
+        }))
+    }
+
     async function handleSave() {
+        if (!isNa) {
+            const missingChannelPkg = ingredients.find(
+                ing => ing.is_packaging && !ing.channels.dine_in && !ing.channels.takeout && !ing.channels.delivery
+            )
+            if (missingChannelPkg) {
+                alert(`Selecciona al menos un canal (For Here, To Go o Uber/DD) para el empaque "${missingChannelPkg.name}".`)
+                return
+            }
+        }
+
         setSaving(true)
         try {
             const flatIngredients: any[] = []
             
             ingredients.forEach(ing => {
                  if (!ing.is_packaging) {
+                     const preservedType =
+                         ing.type && !isPackagingRecipeType(ing.type)
+                             ? ing.type
+                             : (ing.food_type && !isPackagingRecipeType(ing.food_type) ? ing.food_type : 'food')
                      flatIngredients.push({
                          inventory_item_id: ing.inventory_item_id,
                          quantity: Number(ing.quantity),
                          unit: ing.unit,
-                         type: 'food' 
+                         type: preservedType
                      })
                  } else {
                      if (ing.channels.dine_in) {
@@ -250,19 +346,10 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
         : []
 
     function renderIngredientRow(ing: any) {
-        // Smart Unit Logic
-        const purchaseUnit = ing.unit_type?.toLowerCase() || ''
-        let unitOptions = [ing.unit_type]
-
-        if (purchaseUnit.includes('lb') || purchaseUnit.includes('oz') || purchaseUnit.includes('kg') || purchaseUnit.includes('g') || (purchaseUnit.includes('bag') && (purchaseUnit.includes('lb') || purchaseUnit.includes('oz')))) {
-            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz', 'pza'])]
-        } else if (purchaseUnit.includes('gal') || purchaseUnit.includes('l') || purchaseUnit.includes('ml')) {
-            unitOptions = [...new Set([ing.unit_type, 'gal', 'fl oz', 'pza'])]
-        } else {
-            unitOptions = [...new Set([ing.unit_type, 'pza'])]
-        }
-
-        const recipeCost = calculateIngredientCost(ing.quantity, ing.unit, ing)
+        const unitOptions = buildSmartUnitOptions(ing)
+        const effectiveType = ing.is_packaging ? 'cogs_takeout' : (ing.type || ing.food_type || 'food')
+        const recipeCost = calculateIngredientCost(ing.quantity, ing.unit, ing, effectiveType)
+        const usageSelectValue = ing.is_packaging ? 'packaging' : (effectiveType === 'raw' ? 'raw' : 'food')
 
         return (
             <div key={ing.inventory_item_id} className={`p-4 rounded-xl border shadow-sm mb-3 ${ing.is_packaging ? 'bg-indigo-50/30 border-indigo-200' : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'}`}>
@@ -295,11 +382,12 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                             <div className="flex items-center gap-2">
                                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Uso</label>
                                 <select 
-                                    value={ing.is_packaging ? 'packaging' : 'food'} 
-                                    onChange={e => updateIngredient(ing.inventory_item_id, 'is_packaging', e.target.value === 'packaging')}
+                                    value={usageSelectValue} 
+                                    onChange={e => updateIngredientUsage(ing.inventory_item_id, e.target.value)}
                                     className="px-3 py-1.5 bg-white border border-slate-300 dark:bg-slate-800 dark:border-slate-600 rounded-md text-sm font-medium focus:ring-2 focus:ring-indigo-500"
                                 >
                                     <option value="food">🍽️ Comida</option>
+                                    <option value="raw">🥩 Comida (Peso Crudo)</option>
                                     <option value="packaging">📦 Empaque</option>
                                 </select>
                             </div>
@@ -529,7 +617,8 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                     <span className="font-semibold text-indigo-900 dark:text-indigo-200">Costo Total Receta:</span>
                                     <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">
                                         ${ingredients.reduce((sum, ing) => {
-                                            const cost = calculateIngredientCost(ing.quantity, ing.unit, ing)
+                                            const effectiveType = ing.is_packaging ? 'cogs_takeout' : (ing.type || ing.food_type || 'food')
+                                            const cost = calculateIngredientCost(ing.quantity, ing.unit, ing, effectiveType)
                                             return sum + cost
                                         }, 0).toFixed(3)}
                                     </span>

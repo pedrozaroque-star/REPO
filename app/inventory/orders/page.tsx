@@ -69,6 +69,7 @@
  *   * Sincroniza la exclusión de `isTrackOnlyOrderItem` (`Flan`, `Cheesecake`) en los chips inline de anomalías (`isHighLeftover`, `isHighAdjust`, `isHighFinal`).
  *   * Corrige el sufijo de `Costo (QB)` a `/ empaque` (evitando mostrar `/ pza` o `/ lb` de receta) y muestra recordatorio visual `📦 Contar PAQUETES` en empaques multipieza (ej. `Queso Tortas/platos/Desayuno`).
  *   * Renombra la columna `🤖 Sugerido` a `🤖 Sobrante Teórico` (`Theoretical Leftover`) en encabezados, botones de columnas y guía `(i)` para distinguirla claramente de la cantidad a pedir.
+ * - [2026-11-23] Corrección `60x` de costo unitario en `Papelito Para Torta` (pedido por piezas frente a caja de 60) y Banner de Balance de Control de Porciones para Carne Asada y las 8 proteínas críticas.
  */
 'use client'
 
@@ -97,6 +98,7 @@ import {
     type CalculatedOrderLine, type OrderAnomaly
 } from './utils'
 import type { InventoryAutomationMode } from '@/lib/inventory/automation-pilot'
+import { ACTIVE_PROTEIN_IDS, MEAT_DEFAULT_BAG_LBS, type ActiveProteinKey } from '@/lib/inventory/meat-allocation'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import PilotComparisonModal from '@/components/PilotComparisonModal'
@@ -107,6 +109,38 @@ import { useLanguage } from '@/lib/i18n'
 // ============================================================================
 function getLocalBusinessDate(d: Date = new Date()): string {
     return getBusinessDate(d)
+}
+
+const ORDER_PROTEIN_ID_TO_KEY = new Map<string, ActiveProteinKey>(
+    (Object.entries(ACTIVE_PROTEIN_IDS) as Array<[ActiveProteinKey, string]>).map(([k, id]) => [id, k])
+)
+
+/**
+ * `Papelito Para Torta` (`fb83420e-...`, QB ID `540`, SKU `271W`) se factura en catálogo como Caja de 60 (`$28.80`/`$34.80`),
+ * pero en Orden Diaria se cuenta y pide en piezas individuales (`ceiling_30`).
+ */
+function isPapelitoPieceOrderLine(line: {
+    inventory_item_id?: string | null
+    qb_item_id?: string | null
+    item_name?: string | null
+}): boolean {
+    if (line.inventory_item_id === 'fb83420e-8c32-4e85-a29d-e74de2055807') return true
+    if (String(line.qb_item_id || '').trim() === '540') return true
+    return /papelito\s*para\s*torta/i.test(String(line.item_name || ''))
+}
+
+function resolveEffectiveOrderUnitCost(line: {
+    inventory_item_id?: string | null
+    qb_item_id?: string | null
+    item_name?: string | null
+    purchase_unit_cost?: number | null
+}): number {
+    const rawCost = Number(line.purchase_unit_cost ?? 0)
+    if (!Number.isFinite(rawCost) || rawCost <= 0) return 0
+    if (isPapelitoPieceOrderLine(line) && rawCost > 5) {
+        return rawCost / 60
+    }
+    return rawCost
 }
 
 // ============================================================================
@@ -1954,9 +1988,76 @@ export default function InventoryOrdersPage() {
     const estimatedOrderCost = orderLines.reduce((sum, l) => {
         const { isReady, finalQty } = resolveEffectiveOrderLineQty(l, adjustments, orderType)
         if (!isReady || finalQty <= 0) return sum
-        const unitCost = Number(l.purchase_unit_cost ?? 0)
+        const unitCost = resolveEffectiveOrderUnitCost(l)
         return sum + (Number.isFinite(unitCost) ? finalQty * unitCost : 0)
     }, 0)
+
+    // Balance de Control de Porciones para Carne Asada (#1 prioridad) y las 8 proteínas críticas
+    const meatPortionBalances = orderType === 'daily'
+        ? orderLines
+              .map((l) => {
+                  const meatKey = ORDER_PROTEIN_ID_TO_KEY.get(l.inventory_item_id)
+                  if (!meatKey) return null
+                  const bagLbs = MEAT_DEFAULT_BAG_LBS[meatKey]
+                  const bagCost = resolveEffectiveOrderUnitCost(l)
+                  const arrivedBags = Number(l.yesterday_order_qty ?? 0)
+                  const posUsageBags =
+                      l.theoretical_consumption !== null && l.theoretical_consumption !== undefined
+                          ? Number(l.theoretical_consumption)
+                          : null
+                  const rawExpected =
+                      l.raw_suggested_leftover !== null && l.raw_suggested_leftover !== undefined
+                          ? Number(l.raw_suggested_leftover)
+                          : l.suggested_leftover !== null && l.suggested_leftover !== undefined
+                          ? Number(l.suggested_leftover)
+                          : null
+                  const expectedLeftoverBags =
+                      l.suggested_leftover !== null && l.suggested_leftover !== undefined
+                          ? Number(l.suggested_leftover)
+                          : null
+                  const openingBags =
+                      rawExpected !== null && posUsageBags !== null
+                          ? Number(Math.max(0, rawExpected + posUsageBags - arrivedBags).toFixed(1))
+                          : null
+                  const capturedVal = counts[l.inventory_item_id]?.[selectedOrderDate]
+                  const physicalLeftoverBags =
+                      capturedVal !== undefined
+                          ? Number(capturedVal)
+                          : l.count_source === 'manual' && l.leftover_value !== null
+                          ? Number(l.leftover_value)
+                          : null
+                  const excessConsumedBags =
+                      physicalLeftoverBags !== null && expectedLeftoverBags !== null
+                          ? Number(((rawExpected ?? expectedLeftoverBags) - physicalLeftoverBags).toFixed(2))
+                          : null
+                  const excessConsumedLbs =
+                      excessConsumedBags !== null ? Number((excessConsumedBags * bagLbs).toFixed(1)) : null
+                  const dollarImpact =
+                      excessConsumedBags !== null ? Number((excessConsumedBags * bagCost).toFixed(2)) : null
+                  return {
+                      itemId: l.inventory_item_id,
+                      meatKey,
+                      itemName: l.item_name,
+                      bagLbs,
+                      bagCost,
+                      openingBags,
+                      arrivedBags: Number(arrivedBags.toFixed(1)),
+                      posUsageBags: posUsageBags !== null ? Number(posUsageBags.toFixed(2)) : null,
+                      expectedLeftoverBags,
+                      physicalLeftoverBags,
+                      excessConsumedBags,
+                      excessConsumedLbs,
+                      dollarImpact,
+                  }
+              })
+              .filter((row): row is NonNullable<typeof row> => Boolean(row))
+              .sort((a, b) => {
+                  if (a.meatKey === 'asada') return -1
+                  if (b.meatKey === 'asada') return 1
+                  return (b.dollarImpact || 0) - (a.dollarImpact || 0)
+              })
+        : []
+    const meatPortionByItemId = new Map(meatPortionBalances.map((m) => [m.itemId, m]))
 
     const hasUnsavedAdjustments = (() => {
         const todayOrder = orders.find((o: any) => o.order_date === selectedOrderDate)
@@ -2309,13 +2410,13 @@ export default function InventoryOrdersPage() {
                                                         {/* Costo (QB) */}
                                                         <td className="p-2 text-center text-slate-700 font-bold text-xs">
                                                             {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? (
-                                                                `$${Number(line.purchase_unit_cost).toFixed(2)}`
+                                                                `$${resolveEffectiveOrderUnitCost(line).toFixed(2)}`
                                                             ) : (
                                                                 '-'
                                                             )}
-                                                            {line.unit_measure && (
+                                                            {(isPapelitoPieceOrderLine(line) || line.unit_measure) && (
                                                                 <span className="text-[9px] text-slate-400 font-normal block">
-                                                                    / {line.unit_measure}
+                                                                    / {isPapelitoPieceOrderLine(line) ? 'pza' : line.unit_measure}
                                                                 </span>
                                                             )}
                                                         </td>
@@ -3011,6 +3112,101 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
+                                    {/* ---- Banner de Balance de Control de Porciones (Carne Asada #1 + Proteínas Críticas) ---- */}
+                                    {orderType === 'daily' && !isPilotBlind && meatPortionBalances.length > 0 && (() => {
+                                        const asadaRow = meatPortionBalances.find((m) => m.meatKey === 'asada') || meatPortionBalances[0]
+                                        const otherMeats = meatPortionBalances.filter((m) => m.itemId !== asadaRow.itemId)
+                                        const hasAsadaAlert = (asadaRow.excessConsumedBags ?? 0) >= 1.5
+                                        return (
+                                            <div className={`mx-5 mb-4 rounded-xl border p-3.5 shadow-2xs ${
+                                                hasAsadaAlert
+                                                    ? 'bg-rose-50/90 border-rose-300 text-rose-950'
+                                                    : 'bg-slate-50/90 border-slate-200 text-slate-800'
+                                            }`}>
+                                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                                                            hasAsadaAlert ? 'bg-rose-600 text-white' : 'bg-red-700 text-white'
+                                                        }`}>
+                                                            🥩 {language === 'en' ? 'Portion Control Balance' : 'Balance de Control de Porciones'}
+                                                        </span>
+                                                        <span className="text-xs font-extrabold">
+                                                            {asadaRow.itemName} ({asadaRow.bagLbs} lb · ${asadaRow.bagCost.toFixed(2)})
+                                                        </span>
+                                                    </div>
+                                                    {asadaRow.excessConsumedBags !== null ? (
+                                                        <span className={`text-xs font-black px-2.5 py-0.5 rounded-full border ${
+                                                            asadaRow.excessConsumedBags >= 1.5
+                                                                ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                                                : asadaRow.excessConsumedBags > 0.5
+                                                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                                : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                        }`}>
+                                                            {asadaRow.excessConsumedBags > 0
+                                                                ? `${language === 'en' ? 'Excess Used' : 'Exceso Usado'}: +${asadaRow.excessConsumedBags} ${language === 'en' ? 'bags' : 'bolsas'} (+${asadaRow.excessConsumedLbs} lb · +$${Math.abs(asadaRow.dollarImpact || 0).toFixed(2)})`
+                                                                : `${language === 'en' ? 'On Target' : 'En Meta'}: ${asadaRow.excessConsumedBags} ${language === 'en' ? 'bags' : 'bolsas'} (${asadaRow.excessConsumedLbs} lb)`}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[11px] font-semibold text-slate-500">
+                                                            {language === 'en'
+                                                                ? 'Enter physical leftover to verify portion variance before submitting'
+                                                                : 'Captura el sobrante físico para verificar varianza de porciones antes de enviar'}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono bg-white/85 border border-slate-200/80 rounded-lg px-3 py-2">
+                                                    <span>
+                                                        <strong>{language === 'en' ? 'Opening' : 'Inicial'}:</strong>{' '}
+                                                        {asadaRow.openingBags !== null ? `${asadaRow.openingBags}` : '—'}
+                                                    </span>
+                                                    <span className="text-slate-400">+</span>
+                                                    <span>
+                                                        <strong>{language === 'en' ? 'Arrivals' : 'Llegadas'}:</strong> {asadaRow.arrivedBags}
+                                                    </span>
+                                                    <span className="text-slate-400">−</span>
+                                                    <span>
+                                                        <strong>{language === 'en' ? 'POS Usage' : 'Consumo POS'}:</strong>{' '}
+                                                        {asadaRow.posUsageBags !== null ? `${asadaRow.posUsageBags}` : '—'}
+                                                    </span>
+                                                    <span className="text-slate-400">=</span>
+                                                    <span className="text-cyan-800 font-bold">
+                                                        {language === 'en' ? 'Expected Leftover' : 'Sobrante Esperado'}:{' '}
+                                                        {asadaRow.expectedLeftoverBags !== null ? `${asadaRow.expectedLeftoverBags}` : '—'}
+                                                    </span>
+                                                    <span className="text-slate-400">vs</span>
+                                                    <span className="text-orange-800 font-bold">
+                                                        {language === 'en' ? 'Physical Leftover' : 'Sobrante Físico'}:{' '}
+                                                        {asadaRow.physicalLeftoverBags !== null ? `${asadaRow.physicalLeftoverBags}` : '—'}
+                                                    </span>
+                                                </div>
+
+                                                {otherMeats.some((m) => m.expectedLeftoverBags !== null || m.physicalLeftoverBags !== null) && (
+                                                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                                        {otherMeats.map((m) => {
+                                                            const over = (m.excessConsumedBags ?? 0) >= 1
+                                                            return (
+                                                                <span
+                                                                    key={m.itemId}
+                                                                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                                                                        m.excessConsumedBags === null
+                                                                            ? 'bg-white text-slate-600 border-slate-200'
+                                                                            : over
+                                                                            ? 'bg-rose-100 text-rose-800 border-rose-200 font-bold'
+                                                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                                                    }`}
+                                                                >
+                                                                    {m.itemName}: {language === 'en' ? 'Exp' : 'Esp'} {m.expectedLeftoverBags ?? '—'} vs {language === 'en' ? 'Phys' : 'Fís'} {m.physicalLeftoverBags ?? '—'}
+                                                                    {m.excessConsumedBags !== null && m.excessConsumedBags > 0 ? ` (+${m.excessConsumedBags}b / +$${Math.abs(m.dollarImpact || 0).toFixed(0)})` : ''}
+                                                                </span>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
+
                                     {/* ---- Progress bar ---- */}
                                     <div className="px-5 pb-3">
                                         <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
@@ -3232,8 +3428,10 @@ export default function InventoryOrdersPage() {
                                                     )
                                                     const isHighFinal = !isTrackOnlyDaily && par > 0 && finalQty > Math.max(par * 2.5, 30)
                                                     const isMultiPiecePack =
+                                                        !isPapelitoPieceOrderLine(line) &&
                                                         line.unit_measure === 'pza' &&
                                                         /pack|paq|bag|bolsa|case|caja/i.test(line.unit_description || '')
+                                                    const meatBalance = !isPilotBlind ? meatPortionByItemId.get(line.inventory_item_id) : undefined
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
@@ -3252,6 +3450,22 @@ export default function InventoryOrdersPage() {
                                                                             {t('bodegaOrders.tierCycleAutoBadge')}
                                                                         </span>
                                                                     )}
+                                                                    {meatBalance && meatBalance.excessConsumedBags !== null && (
+                                                                        <span
+                                                                            title={`${language === 'en' ? 'Opening' : 'Inicial'} ${meatBalance.openingBags ?? '-'} + ${language === 'en' ? 'Arrivals' : 'Llegadas'} ${meatBalance.arrivedBags} - POS ${meatBalance.posUsageBags ?? '-'} = ${language === 'en' ? 'Exp' : 'Esp'} ${meatBalance.expectedLeftoverBags ?? '-'} vs ${language === 'en' ? 'Phys' : 'Fís'} ${meatBalance.physicalLeftoverBags}`}
+                                                                            className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
+                                                                                meatBalance.excessConsumedBags >= 1.5
+                                                                                    ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                                                                    : meatBalance.excessConsumedBags > 0.5
+                                                                                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                            }`}
+                                                                        >
+                                                                            {meatBalance.excessConsumedBags > 0
+                                                                                ? `+${meatBalance.excessConsumedBags}b (+$${Math.abs(meatBalance.dollarImpact || 0).toFixed(0)})`
+                                                                                : `✓ ${meatBalance.excessConsumedBags}b`}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                             {/* Empaque (QB) */}
@@ -3266,13 +3480,13 @@ export default function InventoryOrdersPage() {
                                                             {/* Costo (QB) */}
                                                             <td className="p-2.5 text-center text-slate-700 border-b border-slate-100 font-bold text-xs w-28 min-w-[90px]">
                                                                 {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? (
-                                                                    `$${Number(line.purchase_unit_cost).toFixed(2)}`
+                                                                    `$${resolveEffectiveOrderUnitCost(line).toFixed(2)}`
                                                                 ) : (
                                                                     '-'
                                                                 )}
                                                                 {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null && (
                                                                     <span className="text-[9px] text-slate-400 font-normal block">
-                                                                        {t('bodegaOrders.perPackCostSuffix')}
+                                                                        {isPapelitoPieceOrderLine(line) ? '/ pza' : t('bodegaOrders.perPackCostSuffix')}
                                                                     </span>
                                                                 )}
                                                             </td>

@@ -6,7 +6,7 @@
  * @businessRules
  * - Business day runs 6:00 AM to 5:59 AM next day in America/Los_Angeles.
  * - Labor Target: <= 21.5% (Warning > 21.5%, Critical > 23.0%).
- * - Food Cost Target: <= 32.0% (Warning > 32.0%, Critical > 36.0%).
+ * - Food Cost Target: <= 32.0% (Warning > 32.0%–35.0%, Critical > 35.0%).
  * - Low Sales Alert: Store drops >= 15% compared to its own equivalent previous period.
  * - Inspection Compliance: Each scheduled day for a supervisor requires >= 1 inspection at an owned store.
  *   Future dates or shifts still in progress today are not penalized as misses.
@@ -24,6 +24,13 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { fetchToastData } from '@/lib/toast-api'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
+import {
+  FOOD_COST_HEALTHY_MAX_PCT,
+  FOOD_COST_WARNING_MAX_PCT,
+  addDaysIso,
+  isInvalidFoodCostCacheRow,
+  resolveCachedFoodCostDollars,
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,11 +40,11 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-// Targets
+// Targets (unified with food-cost-sales-resolver.ts)
 const LABOR_TARGET = 21.5
 const LABOR_CRITICAL = 23
-const FOOD_COST_TARGET = 32
-const FOOD_COST_CRITICAL = 36
+const FOOD_COST_TARGET = FOOD_COST_HEALTHY_MAX_PCT
+const FOOD_COST_CRITICAL = FOOD_COST_WARNING_MAX_PCT
 
 function getBusinessDateLA(): { dateStr: string; timeStr: string } {
   const now = new Date()
@@ -103,7 +110,7 @@ export async function GET(req: NextRequest) {
         .limit(5000),
       // 2. Food Cost by store
       supabaseAdmin.from('food_cost_daily_cache')
-        .select('store_id, store_name, cost_percentage, net_sales, total_cost, business_date')
+        .select('store_id, store_name, cost_percentage, net_sales, food_cost, total_cost, packaging_cost, business_date')
         .gte('business_date', startDate).lte('business_date', endDate)
         .limit(5000),
       // 3. Inspections in date range
@@ -171,26 +178,32 @@ export async function GET(req: NextRequest) {
         if (directRes.ok) {
           const directJson = await directRes.json()
           if (directJson.data && directJson.data.length > 0) {
-            const byStore: Record<string, { store_id: string; store_name: string; total_cost: number; net_sales: number }> = {}
+            const byStoreId: Record<string, { store_id: string; store_name: string; food_cost: number; total_cost: number; packaging_cost: number; net_sales: number }> = {}
             directJson.data.forEach((item: any) => {
-              const sName = item.store_name || 'Unknown'
-              if (!byStore[sName]) {
-                byStore[sName] = { store_id: item.store_id || '', store_name: sName, total_cost: 0, net_sales: 0 }
+              const sId = item.store_id || item.store_name || 'Unknown'
+              const sName = item.store_name || sId
+              if (!byStoreId[sId]) {
+                byStoreId[sId] = { store_id: item.store_id || '', store_name: sName, food_cost: 0, total_cost: 0, packaging_cost: 0, net_sales: 0 }
               }
-              byStore[sName].total_cost += Number(item.total_cost || 0)
-              byStore[sName].net_sales += Number(item.net_sales || 0)
+              const fcVal = Number(item.food_cost ?? item.total_cost ?? 0)
+              byStoreId[sId].food_cost += fcVal
+              byStoreId[sId].total_cost += fcVal
+              byStoreId[sId].packaging_cost += Number(item.packaging_cost ?? 0)
+              byStoreId[sId].net_sales += Number(item.net_sales || 0)
             })
             if (directJson.salesNetSales) {
-              Object.entries(directJson.salesNetSales as Record<string, number>).forEach(([sName, authSales]) => {
-                if (byStore[sName] && authSales > 0) {
-                  byStore[sName].net_sales = Number(authSales)
+              Object.entries(directJson.salesNetSales as Record<string, number>).forEach(([storeGuid, authSales]) => {
+                if (byStoreId[storeGuid] && authSales > 0) {
+                  byStoreId[storeGuid].net_sales = Number(authSales)
                 }
               })
             }
-            foodCosts = Object.values(byStore).map(s => ({
+            foodCosts = Object.values(byStoreId).map(s => ({
               store_id: s.store_id,
               store_name: s.store_name,
+              food_cost: s.food_cost,
               total_cost: s.total_cost,
+              packaging_cost: s.packaging_cost,
               net_sales: s.net_sales,
               cost_percentage: s.net_sales > 0 ? (s.total_cost / s.net_sales) * 100 : 0,
               business_date: startDate
@@ -242,14 +255,18 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.pct - a.pct)
 
     // ══════════════════════════════════════════════════
-    // 2. FOOD COST ALERTS — stores exceeding target (> 32% warning, > 36% critical)
+    // 2. FOOD COST ALERTS — stores exceeding target (> 32% warning, > 35% critical)
     // ══════════════════════════════════════════════════
     const fcByStore: Record<string, { cost: number; sales: number; storeId: string }> = {}
-    foodCosts.forEach(r => {
+    foodCosts.forEach((r: any) => {
+      const rowCost = resolveCachedFoodCostDollars(r)
+      const rowSales = Number(r.net_sales) || 0
+      if (isInvalidFoodCostCacheRow(rowCost, rowSales)) return
       const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
+      if (!name) return
       if (!fcByStore[name]) fcByStore[name] = { cost: 0, sales: 0, storeId: r.store_id }
-      fcByStore[name].cost += Number(r.total_cost) || 0
-      fcByStore[name].sales += Number(r.net_sales) || 0
+      fcByStore[name].cost += rowCost
+      fcByStore[name].sales += rowSales
     })
     const foodCostAlerts = Object.entries(fcByStore)
       .map(([store, d]) => ({
@@ -545,14 +562,73 @@ export async function GET(req: NextRequest) {
     })
 
     // ══════════════════════════════════════════════════
+    // 5. PORTION CONTROL ALERTS (Carne Asada & 8 Meats — Escalera de Mando)
+    // ══════════════════════════════════════════════════
+    let portionControlAlerts: {
+      id: string
+      storeId: string
+      store: string
+      meatKey: string
+      meatName: string
+      severity: 'warning' | 'critical'
+      status: string
+      varianceLbs: number
+      varianceBags: number
+      variancePct: number
+      dollarLoss: number
+      dominantShift: string
+      periodStart: string
+      periodEnd: string
+    }[] = []
+
+    try {
+      const rollingCutoff = addDaysIso(startDate, -7)
+      const { data: pcRows } = await supabaseAdmin
+        .from('portion_control_alerts')
+        .select('id, store_id, store_name, meat_key, meat_name, severity, status, variance_lbs, variance_bags, variance_pct, dollar_loss_store, dominant_shift, period_start, period_end')
+        .neq('status', 'resolved')
+        .gte('period_end', rollingCutoff)
+        .lte('period_start', endDate)
+        .order('dollar_loss_store', { ascending: false })
+        .limit(50)
+
+      if (Array.isArray(pcRows)) {
+        portionControlAlerts = pcRows.map((r: any) => ({
+          id: String(r.id),
+          storeId: String(r.store_id),
+          store: (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim(),
+          meatKey: String(r.meat_key || 'asada'),
+          meatName: String(r.meat_name || 'Carne Asada'),
+          severity: r.severity === 'critical' ? 'critical' : 'warning',
+          status: String(r.status || 'open'),
+          varianceLbs: Number(Number(r.variance_lbs || 0).toFixed(1)),
+          varianceBags: Number(Number(r.variance_bags || 0).toFixed(1)),
+          variancePct: Number(Number(r.variance_pct || 0).toFixed(1)),
+          dollarLoss: Math.round(Number(r.dollar_loss_store || 0)),
+          dominantShift: String(r.dominant_shift || 'BOTH'),
+          periodStart: String(r.period_start || ''),
+          periodEnd: String(r.period_end || ''),
+        }))
+      }
+    } catch {
+      // Safe fallback if portion_control_alerts is empty or migrating
+    }
+
+    // ══════════════════════════════════════════════════
     // Summary counts
     // ══════════════════════════════════════════════════
-    const totalAlerts = laborAlerts.length + foodCostAlerts.length + lowSalesAlerts.length + inspectionCompliance.filter(s => !s.compliant).length
+    const totalAlerts =
+      laborAlerts.length +
+      foodCostAlerts.length +
+      portionControlAlerts.length +
+      lowSalesAlerts.length +
+      inspectionCompliance.filter(s => !s.compliant).length
 
     return NextResponse.json({
       totalAlerts,
       laborAlerts,
       foodCostAlerts,
+      portionControlAlerts,
       lowSalesAlerts,
       inspectionCompliance,
       targets: { labor: LABOR_TARGET, laborCritical: LABOR_CRITICAL, foodCost: FOOD_COST_TARGET, foodCostCritical: FOOD_COST_CRITICAL },

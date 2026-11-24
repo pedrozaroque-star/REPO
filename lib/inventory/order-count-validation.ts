@@ -12,7 +12,12 @@ const DESSERT_IDS = [
     '8ba55664-5ca9-4886-8ac8-acf1fd070713'
 ]
 
-export async function getMissingDailyCounts(db: SupabaseClient, storeId: string | number, date: string) {
+export async function getMissingDailyCounts(
+    db: SupabaseClient,
+    storeId: string | number,
+    date: string,
+    options?: { requireManual?: boolean }
+) {
     const { data: template, error: templateError } = await db.from('store_order_template')
         .select('inventory_item_id, inventory_items:inventory_item_id(name)')
         .eq('store_id', storeId).eq('order_type', 'daily')
@@ -38,12 +43,21 @@ export async function getMissingDailyCounts(db: SupabaseClient, storeId: string 
     const ids = [...required.keys()]
     if (!ids.length) throw new Error('No hay artículos configurados para Orden Diaria.')
     const { data: counts, error: countError } = await db.from('inventory_counts')
-        .select('inventory_item_id,quantity_on_hand')
+        .select('inventory_item_id,quantity_on_hand,counted_by,notes')
         .eq('store_id', String(storeId)).eq('count_date', date)
         .in('inventory_item_id', ids)
     if (countError) throw countError
     const captured = new Set((counts || [])
-        .filter(row => row.quantity_on_hand !== null && row.quantity_on_hand !== undefined && Number.isFinite(Number(row.quantity_on_hand)) && Number(row.quantity_on_hand) >= 0)
+        .filter(row => {
+            if (row.quantity_on_hand === null || row.quantity_on_hand === undefined) return false
+            if (!Number.isFinite(Number(row.quantity_on_hand)) || Number(row.quantity_on_hand) < 0) return false
+            if (options?.requireManual) {
+                const by = String(row.counted_by || '').trim().toUpperCase()
+                const notes = String(row.notes || '').trim().toLowerCase()
+                if (by === 'AUTO_CYCLE_V2' || notes === 'auto_cycle_v2') return false
+            }
+            return true
+        })
         .map(row => row.inventory_item_id))
     return ids.filter(id => !captured.has(id)).map(id => ({ id, name: required.get(id)! }))
 }

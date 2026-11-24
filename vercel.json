@@ -32,6 +32,10 @@
             "schedule": "0 19 * * *"
         },
         {
+            "path": "/api/cron/check-portion-alerts",
+            "schedule": "15 19 * * *"
+        },
+        {
             "path": "/api/cron/sync-food-cost-today",
             "schedule": "*/20 * * * *"
         },

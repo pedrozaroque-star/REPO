@@ -73,6 +73,14 @@ import { getCaliforniaBusinessDate } from '@/lib/business-date'
 import { getCaliforniaDate } from '@/lib/business-date'
 import { getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
 import { resolveCustomerStoreMeta } from '@/lib/customer-store-names'
+import {
+  getBusinessDateLA,
+  addDaysIso,
+  diffCalendarDays,
+  FOOD_COST_HEALTHY_MAX_PCT,
+  FOOD_COST_WARNING_MAX_PCT,
+  isInvalidFoodCostCacheRow,
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -111,7 +119,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_food_cost',
-    description: 'Query food cost percentage and dollar amounts from food_cost_daily_cache.',
+    description: 'Query separated Food Cost ($ and %), Packaging / Disposables Cost ($ and %), and Carne Asada theoretical raw lbs, 10 lb bags, and $ USD cost from food_cost_daily_cache across any date range (paginated beyond 1,000 rows).',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -500,16 +508,32 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_pnl_consolidated',
-    description: 'Query Comparative Store-by-Store Profit & Loss (P&L) and Consolidated Chain EBITDA with Bodega markup elimination toggle (store vs corporate mode). Shows Net Sales, Food Cost, Labor Cost, Prime Cost, Operating Expenses (Rent, Utilities, etc.), Shared Marketing, and EBITDA.',
+    description: 'Query Comparative Store-by-Store Profit & Loss (P&L) and Consolidated Chain EBITDA with Bodega markup elimination toggle (store vs corporate mode: 0.90x applied strictly to Food Cost, never external Packaging). Shows Net Sales, Food Cost, Direct Labor, Prime Cost (Food + Direct Labor), Packaging & Disposables, Payroll Taxes & Benefits (12% est.), Operating Expenses, Shared Marketing, and EBITDA.',
     parameters: {
       type: 'OBJECT',
       properties: {
         start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
         end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' },
-        bodega_mode: { type: 'STRING', description: 'Mode: "corporate" (eliminates ~10% internal bodega markup, default) or "store" (shows store cost as billed by Bodega)' },
+        bodega_mode: { type: 'STRING', description: 'Mode: "corporate" (eliminates ~10% internal bodega markup on Food Cost only, default) or "store" (shows store cost as billed by Bodega)' },
         store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Lynwood", "Central"). Omit for chain-wide P&L.' }
       },
       required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'query_portion_control_alerts',
+    description: 'Query Carne Asada ($60/10lb bag Store, $50/10lb Bodega) and 8-meat physical vs POS theoretical portion control alerts, 24h mandatory manager SLA overdue alerts, progressive employee Strikes (Strike 1 Warning + Scale, Strike 2 Suspension, Strike 3 Mandatory Expulsion / Termination), pending mandatory expulsions, AM vs PM shift attribution, and 5:00 PM shift handover bag counts.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter (e.g. "Lynwood", "Slauson", "Santa Ana"). Omit for all 15 stores.' },
+        meat_key: { type: 'STRING', description: 'Optional meat filter: "asada", "pastor", "pollo", "cabeza", "lengua", "carnitas", "buche", "chorizo".' },
+        employee_name: { type: 'STRING', description: 'Optional employee name filter to look up their progressive portion Strikes (180d) and expulsion status.' },
+        only_expulsions: { type: 'BOOLEAN', description: 'Optional: set true to filter specifically for Strike 3 mandatory expulsions / terminations.' },
+        status: { type: 'STRING', description: 'Optional status filter: "active" (open/acknowledged/coached/verified, default), "overdue", "all", or "resolved".' },
+        start_date: { type: 'STRING', description: 'Optional start date YYYY-MM-DD (defaults to 30 days ago LA business date).' },
+        end_date: { type: 'STRING', description: 'Optional end date YYYY-MM-DD (defaults to today LA business date).' }
+      }
     }
   },
   {
@@ -690,11 +714,12 @@ export async function executeTool(name: string, rawArgs: any, viewerUser?: any):
       'query_violations_budgets',
       'query_product_mix',
       'analyze_performance',
-      'query_pnl_consolidated'
+      'query_pnl_consolidated',
+      'query_portion_control_alerts',
     ])
     if (toolsRequiringDateRange.has(name)) {
-      const todayStr = new Date(Date.now() - 7 * 3600 * 1000).toISOString().slice(0, 10)
-      const thirtyDaysAgoStr = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+      const todayStr = getBusinessDateLA()
+      const thirtyDaysAgoStr = addDaysIso(todayStr, -30)
       if (!args.start_date) args.start_date = thirtyDaysAgoStr
       if (!args.end_date) args.end_date = todayStr
     }
@@ -703,6 +728,7 @@ export async function executeTool(name: string, rawArgs: any, viewerUser?: any):
       case 'query_maintenance_logs': return await queryMaintenanceLogs(args)
       case 'query_viele_orders': return await queryVieleOrders(args)
       case 'query_pnl_consolidated': return await queryPnlConsolidatedTool(args)
+      case 'query_portion_control_alerts': return await queryPortionControlAlertsTool(args)
       case 'check_system_health': return await checkSystemHealthTool(args)
       case 'calculate_cingular_payroll': return await calculateCingularPayrollTool(args)
       case 'query_ronos_labor_audit': return await queryRonosLaborAudit(args)
@@ -1158,48 +1184,103 @@ async function compareSalesPeriods(args: any): Promise<string> {
 // Toast protein rules: parse active protein names, split multi-protein portions evenly, add a full portion for Extra/Doble Carne, and use 1.9 oz for Taco Carne Dorada; never infer discontinued Tripa.
 // Sope Queso includes one sope base, frijol, crema, queso fresco, and cotija.
 async function queryFoodCost(args: any): Promise<string> {
-  let query = supabaseAdmin
-    .from('food_cost_daily_cache')
-    .select('business_date, store_name, total_cost, net_sales, cost_percentage')
-    .gte('business_date', args.start_date)
-    .lte('business_date', args.end_date)
+  const PAGE_SIZE = 1000
+  const MAX_PAGES = 30
+  const rawRows: any[] = []
 
-  if (args.store_name) query = query.ilike('store_name', `%${args.store_name}%`)
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const offset = page * PAGE_SIZE
+    let query = supabaseAdmin
+      .from('food_cost_daily_cache')
+      .select('id, business_date, store_name, food_cost, total_cost, packaging_cost, meat_cost, asada_raw_lbs, asada_cost, net_sales, cost_percentage, packaging_percentage')
+      .gte('business_date', args.start_date)
+      .lte('business_date', args.end_date)
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
 
-  const { data, error } = await query.limit(1000)
-  if (error) return `Error: ${error.message}`
-  if (!data?.length) return `No food cost data for ${args.start_date} to ${args.end_date}.`
+    if (args.store_name) query = query.ilike('store_name', `%${args.store_name}%`)
 
-  const byStore: Record<string, { cost: number; sales: number }> = {}
-  let totalCost = 0, totalSales = 0
-  data.forEach(r => {
-    const c = Number(r.total_cost) || 0, s = Number(r.net_sales) || 0
-    totalCost += c; totalSales += s
-    const name = clean(r.store_name)
-    if (!byStore[name]) byStore[name] = { cost: 0, sales: 0 }
-    byStore[name].cost += c; byStore[name].sales += s
-  })
+    const { data, error } = await query
+    if (error) return `Error: ${error.message}`
+    if (!data || data.length === 0) break
+    rawRows.push(...data)
+    if (data.length < PAGE_SIZE) break
+  }
 
-  const pct = totalSales > 0 ? ((totalCost / totalSales) * 100).toFixed(1) : '0'
-  const lines = Object.entries(byStore).sort((a, b) => b[1].cost - a[1].cost)
-    .map(([n, v]) => `${n}: Cost ${fmt$(v.cost)} / Sales ${fmt$(v.sales)} = ${v.sales > 0 ? ((v.cost/v.sales)*100).toFixed(1) : 0}%`)
+  if (!rawRows.length) return `No food cost data for ${args.start_date} to ${args.end_date}.`
 
-  // Daily breakdown
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const byDate: Record<string, { cost: number; sales: number }> = {}
-  data.forEach(r => {
+  const fcBadge = (pctVal: number) =>
+    pctVal <= FOOD_COST_HEALTHY_MAX_PCT ? '🟢' : pctVal <= FOOD_COST_WARNING_MAX_PCT ? '🟡' : '🔴'
+
+  const byStore: Record<string, { food: number; pkg: number; asadaLbs: number; asadaCost: number; sales: number }> = {}
+  const byDate: Record<string, { food: number; pkg: number; asadaLbs: number; sales: number }> = {}
+  let totalFood = 0, totalPkg = 0, totalAsadaLbs = 0, totalAsadaCost = 0, totalSales = 0, skippedInvalid = 0
+
+  for (const r of rawRows) {
+    const food = Number(r.food_cost ?? r.total_cost) || 0
+    const pkg = Number(r.packaging_cost) || 0
+    const sales = Number(r.net_sales) || 0
+    if (isInvalidFoodCostCacheRow(food, sales) || food <= 0 || sales <= 0) {
+      skippedInvalid++
+      continue
+    }
+    const asadaLbs = Number(r.asada_raw_lbs) || 0
+    const asadaCost = Number(r.asada_cost) || (asadaLbs * 6.0)
+
+    totalFood += food
+    totalPkg += pkg
+    totalAsadaLbs += asadaLbs
+    totalAsadaCost += asadaCost
+    totalSales += sales
+
+    const name = clean(r.store_name) || 'Unknown'
+    if (!byStore[name]) byStore[name] = { food: 0, pkg: 0, asadaLbs: 0, asadaCost: 0, sales: 0 }
+    byStore[name].food += food
+    byStore[name].pkg += pkg
+    byStore[name].asadaLbs += asadaLbs
+    byStore[name].asadaCost += asadaCost
+    byStore[name].sales += sales
+
     const dt = r.business_date
-    if (!byDate[dt]) byDate[dt] = { cost: 0, sales: 0 }
-    byDate[dt].cost += Number(r.total_cost) || 0
-    byDate[dt].sales += Number(r.net_sales) || 0
-  })
+    if (!byDate[dt]) byDate[dt] = { food: 0, pkg: 0, asadaLbs: 0, sales: 0 }
+    byDate[dt].food += food
+    byDate[dt].pkg += pkg
+    byDate[dt].asadaLbs += asadaLbs
+    byDate[dt].sales += sales
+  }
+
+  if (totalSales <= 0 && totalFood <= 0) {
+    return `No valid food cost rows found for ${args.start_date} to ${args.end_date}.`
+  }
+
+  const foodPctNum = totalSales > 0 ? (totalFood / totalSales) * 100 : 0
+  const pkgPctNum = totalSales > 0 ? (totalPkg / totalSales) * 100 : 0
+  const asadaBags = totalAsadaLbs / 10
+
+  const lines = Object.entries(byStore)
+    .sort((a, b) => b[1].food - a[1].food)
+    .map(([n, v]) => {
+      const fPct = v.sales > 0 ? (v.food / v.sales) * 100 : 0
+      const pPct = v.sales > 0 ? (v.pkg / v.sales) * 100 : 0
+      const asadaSegment = v.asadaLbs > 0 ? ` | Asada: ${v.asadaLbs.toFixed(1)} lb (${fmt$(v.asadaCost)})` : ''
+      return `${fcBadge(fPct)} ${n}: Food ${fmt$(v.food)} (${fPct.toFixed(1)}%) | Packaging ${fmt$(v.pkg)} (${pPct.toFixed(1)}%) / Sales ${fmt$(v.sales)}${asadaSegment}`
+    })
+
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   const dailyLines = Object.entries(byDate).sort().map(([dt, v]) => {
     const [y, m, d] = dt.split('-').map(Number)
-    const dayName = dayNames[new Date(y, m - 1, d).getDay()]
-    return `${dt} (${dayName}): Cost ${fmt$(v.cost)} / Sales ${fmt$(v.sales)} = ${v.sales > 0 ? ((v.cost/v.sales)*100).toFixed(1) : 0}%`
+    const dayName = dayNames[new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay()]
+    const fPct = v.sales > 0 ? (v.food / v.sales) * 100 : 0
+    const pPct = v.sales > 0 ? (v.pkg / v.sales) * 100 : 0
+    return `${dt} (${dayName}): ${fcBadge(fPct)} Food ${fmt$(v.food)} (${fPct.toFixed(1)}%) | Pkg ${fmt$(v.pkg)} (${pPct.toFixed(1)}%) / Sales ${fmt$(v.sales)}`
   })
 
-  return `Food Cost ${args.start_date} to ${args.end_date}:\nTotal Cost: ${fmt$(totalCost)} | Sales: ${fmt$(totalSales)} | Food Cost: ${pct}%\n\nBy Store:\n${lines.join('\n')}\n\nDaily Breakdown:\n${dailyLines.join('\n')}`
+  const skippedNote = skippedInvalid > 0 ? `\n(Filtered ${skippedInvalid} incomplete cache rows with missing sales/cost)` : ''
+  const asadaSummary = totalAsadaLbs > 0
+    ? ` | Carne Asada: ${totalAsadaLbs.toFixed(1)} lb (${asadaBags.toFixed(1)} bags @ $60 = ${fmt$(totalAsadaCost)})`
+    : ''
+
+  return `Food Cost ${args.start_date} to ${args.end_date} (Thresholds: <=32% 🟢 | 32.1-35% 🟡 | >35% 🔴):\nSales: ${fmt$(totalSales)} | Pure Food Cost: ${fmt$(totalFood)} (${fcBadge(foodPctNum)} ${foodPctNum.toFixed(1)}%) | Packaging: ${fmt$(totalPkg)} (${pkgPctNum.toFixed(1)}%)${asadaSummary}${skippedNote}\n\nBy Store:\n${lines.join('\n')}\n\nDaily Breakdown:\n${dailyLines.join('\n')}`
 }
 
 // ── 3. Labor ──
@@ -2177,55 +2258,70 @@ async function analyzePerformance(args: any): Promise<string> {
       .gte('business_date', start_date)
       .lte('business_date', end_date)
       .order('business_date', { ascending: true })
-      
+      .limit(5000)
+
     const { data: foodData } = await supabaseAdmin
       .from('food_cost_daily_cache')
-      .select('business_date, total_cost, cost_percentage')
+      .select('business_date, food_cost, total_cost, packaging_cost, asada_raw_lbs, asada_cost, net_sales, cost_percentage')
       .eq('store_id', storeExtId)
       .gte('business_date', start_date)
       .lte('business_date', end_date)
-      
+      .order('business_date', { ascending: true })
+      .limit(5000)
+
     const { data: violations } = await supabaseAdmin
       .from('punch_violations')
       .select('violation_type, business_date')
       .eq('store_id', storeExtId)
       .gte('business_date', start_date)
       .lte('business_date', end_date)
-      
+      .limit(5000)
+
     if (!salesData?.length) {
       return `No actual sales data found for ${storeName} from ${start_date} to ${end_date} to perform audit.`
     }
-    
+
     let totalSales = 0
     let totalLabor = 0
     let totalOrders = 0
-    let daysWithSales = salesData.length
-    
+    const daysWithSales = salesData.length
+
     salesData.forEach(d => {
       totalSales += Number(d.net_sales) || 0
       totalLabor += Number(d.labor_cost) || 0
       totalOrders += Number(d.order_count) || 0
     })
-    
+
     let totalFoodCost = 0
+    let totalPkgCost = 0
+    let totalAsadaLbs = 0
+    let totalAsadaCost = 0
+    let fcSalesSum = 0
     foodData?.forEach(f => {
-      if (Number(f.total_cost) > 0) {
-        totalFoodCost += Number(f.total_cost)
-      }
+      const fc = Number(f.food_cost ?? f.total_cost) || 0
+      const fs = Number(f.net_sales) || 0
+      if (isInvalidFoodCostCacheRow(fc, fs) || fc <= 0 || fs <= 0) return
+      totalFoodCost += fc
+      totalPkgCost += Number(f.packaging_cost) || 0
+      totalAsadaLbs += Number(f.asada_raw_lbs) || 0
+      totalAsadaCost += Number(f.asada_cost) || ((Number(f.asada_raw_lbs) || 0) * 6.0)
+      fcSalesSum += fs
     })
-    
+
+    const fcDenom = fcSalesSum > 0 ? fcSalesSum : totalSales
     const actualLaborPct = totalSales > 0 ? (totalLabor / totalSales) * 100 : 0
-    const actualFoodPct = totalSales > 0 && totalFoodCost > 0 ? (totalFoodCost / totalSales) * 100 : 0
+    const actualFoodPct = fcDenom > 0 && totalFoodCost > 0 ? (totalFoodCost / fcDenom) * 100 : 0
+    const actualPkgPct = fcDenom > 0 && totalPkgCost > 0 ? (totalPkgCost / fcDenom) * 100 : 0
     const primeCostPct = actualLaborPct + actualFoodPct
-    
+
     const laborTarget = 21.5
-    const foodTarget = 32.0
-    const primeTarget = 53.5
-    
-    const laborStatus = actualLaborPct <= laborTarget ? '🟢 HEALTHY (Cumple Meta)' : actualLaborPct <= 23.5 ? '🟡 WARNING (Elevado)' : '🔴 CRITICAL (Sobrepresupuesto)'
-    const foodStatus = actualFoodPct > 0 ? (actualFoodPct <= foodTarget ? '🟢 HEALTHY (Cumple Meta)' : actualFoodPct <= 35.0 ? '🟡 WARNING (Elevado)' : '🔴 CRITICAL (Alto Desperdicio/Precios)') : '⚪ N/A (Sin datos de recetas)'
-    const primeStatus = primeCostPct > 0 ? (primeCostPct <= primeTarget ? '🟢 HEALTHY' : '🔴 CRITICAL (Fuera de Meta Global)') : '⚪ N/A'
-    
+    const foodTarget = FOOD_COST_HEALTHY_MAX_PCT
+    const primeTarget = 55.0
+
+    const laborStatus = actualLaborPct <= laborTarget ? '🟢 HEALTHY (Cumple Meta)' : actualLaborPct <= 23.0 ? '🟡 WARNING (Elevado)' : '🔴 CRITICAL (Sobrepresupuesto)'
+    const foodStatus = actualFoodPct > 0 ? (actualFoodPct <= foodTarget ? '🟢 HEALTHY (Cumple Meta)' : actualFoodPct <= FOOD_COST_WARNING_MAX_PCT ? '🟡 WARNING (Elevado)' : '🔴 CRITICAL (Alto Desperdicio/Precios)') : '⚪ N/A (Sin datos de recetas)'
+    const primeStatus = primeCostPct > 0 ? (primeCostPct <= primeTarget ? '🟢 HEALTHY' : '🔴 CRITICAL (Fuera de Meta Global <=55%)') : '⚪ N/A'
+
     const lines = [
       `📊 **Operational Performance Deep Audit for ${storeName}**`,
       `📅 **Period:** ${start_date} to ${end_date} (${daysWithSales} days)`,
@@ -2233,9 +2329,11 @@ async function analyzePerformance(args: any): Promise<string> {
       `### 💰 Financial KPI scorecard`,
       `*   **Net Sales Total:** **${fmt$(totalSales)}** (Avg: ${fmt$(totalSales / daysWithSales)}/day)`,
       `*   **Total Orders:** **${totalOrders}** (ATV: ${fmt$(totalSales / (totalOrders || 1))})`,
-      `*   **Labor Cost:** **${fmt$(totalLabor)}** | **${actualLaborPct.toFixed(1)}%** (Meta: <21.5%) -> **${laborStatus}**`,
-      `*   **Food Cost (Theoretical):** ${totalFoodCost > 0 ? `**${fmt$(totalFoodCost)}** | **${actualFoodPct.toFixed(1)}%**` : '*N/A*'} (Meta: <32.0%) -> **${foodStatus}**`,
-      `*   **Prime Cost (Labor + Food):** ${primeCostPct > 0 ? `**${primeCostPct.toFixed(1)}%**` : '*N/A*'} (Meta: <53.5%) -> **${primeStatus}**`,
+      `*   **Labor Cost:** **${fmt$(totalLabor)}** | **${actualLaborPct.toFixed(1)}%** (Meta: <=21.5%) -> **${laborStatus}**`,
+      `*   **Food Cost (Pure Food):** ${totalFoodCost > 0 ? `**${fmt$(totalFoodCost)}** | **${actualFoodPct.toFixed(1)}%**` : '*N/A*'} (Meta: <=32.0%, Crítico >35.0%) -> **${foodStatus}**`,
+      `*   **Packaging & Disposables:** ${totalPkgCost > 0 ? `**${fmt$(totalPkgCost)}** | **${actualPkgPct.toFixed(1)}%**` : '*$0.00*'}`,
+      ...(totalAsadaLbs > 0 ? [`*   **Carne Asada Theoretical:** **${totalAsadaLbs.toFixed(1)} lb** (${(totalAsadaLbs / 10).toFixed(1)} bags @ $60 = **${fmt$(totalAsadaCost)}**)`] : []),
+      `*   **Prime Cost (Direct Labor + Pure Food):** ${primeCostPct > 0 ? `**${primeCostPct.toFixed(1)}%**` : '*N/A*'} (Meta: <=55.0%) -> **${primeStatus}**`,
       ``,
       `### ⚖️ Labor Compliance & Violations`,
       `*   **Total Punch Violations:** **${violations?.length || 0}** cases detected.`
@@ -2726,7 +2824,7 @@ async function queryInventoryPilotStatus(args: { business_date?: string; days_ba
   ])
 
   const storeModeSummary = (activeStores || [])
-    .map((s: any) => `${clean(s.name)}: ${s.inventory_automation_mode || 'auto_order_visible'}`)
+    .map((s: any) => `${clean(s.name)}: ${s.inventory_automation_mode || 'shadow_blind'}`)
     .join(' | ')
 
   if (error) {
@@ -2743,15 +2841,15 @@ async function queryInventoryPilotStatus(args: { business_date?: string; days_ba
     const accuracy = comparable.length ? ((accurate / comparable.length) * 100).toFixed(1) : 'N/A'
     const storeObj = Array.isArray(session.stores) ? session.stores[0] : session.stores
     const storeName = storeObj?.name || 'Sucursal'
-    const activeMode = storeObj?.inventory_automation_mode || 'auto_order_visible'
+    const activeMode = storeObj?.inventory_automation_mode || 'shadow_blind'
     return `${storeName} (modo activo: ${activeMode}) · ${session.business_date}: ${session.status === 'revealed' ? 'Comparativa cerrada' : 'En captura'} [${session.model_version || 'dual-engine-v2'}] | ${lines.length} artículos | Precisión dentro de tolerancia: ${accuracy}% | Cerró: ${session.completed_by_name || '—'}`
   })
 
   const sessionsSection = rows.length
     ? `\n\nSesiones comparativas registradas (${startDate} a ${endDate}):\n${rows.join('\n')}`
-    : `\n\nNo hay sesiones comparativas cerradas entre ${startDate} y ${endDate} (en modo auto_order_visible la comparación es opcional y no bloquea el envío a QuickBooks).`
+    : `\n\nNo hay sesiones comparativas cerradas entre ${startDate} y ${endDate}.`
 
-  return `🤖 Automatización de Orden Diaria a Bodega (${activeStores?.length || 15} Sucursales Activas)\nModo activo por sucursal: ${storeModeSummary}${sessionsSection}\n\nRegla operativa vigente (auto_order_visible): Los 51 SKU muestran desde el segundo 1 el sobrante calculado por el sistema y la cantidad lista a pedir a QuickBooks. No se obliga validación bloqueante: si el asistente o manager captura su sobrante físico, el conteo físico manda al 100% de inmediato; los insumos no editados quedan respaldados automáticamente por el cálculo del sistema (AUTO_CYCLE_V2).`
+  return `🤖 Control de Sobrantes en Orden Diaria a Bodega (${activeStores?.length || 15} Sucursales Activas)\nModo activo por sucursal: ${storeModeSummary}${sessionsSection}\n\nRegla operativa vigente (shadow_blind · Conteo Ciego 51 SKU): La orden automática está desactivada para los empleados. Cada sucursal debe capturar físicamente todos sus sobrantes (bolsas/cajas cerradas) a ciegas con candado 🔒; al cerrar los 51 conteos, el sistema guarda automáticamente la medición exacta de los sobrantes capturados contra el cálculo del sistema antes de permitir enviar el pedido oficial (PAR - Sobrante Físico) a QuickBooks.`
 }
 
 async function querySupervisorMileage(args: { start_date: string; end_date: string; supervisor_name?: string }): Promise<string> {
@@ -3185,48 +3283,87 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
 
     if (!stores || stores.length === 0) return 'No se encontraron sucursales activas en el sistema.'
 
-    // 2. Fetch sales and labor from sales_daily_cache
-    const { data: salesData } = await supabaseAdmin
-      .from('sales_daily_cache')
-      .select('store_id, store_name, net_sales, labor_cost')
-      .gte('business_date', startDate)
-      .lte('business_date', endDate)
+    const PAGE_SIZE = 1000
+    const MAX_PAGES = 60
 
-    // 3. Fetch food cost
-    const { data: foodCostData } = await supabaseAdmin
-      .from('food_cost_daily_cache')
-      .select('store_id, store_name, total_cost')
-      .gte('business_date', startDate)
-      .lte('business_date', endDate)
+    // 2. Paginate sales_daily_cache
+    const salesData: any[] = []
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE
+      const { data: batch, error } = await supabaseAdmin
+        .from('sales_daily_cache')
+        .select('id, store_id, store_name, net_sales, labor_cost, business_date')
+        .gte('business_date', startDate)
+        .lte('business_date', endDate)
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (error || !batch || batch.length === 0) break
+      salesData.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
 
-    // 4. Fetch store operating expenses
+    // 3. Paginate punches on PK toast_id for exact direct wages
+    const punchData: any[] = []
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE
+      const { data: batch, error } = await supabaseAdmin
+        .from('punches')
+        .select('toast_id, store_id, regular_hours, overtime_hours, hourly_wage, business_date')
+        .gte('business_date', startDate)
+        .lte('business_date', endDate)
+        .order('toast_id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (error || !batch || batch.length === 0) break
+      punchData.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
+
+    // 4. Paginate food_cost_daily_cache (separated food_cost & packaging_cost)
+    const foodCostData: any[] = []
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE
+      const { data: batch, error } = await supabaseAdmin
+        .from('food_cost_daily_cache')
+        .select('id, store_id, store_name, food_cost, total_cost, packaging_cost, net_sales, business_date')
+        .gte('business_date', startDate)
+        .lte('business_date', endDate)
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (error || !batch || batch.length === 0) break
+      foodCostData.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
+
+    // 5. Fetch store operating expenses & overlapping shared brand expenses
     const { data: opExData } = await supabaseAdmin
       .from('store_operating_expenses')
       .select('*')
 
-    // 5. Fetch shared brand expenses
     const { data: sharedExpenses } = await supabaseAdmin
       .from('shared_brand_expenses')
       .select('*')
+      .lte('period_start', endDate)
+      .gte('period_end', startDate)
 
-    // Days ratio for monthly prorating
-    const d1 = new Date(startDate).getTime()
-    const d2 = new Date(endDate).getTime()
-    const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1)
-    const monthRatio = days / 30
-
-    // Factor de eliminación de margen interno de La Bodega en carnes/insumos (~10%)
+    // DST-safe UTC calendar days & monthly proration ratio (matching /api/pnl/consolidated)
+    const startD = new Date(startDate + 'T12:00:00Z')
+    const endD = new Date(endDate + 'T12:00:00Z')
+    const days = Math.max(1, diffCalendarDays(startDate, endDate) + 1)
+    const monthRatio = days / 30.416
     const BODEGA_ELIMINATION_FACTOR = 0.90
 
-    // Map aggregates
     interface StorePnl {
       storeId: string
       storeName: string
       netSales: number
+      cachedLaborCost: number
+      punchWages: number
       foodCost: number
-      laborCost: number
+      packagingCost: number
       operatingExpenses: number
       sharedExpenses: number
+      foodEstimated: boolean
+      laborEstimated: boolean
     }
 
     const map = new Map<string, StorePnl>()
@@ -3237,10 +3374,14 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
         storeId: sId,
         storeName: clean(s.name),
         netSales: 0,
+        cachedLaborCost: 0,
+        punchWages: 0,
         foodCost: 0,
-        laborCost: 0,
+        packagingCost: 0,
         operatingExpenses: 0,
-        sharedExpenses: 0
+        sharedExpenses: 0,
+        foodEstimated: false,
+        laborEstimated: false,
       }
       map.set(sId, entry)
       extOrNameMap.set(sId, entry)
@@ -3254,54 +3395,103 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
       return undefined
     }
 
-    ;(salesData || []).forEach(r => {
+    salesData.forEach(r => {
       const target = findTarget(r.store_id, r.store_name)
       if (target) {
         target.netSales += Number(r.net_sales) || 0
-        target.laborCost += Number(r.labor_cost) || 0
+        target.cachedLaborCost += Number(r.labor_cost) || 0
       }
     })
 
-    ;(foodCostData || []).forEach(r => {
+    punchData.forEach(p => {
+      const target = findTarget(p.store_id)
+      if (target) {
+        const reg = Number(p.regular_hours) || 0
+        const ot = Number(p.overtime_hours) || 0
+        const wage = Number(p.hourly_wage) || 17.50
+        target.punchWages += (reg * wage) + (ot * wage * 1.5)
+      }
+    })
+
+    foodCostData.forEach(r => {
+      const rowFood = Number(r.food_cost ?? r.total_cost) || 0
+      const rowPkg = Number(r.packaging_cost) || 0
+      const rowSales = Number(r.net_sales) || 0
+      if (isInvalidFoodCostCacheRow(rowFood, rowSales)) return
       const target = findTarget(r.store_id, r.store_name)
       if (target) {
-        let cost = Number(r.total_cost) || 0
-        if (bodegaMode === 'corporate') {
-          cost = cost * BODEGA_ELIMINATION_FACTOR
-        }
-        target.foodCost += cost
+        // 0.90x Bodega markup elimination applies ONLY to food_cost, NEVER to external packaging
+        target.foodCost += bodegaMode === 'corporate' ? rowFood * BODEGA_ELIMINATION_FACTOR : rowFood
+        target.packagingCost += rowPkg
       }
     })
 
+    // Deduplicate store_operating_expenses: prefer targetMonth (YYYY-MM), else DEFAULT
+    const targetMonth = startDate.slice(0, 7)
+    const bestOpExByStore = new Map<string, any>()
     ;(opExData || []).forEach((o: any) => {
       const target = findTarget(o.store_id, o.store_name)
-      if (target) {
-        const monthlySum = (Number(o.rent_monthly ?? o.rent) || 0) +
-          (Number(o.cam_charges ?? o.cam) || 0) +
-          (Number(o.utilities_monthly ?? o.utilities) || 0) +
-          (Number(o.repairs_maintenance_monthly ?? o.repairs_maintenance) || 0) +
-          (Number(o.supplies_misc_monthly ?? o.supplies) || 0) +
-          (Number(o.insurance_monthly ?? o.insurance) || 0) +
-          (Number(o.other) || 0)
-        target.operatingExpenses += monthlySum * monthRatio
+      if (!target) return
+      const existing = bestOpExByStore.get(target.storeId)
+      if (
+        o.month_year === targetMonth ||
+        (o.month_year === 'DEFAULT' && existing?.month_year !== targetMonth) ||
+        !existing
+      ) {
+        bestOpExByStore.set(target.storeId, o)
       }
     })
 
-    // Prorate shared brand expenses
+    bestOpExByStore.forEach((o, sId) => {
+      const target = map.get(sId)
+      if (!target) return
+      const monthlySum = (Number(o.rent_monthly ?? o.rent) || 0) +
+        (Number(o.cam_charges ?? o.cam) || 0) +
+        (Number(o.utilities_monthly ?? o.utilities) || 0) +
+        (Number(o.repairs_maintenance_monthly ?? o.repairs_maintenance) || 0) +
+        (Number(o.supplies_misc_monthly ?? o.supplies) || 0) +
+        (Number(o.insurance_monthly ?? o.insurance) || 0) +
+        (Number(o.other) || 0)
+      target.operatingExpenses = monthlySum * monthRatio
+    })
+
+    // Prorate shared_brand_expenses by exact overlapping calendar days
     const totalChainSales = Array.from(map.values()).reduce((sum, s) => sum + s.netSales, 0)
     const storeCount = map.size
 
     ;(sharedExpenses || []).forEach((exp: any) => {
-      const allocatedTotal = (Number(exp.amount ?? exp.total_amount) || 0) * monthRatio
-      map.forEach(store => {
-        let storeShare = 0
-        if (exp.allocation_method === 'even_split' || totalChainSales === 0) {
-          storeShare = allocatedTotal / Math.max(1, storeCount)
-        } else {
-          storeShare = allocatedTotal * (store.netSales / totalChainSales)
+      const amount = Number(exp.amount ?? exp.total_amount) || 0
+      let proratedAmount = amount * monthRatio
+      if (exp.period_start && exp.period_end) {
+        const expStart = new Date(exp.period_start + 'T12:00:00Z')
+        const expEnd = new Date(exp.period_end + 'T12:00:00Z')
+        const maxStart = new Date(Math.max(startD.getTime(), expStart.getTime()))
+        const minEnd = new Date(Math.min(endD.getTime(), expEnd.getTime()))
+        let overlapDays = 0
+        if (minEnd >= maxStart) {
+          overlapDays = Math.max(1, Math.ceil((minEnd.getTime() - maxStart.getTime()) / (1000 * 60 * 60 * 24)) + 1)
         }
+        const expTotalDays = Math.max(1, Math.ceil((expEnd.getTime() - expStart.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+        proratedAmount = amount * (expTotalDays > 0 ? overlapDays / expTotalDays : 0)
+      }
+      map.forEach(store => {
+        const storeShare = (exp.allocation_method === 'even_split' || totalChainSales === 0)
+          ? proratedAmount / Math.max(1, storeCount)
+          : proratedAmount * (store.netSales / totalChainSales)
         store.sharedExpenses += storeShare
       })
+    })
+
+    // Finalize fallback estimates per store (matching /api/pnl/consolidated)
+    map.forEach(store => {
+      if (store.foodCost === 0 && store.netSales > 0) {
+        store.foodCost = store.netSales * 0.315 * (bodegaMode === 'corporate' ? BODEGA_ELIMINATION_FACTOR : 1)
+        store.foodEstimated = true
+      }
+      if (store.punchWages === 0 && store.cachedLaborCost === 0 && store.netSales > 0) {
+        store.punchWages = store.netSales * 0.26
+        store.laborEstimated = true
+      }
     })
 
     let filteredList = Array.from(map.values())
@@ -3312,46 +3502,225 @@ async function queryPnlConsolidatedTool(args: any): Promise<string> {
 
     const safePct = (part: number, whole: number) => whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0'
 
-    // Consolidated totals
-    let totSales = 0, totFood = 0, totLabor = 0, totOpEx = 0, totShared = 0
+    let totSales = 0, totFood = 0, totPkg = 0, totLabor = 0, totBenefits = 0, totOpEx = 0, totShared = 0
+    let anyFoodEst = false, anyLaborEst = false
     filteredList.forEach(s => {
+      const directLabor = s.punchWages > 0 ? s.punchWages : s.cachedLaborCost
+      const benefits = directLabor * 0.12
       totSales += s.netSales
       totFood += s.foodCost
-      totLabor += s.laborCost
+      totPkg += s.packagingCost
+      totLabor += directLabor
+      totBenefits += benefits
       totOpEx += s.operatingExpenses
       totShared += s.sharedExpenses
+      if (s.foodEstimated) anyFoodEst = true
+      if (s.laborEstimated) anyLaborEst = true
     })
 
+    // Prime Cost = Pure Food Cost + Direct Labor (100% parity with /ventas & /admin/pnl)
     const totPrime = totFood + totLabor
-    const totEbitda = totSales - totPrime - totOpEx - totShared
+    const totEbitda = totSales - totPrime - totPkg - totBenefits - totOpEx - totShared
 
-    const modeLabel = bodegaMode === 'corporate' 
-      ? '🏢 **Modo Corporativo (Eliminación Margen Bodega ~10% Activa)**' 
+    const modeLabel = bodegaMode === 'corporate'
+      ? '🏢 **Modo Corporativo (Eliminación Margen Bodega 0.90x solo en Comida)**'
       : '🏪 **Modo Tienda (Costo Facturado por Bodega a Sucursal)**'
 
     let out = `### 📊 Estado de Resultados P&L — Tacos Gavilan\n`
     out += `* **Periodo:** ${startDate} al ${endDate} (${days} días)\n`
-    out += `* **Perspectiva:** ${modeLabel}\n\n`
-    out += '| Sucursal | Ventas Netas | Costo Comida | Labor | Costo Primo | Gastos Op. | EBITDA | Margen % |\n'
-    out += '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n'
+    out += `* **Perspectiva:** ${modeLabel}\n`
+    out += `* **Regla Prime Cost:** Comida Pura + Salarios Directos (Empaques y Cargas Patronales 12% est. desglosados por separado)\n\n`
+    out += '| Sucursal | Ventas Netas | Comida Pura | Labor Directo | Prime Cost | Empaques | Cargas 12% | Gastos Op. + Mkt | EBITDA | Margen % |\n'
+    out += '| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n'
 
     filteredList.forEach(s => {
-      const prime = s.foodCost + s.laborCost
+      const directLabor = s.punchWages > 0 ? s.punchWages : s.cachedLaborCost
+      const benefits = directLabor * 0.12
+      const prime = s.foodCost + directLabor
       const opex = s.operatingExpenses + s.sharedExpenses
-      const ebitda = s.netSales - prime - opex
+      const ebitda = s.netSales - prime - s.packagingCost - benefits - opex
       const pct = safePct(ebitda, s.netSales)
       const emoji = Number(pct) >= 20 ? '🟢' : Number(pct) >= 15 ? '🟡' : '🔴'
-      out += `| ${s.storeName} | ${fmt$(s.netSales)} | ${fmt$(s.foodCost)} (${safePct(s.foodCost, s.netSales)}%) | ${fmt$(s.laborCost)} (${safePct(s.laborCost, s.netSales)}%) | ${fmt$(prime)} (${safePct(prime, s.netSales)}%) | ${fmt$(opex)} | ${fmt$(ebitda)} | ${emoji} ${pct}% |\n`
+      const fEst = s.foodEstimated ? ' [Est.]' : ''
+      const lEst = s.laborEstimated ? ' [Est.]' : ''
+      out += `| ${s.storeName} | ${fmt$(s.netSales)} | ${fmt$(s.foodCost)} (${safePct(s.foodCost, s.netSales)}%)${fEst} | ${fmt$(directLabor)} (${safePct(directLabor, s.netSales)}%)${lEst} | ${fmt$(prime)} (${safePct(prime, s.netSales)}%) | ${fmt$(s.packagingCost)} (${safePct(s.packagingCost, s.netSales)}%) | ${fmt$(benefits)} | ${fmt$(opex)} | ${fmt$(ebitda)} | ${emoji} ${pct}% |\n`
     })
 
     if (!storeFilter || filteredList.length > 1) {
       const totPct = safePct(totEbitda, totSales)
-      out += `| **TOTAL CADENA** | **${fmt$(totSales)}** | **${fmt$(totFood)} (${safePct(totFood, totSales)}%)** | **${fmt$(totLabor)} (${safePct(totLabor, totSales)}%)** | **${fmt$(totPrime)} (${safePct(totPrime, totSales)}%)** | **${fmt$(totOpEx + totShared)}** | **${fmt$(totEbitda)}** | **${totPct}%** |\n`
+      const fEst = anyFoodEst ? ' [Est.]' : ''
+      const lEst = anyLaborEst ? ' [Est.]' : ''
+      out += `| **TOTAL CADENA** | **${fmt$(totSales)}** | **${fmt$(totFood)} (${safePct(totFood, totSales)}%)${fEst}** | **${fmt$(totLabor)} (${safePct(totLabor, totSales)}%)${lEst}** | **${fmt$(totPrime)} (${safePct(totPrime, totSales)}%)** | **${fmt$(totPkg)} (${safePct(totPkg, totSales)}%)** | **${fmt$(totBenefits)}** | **${fmt$(totOpEx + totShared)}** | **${fmt$(totEbitda)}** | **${totPct}%** |\n`
     }
 
     return out
   } catch (err: any) {
     return `Error consultando P&L consolidado: ${err.message}`
+  }
+}
+
+/**
+ * Control de Porciones de Carnes (Carne Asada $60/10lb & 8 Carnes), Atribución AM/PM y Escalera de Mando
+ */
+async function queryPortionControlAlertsTool(args: any): Promise<string> {
+  try {
+    const startDate = args.start_date || addDaysIso(getBusinessDateLA(), -30)
+    const endDate = args.end_date || getBusinessDateLA()
+    const statusFilter = (args.status || 'active').toLowerCase().trim()
+    const meatFilter = args.meat_key?.toLowerCase()?.trim()
+    const storeFilter = args.store_name?.trim()
+
+    const employeeFilter = args.employee_name?.trim()
+    const onlyExpulsions = Boolean(args.only_expulsions)
+
+    let alertQuery = supabaseAdmin
+      .from('portion_control_alerts')
+      .select('*')
+      .gte('period_end', startDate)
+      .lte('period_start', endDate)
+      .order('dollar_loss_store', { ascending: false })
+      .limit(200)
+
+    if (statusFilter === 'active') {
+      alertQuery = alertQuery.in('status', ['open', 'acknowledged', 'coached', 'verified'])
+    } else if (statusFilter === 'overdue') {
+      alertQuery = alertQuery.eq('is_overdue', true)
+    } else if (statusFilter === 'resolved') {
+      alertQuery = alertQuery.eq('status', 'resolved')
+    }
+    if (meatFilter) {
+      alertQuery = alertQuery.eq('meat_key', meatFilter)
+    }
+    if (storeFilter) {
+      alertQuery = alertQuery.ilike('store_name', `%${storeFilter}%`)
+    }
+
+    let strikesQuery = supabaseAdmin
+      .from('portion_disciplinary_actions')
+      .select('*')
+      .gte('created_at', new Date(Date.now() - 180 * 86_400_000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(150)
+
+    if (storeFilter) {
+      strikesQuery = strikesQuery.ilike('store_name', `%${storeFilter}%`)
+    }
+    if (meatFilter) {
+      strikesQuery = strikesQuery.eq('meat_key', meatFilter)
+    }
+    if (employeeFilter) {
+      strikesQuery = strikesQuery.ilike('employee_name', `%${employeeFilter}%`)
+    }
+    if (onlyExpulsions) {
+      strikesQuery = strikesQuery.eq('disciplinary_stage', 'strike_3_expulsion')
+    }
+
+    const [{ data: alerts, error: alertErr }, { data: strikesData }] = await Promise.all([
+      alertQuery,
+      strikesQuery,
+    ])
+    if (alertErr) {
+      return `Error consultando alertas de porciones: ${alertErr.message}`
+    }
+
+    let handoverQuery = supabaseAdmin
+      .from('meat_shift_handover_counts')
+      .select('store_id, business_date, meat_key, sealed_bags, open_cooked_lbs, counted_by_name, notes')
+      .gte('business_date', startDate)
+      .lte('business_date', endDate)
+      .order('business_date', { ascending: false })
+      .limit(50)
+
+    if (meatFilter) handoverQuery = handoverQuery.eq('meat_key', meatFilter)
+    const { data: handovers } = await handoverQuery
+
+    const list = alerts || []
+    let asadaLossStore = 0
+    let asadaExcessLbs = 0
+    let totalLossStore = 0
+    let totalLossBodega = 0
+    let criticalCount = 0
+
+    for (const a of list) {
+      const lossStore = Number(a.dollar_loss_store) || 0
+      const lossBod = Number(a.dollar_loss_bodega) || 0
+      const varLbs = Number(a.variance_lbs) || 0
+      if (lossStore > 0) totalLossStore += lossStore
+      if (lossBod > 0) totalLossBodega += lossBod
+      if (a.severity === 'critical') criticalCount++
+      if (a.meat_key === 'asada' && varLbs > 0) {
+        asadaExcessLbs += varLbs
+        asadaLossStore += lossStore
+      }
+    }
+
+    const stepLabel = (st: string) => {
+      switch (st) {
+        case 'open': return 'Paso 1/4: 🔴 Alerta Emitida (Pendiente Enterado Gerente)'
+        case 'acknowledged': return 'Paso 2/4: 🟡 Enterado Gerente (Pendiente Coaching AM/PM)'
+        case 'coached': return 'Paso 3/4: 🔵 Coaching Registrado (Pendiente Validación Supervisor)'
+        case 'verified': return 'Paso 4/4: 🟢 Validado por Supervisor'
+        case 'resolved': return '✅ Resuelta / Cerrada'
+        default: return st
+      }
+    }
+
+    const formatStaff = (arr: any) => {
+      if (!Array.isArray(arr) || arr.length === 0) return 'Sin registro'
+      return arr.slice(0, 4).map((s: any) => `${s.name || 'Staff'} (${s.role || s.station || 'Cocina'})`).join(', ')
+    }
+
+    const strikes = strikesData || []
+    const overdueAlertsCount = list.filter(
+      (a: any) => Boolean(a.is_overdue) || (!a.disciplinary_action_id && a.status !== 'verified' && a.status !== 'resolved' && a.due_at && new Date(a.due_at).getTime() < Date.now())
+    ).length
+    const pendingExpulsions = strikes.filter((s: any) => s.expulsion_status === 'pending_mandatory_expulsion')
+
+    let out = `### 🥩 Control de Porciones, SLA 24h & Strikes Disciplinarios (${startDate} a ${endDate})\n`
+    out += `* **Filtro estado:** ${statusFilter.toUpperCase()} | **Alertas encontradas:** **${list.length}** (Críticas: **${criticalCount}** | Vencidas >24h SLA: **${overdueAlertsCount}**)\n`
+    out += `* **Strikes Disciplinarios (últimos 180d):** **${strikes.length}** registrados | **Expulsiones Obligatorias Pendientes:** **${pendingExpulsions.length}**\n`
+    out += `* **Impacto Carne Asada ($60/bolsa 10 lb Tienda | $50 Bodega):** **+${asadaExcessLbs.toFixed(1)} lb** (+${(asadaExcessLbs / 10).toFixed(1)} bolsas) = **${fmt$(asadaLossStore)}** pérdida tienda\n`
+    out += `* **Pérdida Total 8 Carnes:** **${fmt$(totalLossStore)}** costo Tienda (**${fmt$(totalLossBodega)}** costo real Bodega)\n\n`
+
+    if (list.length === 0) {
+      out += `✅ No hay alertas de sobre-porcionado con estatus "${statusFilter}" en este rango.\n`
+    } else {
+      for (const a of list.slice(0, 25)) {
+        const sevEmoji = a.severity === 'critical' ? '🔴 CRÍTICA' : '🟡 ALERTA'
+        const slaTag = a.is_overdue ? ' | ⏰ VENCIDA >24H (ESCALADA)' : a.disciplinary_action_id ? ' | ✅ Strike Vinculado' : ''
+        const excessOz = Number(a.excess_oz_per_taco) || 0
+        out += `- **${sevEmoji} | ${clean(a.store_name)} — ${a.meat_name || a.meat_key}** (${a.period_start} → ${a.period_end}, ${a.span_days || 1}d)${slaTag}\n`
+        out += `  • Teórico POS: **${Number(a.theoretical_lbs || 0).toFixed(1)} lb** vs Físico Real: **${Number(a.actual_lbs || 0).toFixed(1)} lb** → Exceso: **+${Number(a.variance_lbs || 0).toFixed(1)} lb** (+${Number(a.variance_bags || 0).toFixed(1)} bolsas | +${Number(a.variance_pct || 0).toFixed(1)}%${excessOz > 0 ? ` | +${excessOz.toFixed(2)} oz/taco` : ''})\n`
+        out += `  • Pérdida Financiera: **${fmt$(Number(a.dollar_loss_store) || 0)}** Tienda | **${fmt$(Number(a.dollar_loss_bodega) || 0)}** Bodega\n`
+        out += `  • Turno Dominante: **${a.dominant_shift || 'BOTH'}** (AM Teórico ${Number(a.am_theo_lbs || 0).toFixed(1)} lb${a.am_actual_lbs != null ? ` / Real ${Number(a.am_actual_lbs).toFixed(1)} lb` : ''} | PM Teórico ${Number(a.pm_theo_lbs || 0).toFixed(1)} lb${a.pm_actual_lbs != null ? ` / Real ${Number(a.pm_actual_lbs).toFixed(1)} lb` : ''})\n`
+        out += `  • Equipo AM (06:00–16:59): ${formatStaff(a.am_staff)} | Equipo PM (17:00–05:59): ${formatStaff(a.pm_staff)}\n`
+        out += `  • Escalera de Mando: **${stepLabel(a.status)}**${a.coaching_staff_names ? ` | Strike/Corrección: ${a.coaching_staff_names} (${a.coaching_shift || ''}) — "${a.corrective_action_notes || ''}"` : ''}\n`
+      }
+    }
+
+    if (strikes.length > 0) {
+      out += `\n### ⚖️ Registro Inmutable de Strikes y Expulsiones (180 Días — ${strikes.length})\n`
+      for (const s of strikes.slice(0, 25)) {
+        const stg =
+          s.disciplinary_stage === 'strike_3_expulsion'
+            ? `🚨 STRIKE #${s.offense_number} (EXPULSIÓN OBLIGATORIA — ${s.expulsion_status})`
+            : s.disciplinary_stage === 'strike_2_final_suspension'
+              ? `⚠️ STRIKE #2 (Acta Final + Suspensión)`
+              : `📌 STRIKE #1 (Amonestación + Báscula)`
+        out += `- **${stg}** | #${s.store_id} ${clean(s.store_name)} | **${clean(s.employee_name)}** (${s.employee_role}, Turno ${s.shift}) | ${s.meat_name} (+${Number(s.excess_bags || 0).toFixed(1)} bolsas / ${fmt$(Number(s.dollar_loss_store) || 0)}) | Báscula: 5 Tacos=${Number(s.sampled_tacos_avg_oz || 0).toFixed(2)} oz, 3 Burritos=${Number(s.sampled_burritos_avg_oz || 0).toFixed(2)} oz | Emitió: ${s.issued_by_name || '-'}${s.supervisor_verified_by ? ` | Validó: ${s.supervisor_verified_by}` : ''}\n`
+      }
+    }
+
+    if (handovers && handovers.length > 0) {
+      out += `\n### 🕔 Cortes Físicos de Cambio de Turno 5:00 PM Recientes (${handovers.length})\n`
+      for (const h of handovers.slice(0, 10)) {
+        out += `- ${h.business_date} | Tienda #${h.store_id} | ${String(h.meat_key).toUpperCase()}: **${h.sealed_bags} bolsas selladas** + **${Number(h.open_cooked_lbs || 0).toFixed(1)} lb abiertas** — Capturó: ${h.counted_by_name || '-'}\n`
+      }
+    }
+
+    return out
+  } catch (err: any) {
+    return `Error en query_portion_control_alerts: ${err.message}`
   }
 }
 

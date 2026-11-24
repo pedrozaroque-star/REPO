@@ -29,8 +29,13 @@
  *     (`1df90372-7648-4ec1-9a6c-fca4032095a6`, 8" taco) en lugar de `358-9673BT 13" Flour Tortilla` (burrito).
  *   - [2026-11-17] Corregidas charolas de aluminio por componente conforme a `docs/Party Tray Instructions.pdf`:
  *     `25-30` usa `1 × Full (RC1174+RL990)` para carne + `2 × Medium/Half (RC1150+RL970)` para arroz y frijol;
- *     `15-20` usa `3 × Medium/Half (RC1150+RL970)` (alineado también con `6 lb Meat = half_pan` en `ticket-packaging.ts`);
- *     homologado `RC478 + 709DO` a `type: 'raw'` junto al resto de empaques integrados del paquete para no omitirse en Food Cost ni Delivery.
+ *     `15-20` usa `3 × Medium/Half (RC1150+RL970)` (alineado también con `6 lb Meat = half_pan` en `ticket-packaging.ts`).
+ *   - [2026-11-23] Corregido parser de múltiples grupos entre paréntesis (`"Party Tray (15-20 People) (Asada, Horchata)"`)
+ *     usando `matchAll(/\(([^)]+)\)/g)` para no ocultar carnes/aguas/tortillas tras el tamaño.
+ *   - [2026-11-23] DECISIÓN CRÍTICA #1 (Separación de Packaging vs Food Cost): Las 11 líneas de empaques y desechables
+ *     (`254W` galones vacíos, `RC478 + 709DO`, charolas `RC1124/RC1150/RC1174` + tapas `RL940/RL970/RL990`, platos `EP9PR`,
+ *     tenedores `HEFO`, cucharas `HESP`, vasos `12PR`, bolsa `EL1CS2G` y servilletas `DX900GE`) se emiten como
+ *     `type: 'cogs_takeout'` para clasificarse en `packagingCost` y mantener `foodCost` 100% comestible.
  */
 
 export type PartyTraySize = '15-20' | '20-25' | '25-30' | '30-40'
@@ -299,13 +304,23 @@ export function buildPartyTrayVirtualIngredients(params: {
   const guideline = PARTY_TRAY_GUIDELINES[size]
 
   const parentLower = normalized(params.itemName || '')
-  const parenMatch = parentLower.match(/\(([^)]+)\)/)
-  const modsFromName = parenMatch ? parenMatch[1].split(',').map((s) => s.trim()).filter(Boolean) : []
-  const extraMods = (params.modifierTexts || []).map((m) => normalized(String(m || '')).trim()).filter(Boolean)
-  const modsArr = [...modsFromName, ...extraMods]
+  const parenGroups = Array.from(parentLower.matchAll(/\(([^)]+)\)/g), (m) => m[1])
+  const modsFromName = parenGroups
+    .flatMap((grp) => grp.split(/[,;/]/))
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const extraMods = (params.modifierTexts || [])
+    .flatMap((m) => normalized(String(m || '')).split(/[,;/]/))
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const fallbackSegments =
+    modsFromName.length === 0 && extraMods.length === 0
+      ? parentLower.split(/[,;/]/).map((s) => s.trim()).filter(Boolean)
+      : []
+  const modsArr = [...modsFromName, ...extraMods, ...fallbackSegments]
 
-  const meatsFound: string[] = []
-  const aguasFound: string[] = []
+  const meatsSet = new Set<string>()
+  const aguasSet = new Set<string>()
   let exclusiveMeatId: string | null = null
   let exclusiveAguaId: string | null = null
   const exclusivePrefixes = ['todo', 'toda', 'solo', 'pura', 'puro', 'only', 'all']
@@ -324,24 +339,24 @@ export function buildPartyTrayVirtualIngredients(params: {
       }
     }
     for (const [meatKey, meatId] of Object.entries(PARTY_TRAY_MEAT_MAP)) {
-      if (mod.includes(meatKey)) meatsFound.push(meatId)
+      if (mod.includes(meatKey)) meatsSet.add(meatId)
     }
     for (const [aguaKey, aguaId] of Object.entries(PARTY_TRAY_AGUA_MAP)) {
-      if (mod.includes(aguaKey)) aguasFound.push(aguaId)
+      if (mod.includes(aguaKey)) aguasSet.add(aguaId)
     }
   }
 
-  if (exclusiveMeatId) {
-    meatsFound.length = 0
-    meatsFound.push(exclusiveMeatId)
-  }
-  if (exclusiveAguaId) {
-    aguasFound.length = 0
-    aguasFound.push(exclusiveAguaId)
-  }
+  const meatsFound: string[] = exclusiveMeatId
+    ? [exclusiveMeatId]
+    : meatsSet.size > 0
+      ? Array.from(meatsSet)
+      : [...DEFAULT_PARTY_TRAY_MEAT_IDS]
 
-  if (meatsFound.length === 0) meatsFound.push(...DEFAULT_PARTY_TRAY_MEAT_IDS)
-  if (aguasFound.length === 0) aguasFound.push(...DEFAULT_PARTY_TRAY_AGUA_IDS)
+  const aguasFound: string[] = exclusiveAguaId
+    ? [exclusiveAguaId]
+    : aguasSet.size > 0
+      ? Array.from(aguasSet)
+      : [...DEFAULT_PARTY_TRAY_AGUA_IDS]
 
   const ingredients: VirtualPartyTrayIngredient[] = []
 
@@ -369,10 +384,10 @@ export function buildPartyTrayVirtualIngredients(params: {
     inventory_item_id: gallonEmptyItem?.id || PARTY_TRAY_EMPTY_GALLON_ITEM_ID,
     quantity: guideline.aguaGallons,
     unit: 'pza',
-    type: 'raw',
+    type: 'cogs_takeout',
   })
 
-  // Guarniciones y condimentos oficiales (Party Tray Guidelines)
+  // Guarniciones y condimentos oficiales comestibles (Party Tray Guidelines -> Food Cost)
   ingredients.push({ inventory_item_id: 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562', quantity: guideline.riceLbs, unit: 'lb', type: 'raw' })
   ingredients.push({ inventory_item_id: '557d9414-c769-4399-a6cc-15bb81cba85f', quantity: guideline.beansLbs, unit: 'lb', type: 'raw' })
   ingredients.push({ inventory_item_id: 'a639ad41-81bf-4de6-8dbc-0291005654ad', quantity: guideline.salsaRojaPacks, unit: 'pza', type: 'raw' })
@@ -381,8 +396,8 @@ export function buildPartyTrayVirtualIngredients(params: {
   ingredients.push({ inventory_item_id: 'f73fe7a6-105c-4624-a87b-07d5f78c09ea', quantity: guideline.limeBags, unit: 'pza', type: 'raw' })
   ingredients.push({ inventory_item_id: 'd56d8df8-d30c-4964-a425-9aa25d962364', quantity: guideline.jalapenoOz / 16, unit: 'lb', type: 'raw' })
 
-  // Tortillas (10/15/20/25 docenas maíz = 2/3/4/5 pk de 60; 5/7/9/12 docenas harina Regular 8" = 5/7/9/12 pk de 12)
-  const combinedTortillaContext = [params.itemName || '', ...(params.modifierTexts || [])].join(' ')
+  // Tortillas comestibles (10/15/20/25 docenas maíz = 2/3/4/5 pk de 60; 5/7/9/12 docenas harina Regular 8" = 5/7/9/12 pk de 12)
+  const combinedTortillaContext = [params.itemName || '', ...parenGroups, ...(params.modifierTexts || [])].join(' ')
   const tortillas = getPartyTrayTortillaAllocation(combinedTortillaContext, guideline)
   if (tortillas.cornTortillas > 0) {
     ingredients.push({
@@ -400,28 +415,30 @@ export function buildPartyTrayVirtualIngredients(params: {
       type: 'raw',
     })
   }
-  // Contenedores térmicos redondos 9" + tapa domo para tortillas (incluidos siempre en todo Fiesta Platter igual que charolas y desechables)
-  ingredients.push({ inventory_item_id: '85533c59-b2df-4af3-bf2b-e684d3d6c125', quantity: tortillas.containerPairs, unit: 'pza', type: 'raw' }) // RC478
-  ingredients.push({ inventory_item_id: 'eba87715-ea18-4f9c-8f22-44c745e86572', quantity: tortillas.containerPairs, unit: 'pza', type: 'raw' }) // 709DO
+
+  // Empaques y desechables incluidos (clasificados en packagingCost vía cogs_takeout)
+  // Contenedores térmicos redondos 9" + tapa domo para tortillas
+  ingredients.push({ inventory_item_id: '85533c59-b2df-4af3-bf2b-e684d3d6c125', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' }) // RC478
+  ingredients.push({ inventory_item_id: 'eba87715-ea18-4f9c-8f22-44c745e86572', quantity: tortillas.containerPairs, unit: 'pza', type: 'cogs_takeout' }) // 709DO
 
   // Charolas de aluminio con tapa por componente (arroz, frijol y carne según docs/Party Tray Instructions.pdf)
   const trayAllocation = getPartyTrayFoodTrayAllocation(guideline)
   for (const trayLine of trayAllocation.lines) {
-    ingredients.push({ inventory_item_id: trayLine.containerId, quantity: trayLine.quantity, unit: 'pza', type: 'raw' })
-    ingredients.push({ inventory_item_id: trayLine.lidId, quantity: trayLine.quantity, unit: 'pza', type: 'raw' })
+    ingredients.push({ inventory_item_id: trayLine.containerId, quantity: trayLine.quantity, unit: 'pza', type: 'cogs_takeout' })
+    ingredients.push({ inventory_item_id: trayLine.lidId, quantity: trayLine.quantity, unit: 'pza', type: 'cogs_takeout' })
   }
 
   // Desechables / Utensilios incluidos
-  ingredients.push({ inventory_item_id: 'ca959b14-fcef-4900-ae71-2388e4ac023c', quantity: guideline.plates, unit: 'pza', type: 'raw' }) // Platos 9"
-  ingredients.push({ inventory_item_id: 'd920800f-e0ca-4799-8434-fea7712f7e98', quantity: guideline.forks, unit: 'pza', type: 'raw' }) // Tenedores
-  ingredients.push({ inventory_item_id: 'd11c55da-7bd1-4133-883c-f28eb9a31936', quantity: guideline.spoons, unit: 'pza', type: 'raw' }) // Cucharas
-  ingredients.push({ inventory_item_id: 'e48fbf27-ba61-414b-8bab-2a299e02f61a', quantity: guideline.cups, unit: 'pza', type: 'raw' }) // Vasos 12 oz
-  ingredients.push({ inventory_item_id: '44272ca2-4891-43ec-abd8-2bf917363edb', quantity: 1, unit: 'pza', type: 'raw' }) // Bolsa EL1CS2G cubiertos
+  ingredients.push({ inventory_item_id: 'ca959b14-fcef-4900-ae71-2388e4ac023c', quantity: guideline.plates, unit: 'pza', type: 'cogs_takeout' }) // Platos 9"
+  ingredients.push({ inventory_item_id: 'd920800f-e0ca-4799-8434-fea7712f7e98', quantity: guideline.forks, unit: 'pza', type: 'cogs_takeout' }) // Tenedores
+  ingredients.push({ inventory_item_id: 'd11c55da-7bd1-4133-883c-f28eb9a31936', quantity: guideline.spoons, unit: 'pza', type: 'cogs_takeout' }) // Cucharas
+  ingredients.push({ inventory_item_id: 'e48fbf27-ba61-414b-8bab-2a299e02f61a', quantity: guideline.cups, unit: 'pza', type: 'cogs_takeout' }) // Vasos 12 oz
+  ingredients.push({ inventory_item_id: '44272ca2-4891-43ec-abd8-2bf917363edb', quantity: 1, unit: 'pza', type: 'cogs_takeout' }) // Bolsa EL1CS2G cubiertos
   ingredients.push({
     inventory_item_id: PARTY_TRAY_NAPKIN_ITEM_ID,
     quantity: guideline.napkinPacks * PARTY_TRAY_NAPKINS_PER_PACK,
     unit: 'pza',
-    type: 'raw',
+    type: 'cogs_takeout',
   }) // Servilletas DX900GE (250 por paquete)
 
   return { size, guideline, ingredients }

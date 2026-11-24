@@ -54,11 +54,14 @@
  * - [2026-11-11] Blindajes adicionales tras auditoría forense multi-sucursal:
  *   * `calculateDailyOrder` excluye capturas accidentales de sábado (`getUTCDay() === 6`) como `anchorDate` en Orden Diaria para evitar restar doblemente el consumo del sábado en el cierre unificado del domingo (`Sáb+Dom`).
  *   * `fetchWeeklyData` y `finalizeInventoryPilotCount` completan por ítem las bases faltantes desde la semana previa o `PAR Ideal` cuando una semana futura tiene edición parcial (`1..N` filas), evitando que el resto del catálogo caiga en `PAR = 0`.
+ * - [2026-11-23] Endurecimiento integral de sesión en Server Actions (`teg_token` / `getServerUser` + `CRON_SECRET` constante):
+ *   * Verificación obligatoria fail-closed de sesión activa (`users.is_active !== false`, bloqueo estricto de `'basecamp'` y `'employee'`) y alcance por sucursal en todas las acciones de lectura y escritura con `service_role`.
  */
 
 'use server'
 
 import { createClient } from '@supabase/supabase-js'
+import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import {
     addDays,
@@ -70,7 +73,7 @@ import {
 import type { OrderableItem, WeeklyBaseRecord, ParIdealRecord, CalculatedOrderLine } from './utils'
 import { parseUniformCategoryAndSize, getDefaultMinStock } from '../uniforms/utils'
 import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
-import { getServerUser } from '@/lib/auth-server'
+import { getCronSecret, getServerUser, safeTimingEqual, type ServerUser } from '@/lib/auth-server'
 import { getPilotTicketUsage, type PilotTicketUsage } from '@/lib/inventory/pilot-ticket-usage'
 import {
     getHistoricalMassBalanceUsage,
@@ -121,35 +124,128 @@ export type InventoryPilotSession = {
 // HELPERS (private, not exported — no issue with 'use server')
 // ============================================================================
 
-/** Verifica la identidad del usuario y sus permisos sobre la tienda antes de mutar datos */
-async function assertUserStoreAccess(storeId: string | number) {
+/**
+ * Verifica que exista una sesión válida de personal interno (`teg_token` en cookies o `Authorization: Bearer`)
+ * o una invocación interna autorizada con `CRON_SECRET`. Bloquea roles no administrativos (`employee`, `basecamp`)
+ * y cuentas inactivas (`is_active === false`).
+ */
+async function resolveVerifiedStaffActionContext(): Promise<{
+    user: ServerUser
+    profileRole: string
+    profileStoreId: number | string | null
+    profileScope: unknown[]
+    fullName: string
+}> {
+    try {
+        const hdrs = await headers()
+        const cronSecret = getCronSecret()
+        const cronHdr = hdrs.get('x-cron-auth') || hdrs.get('authorization') || hdrs.get('Authorization') || ''
+        if (
+            cronSecret &&
+            cronHdr &&
+            (safeTimingEqual(cronHdr, cronSecret) || safeTimingEqual(cronHdr, `Bearer ${cronSecret}`))
+        ) {
+            return {
+                user: { id: 'internal-cron', email: 'cron@tacosgavilan.com', name: 'System Cron', role: 'admin' },
+                profileRole: 'admin',
+                profileStoreId: null,
+                profileScope: [],
+                fullName: 'System Cron',
+            }
+        }
+    } catch {
+        // Fuera de request scope HTTP, continuar hacia getServerUser()
+    }
+
     const user = await getServerUser()
-    if (!user) {
+    if (!user || !user.email) {
         throw new Error('Sesión no válida o expirada. Por favor inicia sesión.')
     }
 
-    const { data: userProfile, error: profileError } = await supabase
+    if (user.id === 'internal-cron') {
+        return {
+            user,
+            profileRole: 'admin',
+            profileStoreId: null,
+            profileScope: [],
+            fullName: user.name || 'System Cron',
+        }
+    }
+
+    const escapedEmail = String(user.email).trim().toLowerCase().replace(/_/g, '\\_')
+    const { data: rows, error: profileError } = await supabase
         .from('users')
-        .select('role, store_id, store_scope')
-        .eq('email', user.email)
-        .maybeSingle()
-    if (profileError || !userProfile) {
-        throw new Error('No se pudo verificar tu perfil y sucursal. No se guardaron cambios.')
+        .select('id, full_name, email, role, store_id, store_scope, is_active')
+        .ilike('email', escapedEmail)
+        .limit(5)
+
+    const userProfile = Array.isArray(rows)
+        ? rows.find((r: any) => String(r?.email || '').trim().toLowerCase() === String(user.email).trim().toLowerCase()) || rows[0]
+        : null
+
+    if (profileError || !userProfile || userProfile.is_active === false) {
+        throw new Error('No se pudo verificar tu perfil activo. Por favor inicia sesión nuevamente.')
     }
 
     const profileRole = String(userProfile.role || '').trim().toLowerCase()
-    if (profileRole === 'admin' || profileRole === 'supervisor') return user
-    if (!['manager', 'gerente', 'asistente', 'assistant'].includes(profileRole)) {
+    if (!profileRole || profileRole === 'employee' || profileRole === 'basecamp') {
+        throw new Error('No tienes permiso para acceder al módulo de órdenes de inventario.')
+    }
+
+    return {
+        user,
+        profileRole: profileRole === 'administrador' ? 'admin' : profileRole,
+        profileStoreId: userProfile.store_id ?? null,
+        profileScope: Array.isArray(userProfile.store_scope) ? userProfile.store_scope : [],
+        fullName: String(userProfile.full_name || user.name || user.email),
+    }
+}
+
+/** Verifica la identidad del usuario y sus permisos sobre la tienda antes de leer o mutar datos con `service_role` */
+async function assertUserStoreAccess(
+    storeId: string | number,
+    options?: { allowReadRoles?: boolean }
+) {
+    const ctx = await resolveVerifiedStaffActionContext()
+    if (ctx.profileRole === 'admin' || ctx.profileRole === 'supervisor') {
+        return ctx.user
+    }
+
+    const writeRoles = ['manager', 'gerente', 'general_manager', 'asistente', 'assistant']
+    const readRoles = [...writeRoles, 'planificador', 'shift_leader', 'shift leader', 'shiftleader']
+    const allowed = options?.allowReadRoles ? readRoles : writeRoles
+
+    if (!allowed.includes(ctx.profileRole)) {
         throw new Error('No tienes permiso para modificar pedidos.')
     }
 
-    const profileScope = Array.isArray(userProfile.store_scope) ? userProfile.store_scope : []
-    const assignedStores = [userProfile.store_id, ...profileScope]
-        .filter(value => value !== null && value !== undefined).map(String)
-    if (!assignedStores.includes(String(storeId))) {
-        throw new Error('No tienes permiso para modificar datos de esta sucursal.')
+    const targetStr = String(storeId || '').trim().toLowerCase()
+    const assignedTokens = [ctx.profileStoreId, ...ctx.profileScope]
+        .filter((value) => value !== null && value !== undefined)
+        .map((v) => String(v).trim().toLowerCase())
+
+    if (assignedTokens.includes(targetStr)) {
+        return ctx.user
     }
-    return user
+
+    // Verificar también por `code` o `name` de la sucursal cuando `store_scope` guarda código/nombre
+    if (/^\d+$/.test(targetStr)) {
+        const { data: st } = await supabase
+            .from('stores')
+            .select('id, code, name, external_id')
+            .eq('id', Number(targetStr))
+            .maybeSingle()
+        if (st) {
+            const storeAliases = [st.id, st.code, st.name, st.external_id]
+                .filter(Boolean)
+                .map((v) => String(v).trim().toLowerCase())
+            if (storeAliases.some((alias) => assignedTokens.includes(alias))) {
+                return ctx.user
+            }
+        }
+    }
+
+    throw new Error('No tienes permiso para modificar datos de esta sucursal.')
 }
 
 /** Aplica la regla de redondeo de un item */
@@ -177,6 +273,7 @@ function getDayKey(dateStr: string): string {
  * Incluye el qb_item_id si existe el mapeo en quickbooks_mappings.
  */
 export async function fetchOrderableItems(storeId: string | number, orderType: OrderType = 'daily') {
+    await assertUserStoreAccess(storeId, { allowReadRoles: true })
     // 1. Intentar obtener el template específico de esta tienda
     const { data: template, error: templateError } = await supabase
         .from('store_order_template')
@@ -321,6 +418,7 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
  * Obtiene todos los items de inventario (para vincular los que no tienen excel_reference y resolver metadatos en modales)
  */
 export async function fetchAllInventoryItems() {
+    await resolveVerifiedStaffActionContext()
     const [{ data }, { data: mappings }] = await Promise.all([
         supabase
             .from('inventory_items')
@@ -344,6 +442,7 @@ export async function fetchAllInventoryItems() {
  * Obtiene todos los items de inventario que tienen un mapeo en QuickBooks (para pedidos extraordinarios).
  */
 export async function fetchMappedItems() {
+    await resolveVerifiedStaffActionContext()
     const { data: mappings, error: mapError } = await supabase
         .from('quickbooks_mappings')
         .select('inventory_item_id, qb_item_id, qb_item_name')
@@ -377,7 +476,7 @@ export async function fetchMappedItems() {
  * Datos completos para una semana: bases, sobrantes, PAR ideal, e historial de órdenes
  */
 export async function fetchWeeklyData(storeId: string | number, mondayStr: string, orderType: OrderType = 'daily') {
-    await assertUserStoreAccess(storeId)
+    await assertUserStoreAccess(storeId, { allowReadRoles: true })
     // 0. Obtener las reglas de redondeo de todos los items
     const { data: items } = await supabase
         .from('inventory_items')
@@ -752,6 +851,7 @@ export async function fetchHistoryData(
     storeId: string | number,
     mondayStr: string
 ): Promise<{ orders: any[]; counts: Record<string, Record<string, number>>; bases: Record<string, any> }> {
+    await assertUserStoreAccess(storeId, { allowReadRoles: true })
     const sunday = addDays(mondayStr, 6)
 
     // Fetch ALL orders for this week (both daily and liquids)
@@ -817,6 +917,7 @@ export async function calculateDailyOrder(
     countSources?: Record<string, Record<string, 'manual' | 'auto_cycle_v2'>>,
     options?: { forceRefresh?: boolean }
 ): Promise<CalculatedOrderLine[]> {
+    await assertUserStoreAccess(storeId, { allowReadRoles: true })
     const dayKey = getDayKey(dateStr)
     const dayIndex = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(dayKey)
 
@@ -852,7 +953,7 @@ export async function calculateDailyOrder(
         if (rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off') {
             storeMode = rawMode
         } else {
-            storeMode = store?.external_id ? 'auto_order_visible' : 'off'
+            storeMode = store?.external_id ? 'shadow_blind' : 'off'
         }
         useDualEngine = Boolean(store?.external_id) && storeMode !== 'off'
 
@@ -870,12 +971,18 @@ export async function calculateDailyOrder(
     }
 
     // 1. Resolver el ancla previa más reciente (A en [dateStr - 7, dateStr - 1]) por cada ítem
-    //    Garantiza cierre exacto en domingos (ancla viernes -> resta consumo Sáb+Dom) y días sin conteo intermedio.
+    //    Garantiza cierre exacto en domingos (ancla viernes -> resta consumo Sáb+Dom) y excluye pre-llenados AUTO_CYCLE_V2.
     const mergedPriorCounts: Record<string, Record<string, number>> = {}
     for (const item of items) {
         const src = counts[item.id]
+        const srcTypes = countSources?.[item.id]
         if (src) {
-            mergedPriorCounts[item.id] = { ...src }
+            const cleanSrc: Record<string, number> = {}
+            for (const [dKey, val] of Object.entries(src)) {
+                if (dKey !== dateStr && srcTypes?.[dKey] === 'auto_cycle_v2') continue
+                cleanSrc[dKey] = val
+            }
+            mergedPriorCounts[item.id] = cleanSrc
         }
     }
 
@@ -913,7 +1020,7 @@ export async function calculateDailyOrder(
         if (anyMissingAnchor) {
             const { data: fallbackPriorRows } = await supabase
                 .from('inventory_counts')
-                .select('inventory_item_id, count_date, quantity_on_hand')
+                .select('inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
                 .eq('store_id', String(storeId))
                 .gte('count_date', lookbackStartStr)
                 .lt('count_date', dateStr)
@@ -921,6 +1028,7 @@ export async function calculateDailyOrder(
 
             fallbackPriorRows?.forEach((r: any) => {
                 if (r.quantity_on_hand === null || r.quantity_on_hand === undefined) return
+                if (isAutoCycleCountRecord({ countedBy: r.counted_by, notes: r.notes })) return
                 const num = Number(r.quantity_on_hand)
                 if (!Number.isFinite(num)) return
                 if (!mergedPriorCounts[r.inventory_item_id]) mergedPriorCounts[r.inventory_item_id] = {}
@@ -1316,6 +1424,7 @@ export async function fetchInventoryPilotSession(
     businessDate: string,
     orderType: OrderType = 'daily'
 ): Promise<InventoryPilotSession> {
+    await assertUserStoreAccess(storeId, { allowReadRoles: true })
     if (orderType !== 'daily') {
         return { enabled: false, schemaReady: true, status: 'counting', automationMode: 'off', lines: [] }
     }
@@ -1337,7 +1446,7 @@ export async function fetchInventoryPilotSession(
     const automationMode: InventoryAutomationMode =
         rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off'
             ? rawMode
-            : 'auto_order_visible'
+            : 'shadow_blind'
     const isSundayAnchor = isFullPhysicalAnchorDate(businessDate)
 
     let canManageMode = false
@@ -1425,27 +1534,26 @@ export async function finalizeInventoryPilotCount(
     businessDate: string,
     rawLines: PilotComparisonInput[]
 ) {
-    const user = await getServerUser()
-    if (!user) return { error: 'Sesión no válida. Vuelve a iniciar sesión.' }
+    let ctx: Awaited<ReturnType<typeof resolveVerifiedStaffActionContext>>
+    try {
+        ctx = await resolveVerifiedStaffActionContext()
+    } catch (authErr: any) {
+        return { error: authErr?.message || 'Sesión no válida. Vuelve a iniciar sesión.' }
+    }
+    const { user, profileRole, profileStoreId, profileScope, fullName: authenticatedName } = ctx
 
-    const { data: userProfile } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('email', user.email)
-        .maybeSingle()
-    const authenticatedName = (userProfile as any)?.full_name || (userProfile as any)?.name || user.name
     const { data: store, error: storeError } = await supabase
         .from('stores').select('id, name, external_id, inventory_automation_mode').eq('id', storeId).single()
     if (storeError || !store || (!store.external_id && !isInventoryAutomationPilotStore(store.name))) {
         return { error: 'Sucursal no habilitada para comparación automática.' }
     }
 
-    const profileRole = String((userProfile as any)?.role || user.role || '').trim().toLowerCase()
-    const profileScope = Array.isArray((userProfile as any)?.store_scope) ? (userProfile as any).store_scope : []
-    const assignedStoreIds = [
-        (userProfile as any)?.store_id,
+    const assignedStoreIds: Array<string | number> = [
+        profileStoreId,
         ...profileScope,
-    ].filter(value => value !== null && value !== undefined)
+    ]
+        .filter((value) => value !== null && value !== undefined)
+        .map((v) => (typeof v === 'number' ? v : String(v)))
 
     const canClosePilot = canCloseInventoryAutomationPilot({
         storeName: store.name,
@@ -1459,7 +1567,10 @@ export async function finalizeInventoryPilotCount(
         return { error: `Solo el manager o asistente asignado a ${store.name} o Administración puede cerrar este comparativo.` }
     }
 
-    const missing = await getMissingDailyCounts(supabase, storeId, businessDate)
+    const rawModeForCheck = String((store as any)?.inventory_automation_mode || 'shadow_blind')
+    const missing = await getMissingDailyCounts(supabase, storeId, businessDate, {
+        requireManual: rawModeForCheck === 'shadow_blind' || rawModeForCheck === 'off',
+    })
     if (missing.length) {
         return { error: `Faltan ${missing.length} conteos antes de comparar: ${missing.map(i => i.name).join(', ')}` }
     }
@@ -1502,7 +1613,7 @@ export async function finalizeInventoryPilotCount(
             fetchOrderableItems(store.id, 'daily'),
             supabase
                 .from('inventory_counts')
-                .select('inventory_item_id, count_date, quantity_on_hand')
+                .select('inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
                 .eq('store_id', String(store.id))
                 .gte('count_date', lookbackStartStr)
                 .lt('count_date', businessDate)
@@ -1529,7 +1640,8 @@ export async function finalizeInventoryPilotCount(
         ])
 
         const countsForCalc: Record<string, Record<string, number>> = {}
-        for (const row of openingCounts || []) {
+        for (const row of (openingCounts || []) as any[]) {
+            if (isAutoCycleCountRecord({ countedBy: row.counted_by, notes: row.notes })) continue
             if (!countsForCalc[row.inventory_item_id]) countsForCalc[row.inventory_item_id] = {}
             countsForCalc[row.inventory_item_id][row.count_date] = Number(row.quantity_on_hand)
         }
@@ -1571,11 +1683,11 @@ export async function finalizeInventoryPilotCount(
         console.error(`[finalizeInventoryPilotCount] Fallback a líneas cliente tras error en recálculo servidor:`, recalcErr?.message || recalcErr)
     }
 
-    const rawMode = String((store as any)?.inventory_automation_mode || 'auto_order_visible')
+    const rawMode = String((store as any)?.inventory_automation_mode || 'shadow_blind')
     const effectiveAutomationMode: InventoryAutomationMode =
         rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off'
             ? rawMode
-            : 'auto_order_visible'
+            : 'shadow_blind'
     const sessionModelVersion =
         effectiveAutomationMode === 'auto_order_visible'
             ? 'auto-order-visible-v3'
@@ -2015,11 +2127,8 @@ export async function copyFromParIdeal(storeId: string | number, targetMonday: s
 
 /** Vincula un item de inventario con un nombre del Excel */
 export async function linkExcelItem(itemId: string, excelName: string) {
-    const user = await getServerUser()
-    if (!user) throw new Error('Sesión no válida o expirada.')
-    const { data: profile, error: profileError } = await supabase
-        .from('users').select('role').eq('email', user.email).maybeSingle()
-    if (profileError || String(profile?.role || '').trim().toLowerCase() !== 'admin') {
+    const ctx = await resolveVerifiedStaffActionContext()
+    if (ctx.profileRole !== 'admin') {
         throw new Error('Solo un administrador puede cambiar los mapeos de inventario.')
     }
     // Limpiar si otro item ya tenía este nombre
@@ -2086,7 +2195,7 @@ export async function saveOrderDraft(
             if (rawMode === 'auto_order_visible' || rawMode === 'assisted_2tier' || rawMode === 'shadow_blind' || rawMode === 'off') {
                 storeMode = rawMode
             } else {
-                storeMode = storeRow?.external_id ? 'auto_order_visible' : 'off'
+                storeMode = storeRow?.external_id ? 'shadow_blind' : 'off'
             }
 
             if (storeMode === 'auto_order_visible' && !existingOrder?.qb_estimate_id) {
@@ -2187,7 +2296,9 @@ export async function saveOrderDraft(
                 }
             }
 
-            const missing = await getMissingDailyCounts(supabase, storeId, orderDate)
+            const missing = await getMissingDailyCounts(supabase, storeId, orderDate, {
+                requireManual: storeMode === 'shadow_blind' || storeMode === 'off',
+            })
             if (missing.length) {
                 return { error: `Captura todos los sobrantes antes de generar la orden. Faltan ${missing.length}: ${missing.map(i => i.name).join(', ')}` }
             }
@@ -2359,6 +2470,7 @@ export async function recalculateParIdeal(
  * Obtiene datos de análisis: historial de uso de las últimas N semanas
  */
 export async function fetchAnalysisData(storeId: string | number, weeksBack: number = 8) {
+    await assertUserStoreAccess(storeId, { allowReadRoles: true })
     const currentMonday = getMonday(getBusinessDate())
     const startDate = addDays(currentMonday, -(weeksBack * 7))
 

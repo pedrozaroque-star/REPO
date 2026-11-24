@@ -120,8 +120,19 @@ export async function POST(request: NextRequest) {
         }
 
         if (order.order_type === 'daily') {
+            const { data: storeInfo, error: storeInfoError } = await supabase
+                .from('stores')
+                .select('name, external_id, inventory_automation_mode')
+                .eq('id', order.store_id)
+                .single()
+            if (storeInfoError || !storeInfo) {
+                return NextResponse.json({ error: 'No se pudo verificar la sucursal y el control del piloto. No se envió el pedido.' }, { status: 503 })
+            }
+            const storeMode = String((storeInfo as any).inventory_automation_mode || 'shadow_blind')
+            const requireManual = storeMode === 'shadow_blind' || storeMode === 'off'
+
             try {
-                const missing = await getMissingDailyCounts(supabase, order.store_id, order.order_date)
+                const missing = await getMissingDailyCounts(supabase, order.store_id, order.order_date, { requireManual })
                 if (missing.length) {
                     return NextResponse.json({
                         error: `Captura todos los sobrantes antes de enviar a QuickBooks. Faltan ${missing.length}: ${missing.map(i => i.name).join(', ')}`,
@@ -132,19 +143,7 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: `No se pudo verificar la captura completa: ${error instanceof Error ? error.message : 'error desconocido'}` }, { status: 503 })
             }
 
-            // Solo si la tienda está explícitamente en modo 'shadow_blind' (conteo ciego estricto),
-            // exigir que la sesión comparativa haya sido cerrada antes de enviar a QuickBooks.
-            // En 'auto_order_visible' (las 15 sucursales) y 'assisted_2tier', el envío jamás se bloquea por validación modal.
-            const { data: storeInfo, error: storeInfoError } = await supabase
-                .from('stores')
-                .select('name, inventory_automation_mode')
-                .eq('id', order.store_id)
-                .single()
-            if (storeInfoError || !storeInfo) {
-                return NextResponse.json({ error: 'No se pudo verificar la sucursal y el control del piloto. No se envió el pedido.' }, { status: 503 })
-            }
-            const storeMode = String((storeInfo as any).inventory_automation_mode || 'auto_order_visible')
-            if (storeMode === 'shadow_blind' && isInventoryAutomationPilotStore(storeInfo.name)) {
+            if (storeMode === 'shadow_blind' && (Boolean((storeInfo as any).external_id) || isInventoryAutomationPilotStore(storeInfo.name))) {
                 const { data: pilotSession, error: pilotSessionError } = await supabase
                     .from('inventory_automation_pilot_sessions')
                     .select('status')
@@ -155,7 +154,7 @@ export async function POST(request: NextRequest) {
 
                 if (pilotSessionError || !pilotSession || pilotSession.status !== 'revealed') {
                     return NextResponse.json({
-                        error: 'El piloto shadow de conteo ciego está activo para esta sucursal. Debes cerrar y comparar el conteo antes de enviar la orden a QuickBooks.',
+                        error: 'El conteo ciego está activo para esta sucursal. Debes cerrar y comparar el conteo antes de enviar la orden a QuickBooks.',
                         pilotBlocked: true
                     }, { status: 403 })
                 }

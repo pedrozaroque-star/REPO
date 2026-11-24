@@ -10,7 +10,7 @@
  * @dataFlow
  * - Client -> POST /api/integrity/verify-day -> Validate Closed Date -> Read Supabase `sales_daily_cache` -> Toast API (`skipCache: true, readOnly: true`) -> Compare -> Guarded Upsert -> Response.
  * @notes
- * - [2026-11-23] FIX CRÍTICO (5 bugs): (1) Corregido orden invertido pasando `readOnly: true` a `fetchToastData` y leyendo `sales_daily_cache` antes de curar; (2) Bloqueo estricto de hoy, fechas futuras y ayer <6:00 AM LA; (3) Filtro `hasError` + `shouldAllowSalesCacheUpsert` para nunca sobrescribir ventas reales con `$0`; (4) Preservación de `labor_cost`/`labor_hours`/`hourly_labor` válidos ante fallo/timeout de Toast Labor API y de `hourly_tickets` si llega vacío; (5) Validación estricta de `healError` y auth fail-closed `admin`/`supervisor`/`CRON_SECRET`.
+ * - [2026-11-23] FIX CRÍTICO (5 bugs): (1) Corregido orden invertido pasando `readOnly: true` a `fetchToastData` y leyendo `sales_daily_cache` antes de curar; (2) Bloqueo estricto de hoy, fechas futuras y ayer <6:00 AM LA; (3) Filtro `hasError` + `shouldAllowSalesCacheUpsert` para nunca sobrescribir ventas reales con `$0`; (4) Preservación de `labor_cost`/`labor_hours`/`hourly_labor` válidos ante fallo/timeout de Toast Labor API y de `hourly_tickets` si llega vacío; (5) Validación estricta de `healError`, invalidación en cascada de `food_cost_daily_cache` para `business_date` curado y auth fail-closed `admin`/`supervisor`/`CRON_SECRET`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -195,6 +195,18 @@ export async function POST(req: NextRequest) {
                     { status: 'error', message: 'Failed to persist cache correction' },
                     { status: 500 }
                 )
+            }
+
+            // Invalidate food_cost_daily_cache for this date so Food Cost % & Packaging % recompute against healed Net Sales
+            const { error: fcInvalidateError } = await supabase
+                .from('food_cost_daily_cache')
+                .delete()
+                .eq('business_date', date)
+
+            if (fcInvalidateError) {
+                console.warn(`⚠️ [INTEGRITY] Failed to invalidate food_cost_daily_cache for ${date}:`, fcInvalidateError.message)
+            } else {
+                console.log(`🧹 [INTEGRITY] Invalidated food_cost_daily_cache for healed date ${date}`)
             }
         }
 

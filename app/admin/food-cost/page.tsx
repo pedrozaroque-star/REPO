@@ -1,37 +1,44 @@
 'use client'
 
 /**
- * @module FoodCostDashboard
- * @description Dashboard principal de Food Cost — Reporte General.
- *   Muestra el costo teórico de alimentos por tienda con KPIs, gráficas y tabla comparativa.
- *   Al hacer clic en una tienda, abre la vista detallada por producto (/admin/food-cost/[storeId]).
+ * @module app/admin/food-cost/page
+ * @description Dashboard principal de Food Cost — Reporte General por Sucursal de Tacos Gavilan.
+ *   Muestra Food Cost puro ($ y %), Empaque / Desechables ($ y %) separado y consumo de Carne Asada (lbs y $),
+ *   con gráficas comparativas y tabla ordenable de las 15 sucursales.
  *
  * @businessRules
- *   - Usa datos del food_cost_daily_cache (pre-calculado) + cálculo en vivo vía API.
- *   - Las ventas netas (net_sales) se toman de sales_daily_cache para paridad con el módulo de Ventas.
- *   - La tabla "Food Cost by Store" agrega items por store_name y muestra FC%, meat lbs, discounts.
- *   - Cada fila de tienda es clickeable → abre window.open() con los mismos filtros de fecha.
- *   - Soporta periodos: today, yesterday, week, month, quarter, last_week, last_7, last_month, custom.
+ *   - Regla de las 6:00 AM (`America/Los_Angeles`) vía `getBusinessDateLA()`.
+ *   - Semáforo corporativo unificado (`getFoodCostStatus`): Saludable `<= 32%` (verde), Alerta `> 32%–35%` (ámbar), Crítico `> 35%` (rojo).
+ *   - Paridad de Ventas Netas (`salesNetSales`): Se aplica tanto en vista de todas las tiendas (`all`) como al seleccionar una sola tienda,
+ *     ÚNICAMENTE cuando NO hay término de búsqueda (`!filterTerm.trim()`), evitando distorsionar el denominador al buscar un platillo específico.
+ *   - Food Cost y Empaque se reportan por separado sin mezclar desechables dentro de Food Cost %.
  *
  * @dataFlow
- *   /api/inventory/food-cost?storeId=all → datos por item
- *   /api/sales/net-sales → ventas netas autoritativas por tienda (KPI parity)
- *   Agregación client-side: items → storeMap → chartArr + storeTableData
+ *   `GET /api/inventory/food-cost?storeId=all` + `GET /api/inventory/anomalies` -> Agregación por sucursal -> `FoodCostSummary` + `FoodCostCharts` + Tabla / CSV.
  *
  * @notes
- *   - El FC% total puede no coincidir exactamente con la suma de porcentajes individuales
- *     porque el net_sales se overridea desde sales_daily_cache (not from PMIX).
+ *   - [2026-11-23] Unificados umbrales `<=32% / 32-35% / >35%`, separados Food Cost vs Empaque + Carne Asada,
+ *     corregido denominador con filtro de búsqueda y tienda individual, y habilitada exportación CSV sanitizada.
  */
+
 import React, { useState, useEffect, useMemo } from 'react'
 import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
 import FoodCostCharts from '@/components/food-cost/FoodCostCharts'
+import PortionControlAlertsPanel from '@/components/food-cost/PortionControlAlertsPanel'
 import { formatStoreName } from '@/lib/supabase'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import { useLanguage } from '@/lib/i18n'
+import {
+    getBusinessDateLA,
+    getFoodCostStatus,
+    calculateSafeFoodCostPct,
+    calculateSafePackagingCostPct,
+    escapeCsvCell,
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 interface FoodCostItem {
     guid: string
@@ -47,6 +54,13 @@ interface FoodCostItem {
     total_modifier_cost: number
     unit_cost: number
     total_cost: number
+    food_cost?: number
+    packaging_cost?: number
+    packaging_cost_percent?: number
+    total_cogs?: number
+    meat_cost?: number
+    asada_raw_lbs?: number
+    asada_cost?: number
     food_cost_percent: number
     has_recipe: boolean
     missing_prices: boolean
@@ -55,25 +69,37 @@ interface FoodCostItem {
     total_meat_lbs?: number
 }
 
-type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'missing_prices' | 'totalDiscounts' | 'totalMeatLbs'
+type SortKey =
+    | 'storeName'
+    | 'quantity'
+    | 'totalSales'
+    | 'totalCost'
+    | 'totalPackagingCost'
+    | 'costPercent'
+    | 'packagingPercent'
+    | 'missing_prices'
+    | 'totalDiscounts'
+    | 'totalMeatLbs'
+    | 'totalAsadaLbs'
+
+function getFcBadgeClasses(pct: number): string {
+    const status = getFoodCostStatus(pct)
+    if (status === 'critical') {
+        return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20'
+    }
+    if (status === 'warning') {
+        return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20'
+    }
+    return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
+}
 
 export default function FoodCostPage() {
     const { t } = useLanguage()
-    const router = useRouter()
     const urlParams = useSearchParams()
 
-    // UI State
     const [loading, setLoading] = useState(false)
     const [loadingMessage, setLoadingMessage] = useState('')
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
-
-    // Filter State
-    const getBusinessDateLA = () => {
-        const now = new Date()
-        const la = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        if (la.getHours() < 6) la.setDate(la.getDate() - 1)
-        return `${la.getFullYear()}-${String(la.getMonth() + 1).padStart(2, '0')}-${String(la.getDate()).padStart(2, '0')}`
-    }
 
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
         const p = urlParams.get('period')
@@ -83,31 +109,16 @@ export default function FoodCostPage() {
         if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
         return 'today'
     })
-    const [startDate, setStartDate] = useState(() => {
-        if (urlParams.get('startDate')) return urlParams.get('startDate')!
-        return getBusinessDateLA()
-    })
-    const [endDate, setEndDate] = useState(() => {
-        if (urlParams.get('endDate')) return urlParams.get('endDate')!
-        return getBusinessDateLA()
-    })
-    const [selectedStore, setSelectedStore] = useState<string>(() => {
-        return urlParams.get('store') || urlParams.get('storeId') || 'all'
-    })
+    const [startDate, setStartDate] = useState(() => urlParams.get('startDate') || getBusinessDateLA())
+    const [endDate, setEndDate] = useState(() => urlParams.get('endDate') || getBusinessDateLA())
+    const [selectedStore, setSelectedStore] = useState<string>(() => urlParams.get('store') || urlParams.get('storeId') || 'all')
     const [filterTerm, setFilterTerm] = useState('')
 
-    // Data State
     const [data, setData] = useState<FoodCostItem[] | null>(null)
     const [storeList, setStoreList] = useState<string[]>([])
-    // Authoritative net_sales from sales_daily_cache (parity with Ventas page)
-    // Only used for KPI totals — individual product data stays untouched
     const [salesNetSales, setSalesNetSales] = useState<Record<string, number> | null>(null)
-
-    // Anomaly alert state
     const [anomalies, setAnomalies] = useState<any[]>([])
 
-    // We now sort by the aggregated store metrics
-    type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'missing_prices' | 'totalDiscounts' | 'totalMeatLbs'
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>({ key: 'costPercent', direction: 'desc' })
 
     const requestSort = (key: SortKey) => {
@@ -118,7 +129,6 @@ export default function FoodCostPage() {
         setSortConfig({ key, direction })
     }
 
-    // Fetch unresolved anomalies on mount
     useEffect(() => {
         (async () => {
             try {
@@ -162,12 +172,10 @@ export default function FoodCostPage() {
                     setSalesNetSales(null)
                 }
 
-                // Extract unique stores
                 const stores = Array.from(new Set(json.data.map((r: FoodCostItem) => r.store_name || t('sales.unknown_store')))) as string[]
                 const sortedStores = stores.sort()
                 setStoreList(sortedStores)
 
-                // Resolve URL store/storeId parameter against actual store_name values in json.data
                 setSelectedStore(prev => {
                     if (prev === 'all' || sortedStores.includes(prev)) return prev
                     const normPrev = formatStoreName(prev).toLowerCase().trim()
@@ -197,11 +205,9 @@ export default function FoodCostPage() {
         refreshData()
     }, [refreshData])
 
-    // Memoized Data Processing
     const { summaryData, storeTableData } = useMemo(() => {
         if (!data) return { summaryData: null, storeTableData: [] }
 
-        // 1. Filter raw data based on selected store and search term
         let filtered = data
         if (selectedStore !== 'all') {
             const normSelected = formatStoreName(selectedStore).toLowerCase().trim()
@@ -212,8 +218,11 @@ export default function FoodCostPage() {
                     formatStoreName(rawName).toLowerCase().trim() === normSelected
             })
         }
-        if (filterTerm) {
-            const lowerFact = filterTerm.toLowerCase()
+
+        const trimmedFilter = filterTerm.trim()
+        const hasSearchFilter = Boolean(trimmedFilter)
+        if (hasSearchFilter) {
+            const lowerFact = trimmedFilter.toLowerCase()
             filtered = filtered.filter(item =>
                 (item.name?.toLowerCase().includes(lowerFact)) ||
                 (item.group_name?.toLowerCase().includes(lowerFact)) ||
@@ -221,57 +230,96 @@ export default function FoodCostPage() {
             )
         }
 
-        // 2. Compute Summary from filtered
         const sumData = {
             totalSales: 0,
             totalCost: 0,
+            totalPackagingCost: 0,
+            totalAsadaLbs: 0,
+            totalAsadaCost: 0,
             totalQuantity: 0,
             totalExtras: 0,
             totalDiscounts: 0,
             totalMeatLbs: 0
         }
+
+        const storeMap = new Map<string, {
+            store_id: string
+            totalSales: number
+            totalCost: number
+            totalPackagingCost: number
+            quantity: number
+            missing_prices: boolean
+            totalDiscounts: number
+            totalMeatLbs: number
+            totalAsadaLbs: number
+            totalAsadaCost: number
+        }>()
+
         filtered.forEach(item => {
+            const foodCost = Number(item.food_cost ?? item.total_cost ?? 0)
+            const pkgCost = Number(item.packaging_cost ?? 0)
+            const asadaLbs = Number(item.asada_raw_lbs ?? 0)
+            const asadaCost = Number(item.asada_cost ?? 0)
+
             sumData.totalSales += item.net_sales
-            sumData.totalCost += item.total_cost
+            sumData.totalCost += foodCost
+            sumData.totalPackagingCost += pkgCost
+            sumData.totalAsadaLbs += asadaLbs
+            sumData.totalAsadaCost += asadaCost
             sumData.totalQuantity += item.quantity
             sumData.totalExtras += (item.total_modifier_cost * item.quantity)
             sumData.totalDiscounts += (item.discounts || 0)
             sumData.totalMeatLbs += (item.total_meat_lbs || 0)
-        })
 
-        // 3. Compute Store Aggregations for the Chart and Table
-        const storeMap = new Map<string, { store_id: string, totalSales: number, totalCost: number, quantity: number, missing_prices: boolean, totalDiscounts: number, totalMeatLbs: number }>()
-
-        filtered.forEach(item => {
             const sn = item.store_name || t('sales.unknown_store')
-            if (!storeMap.has(sn)) storeMap.set(sn, { store_id: item.store_id || 'all', totalSales: 0, totalCost: 0, quantity: 0, missing_prices: false, totalDiscounts: 0, totalMeatLbs: 0 })
+            if (!storeMap.has(sn)) {
+                storeMap.set(sn, {
+                    store_id: item.store_id || 'all',
+                    totalSales: 0,
+                    totalCost: 0,
+                    totalPackagingCost: 0,
+                    quantity: 0,
+                    missing_prices: false,
+                    totalDiscounts: 0,
+                    totalMeatLbs: 0,
+                    totalAsadaLbs: 0,
+                    totalAsadaCost: 0
+                })
+            }
             const s = storeMap.get(sn)!
             s.totalSales += item.net_sales
-            s.totalCost += item.total_cost
+            s.totalCost += foodCost
+            s.totalPackagingCost += pkgCost
             s.quantity += item.quantity
             s.totalDiscounts += (item.discounts || 0)
             s.totalMeatLbs += (item.total_meat_lbs || 0)
+            s.totalAsadaLbs += asadaLbs
+            s.totalAsadaCost += asadaCost
             if (item.missing_prices) s.missing_prices = true
         })
 
         const chartArr = Array.from(storeMap.entries()).map(([sn, vals]) => {
-            // Use authoritative sales from sales_daily_cache ONLY when positive (closed days); never clobber PMIX with $0
-            const authSales = (salesNetSales && selectedStore === 'all') ? salesNetSales[vals.store_id] : undefined
+            // Apply authoritative salesNetSales for BOTH all-stores AND single-store views,
+            // ONLY when no product search filter is active (!hasSearchFilter) so product searches aren't diluted!
+            const authSales = (!hasSearchFilter && salesNetSales) ? salesNetSales[vals.store_id] : undefined
             const displaySales = (authSales !== undefined && authSales > 0) ? authSales : vals.totalSales
             return {
                 store_id: vals.store_id,
                 storeName: sn,
                 totalSales: displaySales,
                 totalCost: vals.totalCost,
+                totalPackagingCost: vals.totalPackagingCost,
                 quantity: vals.quantity,
                 totalDiscounts: vals.totalDiscounts,
                 totalMeatLbs: vals.totalMeatLbs,
+                totalAsadaLbs: vals.totalAsadaLbs,
+                totalAsadaCost: vals.totalAsadaCost,
                 missing_prices: vals.missing_prices,
-                costPercent: displaySales > 0 ? (vals.totalCost / displaySales) * 100 : 0
+                costPercent: calculateSafeFoodCostPct(vals.totalCost, displaySales),
+                packagingPercent: calculateSafePackagingCostPct(vals.totalPackagingCost, displaySales)
             }
         })
 
-        // 4. Sort aggregated store data
         chartArr.sort((a, b) => {
             if (!sortConfig) return 0
             const aVal = a[sortConfig.key]
@@ -286,8 +334,8 @@ export default function FoodCostPage() {
             return sortConfig.direction === 'asc' ? ((aVal as number) - (bVal as number)) : ((bVal as number) - (aVal as number))
         })
 
-        // Keep summary totalSales consistent with chartArr (authoritative closed-day sales with PMIX fallback per store)
-        if (salesNetSales && selectedStore === 'all' && Object.keys(salesNetSales).length > 0 && !filterTerm) {
+        // Keep summary totalSales aligned with store table rows (both All Stores and Single Store) when not filtering by product name
+        if (!hasSearchFilter && chartArr.length > 0) {
             const alignedTotal = chartArr.reduce((s, st) => s + st.totalSales, 0)
             if (alignedTotal > 0) {
                 sumData.totalSales = alignedTotal
@@ -298,8 +346,67 @@ export default function FoodCostPage() {
             summaryData: sumData,
             storeTableData: chartArr
         }
-
     }, [data, selectedStore, filterTerm, sortConfig, salesNetSales, t])
+
+    const handleExportCSV = () => {
+        if (!storeTableData || storeTableData.length === 0) return
+        const headers = [
+            escapeCsvCell(t('food_cost.filters.store')),
+            escapeCsvCell(t('food_cost.table.quantity')),
+            escapeCsvCell(t('food_cost.asada_lbs_col')),
+            escapeCsvCell(`${t('food_cost.asada_label')} ($)`),
+            escapeCsvCell(t('food_cost.meat_lbs_col')),
+            escapeCsvCell(t('food_cost.table.discounts')),
+            escapeCsvCell(t('food_cost.table.net_sales')),
+            escapeCsvCell(t('food_cost.food_cost_label')),
+            escapeCsvCell('Food Cost %'),
+            escapeCsvCell(t('food_cost.packaging_col')),
+            escapeCsvCell(t('food_cost.pkg_pct_col'))
+        ]
+
+        const rows = storeTableData.map(st => [
+            escapeCsvCell(formatStoreName(st.storeName)),
+            st.quantity.toFixed(0),
+            st.totalAsadaLbs.toFixed(2),
+            st.totalAsadaCost.toFixed(2),
+            st.totalMeatLbs.toFixed(2),
+            st.totalDiscounts.toFixed(2),
+            st.totalSales.toFixed(2),
+            st.totalCost.toFixed(2),
+            `${st.costPercent.toFixed(2)}%`,
+            st.totalPackagingCost.toFixed(2),
+            `${st.packagingPercent.toFixed(2)}%`
+        ])
+
+        if (summaryData) {
+            const totFcPct = calculateSafeFoodCostPct(summaryData.totalCost, summaryData.totalSales)
+            const totPkgPct = calculateSafePackagingCostPct(summaryData.totalPackagingCost, summaryData.totalSales)
+            rows.push([
+                escapeCsvCell(`${t('food_cost.subtotal')} (${storeTableData.length})`),
+                summaryData.totalQuantity.toFixed(0),
+                summaryData.totalAsadaLbs.toFixed(2),
+                summaryData.totalAsadaCost.toFixed(2),
+                summaryData.totalMeatLbs.toFixed(2),
+                summaryData.totalDiscounts.toFixed(2),
+                summaryData.totalSales.toFixed(2),
+                summaryData.totalCost.toFixed(2),
+                `${totFcPct.toFixed(2)}%`,
+                summaryData.totalPackagingCost.toFixed(2),
+                `${totPkgPct.toFixed(2)}%`
+            ])
+        }
+
+        const csvString = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', `Tacos_Gavilan_Food_Cost_${startDate}_${endDate}.csv`)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+    }
 
     if (!data) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -312,11 +419,14 @@ export default function FoodCostPage() {
         </div>
     )
 
+    const subtotalFcPct = summaryData ? calculateSafeFoodCostPct(summaryData.totalCost, summaryData.totalSales) : 0
+    const subtotalPkgPct = summaryData ? calculateSafePackagingCostPct(summaryData.totalPackagingCost, summaryData.totalSales) : 0
+
     return (
         <div className="min-h-screen bg-transparent text-slate-900 dark:text-white font-sans pb-24">
             <div className="w-full mx-auto px-4 md:px-6 py-8 relative z-10">
 
-                <FoodCostNavigationTabs />
+                <FoodCostNavigationTabs preserveParams={{ startDate, endDate, period, store: selectedStore }} />
 
                 {/* Header Context */}
                 <div className="relative z-10 space-y-6">
@@ -340,7 +450,6 @@ export default function FoodCostPage() {
 
                         {/* Floating Glass Filter Bar */}
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-50">
-
                             <DateRangeFilter
                                 period={period as 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'}
                                 startDate={startDate}
@@ -352,7 +461,6 @@ export default function FoodCostPage() {
                                 }}
                             />
 
-                            {/* Store Filter */}
                             {storeList.length > 0 && (
                                 <div className="relative">
                                     <select
@@ -433,19 +541,28 @@ export default function FoodCostPage() {
                         {/* Summary Widget */}
                         <FoodCostSummary data={summaryData!} />
 
+                        {/* Portion Control & Escalera de Mando Panel */}
+                        <div className="mt-8">
+                            <PortionControlAlertsPanel
+                                storeId={selectedStore !== 'all' ? (storeTableData[0]?.store_id || selectedStore) : undefined}
+                                startDate={startDate}
+                                endDate={endDate}
+                            />
+                        </div>
+
                         {/* Charts Widget (only show if viewing "all" to compare stores) */}
                         {selectedStore === 'all' && (
                             <FoodCostCharts data={storeTableData} />
                         )}
 
-                        {/* Modern Table grouped by store */}
+                        {/* Store Table */}
                         <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl shadow-xl shadow-black/5 mt-8">
 
                             {/* Table Header Controls */}
                             <div className="px-4 md:px-6 py-4 border-b border-black/5 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                                 <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 text-base md:text-lg">
                                     <Store size={18} className="text-blue-500" />
-                                    Food Cost by Store
+                                    {t('food_cost.by_store')}
                                 </h3>
 
                                 <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
@@ -464,30 +581,30 @@ export default function FoodCostPage() {
                                             <span className="bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono">
                                                 {storeTableData.length}
                                             </span>
-                                            <span>stores</span>
+                                            <span>{t('food_cost.stores_count')}</span>
                                         </div>
-                                        <button className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:opacity-80 flex items-center gap-1 uppercase tracking-wider whitespace-nowrap bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg">
+                                        <button
+                                            type="button"
+                                            onClick={handleExportCSV}
+                                            disabled={storeTableData.length === 0}
+                                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:opacity-80 disabled:opacity-40 flex items-center gap-1 uppercase tracking-wider whitespace-nowrap bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg cursor-pointer"
+                                        >
                                             <Download size={14} /> {t('sales.export_csv')}
                                         </button>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ═══════════════════════════════════════════════════ */}
-                            {/* MOBILE: Card-based layout (visible below md)       */}
-                            {/* ═══════════════════════════════════════════════════ */}
+                            {/* MOBILE: Card-based layout */}
                             <div className="md:hidden divide-y divide-black/5 dark:divide-slate-800">
                                 {storeTableData.map((item, idx) => {
-                                    const costColor = item.costPercent > 32 ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20'
-                                        : item.costPercent > 30 ? 'text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20'
-                                            : 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20'
+                                    const costColor = getFcBadgeClasses(item.costPercent)
                                     return (
                                         <div
                                             key={`mobile-${item.store_id}_${idx}`}
                                             className="px-4 py-3.5 active:bg-black/5 dark:active:bg-white/5 transition-colors cursor-pointer"
                                             onClick={() => window.open(`/admin/food-cost/${item.store_id}?startDate=${startDate}&endDate=${endDate}&period=${period}`, '_blank')}
                                         >
-                                            {/* Row 1: Store name + Cost % badge */}
                                             <div className="flex items-center justify-between gap-2 mb-2">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></div>
@@ -498,34 +615,46 @@ export default function FoodCostPage() {
                                                         <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>
                                                     )}
                                                 </div>
-                                                {item.totalSales > 0 ? (
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border shrink-0 ${costColor}`}>
-                                                        {item.costPercent.toFixed(1)}%
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-500/20 uppercase shrink-0">
-                                                        N/A
-                                                    </span>
-                                                )}
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {item.totalSales > 0 ? (
+                                                        <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border ${costColor}`}>
+                                                            {item.costPercent.toFixed(1)}%
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-500/20 uppercase">
+                                                            N/A
+                                                        </span>
+                                                    )}
+                                                    {item.packagingPercent > 0 && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-500/10 dark:text-sky-400 dark:border-sky-500/20">
+                                                            +{item.packagingPercent.toFixed(1)}% Pkg
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
-                                            {/* Row 2: Key metrics in a compact grid */}
-                                            <div className="grid grid-cols-3 gap-x-3 text-[11px]">
+                                            <div className="grid grid-cols-4 gap-x-2 text-[11px]">
                                                 <div>
-                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Ventas</span>
+                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">{t('sales.sales_label')}</span>
                                                     <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs mt-0.5">
                                                         ${item.totalSales.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                     </p>
                                                 </div>
                                                 <div>
-                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Costo</span>
+                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Food</span>
                                                     <p className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs mt-0.5">
                                                         ${item.totalCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                     </p>
                                                 </div>
+                                                <div>
+                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">{t('food_cost.packaging_col')}</span>
+                                                    <p className="font-mono font-bold text-sky-600 dark:text-sky-400 text-xs mt-0.5">
+                                                        ${item.totalPackagingCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                    </p>
+                                                </div>
                                                 <div className="text-right">
-                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Qty</span>
-                                                    <p className="font-mono font-bold text-slate-600 dark:text-slate-400 text-xs mt-0.5">
-                                                        {item.quantity.toLocaleString('en-US')}
+                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Asada</span>
+                                                    <p className="font-mono font-bold text-orange-600 dark:text-orange-400 text-xs mt-0.5">
+                                                        {item.totalAsadaLbs.toFixed(1)} lb
                                                     </p>
                                                 </div>
                                             </div>
@@ -538,34 +667,44 @@ export default function FoodCostPage() {
                                     <div className="px-4 py-3.5 bg-slate-50 dark:bg-slate-900 border-t-2 border-slate-200 dark:border-slate-700">
                                         <div className="flex items-center justify-between gap-2 mb-2">
                                             <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
-                                                Subtotal ({storeTableData.length})
+                                                {t('food_cost.subtotal')} ({storeTableData.length})
                                             </span>
                                             {summaryData.totalSales > 0 && (
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border ${(summaryData.totalCost / summaryData.totalSales * 100) > 32 ? 'text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-500/10 dark:border-rose-500/20'
-                                                    : (summaryData.totalCost / summaryData.totalSales * 100) > 30 ? 'text-yellow-700 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-500/10 dark:border-yellow-500/20'
-                                                        : 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-500/10 dark:border-emerald-500/20'
-                                                    }`}>
-                                                    {(summaryData.totalCost / summaryData.totalSales * 100).toFixed(1)}%
-                                                </span>
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border ${getFcBadgeClasses(subtotalFcPct)}`}>
+                                                        {subtotalFcPct.toFixed(1)}%
+                                                    </span>
+                                                    {subtotalPkgPct > 0 && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-500/10 dark:text-sky-400 dark:border-sky-500/20">
+                                                            +{subtotalPkgPct.toFixed(1)}% Pkg
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
-                                        <div className="grid grid-cols-3 gap-x-3 text-[11px]">
+                                        <div className="grid grid-cols-4 gap-x-2 text-[11px]">
                                             <div>
-                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Ventas</span>
+                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">{t('sales.sales_label')}</span>
                                                 <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs mt-0.5">
                                                     ${summaryData.totalSales.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                 </p>
                                             </div>
                                             <div>
-                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Costo</span>
+                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Food</span>
                                                 <p className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs mt-0.5">
                                                     ${summaryData.totalCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                 </p>
                                             </div>
+                                            <div>
+                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">{t('food_cost.packaging_col')}</span>
+                                                <p className="font-mono font-bold text-sky-600 dark:text-sky-400 text-xs mt-0.5">
+                                                    ${summaryData.totalPackagingCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                </p>
+                                            </div>
                                             <div className="text-right">
-                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Qty</span>
-                                                <p className="font-mono font-bold text-slate-600 dark:text-slate-400 text-xs mt-0.5">
-                                                    {summaryData.totalQuantity.toLocaleString('en-US')}
+                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Asada</span>
+                                                <p className="font-mono font-bold text-orange-600 dark:text-orange-400 text-xs mt-0.5">
+                                                    {summaryData.totalAsadaLbs.toFixed(1)} lb
                                                 </p>
                                             </div>
                                         </div>
@@ -579,16 +718,14 @@ export default function FoodCostPage() {
                                 )}
                             </div>
 
-                            {/* ═══════════════════════════════════════════════════ */}
-                            {/* DESKTOP: Full table (visible at md and above)      */}
-                            {/* ═══════════════════════════════════════════════════ */}
+                            {/* DESKTOP: Full table */}
                             <div className="hidden md:block overflow-x-auto max-h-[800px] overflow-y-auto relative styled-scrollbar">
-                                <table className="w-full min-w-[700px] text-sm md:text-base text-left border-collapse whitespace-nowrap">
+                                <table className="w-full min-w-[900px] text-sm md:text-base text-left border-collapse whitespace-nowrap">
                                     <thead className="bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-md sticky top-0 z-20 text-slate-700 dark:text-slate-400 text-[10px] md:text-xs uppercase font-semibold tracking-widest border-b border-black/5 dark:border-slate-800">
                                         <tr>
                                             <th className="px-3 py-2 md:px-4 md:py-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group sticky left-0 z-30 bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-md" onClick={() => requestSort('storeName')}>
                                                 <div className="flex items-center gap-1">
-                                                    Store
+                                                    {t('food_cost.filters.store')}
                                                     {sortConfig?.key === 'storeName' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-blue-500" /> : <ChevronDown size={14} className="text-blue-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
@@ -598,39 +735,51 @@ export default function FoodCostPage() {
                                                     {sortConfig?.key === 'quantity' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
+                                            <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalAsadaLbs')}>
+                                                <div className="flex items-center justify-end gap-1 text-orange-600 dark:text-orange-400">
+                                                    {t('food_cost.asada_lbs_col')}
+                                                    {sortConfig?.key === 'totalAsadaLbs' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-orange-500" /> : <ChevronDown size={14} className="text-orange-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                </div>
+                                            </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalMeatLbs')}>
-                                                <div className="flex items-center justify-end gap-1 w-full" title="Total Asada, Pollo, Pastor, Cabeza, Lengua, Buche, Carnitas, Chorizo items (raw lbs)">
-                                                    LIBRAS (CARNE)
+                                                <div className="flex items-center justify-end gap-1">
+                                                    {t('food_cost.meat_lbs_col')}
                                                     {sortConfig?.key === 'totalMeatLbs' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-orange-500" /> : <ChevronDown size={14} className="text-orange-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalDiscounts')}>
                                                 <div className="flex items-center justify-end gap-1 text-slate-500">
-                                                    DISCOUNTS
-                                                    {sortConfig?.key === 'totalDiscounts' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-slate-700 dark:text-slate-300" /> : <ChevronDown size={14} className="text-slate-700 dark:text-slate-300" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                    {t('food_cost.table.discounts')}
+                                                    {sortConfig?.key === 'totalDiscounts' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalSales')}>
                                                 <div className="flex items-center justify-end gap-1 text-emerald-600 dark:text-emerald-400">
-                                                    {t('food_cost.table.net_sales').toUpperCase()}
+                                                    {t('food_cost.table.net_sales')}
                                                     {sortConfig?.key === 'totalSales' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalCost')}>
                                                 <div className="flex items-center justify-end gap-1">
-                                                    T. COST
+                                                    FOOD COST $
                                                     {sortConfig?.key === 'totalCost' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-blue-500" /> : <ChevronDown size={14} className="text-blue-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('costPercent')}>
                                                 <div className="flex items-center justify-end gap-1">
-                                                    COST %
+                                                    FOOD %
                                                     {sortConfig?.key === 'costPercent' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-rose-500" /> : <ChevronDown size={14} className="text-rose-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                </div>
+                                            </th>
+                                            <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalPackagingCost')}>
+                                                <div className="flex items-center justify-end gap-1 text-sky-600 dark:text-sky-400">
+                                                    {t('food_cost.packaging_col')}
+                                                    {sortConfig?.key === 'totalPackagingCost' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('missing_prices')}>
                                                 <div className="flex items-center justify-center gap-1">
-                                                    Status
+                                                    {t('food_cost.table.status')}
                                                     {sortConfig?.key === 'missing_prices' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
@@ -642,7 +791,6 @@ export default function FoodCostPage() {
                                                 key={`${item.store_id}_${idx}`}
                                                 className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors group cursor-pointer"
                                                 onClick={() => {
-                                                    // Pass dates as URL params to maintain context
                                                     window.open(`/admin/food-cost/${item.store_id}?startDate=${startDate}&endDate=${endDate}&period=${period}`, '_blank')
                                                 }}
                                             >
@@ -658,7 +806,10 @@ export default function FoodCostPage() {
                                                     {item.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono font-bold text-xs md:text-sm text-orange-600 dark:text-orange-400">
-                                                    {item.totalMeatLbs > 0 ? item.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                                                    {item.totalAsadaLbs > 0 ? item.totalAsadaLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
+                                                </td>
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-xs md:text-sm text-slate-600 dark:text-slate-400">
+                                                    {item.totalMeatLbs > 0 ? item.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right text-rose-500 dark:text-rose-400 font-mono text-xs md:text-sm">
                                                     {item.totalDiscounts > 0 ? `-$${item.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
@@ -671,23 +822,28 @@ export default function FoodCostPage() {
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right">
                                                     {item.totalSales > 0 ? (
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${item.costPercent > 32 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20' :
-                                                            item.costPercent > 30 ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20' :
-                                                                'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
-                                                            }`}>
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${getFcBadgeClasses(item.costPercent)}`}>
                                                             {item.costPercent.toFixed(1)}%
                                                         </span>
                                                     ) : item.totalCost > 0 ? (
                                                         <span className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-500/20 uppercase">
-                                                            Zero Sales
+                                                            {t('food_cost.zero_sales')}
                                                         </span>
                                                     ) : (
                                                         <span className="text-slate-300 dark:text-slate-600 font-mono">-</span>
                                                     )}
                                                 </td>
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-xs md:text-sm text-sky-600 dark:text-sky-400">
+                                                    {item.totalPackagingCost > 0 ? (
+                                                        <span>
+                                                            ${item.totalPackagingCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            {item.packagingPercent > 0 && <span className="ml-1 text-[11px] opacity-80">({item.packagingPercent.toFixed(1)}%)</span>}
+                                                        </span>
+                                                    ) : '-'}
+                                                </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-center">
                                                     {item.missing_prices ? (
-                                                        <span title="Inventory Missing Price" className="flex items-center justify-center">
+                                                        <span title={t('food_cost.missing_price')} className="flex items-center justify-center">
                                                             <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
                                                         </span>
                                                     ) : (
@@ -698,33 +854,41 @@ export default function FoodCostPage() {
                                         ))}
 
                                         {/* Subtotals Row */}
-                                        {storeTableData.length > 0 && (
+                                        {storeTableData.length > 0 && summaryData && (
                                             <tr className="bg-slate-50 dark:bg-slate-900 font-bold border-t-2 border-slate-200 dark:border-slate-700 sticky bottom-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-slate-900 dark:text-white uppercase tracking-wider text-[10px] md:text-sm sticky left-0 z-30 bg-slate-50 dark:bg-slate-900">
-                                                    <div className="flex items-center gap-2">Subtotal ({storeTableData.length})</div>
+                                                    <div className="flex items-center gap-2">{t('food_cost.subtotal')} ({storeTableData.length})</div>
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-slate-900 dark:text-white text-xs md:text-sm">
-                                                    {summaryData?.totalQuantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                    {summaryData.totalQuantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono font-bold text-orange-600 dark:text-orange-400 text-xs md:text-sm">
-                                                    {(summaryData?.totalMeatLbs || 0) > 0 ? summaryData!.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                                                    {summaryData.totalAsadaLbs > 0 ? summaryData.totalAsadaLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
+                                                </td>
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-slate-700 dark:text-slate-300 text-xs md:text-sm">
+                                                    {summaryData.totalMeatLbs > 0 ? summaryData.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right text-rose-500 font-mono text-xs md:text-sm">
-                                                    {(summaryData?.totalDiscounts || 0) > 0 ? `-$${summaryData!.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                                                    {summaryData.totalDiscounts > 0 ? `-$${summaryData.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono text-xs md:text-sm">
-                                                    ${summaryData?.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    ${summaryData.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right text-slate-900 dark:text-white font-mono text-xs md:text-sm">
-                                                    ${summaryData?.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    ${summaryData.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right">
-                                                    {summaryData && summaryData.totalSales > 0 ? (
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${(summaryData.totalCost / summaryData.totalSales * 100) > 32 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20' :
-                                                            (summaryData.totalCost / summaryData.totalSales * 100) > 30 ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20' :
-                                                                'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
-                                                            }`}>
-                                                            {(summaryData.totalCost / summaryData.totalSales * 100).toFixed(1)}%
+                                                    {summaryData.totalSales > 0 ? (
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${getFcBadgeClasses(subtotalFcPct)}`}>
+                                                            {subtotalFcPct.toFixed(1)}%
+                                                        </span>
+                                                    ) : '-'}
+                                                </td>
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-sky-600 dark:text-sky-400 text-xs md:text-sm">
+                                                    {summaryData.totalPackagingCost > 0 ? (
+                                                        <span>
+                                                            ${summaryData.totalPackagingCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            {subtotalPkgPct > 0 && <span className="ml-1 text-[11px] opacity-80">({subtotalPkgPct.toFixed(1)}%)</span>}
                                                         </span>
                                                     ) : '-'}
                                                 </td>

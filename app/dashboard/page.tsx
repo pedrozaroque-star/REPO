@@ -10,7 +10,7 @@
  *   6. Inspecciones de Supervisores (/inspecciones) y Customer Feedback (/feedback)
  * @businessRules
  * - El día laboral inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente en zona horaria America/Los_Angeles.
- * - Umbrales de Food Cost: >32% Atención (ámbar), >36% Crítico.
+ * - Umbrales de Food Cost: ≤32% En Meta (verde), >32%–35% Atención (ámbar), >35% Crítico (rojo). Si es 0% (sin datos), se muestra neutro (slate).
  * - Umbrales de Labor Cost: ≤21.5% En Meta (verde), >21.5% Atención (ámbar), >23% Crítico (rojo). Si es 0% (sin datos), se muestra neutro (slate).
  * - Radar de Descuentos alerta descuentos Employee, Senior y First Responder >= $15.
  * - Auto-refresh cada 120 segundos únicamente cuando se visualiza el día laboral actual y la pestaña está visible (`visibilityState === 'visible'`), con cancelación de peticiones en vuelo mediante AbortController.
@@ -41,6 +41,7 @@ import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { useLanguage } from '@/lib/i18n'
 import OperationsAlerts from '@/components/dashboard/OperationsAlerts'
 import DriveThruLeaderboard from '@/components/dashboard/DriveThruLeaderboard'
+import { getFoodCostStatus } from '@/lib/inventory/food-cost-sales-resolver'
 
 /**
  * Obtiene la fecha de negocio actual (YYYY-MM-DD) en zona horaria America/Los_Angeles
@@ -554,7 +555,15 @@ function DashboardContent() {
                     {/* Food Cost → /admin/food-cost con filtro */}
                     <div
                         onClick={() => router.push(`/admin/food-cost?period=${timeFilter}&startDate=${startDateStr}&endDate=${endDateStr}`)}
-                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.foodCostPct > 36 ? 'bg-amber-600' : stats.foodCostPct > 32 ? 'bg-amber-700' : 'bg-slate-900'}`}
+                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${
+                            stats.foodCostPct === 0
+                                ? 'bg-slate-900'
+                                : getFoodCostStatus(stats.foodCostPct) === 'critical'
+                                    ? 'bg-rose-600'
+                                    : getFoodCostStatus(stats.foodCostPct) === 'warning'
+                                        ? 'bg-amber-600'
+                                        : 'bg-emerald-700'
+                        }`}
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Target size={60} /></div>
                         <p className="text-white/60 text-[10px] font-black uppercase tracking-widest">{t('dashboard.food_cost')}</p>

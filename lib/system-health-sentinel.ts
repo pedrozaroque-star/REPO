@@ -21,6 +21,7 @@
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { getLANowParts } from '@/lib/inventory/food-cost-sales-resolver'
 
 export type HealthStatusLevel = 'HEALTHY' | 'WARNING' | 'CRITICAL'
 
@@ -36,6 +37,8 @@ export interface HealthReport {
         salesRows: number
         schedulesRows: number
         pmixRows: number
+        foodCostCacheRows?: number
+        portionAlertsRows?: number
     }
     databaseLatencyMs: number
     toastSync: {
@@ -71,12 +74,13 @@ export async function runSystemHealthCheck(): Promise<HealthReport> {
 
     // 1. Latencia y Recuento de Filas en Tablas Críticas
     const t0 = performance.now()
-    const [meatRes, salesRes, schedRes, pmixRes, storesRes] = await Promise.all([
+    const [meatRes, salesRes, schedRes, pmixRes, fcCacheRes, portionAlertsRes] = await Promise.all([
         supabase.from('meat_consumption_history').select('*', { count: 'exact', head: true }),
         supabase.from('sales_daily_cache').select('*', { count: 'exact', head: true }),
         supabase.from('schedules').select('*', { count: 'exact', head: true }),
         supabase.from('pmix_daily_cache').select('*', { count: 'exact', head: true }),
-        supabase.from('stores').select('id, is_active').eq('is_active', true)
+        supabase.from('food_cost_daily_cache').select('*', { count: 'exact', head: true }),
+        Promise.resolve(supabase.from('portion_control_alerts').select('*', { count: 'exact', head: true })).catch(() => ({ count: 0 }))
     ])
     const databaseLatencyMs = Math.round(performance.now() - t0)
 
@@ -89,6 +93,8 @@ export async function runSystemHealthCheck(): Promise<HealthReport> {
     const salesRows = salesRes.count || BASELINE_SALES_ROWS
     const schedulesRows = schedRes.count || 0
     const pmixRows = pmixRes.count || 0
+    const foodCostCacheRows = fcCacheRes.count || 0
+    const portionAlertsRows = portionAlertsRes?.count || 0
 
     // Estimación calibrada de almacenamiento
     const meatGrowthFactor = meatRows / BASELINE_MEAT_ROWS
@@ -118,10 +124,10 @@ export async function runSystemHealthCheck(): Promise<HealthReport> {
         recommendedAction = 'Planificar en los próximos días la desactivación del Spend Cap o compra de disco adicional (Compute / Storage Add-on).'
     }
 
-    // 2. Verificación de Sincronización de Ventas de Hoy (Toast Pipeline)
-    const nowLA = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-    const todayStr = nowLA.toISOString().split('T')[0]
-    const currentHour = nowLA.getHours()
+    // 2. Verificación de Sincronización de Ventas de Hoy (Toast Pipeline — Regla 6:00 AM America/Los_Angeles)
+    const laNow = getLANowParts()
+    const todayStr = laNow.businessDate
+    const currentHour = laNow.hour
 
     const { data: todaySales } = await supabase
         .from('sales_daily_cache')
@@ -177,7 +183,9 @@ export async function runSystemHealthCheck(): Promise<HealthReport> {
             meatRows,
             salesRows,
             schedulesRows,
-            pmixRows
+            pmixRows,
+            foodCostCacheRows,
+            portionAlertsRows
         },
         databaseLatencyMs,
         toastSync: {
@@ -347,6 +355,14 @@ export async function sendHealthAlertEmail(report: HealthReport, isTestOrReport:
                         <div class="metric-box">
                             <div class="metric-lbl">Histórico Ventas (Sales Cache)</div>
                             <div class="metric-val">${report.storage.salesRows.toLocaleString()}</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">Food Cost Cache</div>
+                            <div class="metric-val">${(report.storage.foodCostCacheRows || 0).toLocaleString()}</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-lbl">Alertas Porciones (Carnes)</div>
+                            <div class="metric-val">${(report.storage.portionAlertsRows || 0).toLocaleString()}</div>
                         </div>
                     </div>
                 </div>

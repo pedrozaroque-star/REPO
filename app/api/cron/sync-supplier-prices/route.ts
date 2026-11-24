@@ -24,6 +24,7 @@
  *   - Seguro para ejecución desatendida en Vercel Serverless con Vercel Cron.
  *   - QuickBooks sync tiene blindaje is_bodega para NO pisar estos precios externos.
  *   - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
+ *   - [2026-11-23] Guard contra glitches de portal `$0` (`newCasePrice <= 0`) para nunca registrar caídas falsas `-100%`, deduplicación con trigger `trigger_log_inventory_price`, e invalidación consistente de 7 días laborales LA (`getBusinessDateLA`).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -32,6 +33,7 @@ import { ESTIMATED_ANNUAL_VOLUMES, DEFAULT_ANNUAL_VOLUME } from '@/lib/constants
 import { sendSupplierPriceAlertEmail, PriceIncreaseItem } from '@/lib/supplier-price-email'
 import { syncVielePurchasesCatalog, syncVieleOrderGuides } from '@/lib/viele-price-sync'
 import { verifyStaffAuth } from '@/lib/auth-server'
+import { addDaysIso, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -96,8 +98,9 @@ async function handleSync(request: NextRequest) {
       })
     }
 
-    // 4. Obtener historial reciente del cron para evitar duplicados (idempotencia)
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    // 4. Obtener historial reciente del cron para evitar duplicados (idempotencia en horario laboral LA)
+    const todayStr = getBusinessDateLA()
+    const sevenDaysAgo = addDaysIso(todayStr, -7)
     const { data: recentCronHistory } = await supabase
       .from('supplier_price_history')
       .select('supplier_sku, case_price')
@@ -112,7 +115,20 @@ async function handleSync(request: NextRequest) {
       })
     }
 
-    // 5. Analizar variaciones
+    // 5. Analizar variaciones (filtrando glitches de portal con precio <= $0)
+    const validScrapedItems = scrapeResult.items.filter((item) => {
+      const price = Number(item.casePrice)
+      if (!Number.isFinite(price) || price <= 0) {
+        console.warn(`[Cron:SyncSupplierPrices] ⚠️ Omitiendo SKU ${item.supplierSku} por precio inválido o $0 en portal (${item.casePrice})`)
+        return false
+      }
+      return true
+    })
+
+    if (validScrapedItems.length === 0) {
+      throw new Error('Portal Viele & Sons devolvió 0 artículos con precio válido (> $0)')
+    }
+
     let totalIncreases = 0
     let totalDecreases = 0
     let totalUnchanged = 0
@@ -122,13 +138,15 @@ async function handleSync(request: NextRequest) {
     const historyInserts: any[] = []
     const increasesForEmail: PriceIncreaseItem[] = []
     const decreasesForEmail: PriceIncreaseItem[] = []
-    const todayStr = new Date().toISOString().split('T')[0]
 
-    for (const parsed of scrapeResult.items) {
+    for (const parsed of validScrapedItems) {
       const mapping = mappingMap.get(parsed.supplierSku)
       const masterItem = mapping?.inventory_items
       const packQty = mapping?.pack_quantity || parsed.packQuantity || 1
-      const newCasePrice = parsed.casePrice
+      const newCasePrice = Number(parsed.casePrice)
+      if (!Number.isFinite(newCasePrice) || newCasePrice <= 0) {
+        continue
+      }
       const newUnitCost = Number((newCasePrice / packQty).toFixed(4))
 
       let currentCasePrice = 0
@@ -245,19 +263,20 @@ async function handleSync(request: NextRequest) {
     // Esto garantiza que Food Cost, recetas y reportes financieros reflejen la realidad.
     let autoApprovedCount = 0
     const nowIso = new Date().toISOString()
-    const inventoryHistoryInserts: any[] = []
+    const tenSecAgoIso = new Date(Date.now() - 10_000).toISOString()
 
-    for (const parsed of scrapeResult.items) {
+    for (const parsed of validScrapedItems) {
       const mapping = mappingMap.get(parsed.supplierSku)
       const masterItem = mapping?.inventory_items
       if (!mapping || !masterItem?.id) continue
 
       const currentCasePrice = Number(masterItem.purchase_unit_cost) || 0
-      const newCasePrice = parsed.casePrice
+      const newCasePrice = Number(parsed.casePrice)
+      if (!Number.isFinite(newCasePrice) || newCasePrice <= 0) continue
       const diff = Number((newCasePrice - currentCasePrice).toFixed(2))
 
       if (Math.abs(diff) > 0.009 && newCasePrice > 0) {
-        const packQtyNum = Number(mapping.pack_quantity) || 1
+        const effectiveQtyPerUnit = Number(masterItem.quantity_per_unit) || Number(mapping.pack_quantity) || 1
         const { error: updateErr } = await supabase
           .from('inventory_items')
           .update({
@@ -268,37 +287,40 @@ async function handleSync(request: NextRequest) {
 
         if (!updateErr) {
           autoApprovedCount++
-          // Registrar en inventory_price_history para "La Máquina del Tiempo" de Food Cost
-          // Esto garantiza que cualquier reporte de fechas pasadas use el costo que estaba vigente en ese momento.
-          inventoryHistoryInserts.push({
-            inventory_item_id: masterItem.id,
-            purchase_unit_cost: newCasePrice,
-            quantity_per_unit: packQtyNum,
-            effective_date: nowIso
-          })
+          // `trigger_log_inventory_price` inserta automáticamente en `inventory_price_history`.
+          // Verificamos idempotentemente que el registro exista sin crear filas duplicadas.
+          const { data: recentHist } = await supabase
+            .from('inventory_price_history')
+            .select('id')
+            .eq('inventory_item_id', masterItem.id)
+            .eq('purchase_unit_cost', newCasePrice)
+            .gte('effective_date', tenSecAgoIso)
+            .limit(1)
+
+          if (!recentHist || recentHist.length === 0) {
+            await supabase.from('inventory_price_history').insert({
+              inventory_item_id: masterItem.id,
+              purchase_unit_cost: newCasePrice,
+              quantity_per_unit: effectiveQtyPerUnit,
+              effective_date: nowIso
+            })
+          }
         }
       }
-    }
-
-    if (inventoryHistoryInserts.length > 0) {
-      await supabase.from('inventory_price_history').insert(inventoryHistoryInserts)
-      console.log(`[Cron:SyncSupplierPrices] 🕰️ ${inventoryHistoryInserts.length} registros guardados en inventory_price_history para auditoría histórica de Food Cost.`)
     }
 
     if (autoApprovedCount > 0) {
       console.log(`[Cron:SyncSupplierPrices] ✅ Auto-aprobados ${autoApprovedCount} precios en inventory_items (reflejan costo real del proveedor).`)
 
-      // Invalidar caché de Food Cost del día de hoy en adelante para recalcular con precios actualizados
-      // Las fechas anteriores quedan INTACTAS con sus costos históricos reales.
-      const todayStr = new Date().toISOString().split('T')[0]
-      await supabase.from('food_cost_daily_cache').delete().gte('business_date', todayStr)
-      console.log(`[Cron:SyncSupplierPrices] 🗑️ Caché de Food Cost invalidado a partir de ${todayStr} para recálculo. Fechas pasadas permanecen intactas.`)
+      // Invalidar caché de Food Cost de los últimos 7 días laborales LA (6:00 AM rollover)
+      await supabase.from('food_cost_daily_cache').delete().gte('business_date', sevenDaysAgo)
+      console.log(`[Cron:SyncSupplierPrices] 🗑️ Caché de Food Cost invalidado desde ${sevenDaysAgo} (LA 7d) para recálculo.`)
     }
 
     // 6.6. SINCRONIZACIÓN DEL MÓDULO DE COMPRAS (viele_items)
     // Conecta el catálogo de compras de sucursales con el Radar de Precios de Viele.
     console.log('[Cron:SyncSupplierPrices] 🛒 Sincronizando catálogo de compras de Viele (viele_items)...')
-    const vielePurchasesSync = await syncVielePurchasesCatalog(scrapeResult.items)
+    const vielePurchasesSync = await syncVielePurchasesCatalog(validScrapedItems)
     if (!vielePurchasesSync.success) throw new Error(vielePurchasesSync.errorMessage || 'Falló sincronización del catálogo Viele')
     console.log(`[Cron:SyncSupplierPrices] 🛒 viele_items sincronizado: ${vielePurchasesSync.totalUpdated} precios actualizados, ${vielePurchasesSync.totalNew} productos nuevos.`)
 

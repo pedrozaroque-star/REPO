@@ -214,7 +214,15 @@ function SalesPageContent() {
     }
 
     // Food Cost Integration State
-    const [foodCostData, setFoodCostData] = useState<{ totalCost: number, totalSales: number, costPercentage: number, byStore?: Record<string, { totalCost: number, netSales: number, costPercentage: number }>, byStoreName?: Record<string, { totalCost: number, netSales: number, costPercentage: number }> } | null>(null)
+    const [foodCostData, setFoodCostData] = useState<{
+        totalCost: number,
+        totalSales: number,
+        costPercentage: number,
+        totalPackagingCost?: number,
+        packagingPercentage?: number,
+        byStore?: Record<string, { totalCost: number, netSales: number, costPercentage: number, totalPackagingCost?: number, packagingPercentage?: number }>,
+        byStoreName?: Record<string, { totalCost: number, netSales: number, costPercentage: number, totalPackagingCost?: number, packagingPercentage?: number }>
+    } | null>(null)
     const [foodCostLoading, setFoodCostLoading] = useState(false)
 
     // AbortController: cancels in-flight HTTP requests when user changes filter
@@ -273,8 +281,10 @@ function SalesPageContent() {
         setSortConfig({ key, direction })
     }
 
+    const isSubDayOrDowFiltered = dayOfWeekFilter !== null || timeFilter !== 'all'
+
     const getValidStoreFC = (storeId?: string, storeName?: string) => {
-        if (!foodCostData) return null
+        if (!foodCostData || isSubDayOrDowFiltered) return null
         const fc =
             (storeId ? foodCostData.byStore?.[storeId] : undefined) ||
             (storeName ? foodCostData.byStoreName?.[storeName] : undefined)
@@ -792,9 +802,11 @@ function SalesPageContent() {
                 if (signal?.aborted) return
                 // Cache hit (full or partial) — use pre-calculated data immediately for instant display
                 setFoodCostData({
-                    totalCost: cacheJson.totalCost,
+                    totalCost: cacheJson.totalFoodCost ?? cacheJson.totalCost,
                     totalSales: cacheJson.totalSales,
                     costPercentage: cacheJson.costPercentage,
+                    totalPackagingCost: cacheJson.totalPackagingCost ?? 0,
+                    packagingPercentage: cacheJson.packagingPercentage ?? 0,
                     byStore: cacheJson.byStore || {},
                     byStoreName: cacheJson.byStoreName || {}
                 })
@@ -822,36 +834,49 @@ function SalesPageContent() {
 
                 if (fullJson.data && fullJson.data.length > 0) {
                     const authSalesByStore: Record<string, number> = fullJson.salesNetSales || {}
-                    const storeMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
-                    const storeNameMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
+                    const storeMap: Record<string, { totalCost: number, netSales: number, costPercentage: number, totalPackagingCost: number, packagingPercentage: number }> = {}
+                    const storeNameMap: Record<string, { totalCost: number, netSales: number, costPercentage: number, totalPackagingCost: number, packagingPercentage: number }> = {}
                     const nameByStoreId: Record<string, string> = {}
 
                     fullJson.data.forEach((item: any) => {
                         const sid = item.store_id || 'unknown'
                         const sname = item.store_name || sid
                         nameByStoreId[sid] = sname
-                        if (!storeMap[sid]) storeMap[sid] = { totalCost: 0, netSales: 0, costPercentage: 0 }
-                        storeMap[sid].totalCost += Number(item.total_cost || 0)
+                        if (!storeMap[sid]) storeMap[sid] = { totalCost: 0, netSales: 0, costPercentage: 0, totalPackagingCost: 0, packagingPercentage: 0 }
+                        storeMap[sid].totalCost += Number(item.food_cost ?? item.total_cost ?? 0)
+                        storeMap[sid].totalPackagingCost += Number(item.packaging_cost ?? 0)
                         storeMap[sid].netSales += Number(item.net_sales || 0)
                     })
 
                     let totalCost = 0
+                    let totalPkg = 0
                     let totalSales = 0
                     Object.entries(storeMap).forEach(([sid, s]) => {
                         const authSales = Number(authSalesByStore[sid] || 0)
                         if (authSales > 0) s.netSales = authSales
                         s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
+                        s.packagingPercentage = s.netSales > 0 && s.totalPackagingCost > 0 ? (s.totalPackagingCost / s.netSales) * 100 : 0
                         const sname = nameByStoreId[sid] || sid
                         storeNameMap[sname] = { ...s }
                         // Isolate broken stores (cost > 0 && sales <= 0) from global KPI ratio
                         if (!(s.totalCost > 0 && s.netSales <= 0)) {
                             totalCost += s.totalCost
+                            totalPkg += s.totalPackagingCost
                             totalSales += s.netSales
                         }
                     })
 
                     const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
-                    setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap, byStoreName: storeNameMap })
+                    const pkgPct = totalSales > 0 && totalPkg > 0 ? (totalPkg / totalSales) * 100 : 0
+                    setFoodCostData({
+                        totalCost,
+                        totalSales,
+                        costPercentage: costPct,
+                        totalPackagingCost: totalPkg,
+                        packagingPercentage: pkgPct,
+                        byStore: storeMap,
+                        byStoreName: storeNameMap
+                    })
                     console.log(`[FoodCost] ✅ Calculated & cached for ${sDate}`)
                     return
                 }
@@ -912,9 +937,11 @@ function SalesPageContent() {
 
                     if (finalJson.totalCost > 0) {
                         setFoodCostData({
-                            totalCost: finalJson.totalCost,
+                            totalCost: finalJson.totalFoodCost ?? finalJson.totalCost,
                             totalSales: finalJson.totalSales,
                             costPercentage: finalJson.costPercentage,
+                            totalPackagingCost: finalJson.totalPackagingCost ?? 0,
+                            packagingPercentage: finalJson.packagingPercentage ?? 0,
                             byStore: finalJson.byStore || {},
                             byStoreName: finalJson.byStoreName || {}
                         })
@@ -1076,6 +1103,8 @@ function SalesPageContent() {
                 return {
                     totalCost: storeFC.totalCost,
                     costPercentage: storeFC.costPercentage,
+                    totalPackagingCost: storeFC.totalPackagingCost ?? 0,
+                    packagingPercentage: storeFC.packagingPercentage ?? 0,
                     loading: false
                 }
             }
@@ -1086,6 +1115,8 @@ function SalesPageContent() {
         return {
             totalCost: foodCostData.totalCost,
             costPercentage: foodCostData.costPercentage,
+            totalPackagingCost: foodCostData.totalPackagingCost ?? 0,
+            packagingPercentage: foodCostData.packagingPercentage ?? 0,
             loading: false
         }
     }, [foodCostData, foodCostLoading, selectedStore, data?.storeData, dayOfWeekFilter, timeFilter])
@@ -1727,7 +1758,7 @@ function SalesPageContent() {
                                             <option value="orderCount">{t('sales.orders_label')}</option>
                                             <option value="avgTicket">{t('sales.ticket_label')}</option>
                                             <option value="laborPercentage">{t('sales.labor_label')}</option>
-                                            {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
+                                            {!isSubDayOrDowFiltered && foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
                                                 <option value="foodCostPct">{t('sales.food_label')}</option>
                                             )}
                                             <option value="name">{t('sales.store')} (A–Z)</option>
@@ -1798,7 +1829,7 @@ function SalesPageContent() {
                                                                 : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
                                                             }`}
                                                     >
-                                                        {t('sales.food_label')}: {fcPct.toFixed(1)}%
+                                                        {t('sales.food_label')}: {fcPct.toFixed(1)}%{storeFC && (storeFC.packagingPercentage ?? 0) > 0 ? ` (+${storeFC.packagingPercentage!.toFixed(1)}% ${t('sales.summary.packaging_sub')})` : ''}
                                                     </button>
                                                 )}
                                             </div>
@@ -1941,7 +1972,7 @@ function SalesPageContent() {
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                             </div>
                                         </th>
-                                        {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
+                                        {!isSubDayOrDowFiltered && foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
                                             <th className="px-2.5 py-3 lg:px-6 lg:py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('foodCostPct')}>
                                                 <div className="flex items-center justify-end gap-1 text-teal-600 dark:text-teal-400">
                                                     {t('sales.food_label')}
@@ -2025,7 +2056,7 @@ function SalesPageContent() {
                                                         {laborPct}%
                                                     </span>
                                                 </td>
-                                                {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
+                                                {!isSubDayOrDowFiltered && foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
                                                     <td className="px-2.5 py-3 lg:px-6 lg:py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                         {(() => {
                                                             const storeFC = getValidStoreFC(store.storeId, store.storeName || store.name)
@@ -2043,8 +2074,13 @@ function SalesPageContent() {
                                                                         : fcPct > FOOD_COST_WARNING_MAX
                                                                             ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
                                                                             : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
-                                                                }`}>
-                                                                    {fcPct.toFixed(1)}%
+                                                                }`}
+                                                                    title={(storeFC.packagingPercentage ?? 0) > 0 ? `${t('sales.summary.packaging_sub')}: ${storeFC.packagingPercentage!.toFixed(1)}%` : undefined}
+                                                                >
+                                                                    <span>{fcPct.toFixed(1)}%</span>
+                                                                    {(storeFC.packagingPercentage ?? 0) > 0 && (
+                                                                        <span className="text-[10px] font-semibold opacity-75">+{storeFC.packagingPercentage!.toFixed(1)}%</span>
+                                                                    )}
                                                                 </button>
                                                             )
                                                         })()}

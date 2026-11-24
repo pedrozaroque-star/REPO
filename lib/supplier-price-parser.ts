@@ -20,6 +20,10 @@
  *     permitiendo capturar en 0.1s la tabla visible de shop.vieleandsons.com/orderentry/.
  *   - [2026-11-20] FIX CRÍTICO: Excluidos descriptores fraccionales (`1/2 Size`, `1/3 Pan`, `1/4`, `1/6`, `1/9`, `2/3`)
  *     en `inferPackQuantity` para evitar inflación `50x` cuando el conteo real viene en `"100 count"` / `"200 count"`.
+ *   - [2026-11-23] Corregida precedencia en `inferPackQuantity`: búsqueda exacta por SKU en `VIELE_CATALOG_87` y
+ *     `KNOWN_SKU_PACK_MAP` + `bareSlashMatch` (`10/100`, `20/250`) ANTES de `countMatch` y `csMatch` (`10CS`/`20CS`),
+ *     eliminando los errores `100x–1000x` en `6STIR`, `PFLAVI`, `PFMEVI`, `PFXLVI`, `PFLAVIBLK`, `LDGLGE`, `TSCO` y
+ *     corrigiendo `EL4OZ` a `1000` (paridad 87/87 = 100% con `viele-catalog-87.ts`).
  */
 
 import { VIELE_CATALOG_87 } from './seeds/viele-catalog-87'
@@ -121,12 +125,52 @@ function cleanCommentText(rawComment?: string): string {
   return c
 }
 
+const KNOWN_SKU_PACK_MAP: Record<string, number> = {
+  EP9PR: 500,
+  EL4OZ: 1000,
+  ELDP32: 500,
+  ELDP24: 500,
+  ELDP16: 1000,
+  '1175YLPR': 1800,
+  '117SYLPR': 1800,
+  '12PR': 1000,
+  '108SPOON': 144,
+  '10SPOON': 144,
+  '10WRTO': 12000,
+  '6STIR': 10000,
+  '2BT1000': 12,
+  '2611000': 12,
+  '2HOHA': 300,
+  '2HOMA': 300,
+  '4HOHADO': 250,
+  '4HOMA': 300,
+  '44OZ': 1000,
+  PFLAVI: 1000,
+  PFMEVI: 1000,
+  PFXLVI: 1000,
+  PFLAVIBLK: 1000,
+  LDGLGE: 5000,
+  TSCO: 5000,
+}
+
 /**
- * Intenta inferir la cantidad de piezas por caja a partir del texto de la unidad o descripción
- * Ej: "1000 count", "12/1000 count", "24/300 count", "4/1 gal", "5 gal BIB"
+ * Intenta inferir la cantidad de piezas por caja a partir del SKU maestro, texto de la unidad o descripción
+ * Ej: "1000 count", "12/1000 count", "24/300 count", "4/1 gal", "5 gal BIB", "10/100", "20/250".
  * Ignora fracciones culinarias/dimensiones como "1/2 Size", "1/3 Pan", "1/4", "1/6", "1/9", "2/3", "8-1/2".
  */
 export function inferPackQuantity(unitStr: string, descStr?: string, skuStr?: string): number {
+  // 0. Prioridad absoluta: SKU exacto en catálogo maestro oficial de Viele & Sons o mapa conocido
+  if (skuStr) {
+    const cleanSku = skuStr.trim().toUpperCase()
+    const catMatch = VIELE_CATALOG_87.find(c => c.sku.toUpperCase() === cleanSku)
+    if (catMatch && catMatch.packQuantity > 0) {
+      return catMatch.packQuantity
+    }
+    if (cleanSku in KNOWN_SKU_PACK_MAP) {
+      return KNOWN_SKU_PACK_MAP[cleanSku]
+    }
+  }
+
   let combined = `${unitStr || ''} ${descStr || ''}`.toLowerCase().trim()
   // Limpiar comas en números de miles como 2,500
   combined = combined.replace(/(\d+),(\d{3})\b/g, '$1$2')
@@ -161,14 +205,7 @@ export function inferPackQuantity(unitStr: string, descStr?: string, skuStr?: st
     }
   }
 
-  // 3. Conteo directo explícito: 100 count, 200 count, 1000 count, 500 ct, 2500/cs, 500 pzas
-  const countMatch = sanitizedForPacks.match(/(?:^|[^\d/])(\d+)\s*(?:\/)?\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls|cs)\b/i)
-  if (countMatch) {
-    const p = parseInt(countMatch[1], 10)
-    if (!isNaN(p) && p > 0) return p
-  }
-
-  // 4. Sub-empaque sin palabra "count" (ej. "24/250", "20/250", "10/100"): exigir subpacks reales (p1 >= 2 y p2 >= 6)
+  // 3. Sub-empaque sin palabra "count" (ej. "24/250", "20/250", "10/100", "10/500") ANTES de conteos genéricos
   const bareSlashMatch = sanitizedForPacks.match(/\b(\d+)\s*\/\s*(\d+)\b/i)
   if (bareSlashMatch) {
     const p1 = parseInt(bareSlashMatch[1], 10)
@@ -178,6 +215,20 @@ export function inferPackQuantity(unitStr: string, descStr?: string, skuStr?: st
     }
   }
 
+  // 4. Conteo explícito con diagonal de caja/empaque (ej. "2500/cs", "12/box") o palabra de conteo
+  //    NOTA: Excluye "10CS"/"20CS" sin diagonal para que jamás eclipse sub-empaques ni SKUs maestros
+  const slashCaseMatch = sanitizedForPacks.match(/(?:^|[^\d/])(\d+)\s*\/\s*(?:cs|case|box)\b/i)
+  if (slashCaseMatch) {
+    const p = parseInt(slashCaseMatch[1], 10)
+    if (!isNaN(p) && p > 0) return p
+  }
+
+  const countMatch = sanitizedForPacks.match(/(?:^|[^\d/])(\d+)\s*(?:\/)?\s*(?:count|ct|pcs|pieces|pza|pzas|sheets|gloves|napkins|bags|rolls)\b/i)
+  if (countMatch) {
+    const p = parseInt(countMatch[1], 10)
+    if (!isNaN(p) && p > 0) return p
+  }
+
   // 5. Galones / BIB: 5 gal, 4 gal, 3 gal, 10 gal
   const galMatch = sanitizedForPacks.match(/(\d+)\s*(?:gal|gallon|galones|bib)\b/i)
   if (galMatch) {
@@ -185,48 +236,20 @@ export function inferPackQuantity(unitStr: string, descStr?: string, skuStr?: st
     if (!isNaN(p) && p > 0) return p
   }
 
-  // 6. Catálogo maestro Viele & Sons por SKU exacto si fue provisto y la descripción no traía conteo explícito
-  if (skuStr) {
-    const cleanSku = skuStr.trim().toUpperCase()
-    const catMatch = VIELE_CATALOG_87.find(c => c.sku.toUpperCase() === cleanSku)
-    if (catMatch && catMatch.packQuantity > 0) {
-      return catMatch.packQuantity
+  // 6. Fallback para SKUs conocidos incrustados como token completo en unidad/descripción
+  const upperCombined = `${skuStr || ''} ${unitStr || ''} ${descStr || ''}`.toUpperCase()
+  for (const [sku, qty] of Object.entries(KNOWN_SKU_PACK_MAP)) {
+    const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    if (new RegExp(`(?:^|[^A-Z0-9-])${escaped}(?:$|[^A-Z0-9-])`).test(upperCombined)) {
+      return qty
     }
   }
 
-  // 7. 10CS, 12CS, 4CS, 6CS, 20CS, 24CS, 3CS
+  // 7. Unidades genéricas de caja sin sub-empaque: 10CS, 12CS, 4CS, 6CS, 20CS, 24CS, 3CS
   const csMatch = unitStr?.match(/^(\d+)CS$/i)
   if (csMatch) {
     const p = parseInt(csMatch[1], 10)
     if (!isNaN(p) && p > 0) return p
-  }
-
-  // 8. Fallback para SKUs conocidos de empaques de alta rotación
-  const upperCombined = `${skuStr || ''} ${unitStr || ''} ${descStr || ''}`.toUpperCase()
-  const KNOWN_SKU_PACK_MAP: Record<string, number> = {
-    EP9PR: 500,
-    EL4OZ: 2500,
-    ELDP32: 500,
-    ELDP24: 500,
-    ELDP16: 1000,
-    '1175YLPR': 1800,
-    '117SYLPR': 1800,
-    '12PR': 1000,
-    '108SPOON': 144,
-    '10WRTO': 12000,
-    '6STIR': 10000,
-    '2BT1000': 12,
-    '2611000': 12,
-    '2HOHA': 300,
-    '2HOMA': 300,
-    '4HOHADO': 250,
-    '4HOMA': 300,
-    '44OZ': 1000
-  }
-  for (const [sku, qty] of Object.entries(KNOWN_SKU_PACK_MAP)) {
-    if (upperCombined.includes(sku)) {
-      return qty
-    }
   }
 
   return 1
@@ -567,7 +590,7 @@ function parseKnownMasterItems(rawText: string): ParsedSupplierItem[] {
         supplierSku: catItem.sku,
         description: catItem.description,
         packUnit: unit,
-        packQuantity: catItem.packQuantity || inferPackQuantity(unit, catItem.description),
+        packQuantity: catItem.packQuantity || inferPackQuantity(unit, catItem.description, catItem.sku),
         casePrice: price,
         comment: ''
       })

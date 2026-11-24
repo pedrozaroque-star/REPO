@@ -1,19 +1,19 @@
 /**
  * @module app/api/inventory/costs
- * @description Reporte teórico de costos y márgenes del catálogo maestro de Toast POS (`/inventory/costs`).
+ * @description Reporte teórico de costos (Comida vs Empaque separado) y márgenes del catálogo maestro de Toast POS (`/inventory/costs`).
  * @businessRules
- *   - Calcula el costo teórico de materia prima (`foodCost`) por platillo usando `calculateRecipeCost`.
- *   - Para Party Trays / Fiesta Platters (`15-20`, `20-25`, `25-30`, `30-40` personas y `Fiesta Platters` Delivery),
- *     construye la receta virtual completa desde `PARTY_TRAY_GUIDELINES` (`buildPartyTrayVirtualIngredients`).
+ *   - Calcula `foodCost` (`'food' | 'raw' | 'cooked'`) y `packagingCost` (`worstCogs = max(cogs_dine_in, cogs_takeout, cogs_delivery)`) por separado.
+ *   - `foodCostPercent = (foodCost / price) * 100` (estrictamente comida pura, sin mezclar empaque).
+ *   - `packagingPercent = (packagingCost / price) * 100` (empaque separado).
+ *   - Para Party Trays / Fiesta Platters, construye la receta virtual completa desde `buildPartyTrayVirtualIngredients`.
+ *   - Usa `getSupabaseAdminClient()` con `.limit(10000)` tras `verifyStaffAuth` para compatibilidad con RLS.
  * @dataFlow
  *   `toast_menu_items` + `recipes` + `inventory_items` + `PARTY_TRAY_GUIDELINES` -> `calculateRecipeCost` -> JSON.
  * @notes
- *   - [2026-11-17] Integrado `buildPartyTrayVirtualIngredients` para que Party Trays muestren su costo real completo
- *     en lugar de solo los 7 insumos fijos base de `recipes`.
- *   - Protegido con `verifyStaffAuth` para evitar exposición pública de costos y márgenes del menú.
+ *   - [2026-11-23] Separados `foodCost`, `packagingCost`, `foodCostPercent` y `packagingPercent`, y añadido `.limit(10000)` con `getSupabaseAdminClient()`.
  */
 
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
@@ -26,31 +26,30 @@ export async function GET(request: Request) {
         return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
     }
 
-    const supabase = await getSupabaseClient()
+    const supabase = await getSupabaseAdminClient()
 
     try {
-        const { data: menuItems, error: menuError } = await supabase
-            .from('toast_menu_items')
-            .select('*')
-            .order('name')
+        const [
+            { data: menuItems, error: menuError },
+            { data: recipeRows, error: recipeError },
+            { data: inventoryItems, error: invError }
+        ] = await Promise.all([
+            supabase.from('toast_menu_items').select('*').order('name').limit(10000),
+            supabase.from('recipes').select('toast_menu_item_guid, inventory_item_id, quantity, unit, type').limit(10000),
+            supabase.from('inventory_items').select('*').limit(5000)
+        ])
 
         if (menuError) throw menuError
-
-        const { data: recipeRows, error: recipeError } = await supabase
-            .from('recipes')
-            .select('toast_menu_item_guid, inventory_item_id, quantity, unit, type')
-
         if (recipeError) throw recipeError
+        if (invError) throw invError
 
         const recipeMap = new Map<string, any[]>()
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        recipeRows?.forEach((row: any) => {
+        ;(recipeRows || []).forEach((row: any) => {
             const guid = row.toast_menu_item_guid
             if (!recipeMap.has(guid)) {
                 recipeMap.set(guid, [])
             }
-            recipeMap.get(guid)?.push({
+            recipeMap.get(guid)!.push({
                 inventory_item_id: row.inventory_item_id,
                 quantity: row.quantity,
                 unit: row.unit,
@@ -58,13 +57,8 @@ export async function GET(request: Request) {
             })
         })
 
-        const { data: inventoryItems, error: invError } = await supabase
-            .from('inventory_items')
-            .select('*')
+        const invList = (inventoryItems || []) as InventoryItem[]
 
-        if (invError) throw invError
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const report = (menuItems || []).map((menuItem: any) => {
             const isPartyTray = !menuItem.is_modifier && isPartyTrayMenuItem(menuItem.name, menuItem.guid)
             let ingredients = recipeMap.get(menuItem.guid) || []
@@ -77,66 +71,104 @@ export async function GET(request: Request) {
                     unitPrice: Number(menuItem.price) || 0,
                     toastGuid: menuItem.guid,
                     isDeliveryChannel: isDelivery,
-                    inventoryItems: (inventoryItems || []) as InventoryItem[],
+                    inventoryItems: invList,
                 })
                 ingredients = virtualParty.ingredients
             }
 
-            const hasRecipe = ingredients.length > 0
+            const foodIngredients = ingredients.filter(
+                (i: any) => !i.type || i.type === 'food' || i.type === 'raw' || i.type === 'cooked'
+            )
+            const cogsDineInIngs = ingredients.filter((i: any) => i.type === 'cogs_dine_in')
+            const cogsTakeoutIngs = ingredients.filter((i: any) => i.type === 'cogs_takeout')
+            const cogsDeliveryIngs = ingredients.filter((i: any) => i.type === 'cogs_delivery')
 
-            let theoreticalCost = 0
+            const hasRecipe = foodIngredients.length > 0 || ingredients.length > 0
+
+            let foodCost = 0
+            let cogsDineIn = 0
+            let cogsTakeout = 0
+            let cogsDelivery = 0
+            let packagingCost = 0
             let foodCostPercent = 0
+            let packagingPercent = 0
             let margin = 0
             let missingPrices = 0
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let breakdown: any[] = []
 
             if (hasRecipe) {
-                const foodIngredients = ingredients.filter(
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (i: any) => !i.type || i.type === 'food' || i.type === 'raw' || i.type === 'cooked'
-                )
-
-                const recipeObj: Recipe = {
-                    id: menuItem.guid,
-                    toast_menu_item_guid: menuItem.guid,
-                    ingredients: foodIngredients
+                if (foodIngredients.length > 0) {
+                    const foodRes = calculateRecipeCost(
+                        { id: menuItem.guid, toast_menu_item_guid: menuItem.guid, ingredients: foodIngredients } as Recipe,
+                        invList
+                    )
+                    foodCost = foodRes.foodCost
+                    missingPrices += foodRes.missingPrices
+                    breakdown = foodRes.breakdown
                 }
-
-                const costResult = calculateRecipeCost(recipeObj, inventoryItems || [])
-                theoreticalCost = costResult.foodCost
-                missingPrices = costResult.missingPrices
-                breakdown = costResult.breakdown
+                if (cogsDineInIngs.length > 0) {
+                    const res = calculateRecipeCost(
+                        { id: `${menuItem.guid}_di`, toast_menu_item_guid: menuItem.guid, ingredients: cogsDineInIngs } as Recipe,
+                        invList
+                    )
+                    cogsDineIn = res.packagingCost
+                    missingPrices += res.missingPrices
+                }
+                if (cogsTakeoutIngs.length > 0) {
+                    const res = calculateRecipeCost(
+                        { id: `${menuItem.guid}_to`, toast_menu_item_guid: menuItem.guid, ingredients: cogsTakeoutIngs } as Recipe,
+                        invList
+                    )
+                    cogsTakeout = res.packagingCost
+                    missingPrices += res.missingPrices
+                }
+                if (cogsDeliveryIngs.length > 0) {
+                    const res = calculateRecipeCost(
+                        { id: `${menuItem.guid}_del`, toast_menu_item_guid: menuItem.guid, ingredients: cogsDeliveryIngs } as Recipe,
+                        invList
+                    )
+                    cogsDelivery = res.packagingCost
+                    missingPrices += res.missingPrices
+                }
+                packagingCost = Number(Math.max(cogsDineIn, cogsTakeout, cogsDelivery).toFixed(4))
             }
 
-            const price = menuItem.price || 0
-            if (price > 0 && theoreticalCost > 0) {
-                foodCostPercent = (theoreticalCost / price) * 100
-                margin = price - theoreticalCost
+            const price = Number(menuItem.price) || 0
+            if (price > 0 && foodCost > 0) {
+                foodCostPercent = Number(((foodCost / price) * 100).toFixed(2))
+            }
+            if (price > 0 && packagingCost > 0) {
+                packagingPercent = Number(((packagingCost / price) * 100).toFixed(2))
+            }
+            if (price > 0 && (foodCost > 0 || packagingCost > 0)) {
+                margin = Number((price - foodCost).toFixed(4))
             }
 
             return {
                 ...menuItem,
                 hasRecipe,
-                theoreticalCost,
+                foodCost,
+                theoreticalCost: foodCost,
+                packagingCost,
+                cogsDineIn,
+                cogsTakeout,
+                cogsDelivery,
                 foodCostPercent,
+                packagingPercent,
                 margin,
                 missingPrices,
-                ingredientsCount: ingredients.length,
+                ingredientsCount: foodIngredients.length,
                 breakdown
             }
         })
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         report.sort((a: any, b: any) => b.foodCostPercent - a.foodCostPercent)
 
         return NextResponse.json({
             data: report,
             meta: {
                 totalItems: report.length,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 itemsWithRecipe: report.filter((i: any) => i.hasRecipe).length,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 missingPricesCount: report.filter((i: any) => i.missingPrices > 0).length
             }
         })

@@ -31,6 +31,13 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import {
+  getBusinessDateLA,
+  getMondayIso,
+  addDaysIso,
+  getFoodCostStatus,
+  escapeCsvCell,
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 interface StoreSummary {
   id: string
@@ -44,10 +51,14 @@ interface StoreSummary {
   food_cost_pct: number
   labor_wages: number
   labor_wages_pct: number
-  employee_benefits: number
-  employee_benefits_pct: number
   total_prime_cost: number
   prime_cost_pct: number
+  packaging_cost?: number
+  packaging_cost_pct?: number
+  employee_benefits: number
+  employee_benefits_pct: number
+  food_cost_estimated?: boolean
+  labor_estimated?: boolean
   gross_profit: number
   gross_profit_pct: number
   rent: number
@@ -100,20 +111,10 @@ function safePct(numerator: number, denominator: number): string {
 export default function PnLPage() {
   const { t, language } = useLanguage()
 
-  // Period State
+  // Period State (LA 6:00 AM business date — immune to browser UTC drift)
   const [period, setPeriod] = useState<'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom'>('this_week')
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date()
-    // Default to Monday of current week
-    const day = d.getDay()
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-    const mon = new Date(d.setDate(diff))
-    return mon.toISOString().split('T')[0]
-  })
-  const [endDate, setEndDate] = useState<string>(() => {
-    const d = new Date()
-    return d.toISOString().split('T')[0]
-  })
+  const [startDate, setStartDate] = useState<string>(() => getMondayIso(getBusinessDateLA()))
+  const [endDate, setEndDate] = useState<string>(() => getBusinessDateLA())
 
   // Mode and View State
   const [bodegaMode, setBodegaMode] = useState<'store' | 'corporate'>('corporate')
@@ -146,35 +147,28 @@ export default function PnLPage() {
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null)
 
-  // Period change handler
+  // Period change handler (LA 6:00 AM business date + UTC-pure ISO math)
   const handlePeriodChange = (newPeriod: 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom') => {
     setPeriod(newPeriod)
-    const now = new Date()
-    let start = new Date()
-    let end = new Date()
+    if (newPeriod === 'custom') return
+    const todayLA = getBusinessDateLA()
+    const [y, m] = todayLA.split('-').map(Number)
+    const thisMon = getMondayIso(todayLA)
 
     if (newPeriod === 'this_week') {
-      const day = now.getDay()
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1)
-      start = new Date(now.setDate(diff))
-      end = new Date()
+      setStartDate(thisMon)
+      setEndDate(todayLA)
     } else if (newPeriod === 'last_week') {
-      const day = now.getDay()
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1) - 7
-      start = new Date(now.setDate(diff))
-      end = new Date(start)
-      end.setDate(start.getDate() + 6)
+      setStartDate(addDaysIso(thisMon, -7))
+      setEndDate(addDaysIso(thisMon, -1))
     } else if (newPeriod === 'this_month') {
-      start = new Date(now.getFullYear(), now.getMonth(), 1)
-      end = new Date()
+      setStartDate(`${y}-${String(m).padStart(2, '0')}-01`)
+      setEndDate(todayLA)
     } else if (newPeriod === 'last_month') {
-      start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-      end = new Date(now.getFullYear(), now.getMonth(), 0)
-    }
-
-    if (newPeriod !== 'custom') {
-      setStartDate(start.toISOString().split('T')[0])
-      setEndDate(end.toISOString().split('T')[0])
+      const prevMonthEnd = addDaysIso(`${y}-${String(m).padStart(2, '0')}-01`, -1)
+      const [py, pm] = prevMonthEnd.split('-').map(Number)
+      setStartDate(`${py}-${String(pm).padStart(2, '0')}-01`)
+      setEndDate(prevMonthEnd)
     }
   }
 
@@ -280,36 +274,39 @@ export default function PnLPage() {
     }
   }
 
-  // Export to CSV
+  // Export to CSV (UTF-8 BOM + escapeCsvCell + separated Food Cost, Prime Cost, Packaging & Payroll Taxes)
   const handleExportCSV = () => {
     if (!data) return
-    const headers = ['Concepto', ...data.stores.map(s => s.name), 'Total Consolidado']
+    const headers = [escapeCsvCell(t('pnl.concept_header')), ...data.stores.map(s => escapeCsvCell(s.name)), escapeCsvCell(t('pnl.consolidated_total'))]
     const rows = [
       ['Gross Restaurant Sales', ...data.stores.map(s => s.gross_sales), data.consolidated.gross_sales],
       ['Comps & Discounts', ...data.stores.map(s => s.comps_discounts), data.consolidated.comps_discounts],
       ['Total Net Sales', ...data.stores.map(s => s.net_sales), data.consolidated.net_sales],
-      ['Food Cost (COGS)', ...data.stores.map(s => s.food_cost), data.consolidated.food_cost],
-      ['Salaries & Wages', ...data.stores.map(s => s.labor_wages), data.consolidated.labor_wages],
-      ['Employee Benefits', ...data.stores.map(s => s.employee_benefits), data.consolidated.employee_benefits],
-      ['Total Prime Cost', ...data.stores.map(s => s.total_prime_cost), data.consolidated.total_prime_cost],
+      ['Food Cost (Raw Ingredients)', ...data.stores.map(s => s.food_cost), data.consolidated.food_cost],
+      ['Food Cost %', ...data.stores.map(s => s.food_cost_pct + '%'), data.consolidated.food_cost_pct + '%'],
+      ['Direct Salaries & Wages', ...data.stores.map(s => s.labor_wages), data.consolidated.labor_wages],
+      ['Total Prime Cost (Food + Direct Labor)', ...data.stores.map(s => s.total_prime_cost), data.consolidated.total_prime_cost],
       ['Prime Cost %', ...data.stores.map(s => s.prime_cost_pct + '%'), data.consolidated.prime_cost_pct + '%'],
+      ['Packaging & Disposables', ...data.stores.map(s => s.packaging_cost ?? 0), data.consolidated.packaging_cost ?? 0],
+      ['Payroll Taxes & Benefits (12% est.)', ...data.stores.map(s => s.employee_benefits), data.consolidated.employee_benefits],
       ['Gross Profit', ...data.stores.map(s => s.gross_profit), data.consolidated.gross_profit],
       ['Total Operating Expenses', ...data.stores.map(s => s.total_operating_expenses), data.consolidated.total_operating_expenses],
       ['Store Level Net Income', ...data.stores.map(s => s.store_net_income), data.consolidated.store_net_income],
       ['Corporate Overhead', ...data.stores.map(s => s.corporate_overhead), data.consolidated.corporate_overhead],
       ['EBITDA', ...data.stores.map(s => s.ebitda), data.consolidated.ebitda],
       ['Net Profit', ...data.stores.map(s => s.net_profit), data.consolidated.net_profit]
-    ]
+    ].map(r => r.map(cell => escapeCsvCell(cell)))
 
-    const csvContent = 'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map(e => e.join(','))].join('\n')
-    const encodedUri = encodeURI(csvContent)
+    const csvString = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n')
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.setAttribute('href', encodedUri)
+    link.setAttribute('href', url)
     link.setAttribute('download', `Tacos_Gavilan_PnL_${startDate}_${endDate}_${bodegaMode}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -657,58 +654,98 @@ export default function PnLPage() {
 
                     {!collapsedSections.prime_cost && (
                       <>
+                        {/* Food Cost (Raw Ingredients — 0.90x in Corporate mode) */}
                         <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
                           <td className="p-2.5 pl-6 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
-                            {t('pnl.food_cost') || 'Cost of Goods Sold (COGS)'}
+                            {t('pnl.food_cost')}
                           </td>
-                          {data.stores.map(s => (
-                            <td key={s.id} className="p-2.5 text-right font-mono tabular-nums border-r border-slate-200 dark:border-slate-700/60">
-                              <div>{formatCurrency(s.food_cost)}</div>
-                              <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{formatPct(s.food_cost_pct)}</div>
-                            </td>
-                          ))}
+                          {data.stores.map(s => {
+                            const fcSt = getFoodCostStatus(s.food_cost_pct)
+                            const fcTextColor = fcSt === 'critical'
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : fcSt === 'warning'
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-emerald-600 dark:text-emerald-400'
+                            return (
+                              <td key={s.id} className="p-2.5 text-right font-mono tabular-nums border-r border-slate-200 dark:border-slate-700/60">
+                                <div className="flex items-center justify-end gap-1">
+                                  {s.food_cost_estimated && (
+                                    <span
+                                      title={t('pnl.estimated_tooltip')}
+                                      className="px-1 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                                    >
+                                      {t('pnl.estimated_badge')}
+                                    </span>
+                                  )}
+                                  <span>{formatCurrency(s.food_cost)}</span>
+                                </div>
+                                <div className={`text-[10px] font-semibold ${s.net_sales > 0 ? fcTextColor : 'text-slate-400'}`}>{formatPct(s.food_cost_pct)}</div>
+                              </td>
+                            )
+                          })}
                           <td className="p-2.5 text-right font-mono tabular-nums font-bold bg-amber-500/5 border-l-2 border-amber-500">
-                            <div>{formatCurrency(data.consolidated.food_cost)}</div>
-                            <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{formatPct(data.consolidated.food_cost_pct)}</div>
+                            <div className="flex items-center justify-end gap-1">
+                              {data.consolidated.food_cost_estimated && (
+                                <span
+                                  title={t('pnl.estimated_tooltip')}
+                                  className="px-1 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                                >
+                                  {t('pnl.estimated_badge')}
+                                </span>
+                              )}
+                              <span>{formatCurrency(data.consolidated.food_cost)}</span>
+                            </div>
+                            <div className={`text-[10px] font-semibold ${
+                              getFoodCostStatus(data.consolidated.food_cost_pct) === 'critical'
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : getFoodCostStatus(data.consolidated.food_cost_pct) === 'warning'
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-emerald-600 dark:text-emerald-400'
+                            }`}>{formatPct(data.consolidated.food_cost_pct)}</div>
                           </td>
                         </tr>
 
+                        {/* Direct Salaries & Wages */}
                         <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
                           <td className="p-2.5 pl-6 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
-                            {t('pnl.labor_wages') || 'Salaries and Wages'}
+                            {t('pnl.labor_wages')}
                           </td>
                           {data.stores.map(s => (
                             <td key={s.id} className="p-2.5 text-right font-mono tabular-nums border-r border-slate-200 dark:border-slate-700/60">
-                              <div>{formatCurrency(s.labor_wages)}</div>
+                              <div className="flex items-center justify-end gap-1">
+                                {s.labor_estimated && (
+                                  <span
+                                    title={t('pnl.estimated_tooltip')}
+                                    className="px-1 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                                  >
+                                    {t('pnl.estimated_badge')}
+                                  </span>
+                                )}
+                                <span>{formatCurrency(s.labor_wages)}</span>
+                              </div>
                               <div className="text-[10px] text-slate-500">{formatPct(s.labor_wages_pct)}</div>
                             </td>
                           ))}
                           <td className="p-2.5 text-right font-mono tabular-nums font-bold bg-amber-500/5 border-l-2 border-amber-500">
-                            <div>{formatCurrency(data.consolidated.labor_wages)}</div>
+                            <div className="flex items-center justify-end gap-1">
+                              {data.consolidated.labor_estimated && (
+                                <span
+                                  title={t('pnl.estimated_tooltip')}
+                                  className="px-1 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                                >
+                                  {t('pnl.estimated_badge')}
+                                </span>
+                              )}
+                              <span>{formatCurrency(data.consolidated.labor_wages)}</span>
+                            </div>
                             <div className="text-[10px] text-slate-500">{formatPct(data.consolidated.labor_wages_pct)}</div>
                           </td>
                         </tr>
 
-                        <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
-                          <td className="p-2.5 pl-6 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
-                            {t('pnl.benefits') || 'Employee Benefits (12%)'}
-                          </td>
-                          {data.stores.map(s => (
-                            <td key={s.id} className="p-2.5 text-right font-mono tabular-nums border-r border-slate-200 dark:border-slate-700/60">
-                              <div>{formatCurrency(s.employee_benefits)}</div>
-                              <div className="text-[10px] text-slate-400">{formatPct(s.employee_benefits_pct)}</div>
-                            </td>
-                          ))}
-                          <td className="p-2.5 text-right font-mono tabular-nums font-bold bg-amber-500/5 border-l-2 border-amber-500">
-                            <div>{formatCurrency(data.consolidated.employee_benefits)}</div>
-                            <div className="text-[10px] text-slate-400">{formatPct(data.consolidated.employee_benefits_pct)}</div>
-                          </td>
-                        </tr>
-
-                        {/* Total Prime Cost Line (Golden Highlight) */}
+                        {/* Total Prime Cost Line = Food Cost + Direct Labor Wages (100% parity with /ventas) */}
                         <tr className="border-b-2 border-amber-400/40 bg-amber-500/10 font-bold">
                           <td className="p-2.5 pl-6 sticky left-0 z-10 bg-amber-500/15 text-amber-950 dark:text-amber-200 border-r border-slate-200 dark:border-slate-700">
-                            {t('pnl.total_prime_cost') || 'Total Prime Cost'}
+                            {t('pnl.total_prime_cost')}
                           </td>
                           {data.stores.map(s => (
                             <td key={s.id} className="p-2.5 text-right font-mono tabular-nums text-amber-900 dark:text-amber-300 border-r border-slate-200 dark:border-slate-700/60">
@@ -719,6 +756,40 @@ export default function PnLPage() {
                           <td className="p-2.5 text-right font-mono tabular-nums font-black text-amber-950 dark:text-amber-200 bg-amber-500/25 border-l-2 border-amber-600">
                             <div className="text-sm">{formatCurrency(data.consolidated.total_prime_cost)}</div>
                             <div className="text-xs font-black">{formatPct(data.consolidated.prime_cost_pct)}</div>
+                          </td>
+                        </tr>
+
+                        {/* Separate Transparent Line Below Prime Cost: External Packaging & Disposables */}
+                        <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                          <td className="p-2.5 pl-6 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-sky-700 dark:text-sky-400 border-r border-slate-200 dark:border-slate-700">
+                            {t('pnl.packaging_cost')}
+                          </td>
+                          {data.stores.map(s => (
+                            <td key={s.id} className="p-2.5 text-right font-mono tabular-nums text-sky-700 dark:text-sky-300 border-r border-slate-200 dark:border-slate-700/60">
+                              <div>{formatCurrency(s.packaging_cost ?? 0)}</div>
+                              <div className="text-[10px] opacity-80">{formatPct(s.packaging_cost_pct ?? 0)}</div>
+                            </td>
+                          ))}
+                          <td className="p-2.5 text-right font-mono tabular-nums font-bold text-sky-700 dark:text-sky-300 bg-amber-500/5 border-l-2 border-amber-500">
+                            <div>{formatCurrency(data.consolidated.packaging_cost ?? 0)}</div>
+                            <div className="text-[10px] opacity-80">{formatPct(data.consolidated.packaging_cost_pct ?? 0)}</div>
+                          </td>
+                        </tr>
+
+                        {/* Separate Transparent Line Below Prime Cost: Payroll Taxes & Benefits (12% est.) */}
+                        <tr className="border-b border-slate-200 dark:border-slate-700/80 hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                          <td className="p-2.5 pl-6 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">
+                            {t('pnl.benefits')}
+                          </td>
+                          {data.stores.map(s => (
+                            <td key={s.id} className="p-2.5 text-right font-mono tabular-nums border-r border-slate-200 dark:border-slate-700/60">
+                              <div>{formatCurrency(s.employee_benefits)}</div>
+                              <div className="text-[10px] text-slate-400">{formatPct(s.employee_benefits_pct)}</div>
+                            </td>
+                          ))}
+                          <td className="p-2.5 text-right font-mono tabular-nums font-bold bg-amber-500/5 border-l-2 border-amber-500">
+                            <div>{formatCurrency(data.consolidated.employee_benefits)}</div>
+                            <div className="text-[10px] text-slate-400">{formatPct(data.consolidated.employee_benefits_pct)}</div>
                           </td>
                         </tr>
                       </>
@@ -1124,16 +1195,26 @@ export default function PnLPage() {
                 <span className="font-mono font-bold">{formatCurrency(selectedStoreDetail.net_sales)}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Costo de Comida ({bodegaMode === 'corporate' ? 'Sin Margen Bodega' : 'Con Margen Bodega'}):</span>
+                <span className="text-slate-500">
+                  {t('pnl.food_cost')} ({bodegaMode === 'corporate' ? '0.90x Corp' : 'Store'}){selectedStoreDetail.food_cost_estimated ? ' [Est.]' : ''}:
+                </span>
                 <span className="font-mono font-bold text-amber-600">{formatCurrency(selectedStoreDetail.food_cost)} ({formatPct(selectedStoreDetail.food_cost_pct)})</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Mano de Obra (Wages + 12% Beneficios):</span>
-                <span className="font-mono font-bold">{formatCurrency(selectedStoreDetail.labor_wages + selectedStoreDetail.employee_benefits)} ({formatPct(selectedStoreDetail.labor_wages_pct + selectedStoreDetail.employee_benefits_pct)})</span>
+                <span className="text-slate-500">{t('pnl.labor_wages')}{selectedStoreDetail.labor_estimated ? ' [Est.]' : ''}:</span>
+                <span className="font-mono font-bold">{formatCurrency(selectedStoreDetail.labor_wages)} ({formatPct(selectedStoreDetail.labor_wages_pct)})</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 bg-amber-500/10 p-2 rounded">
-                <span className="font-bold text-amber-900 dark:text-amber-200">Total Costo Primo:</span>
+                <span className="font-bold text-amber-900 dark:text-amber-200">{t('pnl.total_prime_cost')}:</span>
                 <span className="font-mono font-black text-amber-900 dark:text-amber-200">{formatCurrency(selectedStoreDetail.total_prime_cost)} ({formatPct(selectedStoreDetail.prime_cost_pct)})</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-sky-600 dark:text-sky-400">{t('pnl.packaging_cost')}:</span>
+                <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{formatCurrency(selectedStoreDetail.packaging_cost ?? 0)} ({formatPct(selectedStoreDetail.packaging_cost_pct ?? 0)})</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">{t('pnl.benefits')}:</span>
+                <span className="font-mono font-bold">{formatCurrency(selectedStoreDetail.employee_benefits)} ({formatPct(selectedStoreDetail.employee_benefits_pct)})</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-500">Gastos de Operación Prorrateados:</span>

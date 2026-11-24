@@ -5,12 +5,14 @@
  * @businessRules
  * - Traduce dinámicamente los GUIDs de `diningOptions` por tienda (`config/v2/diningOptions`).
  * - Acota estrictamente la ventana de consulta a `endDate - startDate <= 35` días (`400 Bad Request` si se excede) y un tope de 250 tickets para prevenir denegación de servicio (DoS) contra Toast `ordersBulk`.
+ * - Solicita explícitamente `voided`, `checks.voided`, `appliedDiscounts`, `checks.appliedDiscounts` y `checks.selections.appliedDiscounts` en `fields` para excluir anulaciones y etiquetar comidas de empleado con bordes de palabra (`\bemployee\b|\bemp\b` sin falsos positivos en `"Empanada"`).
  *
  * @dataFlow
  * - Modal Detalle Food Cost / PMIX -> `GET /api/inventory/item-tickets` -> Toast API `diningOptions` + `ordersBulk` -> lista de tickets JSON.
  *
  * @notes
  * - Protegido con `verifyStaffAuth` y validación estricta de fechas ISO `YYYY-MM-DD`.
+ * - [2026-11-23] FIX: Añadidos `voided`, `checks.voided` y `appliedDiscounts` en `fields` de Toast y corregida regex de empleado para no coincidir con `"Empanada"`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthToken } from '@/lib/toast-api'
@@ -18,6 +20,8 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 const MAX_DATE_RANGE_DAYS = 35
+const EMP_DISCOUNT_NAME_RE = /\b(?:employee|emp|emplead[oa]?s?)\b|discount|descuento|100%|50%/i
+const EMP_TARGET_VARIANT_RE = /\b(?:employee|emp|emplead[oa]?s?)\b/i
 
 export async function GET(request: NextRequest) {
     try {
@@ -57,10 +61,10 @@ export async function GET(request: NextRequest) {
         }
 
         const token = await getAuthToken()
-        if (!token) throw new Error("Auth Token Failed")
+        if (!token) throw new Error('Auth Token Failed')
 
-        // First gets Dining Options Map
-        let diningOptionMap: Record<string, string> = {}
+        // First get Dining Options Map dynamically per Toast Protocol
+        const diningOptionMap: Record<string, string> = {}
         try {
             const urlOpt = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
             const resOpt = await fetch(urlOpt.toString(), {
@@ -77,13 +81,13 @@ export async function GET(request: NextRequest) {
                     })
                 }
             }
-        } catch (e) {
-            console.error("Failed to parse dining options")
+        } catch {
+            console.error('Failed to parse dining options')
         }
 
         const tickets: any[] = []
 
-        let datesToFetch: string[] = []
+        const datesToFetch: string[] = []
         const curDateObj = new Date(`${startDate}T12:00:00Z`)
         const lastDateObj = new Date(`${endDate}T12:00:00Z`)
 
@@ -98,14 +102,18 @@ export async function GET(request: NextRequest) {
             const pageSize = 100
             let hasMore = true
             const formattedDate = dateStr.split('-').join('')
+            let rateLimitRetries = 0
 
             while (hasMore && tickets.length < 250) {
                 const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
                 url.searchParams.append('businessDate', formattedDate)
                 url.searchParams.append('pageSize', String(pageSize))
                 url.searchParams.append('page', String(page))
-                // Request guid, openedDate, checks with guid & displayNumber, selections with item & modifiers
-                url.searchParams.append('fields', 'guid,openedDate,checks.guid,checks.displayNumber,checks.selections.price,checks.selections.item,checks.selections.quantity,checks.selections.voided,checks.selections.displayName,checks.selections.modifiers,diningOption')
+                // Include voided, checks.voided, and appliedDiscounts so void filtering and employee meal tagging are accurate
+                url.searchParams.append(
+                    'fields',
+                    'guid,voided,openedDate,appliedDiscounts,diningOption,checks.guid,checks.voided,checks.displayNumber,checks.appliedDiscounts,checks.selections.price,checks.selections.item,checks.selections.quantity,checks.selections.voided,checks.selections.displayName,checks.selections.modifiers,checks.selections.appliedDiscounts'
+                )
 
                 const res = await fetch(url.toString(), {
                     headers: {
@@ -115,13 +123,15 @@ export async function GET(request: NextRequest) {
                 })
 
                 if (!res.ok) {
-                    if (res.status === 429) {
-                        await new Promise(r => setTimeout(r, 1000))
+                    if (res.status === 429 && rateLimitRetries < 4) {
+                        rateLimitRetries++
+                        await new Promise(r => setTimeout(r, 1000 * rateLimitRetries))
                         continue
                     }
                     console.warn(`Failed fetching orders for ${dateStr}: ${res.status}`)
                     break
                 }
+                rateLimitRetries = 0
 
                 const entries = await res.json()
                 if (!Array.isArray(entries) || entries.length === 0) {
@@ -146,35 +156,38 @@ export async function GET(request: NextRequest) {
                                         .map((m: any) => m.displayName)
                                         .filter((n: string) => n && !n.startsWith('NO ') && !n.startsWith('No ') && !n.startsWith('Sin '))
                                         .join(', ')
-                                    
+
                                     if (sigMods) {
                                         reconstructedName = `${reconstructedName} (${sigMods})`
                                     }
                                 }
 
-                                // Tag employee/discount variations if present on order or check
+                                // Tag employee/discount variations if present on order, check, or selection
                                 const allDiscs = [
                                     ...(order.appliedDiscounts || []),
                                     ...(check.appliedDiscounts || []),
                                     ...(sel.appliedDiscounts || [])
-                                ]
-                                const hasEmpDisc = allDiscs.some((d: any) => /emp|emplead|discount|descuento|100%|50%/i.test(d.name || d.discountName || ''))
+                                ].filter((d: any) => !d?.voided && !d?.deleted && d?.state !== 'VOIDED' && d?.state !== 'REMOVED')
 
-                                if (hasEmpDisc && !reconstructedName.toLowerCase().includes('emplea')) {
+                                const hasEmpDisc = allDiscs.some((d: any) =>
+                                    EMP_DISCOUNT_NAME_RE.test(d.name || d.discountName || '')
+                                )
+
+                                if (hasEmpDisc && !EMP_TARGET_VARIANT_RE.test(reconstructedName)) {
                                     if (reconstructedName.includes('(')) {
-                                        reconstructedName = reconstructedName.replace(')', ', Empleada)')
+                                        reconstructedName = reconstructedName.replace(/\)$/, ', Empleada)')
                                     } else {
                                         reconstructedName += ' (Empleada)'
                                     }
                                 }
 
-                                // Target name variation filter: if user clicked a specific variant like "Burrito Asada (Empleada)" or "Burrito Asada (Con cebolla)"
+                                // Target name variation filter (word-boundary regex so "Empanada" never matches 'emp'!)
                                 if (targetName) {
                                     const normTarget = targetName.trim().toLowerCase()
                                     const normRecon = reconstructedName.trim().toLowerCase()
-                                    const isEmpTarget = normTarget.includes('emplea') || normTarget.includes('emp')
+                                    const isEmpTarget = EMP_TARGET_VARIANT_RE.test(normTarget)
 
-                                    if (isEmpTarget && !hasEmpDisc && !normRecon.includes('emplea')) {
+                                    if (isEmpTarget && !hasEmpDisc && !EMP_TARGET_VARIANT_RE.test(normRecon)) {
                                         return
                                     }
 
@@ -192,9 +205,13 @@ export async function GET(request: NextRequest) {
                                     curGroupName = order.diningOption.name
                                 }
 
-                                if (!targetGroupName || targetGroupName === 'All Channels' || curGroupName === 'Uncategorized' || curGroupName?.toLowerCase().includes(targetGroupName.toLowerCase()) || targetGroupName.toLowerCase().includes(curGroupName?.toLowerCase())) {
-                                    
-                                    // Parse LA time
+                                if (
+                                    !targetGroupName ||
+                                    targetGroupName === 'All Channels' ||
+                                    curGroupName === 'Uncategorized' ||
+                                    curGroupName?.toLowerCase().includes(targetGroupName.toLowerCase()) ||
+                                    targetGroupName.toLowerCase().includes(curGroupName?.toLowerCase())
+                                ) {
                                     let timeStr = order.openedDate
                                     if (order.openedDate) {
                                         try {
@@ -207,14 +224,14 @@ export async function GET(request: NextRequest) {
                                                 minute: '2-digit',
                                                 hour12: true
                                             })
-                                        } catch (e) { }
+                                        } catch {}
                                     }
 
-                                    const rawTicketId = check?.displayNumber || check?.guid?.slice(0, 8) || orderGuid.slice(0, 8);
+                                    const rawTicketId = check?.displayNumber || check?.guid?.slice(0, 8) || orderGuid.slice(0, 8)
 
                                     tickets.push({
                                         date: timeStr,
-                                        orderId: orderGuid, // Strictly set to order.guid UUID for Toast Order Detail lookup
+                                        orderId: orderGuid,
                                         checkId: String(rawTicketId),
                                         orderNumber: `#${rawTicketId}`,
                                         quantity: sel.quantity || 1,
@@ -234,7 +251,6 @@ export async function GET(request: NextRequest) {
         const targetQuantityParam = searchParams.get('quantity')
         const targetQuantity = targetQuantityParam ? parseInt(targetQuantityParam, 10) : null
 
-        // If a targetQuantity parameter was passed (e.g. quantity = 5 or quantity = 1), limit returned tickets so that sum(quantity) matches targetQuantity
         if (targetQuantity && targetQuantity > 0 && tickets.length > 0) {
             tickets.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
             let currentSum = 0
@@ -249,7 +265,6 @@ export async function GET(request: NextRequest) {
             })
         }
 
-        // Return up to 250 tickets so we don't crash
         return NextResponse.json({
             tickets: tickets.slice(0, 250)
         })

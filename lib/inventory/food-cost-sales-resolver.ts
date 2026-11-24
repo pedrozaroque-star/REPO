@@ -17,10 +17,33 @@
  *
  * @notes
  * - [2026-11-23] Creado tras auditoría forense de `LA Central = 0.0%` y picos artificiales (`Downey = 41.8%`), y expandido tras auditoría integral de 5 subagentes sobre el módulo Ventas y sus subpáginas.
+ * - [2026-11-23] Estandarizados los umbrales canónicos únicos de Food Cost (`FOOD_COST_TARGET_PCT = 30`, `FOOD_COST_HEALTHY_MAX_PCT = 32`, `FOOD_COST_WARNING_MAX_PCT = 35`), `getFoodCostStatus()` (`> 35%` crítico rojo en todo el sistema) y `calculateSafePackagingCostPct()` para separar empaque de materia prima.
  */
 
-export const FOOD_COST_HEALTHY_MAX = 32
-export const FOOD_COST_WARNING_MAX = 35
+export const FOOD_COST_TARGET_PCT = 30
+export const FOOD_COST_HEALTHY_MAX_PCT = 32
+export const FOOD_COST_WARNING_MAX_PCT = 35
+
+/** Alias de compatibilidad hacia atrás para módulos de Ventas ya integrados. */
+export const FOOD_COST_HEALTHY_MAX = FOOD_COST_HEALTHY_MAX_PCT
+export const FOOD_COST_WARNING_MAX = FOOD_COST_WARNING_MAX_PCT
+
+export type FoodCostStatus = 'healthy' | 'warning' | 'critical'
+
+/**
+ * Evalúa el estado canónico del porcentaje de Food Cost según la regla corporativa única:
+ * - `<= 32%` -> `'healthy'` (verde)
+ * - `> 32%` y `<= 35%` -> `'warning'` (ámbar)
+ * - `> 35%` -> `'critical'` (rojo)
+ */
+export function getFoodCostStatus(pct: number): FoodCostStatus {
+    if (!Number.isFinite(pct)) {
+        return pct === Infinity ? 'critical' : 'healthy'
+    }
+    if (pct <= FOOD_COST_HEALTHY_MAX_PCT) return 'healthy'
+    if (pct <= FOOD_COST_WARNING_MAX_PCT) return 'warning'
+    return 'critical'
+}
 
 export type FoodCostSalesSource =
     | 'pmix_intraday'
@@ -268,6 +291,49 @@ export function calculateSafeFoodCostPct(totalCost: number, netSales: number): n
         return 0
     }
     return Number(((totalCost / netSales) * 100).toFixed(2))
+}
+
+/**
+ * Calcula el porcentaje de Packaging / COGS de empaque sobre ventas netas,
+ * protegido contra divisiones por cero, valores negativos, NaN e Infinity.
+ */
+export function calculateSafePackagingCostPct(packagingCost: number, netSales: number): number {
+    if (
+        !Number.isFinite(packagingCost) ||
+        !Number.isFinite(netSales) ||
+        packagingCost <= 0 ||
+        netSales <= 0
+    ) {
+        return 0
+    }
+    return Number(((packagingCost / netSales) * 100).toFixed(2))
+}
+
+/**
+ * Resuelve el monto en dólares de Food Cost puro desde una fila de `food_cost_daily_cache`,
+ * protegiendo contra desincronización si un escritor previo actualizó `total_cost` sin tocar `food_cost`
+ * o si `food_cost` quedó en `0` / `NULL` cuando `total_cost > 0`.
+ */
+export function resolveCachedFoodCostDollars(row: {
+    food_cost?: unknown
+    total_cost?: unknown
+    packaging_cost?: unknown
+}): number {
+    const total = Number(row.total_cost)
+    const safeTotal = Number.isFinite(total) && total > 0 ? total : 0
+    const food = row.food_cost === null || row.food_cost === undefined ? NaN : Number(row.food_cost)
+    const pkg = Number(row.packaging_cost)
+    const safePkg = Number.isFinite(pkg) && pkg > 0 ? pkg : 0
+
+    if (!Number.isFinite(food) || (food <= 0 && safeTotal > 0)) {
+        return safeTotal
+    }
+    // En el esquema actual `total_cost === food_cost` (y en legado `total_cost = food_cost + packaging_cost`).
+    // Si `total_cost` difiere de `food_cost` por más que `packaging_cost + $1`, `food_cost` quedó congelado.
+    if (safeTotal > 0 && Math.abs(safeTotal - food) > safePkg + 1) {
+        return safeTotal
+    }
+    return food
 }
 
 /**

@@ -122,9 +122,23 @@ export async function GET(request: Request) {
         let tokenTime = Date.now()
         if (!token) throw new Error("No Toast Token")
 
-        const { data: inventoryData } = await supabase.from('inventory_items').select('id, name, yield_percent')
-        const { data: recipesData } = await supabase.from('recipes').select('toast_menu_item_guid, inventory_item_id, quantity, unit')
-        const { data: stores } = await supabase.from('stores').select('id, name, external_id').eq('is_active', true)
+        const fetchAll = async (table: string, cols: string) => {
+            const out: any[] = []
+            for (let offset = 0; offset < 50000; offset += 1000) {
+                const { data, error } = await supabase.from(table).select(cols).order('id', { ascending: true }).range(offset, offset + 999)
+                if (error) throw new Error(`${table}: ${error.message}`)
+                if (!data || data.length === 0) break
+                out.push(...data)
+                if (data.length < 1000) break
+            }
+            return out
+        }
+
+        const [inventoryData, recipesData, { data: stores }] = await Promise.all([
+            fetchAll('inventory_items', 'id, name, yield_percent'),
+            fetchAll('recipes', 'id, toast_menu_item_guid, inventory_item_id, quantity, unit, type'),
+            supabase.from('stores').select('id, name, external_id').eq('is_active', true),
+        ])
 
         if (!inventoryData || !recipesData || !stores) throw new Error("Error obteniendo datos base de Supabase")
 
@@ -312,7 +326,7 @@ export async function GET(request: Request) {
                                         else if (unit === 'kg') lbs = total * 2.20462
                                         else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total
                                         
-                                        const rawLbs = lbs / yieldPct
+                                        const rawLbs = rData.type === 'raw' ? lbs : (lbs / yieldPct)
                                         
                                         if (rawLbs > 0) {
                                             const bKey = `${bucketTime}|${rData.meat_type}`

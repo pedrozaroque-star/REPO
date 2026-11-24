@@ -33,6 +33,7 @@
 import { NextResponse } from 'next/server'
 import { verifyStaffAuth, type DecodedToken } from '@/lib/auth-server'
 import { getSupabaseAdminClient, formatStoreName } from '@/lib/supabase'
+import { isInvalidFoodCostCacheRow, resolveCachedFoodCostDollars } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,7 +55,9 @@ interface SalesCacheRow {
 
 interface FoodCostCacheRow {
   store_id: string
+  food_cost?: number | string | null
   total_cost: number | string | null
+  packaging_cost?: number | string | null
   net_sales: number | string | null
   cost_percentage: number | string | null
 }
@@ -415,7 +418,7 @@ export async function GET(req: Request) {
 
       let fcQuery = supabase
         .from('food_cost_daily_cache')
-        .select('store_id, total_cost, net_sales, cost_percentage')
+        .select('store_id, food_cost, total_cost, packaging_cost, net_sales, cost_percentage')
         .eq('business_date', effectiveDate)
 
       if (!scope.isAllStores) {
@@ -455,22 +458,19 @@ export async function GET(req: Request) {
 
       let fcTotalCost = 0
       let fcTotalSales = 0
-      const validPctList: number[] = []
       for (const fc of fcRows) {
-        fcTotalCost += Number(fc.total_cost) || 0
-        fcTotalSales += Number(fc.net_sales) || 0
-        const pct = Number(fc.cost_percentage)
-        if (Number.isFinite(pct) && pct > 0) {
-          validPctList.push(pct)
+        const rowCost = resolveCachedFoodCostDollars(fc)
+        const rowSales = Number(fc.net_sales) || 0
+        if (isInvalidFoodCostCacheRow(rowCost, rowSales) || rowCost <= 0 || rowSales <= 0) {
+          continue
         }
+        fcTotalCost += rowCost
+        fcTotalSales += rowSales
       }
 
       let foodCostPct = 0
-      if (fcTotalSales > 0 && Number.isFinite((fcTotalCost / fcTotalSales) * 100)) {
+      if (fcTotalSales > 0 && fcTotalCost > 0 && Number.isFinite((fcTotalCost / fcTotalSales) * 100)) {
         foodCostPct = round1((fcTotalCost / fcTotalSales) * 100)
-      } else if (validPctList.length > 0) {
-        const sumPct = validPctList.reduce((acc, n) => acc + n, 0)
-        foodCostPct = round1(sumPct / validPctList.length)
       }
 
       return {

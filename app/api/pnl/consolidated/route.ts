@@ -40,6 +40,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyStaffAuth, resolveCachedStore } from '@/lib/auth-server'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
+import { diffCalendarDays, isInvalidFoodCostCacheRow, resolveCachedFoodCostDollars } from '@/lib/inventory/food-cost-sales-resolver'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -53,15 +54,18 @@ interface StoreSummary {
   comps_discounts: number
   net_sales: number
   sales_pct: number // 100%
-  // Prime Cost
+  // Prime Cost (Food Cost + Direct Labor Wages — 100% parity with /ventas)
   food_cost: number
   food_cost_pct: number
   labor_wages: number
   labor_wages_pct: number
-  employee_benefits: number
-  employee_benefits_pct: number
   total_prime_cost: number
   prime_cost_pct: number
+  // Separate Transparent COGS & Labor Burden Lines
+  packaging_cost: number
+  packaging_cost_pct: number
+  employee_benefits: number
+  employee_benefits_pct: number
   // Gross Profit
   gross_profit: number
   gross_profit_pct: number
@@ -133,11 +137,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'startDate must be before or equal to endDate' }, { status: 400 })
     }
 
-    // Calculate days in period
-    const startD = new Date(startDate + 'T12:00:00')
-    const endD = new Date(endDate + 'T12:00:00')
-    const diffTime = Math.abs(endD.getTime() - startD.getTime())
-    const daysCount = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1)
+    // Calculate days in period using DST-safe UTC calendar math
+    const startD = new Date(startDate + 'T12:00:00Z')
+    const endD = new Date(endDate + 'T12:00:00Z')
+    const daysCount = Math.max(1, diffCalendarDays(startDate, endDate) + 1)
     const monthProportion = daysCount / 30.416 // average days per month for proration
 
     // 1. Fetch active stores
@@ -281,7 +284,7 @@ export async function GET(request: NextRequest) {
       const offset = page * PAGE_SIZE
       let fcQuery = supabase
         .from('food_cost_daily_cache')
-        .select('id, store_id, store_name, total_cost, net_sales, business_date')
+        .select('id, store_id, store_name, food_cost, total_cost, packaging_cost, net_sales, business_date')
         .gte('business_date', startDate)
         .lte('business_date', endDate)
         .order('id', { ascending: true })
@@ -341,11 +344,31 @@ export async function GET(request: NextRequest) {
       laborMap.set(k, cur)
     }
 
+    const normStoreName = (raw: unknown) =>
+      String(raw || '').replace(/^Tacos Gavilan\s+/i, '').trim().toLowerCase()
+
     const foodCostMap = new Map<string, number>()
+    const packagingCostMap = new Map<string, number>()
+    const foodCostByNameMap = new Map<string, number>()
+    const packagingByNameMap = new Map<string, number>()
+
     for (const fc of foodCostRows || []) {
-      const k = fc.store_id
-      const cur = foodCostMap.get(k) || 0
-      foodCostMap.set(k, cur + Number(fc.total_cost || 0))
+      const rowFood = resolveCachedFoodCostDollars(fc)
+      const rowPkg = Number(fc.packaging_cost ?? 0)
+      const rowSales = Number(fc.net_sales ?? 0)
+      if (isInvalidFoodCostCacheRow(rowFood, rowSales)) {
+        continue
+      }
+      const k = String(fc.store_id || '')
+      if (k) {
+        foodCostMap.set(k, (foodCostMap.get(k) || 0) + rowFood)
+        packagingCostMap.set(k, (packagingCostMap.get(k) || 0) + rowPkg)
+      }
+      const nk = normStoreName(fc.store_name)
+      if (nk) {
+        foodCostByNameMap.set(nk, (foodCostByNameMap.get(nk) || 0) + rowFood)
+        packagingByNameMap.set(nk, (packagingByNameMap.get(nk) || 0) + rowPkg)
+      }
     }
 
     const opExpMap = new Map<string, any>()
@@ -413,28 +436,32 @@ export async function GET(request: NextRequest) {
       const sales = salesMap.get(key) || { net: 0, gross: 0, discounts: 0 }
       const labor = laborMap.get(key) || { regularPay: 0, otPay: 0, totalWages: 0 }
       
-      // Food Cost
-      let rawFoodCost = foodCostMap.get(key) || 0
+      // Food Cost & External Packaging Cost (separated!)
+      const nk = normStoreName(s.name)
+      let rawFoodCost = foodCostMap.get(key) ?? foodCostMap.get(String(s.id)) ?? foodCostByNameMap.get(nk) ?? 0
+      const rawPackagingCost = packagingCostMap.get(key) ?? packagingCostMap.get(String(s.id)) ?? packagingByNameMap.get(nk) ?? 0
       let food_cost_estimated = false
-      // Fallback: If cache is empty for date range, estimate based on industry benchmark 31.5%
+      // Fallback: If cache is empty for date range, estimate based on benchmark 31.5% (transparently flagged in UI)
       if (rawFoodCost === 0 && sales.net > 0) {
         rawFoodCost = sales.net * 0.315
         food_cost_estimated = true
       }
 
-      // Intercompany Elimination: In corporate mode, remove the ~10% internal markup of La Bodega
+      // Intercompany Elimination: apply 0.90x ONLY to Bodega food_cost — NEVER to external packaging!
       const foodCost = bodegaMode === 'corporate' ? rawFoodCost * 0.90 : rawFoodCost
+      const packagingCost = rawPackagingCost
 
-      // Labor and Benefits
+      // Direct Labor Wages & Transparent Separate Payroll Taxes/Benefits (12% est.)
       let labor_estimated = false
       let laborWages = labor.totalWages
       if (laborWages === 0 && sales.net > 0) {
         laborWages = sales.net * 0.26
         labor_estimated = true
       }
-      const employeeBenefits = laborWages * 0.12 // 12% for FICA, payroll taxes, workers comp
-      const totalPrimeCost = foodCost + laborWages + employeeBenefits
-      const grossProfit = sales.net - totalPrimeCost
+      const employeeBenefits = laborWages * 0.12 // 12% est. for FICA, payroll taxes, workers comp (shown separately below Prime Cost)
+      // Prime Cost = Food Cost + Direct Labor Wages (100% parity with /ventas — NO hidden 12% inside Prime Cost!)
+      const totalPrimeCost = foodCost + laborWages
+      const grossProfit = sales.net - totalPrimeCost - packagingCost - employeeBenefits
 
       // Operating expenses prorated
       const exp = opExpMap.get(key)
@@ -478,10 +505,12 @@ export async function GET(request: NextRequest) {
         food_cost_pct: safePct(foodCost, sales.net),
         labor_wages: round2(laborWages),
         labor_wages_pct: safePct(laborWages, sales.net),
-        employee_benefits: round2(employeeBenefits),
-        employee_benefits_pct: safePct(employeeBenefits, sales.net),
         total_prime_cost: round2(totalPrimeCost),
         prime_cost_pct: safePct(totalPrimeCost, sales.net),
+        packaging_cost: round2(packagingCost),
+        packaging_cost_pct: safePct(packagingCost, sales.net),
+        employee_benefits: round2(employeeBenefits),
+        employee_benefits_pct: safePct(employeeBenefits, sales.net),
         gross_profit: round2(grossProfit),
         gross_profit_pct: safePct(grossProfit, sales.net),
         rent,
@@ -518,10 +547,12 @@ export async function GET(request: NextRequest) {
       food_cost_pct: 0,
       labor_wages: round2(storeSummaries.reduce((sum, s) => sum + s.labor_wages, 0)),
       labor_wages_pct: 0,
-      employee_benefits: round2(storeSummaries.reduce((sum, s) => sum + s.employee_benefits, 0)),
-      employee_benefits_pct: 0,
       total_prime_cost: round2(storeSummaries.reduce((sum, s) => sum + s.total_prime_cost, 0)),
       prime_cost_pct: 0,
+      packaging_cost: round2(storeSummaries.reduce((sum, s) => sum + s.packaging_cost, 0)),
+      packaging_cost_pct: 0,
+      employee_benefits: round2(storeSummaries.reduce((sum, s) => sum + s.employee_benefits, 0)),
+      employee_benefits_pct: 0,
       gross_profit: round2(storeSummaries.reduce((sum, s) => sum + s.gross_profit, 0)),
       gross_profit_pct: 0,
       rent: round2(storeSummaries.reduce((sum, s) => sum + s.rent, 0)),
@@ -540,13 +571,16 @@ export async function GET(request: NextRequest) {
       ebitda_pct: 0,
       net_profit: round2(storeSummaries.reduce((sum, s) => sum + s.net_profit, 0)),
       net_profit_pct: 0,
+      food_cost_estimated: storeSummaries.some(s => s.food_cost_estimated),
+      labor_estimated: storeSummaries.some(s => s.labor_estimated),
     }
 
     // Compute consolidated percentages
     consolidated.food_cost_pct = safePct(consolidated.food_cost, consolidated.net_sales)
     consolidated.labor_wages_pct = safePct(consolidated.labor_wages, consolidated.net_sales)
-    consolidated.employee_benefits_pct = safePct(consolidated.employee_benefits, consolidated.net_sales)
     consolidated.prime_cost_pct = safePct(consolidated.total_prime_cost, consolidated.net_sales)
+    consolidated.packaging_cost_pct = safePct(consolidated.packaging_cost, consolidated.net_sales)
+    consolidated.employee_benefits_pct = safePct(consolidated.employee_benefits, consolidated.net_sales)
     consolidated.gross_profit_pct = safePct(consolidated.gross_profit, consolidated.net_sales)
     consolidated.operating_expenses_pct = safePct(consolidated.total_operating_expenses, consolidated.net_sales)
     consolidated.store_net_income_pct = safePct(consolidated.store_net_income, consolidated.net_sales)

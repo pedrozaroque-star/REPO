@@ -16,7 +16,7 @@
  * - Día laboral en `America/Los_Angeles`: `06:00 AM` a `05:59 AM` del día siguiente; turno `PM` desde `05:00 PM`.
  * - Semáforos financieros:
  *   * `Labor %`: verde (`<= 21.5%`), ámbar (`<= 23%`), rojo (`> 23%`), neutro si `0`.
- *   * `Food Cost %`: verde (`<= 32%`), ámbar (`<= 36%`), rojo (`> 36%`), neutro si `0`.
+ *   * `Food Cost %`: verde (`<= 32%`), ámbar (`<= 35%`), rojo (`> 35%`), neutro si `0`.
  * - Cuando `summary.financialPulse === null` (ej. `vikesh@tacosgavilan.com`, `asistente`, `planificador`),
  *   muestra exclusivamente métricas operativas y turnos.
  * - Prevención total de divisiones por cero (`0/0`), `NaN` e `Infinity`.
@@ -47,6 +47,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { getFoodCostStatus } from '@/lib/inventory/food-cost-sales-resolver'
 import {
   openDockEditor,
   type MobileOSSummaryResponse,
@@ -192,8 +193,9 @@ function getLaborTone(laborPct: number): SemanticTone {
 function getFoodCostTone(foodCostPct: number): SemanticTone {
   const clean = safeFinite(foodCostPct)
   if (clean <= 0) return 'neutral'
-  if (clean <= 32) return 'green'
-  if (clean <= 36) return 'amber'
+  const status = getFoodCostStatus(clean)
+  if (status === 'healthy') return 'green'
+  if (status === 'warning') return 'amber'
   return 'rose'
 }
 

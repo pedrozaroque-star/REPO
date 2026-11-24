@@ -7,10 +7,9 @@
  * @dataFlow
  * - UI Inventario / Food Cost / RecipeModal -> GET/POST/PUT `/api/inventory/items` -> `inventory_items` + `inventory_categories` (Supabase).
  * @notes
- * - 2026-11-19 (Paquete 2A): Reemplazado `select('*')` por columnas verificadas contra todos los consumidores (`app/inventory/items/page.tsx`, `app/admin/food-cost/meats/page.tsx`, `app/inventory/menu/components/RecipeModal.tsx`) y agregado `Cache-Control: private, max-age=60, stale-while-revalidate=120` en GET.
+ * - 2026-11-19 (Paquete 2A): Reemplazado `select('*')` por columnas verificadas contra todos los consumidores (`app/inventory/items/page.tsx`, `app/admin/food-cost/meats/page.tsx`, `app/inventory/menu/components/RecipeModal.tsx`).
+ * - 2026-11-23: Cambiado `Cache-Control` en GET a `no-store` para reflejar ediciones inmediatamente en UI, migrado GET a `getSupabaseAdminClient()` tras `verifyStaffAuth` (compatible con RLS endurecido), eliminado bug de coerción falsy de `0` en `cost`/`alert_threshold` y agregada validación estricta de `quantity_per_unit > 0` y `yield_percent` (`1..100`).
  */
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
@@ -41,47 +40,88 @@ const INVENTORY_ITEM_SELECT = `
     category:inventory_categories(name)
 `
 
+function parseAndValidateItemPayload(body: Record<string, any>) {
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    const unitType = typeof body.unit_type === 'string' ? body.unit_type.trim() : ''
+    const categoryId = typeof body.category_id === 'string' ? body.category_id.trim() : ''
+
+    if (!name || !unitType || !categoryId) {
+        return { error: 'Missing required fields' }
+    }
+
+    const rawCost = body.cost !== undefined ? body.cost : body.purchase_unit_cost
+    const parsedCost =
+        rawCost !== undefined && rawCost !== null && String(rawCost).trim() !== ''
+            ? Number(rawCost)
+            : null
+    if (parsedCost !== null && (!Number.isFinite(parsedCost) || parsedCost < 0)) {
+        return { error: 'Invalid cost: must be a non-negative number' }
+    }
+
+    const parsedQtyPerUnit =
+        body.quantity_per_unit !== undefined &&
+        body.quantity_per_unit !== null &&
+        String(body.quantity_per_unit).trim() !== ''
+            ? Number(body.quantity_per_unit)
+            : 1
+    if (!Number.isFinite(parsedQtyPerUnit) || parsedQtyPerUnit <= 0) {
+        return { error: 'Invalid quantity_per_unit: must be greater than 0' }
+    }
+
+    const parsedYield =
+        body.yield_percent !== undefined &&
+        body.yield_percent !== null &&
+        String(body.yield_percent).trim() !== ''
+            ? Number(body.yield_percent)
+            : 100
+    if (!Number.isFinite(parsedYield) || parsedYield < 1 || parsedYield > 100) {
+        return { error: 'Invalid yield_percent: must be between 1 and 100' }
+    }
+
+    const parsedThreshold =
+        body.alert_threshold !== undefined &&
+        body.alert_threshold !== null &&
+        String(body.alert_threshold).trim() !== ''
+            ? Number(body.alert_threshold)
+            : null
+    if (parsedThreshold !== null && (!Number.isFinite(parsedThreshold) || parsedThreshold < 0)) {
+        return { error: 'Invalid alert_threshold: must be a non-negative number' }
+    }
+
+    const sku = typeof body.sku === 'string' && body.sku.trim() !== '' ? body.sku.trim() : null
+    const unitMeasure =
+        typeof body.unit_measure === 'string' && body.unit_measure.trim() !== ''
+            ? body.unit_measure.trim()
+            : 'pza'
+
+    return {
+        values: {
+            name,
+            sku,
+            unit_type: unitType,
+            quantity_per_unit: parsedQtyPerUnit,
+            unit_measure: unitMeasure,
+            category_id: categoryId,
+            purchase_unit_cost: parsedCost,
+            yield_percent: parsedYield,
+            alert_threshold: parsedThreshold,
+            is_bodega: Boolean(body.is_bodega),
+        },
+    }
+}
+
 export async function GET(request: Request) {
     const auth = verifyStaffAuth(request, { allowCron: true })
     if (!auth.authorized) return auth.response!
 
-    const cookieStore = await cookies()
-
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) {
-                    return cookieStore.get(name)?.value
-                },
-                set(name: string, value: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value, ...options })
-                    } catch {
-                        // The `set` method was called from a Server Component.
-                        // This can be ignored if you have middleware refreshing
-                        // user sessions.
-                    }
-                },
-                remove(name: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value: '', ...options })
-                    } catch {
-                        // The `delete` method was called from a Server Component.
-                        // This can be ignored if you have middleware refreshing
-                        // user sessions.
-                    }
-                },
-            },
-        }
-    )
+    const supabase = await getSupabaseAdminClient()
 
     // Fetch items with categories (explicit slim projection verified against all UI callers)
     const { data: items, error } = await supabase
         .from('inventory_items')
         .select(INVENTORY_ITEM_SELECT)
         .order('name', { ascending: true })
+        .limit(5000)
 
     if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -97,7 +137,7 @@ export async function GET(request: Request) {
         { items, categories },
         {
             headers: {
-                'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
             },
         }
     )
@@ -107,29 +147,17 @@ export async function POST(request: Request) {
     const auth = verifyStaffAuth(request, { allowedRoles: INVENTORY_WRITE_ROLES, allowCron: true })
     if (!auth.authorized) return auth.response!
 
-    // Use Admin Client to bypass missing RLS insert policy for now
     const supabase = await getSupabaseAdminClient()
     const body = await request.json()
 
-    // Validate
-    if (!body.name || !body.unit_type || !body.category_id) {
-        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    const parsed = parseAndValidateItemPayload(body)
+    if (parsed.error || !parsed.values) {
+        return NextResponse.json({ error: parsed.error || 'Invalid payload' }, { status: 400 })
     }
 
     const { data, error } = await supabase
         .from('inventory_items')
-        .insert({
-            name: body.name,
-            sku: body.sku || null,
-            unit_type: body.unit_type,
-            quantity_per_unit: body.quantity_per_unit || 1,
-            unit_measure: body.unit_measure || 'pza',
-            category_id: body.category_id,
-            purchase_unit_cost: body.cost || null,
-            yield_percent: body.yield_percent || 100,
-            alert_threshold: body.alert_threshold || null,
-            is_bodega: body.is_bodega || false
-        })
+        .insert(parsed.values)
         .select()
         .single()
 
@@ -147,23 +175,20 @@ export async function PUT(request: Request) {
     const supabase = await getSupabaseAdminClient()
     const body = await request.json()
 
-    if (!body.id || !body.name || !body.unit_type || !body.category_id) {
+    if (!body.id) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const parsed = parseAndValidateItemPayload(body)
+    if (parsed.error || !parsed.values) {
+        return NextResponse.json({ error: parsed.error || 'Invalid payload' }, { status: 400 })
     }
 
     const { data, error } = await supabase
         .from('inventory_items')
         .update({
-            name: body.name,
-            sku: body.sku || null,
-            unit_type: body.unit_type,
-            quantity_per_unit: body.quantity_per_unit || 1,
-            unit_measure: body.unit_measure || 'pza',
-            category_id: body.category_id,
-            purchase_unit_cost: body.cost || null,
-            yield_percent: body.yield_percent || 100,
-            alert_threshold: body.alert_threshold || null,
-            is_bodega: body.is_bodega || false
+            ...parsed.values,
+            updated_at: new Date().toISOString(),
         })
         .eq('id', body.id)
         .select()

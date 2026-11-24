@@ -35,23 +35,49 @@
  *     snapshot vivo de Toast PMIX (evitando desfase 10-20 min contra `sales_daily_cache` que inflaba Downey a 41.8%
  *     y Santa Ana a 41.2%, y eliminando sobrescritura en `$0` que dejaba LA Central en `0.0%`). Para días cerrados
  *     usa `sales_daily_cache` únicamente si `> 0`.
+ *   - [2026-11-23] Separación estricta de `food_cost` (materia prima pura) vs `packaging_cost` (empaques/desechables
+ *     filtrados por canal `item.group_name`: `cogs_dine_in`, `cogs_takeout`, `cogs_delivery`), preservando `total_cost = food_cost`
+ *     y exponiendo `total_cogs = food_cost + packaging_cost`, `meat_cost`, `asada_raw_lbs` y `asada_cost`.
+ *   - [2026-11-23] Paginación determinista `fetchAllRows` (`.range()`) en `recipes`, `inventory_items`,
+ *     `inventory_price_history`, `toast_menu_items` y `sales_daily_cache` para eliminar truncamientos silenciosos de 1,000 filas.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
-import { getSupabaseClient, getSupabaseAdminClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { normalizeToLbs } from '@/lib/inventory/conversions'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
 import {
     calculateSafeFoodCostPct,
+    calculateSafePackagingCostPct,
     getBusinessDateLA,
+    isValidIsoDate,
     resolveFoodCostNetSales,
 } from '@/lib/inventory/food-cost-sales-resolver'
 import { Recipe, InventoryItem } from '@/types/inventory'
 import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
+
+const ASADA_ITEM_ID = ACTIVE_PROTEIN_IDS.asada
+
+async function fetchAllRows<T = any>(
+    buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+    pageSize = 1000
+): Promise<T[]> {
+    const all: T[] = []
+    let offset = 0
+    while (true) {
+        const { data, error } = await buildQuery(offset, offset + pageSize - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        all.push(...data)
+        if (data.length < pageSize) break
+        offset += pageSize
+    }
+    return all
+}
 
 export async function GET(request: NextRequest) {
     const auth = verifyStaffAuth(request, { allowCron: true })
@@ -66,15 +92,21 @@ export async function GET(request: NextRequest) {
         if (!storeId || !startDate || !endDate) {
             return NextResponse.json({ error: 'Missing params' }, { status: 400 })
         }
+        if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
+            return NextResponse.json({ error: 'Invalid startDate or endDate (expected YYYY-MM-DD with startDate <= endDate)' }, { status: 400 })
+        }
+
+        const supabase = await getSupabaseAdminClient()
 
         // 1. Fetch Product Mix (Sales) from Toast
         // This gives us: guid, name, quantity, net_sales
         let pmixItems: any[] = []
+        const failedStoreIds = new Set<string>()
+        const succeededStoreIds = new Set<string>()
 
         console.log(`[FoodCostAPI] Request storeId=${storeId}, start=${startDate}, end=${endDate}`)
 
         if (storeId === 'all') {
-            const supabase = await getSupabaseClient()
             const { data: storesData } = await supabase
                 .from('stores')
                 .select('name, external_id')
@@ -100,12 +132,14 @@ export async function GET(request: NextRequest) {
                     batch.map(async (s) => {
                         try {
                             const items = await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
+                            succeededStoreIds.add(s.external_id)
                             return items.map(item => ({
                                 ...item,
                                 store_id: s.external_id,
                                 store_name: s.name || 'Unknown'
                             }))
                         } catch (err) {
+                            failedStoreIds.add(s.external_id)
                             console.error(`[FoodCostAPI] Failed to fetch store ${s.external_id}:`, err)
                             return [] // Return empty array on failure to avoid breaking entire report
                         }
@@ -135,6 +169,8 @@ export async function GET(request: NextRequest) {
                     existing.gross_sales += item.gross_sales
                     existing.discounts += item.discounts
                     existing.voided_quantity += item.voided_quantity
+                    existing.modifier_gross_sales = (existing.modifier_gross_sales || 0) + (item.modifier_gross_sales || 0)
+                    existing.half_meat_adjustments = (existing.half_meat_adjustments || 0) + (item.half_meat_adjustments || 0)
 
                     // Merge modifiers
                     if (item.modifier_guids && item.modifier_guids.length > 0) {
@@ -151,9 +187,9 @@ export async function GET(request: NextRequest) {
 
         } else {
             // Single store fetch
-            const supabase = await getSupabaseClient()
             const currentStore = await supabase.from('stores').select('name').eq('external_id', storeId).single()
             pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true })
+            succeededStoreIds.add(storeId)
             pmixItems = pmixItems.map(item => ({
                 ...item,
                 store_id: storeId,
@@ -161,41 +197,41 @@ export async function GET(request: NextRequest) {
             }))
         }
 
-        // 2. Fetch ALL Recipes and Inventory Items from DB
-        const supabase = await getSupabaseClient()
-        const { data: recipesData, error: recipeError } = await supabase
-            .from('recipes')
-            .select('*')
+        // 2. Fetch ALL Recipes, Inventory Items, Price History & Menu Items with deterministic pagination (>1,000-row safe)
+        const recipesData = await fetchAllRows<any>((from, to) =>
+            supabase.from('recipes').select('*').order('id', { ascending: true }).range(from, to)
+        )
 
-        if (recipeError) throw recipeError
-
-        let { data: inventoryData, error: invError } = await supabase
-            .from('inventory_items')
-            .select('*')
-
-        if (invError) throw invError
+        let inventoryData = await fetchAllRows<any>((from, to) =>
+            supabase.from('inventory_items').select('*').order('id', { ascending: true }).range(from, to)
+        )
 
         // --- SCENARIO B: HISTORICAL PRICES O "LA MÁQUINA DEL TIEMPO" ---
         // Buscamos cuál era el precio de los insumos exáctamente el último día de este reporte (endDate)
         const targetDate = `${endDate}T23:59:59.999Z`
-        const { data: historyData } = await supabase
-            .from('inventory_price_history')
-            .select('inventory_item_id, purchase_unit_cost, quantity_per_unit, effective_date')
-            .lte('effective_date', targetDate)
-            .order('effective_date', { ascending: false })
-            
-        if (historyData && inventoryData) {
+        const historyData = await fetchAllRows<any>((from, to) =>
+            supabase
+                .from('inventory_price_history')
+                .select('inventory_item_id, purchase_unit_cost, quantity_per_unit, effective_date')
+                .lte('effective_date', targetDate)
+                .order('effective_date', { ascending: false })
+                .order('id', { ascending: false })
+                .range(from, to)
+        )
+
+        if (historyData.length > 0 && inventoryData.length > 0) {
             const latestValidPrices = new Map<string, { price: number; qty?: number }>()
             historyData.forEach(h => {
-                // Al estar ordenado Descendente, el primer registro que leamos es el correcto para la fecha
-                if (!latestValidPrices.has(h.inventory_item_id)) {
+                // Al estar ordenado Descendente, el primer registro positivo que leamos es el vigente en la fecha
+                const priceNum = Number(h.purchase_unit_cost)
+                if (!latestValidPrices.has(h.inventory_item_id) && Number.isFinite(priceNum) && priceNum > 0) {
                     latestValidPrices.set(h.inventory_item_id, {
-                        price: h.purchase_unit_cost,
-                        qty: h.quantity_per_unit ? Number(h.quantity_per_unit) : undefined
+                        price: priceNum,
+                        qty: h.quantity_per_unit && Number(h.quantity_per_unit) > 0 ? Number(h.quantity_per_unit) : undefined
                     })
                 }
             })
-            
+
             inventoryData = inventoryData.map(item => {
                 const hist = latestValidPrices.get(item.id)
                 return {
@@ -204,7 +240,7 @@ export async function GET(request: NextRequest) {
                     quantity_per_unit: (hist && hist.qty) ? hist.qty : item.quantity_per_unit
                 }
             })
-            console.log(`[FoodCostAPI] 🕰️ Historical Pricing & Packaging Applied for date: ${targetDate}`)
+            console.log(`[FoodCostAPI] 🕰️ Historical Pricing & Packaging Applied for date: ${targetDate} (${historyData.length} history rows scanned)`)
         }
         // --- FIN SCENARIO B ---
 
@@ -231,18 +267,16 @@ export async function GET(request: NextRequest) {
             })
         })
 
-        // 3b. Build NAME-based fallback map for GUID mismatches
-        // When Toast has different GUIDs for the same product across menus/stores,
-        // this allows matching by product name as a safety net.
+        // 3b. Build NAME-based fallback map for GUID mismatches (paginated, avoiding .in() URL overflow & 1,000-row cap)
         const nameToRecipeMap = new Map<string, Recipe>()
 
-        const { data: menuItemsWithRecipes } = await supabase
-            .from('toast_menu_items')
-            .select('guid, name')
-            .in('guid', Array.from(recipeMap.keys()))
+        const allMenuItems = await fetchAllRows<{ guid: string; name: string }>((from, to) =>
+            supabase.from('toast_menu_items').select('guid, name').order('guid', { ascending: true }).range(from, to)
+        )
 
-        if (menuItemsWithRecipes) {
-            menuItemsWithRecipes.forEach((mi: any) => {
+        if (allMenuItems.length > 0) {
+            allMenuItems.forEach((mi) => {
+                if (!mi.name || !recipeMap.has(mi.guid)) return
                 const normalizedName = mi.name.trim().toLowerCase()
                 if (!nameToRecipeMap.has(normalizedName)) {
                     const recipe = recipeMap.get(mi.guid)
@@ -288,7 +322,11 @@ export async function GET(request: NextRequest) {
             const isPartyTray = isPartyTrayMenuItem(item.name, item.guid) || hasPartyTrayKeywords || isPartyTray15Name || isPartyTray20Name || isPartyTray25Name || isPartyTray30Name;
 
             if (isPartyTray) {
-                const unitPrice = (item.price && item.price > 0) ? item.price : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0);
+                const unitPrice = (item.unit_price && item.unit_price > 0)
+                    ? item.unit_price
+                    : ((item.price && item.price > 0)
+                        ? item.price
+                        : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0));
                 const groupLower = String(item.group_name || '').toLowerCase()
                 const isDeliveryGroup = groupLower.includes('uber') || groupLower.includes('door') || groupLower.includes('grub') || groupLower.includes('delivery') || groupLower.includes('3rd party')
                 const virtualParty = buildPartyTrayVirtualIngredients({
@@ -306,60 +344,24 @@ export async function GET(request: NextRequest) {
                 };
                 skipModCostCalculation = true;
                 console.log(`[FoodCostAPI] 🛠️ Virtual Recipe Generated for Party Tray (${virtualParty.size}): "${item.name}"`)
-            } else if (!recipe) {
-                // If it's not a party tray, and we still have no recipe
             }
 
-            // Helper to get base portion for meat (in ounces)
-            const getMeatBaseOz = (name: string): number => {
-                const lower = name.toLowerCase()
-                if (lower.includes('taco plate')) return 0 // Explicitly ignored (uses individual taco recipes)
-                if (lower.includes('burrito') || lower.includes('nacho') || lower.includes('fries') || lower.includes('torta') || lower.includes('quesadilla') || lower.includes('bowl') || lower.includes('plato')) return 6.0
-                if (lower.includes('taco') || lower.includes('mulita') || lower.includes('sope') || lower.includes('gordita')) return 1.5
-                return 0 // Doesn't apply or unknown
-            }
+            // Canonical 8 active protein inventory IDs & dining channel for packaging filter
+            const activeProteinIds = new Set<string>(Object.values(ACTIVE_PROTEIN_IDS))
+            const mainMeatIds = Array.from(activeProteinIds)
+            const channelName = item.group_name || 'To Go'
 
-            // The main 8 meat inventory IDs
-            const mainMeatIds = [
-                'fab9d589-8ae8-4381-87da-85f836068996', // Asada
-                '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // Pollo
-                'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor
-                '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // Carnitas
-                'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // Buche
-                '511e341b-ca42-44ed-89df-a4a84b51a619', // Cabeza
-                '0fb87578-1185-41a9-a318-97428db20a5d', // Lengua
-                '1e4c43b6-4e1b-4e51-8617-e127b89467f1', // Chorizo
-            ]
-
-            let baseUnitCost = 0
-            let unitCost = 0 // Weight average for final report
+            let baseUnitFoodCost = 0
+            let baseUnitPackagingCost = 0
+            let unitCost = 0
+            let unitPackagingCost = 0
             let missingPrices = 0
-            let meatLbsPerUnit = 0 // New metric
-
-            // -- NEW: Dynamic Half-Meat Recipe Adjustment --
-            // If the item has Half meat modifiers, we intercept the base recipe calculate step,
-            // remove its full meat portion, and inject the half portions correctly.
-            const halfMeatMods: any[] = []
-            let normalMods: string[] = []
-
-            if (item.modifier_guids && item.modifier_guids.length > 0) {
-                item.modifier_guids.forEach((modGuid: string) => {
-                    // Check if this modifier is a Half modifier (by name from toast_menu_items via nameToRecipeMap or direct lookup)
-                    // But we actually only have the modRecipe here. We can find its name via the global map or we can inspect ingredients.
-                    // Let's rely on the name of the modifier if we can. Since we don't have the mod name easily, we rely on the logic in toast-pmix
-                    // that already gives us `half_meat_adjustments` count.
-                    // Wait, even better: we can find the name of the modGuid from a lookup, or we can use the `item.name` which contains "(Half Pollo)".
-                })
-            }
-
-            // Let's extract half names from the parent item name itself because Toast appends them: "Super Burrito Asada (Con cebolla, Half Pastor...)"
-            const hasHalfMod = parentNameLower.includes('half asada') || parentNameLower.includes('half pollo') ||
-                parentNameLower.includes('half pastor') || parentNameLower.includes('half carnitas') ||
-                parentNameLower.includes('half buche') || parentNameLower.includes('half cabeza') ||
-                parentNameLower.includes('half lengua') || parentNameLower.includes('half chorizo')
+            let meatLbsPerUnit = 0
+            let meatCostPerUnit = 0
+            let asadaLbsPerUnit = 0
+            let asadaCostPerUnit = 0
 
             const proteinAllocation = !isPartyTray && recipe ? parseProteinAllocation(item.name, recipe.ingredients) : null
-            const activeProteinIds = new Set<string>(Object.values(ACTIVE_PROTEIN_IDS))
             const primaryProteinIngredient = recipe?.ingredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
             const recipeForCost = proteinAllocation && recipe
                 ? {
@@ -373,71 +375,65 @@ export async function GET(request: NextRequest) {
                 }
                 : recipe as Recipe | undefined
 
-            // 1. Calculate unadulterated base recipe unit cost
+            // 1. Calculate base recipe unit cost (both foodCost and channel-filtered packagingCost)
             if (recipeForCost) {
-                const costResult = calculateRecipeCost(recipeForCost as Recipe, inventoryData as InventoryItem[], item.group_name)
-                baseUnitCost = costResult.foodCost // STRICTLY FOOD COST, matches Menu Catalog "Costo"
+                const costResult = calculateRecipeCost(recipeForCost as Recipe, inventoryData as InventoryItem[], channelName)
+                baseUnitFoodCost = costResult.foodCost
+                baseUnitPackagingCost = costResult.packagingCost
                 missingPrices += costResult.missingPrices
 
-                // Sum meat pounds for the unadulterated base item
                 costResult.breakdown.forEach(b => {
-                    if (mainMeatIds.includes(b.inventoryItemId)) {
-                        meatLbsPerUnit += normalizeToLbs(b.quantity, b.unit as any)
+                    if (activeProteinIds.has(b.inventoryItemId)) {
+                        const rawLbs = normalizeToLbs(b.quantity, b.unit as any)
+                        meatLbsPerUnit += rawLbs
+                        meatCostPerUnit += b.cost
+                        if (b.inventoryItemId === ASADA_ITEM_ID) {
+                            asadaLbsPerUnit += rawLbs
+                            asadaCostPerUnit += b.cost
+                        }
                     }
                 })
             }
 
-            let totalBaseCost = baseUnitCost * item.quantity
+            let totalBaseFoodCost = baseUnitFoodCost * item.quantity
+            let totalBasePackagingCost = baseUnitPackagingCost * item.quantity
             let totalBaseMeatLbs = meatLbsPerUnit * item.quantity
+            let totalBaseMeatCost = meatCostPerUnit * item.quantity
+            let totalBaseAsadaLbs = asadaLbsPerUnit * item.quantity
+            let totalBaseAsadaCost = asadaCostPerUnit * item.quantity
 
-            let totalModCost = 0
+            let totalModFoodCost = 0
+            let totalModPackagingCost = 0
             let totalModMeatLbs = 0
+            let totalModMeatCost = 0
+            let totalModAsadaLbs = 0
+            let totalModAsadaCost = 0
 
-            // 2. Apply "Half Meat" substitutions directly to the BATCH TOTALS
-            // This prevents the substitution from being amplified by item.quantity
+            // 2. Apply legacy "Half Meat" substitutions directly to the BATCH TOTALS when proteinAllocation is null
             if (!proteinAllocation && recipe && item.modifier_guids && item.modifier_guids.length > 0) {
-                const halfModsFound = item.modifier_guids.filter((g: string) => [
-                    'ed889228-98e7-4c49-bc46-8e0718ec1fcf', // Half Asada
-                    'b52ffce5-cc66-4930-bb96-70891c41643e', // Half Pastor
-                    'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', // Half Cabeza
-                    '443938bb-ec20-4a64-9fa3-91d4f89de0a5', // Half Pollo
-                    '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', // Half Carnitas
-                    'fbe42d67-a0f8-481f-bb28-e1717075c290', // Half Buche
-                    '8717b04b-62c0-4276-96e9-d86430b32b64', // Half Lengua
-                    '37c0cb59-fa76-4b81-b327-cd96784d9f78'  // Half Chorizo
-                ].includes(g))
+                const halfMapping: Record<string, string> = {
+                    'ed889228-98e7-4c49-bc46-8e0718ec1fcf': ACTIVE_PROTEIN_IDS.asada,
+                    'b52ffce5-cc66-4930-bb96-70891c41643e': ACTIVE_PROTEIN_IDS.pastor,
+                    'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3': ACTIVE_PROTEIN_IDS.cabeza,
+                    '443938bb-ec20-4a64-9fa3-91d4f89de0a5': ACTIVE_PROTEIN_IDS.pollo,
+                    '6d1bfd79-8c97-4c81-8e03-729fa08ecc75': ACTIVE_PROTEIN_IDS.carnitas,
+                    'fbe42d67-a0f8-481f-bb28-e1717075c290': ACTIVE_PROTEIN_IDS.buche,
+                    '8717b04b-62c0-4276-96e9-d86430b32b64': ACTIVE_PROTEIN_IDS.lengua,
+                    '37c0cb59-fa76-4b81-b327-cd96784d9f78': ACTIVE_PROTEIN_IDS.chorizo,
+                }
+                const halfModsFound = item.modifier_guids.filter((g: string) => g in halfMapping)
 
                 if (halfModsFound.length > 0) {
-                    const halfMapping: Record<string, string> = {
-                        'ed889228-98e7-4c49-bc46-8e0718ec1fcf': 'fab9d589-8ae8-4381-87da-85f836068996', // asada
-                        'b52ffce5-cc66-4930-bb96-70891c41643e': 'ad7e3703-2701-4a05-aa97-77866c8c717e', // pastor
-                        'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3': '511e341b-ca42-44ed-89df-a4a84b51a619', // cabeza
-                        '443938bb-ec20-4a64-9fa3-91d4f89de0a5': '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // pollo
-                        '6d1bfd79-8c97-4c81-8e03-729fa08ecc75': '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // carnitas
-                        'fbe42d67-a0f8-481f-bb28-e1717075c290': 'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // buche
-                        '8717b04b-62c0-4276-96e9-d86430b32b64': '0fb87578-1185-41a9-a318-97428db20a5d', // lengua
-                        '37c0cb59-fa76-4b81-b327-cd96784d9f78': '1e4c43b6-4e1b-4e51-8617-e127b89467f1'  // chorizo
-                    }
-
-                    const meatIds = [
-                        'fab9d589-8ae8-4381-87da-85f836068996', '4ea7ef9c-986e-4fc1-a363-7200ca558aab',
-                        'ad7e3703-2701-4a05-aa97-77866c8c717e', '14990e85-0d90-467c-ad9d-362e6ed4f1cd',
-                        'baac1d41-3b80-4f80-acfc-7a19f46e03c2', '511e341b-ca42-44ed-89df-a4a84b51a619',
-                        '0fb87578-1185-41a9-a318-97428db20a5d', '1e4c43b6-4e1b-4e51-8617-e127b89467f1'
-                    ]
-                    const primaryMeatIng = recipe.ingredients.find((i: any) => meatIds.includes(i.inventory_item_id))
+                    const primaryMeatIng = recipe.ingredients.find((i: any) => mainMeatIds.includes(i.inventory_item_id))
 
                     if (primaryMeatIng) {
                         const deltaRecipe = { ingredients: [] as any[] }
-
-                        // We remove X portions of primary meat based on how many halves were ordered
                         const portionsToRemove = halfModsFound.length * 0.5
                         deltaRecipe.ingredients.push({
                             ...primaryMeatIng,
                             quantity: -(primaryMeatIng.quantity * portionsToRemove)
                         })
 
-                        // We inject the halves (0.5 portion of primary quantity per half)
                         halfModsFound.forEach((modGuid: string) => {
                             deltaRecipe.ingredients.push({
                                 inventory_item_id: halfMapping[modGuid],
@@ -447,32 +443,34 @@ export async function GET(request: NextRequest) {
                             })
                         })
 
-                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[], item.group_name)
-                        totalBaseCost += deltaRes.foodCost
-                        // Avoid double counting missing prices for delta
+                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[], channelName)
+                        totalBaseFoodCost += deltaRes.foodCost
+                        totalBasePackagingCost += deltaRes.packagingCost
 
                         deltaRes.breakdown.forEach(b => {
-                            if (mainMeatIds.includes(b.inventoryItemId)) {
-                                totalBaseMeatLbs += normalizeToLbs(b.quantity, b.unit as any)
+                            if (activeProteinIds.has(b.inventoryItemId)) {
+                                const rawLbs = normalizeToLbs(b.quantity, b.unit as any)
+                                totalBaseMeatLbs += rawLbs
+                                totalBaseMeatCost += b.cost
+                                if (b.inventoryItemId === ASADA_ITEM_ID) {
+                                    totalBaseAsadaLbs += rawLbs
+                                    totalBaseAsadaCost += b.cost
+                                }
                             }
                         })
                     }
                 }
             }
 
-            // 3. Calculate Modifiers Cost
-            // Skip "Half Meat" modifiers since we've already accounted for them in the batch delta
+            // 3. Calculate Modifiers Cost (capturing BOTH foodCost and channel-filtered packagingCost)
             if (!skipModCostCalculation && item.modifier_guids && item.modifier_guids.length > 0) {
-                const halfGuids = [
+                const halfGuids = new Set([
                     'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
                     'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', '443938bb-ec20-4a64-9fa3-91d4f89de0a5',
                     '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', 'fbe42d67-a0f8-481f-bb28-e1717075c290',
                     '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
-                ]
+                ])
 
-                // DEFENSIVE NORMALIZATION: Old PMIX cache (pre-fix) has modifier GUIDs
-                // inflated by qty² instead of qty. Cap each unique modifier to at most
-                // item.quantity occurrences to ensure correct cost regardless of cache age.
                 const modCounts = new Map<string, number>()
                 item.modifier_guids.forEach((g: string) => modCounts.set(g, (modCounts.get(g) || 0) + 1))
 
@@ -488,15 +486,21 @@ export async function GET(request: NextRequest) {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
                         const isProteinModifier = !!proteinAllocation && modRecipe.ingredients.some(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
-                        if (!halfGuids.includes(modGuid) && !isProteinModifier) {
-                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], item.group_name)
-                            totalModCost += modRes.foodCost
+                        if (!halfGuids.has(modGuid) && !isProteinModifier) {
+                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], channelName)
+                            totalModFoodCost += modRes.foodCost
+                            totalModPackagingCost += modRes.packagingCost
                             missingPrices += modRes.missingPrices
 
-                            // Modifiers meat goes to totalModMeatLbs and is NEVER multiplied by item.quantity
                             modRes.breakdown.forEach(b => {
-                                if (mainMeatIds.includes(b.inventoryItemId)) {
-                                    totalModMeatLbs += normalizeToLbs(b.quantity, b.unit as any)
+                                if (activeProteinIds.has(b.inventoryItemId)) {
+                                    const rawLbs = normalizeToLbs(b.quantity, b.unit as any)
+                                    totalModMeatLbs += rawLbs
+                                    totalModMeatCost += b.cost
+                                    if (b.inventoryItemId === ASADA_ITEM_ID) {
+                                        totalModAsadaLbs += rawLbs
+                                        totalModAsadaCost += b.cost
+                                    }
                                 }
                             })
                         }
@@ -504,32 +508,87 @@ export async function GET(request: NextRequest) {
                 })
             }
 
-            // totalBaseCost = baseUnitCost * item.quantity (Calculated for the whole batch)
-            // totalModCost = sum of all OTHER recipes for modifiers found in the batch
-            const totalCost = totalBaseCost + totalModCost
+            // 3b. Taco Plate sub-taco fallback when Toast modifier GUIDs for sub-tacos are not in `recipes`
+            if (!skipModCostCalculation && /^\s*taco\s*plate\b/i.test(item.name) && totalModMeatLbs === 0 && item.quantity > 0) {
+                const parenTokens: string[] = []
+                for (const m of item.name.matchAll(/\(([^)]+)\)/g)) {
+                    m[1].split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean).forEach((tok: string) => parenTokens.push(tok))
+                }
+                const tacoTokens = parenTokens.filter(tok => /^taco\s+(asada|pastor|pollo|chicken|cabeza|lengua|chorizo|carnitas|buche|vegetar\w*|veggie|vegie)$/i.test(tok))
+                const slotMultiplier = tacoTokens.length > 0 && tacoTokens.length < 3 ? (3 / tacoTokens.length) : 1
+                tacoTokens.forEach(tok => {
+                    const normalizedTok = tok.replace(/\bchicken\b/i, 'pollo')
+                    const subTacoRecipe = nameToRecipeMap.get(normalizedTok)
+                    if (subTacoRecipe) {
+                        const foodOnlySubRecipe: Recipe = {
+                            ...subTacoRecipe,
+                            ingredients: subTacoRecipe.ingredients.filter(ing => {
+                                const t = ing.type || 'cooked'
+                                return t === 'food' || t === 'raw' || t === 'cooked'
+                            })
+                        }
+                        const subRes = calculateRecipeCost(foodOnlySubRecipe, inventoryData as InventoryItem[], channelName)
+                        const effectiveTacoQty = item.quantity * slotMultiplier
+                        totalModFoodCost += subRes.foodCost * effectiveTacoQty
+                        missingPrices += subRes.missingPrices
+                        subRes.breakdown.forEach(b => {
+                            if (activeProteinIds.has(b.inventoryItemId)) {
+                                const rawLbs = normalizeToLbs(b.quantity, b.unit as any) * effectiveTacoQty
+                                totalModMeatLbs += rawLbs
+                                totalModMeatCost += b.cost * effectiveTacoQty
+                                if (b.inventoryItemId === ASADA_ITEM_ID) {
+                                    totalModAsadaLbs += rawLbs
+                                    totalModAsadaCost += b.cost * effectiveTacoQty
+                                }
+                            }
+                        })
+                    }
+                })
+            }
 
-            // Calculate final per-unit averages
+            const foodCost = Number((totalBaseFoodCost + totalModFoodCost).toFixed(4))
+            const packagingCost = Number((totalBasePackagingCost + totalModPackagingCost).toFixed(4))
+            const totalCost = foodCost // Preserves pure Food Cost semantics on total_cost & food_cost_percent
+            const totalCogs = Number((foodCost + packagingCost).toFixed(4))
+            const meatCost = Number((totalBaseMeatCost + totalModMeatCost).toFixed(4))
+            const totalMeatLbs = Number((totalBaseMeatLbs + totalModMeatLbs).toFixed(4))
+            const asadaRawLbs = Number((totalBaseAsadaLbs + totalModAsadaLbs).toFixed(4))
+            const asadaCost = Number((totalBaseAsadaCost + totalModAsadaCost).toFixed(4))
+
             if (item.quantity > 0) {
                 unitCost = totalCost / item.quantity
+                unitPackagingCost = packagingCost / item.quantity
             }
 
             const fcPercent = (item.net_sales > 0) ? (totalCost / item.net_sales) * 100 : 0
+            const packagingCostPercent = (item.net_sales > 0) ? (packagingCost / item.net_sales) * 100 : 0
+            const totalCogsPercent = (item.net_sales > 0) ? (totalCogs / item.net_sales) * 100 : 0
 
             const modRevenuePerUnit = item.quantity > 0 ? (item.modifier_gross_sales / item.quantity) : 0
             const basePricePerUnit = item.quantity > 0 ? (item.gross_sales / item.quantity) : 0
 
             return {
                 ...item,
-                unit_price: basePricePerUnit, // Fixed: Already base gross
+                unit_price: basePricePerUnit,
                 total_modifier_cost: modRevenuePerUnit,
                 unit_cost: unitCost,
+                unit_packaging_cost: unitPackagingCost,
+                food_cost: foodCost,
+                packaging_cost: packagingCost,
                 total_cost: totalCost,
+                total_cogs: totalCogs,
                 food_cost_percent: fcPercent,
+                packaging_cost_percent: packagingCostPercent,
+                total_cogs_percent: totalCogsPercent,
+                meat_cost: meatCost,
+                total_meat_lbs: totalMeatLbs,
+                asada_raw_lbs: asadaRawLbs,
+                asada_cost: asadaCost,
                 has_recipe: !!recipe,
+                matched_by_name: matchedByName,
                 missing_prices: missingPrices > 0,
-                store_id: item.store_id, // Pass through
-                store_name: item.store_name, // Pass through
-                total_meat_lbs: totalBaseMeatLbs + totalModMeatLbs,
+                store_id: item.store_id,
+                store_name: item.store_name,
                 modifier_guids: item.modifier_guids
             }
         })
@@ -559,72 +618,109 @@ export async function GET(request: NextRequest) {
         let salesNetSalesMap: Map<string, number> | null = null
         try {
             const supabaseAdmin = await getSupabaseAdminClient()
-            const { data: salesRows } = await supabaseAdmin
-                .from('sales_daily_cache')
-                .select('store_id, net_sales')
-                .gte('business_date', startDate)
-                .lte('business_date', endDate)
+            const salesRows = await fetchAllRows<{ store_id: string; net_sales: number }>((from, to) =>
+                supabaseAdmin
+                    .from('sales_daily_cache')
+                    .select('store_id, net_sales')
+                    .gte('business_date', startDate)
+                    .lte('business_date', endDate)
+                    .order('id', { ascending: true })
+                    .range(from, to)
+            )
 
             salesNetSalesMap = new Map<string, number>()
-            salesRows?.forEach((r: any) => {
+            salesRows.forEach((r: any) => {
                 const current = salesNetSalesMap!.get(r.store_id) || 0
                 salesNetSalesMap!.set(r.store_id, current + (Number(r.net_sales) || 0))
             })
 
             // Write-through cache ONLY for single-day requests across ALL stores
-            // Prevents partial cache poisoning when querying an individual store
+            // Prevents partial cache poisoning when querying an individual store or when a store's Toast fetch failed
             if (startDate === endDate && (!storeId || storeId === 'all')) {
                 const storeAgg = new Map<string, any>()
                 report.forEach(item => {
                     const sid = item.store_id || 'unknown'
+                    if (sid === 'unknown' || failedStoreIds.has(sid)) return
+
                     if (!storeAgg.has(sid)) {
                         storeAgg.set(sid, {
                             business_date: startDate,
                             store_id: sid,
                             store_name: item.store_name || 'Unknown',
-                            total_cost: 0,
+                            food_cost: 0,
+                            packaging_cost: 0,
                             net_sales: 0,
                             total_items: 0,
                             items_with_recipe: 0,
-                            total_meat_lbs: 0
+                            total_meat_lbs: 0,
+                            meat_cost: 0,
+                            asada_raw_lbs: 0,
+                            asada_cost: 0,
+                            unmapped_sales: 0,
                         })
                     }
                     const agg = storeAgg.get(sid)
-                    agg.total_cost += item.total_cost || 0
+                    agg.food_cost += item.food_cost || 0
+                    agg.packaging_cost += item.packaging_cost || 0
                     agg.net_sales += item.net_sales || 0
                     agg.total_items += 1
-                    if (item.has_recipe) agg.items_with_recipe += 1
-                    agg.total_meat_lbs += item.total_meat_lbs || 0
-                })
-
-                // Resolve net_sales deterministically: intraday -> live PMIX snapshot; closed days -> positive sales_daily_cache with PMIX fallback
-                const cacheRows = Array.from(storeAgg.values()).map(s => {
-                    const authoritativeSales = salesNetSalesMap!.get(s.store_id)
-                    const resolved = resolveFoodCostNetSales({
-                        startDate,
-                        endDate,
-                        pmixNetSales: s.net_sales,
-                        cachedDailySales: authoritativeSales,
-                        todayBusinessDateLA,
-                    })
-                    const roundedCost = Number(s.total_cost.toFixed(2))
-                    return {
-                        ...s,
-                        total_cost: roundedCost,
-                        net_sales: resolved.netSales,
-                        cost_percentage: calculateSafeFoodCostPct(roundedCost, resolved.netSales),
-                        updated_at: new Date().toISOString()
+                    if (item.has_recipe) {
+                        agg.items_with_recipe += 1
+                    } else if ((item.net_sales || 0) > 0) {
+                        agg.unmapped_sales += item.net_sales || 0
                     }
+                    agg.total_meat_lbs += item.total_meat_lbs || 0
+                    agg.meat_cost += item.meat_cost || 0
+                    agg.asada_raw_lbs += item.asada_raw_lbs || 0
+                    agg.asada_cost += item.asada_cost || 0
                 })
 
-                const { error: cacheError } = await supabaseAdmin
-                    .from('food_cost_daily_cache')
-                    .upsert(cacheRows, { onConflict: 'business_date, store_id' })
+                // Resolve net_sales deterministically & skip stores with 0 items / failed Toast fetch
+                const cacheRows = Array.from(storeAgg.values())
+                    .filter(s => !failedStoreIds.has(s.store_id) && s.total_items > 0)
+                    .map(s => {
+                        const authoritativeSales = salesNetSalesMap!.get(s.store_id)
+                        const resolved = resolveFoodCostNetSales({
+                            startDate,
+                            endDate,
+                            pmixNetSales: s.net_sales,
+                            cachedDailySales: authoritativeSales,
+                            todayBusinessDateLA,
+                        })
+                        const storeFoodCost = Number(s.food_cost.toFixed(2))
+                        const storePackagingCost = Number(s.packaging_cost.toFixed(2))
+                        return {
+                            business_date: startDate,
+                            store_id: s.store_id,
+                            store_name: s.store_name,
+                            total_cost: storeFoodCost,
+                            food_cost: storeFoodCost,
+                            packaging_cost: storePackagingCost,
+                            net_sales: resolved.netSales,
+                            cost_percentage: calculateSafeFoodCostPct(storeFoodCost, resolved.netSales),
+                            packaging_percentage: calculateSafePackagingCostPct(storePackagingCost, resolved.netSales),
+                            total_items: s.total_items,
+                            items_with_recipe: s.items_with_recipe,
+                            total_meat_lbs: Number(s.total_meat_lbs.toFixed(2)),
+                            meat_cost: Number(s.meat_cost.toFixed(2)),
+                            asada_raw_lbs: Number(s.asada_raw_lbs.toFixed(2)),
+                            asada_cost: Number(s.asada_cost.toFixed(2)),
+                            unmapped_sales: Number(s.unmapped_sales.toFixed(2)),
+                            updated_at: new Date().toISOString()
+                        }
+                    })
+                    .filter(row => row.net_sales > 0 || row.food_cost > 0)
 
-                if (cacheError) {
-                    console.warn('[FoodCostAPI] ⚠️ Cache write failed:', cacheError.message)
-                } else {
-                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate} (mode=${isLiveRange ? 'pmix_intraday' : 'closed_authoritative'})`)
+                if (cacheRows.length > 0) {
+                    const { error: cacheError } = await supabaseAdmin
+                        .from('food_cost_daily_cache')
+                        .upsert(cacheRows, { onConflict: 'business_date, store_id' })
+
+                    if (cacheError) {
+                        console.warn('[FoodCostAPI] ⚠️ Cache write failed:', cacheError.message)
+                    } else {
+                        console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate} (failed=${failedStoreIds.size}, mode=${isLiveRange ? 'pmix_intraday' : 'closed_authoritative'})`)
+                    }
                 }
             }
         } catch (err: any) {

@@ -24,6 +24,7 @@ import { RecipeModal } from './components/RecipeModal'
 import { ArrowUpDown, ArrowUp, ArrowDown, Info, X } from 'lucide-react'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
+import { getFoodCostStatus } from '@/lib/inventory/food-cost-sales-resolver'
 import { useLanguage } from '@/lib/i18n'
 
 export default function MenuCatalogPage() {
@@ -74,6 +75,7 @@ export default function MenuCatalogPage() {
             supabase
                 .from('inventory_items')
                 .select('id, name, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, unit_type')
+                .limit(5000)
         ])
         const invMap = new Map<string, any>((allInventoryItems || []).map((inv: any) => [inv.id, inv]))
 
@@ -158,9 +160,10 @@ export default function MenuCatalogPage() {
                 const worstCogs = Math.max(itemCogsDineIn, itemCogsTakeout, itemCogsDelivery)
                 const totalWorstCost = cost + worstCogs
 
-                const margin = (price > 0 && cost > 0 && !isNa) ? ((price - totalWorstCost) / price) * 100 : null
-                const foodCostPercent = (price > 0 && cost > 0 && !isNa) ? (totalWorstCost / price) * 100 : null
-                const netProfit = (price > 0 && cost > 0 && !isNa) ? (price - totalWorstCost) : null
+                const foodCostPercent = (price > 0 && cost > 0 && !isNa) ? (cost / price) * 100 : null
+                const packagingPercent = (price > 0 && worstCogs > 0 && !isNa) ? (worstCogs / price) * 100 : null
+                const margin = (price > 0 && (cost > 0 || worstCogs > 0) && !isNa) ? ((price - totalWorstCost) / price) * 100 : null
+                const netProfit = (price > 0 && (cost > 0 || worstCogs > 0) && !isNa) ? (price - totalWorstCost) : null
 
                 return {
                     ...i,
@@ -168,11 +171,14 @@ export default function MenuCatalogPage() {
                     isNa,
                     ingredientCount: ingCount,
                     recipeCost: cost,
+                    foodCost: cost,
+                    packagingCost: worstCogs,
                     cogsDineIn: itemCogsDineIn,
                     cogsTakeout: itemCogsTakeout,
                     cogsDelivery: itemCogsDelivery,
                     marginPercent: margin, // can be null
-                    foodCostPercent,      // can be null
+                    foodCostPercent,      // pure food cost %, can be null
+                    packagingPercent,     // packaging %, can be null
                     netProfit             // can be null
                 }
             })
@@ -319,6 +325,12 @@ export default function MenuCatalogPage() {
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
+                                    onClick={() => requestSort('packagingPercent')}
+                                >
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.packaging_percent')} <SortIcon columnKey="packagingPercent" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('foodCostPercent')}
                                 >
                                     <div className="flex items-center justify-end">{t('menu_catalog.columns.cost_percent')} <SortIcon columnKey="foodCostPercent" /></div>
@@ -352,9 +364,9 @@ export default function MenuCatalogPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                             {loading ? (
-                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">{t('menu_catalog.status.loading')}</td></tr>
+                                <tr><td colSpan={12} className="p-8 text-center text-slate-500">{t('menu_catalog.status.loading')}</td></tr>
                             ) : sortedItems.length === 0 ? (
-                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">{t('menu_catalog.status.empty')}</td></tr>
+                                <tr><td colSpan={12} className="p-8 text-center text-slate-500">{t('menu_catalog.status.empty')}</td></tr>
                             ) : (
                                 sortedItems.map(item => (
                                     <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750">
@@ -397,12 +409,29 @@ export default function MenuCatalogPage() {
                                             )}
                                         </td>
 
-                                        {/* Costo % */}
+                                        {/* Empaque % */}
                                         <td className="px-4 py-3 text-right">
                                             {item.isNa ? (
                                                 <span className="text-xs text-slate-400 italic">N/A</span>
-                                            ) : item.recipeCost > 0 && item.price > 0 ? (
-                                                <span className={`font-mono text-xs font-bold ${item.foodCostPercent > 32 ? 'text-red-500' : item.foodCostPercent > 30 ? 'text-yellow-500' : 'text-emerald-600'}`}>
+                                            ) : item.packagingPercent !== null && item.packagingPercent > 0 ? (
+                                                <span className="font-mono text-xs font-semibold text-sky-600 dark:text-sky-400">
+                                                    {item.packagingPercent.toFixed(1)}%
+                                                </span>
+                                            ) : '-'}
+                                        </td>
+
+                                        {/* Food Cost % (Pure Food) */}
+                                        <td className="px-4 py-3 text-right">
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : item.recipeCost > 0 && item.price > 0 && item.foodCostPercent !== null ? (
+                                                <span className={`font-mono text-xs font-bold ${
+                                                    getFoodCostStatus(item.foodCostPercent) === 'critical'
+                                                        ? 'text-rose-600 dark:text-rose-400'
+                                                        : getFoodCostStatus(item.foodCostPercent) === 'warning'
+                                                            ? 'text-amber-500 dark:text-amber-400'
+                                                            : 'text-emerald-600 dark:text-emerald-400'
+                                                }`}>
                                                     {item.foodCostPercent.toFixed(1)}%
                                                 </span>
                                             ) : '-'}
@@ -412,8 +441,8 @@ export default function MenuCatalogPage() {
                                         <td className="px-4 py-3 text-right">
                                             {item.isNa ? (
                                                 <span className="text-xs text-slate-400 italic">N/A</span>
-                                            ) : item.recipeCost > 0 && item.price > 0 && item.marginPercent !== null ? (
-                                                <span className={`font-bold text-xs ${item.marginPercent < 68 ? 'text-red-500' : item.marginPercent < 70 ? 'text-yellow-500' : 'text-emerald-600'}`}>
+                                            ) : (item.recipeCost > 0 || item.packagingCost > 0) && item.price > 0 && item.marginPercent !== null ? (
+                                                <span className={`font-bold text-xs ${item.marginPercent < 65 ? 'text-rose-600 dark:text-rose-400' : item.marginPercent < 68 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                                     {item.marginPercent.toFixed(1)}%
                                                 </span>
                                             ) : '-'}
@@ -423,8 +452,8 @@ export default function MenuCatalogPage() {
                                         <td className="px-4 py-3 text-right">
                                             {item.isNa ? (
                                                 <span className="text-xs text-slate-400 italic">N/A</span>
-                                            ) : item.recipeCost > 0 && item.price > 0 ? (
-                                                <span className={`font-mono font-bold ${item.netProfit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                            ) : (item.recipeCost > 0 || item.packagingCost > 0) && item.price > 0 && item.netProfit !== null ? (
+                                                <span className={`font-mono font-bold ${item.netProfit < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                                                     ${item.netProfit.toFixed(2)}
                                                 </span>
                                             ) : '-'}

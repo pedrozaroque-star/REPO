@@ -30,6 +30,10 @@
  *   - [2026-11-17] Sincronizadas charolas de aluminio por componente (`getPartyTrayFoodTrayAllocation` según
  *     `docs/Party Tray Instructions.pdf`: `25-30` usa `2 × RC1150+RL970` + `1 × RC1174+RL990`; `15-20` usa `3 × RC1150+RL970`)
  *     y anclados UUIDs canónicos de `DX900GE` (`6,000 pzas/CS`) y `358_9604BT` (`8 in` harina).
+ *   - [2026-11-23] FIX CRÍTICO Stage A & Paginación: (1) Resolución real de nombres de modificadores desde `toast_menu_items`
+ *     (`guid -> name`) con conteo agrupado `quantity` y fallback parentético para sub-tacos de `Taco Plate`;
+ *     (2) Tickets sintéticos agrupados por canal real `diningOptionName: p.group_name || 'To Go'` en vez de `'Take Out'` fijo;
+ *     (3) Paginación `.range()` en catálogos y filtro de empaque por canal en Stage B sin inflación `qtySold²`.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -287,26 +291,65 @@ export async function syncDailyInventoryUsage(
     return []
   }
 
-  // 2. Obtener catálogo maestro de inventario
-  const { data: inventoryItemsData, error: invError } = await supabase
-    .from('inventory_items')
-    .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, order_rounding_rule, excel_reference')
+  // Helper determinista para paginar tablas PostgREST sin truncamiento en 1,000 filas
+  const fetchAllUsageRows = async <T = any>(
+    buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+    pageSize = 1000
+  ): Promise<T[]> => {
+    const rows: T[] = []
+    let offset = 0
+    while (true) {
+      const { data, error } = await buildQuery(offset, offset + pageSize - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      rows.push(...data)
+      if (data.length < pageSize) break
+      offset += pageSize
+    }
+    return rows
+  }
 
-  if (invError || !inventoryItemsData) {
-    throw new Error(`Error al consultar inventory_items: ${invError?.message}`)
+  // 2. Obtener catálogo maestro de inventario, recetas y nombres de menú Toast (paginados)
+  let inventoryItemsData: any[] = []
+  try {
+    inventoryItemsData = await fetchAllUsageRows((from, to) =>
+      supabase
+        .from('inventory_items')
+        .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, order_rounding_rule, excel_reference')
+        .order('id', { ascending: true })
+        .range(from, to)
+    )
+  } catch (invErr: any) {
+    throw new Error(`Error al consultar inventory_items: ${invErr?.message}`)
   }
 
   const inventoryItemsMap = new Map<string, InventoryItem>(
     inventoryItemsData.map(i => [i.id, i as unknown as InventoryItem])
   )
 
-  // 3. Obtener recetas en la base de datos
-  const { data: recipesData, error: recipesError } = await supabase
-    .from('recipes')
-    .select('*')
+  // 3. Obtener recetas y catálogo de nombres Toast en la base de datos
+  let recipesData: any[] = []
+  try {
+    recipesData = await fetchAllUsageRows((from, to) =>
+      supabase.from('recipes').select('*').order('id', { ascending: true }).range(from, to)
+    )
+  } catch (recipesErr: any) {
+    throw new Error(`Error al consultar recetas: ${recipesErr?.message}`)
+  }
 
-  if (recipesError) {
-    throw new Error(`Error al consultar recetas: ${recipesError.message}`)
+  let toastMenuItemsData: { guid: string; name: string }[] = []
+  try {
+    toastMenuItemsData = await fetchAllUsageRows<{ guid: string; name: string }>((from, to) =>
+      supabase.from('toast_menu_items').select('guid, name').order('guid', { ascending: true }).range(from, to)
+    )
+  } catch (menuErr: any) {
+    console.warn(`[UsageSync] No se pudo cargar toast_menu_items completo: ${menuErr?.message}`)
+  }
+  const menuItemNameMap = new Map<string, string>()
+  for (const mi of toastMenuItemsData) {
+    if (mi.guid && mi.name) {
+      menuItemNameMap.set(mi.guid, mi.name.trim())
+    }
   }
 
   const historicalStartDate = new Date(`${businessDate}T12:00:00Z`)
@@ -336,25 +379,86 @@ export async function syncDailyInventoryUsage(
   const usageAccumulator = new Map<string, number>()
   const codexHandledItemIds = new Set<string>()
 
-  // A) Ejecutar el Motor Determinista de CODEX para todos los insumos de bodega
+  // A) Ejecutar el Motor Determinista de CODEX agrupando por canal real (`diningOptionName`) y nombres reales de modificadores
+  const normalizeModText = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
   try {
-    const synthesizedTicket: RawToastTicket = {
-      orderGuid: `pmix-${businessDate}`,
-      businessDate: businessDate,
-      diningOptionName: 'Take Out',
-      selections: pmixItems.map(p => ({
-        guid: p.guid,
-        name: p.name,
-        price: p.unit_price || 0,
-        quantity: p.quantity,
-        modifiers: (p.modifier_guids || []).map(g => ({ guid: g }))
-      }))
+    const channelGroups = new Map<string, ProductMixItem[]>()
+    for (const p of pmixItems) {
+      const diningOptionName = (p.group_name && p.group_name !== 'Uncategorized') ? p.group_name : 'To Go'
+      if (!channelGroups.has(diningOptionName)) {
+        channelGroups.set(diningOptionName, [])
+      }
+      channelGroups.get(diningOptionName)!.push(p)
+    }
+
+    const synthesizedTickets: RawToastTicket[] = []
+    let channelIdx = 0
+    for (const [diningOptionName, channelItems] of channelGroups.entries()) {
+      channelIdx++
+      synthesizedTickets.push({
+        orderGuid: `pmix-${businessDate}-${channelIdx}`,
+        businessDate,
+        diningOptionName,
+        deliveryService: /uber|doordash|grubhub|postmates/i.test(diningOptionName) ? diningOptionName : undefined,
+        selections: channelItems.map(p => {
+          const sQty = Number(p.quantity) || 1
+          const modGuidCounts = new Map<string, number>()
+          for (const g of (p.modifier_guids || [])) {
+            if (g) modGuidCounts.set(g, (modGuidCounts.get(g) || 0) + 1)
+          }
+
+          const resolvedMods: { guid?: string; name: string; quantity: number }[] = []
+          const resolvedNormSet = new Set<string>()
+          let unresolvedGuidCount = 0
+
+          for (const [guid, count] of modGuidCounts.entries()) {
+            const modName = menuItemNameMap.get(guid)
+            if (modName) {
+              resolvedMods.push({ guid, name: modName, quantity: count })
+              resolvedNormSet.add(normalizeModText(modName))
+            } else {
+              unresolvedGuidCount += count
+            }
+          }
+
+          const baseMenuName = menuItemNameMap.get(p.guid)
+          // Extraer tokens parentéticos de `p.name` (ej. sub-tacos de Taco Plate o notas no presentes en toast_menu_items)
+          if (unresolvedGuidCount > 0 || baseMenuName) {
+            const baseNorm = baseMenuName ? normalizeModText(baseMenuName) : ''
+            const extraTokenCounts = new Map<string, { raw: string; count: number }>()
+            for (const m of (p.name || '').matchAll(/\(([^)]+)\)/g)) {
+              const groupContent = m[1].trim()
+              if (baseNorm && baseNorm.includes(normalizeModText(`(${groupContent})`))) continue
+              for (const rawTok of groupContent.split(',')) {
+                const tok = rawTok.trim()
+                const tokNorm = normalizeModText(tok)
+                if (!tok || !tokNorm || tokNorm === 'in store' || /^\d+\s*-\s*\d+\s*people$/.test(tokNorm)) continue
+                if (resolvedNormSet.has(tokNorm)) continue
+                const prev = extraTokenCounts.get(tokNorm) || { raw: tok, count: 0 }
+                prev.count += 1
+                extraTokenCounts.set(tokNorm, prev)
+              }
+            }
+            for (const { raw, count } of extraTokenCounts.values()) {
+              resolvedMods.push({ name: raw, quantity: count * sQty })
+            }
+          }
+
+          return {
+            guid: p.guid,
+            name: baseMenuName || p.name,
+            price: p.unit_price || 0,
+            quantity: p.quantity,
+            modifiers: resolvedMods,
+          }
+        }),
+      })
     }
 
     const codexOutput = calculateDailyOrderConsumption(
       Number(dbStoreId) || 14,
       businessDate,
-      [synthesizedTicket],
+      synthesizedTickets,
       (recipesData || []) as any,
       (inventoryItemsData || []) as any
     )
@@ -370,55 +474,74 @@ export async function syncDailyInventoryUsage(
   }
 
   // B) Fallback para insumos/ingredientes adicionales que tengan receta directa en DB pero no estén en el motor de bodega
+  const matchesChannelType = (recipeType: string, groupName?: string) => {
+    if (!recipeType || !recipeType.startsWith('cogs_')) return true
+    const doLower = (groupName && groupName !== 'Uncategorized' ? groupName : 'To Go').toLowerCase()
+    const isDineIn = doLower.includes('here') || doLower.includes('dine')
+    const isDelivery = doLower.includes('uber') || doLower.includes('door') || doLower.includes('grub') || doLower.includes('delivery')
+    const isTakeout = !isDineIn && !isDelivery
+    if (recipeType === 'cogs_dine_in') return isDineIn
+    if (recipeType === 'cogs_delivery') return isDelivery
+    if (recipeType === 'cogs_takeout') return isTakeout
+    return true
+  }
+
   for (const pmixItem of pmixItems) {
     const qtySold = pmixItem.quantity || 0
     if (qtySold <= 0) continue
 
     const dbIngredients = recipeMap.get(pmixItem.guid)
-    if (!dbIngredients || dbIngredients.length === 0) continue
+    if (dbIngredients && dbIngredients.length > 0) {
+      for (const ing of dbIngredients) {
+        if (codexHandledItemIds.has(ing.inventory_item_id)) continue
 
-    for (const ing of dbIngredients) {
-      if (codexHandledItemIds.has(ing.inventory_item_id)) continue
+        const recipeType = ing.type || 'food'
+        if (!matchesChannelType(recipeType, pmixItem.group_name)) continue
 
-      const item = inventoryItemsMap.get(ing.inventory_item_id)
-      if (!item) continue
+        const item = inventoryItemsMap.get(ing.inventory_item_id)
+        if (!item) continue
 
-      let ingQty = Number(ing.quantity) || 0
-      const recipeType = ing.type || 'food'
+        const ingQty = Number(ing.quantity) || 0
+        const rawUsage = calculateRawUsage(
+          ingQty,
+          ing.unit || 'oz',
+          item.yield_percent || 100,
+          recipeType
+        )
 
-      const rawUsage = calculateRawUsage(
-        ingQty,
-        ing.unit || 'oz',
-        item.yield_percent || 100,
-        recipeType
-      )
+        const itemUsage = calculateInventoryUsage(
+          rawUsage.quantity * qtySold,
+          rawUsage.unit,
+          item.unit_type || 'pza',
+          item.quantity_per_unit
+        )
 
-      const itemUsage = calculateInventoryUsage(
-        rawUsage.quantity * qtySold,
-        rawUsage.unit,
-        item.unit_type || 'pza',
-        item.quantity_per_unit
-      )
-
-      const current = usageAccumulator.get(item.id) || 0
-      usageAccumulator.set(item.id, current + itemUsage)
+        const current = usageAccumulator.get(item.id) || 0
+        usageAccumulator.set(item.id, current + itemUsage)
+      }
     }
 
-    // Modificadores para items no cubiertos por CODEX
+    // Modificadores para items no cubiertos por CODEX (`modifier_guids` ya viene pre-escalado por Toast)
     if (Array.isArray(pmixItem.modifier_guids) && pmixItem.modifier_guids.length > 0) {
-      for (const modGuid of pmixItem.modifier_guids) {
+      const modCounts = new Map<string, number>()
+      for (const g of pmixItem.modifier_guids) {
+        if (g) modCounts.set(g, (modCounts.get(g) || 0) + 1)
+      }
+      for (const [modGuid, rawCount] of modCounts.entries()) {
+        const effectiveModCount = Math.min(rawCount, Math.max(1, qtySold))
         const modIngredients = recipeMap.get(modGuid)
         if (!modIngredients || modIngredients.length === 0) continue
 
         for (const modIng of modIngredients) {
           if (codexHandledItemIds.has(modIng.inventory_item_id)) continue
 
+          const modRecipeType = modIng.type || 'food'
+          if (!matchesChannelType(modRecipeType, pmixItem.group_name)) continue
+
           const modItem = inventoryItemsMap.get(modIng.inventory_item_id)
           if (!modItem) continue
 
           const modIngQty = Number(modIng.quantity) || 0
-          const modRecipeType = modIng.type || 'food'
-
           const rawUsage = calculateRawUsage(
             modIngQty,
             modIng.unit || 'oz',
@@ -427,7 +550,7 @@ export async function syncDailyInventoryUsage(
           )
 
           const itemUsage = calculateInventoryUsage(
-            rawUsage.quantity * qtySold,
+            rawUsage.quantity * effectiveModCount,
             rawUsage.unit,
             modItem.unit_type || 'pza',
             modItem.quantity_per_unit

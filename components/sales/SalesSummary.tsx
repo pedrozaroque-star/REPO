@@ -4,12 +4,13 @@
  * @businessRules
  * - Calculates Average Ticket = Net Sales / Order Count safely with 0 division guard.
  * - Displays Prime Cost = Labor % + Food Cost % only when valid Food Cost % > 0 is loaded.
+ * - Displays pure Food Cost % and optional separated Packaging % subtitle when available.
  * - Unified semantic styling badges using shared thresholds: critical (>35%), warning (32-35%), and healthy (<=32%).
  * @dataFlow
  * - Props (data, foodCost) -> Framer Motion Cards -> UI Grid.
  * @notes
  * - RESPONSIVE: el monto principal usa `FitValue` (container query) para no salirse de la tarjeta en teléfonos; 2 columnas en vertical, 3-4 en horizontal y escritorio.
- * - [2026-11-23] Guardias contra `0.0%` falso verde (`costPercentage > 0`), `Number.isFinite`, claves `id` estables y grid dinámico 3 vs 4 columnas.
+ * - [2026-11-23] Guardias contra `0.0%` falso verde (`costPercentage > 0`), `Number.isFinite`, claves `id` estables y separación de `Empaque %` en subtítulo.
  */
 'use client'
 
@@ -17,7 +18,10 @@ import React from 'react'
 import { DollarSign, ShoppingBag, Clock, UtensilsCrossed, AlertTriangle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
-import { FOOD_COST_HEALTHY_MAX, FOOD_COST_WARNING_MAX, formatSignedUSD } from '@/lib/inventory/food-cost-sales-resolver'
+import {
+    getFoodCostStatus,
+    formatSignedUSD,
+} from '@/lib/inventory/food-cost-sales-resolver'
 import FitValue from './FitValue'
 
 interface SummaryProps {
@@ -35,6 +39,8 @@ interface SummaryProps {
     foodCost?: {
         totalCost: number
         costPercentage: number
+        totalPackagingCost?: number
+        packagingPercentage?: number
         loading: boolean
     } | null
 }
@@ -60,11 +66,14 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
     const fcPct = Number.isFinite(rawFcPct) ? rawFcPct : 0
     const rawFcCost = Number(foodCost?.totalCost ?? 0)
     const fcCost = Number.isFinite(rawFcCost) ? rawFcCost : 0
+    const rawPkgPct = Number(foodCost?.packagingPercentage ?? 0)
+    const pkgPct = Number.isFinite(rawPkgPct) && rawPkgPct > 0 ? rawPkgPct : 0
     const hasFoodCost = Boolean(foodCost && !foodCost.loading && fcCost > 0 && fcPct > 0)
-    const isFcHigh = fcPct > FOOD_COST_WARNING_MAX
-    const isFcWarning = fcPct > FOOD_COST_HEALTHY_MAX && fcPct <= FOOD_COST_WARNING_MAX
+    const fcStatus = getFoodCostStatus(fcPct)
+    const isFcHigh = fcStatus === 'critical'
+    const isFcWarning = fcStatus === 'warning'
 
-    // Prime Cost = Labor % + Food Cost %
+    // Prime Cost = Labor % + Food Cost % (pure food + direct labor)
     const primeCostPct = hasFoodCost ? laborPercentage + fcPct : 0
 
     const cards = [
@@ -102,13 +111,17 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
         }
     ]
 
+    const fcSubText = pkgPct > 0
+        ? `${t('sales.summary.theo_cost')}: ${formatCurrency(fcCost)} · ${t('sales.summary.packaging_sub')}: ${pkgPct.toFixed(1)}%`
+        : `${t('sales.summary.theo_cost')}: ${formatCurrency(fcCost)}`
+
     const foodCostCard = hasFoodCost ? {
         id: 'food_cost',
         title: t('sales.summary.food_cost'),
         value: `${fcPct.toFixed(1)}%`,
-        subValue: `${t('sales.summary.theo_cost')}: ${formatCurrency(fcCost)}`,
+        subValue: fcSubText,
         secondarySubValue: isFcHigh ? t('sales.summary.fc_critical') : isFcWarning ? t('sales.summary.fc_warning') : t('sales.summary.fc_healthy'),
-        status: isFcHigh ? 'critical' : isFcWarning ? 'warning' : 'healthy',
+        status: fcStatus,
         icon: isFcHigh ? AlertTriangle : UtensilsCrossed,
         color: isFcHigh ? 'text-rose-500' : isFcWarning ? 'text-yellow-500' : 'text-teal-500',
         bg: isFcHigh ? 'bg-rose-500/10' : isFcWarning ? 'bg-yellow-500/10' : 'bg-teal-500/10',

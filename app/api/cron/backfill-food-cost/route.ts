@@ -11,10 +11,17 @@
  *
  * @notes
  * - Autenticación Fail-Closed mediante `verifyStaffAuth` (`CRON_SECRET` o rol `admin`/`supervisor`).
+ * - [2026-11-23] Paginación determinista `.order('id').range()` en `food_cost_daily_cache` (inmune al tope de 1,000 filas en rangos > 66 días), invocación directa in-process `foodCostGet` con fallback HTTP seguro, reseteo de `consecutiveErrors` tras éxito y eliminación del borrado destructivo previo al fetch en modo `force=true`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { buildInternalCronAuthHeaders, verifyStaffAuth } from '@/lib/auth-server'
+import {
+    addDaysIso,
+    isInvalidFoodCostCacheRow,
+    isValidIsoDate,
+} from '@/lib/inventory/food-cost-sales-resolver'
+import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 
 export const maxDuration = 300 // 5 min max (Vercel Pro)
 
@@ -30,38 +37,64 @@ export async function GET(request: NextRequest) {
         const endDate = searchParams.get('endDate')
         const force = searchParams.get('force') === 'true'
 
-        if (!startDate || !endDate) {
+        if (!startDate || !endDate || !isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
             return NextResponse.json({ 
-                error: 'Parámetros requeridos: startDate y endDate (YYYY-MM-DD)',
+                error: 'Parámetros requeridos válidos: startDate y endDate (YYYY-MM-DD con startDate <= endDate)',
                 ejemplo: '/api/cron/backfill-food-cost?startDate=2026-01-01&endDate=2026-04-26'
             }, { status: 400 })
         }
 
         const supabase = await getSupabaseAdminClient()
 
-        // 1. Generar lista de todas las fechas en el rango
+        // 1. Generar lista de todas las fechas en el rango usando aritmética UTC pura (inmune a DST)
         const allDates: string[] = []
-        const cursor = new Date(startDate + 'T12:00:00') // noon to avoid timezone issues
-        const end = new Date(endDate + 'T12:00:00')
-
-        while (cursor <= end) {
-            const y = cursor.getFullYear()
-            const m = String(cursor.getMonth() + 1).padStart(2, '0')
-            const d = String(cursor.getDate()).padStart(2, '0')
-            allDates.push(`${y}-${m}-${d}`)
-            cursor.setDate(cursor.getDate() + 1)
+        let cur = startDate
+        while (cur <= endDate) {
+            allDates.push(cur)
+            cur = addDaysIso(cur, 1)
         }
 
-        // 2. Obtener fechas que ya tienen cache
-        const { data: existingRows } = await supabase
-            .from('food_cost_daily_cache')
-            .select('business_date')
-            .gte('business_date', startDate)
-            .lte('business_date', endDate)
+        // 2. Obtener conteo de tiendas activas y paginar food_cost_daily_cache (> 1,000 filas seguro)
+        const { data: activeStores } = await supabase
+            .from('stores')
+            .select('external_id')
+            .eq('is_active', true)
+        const validActiveCount = (activeStores || []).filter(s => Boolean(s.external_id)).length
+        const minStoresForCompleteDay = Math.max(1, validActiveCount - 1)
 
-        const existingDates = new Set(
-            (existingRows || []).map(r => r.business_date)
-        )
+        const existingRows: { id: string; business_date: string; store_id: string; total_cost: number; net_sales: number }[] = []
+        let offset = 0
+        const PAGE_SIZE = 1000
+        while (true) {
+            const { data: page, error: pageErr } = await supabase
+                .from('food_cost_daily_cache')
+                .select('id, business_date, store_id, total_cost, net_sales')
+                .gte('business_date', startDate)
+                .lte('business_date', endDate)
+                .order('id', { ascending: true })
+                .range(offset, offset + PAGE_SIZE - 1)
+            if (pageErr) throw pageErr
+            if (!page || page.length === 0) break
+            existingRows.push(...page)
+            if (page.length < PAGE_SIZE) break
+            offset += PAGE_SIZE
+        }
+
+        const validStoresPerDate = new Map<string, Set<string>>()
+        for (const r of existingRows) {
+            if (isInvalidFoodCostCacheRow(Number(r.total_cost) || 0, Number(r.net_sales) || 0)) continue
+            if (!validStoresPerDate.has(r.business_date)) {
+                validStoresPerDate.set(r.business_date, new Set())
+            }
+            validStoresPerDate.get(r.business_date)!.add(r.store_id)
+        }
+
+        const existingDates = new Set<string>()
+        validStoresPerDate.forEach((storesSet, dt) => {
+            if (storesSet.size >= minStoresForCompleteDay) {
+                existingDates.add(dt)
+            }
+        })
 
         // 3. Filtrar solo las que faltan (o todas si force=true)
         const datesToProcess = force 
@@ -81,57 +114,79 @@ export async function GET(request: NextRequest) {
             })
         }
 
-        const baseUrl = process.env.VERCEL_URL 
-            ? `https://${process.env.VERCEL_URL}` 
-            : `http://localhost:${process.env.PORT || 3000}`
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+            ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
+            : (process.env.VERCEL_PROJECT_PRODUCTION_URL
+                ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+                : (process.env.VERCEL_URL
+                    ? `https://${process.env.VERCEL_URL}`
+                    : `http://localhost:${process.env.PORT || 3000}`))
 
-        const results: { date: string; status: string; error?: string }[] = []
+        const results: { date: string; status: string; items?: number; error?: string }[] = []
         let successCount = 0
-        let errorCount = 0
+        let totalErrorCount = 0
+        let consecutiveErrors = 0
 
-        // 4. Procesar secuencialmente (evita sobrecargar Toast API)
+        // 4. Procesar secuencialmente (evita sobrecargar Toast API; NUNCA borra caché antes del fetch)
         for (const dateStr of datesToProcess) {
+            const fetchStartedIso = new Date().toISOString()
             try {
-                // Borrar cache anterior si existe (para force mode)
-                if (force) {
+                console.log(`🔄 [BACKFILL] Calculando ${dateStr} (${results.length + 1}/${datesToProcess.length})...`)
+
+                let itemCount = 0
+                try {
+                    const directReq = new NextRequest(
+                        `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`,
+                        { headers: buildInternalCronAuthHeaders(request) }
+                    )
+                    const directRes = await foodCostGet(directReq)
+                    if (!directRes.ok) {
+                        const errTxt = await directRes.text().catch(() => 'Unknown error')
+                        throw new Error(`In-process ${directRes.status}: ${errTxt.substring(0, 200)}`)
+                    }
+                    const directJson = await directRes.json()
+                    itemCount = directJson.data?.length || 0
+                } catch (inProcessErr: any) {
+                    console.warn(`⚠️ [BACKFILL] In-process falló en ${dateStr} (${inProcessErr.message}), usando fallback HTTP...`)
+                    const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
+                    const res = await fetch(apiUrl, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...buildInternalCronAuthHeaders(request)
+                        },
+                        signal: AbortSignal.timeout(60000)
+                    })
+                    if (!res.ok) {
+                        const errText = await res.text().catch(() => 'Unknown error')
+                        throw new Error(`API ${res.status}: ${errText.substring(0, 200)}`)
+                    }
+                    const json = await res.json()
+                    itemCount = json.data?.length || 0
+                }
+
+                // En modo force=true, limpiar filas huérfanas antiguas ÚNICAMENTE DESPUÉS de que el nuevo cálculo haya hecho upsert exitoso
+                if (force && itemCount > 0) {
                     await supabase
                         .from('food_cost_daily_cache')
                         .delete()
                         .eq('business_date', dateStr)
+                        .lt('updated_at', fetchStartedIso)
                 }
-
-                const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
-                
-                console.log(`🔄 [BACKFILL] Calculando ${dateStr} (${results.length + 1}/${datesToProcess.length})...`)
-
-                const res = await fetch(apiUrl, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...buildInternalCronAuthHeaders(request)
-                    },
-                    signal: AbortSignal.timeout(60000) // 60s timeout per day
-                })
-
-                if (!res.ok) {
-                    const errText = await res.text().catch(() => 'Unknown error')
-                    throw new Error(`API ${res.status}: ${errText.substring(0, 200)}`)
-                }
-
-                const json = await res.json()
-                const itemCount = json.data?.length || 0
 
                 console.log(`✅ [BACKFILL] ${dateStr}: ${itemCount} items`)
-                results.push({ date: dateStr, status: 'ok' })
+                results.push({ date: dateStr, status: itemCount > 0 ? 'ok' : 'empty_pmix', items: itemCount })
                 successCount++
+                consecutiveErrors = 0 // Resetear racha de errores tras éxito
 
             } catch (e: any) {
                 console.error(`❌ [BACKFILL] ${dateStr}: ${e.message}`)
                 results.push({ date: dateStr, status: 'error', error: e.message })
-                errorCount++
+                totalErrorCount++
+                consecutiveErrors++
 
-                // Si hay muchos errores consecutivos, pausar para no saturar
-                if (errorCount >= 5) {
-                    console.warn('⚠️ [BACKFILL] Demasiados errores consecutivos, deteniendo.')
+                // Si hay 5 errores CONSECUTIVOS, pausar para no saturar Toast API
+                if (consecutiveErrors >= 5) {
+                    console.warn('⚠️ [BACKFILL] 5 errores consecutivos alcanzados, deteniendo ejecución.')
                     break
                 }
             }
@@ -140,15 +195,17 @@ export async function GET(request: NextRequest) {
             await new Promise(resolve => setTimeout(resolve, 1000))
         }
 
-        console.log(`🏁 [BACKFILL] Completado: ${successCount} OK, ${errorCount} errores de ${datesToProcess.length} días.`)
+        console.log(`🏁 [BACKFILL] Completado: ${successCount} OK, ${totalErrorCount} errores de ${datesToProcess.length} días.`)
 
         return NextResponse.json({
             success: true,
             totalDays: allDates.length,
             alreadyCached: existingDates.size,
-            processed: datesToProcess.length,
+            processed: results.length,
+            requestedToProcess: datesToProcess.length,
             successCount,
-            errorCount,
+            errorCount: totalErrorCount,
+            stoppedByConsecutiveErrors: consecutiveErrors >= 5,
             results
         })
 

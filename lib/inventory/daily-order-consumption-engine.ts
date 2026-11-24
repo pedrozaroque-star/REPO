@@ -167,6 +167,8 @@
  *     `inventory_items` (ej. `3c48a147...` "1100Y Tortilla, Tacos y Platos" frente al SKU activo
  *     de plantilla diaria `dcd79433...` "1100 Tortilla,White Corn 4.7OZ 60CT") capturen el consumo
  *     según el orden de lectura o paginación de PostgreSQL.
+ *   - [2026-11-23] Alineada combinación aditiva `Carne Dorada + Extra/Doble/Double Meat` en tacos
+ *     (`(isExtra ? 3.0 : 1.5) + (isDorada ? 0.4 : 0) = 3.4 oz`) para paridad 1:1 con `meat-allocation.ts`.
  */
 
 import { PARTY_TRAY_GUIDELINES, resolvePartyTraySize } from './party-tray-guidelines'
@@ -813,9 +815,9 @@ export function calculateDailyOrderConsumption(
         const isOneTortilla = mods.some(m => /1\s*tortilla/.test(m.norm))
         cornTortillaCount += (isOneTortilla ? 1 : 2) * sQty
 
-        const isExtra = mods.some(m => /^(?:extra|doble)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
+        const isExtra = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s*\(in store\))?$/.test(m.norm))
         const isDorada = mods.some(m => /dorada/.test(m.norm))
-        const tacoMeatOz = isDorada ? 1.9 : (isExtra ? 3.0 : 1.5)
+        const tacoMeatOz = (isExtra ? 3.0 : 1.5) + (isDorada ? 0.4 : 0)
 
         const meatFound = applyNamedMeatPortion(tacoMeatOz)
         if (!meatFound && !/vegetar|veggie|vegie/.test(normName)) {

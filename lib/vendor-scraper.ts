@@ -21,6 +21,8 @@
  *   - Extrae directamente JSON estructurado de la API interna v3 de Viele & Sons.
  *   - [2026-10-26] Fix crítico: Respaldo automático de credenciales desde VIELE_STORE_ACCOUNTS_JSON (Sucursal #14 Lynwood)
  *     cuando VIELE_PORTAL_USER / VIELE_PORTAL_PASS no están definidas por separado, y deduplicación de cookies en Fetch.
+ *   - [2026-11-23] Pasado `sku` (`d.ItemID`) como 3er argumento a `inferPackQuantity(packUnit, description, sku)` para
+ *     garantizar resolución exacta 87/87 contra `VIELE_CATALOG_87` en sincronización directa API v3.
  */
 import { ParsedSupplierItem, cleanPriceNumber, inferPackQuantity } from './supplier-price-parser'
 import { execFile } from 'child_process'
@@ -302,7 +304,7 @@ export async function syncVielePortalDirect(
       const description = (d.Description || '').trim()
       const packUnit = (d.UnitOfMeasure || 'CS').trim().toUpperCase()
       const casePrice = cleanPriceNumber(d.Price)
-      const packQuantity = inferPackQuantity(packUnit, description)
+      const packQuantity = inferPackQuantity(packUnit, description, sku)
       const comment = (d.Comment || '').trim()
 
       return {

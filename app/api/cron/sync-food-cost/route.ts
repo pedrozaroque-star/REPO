@@ -32,11 +32,21 @@
  * - En desarrollo local usa `http://localhost:3000` como baseUrl.
  * - [2026-07-27] CAPA B: Agregada detección automática de anomalías (items con FC > 100%).
  * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
+ * - [2026-11-23] FIX CRÍTICO: (1) Eliminado bug de fin de mes garantizando que `datesToSync` SIEMPRE cubra al menos
+ *   los últimos 7 días laborales cerrados (incluyendo `yesterday` el día 1 de cada mes) más todo el MTD;
+ *   (2) Validación de cobertura completa de tiendas (`>= 14`) y que el caché haya sido escrito DESPUÉS del cierre de las 06:00 AM LA;
+ *   (3) Persistido `toast_item_guid: a.guid || null`, sucursal `[Store] Item` en `item_name` y `store_number`/`store_name` dinámicos.
  */
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { buildInternalCronAuthHeaders, verifyStaffAuth } from '@/lib/auth-server'
+import {
+    addDaysIso,
+    getBusinessDateLA,
+    isInvalidFoodCostCacheRow,
+} from '@/lib/inventory/food-cost-sales-resolver'
 import { syncDailyInventoryUsage } from '@/lib/inventory/usage-sync'
+import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 
 export const maxDuration = 300 // 5 minutos máximo en Vercel (Pro)
 
@@ -48,97 +58,114 @@ export async function GET(request: Request) {
         }
 
         const supabase = await getSupabaseAdminClient()
-
-        // 1. Obtener fecha actual en LA timezone
         const now = new Date()
-        const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-        // Regla de las 6 AM: si es antes de las 6am, el "hoy" operativo es ayer
-        if (laNow.getHours() < 6) laNow.setDate(laNow.getDate() - 1)
+        // 1. Obtener fecha laboral actual en LA timezone (regla 06:00 AM)
+        const todayBusinessDate = getBusinessDateLA(now)
+        const yesterdayStr = addDaysIso(todayBusinessDate, -1)
+        const sevenDaysAgoStr = addDaysIso(todayBusinessDate, -7)
+        const firstOfMonthStr = `${todayBusinessDate.slice(0, 8)}01`
 
-        // 2. Rango: día 1 del mes actual → ayer (solo días finalizados, NO hoy)
-        const yesterday = new Date(laNow)
-        yesterday.setDate(yesterday.getDate() - 1)
-        const firstOfMonth = new Date(laNow.getFullYear(), laNow.getMonth(), 1)
+        // Garantizar SIEMPRE al menos los últimos 7 días cerrados (incluyendo yesterday el día 1 del mes) + MTD completo
+        const rangeStartStr = firstOfMonthStr < sevenDaysAgoStr ? firstOfMonthStr : sevenDaysAgoStr
 
         const datesToSync: string[] = []
-        const cursor = new Date(firstOfMonth)
-        while (cursor <= yesterday) {
-            const y = cursor.getFullYear()
-            const m = String(cursor.getMonth() + 1).padStart(2, '0')
-            const day = String(cursor.getDate()).padStart(2, '0')
-            datesToSync.push(`${y}-${m}-${day}`)
-            cursor.setDate(cursor.getDate() + 1)
+        let cur = rangeStartStr
+        while (cur <= yesterdayStr) {
+            datesToSync.push(cur)
+            cur = addDaysIso(cur, 1)
         }
 
-        console.log(`⏰ [CRON FOOD-COST] Sincronizando ${datesToSync.length} días: ${datesToSync[0]} → ${datesToSync[datesToSync.length - 1]}`)
+        // Cargar tiendas activas y detectar dinámicamente columnas opcionales de sucursal en food_cost_anomalies
+        const { data: activeStoresData } = await supabase
+            .from('stores')
+            .select('id, name, external_id')
+            .eq('is_active', true)
+        const validActiveStores = (activeStoresData || []).filter(s => Boolean(s.external_id))
+        const storeByExternalId = new Map<string, { id: number; name: string; external_id: string }>(
+            validActiveStores.map(s => [s.external_id as string, { id: Number(s.id), name: s.name || 'Unknown', external_id: s.external_id as string }])
+        )
+        const minExpectedStores = Math.max(1, validActiveStores.length - 1)
+
+        const { error: storeColsProbeErr } = await supabase
+            .from('food_cost_anomalies')
+            .select('store_number, store_name')
+            .limit(0)
+        const hasAnomalyStoreCols = !storeColsProbeErr
+
+        console.log(`⏰ [CRON FOOD-COST] Sincronizando ${datesToSync.length} días cerrados: ${datesToSync[0]} → ${datesToSync[datesToSync.length - 1]} (hoy laboral=${todayBusinessDate})`)
 
         const results = []
 
-        // 3. Para cada día, verificar si ya hay cache y si no, calcular
+        // 3. Para cada día, verificar si ya hay cache completo post-cierre y fresco (<12h); si no, recalcular
         for (const dateStr of datesToSync) {
             try {
-                // Verificar si ya existe cache para este día
-                const { data: existing, error: checkErr } = await supabase
+                const { data: cachedDayRows, error: checkErr } = await supabase
                     .from('food_cost_daily_cache')
-                    .select('business_date')
+                    .select('store_id, total_cost, net_sales, updated_at')
                     .eq('business_date', dateStr)
-                    .limit(1)
 
                 if (checkErr) {
                     console.error(`❌ [CRON FOOD-COST] Error verificando cache para ${dateStr}:`, checkErr.message)
                 }
 
-                // Si ya tiene cache, verificar si es "fresco" (menos de 12h)
-                // Si es viejo, recalcular para capturar ajustes de gerentes
-                const { data: freshCheck } = await supabase
-                    .from('food_cost_daily_cache')
-                    .select('updated_at')
-                    .eq('business_date', dateStr)
-                    .order('updated_at', { ascending: false })
-                    .limit(1)
-
-                const isStale = !freshCheck || freshCheck.length === 0 || (() => {
-                    const updatedAt = new Date(freshCheck[0].updated_at)
+                const validRows = (cachedDayRows || []).filter(
+                    r => !isInvalidFoodCostCacheRow(Number(r.total_cost) || 0, Number(r.net_sales) || 0)
+                )
+                const hasCompleteStoreCoverage = validRows.length >= minExpectedStores
+                // Toda fila debe haberse calculado DESPUÉS de que cerró `dateStr` (regla 6 AM LA) y hace menos de 12h
+                const isFinalizedAndFresh = hasCompleteStoreCoverage && validRows.every(r => {
+                    if (!r.updated_at) return false
+                    const updatedAt = new Date(r.updated_at)
+                    const writtenBizDate = getBusinessDateLA(updatedAt)
                     const hoursAgo = (now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60)
-                    return hoursAgo > 12 // Recalcular si tiene más de 12 horas
-                })()
+                    return writtenBizDate > dateStr && hoursAgo <= 12
+                })
 
-                if (existing && existing.length > 0 && !isStale) {
-                    console.log(`⏭️ [CRON FOOD-COST] Cache fresco para ${dateStr}, saltando.`)
-                    results.push({ date: dateStr, status: 'skipped_fresh_cache' })
+                if (isFinalizedAndFresh) {
+                    console.log(`⏭️ [CRON FOOD-COST] Cache cerrado y fresco para ${dateStr} (${validRows.length} tiendas), saltando.`)
+                    results.push({ date: dateStr, status: 'skipped_fresh_cache', stores: validRows.length })
                     continue
                 }
 
-                // 4. Llamar a la API de food-cost que ya hace upsert atómico internamente
-
-                // 5. Llamar a la API de food-cost que ya tiene todo el cálculo + write-through
-                const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
-                    ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
-                    : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
-                        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
-                        : (process.env.VERCEL_URL 
-                            ? `https://${process.env.VERCEL_URL}` 
-                            : 'http://localhost:3000'))
-                
-                const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
-                
                 console.log(`🔄 [CRON FOOD-COST] Calculando ${dateStr}...`)
-                
-                const res = await fetch(apiUrl, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...buildInternalCronAuthHeaders(request)
-                    }
-                })
+                let json: any = null
 
-                if (!res.ok) {
-                    const errorText = await res.text()
-                    throw new Error(`API responded ${res.status}: ${errorText}`)
+                try {
+                    const directReq = new NextRequest(
+                        `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`,
+                        { headers: buildInternalCronAuthHeaders(request) }
+                    )
+                    const directRes = await foodCostGet(directReq)
+                    if (!directRes.ok) {
+                        const errTxt = await directRes.text().catch(() => '')
+                        throw new Error(`In-process responded ${directRes.status}: ${errTxt}`)
+                    }
+                    json = await directRes.json()
+                } catch (inProcErr: any) {
+                    console.warn(`⚠️ [CRON FOOD-COST] In-process falló en ${dateStr} (${inProcErr.message}), usando fallback HTTP...`)
+                    const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+                        ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
+                        : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
+                            ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
+                            : (process.env.VERCEL_URL 
+                                ? `https://${process.env.VERCEL_URL}` 
+                                : 'http://localhost:3000'))
+                    const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
+                    const res = await fetch(apiUrl, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...buildInternalCronAuthHeaders(request)
+                        }
+                    })
+                    if (!res.ok) {
+                        const errorText = await res.text()
+                        throw new Error(`API responded ${res.status}: ${errorText}`)
+                    }
+                    json = await res.json()
                 }
 
-                const json = await res.json()
-                const itemCount = json.data?.length || 0
+                const itemCount = json?.data?.length || 0
 
                 // ═══ CAPA B: Detección automática de anomalías de Food Cost ═══
                 // Previene bugs tipo Milaneza (FC 560% por 5 meses sin detectar)
@@ -154,19 +181,33 @@ export async function GET(request: Request) {
                     if (anomalies.length > 0) {
                         console.warn(`🚨 [CRON FOOD-COST] ¡ANOMALÍAS DETECTADAS en ${dateStr}! ${anomalies.length} items con FC > 100%:`)
                         anomalies.slice(0, 10).forEach((a: any) => {
-                            console.warn(`   🔴 "${a.name}" — FC: ${Number(a.food_cost_percent).toFixed(1)}% | Cost: $${Number(a.total_cost).toFixed(2)} | Qty: ${a.quantity}`)
+                            console.warn(`   🔴 [${a.store_name || 'Store'}] "${a.name}" — FC: ${Number(a.food_cost_percent).toFixed(1)}% | Cost: $${Number(a.total_cost).toFixed(2)} | Qty: ${a.quantity}`)
                         })
 
-                        // Persistir anomalías en la tabla food_cost_anomalies
-                        const anomalyRows = anomalies.map((a: any) => ({
-                            business_date: dateStr,
-                            item_name: a.name,
-                            toast_item_guid: a.toast_guid || null,
-                            food_cost_percent: Number(a.food_cost_percent),
-                            total_cost: Number(a.total_cost),
-                            quantity: Number(a.quantity) || 0,
-                            severity: Number(a.food_cost_percent) > 200 ? 'critical' : 'warning'
-                        }))
+                        // Persistir anomalías en food_cost_anomalies incluyendo sucursal y toast_item_guid real
+                        const anomalyRows = anomalies.map((a: any) => {
+                            const matchedStore = a.store_id ? storeByExternalId.get(a.store_id) : undefined
+                            const storeLabel = (a.store_name || matchedStore?.name || '').trim()
+                            const rawItemName = String(a.name || 'Unknown Item')
+                            const labeledItemName = storeLabel && !rawItemName.startsWith(`[${storeLabel}]`)
+                                ? `[${storeLabel}] ${rawItemName}`
+                                : rawItemName
+
+                            const row: Record<string, any> = {
+                                business_date: dateStr,
+                                item_name: labeledItemName,
+                                toast_item_guid: a.guid || a.toast_guid || null,
+                                food_cost_percent: Number(Number(a.food_cost_percent || 0).toFixed(2)),
+                                total_cost: Number(Number(a.total_cost || 0).toFixed(2)),
+                                quantity: Math.round(Number(a.quantity) || 0),
+                                severity: Number(a.food_cost_percent) > 200 ? 'critical' : 'warning'
+                            }
+                            if (hasAnomalyStoreCols) {
+                                row.store_number = matchedStore?.id ? Number(matchedStore.id) : null
+                                row.store_name = storeLabel || null
+                            }
+                            return row
+                        })
 
                         // Borrar anomalías previas del mismo día para evitar duplicados
                         await supabase
@@ -200,8 +241,7 @@ export async function GET(request: Request) {
 
                 // Sincronizar consumo teórico desglosado por ingrediente en inventory_usage_log
                 try {
-                    const { data: activeStores } = await supabase.from('stores').select('external_id').eq('is_active', true)
-                    for (const s of (activeStores || [])) {
+                    for (const s of validActiveStores) {
                         if (s.external_id) {
                             await syncDailyInventoryUsage(s.external_id, dateStr)
                         }

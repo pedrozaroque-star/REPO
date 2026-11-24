@@ -15,9 +15,16 @@
  * - Dado el límite estricto de Toast API, las fechas se procesan de forma estrictamente secuencial para evitar errores 429.
  * - [2026-07-26] BUGFIX: Evita usar caché de PMIX incompleta (creada por pedidos a futuro o catering antes del día operativo real) comprobando que `updated_at` (en Los Angeles time) no sea anterior a `business_date`.
  * - [2026-09-09] BUGFIX & HARDENING: Escritura de caché convertida a síncrona (await) para evitar pérdida de promesas en serverless. Añadido candado de seguridad (Guard Clause) que bloquea Live Fetch a Toast en fechas con más de 120 días de antigüedad cuando no se solicite forzado explícito (skipCache).
+ * - [2026-11-23] BUGFIX CRÍTICO: (1) Aplicada regla corporativa de 06:00 AM (`getBusinessDateLA()`) en `todayLa` e `isDirty` para impedir que entre 12:00 AM y 5:59 AM PT se congele `pmix_daily_cache` a medianoche perdiendo las órdenes nocturnas (12 AM–4 AM); (2) Corregida doble resta de `childGross` en `unitPrice` (`selfGross / qty`); (3) Acotados los reintentos por `429` a un máximo de 4 por página con backoff progresivo.
  */
 import { getAuthToken, getDiningOptions } from './toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import {
+    addDaysIso,
+    diffCalendarDays,
+    getBusinessDateLA,
+    getLANowParts,
+} from '@/lib/inventory/food-cost-sales-resolver'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
@@ -104,24 +111,23 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
     }
 
     const datesToFetch: string[] = []
-    const curDateObj = new Date(startDate)
-    const lastDateObj = new Date(endDate)
-
-    while (curDateObj <= lastDateObj) {
-        datesToFetch.push(curDateObj.toISOString().split('T')[0])
-        curDateObj.setDate(curDateObj.getDate() + 1)
+    let curDate = startDate
+    while (curDate <= endDate) {
+        datesToFetch.push(curDate)
+        curDate = addDaysIso(curDate, 1)
     }
 
-    const nowStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
-    const [mm, dd, yyyy] = nowStr.split('/')
-    const todayLa = `${yyyy}-${mm}-${dd}`
+    // Regla corporativa de las 06:00 AM (America/Los_Angeles):
+    // Entre 12:00 AM y 05:59 AM PT, el día laboral del día anterior sigue ABIERTO (`isDirty = true`),
+    // impidiendo que se congele `pmix_daily_cache` a medianoche y se pierdan las órdenes de 12 AM–4 AM.
+    const todayLa = getBusinessDateLA()
     const supabase = await getSupabaseAdminClient()
 
     // Process dates strictly sequentially. 
     // Toast strictly rate-limits the ordersBulk endpoint; concurrent dates trigger 429
     for (const dateStr of datesToFetch) {
         const businessDate = dateStr.replace(/-/g, '')
-        const isDirty = (dateStr === todayLa)
+        const isDirty = (dateStr >= todayLa)
 
         // SELF-HEALING CACHE CHECK
         if (!options.skipCache && !isDirty) {
@@ -134,16 +140,9 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
             if (!cacheErr && cachedData && cachedData.items && Array.isArray(cachedData.items) && cachedData.items.length > 0) {
                 // Validación defensiva: verificar si la caché se generó ANTES de la fecha operativa
-                // Esto pasa si hay un pedido a futuro en Toast (como catering) y se procesa antes de la fecha operativa real.
-                // Si updated_at::date es menor que business_date, la caché está incompleta.
+                // (ej. pedido a futuro / catering procesado antes de la fecha operativa real).
                 const updatedAt = new Date(cachedData.updated_at)
-                // Convertir updated_at (que está en UTC) a la fecha de Los Ángeles
-                const updatedAtLA = new Date(updatedAt.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                
-                const y = updatedAtLA.getFullYear()
-                const m = String(updatedAtLA.getMonth() + 1).padStart(2, '0')
-                const d = String(updatedAtLA.getDate()).padStart(2, '0')
-                const updatedAtDateStr = `${y}-${m}-${d}`
+                const updatedAtDateStr = getLANowParts(updatedAt).calendarDate
 
                 if (updatedAtDateStr < dateStr) {
                     console.log(`[PMIX Cache BYPASS] Caché de pedido futuro detectada para ${dateStr} (${storeId}). Creado el: ${updatedAtDateStr}. Forzando descarga en vivo.`)
@@ -176,8 +175,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
         // DEFENSIVE GUARD: Prevenir saturación de Toast API (Error 429 y Timeout 504)
         // Si no está en caché y la fecha tiene más de 120 días, NO llamar a Toast en vivo a menos que se fuerce explícitamente (skipCache: true)
-        const targetDateObj = new Date(dateStr + 'T00:00:00')
-        const daysAgo = Math.floor((new Date(todayLa + 'T00:00:00').getTime() - targetDateObj.getTime()) / (1000 * 60 * 60 * 24))
+        const daysAgo = diffCalendarDays(dateStr, todayLa)
         if (!options.skipCache && daysAgo > 120) {
             console.warn(`[PMIX LIVE FETCH BLOCKED] Fecha ${dateStr} (${daysAgo} días atrás) no está en caché. Se omite llamada a Toast API para evitar Error 429 y Timeout 504.`)
             continue
@@ -188,6 +186,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
         let page = 1
         const pageSize = 100
         let hasMore = true
+        let rateLimitRetries = 0
+        const MAX_429_RETRIES = 4
 
         const dayItemMap = new Map<string, ProductMixItem>()
 
@@ -212,13 +212,16 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             if (!res.ok) {
                 const errTxt = await res.text().catch(() => '')
                 console.error(`[PMIX] Error ${res.status}: ${errTxt}`)
-                if (res.status === 429) {
-                    console.warn(`[Toast API] Rate limited on PMIX page ${page}, waiting 5s...`)
-                    await new Promise(r => setTimeout(r, 5000))
+                if (res.status === 429 && rateLimitRetries < MAX_429_RETRIES) {
+                    rateLimitRetries++
+                    const backoffMs = Math.min(5000 * rateLimitRetries, 15000)
+                    console.warn(`[Toast API] Rate limited on PMIX page ${page} (retry ${rateLimitRetries}/${MAX_429_RETRIES}), waiting ${backoffMs}ms...`)
+                    await new Promise(r => setTimeout(r, backoffMs))
                     continue // retry the same page
                 }
-                throw new Error(`Toast API Error (${storeId}): ${res.status}`)
+                throw new Error(`Toast API Error (${storeId}): ${res.status}${res.status === 429 ? ` (exceeded ${MAX_429_RETRIES} rate-limit retries)` : ''}`)
             }
+            rateLimitRetries = 0
 
             const entries = await res.json()
             if (!Array.isArray(entries) || entries.length === 0) {
@@ -345,7 +348,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                 }
                 // End Group Logic
 
-                const unitPrice = qty > 0 ? ((selfGross - (bundleModifiers ? childGross : 0)) / qty) : 0
+                // selfGross at L318 already subtracted childGross; do NOT subtract childGross a second time
+                const unitPrice = qty > 0 ? (selfGross / qty) : 0
 
                 // Add to Map
                 addFn(dayItemMap, guid, name, groupName, qty, net, selfGross, selfDiscount, 0, unitPrice, bundleModifiers ? modGuids : undefined, childGross, halfMeatCount)
@@ -385,9 +389,6 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
         // 1. Merge into Master ItemMap
         dayItems.forEach(item => {
-            // Since group reduction for mergeDiningOptions already happened inside dayItemMap 
-            // via parentGroupName processing, we just dump it in.
-            // But if `addFn` reconstructs key, that's fine.
             addFn(
                 itemMap,
                 item.guid,
@@ -405,19 +406,10 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             )
         });
 
-        // 2. Async Write-Back (Self-Healing Cache)
-        if (!isDirty && dayItems.length > 0) {
-            // We use standard group names during caching to ensure raw reusability, but we already applied mergeDiningOptions to dayItemMap.
-            // CAUTION: If `mergeDiningOptions: true`, dayItems will have "All Channels".
-            // It's safer to always cache the RAW PMIX data.
-            // Oh, wait! If `mergeDiningOptions` is true during a live fetch, we corrupt the cache with grouped data.
-            // Since this cache stores the full day, we should probably ALWAYS fetch exactly what was requested, 
-            // but for safety, the next fetching query will re-apply `mergeDiningOptions` from cache!
-            // Wait, if it's cached as `All Channels`, we lose granularity.
-            // But this is PMIX cache.
+        // 2. Write-Back (Self-Healing Cache) ONLY for closed days with full channel + bundled modifier fidelity
+        if (!isDirty && dayItems.length > 0 && bundleModifiers && !options.mergeDiningOptions) {
             console.log(`[PMIX Cache WRITE] Saving ${dayItems.length} items for ${dateStr} (${storeId})...`)
 
-            // Write-through cache (awaited for serverless safety)
             const { error: writeErr } = await supabase.from('pmix_daily_cache').upsert({
                 store_id: storeId,
                 business_date: dateStr,

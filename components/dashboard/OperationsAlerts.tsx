@@ -1,7 +1,7 @@
 /**
  * @module components/dashboard/OperationsAlerts
  * @description Centro de Alertas Operativas para el Dashboard Ejecutivo.
- *   Visualiza en tiempo real alertas de Labor Cost (>21.5%), Food Cost (>32%),
+ *   Visualiza en tiempo real alertas de Labor Cost (>21.5%), Food Cost (>32%, Crítico >35%), Control de Porciones de Carne Asada,
  *   caídas de ventas por sucursal (>=15% vs período anterior) y cumplimiento de inspecciones de supervisores.
  * @businessRules
  * - Auto-refresca cada 120 segundos en segundo plano únicamente cuando se visualiza el día laboral actual (`America/Los_Angeles`, corte 6:00 AM) y la pestaña está visible, sin parpadear la interfaz.
@@ -19,7 +19,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle, TrendingDown, Users, ChefHat, Shield,
-  CheckCircle2, XCircle, Flame, Eye
+  CheckCircle2, XCircle, Flame, Eye, Scale
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 
@@ -38,6 +38,11 @@ interface AlertsData {
   totalAlerts: number
   laborAlerts: { store: string; storeId?: string; pct: number; sales: number; labor: number; severity: string }[]
   foodCostAlerts: { store: string; storeId?: string; pct: number; sales: number; cost: number; severity: string }[]
+  portionControlAlerts?: {
+    id: string; storeId?: string; store: string; meatKey: string; meatName: string;
+    severity: string; status: string; varianceLbs: number; varianceBags: number;
+    variancePct: number; dollarLoss: number; dominantShift: string; periodStart: string; periodEnd: string
+  }[]
   lowSalesAlerts: { store: string; storeId?: string; sales: number; previousSales: number; pctChange: number; prevPeriodLabel: string }[]
   inspectionCompliance: {
     supervisor: string; supervisorFull: string; supervisorId?: number;
@@ -144,15 +149,20 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
 
   if (!data) return null
 
+  const portionAlerts = data.portionControlAlerts || []
   const hasLaborAlerts = data.laborAlerts.length > 0
   const hasFoodCostAlerts = data.foodCostAlerts.length > 0
+  const hasCriticalFoodCost = data.foodCostAlerts.some(a => a.severity === 'critical')
+  const hasPortionAlerts = portionAlerts.length > 0
+  const hasCriticalPortion = portionAlerts.some(a => a.severity === 'critical')
   const hasLowSales = data.lowSalesAlerts.length > 0
   const nonCompliant = data.inspectionCompliance.filter(s => !s.compliant)
   const hasInspectionAlerts = nonCompliant.length > 0
 
   const criticalCount =
     data.laborAlerts.filter(a => a.severity === 'critical').length +
-    data.foodCostAlerts.filter(a => a.severity === 'critical').length
+    data.foodCostAlerts.filter(a => a.severity === 'critical').length +
+    portionAlerts.filter(a => a.severity === 'critical').length
   const overallSeverity = criticalCount > 0 ? 'critical' : data.totalAlerts > 0 ? 'warning' : 'ok'
 
   const toggleSection = (section: string) => {
@@ -200,7 +210,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
       </div>
 
       {/* Alert Cards Grid */}
-      <div className="px-5 pb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className={`px-5 pb-5 grid grid-cols-2 ${hasPortionAlerts ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-3`}>
         {/* Labor Cost Card */}
         <button
           onClick={() => toggleSection('labor')}
@@ -235,19 +245,21 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
         <button
           onClick={() => toggleSection('foodcost')}
           className={`rounded-xl p-4 text-left transition-all duration-200 border cursor-pointer ${
-            hasFoodCostAlerts
-              ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700/50 hover:bg-amber-200 dark:hover:bg-amber-900/50 hover:shadow-md'
-              : 'bg-emerald-100 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700/40 hover:bg-emerald-200 dark:hover:bg-emerald-900/40'
-          } ${expandedSection === 'foodcost' ? 'ring-2 ring-amber-400 dark:ring-amber-500 shadow-md' : ''}`}
+            hasCriticalFoodCost
+              ? 'bg-red-100 dark:bg-red-900/30 border-red-300 dark:border-red-700/50 hover:bg-red-200 dark:hover:bg-red-900/50 hover:shadow-md'
+              : hasFoodCostAlerts
+                ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700/50 hover:bg-amber-200 dark:hover:bg-amber-900/50 hover:shadow-md'
+                : 'bg-emerald-100 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700/40 hover:bg-emerald-200 dark:hover:bg-emerald-900/40'
+          } ${expandedSection === 'foodcost' ? (hasCriticalFoodCost ? 'ring-2 ring-red-400 dark:ring-red-500 shadow-md' : 'ring-2 ring-amber-400 dark:ring-amber-500 shadow-md') : ''}`}
         >
           <div className="flex items-center gap-2 mb-2">
-            <ChefHat size={18} className={hasFoodCostAlerts ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'} />
+            <ChefHat size={18} className={hasCriticalFoodCost ? 'text-red-500 dark:text-red-400' : hasFoodCostAlerts ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'} />
             <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('dashboard.alerts_foodcost_label')}</span>
           </div>
           {hasFoodCostAlerts ? (
             <>
-              <p className="text-3xl font-black text-amber-600 dark:text-amber-400">{data.foodCostAlerts.length}</p>
-              <p className="text-xs text-amber-600/80 dark:text-amber-400/70 font-semibold mt-1">
+              <p className={`text-3xl font-black ${hasCriticalFoodCost ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>{data.foodCostAlerts.length}</p>
+              <p className={`text-xs font-semibold mt-1 ${hasCriticalFoodCost ? 'text-red-500/80 dark:text-red-400/70' : 'text-amber-600/80 dark:text-amber-400/70'}`}>
                 {data.foodCostAlerts.filter(a => a.severity === 'critical').length > 0
                   ? `${data.foodCostAlerts.filter(a => a.severity === 'critical').length} ${t('dashboard.alerts_critical_count')}`
                   : t('dashboard.alerts_over_target')}
@@ -260,6 +272,29 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
             </>
           )}
         </button>
+
+        {/* Portion Control Card (Carne Asada & Meats — shown when open escalations exist) */}
+        {hasPortionAlerts && (
+          <button
+            onClick={() => toggleSection('portions')}
+            className={`rounded-xl p-4 text-left transition-all duration-200 border cursor-pointer ${
+              hasCriticalPortion
+                ? 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700/50 hover:bg-rose-200 dark:hover:bg-rose-900/50 hover:shadow-md'
+                : 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700/50 hover:bg-amber-200 dark:hover:bg-amber-900/50 hover:shadow-md'
+            } ${expandedSection === 'portions' ? 'ring-2 ring-rose-400 dark:ring-rose-500 shadow-md' : ''}`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Scale size={18} className={hasCriticalPortion ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'} />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('dashboard.alerts_portion_label')}</span>
+            </div>
+            <p className={`text-3xl font-black ${hasCriticalPortion ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>{portionAlerts.length}</p>
+            <p className={`text-xs font-semibold mt-1 ${hasCriticalPortion ? 'text-rose-500/80 dark:text-rose-400/70' : 'text-amber-600/80 dark:text-amber-400/70'}`}>
+              {portionAlerts.filter(a => a.severity === 'critical').length > 0
+                ? `${portionAlerts.filter(a => a.severity === 'critical').length} ${t('dashboard.alerts_critical_count')}`
+                : t('dashboard.alerts_over_target')}
+            </p>
+          </button>
+        )}
 
         {/* Low Sales Card */}
         <button
@@ -456,6 +491,43 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
               ) : (
                 <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">{t('dashboard.alerts_all_within_target')} {data.targets.foodCost}% ✓</p>
               )}
+            </div>
+          )}
+
+          {expandedSection === 'portions' && (
+            <div>
+              <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
+                <Scale size={20} className="text-rose-500" /> {t('dashboard.alerts_portion_by_store')}
+              </h4>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                {t('dashboard.alerts_portion_desc')}
+              </p>
+              <div className="space-y-3">
+                {portionAlerts.map((pa, i) => (
+                  <div
+                    key={pa.id || i}
+                    onClick={() => router.push(`/admin/food-cost/meats?storeId=${encodeURIComponent(pa.storeId || '')}&startDate=${pa.periodStart}&endDate=${pa.periodEnd}`)}
+                    className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-base font-black text-slate-800 dark:text-white">
+                        {pa.store} — <span className="text-rose-600 dark:text-rose-400">{pa.meatName}</span>
+                      </span>
+                      <span className={`text-xs font-black px-2.5 py-1 rounded-md ${
+                        pa.severity === 'critical'
+                          ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                          : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
+                      }`}>
+                        +{pa.variancePct}% ({pa.dominantShift})
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 font-mono">
+                      <span>{t('dashboard.alerts_portion_variance')}: <strong>+{pa.varianceBags} bolsas (+{pa.varianceLbs} lbs)</strong></span>
+                      <span className="text-rose-600 dark:text-rose-400 font-bold">{t('dashboard.alerts_portion_loss')}: ${pa.dollarLoss.toLocaleString('en-US')}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

@@ -8,7 +8,7 @@
  * @businessRules
  * - PRECIO CORRECTO: Se usa `UnitPrice` (precio que la bodega cobra al restaurante),
  *   que refleja el costo real del restaurante. `PurchaseCost` es fallback o usado cuando `multiplier > 1`.
- * - QuickBooks solo gobierna insumos de La Bodega (`is_bodega: true`).
+ * - QuickBooks gobierna todos los insumos explícitamente vinculados en `quickbooks_mappings` (incluyendo las 8 carnes y abarrotes ordenables por restaurante con `is_bodega = false`), excluyendo ÚNICAMENTE artículos gobernados por proveedores externos (`supplier_item_mappings`, p. ej. Viele & Sons). El filtro `is_bodega === true` solo restringe el auto-matching de ítems no mapeados (Case B/C).
  * - Solo se procesan items de QB con Type = 'Inventory' o 'NonInventory'.
  * - `max_drop_percent`: bloquea caídas sospechosas > 50% salvo cambio legítimo de empaque.
  *
@@ -20,7 +20,8 @@
  * - [2026-07-08] Fixed liquids template matching to search specifically for 'orden liquidos' to prevent 'Bodega Liquidos' from overwriting it.
  * - [2026-07-26] Added packaging auto-sync from QB RecurringTransactions.
  * - [2026-11-10] Added QBO Invoice return reconciliation (`reconcileStoreOrdersWithQbInvoices`).
- * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor` en GET y POST (rechaza tokens de `employee` y llamadas anónimas).
+ * - [2026-11-23] Enforced `allowedRoles: ['admin', 'supervisor', 'manager']` with `allowCron: true`, paginated `qbo.findItems` beyond 100 items, added `MAXRESULTS 1000` to PASO 0 `RecurringTransaction` pre-scan, `.limit(5000)` on `inventory_items`, blocked `$0` (`rate <= 0`) price overwrites, unfroze QB-mapped restaurant items/meats (`is_bodega = false`) by skipping only `supplier_item_mappings` external SKUs on mapped items, removed duplicate manual `inventory_price_history` inserts, and aligned cache invalidation to 7 LA business days.
+ * - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`/`manager` en GET y POST (rechaza tokens de `employee` y llamadas anónimas).
  */
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
@@ -28,6 +29,7 @@ import { authClient } from '@/lib/quickbooks';
 import QuickBooks from 'node-quickbooks';
 import { verifyStaffAuth } from '@/lib/auth-server';
 import { reconcileStoreOrdersWithQbInvoices } from '@/lib/inventory/qb-shipped-reconciliation';
+import { addDaysIso, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-resolver';
 
 // ── Packaging Parser ──────────────────────────────────────────────────
 // Extrae cantidad y unidad de medida del campo Description de QB
@@ -75,7 +77,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
     try {
-        const auth = verifyStaffAuth(request, { allowCron: true });
+        const auth = verifyStaffAuth(request, {
+            allowedRoles: ['admin', 'supervisor', 'manager'],
+            allowCron: true,
+        });
         if (!auth.authorized) {
             return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 });
         }
@@ -135,23 +140,61 @@ export async function POST(request: Request) {
             integration.refresh_token
         );
 
-        // 4. Fetch QB Items
-        const qbItems = await new Promise<any[]>((resolve, reject) => {
-            qbo.findItems({ active: true }, (err: any, result: any) => {
-                if (err) reject(err);
-                else resolve(result?.QueryResponse?.Item || []);
-            });
-        });
+        // 4. Fetch ALL Active QB Items (paginated via limit/offset so catalogs > 100 items are never truncated)
+        const QB_PAGE_SIZE = 1000;
+        const QB_MAX_PAGES = 20;
+        const qbItems: any[] = [];
+        const seenQbItemIds = new Set<string>();
+        let qbOffset = 1;
 
-        // 5. Fetch Internal Items
-        const { data: internalItems } = await supabase.from('inventory_items').select('*');
+        for (let page = 0; page < QB_MAX_PAGES; page++) {
+            const batch = await new Promise<any[]>((resolve, reject) => {
+                qbo.findItems({ active: true, limit: QB_PAGE_SIZE, offset: qbOffset }, (err: any, result: any) => {
+                    if (err) reject(err);
+                    else resolve(result?.QueryResponse?.Item || []);
+                });
+            });
+
+            if (!Array.isArray(batch) || batch.length === 0) break;
+
+            for (const item of batch) {
+                const itemId = String(item?.Id || '');
+                if (itemId && !seenQbItemIds.has(itemId)) {
+                    seenQbItemIds.add(itemId);
+                    qbItems.push(item);
+                }
+            }
+
+            if (batch.length < QB_PAGE_SIZE) break;
+            qbOffset += batch.length;
+        }
+        console.log(`[QB-Sync] 📋 Fetched ${qbItems.length} active QB items across paginated query.`);
+
+        // 5. Fetch Internal Items (explicit limit above PostgREST 1,000-row default)
+        const { data: internalItems } = await supabase.from('inventory_items').select('*').limit(5000);
         if (!internalItems) throw new Error('No internal items found');
 
         // Fetch mappings with protection columns (multiplier, max_drop_percent)
         // If columns don't exist yet (pre-migration), the select still works — those fields will be undefined
-        const { data: existingMappings } = await supabase.from('quickbooks_mappings').select('qb_item_id, inventory_item_id, multiplier, max_drop_percent');
+        const { data: existingMappings } = await supabase
+            .from('quickbooks_mappings')
+            .select('qb_item_id, inventory_item_id, multiplier, max_drop_percent')
+            .limit(5000);
         const mappedQbIds = new Set(existingMappings?.map(m => m.qb_item_id));
         const usedInternalIds = new Set(existingMappings?.map(m => m.inventory_item_id));
+
+        // Fetch external distributor mappings (e.g. Viele & Sons) so QB never overwrites external supplier prices,
+        // while allowing QB-mapped restaurant items (`is_bodega = false` such as all 8 active meats) to sync cleanly.
+        const { data: supplierMappings } = await supabase
+            .from('supplier_item_mappings')
+            .select('master_item_id')
+            .not('master_item_id', 'is', null)
+            .limit(5000);
+        const externalSupplierItemIds = new Set<string>(
+            (supplierMappings || [])
+                .map((sm: any) => sm.master_item_id)
+                .filter(Boolean)
+        );
 
         let updatedCount = 0;
         let createdCount = 0;
@@ -195,7 +238,7 @@ export async function POST(request: Request) {
                 const data = await res.json();
                 return data?.QueryResponse?.RecurringTransaction || [];
             };
-            const preScanRecurring = await qbQueryPreScan('SELECT * FROM RecurringTransaction');
+            const preScanRecurring = await qbQueryPreScan('SELECT * FROM RecurringTransaction MAXRESULTS 1000');
             for (const t of preScanRecurring) {
                 if (!t.Estimate) continue;
                 const lines = t.Estimate.Line || [];
@@ -227,14 +270,15 @@ export async function POST(request: Request) {
             // Default: UnitPrice first, PurchaseCost as fallback
             const baseRate = unitPrice > 0 ? unitPrice : purchaseCost;
 
-            // Case A: Already mapped
+            // Case A: Already mapped in `quickbooks_mappings`
             const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);
             if (existingMapping) {
                 // 🛡️ REGLA FUNDAMENTAL DE NEGOCIO:
-                // QuickBooks SOLO gobierna insumos de La Bodega (is_bodega: true).
-                // Los insumos de distribuidores externos (is_bodega: false / Viele & Sons) son gobernados exclusivamente por el Radar de Precios.
+                // Items explícitamente mapeados a distribuidores externos (`supplier_item_mappings`, ej. Viele & Sons)
+                // son gobernados exclusivamente por el Radar de Precios. Los ítems de restaurante abastecidos por
+                // La Bodega (incluyendo las 8 carnes con `is_bodega = false`) SÍ sincronizan precio/empaque desde QBO.
                 const targetItem = internalItems.find(i => i.id === existingMapping.inventory_item_id);
-                if (targetItem && targetItem.is_bodega === false) {
+                if (targetItem && externalSupplierItemIds.has(targetItem.id)) {
                     continue;
                 }
 
@@ -248,6 +292,12 @@ export async function POST(request: Request) {
                 const rate = effectiveBase * multiplier;
 
                 const oldPrice = currentPriceMap.get(existingMapping.inventory_item_id) || 0;
+
+                // 🛡️ ZERO-PRICE PROTECTION: Never overwrite a valid purchase_unit_cost with $0 or negative rate
+                if (!Number.isFinite(rate) || rate <= 0) {
+                    console.warn(`[QB-Sync] ⚠️ Skipping non-positive QB rate ($${rate}) for "${qbItem.Name}" (preserving current cost $${oldPrice.toFixed(2)})`);
+                    continue;
+                }
 
                 // 2. Check price protection: allow increases, block suspicious drops
                 if (oldPrice > 0 && rate > 0 && rate < oldPrice) {
@@ -286,21 +336,15 @@ export async function POST(request: Request) {
                 }
 
                 // 3. Price is acceptable (increase or small drop) — apply update
-                // Save price history ONLY if the price actually changed
-                if (Math.abs(oldPrice - rate) > 0.001 && rate > 0) {
+                // Note: `trigger_log_inventory_price` on `inventory_items` logs `inventory_price_history` atomically with `quantity_per_unit`.
+                if (Math.abs(oldPrice - rate) > 0.001) {
                     const currentQty = packagingMap.get(qbItem.Id)?.qty || currentQtyPerUnitMap.get(existingMapping.inventory_item_id) || 1;
-                    await supabase.from('inventory_price_history').insert({
-                        inventory_item_id: existingMapping.inventory_item_id,
-                        purchase_unit_cost: rate,
-                        effective_date: now.toISOString(),
-                        quantity_per_unit: currentQty
-                    });
+                    await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: now }).eq('id', existingMapping.inventory_item_id);
                     priceChanges++;
                     const direction = rate > oldPrice ? '⬆️' : '⬇️';
                     console.log(`[QB-Sync] ${direction} Price change: ${qbItem.Name} $${oldPrice.toFixed(2)} → $${rate.toFixed(2)} (qty_per_unit: ${currentQty})`);
                 }
 
-                await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: now }).eq('id', existingMapping.inventory_item_id);
                 await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: now }).eq('qb_item_id', qbItem.Id);
                 updatedCount++;
                 continue;
@@ -310,6 +354,10 @@ export async function POST(request: Request) {
             const newItemMultiplier = FALLBACK_MULTIPLIERS[qbItem.Id] || 1;
             const rate = baseRate * newItemMultiplier;
 
+            if (!Number.isFinite(rate) || rate <= 0) {
+                continue;
+            }
+
             // Case B: Not mapped, try to find a FREE internal item by Name exactly (solo para items de Bodega)
             let internal = internalItems.find(i =>
                 !usedInternalIds.has(i.id) &&
@@ -318,7 +366,7 @@ export async function POST(request: Request) {
             );
 
             if (!internal) {
-                // Case C: Create new item
+                // Case C: Create new item (`trigger_log_inventory_price` records initial price in `inventory_price_history`)
                 const { data: newItem, error: createError } = await supabase.from('inventory_items').insert({
                     name: qbItem.Name,
                     sku: qbItem.Sku || null,
@@ -331,15 +379,6 @@ export async function POST(request: Request) {
                 if (createError) continue;
                 internal = newItem;
                 createdCount++;
-
-                // Save initial price for new items too
-                if (rate > 0) {
-                    await supabase.from('inventory_price_history').insert({
-                        inventory_item_id: internal.id,
-                        purchase_unit_cost: rate,
-                        effective_date: now.toISOString()
-                    });
-                }
             }
 
             // Create Mapping
@@ -367,6 +406,7 @@ export async function POST(request: Request) {
                 if (!mapping) continue;
                 const invItemId = mapping.inventory_item_id;
                 const currentItem = internalItems.find(i => i.id === invItemId);
+                if (currentItem && externalSupplierItemIds.has(currentItem.id)) continue;
 
                 // PROTECCIÓN DE PIEZAS: Si el item se vende por pieza (pza/unit/dz), NO permitir que el sync cambie unit_measure a peso/volumen (lb, oz, gal)
                 const isPieceItem = currentItem?.unit_measure === 'pza' || currentItem?.unit_measure === 'unit' || currentItem?.unit_measure === 'dz';
@@ -401,13 +441,11 @@ export async function POST(request: Request) {
                 }
             }
 
-            // 2d. Invalidate food cost cache if any packaging or price changes occurred
-            if (packagingChanges > 0 || priceChanges > 0) {
-                const cutoff = new Date();
-                cutoff.setDate(cutoff.getDate() - 3);
-                const cutoffStr = cutoff.toISOString().split('T')[0];
+            // 2d. Invalidate food cost cache across the last 7 LA business days if any packaging, price, or new item changes occurred
+            if (packagingChanges > 0 || priceChanges > 0 || createdCount > 0) {
+                const cutoffStr = addDaysIso(getBusinessDateLA(), -7);
                 await supabase.from('food_cost_daily_cache').delete().gte('business_date', cutoffStr);
-                console.log(`[QB-Sync] 🗑️ Caché de food cost invalidada (últimos 3 días desde ${cutoffStr}) por ${packagingChanges} cambios de empaque + ${priceChanges} cambios de precio.`);
+                console.log(`[QB-Sync] 🗑️ Caché de food cost invalidada (últimos 7 días LA desde ${cutoffStr}) por ${packagingChanges} cambios de empaque + ${priceChanges} cambios de precio.`);
             }
         } catch (cascadeErr: any) {
             console.error('[QB-Sync] ❌ Error en cascada de empaques:', cascadeErr.message);
