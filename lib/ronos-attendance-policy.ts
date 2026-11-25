@@ -58,6 +58,7 @@
  */
 
 import { isEmployeeSalaried } from './payroll-classification'
+import { formatStoreDisplayName, sortStoresAlphabetically } from './store-display'
 import {
   AUTHORIZED_LUNCH_MINUTES,
   INTERNAL_LUNCH_MIN_VIOLATION_MINUTES,
@@ -2337,6 +2338,13 @@ export function evaluateEmployeeDayAttendancePolicy(
 // 9. PLANTILLAS HTML OFICIALES DE CORREO (EMPLEADO Y GERENTE DE TIENDA)
 // ============================================================================
 
+export const RONOS_BRAND_OWL_URL =
+  'https://ywwwdcvgfculqmcfkihq.supabase.co/storage/v1/object/public/checklist-photos/ronos-brand/ronos-owl-blue.png'
+export const RONOS_BRAND_WORDMARK_URL =
+  'https://ywwwdcvgfculqmcfkihq.supabase.co/storage/v1/object/public/checklist-photos/ronos-brand/ronos-wordmark-white.png'
+export const RONOS_BRAND_CLOCK_ICON_URL =
+  'https://ywwwdcvgfculqmcfkihq.supabase.co/storage/v1/object/public/checklist-photos/ronos-brand/ronos-clock-icon.png'
+
 export interface EmployeeRonosPolicyEmailParams {
   storeName: string
   employeeName: string
@@ -2359,7 +2367,7 @@ export function buildEmployeeRonosPolicyEmailHtml(
   params: EmployeeRonosPolicyEmailParams
 ): { subject: string; html: string } {
   const {
-    storeName,
+    storeName: rawStoreName,
     employeeName,
     employeeJobTitle,
     businessDate,
@@ -2369,6 +2377,7 @@ export function buildEmployeeRonosPolicyEmailHtml(
     warningStage = 'first',
     additionalNotes,
   } = params
+  const storeName = formatStoreDisplayName(rawStoreName) || rawStoreName
 
   const activeViolations = evaluation.violations.filter((v) => v.isViolation)
   const hasRepairAlert = activeViolations.some(
@@ -2417,18 +2426,37 @@ export function buildEmployeeRonosPolicyEmailHtml(
     .join('')
 
   const html = `
-    <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 660px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; background-color: #ffffff;">
-      <div style="background-color: #b91c1c; color: #ffffff; padding: 22px 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div style="font-size: 11px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; opacity: 0.92;">
-            TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)
-          </div>
+    <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 660px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 14px; overflow: hidden; background-color: #ffffff;">
+      <div style="background-color: #0c83e1; background-image: linear-gradient(135deg, #0c83e1 0%, #2196f3 70%, #48c6ec 100%); border-top: 4px solid #48c6ec; color: #ffffff; padding: 20px 24px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 10px;">
+          <tr>
+            <td valign="middle">
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td valign="middle" style="background-color: #ffffff; border-radius: 10px; padding: 6px 10px;">
+                    <img src="${RONOS_BRAND_OWL_URL}" width="44" height="24" alt="RONOS" style="display: block; border: 0;" />
+                  </td>
+                  <td valign="middle" style="padding-left: 12px;">
+                    <img src="${RONOS_BRAND_WORDMARK_URL}" width="132" height="22" alt="RONOS" style="display: block; border: 0;" />
+                  </td>
+                </tr>
+              </table>
+            </td>
+            <td align="right" valign="middle">
+              <span style="display: inline-block; background-color: #1d2c37; color: #48c6ec; font-size: 11px; font-weight: 800; padding: 5px 11px; border-radius: 999px; border: 1px solid #48c6ec;">
+                ${stageLabel}
+              </span>
+            </td>
+          </tr>
+        </table>
+        <div style="background-color: #1d2c37; color: #48c6ec; display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 6px;">
+          TACOS GAVILAN • MÓDULO RONOS (RELOJ OFICIAL DE NÓMINA CINGULAR HR)
         </div>
-        <h2 style="margin: 6px 0 4px 0; font-size: 20px; font-weight: 800; text-transform: uppercase;">
+        <h2 style="margin: 4px 0 4px 0; font-size: 20px; font-weight: 800; text-transform: uppercase; color: #ffffff;">
           ${escapeHtmlSafe(primaryTitle)}
         </h2>
-        <p style="margin: 0; opacity: 0.95; font-size: 13px;">
-          Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong> • Jornada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> • <span>${stageLabel}</span>
+        <p style="margin: 0; font-size: 13px; color: #f0f9ff;">
+          Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong> • Jornada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong>
         </p>
       </div>
 
@@ -2443,13 +2471,13 @@ export function buildEmployeeRonosPolicyEmailHtml(
         ${violationsCardsHtml}
 
         <!-- Tabla Comparativa: Planificador vs RONOS vs Toast POS -->
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin: 18px 0;">
-          <div style="font-size: 12px; font-weight: 800; color: #334155; text-transform: uppercase; margin-bottom: 10px;">
-            📊 Comparativa Oficial de Registros (${escapeHtmlSafe(businessDate)})
+        <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px 16px; margin: 18px 0;">
+          <div style="font-size: 12px; font-weight: 800; color: #1d2c37; text-transform: uppercase; margin-bottom: 10px;">
+            <img src="${RONOS_BRAND_CLOCK_ICON_URL}" width="14" height="14" alt="" style="vertical-align: middle; border: 0; margin-right: 4px;" />Comparativa Oficial de Registros (${escapeHtmlSafe(businessDate)})
           </div>
           <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
             <thead>
-              <tr style="background-color: #e2e8f0; color: #1e293b; text-align: left;">
+              <tr style="background-color: #1d2c37; color: #ffffff; text-align: left; border-bottom: 2px solid #2196f3;">
                 <th style="padding: 8px 10px;">Fuente</th>
                 <th style="padding: 8px 10px;">Entrada</th>
                 <th style="padding: 8px 10px;">Comida (Lunch)</th>
@@ -2458,18 +2486,18 @@ export function buildEmployeeRonosPolicyEmailHtml(
             </thead>
             <tbody>
               <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 8px 10px; font-weight: 700; color: #0f172a;">📅 Planificador</td>
+                <td style="padding: 8px 10px; font-weight: 700; color: #1d2c37;">📅 Planificador</td>
                 <td style="padding: 8px 10px;" colspan="3"><strong>${escapeHtmlSafe(schedText)}</strong></td>
               </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
-                <td style="padding: 8px 10px; font-weight: 700; color: #b91c1c;">⏱️ RONOS (Nómina)</td>
-                <td style="padding: 8px 10px; font-weight: 700;">${escapeHtmlSafe(evaluation.ronosSummary.clockInLA || 'Sin registro')}</td>
+              <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f0f8ff;">
+                <td style="padding: 8px 10px; font-weight: 800; color: #0c83e1;"><img src="${RONOS_BRAND_CLOCK_ICON_URL}" width="14" height="14" alt="" style="vertical-align: middle; border: 0; margin-right: 4px;" />RONOS (Nómina)</td>
+                <td style="padding: 8px 10px; font-weight: 700; color: #0c83e1;">${escapeHtmlSafe(evaluation.ronosSummary.clockInLA || 'Sin registro')}</td>
                 <td style="padding: 8px 10px;">${
                   evaluation.ronosSummary.lunchStartLA
                     ? `${escapeHtmlSafe(evaluation.ronosSummary.lunchStartLA)} ➔ ${escapeHtmlSafe(evaluation.ronosSummary.lunchEndLA || 'Sin regreso')} (${Math.floor(evaluation.ronosSummary.lunchDurationMinutes)}m)`
                     : 'Sin registro'
                 }</td>
-                <td style="padding: 8px 10px; font-weight: 700;">${escapeHtmlSafe(evaluation.ronosSummary.clockOutLA || 'Sin registro')}</td>
+                <td style="padding: 8px 10px; font-weight: 700; color: #0c83e1;">${escapeHtmlSafe(evaluation.ronosSummary.clockOutLA || 'Sin registro')}</td>
               </tr>
               <tr>
                 <td style="padding: 8px 10px; font-weight: 700; color: #4338ca;">🖥️ Toast POS (Tienda)</td>
@@ -2486,8 +2514,8 @@ export function buildEmployeeRonosPolicyEmailHtml(
         </div>
 
         <!-- Diferencia Clara entre RONOS (Nómina) y Toast POS (Tienda) -->
-        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; border-radius: 8px; padding: 14px 16px; margin: 18px 0; font-size: 13px; color: #1e3a8a; line-height: 1.6;">
-          <div style="font-weight: 800; font-size: 13.5px; margin-bottom: 6px;">
+        <div style="background-color: #eef9fd; border: 1px solid #b3e5fc; border-left: 4px solid #2196f3; border-radius: 8px; padding: 14px 16px; margin: 18px 0; font-size: 13px; color: #026b8b; line-height: 1.6;">
+          <div style="font-weight: 800; font-size: 13.5px; color: #0c83e1; margin-bottom: 6px;">
             ⚖️ Diferencia entre RONOS (Nómina) y Toast POS (Tienda)
           </div>
           <ul style="margin: 0; padding-left: 18px;">
@@ -2499,7 +2527,7 @@ export function buildEmployeeRonosPolicyEmailHtml(
 
         <!-- Políticas Oficiales del Manual del Empleado (NHP TEG SPANISH.pdf) -->
         <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin: 18px 0; font-size: 12.5px; color: #334155; line-height: 1.6;">
-          <div style="font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 6px;">
+          <div style="font-weight: 800; color: #1d2c37; text-transform: uppercase; margin-bottom: 6px;">
             📖 Políticas Oficiales del Manual del Empleado (NHP TEG SPANISH.pdf):
           </div>
           <ul style="margin: 0; padding-left: 18px;">
@@ -2518,13 +2546,13 @@ export function buildEmployeeRonosPolicyEmailHtml(
         }
 
         <p style="font-size: 13px; color: #475569; line-height: 1.5;">
-          Tu Gerente de Tienda${managerName ? ` (<strong>${escapeHtmlSafe(managerName)}</strong>)` : ''}${managerContactEmail ? ` — <a href="mailto:${escapeHtmlSafe(managerContactEmail)}" style="color: #b91c1c; font-weight: 600;">${escapeHtmlSafe(managerContactEmail)}</a>` : ''} y tu Supervisor de Zona han recibido copia de este aviso para apoyarte con la reparación de ponchadas o seguimiento correspondiente.
+          Tu Gerente de Tienda${managerName ? ` (<strong>${escapeHtmlSafe(managerName)}</strong>)` : ''}${managerContactEmail ? ` — <a href="mailto:${escapeHtmlSafe(managerContactEmail)}" style="color: #0c83e1; font-weight: 700;">${escapeHtmlSafe(managerContactEmail)}</a>` : ''} y tu Supervisor de Zona han recibido copia de este aviso para apoyarte con la reparación de ponchadas o seguimiento correspondiente.
         </p>
 
-        <div style="border-top: 1px solid #e5e7eb; margin-top: 20px; padding-top: 14px; font-size: 12px; color: #6b7280;">
+        <div style="background-color: #1d2c37; border-top: 3px solid #2196f3; border-radius: 8px; margin-top: 20px; padding: 14px 16px; font-size: 12px; color: #cbd5e1;">
           Atentamente,<br/>
-          <strong>Sistema de Monitoreo</strong><br/>
-          Tacos Gavilan
+          <strong style="color: #48c6ec;">Sistema de Monitoreo • Módulo RONOS</strong><br/>
+          <span style="color: #ffffff; font-weight: 700;">Tacos Gavilan</span>
         </div>
       </div>
     </div>
@@ -2678,7 +2706,7 @@ function renderRonosReportTableRowHtml(
       })
       .join('<br>')
 
-    return `<tr valign="top"${trAttr}><td><b>${escapeHtmlSafe(item.employeeName)}</b>${item.jobTitle ? `<br><small>${escapeHtmlSafe(item.jobTitle)}</small>` : ''}</td><td><b>Plan:</b> ${escapeHtmlSafe(schedStr)}<br><b style="color:#b91c1c">RONOS:</b> ${ronosLine}<br><b style="color:#4338ca">Toast:</b> ${toastLine}</td><td>${pills}</td><td style="color:${statusColor};font-weight:600">${escapeHtmlSafe(item.deliveryStatusLabel)}</td></tr>`
+    return `<tr valign="top"${trAttr}><td><b>${escapeHtmlSafe(item.employeeName)}</b>${item.jobTitle ? `<br><small>${escapeHtmlSafe(item.jobTitle)}</small>` : ''}</td><td><b>Plan:</b> ${escapeHtmlSafe(schedStr)}<br><b style="color:#0c83e1">RONOS:</b> ${ronosLine}<br><b style="color:#4338ca">Toast:</b> ${toastLine}</td><td>${pills}</td><td style="color:${statusColor};font-weight:600">${escapeHtmlSafe(item.deliveryStatusLabel)}</td></tr>`
   }
 
   const autoTag = ev.toastSummary.isAutoClockOut
@@ -2701,9 +2729,9 @@ function renderRonosReportTableRowHtml(
 
   const trBg = rowIndex % 2 === 1 ? ' style="background-color:#f8fafc"' : ''
   const ronosStr = ev.ronosSummary.hasRonosPunches
-    ? `<div><b>In:</b> ${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')} | <b>Out:</b> ${escapeHtmlSafe(ev.ronosSummary.clockOutLA || '--')}</div>${
+    ? `<div style="color:#0c83e1"><b>In:</b> ${escapeHtmlSafe(ev.ronosSummary.clockInLA || '--')} | <b>Out:</b> ${escapeHtmlSafe(ev.ronosSummary.clockOutLA || '--')}</div>${
         ev.ronosSummary.lunchStartLA
-          ? `<div style="font-size:11px;color:#475569;margin-top:2px">Lunch: ${escapeHtmlSafe(ev.ronosSummary.lunchStartLA)} - ${escapeHtmlSafe(ev.ronosSummary.lunchEndLA || '--')} (<b>${Math.floor(safeNum(ev.ronosSummary.lunchDurationMinutes, 0))}m</b>)</div>`
+          ? `<div style="font-size:11px;color:#026b8b;margin-top:2px">Lunch: ${escapeHtmlSafe(ev.ronosSummary.lunchStartLA)} - ${escapeHtmlSafe(ev.ronosSummary.lunchEndLA || '--')} (<b>${Math.floor(safeNum(ev.ronosSummary.lunchDurationMinutes, 0))}m</b>)</div>`
           : ''
       }`
     : '<span style="background:#fee2e2;color:#b91c1c;padding:2px 6px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block">0 ponchadas en RONOS</span>'
@@ -2735,7 +2763,7 @@ export function buildManagerDailyRonosReportHtml(params: {
   isManualDispatch?: boolean
 }): { subject: string; html: string } {
   const {
-    storeName,
+    storeName: rawMgrStoreName,
     businessDate,
     items,
     authorizedCallIns = [],
@@ -2743,6 +2771,7 @@ export function buildManagerDailyRonosReportHtml(params: {
     voluntaryExtendedStays = [],
     isManualDispatch = false,
   } = params
+  const storeName = formatStoreDisplayName(rawMgrStoreName) || rawMgrStoreName
 
   const { punctualityCount: totalPunctuality, repairCount: totalRepairs, mealCount: totalMeals } =
     countRonosReportCategories(items)
@@ -2807,18 +2836,28 @@ export function buildManagerDailyRonosReportHtml(params: {
   const subject = `📋 Auditoría Nómina RONOS (vs Planificador y Toast POS) — ${storeName} (${businessDate})`
 
   const html = `
-    <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 880px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
-      <div style="background-color: #1e293b; color: #ffffff; padding: 22px 20px; text-align: center;">
-        <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #fca5a5; margin-bottom: 4px;">
-          TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)
+    <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 880px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
+      <div style="background-color: #0c83e1; background-image: linear-gradient(135deg, #0c83e1 0%, #2196f3 70%, #48c6ec 100%); border-top: 4px solid #48c6ec; color: #ffffff; padding: 20px 24px; text-align: center;">
+        <table role="presentation" align="center" cellspacing="0" cellpadding="0" style="margin: 0 auto 10px auto;">
+          <tr>
+            <td valign="middle" style="background-color: #ffffff; border-radius: 10px; padding: 6px 10px;">
+              <img src="${RONOS_BRAND_OWL_URL}" width="44" height="24" alt="RONOS" style="display: block; border: 0;" />
+            </td>
+            <td valign="middle" style="padding-left: 12px;">
+              <img src="${RONOS_BRAND_WORDMARK_URL}" width="132" height="22" alt="RONOS" style="display: block; border: 0;" />
+            </td>
+          </tr>
+        </table>
+        <div style="background-color: #1d2c37; color: #48c6ec; display: inline-block; padding: 3px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 6px;">
+          TACOS GAVILAN • MÓDULO RONOS (RELOJ OFICIAL DE NÓMINA CINGULAR HR)
         </div>
-        <h2 style="margin: 0; text-transform: uppercase; font-size: 19px; font-weight: 800;">
+        <h2 style="margin: 2px 0 0 0; text-transform: uppercase; font-size: 19px; font-weight: 800; color: #ffffff;">
           Reporte Gerencial de Nómina RONOS (vs Planificador y Toast POS)
         </h2>
-        <p style="margin: 6px 0 0 0; opacity: 0.95; font-size: 14px;">
+        <p style="margin: 6px 0 0 0; font-size: 14px; color: #f0f9ff;">
           Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong> — Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong>
         </p>
-        <p style="margin: 4px 0 0 0; font-size: 11px; opacity: 0.75;">
+        <p style="margin: 4px 0 0 0; font-size: 11px; color: #e0f2fe;">
           ${isManualDispatch ? 'Despacho oficial ejecutado desde el panel de auditoría RONOS.' : 'Despacho diario automático tras el cierre de la jornada.'}
         </p>
       </div>
@@ -2830,6 +2869,10 @@ export function buildManagerDailyRonosReportHtml(params: {
         <p style="color: #374151; font-size: 14px; line-height: 1.6;">
           A continuación se presenta la auditoría cruzada entre el <strong>Horario Publicado del Planificador</strong>, las ponchadas de <strong>Toast POS</strong> y las tarjetas de nómina de <strong>RONOS (Cingular HR)</strong> del <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong>, conforme a las reglas del Manual del Empleado (<code>NHP TEG SPANISH.pdf</code>).
         </p>
+
+        <div style="background-color: #eef9fd; border: 1px solid #b3e5fc; border-left: 4px solid #2196f3; border-radius: 8px; padding: 11px 14px; margin: 14px 0; font-size: 12.5px; color: #026b8b; line-height: 1.55;">
+          <strong style="color: #0c83e1;">⚖️ Reloj Oficial de Nómina RONOS vs Toast POS:</strong> Este reporte audita las tarjetas de tiempo de <strong>RONOS (Cingular HR)</strong> con las que se calcula el cheque de pago de nómina, cruzándolas contra el Planificador y Toast POS.
+        </div>
 
         <!-- KPI Summary -->
         <table style="width: 100%; border-collapse: separate; border-spacing: 8px; margin: 16px 0;">
@@ -2856,10 +2899,10 @@ export function buildManagerDailyRonosReportHtml(params: {
         <!-- Violations Table -->
         <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 12.5px; text-align: left; border: 1px solid #cbd5e1;">
           <thead>
-            <tr style="background-color: #1e293b; color: #ffffff;">
+            <tr style="background-color: #1d2c37; color: #ffffff; border-bottom: 2px solid #2196f3;">
               <th style="padding: 10px 8px;">Colaborador</th>
               <th style="padding: 10px 8px;">Turno Planificador</th>
-              <th style="padding: 10px 8px;">Ponchadas RONOS</th>
+              <th style="padding: 10px 8px;"><img src="${RONOS_BRAND_CLOCK_ICON_URL}" width="14" height="14" alt="" style="vertical-align: middle; border: 0; margin-right: 4px;" />Ponchadas RONOS</th>
               <th style="padding: 10px 8px;">Ponchadas Toast POS</th>
               <th style="padding: 10px 8px;">Infracción / Alerta</th>
               <th style="padding: 10px 8px;">Aviso al Empleado</th>
@@ -2887,9 +2930,9 @@ export function buildManagerDailyRonosReportHtml(params: {
           </ol>
         </div>
 
-        <p style="font-size: 12px; color: #64748b; margin-top: 22px; text-align: center;">
-          <strong>Sistema de Monitoreo</strong> — Tacos Gavilan (CC Supervisor de Zona).
-        </p>
+        <div style="background-color: #1d2c37; border-top: 3px solid #2196f3; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #cbd5e1; margin-top: 22px; text-align: center;">
+          <strong style="color: #48c6ec;">Sistema de Monitoreo • Módulo RONOS</strong> — <span style="color: #ffffff; font-weight: 700;">Tacos Gavilan</span> (CC Supervisor de Zona).
+        </div>
       </div>
     </div>
   `
@@ -2934,7 +2977,12 @@ export function buildChainDailyRonosGeneralReportHtml(
   let projectedEmployeeEmails = 0
   let projectedManagerReports = 0
 
-  const storeStats = stores.map((store) => {
+  const orderedStores = sortStoresAlphabetically(stores, (s) => s.storeName, { pinSpecialFirst: false })
+  const storeStats = orderedStores.map((rawStore) => {
+    const store = {
+      ...rawStore,
+      storeName: formatStoreDisplayName(rawStore.storeName) || rawStore.storeName,
+    }
     const items = Array.isArray(store.items) ? store.items : []
     const callIns = Array.isArray(store.authorizedCallIns) ? store.authorizedCallIns : []
     const earlyOuts = Array.isArray(store.authorizedEarlyOuts) ? store.authorizedEarlyOuts : []
@@ -3021,7 +3069,7 @@ export function buildChainDailyRonosGeneralReportHtml(
         ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px 12px;color:#991b1b;font-size:12px"><strong>⚠️ Error de auditoría:</strong> ${escapeHtmlSafe(store.error)}</div>`
         : items.length === 0
           ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 12px;color:#166534;font-size:12px;font-weight:600">✅ Sucursal al 100%: Sin infracciones de puntualidad (±3 min), comida (30 min / 5ta hora) ni reparaciones RONOS pendientes.</div>'
-          : `<table width="100%" cellpadding="8" cellspacing="0" border="1" bordercolor="#e2e8f0" style="width:100%;border-collapse:collapse;border:1px solid #cbd5e1;font:12px/1.45 Arial,sans-serif"><thead><tr bgcolor="#1e293b" style="background:#1e293b;color:#ffffff;font-size:11px;text-transform:uppercase"><th align="left" width="22%">Colaborador</th><th align="left" width="34%">Horarios (Plan · RONOS · Toast)</th><th align="left" width="28%">Infracción / Alerta</th><th align="left" width="16%">Aviso</th></tr></thead><tbody>${items.map((it, rIdx) => renderRonosReportTableRowHtml(it, { showViolationDescriptions: false, compact: true, rowIndex: rIdx })).join('')}</tbody></table>`
+          : `<table width="100%" cellpadding="8" cellspacing="0" border="1" bordercolor="#e2e8f0" style="width:100%;border-collapse:collapse;border:1px solid #cbd5e1;font:12px/1.45 Arial,sans-serif"><thead><tr bgcolor="#1d2c37" style="background:#1d2c37;color:#ffffff;font-size:11px;text-transform:uppercase;border-bottom:2px solid #2196f3"><th align="left" width="22%">Colaborador</th><th align="left" width="34%">Horarios (Plan · RONOS · Toast)</th><th align="left" width="28%">Infracción / Alerta</th><th align="left" width="16%">Aviso</th></tr></thead><tbody>${items.map((it, rIdx) => renderRonosReportTableRowHtml(it, { showViolationDescriptions: false, compact: true, rowIndex: rIdx })).join('')}</tbody></table>`
 
       const callInsHtml =
         callIns.length > 0
@@ -3036,7 +3084,7 @@ export function buildChainDailyRonosGeneralReportHtml(
       const alertBadgeBg = items.length > 0 ? '#fee2e2' : '#d1fae5'
       const alertBadgeFg = items.length > 0 ? '#991b1b' : '#065f46'
 
-      return `<div style="border:1px solid #cbd5e1;border-radius:10px;margin:14px 0;overflow:hidden;background:#ffffff"><div style="background:#f1f5f9;border-bottom:1px solid #cbd5e1;padding:10px 14px"><div style="font-size:14.5px;font-weight:800;color:#0f172a">🏪 ${escapeHtmlSafe(store.storeName)} <span style="background:#e2e8f0;color:#334155;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;margin-left:6px">${hourlyCount} eval • ${salariedCount} ex</span> <span style="background:${alertBadgeBg};color:${alertBadgeFg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:800;margin-left:4px">${items.length} con alerta</span></div><div style="font-size:11.5px;color:#475569;margin-top:3px"><b>Sup:</b> ${escapeHtmlSafe(store.supervisorName || 'N/A')}${store.supervisorEmail ? ` (${escapeHtmlSafe(store.supervisorEmail)})` : ''} • <b>Mgr:</b> ${managerEmails.length > 0 ? managerEmails.map(escapeHtmlSafe).join(', ') : 'N/A'}</div></div><div style="padding:10px 12px">${storeBody}${callInsHtml}${earlyOutsHtml}</div></div>`
+      return `<div style="border:1px solid #cbd5e1;border-radius:10px;margin:14px 0;overflow:hidden;background:#ffffff"><div style="background:#f0f8ff;border-bottom:2px solid #2196f3;border-left:4px solid #0c83e1;padding:10px 14px"><div style="font-size:14.5px;font-weight:800;color:#1d2c37"><img src="${RONOS_BRAND_CLOCK_ICON_URL}" width="16" height="16" alt="" style="vertical-align:middle;border:0;margin-right:5px">${escapeHtmlSafe(store.storeName)} <span style="background:#e2e8f0;color:#1d2c37;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;margin-left:6px">${hourlyCount} eval • ${salariedCount} ex</span> <span style="background:${alertBadgeBg};color:${alertBadgeFg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:800;margin-left:4px">${items.length} con alerta</span></div><div style="font-size:11.5px;color:#026b8b;margin-top:3px"><b>Sup:</b> ${escapeHtmlSafe(store.supervisorName || 'N/A')}${store.supervisorEmail ? ` (${escapeHtmlSafe(store.supervisorEmail)})` : ''} • <b>Mgr:</b> ${managerEmails.length > 0 ? managerEmails.map(escapeHtmlSafe).join(', ') : 'N/A'}</div></div><div style="padding:10px 12px">${storeBody}${callInsHtml}${earlyOutsHtml}</div></div>`
     })
     .join('')
 
@@ -3045,7 +3093,7 @@ export function buildChainDailyRonosGeneralReportHtml(
   const kpiVal = 'font-size:21px;font-weight:800;margin-top:3px'
   const kpiSub = 'font-size:10px;margin-top:2px'
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>table{border-collapse:collapse}td,th{border-color:#e2e8f0}small{color:#64748b;font-size:10.5px}</style></head><body style="margin:0;padding:12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#1f2937"><div style="max-width:960px;margin:0 auto;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:#ffffff"><div style="background:#0f172a;color:#ffffff;padding:20px 22px;border-top:5px solid #dc2626;text-align:center"><div style="font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#fca5a5;margin-bottom:4px">TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)</div><h2 style="margin:0;font-size:20px;font-weight:800;text-transform:uppercase">${isSimulation ? `${escapeHtmlSafe(simPrefix)} ` : ''}Reporte General Diario de Nómina RONOS (vs Planificador y Toast POS)</h2><p style="margin:6px 0 0;font-size:13.5px">Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> (${escapeHtmlSafe(businessDate)})</p><p style="margin:3px 0 0;font-size:11px;color:#cbd5e1">${isSimulation ? 'Simulación Segura — Evaluación real en vivo sin despacho a personal ni escritura en BD.' : isManualDispatch ? 'Despacho manual desde el panel administrativo.' : 'Despacho diario automático (11:59 AM hora de California).'}</p></div><div style="padding:20px">${simBanner}<div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1e3a8a;line-height:1.5"><strong>⚖️ Alcance del Reporte (Nómina RONOS vs Toast POS):</strong> Este reporte audita el reloj oficial de nómina <strong>RONOS (Cingular HR)</strong> —con el que se calcula el cheque de pago— cruzándolo contra el <strong>Planificador</strong> y <strong>Toast POS</strong>. Los avisos operativos exclusivos de Breaks/Lunches de Toast POS se gestionan por separado en el módulo Planificador.</div><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:12px;color:#334155"><strong>Distribución Oficial:</strong> Para: <b>${normalizedTo.map(escapeHtmlSafe).join(', ')}</b> &nbsp;•&nbsp; CC: <b>${normalizedCc.map(escapeHtmlSafe).join(', ')}</b></div><table width="100%" cellspacing="6" cellpadding="0" style="width:100%;border-collapse:separate;border-spacing:6px;margin:6px 0 16px"><tr><td style="${kpiTd};background:#f8fafc;border:1px solid #cbd5e1"><div style="${kpiLbl};color:#475569">Tiendas Auditadas</div><div style="${kpiVal};color:#0f172a">${auditedSuccessCount} / ${stores.length}</div>${errorStoresCount > 0 ? `<div style="${kpiSub};color:#b91c1c;font-weight:700">${errorStoresCount} con error</div>` : `<div style="${kpiSub};color:#64748b">100% activas</div>`}</td><td style="${kpiTd};background:#f0fdf4;border:1px solid #bbf7d0"><div style="${kpiLbl};color:#166534">Colaboradores Evaluados</div><div style="${kpiVal};color:#15803d">${totalEvaluatedHourly}</div><div style="${kpiSub};color:#166534">Personal por hora</div></td><td style="${kpiTd};background:#fef2f2;border:1px solid #fecaca"><div style="${kpiLbl};color:#991b1b">Total de Alertas</div><div style="${kpiVal};color:#b91c1c">${totalViolationEvents}</div><div style="${kpiSub};color:#991b1b">${totalAlertEmployees} colaboradores</div></td><td style="${kpiTd};background:#fffbeb;border:1px solid #fde68a"><div style="${kpiLbl};color:#92400e">Puntualidad ±3m / No-Show</div><div style="${kpiVal};color:#d97706">${totalPunctuality}</div><div style="${kpiSub};color:#92400e">vs Planificador</div></td></tr><tr><td style="${kpiTd};background:#f5f3ff;border:1px solid #ddd6fe"><div style="${kpiLbl};color:#5b21b6">Reparar RONOS vs Toast</div><div style="${kpiVal};color:#7c3aed">${totalRepairs}</div><div style="${kpiSub};color:#5b21b6">Protección cheque pago</div></td><td style="${kpiTd};background:#fdf2f8;border:1px solid #fbcfe8"><div style="${kpiLbl};color:#9d174d">Comidas (30m / 5ta Hr)</div><div style="${kpiVal};color:#be185d">${totalMeals}</div><div style="${kpiSub};color:#9d174d">CA Labor Code § 512</div></td><td style="${kpiTd};background:#f0f9ff;border:1px solid #bae6fd"><div style="${kpiLbl};color:#075985">Exentos Cob. / Baja Venta</div><div style="${kpiVal};color:#0284c7">${totalAuthorizedCallIns + totalAuthorizedEarlyOuts}</div><div style="${kpiSub};color:#0369a1">${totalAuthorizedCallIns} cob. • ${totalAuthorizedEarlyOuts} cierre/venta</div></td><td style="${kpiTd};background:#f1f5f9;border:1px solid #cbd5e1"><div style="${kpiLbl};color:#334155">Asalariados Exentos</div><div style="${kpiVal};color:#1e293b">${totalExemptSalaried}</div><div style="${kpiSub};color:#475569">Managers / Supervisores</div></td></tr></table><h3 style="font-size:14px;font-weight:800;color:#0f172a;margin:18px 0 8px;text-transform:uppercase">📋 Resumen Ejecutivo por Sucursal</h3><table width="100%" cellpadding="8" cellspacing="0" border="1" bordercolor="#e2e8f0" style="width:100%;border-collapse:collapse;border:1px solid #cbd5e1;font:12px Arial,sans-serif"><thead><tr bgcolor="#1e293b" style="background:#1e293b;color:#ffffff;font-size:11px;text-transform:uppercase"><th align="left" width="28%">Sucursal &amp; Mandos</th><th align="center" width="11%">Estado</th><th align="center" width="13%">Evaluados</th><th align="center" width="10%">Con Alerta</th><th align="center" width="10%">Puntualidad</th><th align="center" width="10%">Reparar</th><th align="center" width="9%">Comidas</th><th align="center" width="9%">Exentos</th></tr></thead><tbody>${summaryRowsHtml}</tbody><tfoot><tr bgcolor="#e2e8f0" style="background:#e2e8f0;font-weight:800;color:#0f172a;font-size:12px;border-top:2px solid #94a3b8"><td colspan="2">TOTAL CADENA (${stores.length} sucursales)</td><td align="center">${totalEvaluatedHourly} (+${totalExemptSalaried} ex)</td><td align="center" style="color:#b91c1c">${totalAlertEmployees}</td><td align="center" style="color:#d97706">${totalPunctuality}</td><td align="center" style="color:#7c3aed">${totalRepairs}</td><td align="center" style="color:#be185d">${totalMeals}</td><td align="center" style="color:#0284c7">${totalAuthorizedCallIns + totalAuthorizedEarlyOuts}</td></tr></tfoot></table><h3 style="font-size:14px;font-weight:800;color:#0f172a;margin:22px 0 8px;text-transform:uppercase">🔍 Detalle por Sucursal y Colaborador (Planificador · RONOS · Toast POS)</h3>${storeDetailsHtml}<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin-top:18px;font-size:11.5px;color:#475569;line-height:1.5"><strong>Marco de Políticas Aplicadas (NHP TEG SPANISH.pdf &amp; California Labor Code § 512):</strong> Puntualidad estricta de ±3 min frente al Planificador (con exención inteligente por llamado gerencial/cobertura o ajuste AM/PM), exención de salidas anticipadas voluntarias por baja venta comprobada o cierre operativo sincronizado, permanencia extendida voluntaria sin penalización, reparación obligatoria de RONOS frente a Toast POS para proteger el cheque de pago, comida de 30 minutos exactos antes de la 5ta hora en turnos &gt; 6h, y exclusión de Managers y Supervisores asalariados.</div><p style="font-size:11.5px;color:#64748b;margin-top:16px;text-align:center"><strong>Sistema de Monitoreo</strong> — Tacos Gavilan • Reporte General de Nómina RONOS (CC: ${normalizedCc.map(escapeHtmlSafe).join(', ')})</p></div></div></body></html>`
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>table{border-collapse:collapse}td,th{border-color:#e2e8f0}small{color:#64748b;font-size:10.5px}</style></head><body style="margin:0;padding:12px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#1f2937"><div style="max-width:960px;margin:0 auto;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:#ffffff"><div style="background-color:#0c83e1;background-image:linear-gradient(135deg,#0c83e1 0%,#2196f3 70%,#48c6ec 100%);border-top:4px solid #48c6ec;color:#ffffff;padding:20px 22px;text-align:center"><table role="presentation" align="center" cellspacing="0" cellpadding="0" style="margin:0 auto 10px auto"><tr><td valign="middle" style="background:#ffffff;border-radius:10px;padding:6px 10px"><img src="${RONOS_BRAND_OWL_URL}" width="44" height="24" alt="RONOS" style="display:block;border:0"></td><td valign="middle" style="padding-left:12px"><img src="${RONOS_BRAND_WORDMARK_URL}" width="132" height="22" alt="RONOS" style="display:block;border:0"></td></tr></table><div style="background:#1d2c37;color:#48c6ec;display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;margin-bottom:6px">TACOS GAVILAN • MÓDULO RONOS (RELOJ OFICIAL DE NÓMINA CINGULAR HR)</div><h2 style="margin:2px 0 0;font-size:20px;font-weight:800;text-transform:uppercase;color:#ffffff">${isSimulation ? `${escapeHtmlSafe(simPrefix)} ` : ''}Reporte General Diario de Nómina RONOS (vs Planificador y Toast POS)</h2><p style="margin:6px 0 0;font-size:13.5px;color:#f0f9ff">Jornada Auditada: <strong>${escapeHtmlSafe(formatBusinessDateEs(businessDate))}</strong> (${escapeHtmlSafe(businessDate)})</p><p style="margin:3px 0 0;font-size:11px;color:#e0f2fe">${isSimulation ? 'Simulación Segura — Evaluación real en vivo sin despacho a personal ni escritura en BD.' : isManualDispatch ? 'Despacho manual desde el panel administrativo.' : 'Despacho diario automático (11:59 AM hora de California).'}</p></div><div style="padding:20px">${simBanner}<div style="background:#eef9fd;border:1px solid #b3e5fc;border-left:4px solid #2196f3;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#026b8b;line-height:1.5"><strong style="color:#0c83e1">⚖️ Alcance del Reporte (Nómina RONOS vs Toast POS):</strong> Este reporte audita el reloj oficial de nómina <strong>RONOS (Cingular HR)</strong> —con el que se calcula el cheque de pago— cruzándolo contra el <strong>Planificador</strong> y <strong>Toast POS</strong>. Los avisos operativos exclusivos de Breaks/Lunches de Toast POS se gestionan por separado en el módulo Planificador.</div><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:12px;color:#334155"><strong>Distribución Oficial:</strong> Para: <b>${normalizedTo.map(escapeHtmlSafe).join(', ')}</b> &nbsp;•&nbsp; CC: <b>${normalizedCc.map(escapeHtmlSafe).join(', ')}</b></div><table width="100%" cellspacing="6" cellpadding="0" style="width:100%;border-collapse:separate;border-spacing:6px;margin:6px 0 16px"><tr><td style="${kpiTd};background:#f8fafc;border:1px solid #cbd5e1"><div style="${kpiLbl};color:#475569">Tiendas Auditadas</div><div style="${kpiVal};color:#1d2c37">${auditedSuccessCount} / ${stores.length}</div>${errorStoresCount > 0 ? `<div style="${kpiSub};color:#b91c1c;font-weight:700">${errorStoresCount} con error</div>` : `<div style="${kpiSub};color:#64748b">100% activas</div>`}</td><td style="${kpiTd};background:#f0fdf4;border:1px solid #bbf7d0"><div style="${kpiLbl};color:#166534">Colaboradores Evaluados</div><div style="${kpiVal};color:#15803d">${totalEvaluatedHourly}</div><div style="${kpiSub};color:#166534">Personal por hora</div></td><td style="${kpiTd};background:#fef2f2;border:1px solid #fecaca"><div style="${kpiLbl};color:#991b1b">Total de Alertas</div><div style="${kpiVal};color:#b91c1c">${totalViolationEvents}</div><div style="${kpiSub};color:#991b1b">${totalAlertEmployees} colaboradores</div></td><td style="${kpiTd};background:#fffbeb;border:1px solid #fde68a"><div style="${kpiLbl};color:#92400e">Puntualidad ±3m / No-Show</div><div style="${kpiVal};color:#d97706">${totalPunctuality}</div><div style="${kpiSub};color:#92400e">vs Planificador</div></td></tr><tr><td style="${kpiTd};background:#f5f3ff;border:1px solid #ddd6fe"><div style="${kpiLbl};color:#5b21b6">Reparar RONOS vs Toast</div><div style="${kpiVal};color:#7c3aed">${totalRepairs}</div><div style="${kpiSub};color:#5b21b6">Protección cheque pago</div></td><td style="${kpiTd};background:#fdf2f8;border:1px solid #fbcfe8"><div style="${kpiLbl};color:#9d174d">Comidas (30m / 5ta Hr)</div><div style="${kpiVal};color:#be185d">${totalMeals}</div><div style="${kpiSub};color:#9d174d">CA Labor Code § 512</div></td><td style="${kpiTd};background:#f0f9ff;border:1px solid #bae6fd"><div style="${kpiLbl};color:#075985">Exentos Cob. / Baja Venta</div><div style="${kpiVal};color:#0284c7">${totalAuthorizedCallIns + totalAuthorizedEarlyOuts}</div><div style="${kpiSub};color:#0369a1">${totalAuthorizedCallIns} cob. • ${totalAuthorizedEarlyOuts} cierre/venta</div></td><td style="${kpiTd};background:#f1f5f9;border:1px solid #cbd5e1"><div style="${kpiLbl};color:#334155">Asalariados Exentos</div><div style="${kpiVal};color:#1d2c37">${totalExemptSalaried}</div><div style="${kpiSub};color:#475569">Managers / Supervisores</div></td></tr></table><h3 style="font-size:14px;font-weight:800;color:#1d2c37;margin:18px 0 8px;text-transform:uppercase">📋 Resumen Ejecutivo por Sucursal</h3><table width="100%" cellpadding="8" cellspacing="0" border="1" bordercolor="#e2e8f0" style="width:100%;border-collapse:collapse;border:1px solid #cbd5e1;font:12px Arial,sans-serif"><thead><tr bgcolor="#1d2c37" style="background:#1d2c37;color:#ffffff;font-size:11px;text-transform:uppercase;border-bottom:2px solid #2196f3"><th align="left" width="28%">Sucursal &amp; Mandos</th><th align="center" width="11%">Estado</th><th align="center" width="13%">Evaluados</th><th align="center" width="10%">Con Alerta</th><th align="center" width="10%">Puntualidad</th><th align="center" width="10%">Reparar</th><th align="center" width="9%">Comidas</th><th align="center" width="9%">Exentos</th></tr></thead><tbody>${summaryRowsHtml}</tbody><tfoot><tr bgcolor="#e2e8f0" style="background:#e2e8f0;font-weight:800;color:#1d2c37;font-size:12px;border-top:2px solid #2196f3"><td colspan="2">TOTAL CADENA (${stores.length} sucursales)</td><td align="center">${totalEvaluatedHourly} (+${totalExemptSalaried} ex)</td><td align="center" style="color:#b91c1c">${totalAlertEmployees}</td><td align="center" style="color:#d97706">${totalPunctuality}</td><td align="center" style="color:#7c3aed">${totalRepairs}</td><td align="center" style="color:#be185d">${totalMeals}</td><td align="center" style="color:#0284c7">${totalAuthorizedCallIns + totalAuthorizedEarlyOuts}</td></tr></tfoot></table><h3 style="font-size:14px;font-weight:800;color:#1d2c37;margin:22px 0 8px;text-transform:uppercase">🔍 Detalle por Sucursal y Colaborador (Planificador · RONOS · Toast POS)</h3>${storeDetailsHtml}<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin-top:18px;font-size:11.5px;color:#475569;line-height:1.5"><strong>Marco de Políticas Aplicadas (NHP TEG SPANISH.pdf &amp; California Labor Code § 512):</strong> Puntualidad estricta de ±3 min frente al Planificador (con exención inteligente por llamado gerencial/cobertura o ajuste AM/PM), exención de salidas anticipadas voluntarias por baja venta comprobada o cierre operativo sincronizado, permanencia extendida voluntaria sin penalización, reparación obligatoria de RONOS frente a Toast POS para proteger el cheque de pago, comida de 30 minutos exactos antes de la 5ta hora en turnos &gt; 6h, y exclusión de Managers y Supervisores asalariados.</div><div style="background:#1d2c37;border-top:3px solid #2196f3;border-radius:8px;padding:12px 16px;font-size:11.5px;color:#cbd5e1;margin-top:16px;text-align:center"><strong style="color:#48c6ec">Sistema de Monitoreo • Módulo RONOS</strong> — <span style="color:#ffffff;font-weight:700">Tacos Gavilan</span> • Reporte General de Nómina RONOS (CC: ${normalizedCc.map(escapeHtmlSafe).join(', ')})</div></div></div></body></html>`
 
   return { subject, html }
 }

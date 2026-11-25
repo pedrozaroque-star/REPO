@@ -21,6 +21,12 @@
 import { supabaseAdmin } from './supabase'
 import { RONOS_STORES_MAP } from './ronos-api'
 import { sendSystemEmail } from './system-mailer'
+import { formatStoreDisplayName } from './store-display'
+import {
+  RONOS_BRAND_CLOCK_ICON_URL,
+  RONOS_BRAND_OWL_URL,
+  RONOS_BRAND_WORDMARK_URL,
+} from './ronos-attendance-policy'
 
 export interface RonosViolationEmailPayload {
   ronosCompanyId: number
@@ -185,6 +191,7 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
     return timeStr
   }
 
+  const cleanStoreName = formatStoreDisplayName(storeName) || 'Tacos Gavilan'
   const formattedDate = formatSafeEmailDate(violationDate)
 
   return `
@@ -204,35 +211,49 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
         <!-- CONTENEDOR PRINCIPAL -->
         <table role="presentation" width="100%" style="max-width: 680px; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);" cellspacing="0" cellpadding="0">
 
-          <!-- BANDA SUPERIOR CORPORATIVA TACOS GAVILAN -->
+          <!-- BANDA SUPERIOR OFICIAL RONOS + TACOS GAVILAN -->
           <tr>
-            <td style="background-color: #DA291C; padding: 20px 28px; text-align: left;">
-              <table width="100%" cellspacing="0" cellpadding="0">
+            <td style="background-color: #0c83e1; background-image: linear-gradient(135deg, #0c83e1 0%, #2196f3 70%, #48c6ec 100%); border-top: 4px solid #48c6ec; padding: 20px 28px; text-align: left;">
+              <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 10px;">
                 <tr>
-                  <td>
-                    <span style="font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">TACOS GAVILAN • MÓDULO RONOS (RELOJ DE NÓMINA CINGULAR HR)</span>
-                    <span style="display: block; font-size: 12px; color: #fecaca; font-weight: 600; text-transform: uppercase; margin-top: 2px;">
-                      Dirección de Recursos Humanos & Operaciones • Auditoría de Reloj de Nómina RONOS
-                    </span>
+                  <td valign="middle">
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td valign="middle" style="background-color: #ffffff; border-radius: 10px; padding: 6px 10px;">
+                          <img src="${RONOS_BRAND_OWL_URL}" width="44" height="24" alt="RONOS" style="display: block; border: 0;" />
+                        </td>
+                        <td valign="middle" style="padding-left: 12px;">
+                          <img src="${RONOS_BRAND_WORDMARK_URL}" width="132" height="22" alt="RONOS" style="display: block; border: 0;" />
+                        </td>
+                      </tr>
+                    </table>
                   </td>
-                  <td align="right">
-                    <span style="background-color: ${payload.warningStage === 'suspension' ? '#991b1b' : payload.warningStage === 'second' ? '#b45309' : 'rgba(0,0,0,0.25)'}; color: #ffffff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 20px; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.3);">
+                  <td align="right" valign="middle">
+                    <span style="background-color: ${payload.warningStage === 'suspension' ? '#991b1b' : payload.warningStage === 'second' ? '#b45309' : '#1d2c37'}; color: ${payload.warningStage ? '#ffffff' : '#48c6ec'}; font-size: 11px; font-weight: 800; padding: 6px 12px; border-radius: 20px; text-transform: uppercase; border: 1px solid #48c6ec;">
                       ${payload.warningStage === 'suspension' ? '🚨 3er Aviso • Suspensión' : payload.warningStage === 'second' ? '⚠️ 2do Aviso Formal' : '📌 1er Aviso Oficial'}
                     </span>
                   </td>
                 </tr>
               </table>
+              <span style="display: inline-block; background-color: #1d2c37; color: #48c6ec; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 6px; letter-spacing: 0.8px; text-transform: uppercase;">
+                TACOS GAVILAN • MÓDULO RONOS (RELOJ OFICIAL DE NÓMINA CINGULAR HR)
+              </span>
+              <span style="display: block; font-size: 12px; color: #f0f9ff; font-weight: 600; text-transform: uppercase; margin-top: 6px;">
+                Dirección de Recursos Humanos &amp; Operaciones • Auditoría de Reloj de Nómina RONOS
+              </span>
             </td>
           </tr>
 
-          <!-- BANNER DE MONITOREO AUTOMATIZADO -->
+          <!-- BANNER DE MONITOREO AUTOMATIZADO RONOS -->
           <tr>
-            <td style="background-color: #fff1f2; border-bottom: 1px solid #fecdd3; padding: 14px 28px;">
+            <td style="background-color: #eef9fd; border-bottom: 2px solid #2196f3; padding: 14px 28px;">
               <table width="100%" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td width="28" valign="top" style="font-size: 18px;">⚠️</td>
-                  <td style="font-size: 13px; color: #9f1239; font-weight: 600; line-height: 1.4;">
-                    <strong>Monitoreo Automatizado Activo — Reloj de Nómina RONOS (Cingular HR):</strong> Este aviso proviene del módulo oficial de nómina RONOS (Cingular HR), el cual registra las horas para su cheque de pago y es independiente del sistema operativo de tienda Toast POS (Planificador), aunque sus entradas, comidas y salidas deberían coincidir en ambos sistemas.
+                  <td width="26" valign="top" style="padding-top: 2px;">
+                    <img src="${RONOS_BRAND_CLOCK_ICON_URL}" width="16" height="16" alt="" style="display: block; border: 0;" />
+                  </td>
+                  <td style="font-size: 13px; color: #026b8b; font-weight: 600; line-height: 1.45;">
+                    <strong style="color: #0c83e1;">Monitoreo Automatizado Activo — Reloj de Nómina RONOS (Cingular HR):</strong> Este aviso proviene del módulo oficial de nómina RONOS (Cingular HR), el cual registra las horas para su cheque de pago y es independiente del sistema operativo de tienda Toast POS (Planificador), aunque sus entradas, comidas y salidas deberían coincidir en ambos sistemas.
                   </td>
                 </tr>
               </table>
@@ -249,11 +270,11 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
               </p>
 
               <p style="margin: 0 0 20px 0; font-size: 14px; color: #475569; line-height: 1.6;">
-                Por medio del presente aviso oficial se le informa que nuestro sistema central de auditoría ha detectado una irregularidad en el registro de sus horas laborales en la sucursal <strong>${storeName}</strong> correspondiente al día <strong>${formattedDate}</strong>.
+                Por medio del presente aviso oficial se le informa que nuestro sistema central de auditoría ha detectado una irregularidad en el registro de sus horas laborales en la sucursal <strong>${cleanStoreName}</strong> correspondiente al día <strong>${formattedDate}</strong>.
               </p>
 
               <!-- CAJA DE DETALLE DE LA INFRACCIÓN -->
-              <table width="100%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 24px; overflow: hidden;" cellspacing="0" cellpadding="0">
+              <table width="100%" style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; margin-bottom: 24px; overflow: hidden;" cellspacing="0" cellpadding="0">
                 <tr>
                   <td style="background-color: #fee2e2; border-bottom: 1px solid #fecaca; padding: 12px 18px;">
                     <span style="font-size: 13px; font-weight: 800; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -267,15 +288,15 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
                       ${violationDescription}
                     </p>
 
-                    <!-- TABLA DE PONCHADAS REGISTRADAS -->
+                    <!-- TABLA DE PONCHADAS REGISTRADAS EN RONOS -->
                     <table width="100%" style="font-size: 12px; border-collapse: collapse; margin-top: 10px;" cellspacing="0" cellpadding="6">
-                      <tr style="background-color: #edf2f7; color: #475569; font-weight: 700; text-transform: uppercase;">
-                        <th align="left" style="padding: 6px 10px; border-radius: 6px 0 0 6px;">Entrada (Clock In)</th>
-                        <th align="center" style="padding: 6px 10px;">Inicio Lunch</th>
-                        <th align="center" style="padding: 6px 10px;">Fin Lunch</th>
-                        <th align="right" style="padding: 6px 10px; border-radius: 0 6px 6px 0;">Salida (Clock Out)</th>
+                      <tr style="background-color: #1d2c37; color: #ffffff; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid #2196f3;">
+                        <th align="left" style="padding: 7px 10px;">Entrada (Clock In)</th>
+                        <th align="center" style="padding: 7px 10px;">Inicio Lunch</th>
+                        <th align="center" style="padding: 7px 10px;">Fin Lunch</th>
+                        <th align="right" style="padding: 7px 10px;">Salida (Clock Out)</th>
                       </tr>
-                      <tr style="color: #0f172a; font-family: monospace; font-weight: 600;">
+                      <tr style="color: #0c83e1; font-family: monospace; font-weight: 700; background-color: #f0f8ff;">
                         <td align="left" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">
                           ${formatSafeEmailTime(clockInTime)}
                         </td>
@@ -338,13 +359,13 @@ export function generateViolationWarningEmailHtml(payload: RonosViolationEmailPa
             </td>
           </tr>
 
-          <!-- PIE DE PÁGINA FORMAL -->
+          <!-- PIE DE PÁGINA FORMAL RONOS -->
           <tr>
-            <td style="background-color: #0f172a; padding: 20px 28px; text-align: center;">
-              <p style="margin: 0; font-size: 12px; font-weight: 700; color: #ffffff;">
-                TACOS GAVILAN • CUMPLIMIENTO LABORAL Y NÓMINA
+            <td style="background-color: #1d2c37; border-top: 3px solid #2196f3; padding: 20px 28px; text-align: center;">
+              <p style="margin: 0; font-size: 12px; font-weight: 800; color: #48c6ec; letter-spacing: 0.5px;">
+                TACOS GAVILAN • MÓDULO OFICIAL RONOS (CUMPLIMIENTO LABORAL Y NÓMINA)
               </p>
-              <p style="margin: 4px 0 0 0; font-size: 11px; color: #94a3b8;">
+              <p style="margin: 4px 0 0 0; font-size: 11px; color: #cbd5e1;">
                 Este correo fue generado automáticamente por el sistema central de auditoría laboral (RONOS Module).
               </p>
             </td>
@@ -389,8 +410,9 @@ export async function sendRonosViolationWarningEmail(payload: RonosViolationEmai
   const recipientsCc = escalera.allCcEmails.filter(e => e && e.includes('@'))
 
   try {
-    const subject = `⚠️ Nómina RONOS (Cingular HR): Aviso Oficial de Incumplimiento Laboral en Registro de Ponchadas — Tacos Gavilan ${storeName}`
-    const htmlContent = generateViolationWarningEmailHtml(payload, escalera)
+    const cleanStoreName = formatStoreDisplayName(storeName) || 'Tacos Gavilan'
+    const subject = `⚠️ Nómina RONOS (Cingular HR): Aviso Oficial de Incumplimiento Laboral en Registro de Ponchadas — Tacos Gavilan ${cleanStoreName}`
+    const htmlContent = generateViolationWarningEmailHtml({ ...payload, storeName: cleanStoreName }, escalera)
 
     const info = await sendSystemEmail({
       fromName: 'Sistema de Monitoreo',
