@@ -23,7 +23,7 @@
  *   - Protegido contra divisiones por cero (`0/0`) y valores nulos en `am_staff` / `pm_staff`.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertOctagon,
   AlertTriangle,
@@ -42,7 +42,12 @@ import {
   X,
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
-import { formatSignedUSD, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-resolver'
+import {
+  FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+  formatSignedUSD,
+  getBusinessDateLA,
+  validateDateRangeWithinMaxDays,
+} from '@/lib/inventory/food-cost-sales-resolver'
 import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 export interface PortionControlAlertsPanelProps {
@@ -363,7 +368,13 @@ export default function PortionControlAlertsPanel({
     [employeeStrikeCounts]
   )
 
+  const alertsAbortRef = useRef<AbortController | null>(null)
+
   const fetchAlerts = useCallback(async () => {
+    if (alertsAbortRef.current) alertsAbortRef.current.abort()
+    const controller = new AbortController()
+    alertsAbortRef.current = controller
+
     setLoading(true)
     try {
       const qs = new URLSearchParams()
@@ -377,20 +388,27 @@ export default function PortionControlAlertsPanel({
         credentials: 'include',
         headers: buildAuthHeaders(),
         cache: 'no-store',
+        signal: controller.signal,
       })
-      const json = await res.json()
+      const rawText = await res.text()
+      let json: any = null
+      try {
+        json = rawText ? JSON.parse(rawText) : null
+      } catch {
+        json = null
+      }
       if (!res.ok) {
-        throw new Error(json?.error || 'Error')
+        throw new Error(json?.error || `HTTP ${res.status}`)
       }
 
-      setAlerts(Array.isArray(json.alerts) ? json.alerts : [])
-      setHandovers(Array.isArray(json.handovers) ? json.handovers : [])
-      setDisciplinaryActions(Array.isArray(json.disciplinaryActions) ? json.disciplinaryActions : [])
-      setEmployeeStrikeCounts(json.employeeStrikeCounts && typeof json.employeeStrikeCounts === 'object' ? json.employeeStrikeCounts : {})
-      setOverdueCount(Number(json.overdueCount) || 0)
-      if (json.summary) setSummary(json.summary)
-      setIsSupervisorOrAdmin(Boolean(json.isSupervisorOrAdmin))
-      const allowed = Array.isArray(json.allowedStoreIds) ? json.allowedStoreIds.map(Number) : []
+      setAlerts(Array.isArray(json?.alerts) ? json.alerts : [])
+      setHandovers(Array.isArray(json?.handovers) ? json.handovers : [])
+      setDisciplinaryActions(Array.isArray(json?.disciplinaryActions) ? json.disciplinaryActions : [])
+      setEmployeeStrikeCounts(json?.employeeStrikeCounts && typeof json.employeeStrikeCounts === 'object' ? json.employeeStrikeCounts : {})
+      setOverdueCount(Number(json?.overdueCount) || 0)
+      if (json?.summary) setSummary(json.summary)
+      setIsSupervisorOrAdmin(Boolean(json?.isSupervisorOrAdmin))
+      const allowed = Array.isArray(json?.allowedStoreIds) ? json.allowedStoreIds.map(Number) : []
       setAllowedStoreIds(allowed)
 
       setHandoverStoreId((prev) => {
@@ -400,14 +418,20 @@ export default function PortionControlAlertsPanel({
         return '14'
       })
     } catch (err: any) {
-      setBannerMsg({ type: 'err', text: err?.message || 'Error' })
+      if (err?.name === 'AbortError') return
+      setBannerMsg({ type: 'err', text: err?.message || t('food_cost.load_error') })
     } finally {
-      setLoading(false)
+      if (alertsAbortRef.current === controller) {
+        setLoading(false)
+      }
     }
-  }, [storeId, startDate, endDate, statusFilter])
+  }, [storeId, startDate, endDate, statusFilter, t])
 
   useEffect(() => {
     fetchAlerts()
+    return () => {
+      if (alertsAbortRef.current) alertsAbortRef.current.abort()
+    }
   }, [fetchAlerts])
 
   const selectableStores = useMemo(() => {
@@ -479,6 +503,17 @@ export default function PortionControlAlertsPanel({
   }, [disciplinaryActions, strikeStageFilter])
 
   const handleScanNow = async () => {
+    if (startDate && endDate) {
+      const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, FOOD_COST_MAX_RANGE_ALL_STORES_DAYS)
+      if (!rangeCheck.ok) {
+        setBannerMsg({
+          type: 'err',
+          text: t('food_cost.max_range_exceeded', { max: FOOD_COST_MAX_RANGE_ALL_STORES_DAYS }),
+        })
+        return
+      }
+    }
+
     setScanning(true)
     setBannerMsg(null)
     try {
@@ -494,21 +529,27 @@ export default function PortionControlAlertsPanel({
           send_emails: false,
         }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || 'Scan failed')
+      const rawText = await res.text()
+      let json: any = null
+      try {
+        json = rawText ? JSON.parse(rawText) : null
+      } catch {
+        json = null
+      }
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`)
 
-      const count = Array.isArray(json.triggeredAlerts) ? json.triggeredAlerts.length : 0
+      const count = Array.isArray(json?.triggeredAlerts) ? json.triggeredAlerts.length : 0
       setBannerMsg({
         type: 'ok',
         text: t('portion_alerts.msg_scan_done', {
-          start: json.periodStart || '',
-          end: json.periodEnd || '',
+          start: json?.periodStart || '',
+          end: json?.periodEnd || '',
           count,
         }),
       })
       await fetchAlerts()
     } catch (err: any) {
-      setBannerMsg({ type: 'err', text: err?.message || 'Error' })
+      setBannerMsg({ type: 'err', text: err?.message || t('food_cost.load_error') })
     } finally {
       setScanning(false)
     }

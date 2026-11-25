@@ -545,11 +545,13 @@ export function calculateCausalMassBalanceFromSeries(params: {
 }
 
 async function fetchPaginated<T>(
-  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  maxPages = 50
 ): Promise<T[]> {
   const rows: T[] = []
   const pageSize = 1000
-  for (let from = 0; ; from += pageSize) {
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize
     const { data, error } = await buildQuery(from, from + pageSize - 1)
     if (error) throw new Error(error.message)
     if (!data || data.length === 0) break
@@ -559,8 +561,25 @@ async function fetchPaginated<T>(
   return rows
 }
 
-const massBalanceCache = new Map<string, { expiresAt: number; value: HistoricalMassBalanceResult }>()
-const MASS_BALANCE_TTL_MS = 2 * 60 * 1000 // 2 min en interacciones de UI
+interface RawMassBalanceSeriesCache {
+  counts: HistoricalCountPoint[]
+  arrivals: HistoricalOrderArrivalPoint[]
+  sales: HistoricalDailySalesPoint[]
+  netTransfers: Array<{ inventoryItemId: string; transferDate: string; netQty: number }>
+}
+
+const massBalanceSeriesCache = new Map<string, { expiresAt: number; series: RawMassBalanceSeriesCache }>()
+const massBalanceSeriesInFlight = new Map<string, Promise<RawMassBalanceSeriesCache | null>>()
+const MASS_BALANCE_TTL_MS = 3 * 60 * 1000 // 3 min de caché de series crudas (independiente de liveActiveOrders)
+const MASS_BALANCE_MAX_CACHE_ENTRIES = 100
+
+function setSeriesCacheBounded(key: string, series: RawMassBalanceSeriesCache) {
+  if (massBalanceSeriesCache.size >= MASS_BALANCE_MAX_CACHE_ENTRIES) {
+    const firstKey = massBalanceSeriesCache.keys().next().value
+    if (firstKey !== undefined) massBalanceSeriesCache.delete(firstKey)
+  }
+  massBalanceSeriesCache.set(key, { expiresAt: Date.now() + MASS_BALANCE_TTL_MS, series })
+}
 
 function cloneMassBalanceResult(src: HistoricalMassBalanceResult): HistoricalMassBalanceResult {
   return {
@@ -638,121 +657,146 @@ export async function getHistoricalMassBalanceUsage(
     }
   }
 
-  const cacheKey = `${storeId}:${businessDate}:${liveActiveOrders ?? 'na'}:${targetItems.length}`
-  if (!options?.forceRefresh) {
-    const hit = massBalanceCache.get(cacheKey)
-    if (hit && hit.expiresAt > Date.now()) {
-      return cloneMassBalanceResult(hit.value)
-    }
-  }
+  const targetIds = targetItems.map(i => i.id).sort()
+  const seriesCacheKey = `${storeId}:${businessDate}:${targetIds.join(',')}`
 
   try {
-    const db = await getSupabaseAdminClient()
-    const { data: store, error: storeError } = await db
-      .from('stores')
-      .select('external_id')
-      .eq('id', storeId)
-      .single()
+    let series: RawMassBalanceSeriesCache | null = null
+    if (!options?.forceRefresh) {
+      const hit = massBalanceSeriesCache.get(seriesCacheKey)
+      if (hit && hit.expiresAt > Date.now()) {
+        series = hit.series
+      }
+    }
 
-    if (storeError || !store?.external_id) {
+    if (!series) {
+      let loader = !options?.forceRefresh ? massBalanceSeriesInFlight.get(seriesCacheKey) : undefined
+      if (!loader) {
+        loader = (async (): Promise<RawMassBalanceSeriesCache | null> => {
+          const db = await getSupabaseAdminClient()
+          const { data: store, error: storeError } = await db
+            .from('stores')
+            .select('external_id')
+            .eq('id', storeId)
+            .single()
+
+          if (storeError || !store?.external_id) {
+            return null
+          }
+
+          // 50 días hacia atrás cubren la ventana extendida de 42 días + tramos dominicales previos
+          const lookbackStart = shiftIsoDate(businessDate, -50)
+
+          const [rawCounts, rawOrderLines, rawSales, confirmedTransfers] = await Promise.all([
+            fetchPaginated<any>((from, to) =>
+              db.from('inventory_counts')
+                .select('inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
+                .eq('store_id', String(storeId))
+                .in('inventory_item_id', targetIds)
+                .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
+                .gte('count_date', lookbackStart)
+                .lt('count_date', businessDate)
+                .order('count_date', { ascending: true })
+                .order('inventory_item_id', { ascending: true })
+                .range(from, to)
+            ),
+            fetchPaginated<any>((from, to) =>
+              db.from('inventory_order_lines')
+                .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, id, inventory_orders!inner(order_date, store_id, order_type, status)')
+                .eq('inventory_orders.store_id', storeId)
+                .eq('inventory_orders.order_type', 'daily')
+                .in('inventory_orders.status', ['sent', 'received'])
+                .in('inventory_item_id', targetIds)
+                .gte('inventory_orders.order_date', lookbackStart)
+                .lt('inventory_orders.order_date', businessDate)
+                .order('id', { ascending: true })
+                .range(from, to)
+            ),
+            fetchPaginated<any>((from, to) =>
+              db.from('sales_daily_cache')
+                .select('business_date, net_sales, order_count')
+                .eq('store_id', store.external_id)
+                .gte('business_date', lookbackStart)
+                .lte('business_date', businessDate)
+                .order('business_date', { ascending: true })
+                .range(from, to)
+            ),
+            fetchConfirmedStoreTransfers({
+              supabase: db,
+              storeIds: [storeId],
+              itemIds: targetIds,
+              minDate: lookbackStart,
+              maxDate: businessDate,
+            }),
+          ])
+
+          const counts: HistoricalCountPoint[] = rawCounts.map((r: any) => ({
+            inventoryItemId: String(r.inventory_item_id),
+            countDate: String(r.count_date),
+            quantityOnHand: Number(r.quantity_on_hand),
+            countedBy: r.counted_by ?? null,
+            notes: r.notes ?? null,
+          }))
+
+          const arrivals: HistoricalOrderArrivalPoint[] = rawOrderLines.map((r: any) => ({
+            inventoryItemId: String(r.inventory_item_id),
+            orderDate: String(r.inventory_orders?.order_date || ''),
+            deliveredQty: Number(r.final_qty ?? r.adjusted_qty ?? r.calculated_qty ?? 0),
+            parValue: Number(r.par_value ?? 0),
+            calculatedQty: Number(r.calculated_qty ?? 0),
+          }))
+
+          const sales: HistoricalDailySalesPoint[] = rawSales.map((r: any) => ({
+            businessDate: String(r.business_date),
+            netSales: Number(r.net_sales ?? 0),
+            orderCount: Number(r.order_count ?? 0),
+          }))
+
+          const transferNetMap = buildStoreItemDateNetTransferMap(
+            confirmedTransfers,
+            new Set([storeId])
+          )
+          const netTransfers = Array.from(transferNetMap.entries()).map(([k, v]) => {
+            const [, inventoryItemId, transferDate] = k.split('::')
+            return { inventoryItemId, transferDate, netQty: v.netQty }
+          })
+
+          const loadedSeries: RawMassBalanceSeriesCache = { counts, arrivals, sales, netTransfers }
+          setSeriesCacheBounded(seriesCacheKey, loadedSeries)
+          return loadedSeries
+        })()
+        if (!options?.forceRefresh) {
+          massBalanceSeriesInFlight.set(seriesCacheKey, loader)
+        }
+      }
+      try {
+        series = await loader
+      } finally {
+        if (massBalanceSeriesInFlight.get(seriesCacheKey) === loader) {
+          massBalanceSeriesInFlight.delete(seriesCacheKey)
+        }
+      }
+    }
+
+    if (!series) {
       return {
         status: 'unavailable',
-        reason: `Tienda sin Toast external_id: ${storeError?.message || 'vacío'}`,
+        reason: 'Tienda sin Toast external_id',
         targetNetSales: 0,
         usageByItemId: new Map(),
         detailsByItemId: new Map(),
       }
     }
 
-    // 50 días hacia atrás cubren la ventana extendida de 42 días + tramos dominicales previos
-    const lookbackStart = shiftIsoDate(businessDate, -50)
-    const targetIds = targetItems.map(i => i.id)
-
-    const [rawCounts, rawOrderLines, rawSales, confirmedTransfers] = await Promise.all([
-      fetchPaginated<any>((from, to) =>
-        db.from('inventory_counts')
-          .select('inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
-          .eq('store_id', String(storeId))
-          .in('inventory_item_id', targetIds)
-          .gte('count_date', lookbackStart)
-          .lt('count_date', businessDate)
-          .order('count_date', { ascending: true })
-          .order('inventory_item_id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchPaginated<any>((from, to) =>
-        db.from('inventory_order_lines')
-          .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, id, inventory_orders!inner(order_date, store_id, order_type, status)')
-          .eq('inventory_orders.store_id', storeId)
-          .eq('inventory_orders.order_type', 'daily')
-          .in('inventory_orders.status', ['sent', 'received'])
-          .in('inventory_item_id', targetIds)
-          .gte('inventory_orders.order_date', lookbackStart)
-          .lt('inventory_orders.order_date', businessDate)
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchPaginated<any>((from, to) =>
-        db.from('sales_daily_cache')
-          .select('business_date, net_sales, order_count')
-          .eq('store_id', store.external_id)
-          .gte('business_date', lookbackStart)
-          .lte('business_date', businessDate)
-          .order('business_date', { ascending: true })
-          .range(from, to)
-      ),
-      fetchConfirmedStoreTransfers({
-        supabase: db,
-        storeIds: [storeId],
-        itemIds: targetIds,
-        minDate: lookbackStart,
-        maxDate: businessDate,
-      }),
-    ])
-
-    const counts: HistoricalCountPoint[] = rawCounts.map((r: any) => ({
-      inventoryItemId: String(r.inventory_item_id),
-      countDate: String(r.count_date),
-      quantityOnHand: Number(r.quantity_on_hand),
-      countedBy: r.counted_by ?? null,
-      notes: r.notes ?? null,
-    }))
-
-    const arrivals: HistoricalOrderArrivalPoint[] = rawOrderLines.map((r: any) => ({
-      inventoryItemId: String(r.inventory_item_id),
-      orderDate: String(r.inventory_orders?.order_date || ''),
-      deliveredQty: Number(r.final_qty ?? r.adjusted_qty ?? r.calculated_qty ?? 0),
-      parValue: Number(r.par_value ?? 0),
-      calculatedQty: Number(r.calculated_qty ?? 0),
-    }))
-
-    const sales: HistoricalDailySalesPoint[] = rawSales.map((r: any) => ({
-      businessDate: String(r.business_date),
-      netSales: Number(r.net_sales ?? 0),
-      orderCount: Number(r.order_count ?? 0),
-    }))
-
-    const transferNetMap = buildStoreItemDateNetTransferMap(
-      confirmedTransfers,
-      new Set([storeId])
-    )
-    const netTransfers = Array.from(transferNetMap.entries()).map(([k, v]) => {
-      const [, inventoryItemId, transferDate] = k.split('::')
-      return { inventoryItemId, transferDate, netQty: v.netQty }
-    })
-
     const computed = calculateCausalMassBalanceFromSeries({
       businessDate,
       items: targetItems,
-      counts,
-      arrivals,
-      sales,
-      netTransfers,
+      counts: series.counts,
+      arrivals: series.arrivals,
+      sales: series.sales,
+      netTransfers: series.netTransfers,
       liveActiveOrders,
     })
-    if (computed.status === 'ok') {
-      massBalanceCache.set(cacheKey, { expiresAt: Date.now() + MASS_BALANCE_TTL_MS, value: computed })
-    }
     return cloneMassBalanceResult(computed)
   } catch (error) {
     return {

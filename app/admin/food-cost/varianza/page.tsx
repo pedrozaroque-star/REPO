@@ -20,7 +20,7 @@
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Scale,
@@ -41,8 +41,11 @@ import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-di
 import {
   addDaysIso,
   escapeCsvCell,
+  FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+  FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS,
   formatSignedUSD,
   getBusinessDateLA,
+  validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 
 type SpanPreset = '1d' | '7d' | '14d' | '30d' | 'custom'
@@ -136,13 +139,18 @@ export default function AvTVariancePage() {
 
   const [startDate, setStartDate] = useState<string>(() => getPresetDates('7d').start)
   const [endDate, setEndDate] = useState<string>(() => getPresetDates('7d').end)
+  const [draftStartDate, setDraftStartDate] = useState<string>(() => getPresetDates('7d').start)
+  const [draftEndDate, setDraftEndDate] = useState<string>(() => getPresetDates('7d').end)
 
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<AvTResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const maxAllowedDays = storeId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
 
   useEffect(() => {
-    fetch('/api/stores')
+    const controller = new AbortController()
+    fetch('/api/stores', { signal: controller.signal })
       .then((res) => res.json())
       .then((json) => {
         if (Array.isArray(json)) {
@@ -154,7 +162,10 @@ export default function AvTVariancePage() {
           )
         }
       })
-      .catch((err) => console.error('Failed to load stores:', err))
+      .catch((err) => {
+        if (err?.name !== 'AbortError') console.error('Failed to load stores:', err)
+      })
+    return () => controller.abort()
   }, [])
 
   const applyPreset = (preset: Exclude<SpanPreset, 'custom'>) => {
@@ -162,36 +173,121 @@ export default function AvTVariancePage() {
     setSpanPreset(preset)
     setStartDate(range.start)
     setEndDate(range.end)
+    setDraftStartDate(range.start)
+    setDraftEndDate(range.end)
+    setError(null)
   }
 
-  const fetchData = async () => {
+  const handleApplyDraftDates = () => {
+    const check = validateDateRangeWithinMaxDays(draftStartDate, draftEndDate, maxAllowedDays)
+    if (!check.ok) {
+      setError(t('food_cost.max_range_exceeded', { max: maxAllowedDays }))
+      return
+    }
+    setError(null)
+    setSpanPreset('custom')
+    setStartDate(draftStartDate)
+    setEndDate(draftEndDate)
+  }
+
+  const fetchData = useCallback(async () => {
+    const check = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
+    if (!check.ok) {
+      setError(t('food_cost.max_range_exceeded', { max: maxAllowedDays }))
+      setLoading(false)
+      return
+    }
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
       setLoading(true)
       setError(null)
+      // Always request `category=all` so clicking category pills filters instantaneously client-side with ZERO extra backend queries.
       const params = new URLSearchParams({
         storeId,
         startDate,
         endDate,
-        category: categoryFilter,
+        category: 'all',
       })
-      const res = await fetch(`/api/food-cost/variance-avt?${params.toString()}`)
-      const json = await res.json()
+      const res = await fetch(`/api/food-cost/variance-avt?${params.toString()}`, { signal: controller.signal })
+      const rawText = await res.text()
+      let json: any = null
+      try {
+        json = rawText ? JSON.parse(rawText) : null
+      } catch {
+        json = null
+      }
       if (!res.ok) throw new Error(json?.error || `Error ${res.status}: ${res.statusText}`)
       setData(json)
     } catch (err: any) {
+      if (err?.name === 'AbortError') return
       console.error('Failed to load AvT:', err)
-      setError(err.message || 'Error loading AvT data')
+      setError(err.message || t('food_cost.load_error'))
     } finally {
-      setLoading(false)
+      if (abortRef.current === controller) {
+        setLoading(false)
+      }
     }
-  }
+  }, [storeId, startDate, endDate, maxAllowedDays, t])
 
   useEffect(() => {
     fetchData()
-  }, [storeId, startDate, endDate, categoryFilter])
+    return () => {
+      if (abortRef.current) abortRef.current.abort()
+    }
+  }, [fetchData])
+
+  // Client-side category filter & KPI recalculation (exact parity with backend, zero extra DB/PMIX queries)
+  const scopedView = useMemo(() => {
+    if (!data) return null
+    const visibleItems = categoryFilter === 'all'
+      ? data.items
+      : data.items.filter((i) => i.category === categoryFilter)
+
+    if (categoryFilter === 'all') {
+      return {
+        items: visibleItems,
+        itemsCount: data.itemsCount,
+        measuredItemsCount: data.measuredItemsCount ?? visibleItems.filter((i) => i.hasRealInventoryData).length,
+        totalTheoreticalDollar: data.totalTheoreticalDollar,
+        totalActualDollar: data.totalActualDollar,
+        totalDollarLoss: data.totalDollarLoss,
+        totalBodegaDollarLoss: data.totalBodegaDollarLoss ?? 0,
+        overallEfficiencyPct: data.overallEfficiencyPct,
+      }
+    }
+
+    let measuredCount = 0
+    let totalTheo = 0
+    let totalActl = 0
+    let totalLoss = 0
+    let totalBodegaLoss = 0
+    for (const item of visibleItems) {
+      if (item.hasRealInventoryData) {
+        measuredCount++
+        totalTheo += Number(item.theoretical_dollar) || 0
+        totalActl += Number(item.actual_dollar) || 0
+        if ((Number(item.dollar_loss) || 0) > 0) totalLoss += Number(item.dollar_loss) || 0
+        if ((Number(item.bodega_dollar_loss) || 0) > 0) totalBodegaLoss += Number(item.bodega_dollar_loss) || 0
+      }
+    }
+    const eff = totalActl > 0 ? Math.min(200, Math.round((totalTheo / totalActl) * 1000) / 10) : 0
+    return {
+      items: visibleItems,
+      itemsCount: visibleItems.length,
+      measuredItemsCount: measuredCount,
+      totalTheoreticalDollar: Math.round(totalTheo * 100) / 100,
+      totalActualDollar: Math.round(totalActl * 100) / 100,
+      totalDollarLoss: Math.round(totalLoss * 100) / 100,
+      totalBodegaDollarLoss: Math.round(totalBodegaLoss * 100) / 100,
+      overallEfficiencyPct: eff,
+    }
+  }, [data, categoryFilter])
 
   const handleExportCSV = () => {
-    if (!data || !data.items) return
+    if (!scopedView || !scopedView.items) return
     const headers = [
       isEn ? 'Ingredient' : 'Ingrediente',
       isEn ? 'Category' : 'Categoría',
@@ -207,7 +303,7 @@ export default function AvTVariancePage() {
       isEn ? 'Bodega $ Loss (USD)' : 'Pérdida Bodega $ (USD)',
       isEn ? 'Status' : 'Estado',
     ]
-    const rows = data.items.map((i) => [
+    const rows = scopedView.items.map((i) => [
       escapeCsvCell(i.name),
       escapeCsvCell(i.category),
       escapeCsvCell(i.unit_measure),
@@ -277,7 +373,7 @@ export default function AvTVariancePage() {
           </button>
           <button
             onClick={handleExportCSV}
-            disabled={!data || data.items.length === 0}
+            disabled={!scopedView || scopedView.items.length === 0}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 shadow-sm disabled:opacity-50 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-blue-600" />
@@ -294,7 +390,20 @@ export default function AvTVariancePage() {
             <Store className="w-4 h-4 text-slate-400" />
             <select
               value={storeId}
-              onChange={(e) => setStoreId(e.target.value)}
+              onChange={(e) => {
+                const nextStore = e.target.value
+                setStoreId(nextStore)
+                if (nextStore === 'all') {
+                  const check = validateDateRangeWithinMaxDays(startDate, endDate, FOOD_COST_MAX_RANGE_ALL_STORES_DAYS)
+                  if (!check.ok) {
+                    const clampedStart = addDaysIso(endDate, -(FOOD_COST_MAX_RANGE_ALL_STORES_DAYS - 1))
+                    setStartDate(clampedStart)
+                    setDraftStartDate(clampedStart)
+                    setDraftEndDate(endDate)
+                    setSpanPreset('custom')
+                  }
+                }
+              }}
               className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none"
             >
               <option value="all">{t('avt.all_stores') || (isEn ? 'All 15 Stores (Consolidated)' : 'Todas las Sucursales (Consolidado)')}</option>
@@ -331,27 +440,29 @@ export default function AvTVariancePage() {
             ))}
           </div>
 
-          {/* Date range inputs */}
+          {/* Date range inputs (explicit Apply prevents firing DB queries on every keystroke/calendar step) */}
           <div className="flex items-center gap-1.5">
             <input
               type="date"
-              value={startDate}
-              onChange={(e) => {
-                setSpanPreset('custom')
-                setStartDate(e.target.value)
-              }}
+              value={draftStartDate}
+              onChange={(e) => setDraftStartDate(e.target.value)}
               className="px-2.5 py-1 text-xs border rounded-lg bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 font-mono"
             />
             <span className="text-slate-400 text-xs">→</span>
             <input
               type="date"
-              value={endDate}
-              onChange={(e) => {
-                setSpanPreset('custom')
-                setEndDate(e.target.value)
-              }}
+              value={draftEndDate}
+              onChange={(e) => setDraftEndDate(e.target.value)}
               className="px-2.5 py-1 text-xs border rounded-lg bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 font-mono"
             />
+            <button
+              type="button"
+              onClick={handleApplyDraftDates}
+              disabled={loading || (draftStartDate === startDate && draftEndDate === endDate)}
+              className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 disabled:opacity-40 transition-opacity cursor-pointer"
+            >
+              {t('food_cost.apply_dates')}
+            </button>
           </div>
         </div>
 
@@ -491,17 +602,17 @@ export default function AvTVariancePage() {
       )}
 
       {/* KPI Cards */}
-      {data && (
+      {scopedView && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-xl shadow-sm">
             <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
               {t('avt.summary_theo_dollar') || (isEn ? 'Theoretical POS Cost' : 'Costo Teórico (Ítems Medidos)')}
             </span>
             <span className="text-xl font-black text-slate-900 dark:text-white font-mono">
-              {formatSignedUSD(data.totalTheoreticalDollar)}
+              {formatSignedUSD(scopedView.totalTheoreticalDollar)}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
-              {data.measuredItemsCount ?? 0} / {data.itemsCount}{' '}
+              {scopedView.measuredItemsCount} / {scopedView.itemsCount}{' '}
               {isEn ? 'items with physical span' : 'insumos con tramo físico'}
             </span>
           </div>
@@ -511,7 +622,7 @@ export default function AvTVariancePage() {
               {t('avt.summary_actl_dollar') || (isEn ? 'Actual Physical Cost' : 'Costo Real Gastado')}
             </span>
             <span className="text-xl font-black text-slate-900 dark:text-white font-mono">
-              {formatSignedUSD(data.totalActualDollar)}
+              {formatSignedUSD(scopedView.totalActualDollar)}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
               {t('avt.summary_actl_sub') || (isEn ? 'Opening + Deliveries − Closing' : 'Inicial + Entregas Bodega − Final')}
@@ -523,10 +634,10 @@ export default function AvTVariancePage() {
               {t('avt.summary_dollar_loss') || (isEn ? 'Over-Portioning Loss ($)' : 'Fuga por Sobre-Porción ($ Loss)')}
             </span>
             <span className="text-xl font-black text-rose-600 dark:text-rose-400 font-mono">
-              {formatSignedUSD(data.totalDollarLoss, { showPlus: data.totalDollarLoss > 0 })}
+              {formatSignedUSD(scopedView.totalDollarLoss, { showPlus: scopedView.totalDollarLoss > 0 })}
             </span>
             <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
-              Bodega: {formatSignedUSD(data.totalBodegaDollarLoss || 0)}
+              Bodega: {formatSignedUSD(scopedView.totalBodegaDollarLoss || 0)}
             </span>
           </div>
 
@@ -536,16 +647,16 @@ export default function AvTVariancePage() {
             </span>
             <span
               className={`text-xl font-black font-mono ${
-                (data.measuredItemsCount ?? 0) === 0
+                scopedView.measuredItemsCount === 0
                   ? 'text-slate-400'
-                  : data.overallEfficiencyPct >= 96
+                  : scopedView.overallEfficiencyPct >= 96
                     ? 'text-emerald-600 dark:text-emerald-400'
-                    : data.overallEfficiencyPct >= 88
+                    : scopedView.overallEfficiencyPct >= 88
                       ? 'text-amber-600 dark:text-amber-400'
                       : 'text-rose-600 dark:text-rose-400'
               }`}
             >
-              {(data.measuredItemsCount ?? 0) === 0 ? '—' : `${data.overallEfficiencyPct}%`}
+              {scopedView.measuredItemsCount === 0 ? '—' : `${scopedView.overallEfficiencyPct}%`}
             </span>
             <span className="text-[10px] text-slate-400 block mt-0.5">
               {isEn ? 'Target: 96% – 100%' : 'Meta ideal: 96% – 100%'}
@@ -563,11 +674,18 @@ export default function AvTVariancePage() {
           </p>
         </div>
       ) : error ? (
-        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 p-6 rounded-xl text-center text-red-700 dark:text-red-300">
-          <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
+        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 p-6 rounded-xl text-center text-red-700 dark:text-red-300 space-y-3">
+          <AlertTriangle className="w-8 h-8 mx-auto" />
           <p className="font-bold">{error}</p>
+          <button
+            type="button"
+            onClick={fetchData}
+            className="px-4 py-1.5 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white transition-colors cursor-pointer"
+          >
+            {t('food_cost.retry')}
+          </button>
         </div>
-      ) : data ? (
+      ) : scopedView ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-md overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
@@ -589,7 +707,7 @@ export default function AvTVariancePage() {
               </thead>
 
               <tbody>
-                {data.items.map((item, idx) => {
+                {scopedView.items.map((item, idx) => {
                   const isUnmeasured = !item.hasRealInventoryData || item.status === 'unmeasured'
                   const isAsada = item.meat_key === 'asada'
 

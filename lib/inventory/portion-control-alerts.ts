@@ -65,6 +65,7 @@ import {
 import {
   evaluatePmixItemsForProtein,
   loadToastMeatContext,
+  type LoadedToastMeatContext,
   type StoreDayProteinToastUsage,
 } from '@/lib/inventory/toast-meat-sold-resolver'
 import {
@@ -295,6 +296,8 @@ export interface ComputedPortionAlert {
 
 export interface ScanPortionAlertsOptions {
   storeId?: number | string | null
+  /** Permite escanear un subconjunto de sucursales (ej. alcance de Supervisor) en 1 sola corrida en vez de N corridas. */
+  storeIds?: number[] | null
   startDate?: string | null
   endDate?: string | null
   spanDays?: number
@@ -303,6 +306,10 @@ export interface ScanPortionAlertsOptions {
   sendEmails?: boolean
   forceResend?: boolean
   testTo?: string | null
+  /** Contexto PMIX pre-cargado para evitar doble descarga en cron check-portion-alerts. */
+  toastMeatCtx?: LoadedToastMeatContext
+  /** Permite omitir reconciliación QBO repetitiva cuando ya fue ejecutada por el caller. */
+  reconcileQbInvoices?: boolean
 }
 
 export interface DispatchedEmailSummary {
@@ -749,11 +756,11 @@ export function buildPortionControlEmailHtml(
                 🪜 Protocolo Correctivo Obligatorio — Escalera de Mando
               </div>
               <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:22px;font-size:13px;color:#1F2937;">
-                <tr>
-                  <td style="padding:10px 14px;border-bottom:1px solid #E5E7EB;">
-                    <strong>1. Gerente de Sucursal (${escapeHtml(escalera.managerName || 'Gerente')}):</strong> Asegurar que el conteo diario de <strong>Sobrantes de Orden Diaria se realice estrictamente DESPUÉS DEL CIERRE de la tienda</strong> (con la venta del día ya cerrada) para tener cifras 100% exactas, calibrar báscula digital en línea y auditar gramaje cocido exacto: <strong>1.5 oz</strong> taco regular (` + '`1.9 oz`' + ` Carne Dorada) y <strong>6.0 oz</strong> burrito (` + '`12.0 oz`' + ` Meat Only).
-                  </td>
-                </tr>
+                  <tr>
+                    <td style="padding:10px 14px;border-bottom:1px solid #E5E7EB;">
+                      <strong>1. Gerente de Sucursal (${escapeHtml(escalera.managerName || 'Gerente')}):</strong> Asegurar que el conteo diario de <strong>Sobrantes de Orden Diaria se realice estrictamente DESPUÉS DEL CIERRE de la tienda</strong> (con la venta del día ya cerrada) para tener cifras 100% exactas, calibrar báscula digital en línea y auditar gramaje cocido exacto: <strong>1.5 oz</strong> taco regular (` + '`1.9 oz`' + ` Carne Dorada) y <strong>6.0 oz</strong> burrito (` + '`12.0 oz`' + ` Meat Only).
+                    </td>
+                  </tr>
                 <tr>
                   <td style="padding:10px 14px;border-bottom:1px solid #E5E7EB;">
                     <strong>2. Asistentes de Turno (${escapeHtml(escalera.assistantNames.join(', ') || 'AM y PM')}):</strong> Pesar muestra en vivo de <strong>5 tacos y 3 burritos</strong> al inicio de AM y PM, registrar coaching al taquero en turno y capturar el <strong>Conteo Cambio de Turno 5:00 PM</strong> (bolsas selladas + lbs abiertas) para aislar exactamente AM vs PM.
@@ -816,10 +823,14 @@ export async function scanPortionControlAlerts(
       ? options.endDate
       : yesterdayLA
 
-  const resolvedStartDate =
+  const rawStartDate =
     options.startDate && isValidIsoDate(options.startDate) && options.startDate <= resolvedEndDate
       ? options.startDate
       : addDaysIso(resolvedEndDate, -(targetSpanDays - 1))
+
+  // Blindaje estricto: acotar SIEMPRE a máximo 35 días incluso cuando `startDate` viene explícito
+  const minAllowedStartDate = addDaysIso(resolvedEndDate, -34)
+  const resolvedStartDate = rawStartDate < minAllowedStartDate ? minAllowedStartDate : rawStartDate
 
   // El conteo de apertura t0 que alimenta `resolvedStartDate` ocurre al cierre de `resolvedStartDate - 1`
   // (con margen de -2 días por si `resolvedStartDate - 1` cayó en sábado sin conteo aislado).
@@ -840,7 +851,12 @@ export async function scanPortionControlAlerts(
     .eq('is_active', true)
     .order('id', { ascending: true })
 
-  if (options.storeId !== undefined && options.storeId !== null && String(options.storeId).trim() !== '' && String(options.storeId).toLowerCase() !== 'all') {
+  if (Array.isArray(options.storeIds) && options.storeIds.length > 0) {
+    const cleanIds = Array.from(new Set(options.storeIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)))
+    if (cleanIds.length > 0) {
+      storesQuery = storesQuery.in('id', cleanIds)
+    }
+  } else if (options.storeId !== undefined && options.storeId !== null && String(options.storeId).trim() !== '' && String(options.storeId).toLowerCase() !== 'all') {
     const rawStore = String(options.storeId).trim()
     if (/^\d+$/.test(rawStore)) {
       storesQuery = storesQuery.eq('id', Number(rawStore))
@@ -849,23 +865,30 @@ export async function scanPortionControlAlerts(
     }
   }
 
-  const [
-    { data: storesData, error: storesErr },
-    { data: usersData, error: usersErr },
-    { data: itemsData, error: itemsErr },
-    { data: jobsData },
-    toastEmployees,
-  ] = await Promise.all([
-    storesQuery,
-    supabase
-      .from('users')
-      .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active')
-      .limit(2000),
-    supabase
-      .from('inventory_items')
-      .select('id, sku, name, purchase_unit_cost, quantity_per_unit, yield_percent')
-      .in('id', itemIds),
-    supabase.from('toast_jobs').select('guid, title').limit(2000),
+  const [{ data: storesData, error: storesErr }, usersData, { data: itemsData, error: itemsErr }] =
+    await Promise.all([
+      storesQuery,
+      fetchAllRows((from, to) =>
+        supabase
+          .from('users')
+          .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active')
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      supabase
+        .from('inventory_items')
+        .select('id, sku, name, purchase_unit_cost, quantity_per_unit, yield_percent')
+        .in('id', itemIds),
+    ])
+
+  const [jobsData, toastEmployees] = await Promise.all([
+    fetchAllRows((from, to) =>
+      supabase
+        .from('toast_jobs')
+        .select('guid, title')
+        .order('guid', { ascending: true })
+        .range(from, to)
+    ),
     fetchAllRows((from, to) =>
       supabase
         .from('toast_employees')
@@ -876,7 +899,6 @@ export async function scanPortionControlAlerts(
   ])
 
   if (storesErr) throw new Error(`Error cargando sucursales: ${storesErr.message}`)
-  if (usersErr) throw new Error(`Error cargando usuarios: ${usersErr.message}`)
   if (itemsErr) throw new Error(`Error cargando catálogo de carnes: ${itemsErr.message}`)
 
   const stores = sortStoresAlphabetically((storesData || []) as Array<{
@@ -904,6 +926,8 @@ export async function scanPortionControlAlerts(
   const storeIdsNumeric = stores.map((s) => Number(s.id))
   const storeIdsText = stores.map((s) => String(s.id))
   const storeGuids = stores.map((s) => s.external_id).filter((g): g is string => Boolean(g))
+  const countStoreTokens = Array.from(new Set([...storeIdsText, ...storeGuids]))
+  const fcCacheStoreTokens = Array.from(new Set([...storeGuids, ...storeIdsText]))
   const escaleraMap = buildEscaleraByStore(stores, usersData || [])
 
   const itemLiveCostMap = new Map<string, { purchaseCost: number; yieldFactor: number }>()
@@ -916,34 +940,25 @@ export async function scanPortionControlAlerts(
     })
   }
 
-  // 2. Consultas paginadas de conteos físicos, órdenes entregadas, consumo teórico 30-min, cortes 5PM, FC% y personal
-  // Cargar contexto autoritativo Toast PMIX (`pmix_daily_cache` + reconciliación QBO Invoices de Bodega) antes de leer órdenes
-  const toastMeatCtx = await loadToastMeatContext({
-    storeNumericIds: storeIdsNumeric,
-    minDate: addDaysIso(anchorLookbackStart, 1),
-    maxDate: resolvedEndDate,
-    reconcileQbInvoices: true,
-  })
+  // 2. Cargar contexto autoritativo Toast PMIX (`pmix_daily_cache` fragmentado <= 15 filas/lote) o reusar el pre-cargado
+  const toastMeatCtx =
+    options.toastMeatCtx ||
+    (await loadToastMeatContext({
+      storeNumericIds: storeIdsNumeric,
+      minDate: addDaysIso(anchorLookbackStart, 1),
+      maxDate: resolvedEndDate,
+      reconcileQbInvoices: options.reconcileQbInvoices ?? true,
+    }))
 
-  const [
-    countsRows,
-    ordersHeaderRows,
-    historyRows,
-    handoverRows,
-    fcCacheRows,
-    punchesRows,
-    stationRows,
-    scheduleRows,
-    checklistRows,
-    priorAlertsRows,
-    confirmedTransfers,
-  ] = await Promise.all([
+  // 2b. Olas acotadas (3–4 consultas simultáneas en vez de 11 en paralelo) + RPC AM/PM en vez de escanear 40k filas crudas
+  const [countsRows, ordersHeaderRows, historyAmPmRows, handoverRows] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase
         .from('inventory_counts')
         .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes, created_at')
-        .in('store_id', storeIdsText)
+        .in('store_id', countStoreTokens)
         .in('inventory_item_id', itemIds)
+        .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
         .gte('count_date', anchorLookbackStart)
         .lte('count_date', resolvedEndDate)
         .order('id', { ascending: true })
@@ -961,17 +976,44 @@ export async function scanPortionControlAlerts(
         .order('id', { ascending: true })
         .range(from, to)
     ),
-    fetchAllRows((from, to) =>
-      supabase
-        .from('meat_consumption_history')
-        .select('id, store_id, business_date, interval_start, meat_type, raw_lbs')
-        .in('store_id', storeIdsNumeric)
-        .in('meat_type', historyMeatTypes)
-        .gt('business_date', anchorLookbackStart)
-        .lte('business_date', resolvedEndDate)
-        .order('id', { ascending: true })
-        .range(from, to)
-    ),
+    (async (): Promise<Array<{ store_id: number; meat_type: string; business_date: string; am_lbs: number; pm_lbs: number }>> => {
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_meat_consumption_ampm_summary', {
+        p_start_date: addDaysIso(anchorLookbackStart, 1),
+        p_end_date: resolvedEndDate,
+        p_meat_types: historyMeatTypes,
+        p_store_ids: storeIdsNumeric,
+      })
+      if (!rpcErr && Array.isArray(rpcRows)) {
+        return rpcRows as any[]
+      }
+      console.warn('[PortionAlerts] Fallback raw meat_consumption_history tras error RPC:', rpcErr?.message)
+      const rawRows = await fetchAllRows((from, to) =>
+        supabase
+          .from('meat_consumption_history')
+          .select('id, store_id, business_date, interval_start, meat_type, raw_lbs')
+          .in('store_id', storeIdsNumeric)
+          .in('meat_type', historyMeatTypes)
+          .gt('business_date', anchorLookbackStart)
+          .lte('business_date', resolvedEndDate)
+          .order('id', { ascending: true })
+          .range(from, to)
+      )
+      const agg = new Map<string, { store_id: number; meat_type: string; business_date: string; am_lbs: number; pm_lbs: number }>()
+      for (const h of rawRows) {
+        const lbs = Number(h.raw_lbs)
+        if (!Number.isFinite(lbs) || lbs <= 0) continue
+        const sId = Number(h.store_id)
+        const mt = String(h.meat_type).toUpperCase()
+        const bDate = String(h.business_date)
+        const k = `${sId}|${mt}|${bDate}`
+        const cur = agg.get(k) || { store_id: sId, meat_type: mt, business_date: bDate, am_lbs: 0, pm_lbs: 0 }
+        const hour = parseInt(String(h.interval_start || '12:00:00').slice(0, 2), 10)
+        if (hour >= 6 && hour <= 16) cur.am_lbs += lbs
+        else cur.pm_lbs += lbs
+        agg.set(k, cur)
+      }
+      return Array.from(agg.values())
+    })(),
     fetchAllRows((from, to) =>
       supabase
         .from('meat_shift_handover_counts')
@@ -982,15 +1024,21 @@ export async function scanPortionControlAlerts(
         .order('id', { ascending: true })
         .range(from, to)
     ),
-    fetchAllRows((from, to) =>
-      supabase
-        .from('food_cost_daily_cache')
-        .select('id, store_id, business_date, total_cost, food_cost, net_sales')
-        .gte('business_date', resolvedStartDate)
-        .lte('business_date', resolvedEndDate)
-        .order('id', { ascending: true })
-        .range(from, to)
-    ),
+  ])
+
+  const [fcCacheRows, punchesRows, stationRows, scheduleRows] = await Promise.all([
+    fcCacheStoreTokens.length > 0
+      ? fetchAllRows((from, to) =>
+          supabase
+            .from('food_cost_daily_cache')
+            .select('id, store_id, business_date, total_cost, food_cost, net_sales')
+            .in('store_id', fcCacheStoreTokens)
+            .gte('business_date', resolvedStartDate)
+            .lte('business_date', resolvedEndDate)
+            .order('id', { ascending: true })
+            .range(from, to)
+        )
+      : Promise.resolve([]),
     storeGuids.length > 0
       ? fetchAllRows((from, to) =>
           supabase
@@ -1025,6 +1073,9 @@ export async function scanPortionControlAlerts(
         .order('id', { ascending: true })
         .range(from, to)
     ),
+  ])
+
+  const [checklistRows, priorAlertsRows, confirmedTransfers] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase
         .from('assistant_checklists')
@@ -1035,19 +1086,25 @@ export async function scanPortionControlAlerts(
         .order('id', { ascending: true })
         .range(from, to)
     ),
-    supabase
-      .from('portion_control_alerts')
-      .select('id, store_id, period_start, period_end, meat_key, status, email_sent_at')
-      .in('store_id', storeIdsNumeric)
-      .gte('period_end', addDaysIso(resolvedEndDate, -21))
-      .then((r) => r.data || []),
+    fetchAllRows((from, to) =>
+      supabase
+        .from('portion_control_alerts')
+        .select('id, store_id, period_start, period_end, meat_key, status, email_sent_at')
+        .in('store_id', storeIdsNumeric)
+        .gte('period_end', addDaysIso(resolvedEndDate, -21))
+        .order('id', { ascending: true })
+        .range(from, to)
+    ),
     fetchConfirmedStoreTransfers({
       supabase,
       storeIds: storeIdsNumeric,
       itemIds,
       minDate: anchorLookbackStart,
       maxDate: resolvedEndDate,
-    }).catch(() => []),
+    }).catch((err) => {
+      console.warn('[PortionAlerts] Error leyendo inventory_store_transfers:', err)
+      return []
+    }),
   ])
   const transferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, new Set(storeIdsNumeric))
 
@@ -1086,6 +1143,10 @@ export async function scanPortionControlAlerts(
 
   // 3. Indexar conteos físicos humanos (excluyendo AUTO_CYCLE_V2 y sábados parciales dow === 6)
   // Mapa: `${storeId}|${itemId}` -> Map<count_date, bags>
+  const storeGuidToNumId = new Map<string, number>()
+  for (const s of stores) {
+    if (s.external_id) storeGuidToNumId.set(String(s.external_id), Number(s.id))
+  }
   const humanCountsIndex = new Map<string, Map<string, { bags: number; createdAt: string }>>()
   for (const c of countsRows) {
     const countedBy = String(c.counted_by || '').trim().toUpperCase()
@@ -1098,7 +1159,10 @@ export async function scanPortionControlAlerts(
     const bags = Number(c.quantity_on_hand)
     if (!Number.isFinite(bags) || bags < 0) continue
 
-    const storeId = Number(c.store_id)
+    const rawStoreToken = String(c.store_id || '')
+    const parsedNum = Number(rawStoreToken)
+    const storeId = Number.isFinite(parsedNum) && parsedNum > 0 ? parsedNum : storeGuidToNumId.get(rawStoreToken)
+    if (!storeId) continue
     const key = `${storeId}|${c.inventory_item_id}`
     let dateMap = humanCountsIndex.get(key)
     if (!dateMap) {
@@ -1121,23 +1185,20 @@ export async function scanPortionControlAlerts(
     arrivedByStoreItemDate.set(k, (arrivedByStoreItemDate.get(k) || 0) + line.qty)
   }
 
-  // Indexar consumo horario AM vs PM por `${storeId}|${meatType}|${businessDate}` (para proporción AM/PM)
+  // Indexar consumo horario AM vs PM por `${storeId}|${meatType}|${businessDate}` (desde RPC agregada SQL)
   const theoByStoreMeatDate = new Map<string, { am: number; pm: number }>()
-  for (const h of historyRows) {
-    const lbs = Number(h.raw_lbs)
-    if (!Number.isFinite(lbs) || lbs <= 0) continue
+  for (const h of historyAmPmRows) {
+    const amLbs = Number(h.am_lbs || 0)
+    const pmLbs = Number(h.pm_lbs || 0)
+    if ((!Number.isFinite(amLbs) || amLbs <= 0) && (!Number.isFinite(pmLbs) || pmLbs <= 0)) continue
     const k = `${Number(h.store_id)}|${String(h.meat_type).toUpperCase()}|${String(h.business_date)}`
     let bucket = theoByStoreMeatDate.get(k)
     if (!bucket) {
       bucket = { am: 0, pm: 0 }
       theoByStoreMeatDate.set(k, bucket)
     }
-    const hour = parseInt(String(h.interval_start || '12:00:00').slice(0, 2), 10)
-    if (hour >= 6 && hour <= 16) {
-      bucket.am += lbs
-    } else {
-      bucket.pm += lbs
-    }
+    if (Number.isFinite(amLbs) && amLbs > 0) bucket.am += amLbs
+    if (Number.isFinite(pmLbs) && pmLbs > 0) bucket.pm += pmLbs
   }
 
   // Indexar consumo exacto Toast POS (`PMIX` con `bundleModifiers: true`) por `${storeId}|${meatKey}|${businessDate}`

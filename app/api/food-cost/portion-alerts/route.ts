@@ -47,7 +47,7 @@ import {
   normalizeDisciplinaryRole,
   recordMandatoryPortionCorrectionAndStrike,
 } from '@/lib/inventory/portion-discipline-policy'
-import { getBusinessDateLA, isValidIsoDate } from '@/lib/inventory/food-cost-sales-resolver'
+import { getBusinessDateLA, isValidIsoDate, validateDateRangeWithinMaxDays } from '@/lib/inventory/food-cost-sales-resolver'
 
 const ALLOWED_STAFF_ROLES = [
   'admin',
@@ -601,13 +601,22 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: scope.error }, { status: scope.status || 403, headers: NO_STORE_HEADERS })
       }
 
+      const scanStartDate = body.start_date ?? body.startDate ?? null
+      const scanEndDate = body.end_date ?? body.endDate ?? null
+      if (scanStartDate && scanEndDate) {
+        const check = validateDateRangeWithinMaxDays(String(scanStartDate), String(scanEndDate), 35)
+        if (!check.ok) {
+          return NextResponse.json({ error: check.error }, { status: 400, headers: NO_STORE_HEADERS })
+        }
+      }
+
       const sendEmails = body.sendEmails !== undefined ? Boolean(body.sendEmails) : Boolean(body.send_emails)
 
       if (ctx.isGlobal && !scope.singleStoreId) {
         const result = await scanPortionControlAlerts({
           storeId: null,
-          startDate: body.start_date ?? body.startDate ?? null,
-          endDate: body.end_date ?? body.endDate ?? null,
+          startDate: scanStartDate,
+          endDate: scanEndDate,
           spanDays: Number(body.span_days ?? body.spanDays) || 7,
           meatKey: body.meat_key ?? body.meatKey ?? null,
           dryRun,
@@ -618,44 +627,30 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, ...result }, { headers: NO_STORE_HEADERS })
       }
 
-      // Usuario acotado a 1 o varias tiendas (manager / asistente / supervisor)
-      const combinedAlerts = []
-      const combinedEmails = []
-      let evaluatedSpans = 0
-      let persistedCount = 0
-      let periodStart = ''
-      let periodEnd = ''
-
-      for (const sid of scope.storeIds) {
-        const r = await scanPortionControlAlerts({
-          storeId: sid,
-          startDate: body.start_date ?? body.startDate ?? null,
-          endDate: body.end_date ?? body.endDate ?? null,
-          spanDays: Number(body.span_days ?? body.spanDays) || 7,
-          meatKey: body.meat_key ?? body.meatKey ?? null,
-          dryRun,
-          sendEmails,
-          forceResend: Boolean(body.forceResend ?? body.force_resend),
-          testTo: testCheck.email,
-        })
-        periodStart = r.periodStart
-        periodEnd = r.periodEnd
-        evaluatedSpans += r.evaluatedSpans
-        persistedCount += r.persistedCount
-        combinedAlerts.push(...r.triggeredAlerts)
-        combinedEmails.push(...r.emailsDispatched)
-      }
+      // Usuario acotado a 1 o varias tiendas (manager / asistente / supervisor): UNA sola corrida con `storeIds`
+      const result = await scanPortionControlAlerts({
+        storeId: scope.singleStoreId ?? null,
+        storeIds: scope.singleStoreId ? undefined : scope.storeIds,
+        startDate: scanStartDate,
+        endDate: scanEndDate,
+        spanDays: Number(body.span_days ?? body.spanDays) || 7,
+        meatKey: body.meat_key ?? body.meatKey ?? null,
+        dryRun,
+        sendEmails,
+        forceResend: Boolean(body.forceResend ?? body.force_resend),
+        testTo: testCheck.email,
+      })
 
       return NextResponse.json(
         {
           success: true,
-          periodStart,
-          periodEnd,
+          periodStart: result.periodStart,
+          periodEnd: result.periodEnd,
           dryRun,
-          evaluatedSpans,
-          triggeredAlerts: combinedAlerts,
-          persistedCount,
-          emailsDispatched: combinedEmails,
+          evaluatedSpans: result.evaluatedSpans,
+          triggeredAlerts: result.triggeredAlerts,
+          persistedCount: result.persistedCount,
+          emailsDispatched: result.emailsDispatched,
         },
         { headers: NO_STORE_HEADERS }
       )

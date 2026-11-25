@@ -20,7 +20,11 @@
 
 import React, { useEffect, useState } from 'react'
 import { X, ChefHat, DollarSign, TrendingDown, Sparkles, AlertTriangle, Package, Receipt, FileText, ShoppingBag, Utensils, Info, ChevronRight, Search } from 'lucide-react'
-import { getFoodCostStatus } from '@/lib/inventory/food-cost-sales-resolver'
+import {
+    FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+    getFoodCostStatus,
+    validateDateRangeWithinMaxDays,
+} from '@/lib/inventory/food-cost-sales-resolver'
 import { useLanguage } from '@/lib/i18n'
 
 interface RecipeBreakdownItem {
@@ -66,7 +70,7 @@ interface ProductDetailModalProps {
 }
 
 export default function ProductDetailModal({ item, storeId, storeName, startDate, endDate, onClose }: ProductDetailModalProps) {
-    const { language } = useLanguage()
+    const { language, t } = useLanguage()
     const isEn = language === 'en'
 
     const [recipeData, setRecipeData] = useState<{
@@ -84,6 +88,7 @@ export default function ProductDetailModal({ item, storeId, storeName, startDate
     const [activeTab, setActiveTab] = useState<'summary' | 'tickets'>('summary')
     const [tickets, setTickets] = useState<{ date: string; orderId?: string; checkId?: string; orderNumber: string; quantity: number; diningOption?: string }[] | null>(null)
     const [loadingTickets, setLoadingTickets] = useState(false)
+    const [ticketsRangeBlocked, setTicketsRangeBlocked] = useState(false)
     const [ticketSearch, setTicketSearch] = useState('')
 
     // Purchase Ticket Modal State (matches Discounts module)
@@ -98,10 +103,12 @@ export default function ProductDetailModal({ item, storeId, storeName, startDate
 
     useEffect(() => {
         if (!item) return
+        const controller = new AbortController()
         setLoading(true)
         setActiveTab('summary')
         setTicketSearch('')
         setTickets(null)
+        setTicketsRangeBlocked(false)
         setRecipeData(null)
 
         const params = new URLSearchParams()
@@ -118,16 +125,38 @@ export default function ProductDetailModal({ item, storeId, storeName, startDate
             params.append('dining_option', item.group_name)
         }
 
-        fetch(`/api/inventory/recipe-detail?${params.toString()}`)
-            .then(r => r.json())
-            .then(data => setRecipeData(data))
-            .catch(() => setRecipeData(null))
-            .finally(() => setLoading(false))
+        fetch(`/api/inventory/recipe-detail?${params.toString()}`, { signal: controller.signal })
+            .then(async r => {
+                if (!r.ok) return null
+                const text = await r.text()
+                return text ? JSON.parse(text) : null
+            })
+            .then(data => {
+                if (!controller.signal.aborted) setRecipeData(data)
+            })
+            .catch(() => {
+                if (!controller.signal.aborted) setRecipeData(null)
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setLoading(false)
+            })
+
+        return () => controller.abort()
     }, [item])
 
     // Fetch tickets on demand
     useEffect(() => {
         if (activeTab === 'tickets' && !tickets && item && storeId && startDate && endDate) {
+            const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, FOOD_COST_MAX_RANGE_ALL_STORES_DAYS)
+            if (!rangeCheck.ok) {
+                setTicketsRangeBlocked(true)
+                setTickets([])
+                setLoadingTickets(false)
+                return
+            }
+
+            const controller = new AbortController()
+            setTicketsRangeBlocked(false)
             setLoadingTickets(true)
             const params = new URLSearchParams()
             params.append('storeId', storeId)
@@ -138,14 +167,25 @@ export default function ProductDetailModal({ item, storeId, storeName, startDate
             if (item.group_name) params.append('group_name', item.group_name)
             if (item.quantity) params.append('quantity', String(item.quantity))
 
-            fetch(`/api/inventory/item-tickets?${params.toString()}`)
-                .then(r => r.json())
+            fetch(`/api/inventory/item-tickets?${params.toString()}`, { signal: controller.signal })
+                .then(async r => {
+                    if (!r.ok) return { tickets: [] }
+                    const text = await r.text()
+                    return text ? JSON.parse(text) : { tickets: [] }
+                })
                 .then(data => {
-                    if (data.tickets) setTickets(data.tickets)
+                    if (controller.signal.aborted) return
+                    if (data?.tickets) setTickets(data.tickets)
                     else setTickets([])
                 })
-                .catch(() => setTickets([]))
-                .finally(() => setLoadingTickets(false))
+                .catch(() => {
+                    if (!controller.signal.aborted) setTickets([])
+                })
+                .finally(() => {
+                    if (!controller.signal.aborted) setLoadingTickets(false)
+                })
+
+            return () => controller.abort()
         }
     }, [activeTab, item, storeId, startDate, endDate, tickets])
 
@@ -552,6 +592,10 @@ export default function ProductDetailModal({ item, storeId, storeName, startDate
                                             <div className="w-6 h-6 border-2 border-slate-300 border-t-sky-500 rounded-full animate-spin mb-3"></div>
                                             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{isEn ? 'Searching Toast POS orders...' : 'Buscando órdenes en el TPV de Toast...'}</span>
                                             <span className="text-[10px] opacity-70 mt-1">{isEn ? 'Connecting to store...' : 'Conectando con la sucursal...'}</span>
+                                        </div>
+                                    ) : ticketsRangeBlocked ? (
+                                        <div className="py-10 px-6 text-center text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/30">
+                                            {t('food_cost.tickets_range_limit')}
                                         </div>
                                     ) : !tickets || tickets.length === 0 ? (
                                         <div className="py-12 text-center text-xs font-medium text-slate-500">

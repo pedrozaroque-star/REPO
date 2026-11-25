@@ -70,16 +70,21 @@ export interface RecipeCostResult {
  * Calculates the theoretical cost of a recipe based on its ingredients and their current inventory prices.
  * Optionally filters packaging based on the dining option (e.g. 'for here', 'to go', 'uber eats').
  */
-export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryItem[], diningOption?: string): RecipeCostResult {
+export function calculateRecipeCost(
+    recipe: Recipe,
+    inventoryItems: InventoryItem[],
+    diningOption?: string,
+    precomputedItemMap?: Map<string, InventoryItem>
+): RecipeCostResult {
     let totalCost = 0
     let foodCost = 0
     let packagingCost = 0
     let missingPrices = 0
     const breakdown: CostBreakdown[] = []
 
-    // Map for fast lookup
+    // Map for fast lookup (reutiliza mapa preconstruido si el caller itera miles de recetas)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const itemMap = new Map<string, InventoryItem>(inventoryItems.map((i: any) => [i.id, i]))
+    const itemMap = precomputedItemMap ?? new Map<string, InventoryItem>(inventoryItems.map((i: any) => [i.id, i]))
 
     recipe.ingredients.forEach(ing => {
         const item = itemMap.get(ing.inventory_item_id)

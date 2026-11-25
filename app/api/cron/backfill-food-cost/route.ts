@@ -18,14 +18,18 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { buildInternalCronAuthHeaders, verifyStaffAuth } from '@/lib/auth-server'
 import {
     addDaysIso,
+    getBusinessDateLA,
     isInvalidFoodCostCacheRow,
-    isValidIsoDate,
+    validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 
+export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 min max (Vercel Pro)
 
 export async function GET(request: NextRequest) {
+    const startedAt = Date.now()
+    const TIME_BUDGET_MS = 235_000
     try {
         const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
         if (!auth.authorized) {
@@ -33,14 +37,24 @@ export async function GET(request: NextRequest) {
         }
 
         const searchParams = request.nextUrl.searchParams
-        const startDate = searchParams.get('startDate')
-        const endDate = searchParams.get('endDate')
+        const startDate = (searchParams.get('startDate') || '').trim()
+        const endDate = (searchParams.get('endDate') || '').trim()
         const force = searchParams.get('force') === 'true'
+        const allowToday = searchParams.get('allowToday') === 'true'
+        const requestedMaxDays = Math.min(62, Math.max(1, parseInt(searchParams.get('maxDays') || '31', 10) || 31))
 
-        if (!startDate || !endDate || !isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
-            return NextResponse.json({ 
-                error: 'Parámetros requeridos válidos: startDate y endDate (YYYY-MM-DD con startDate <= endDate)',
-                ejemplo: '/api/cron/backfill-food-cost?startDate=2026-01-01&endDate=2026-04-26'
+        const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, requestedMaxDays)
+        if (!rangeCheck.ok) {
+            return NextResponse.json({
+                error: rangeCheck.error || 'Parámetros requeridos válidos: startDate y endDate (YYYY-MM-DD con startDate <= endDate)',
+                ejemplo: '/api/cron/backfill-food-cost?startDate=2026-11-01&endDate=2026-11-23'
+            }, { status: 400 })
+        }
+
+        const todayLA = getBusinessDateLA()
+        if (!allowToday && endDate >= todayLA) {
+            return NextResponse.json({
+                error: `endDate (${endDate}) debe ser anterior al día laboral abierto (${todayLA}) o pasar ?allowToday=true.`
             }, { status: 400 })
         }
 
@@ -114,55 +128,35 @@ export async function GET(request: NextRequest) {
             })
         }
 
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-            ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
-            : (process.env.VERCEL_PROJECT_PRODUCTION_URL
-                ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-                : (process.env.VERCEL_URL
-                    ? `https://${process.env.VERCEL_URL}`
-                    : `http://localhost:${process.env.PORT || 3000}`))
-
         const results: { date: string; status: string; items?: number; error?: string }[] = []
+        const remainingDates: string[] = []
         let successCount = 0
         let totalErrorCount = 0
         let consecutiveErrors = 0
 
-        // 4. Procesar secuencialmente (evita sobrecargar Toast API; NUNCA borra caché antes del fetch)
-        for (const dateStr of datesToProcess) {
+        // 4. Procesar secuencialmente in-process con presupuesto de tiempo seguro (sin doble disparo HTTP)
+        for (let idx = 0; idx < datesToProcess.length; idx++) {
+            const dateStr = datesToProcess[idx]
+            if (Date.now() - startedAt > TIME_BUDGET_MS) {
+                remainingDates.push(...datesToProcess.slice(idx))
+                console.warn(`⏱️ [BACKFILL] Presupuesto de tiempo (${TIME_BUDGET_MS}ms) alcanzado; ${remainingDates.length} días pendientes.`)
+                break
+            }
             const fetchStartedIso = new Date().toISOString()
             try {
                 console.log(`🔄 [BACKFILL] Calculando ${dateStr} (${results.length + 1}/${datesToProcess.length})...`)
 
-                let itemCount = 0
-                try {
-                    const directReq = new NextRequest(
-                        `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`,
-                        { headers: buildInternalCronAuthHeaders(request) }
-                    )
-                    const directRes = await foodCostGet(directReq)
-                    if (!directRes.ok) {
-                        const errTxt = await directRes.text().catch(() => 'Unknown error')
-                        throw new Error(`In-process ${directRes.status}: ${errTxt.substring(0, 200)}`)
-                    }
-                    const directJson = await directRes.json()
-                    itemCount = directJson.data?.length || 0
-                } catch (inProcessErr: any) {
-                    console.warn(`⚠️ [BACKFILL] In-process falló en ${dateStr} (${inProcessErr.message}), usando fallback HTTP...`)
-                    const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
-                    const res = await fetch(apiUrl, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...buildInternalCronAuthHeaders(request)
-                        },
-                        signal: AbortSignal.timeout(60000)
-                    })
-                    if (!res.ok) {
-                        const errText = await res.text().catch(() => 'Unknown error')
-                        throw new Error(`API ${res.status}: ${errText.substring(0, 200)}`)
-                    }
-                    const json = await res.json()
-                    itemCount = json.data?.length || 0
+                const directReq = new NextRequest(
+                    `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}&bypassCache=1`,
+                    { headers: buildInternalCronAuthHeaders(request) }
+                )
+                const directRes = await foodCostGet(directReq)
+                if (!directRes.ok) {
+                    const errTxt = await directRes.text().catch(() => 'Unknown error')
+                    throw new Error(`In-process ${directRes.status}: ${errTxt.substring(0, 200)}`)
                 }
+                const directJson = await directRes.json()
+                const itemCount = directJson.data?.length || 0
 
                 // En modo force=true, limpiar filas huérfanas antiguas ÚNICAMENTE DESPUÉS de que el nuevo cálculo haya hecho upsert exitoso
                 if (force && itemCount > 0) {
@@ -176,7 +170,7 @@ export async function GET(request: NextRequest) {
                 console.log(`✅ [BACKFILL] ${dateStr}: ${itemCount} items`)
                 results.push({ date: dateStr, status: itemCount > 0 ? 'ok' : 'empty_pmix', items: itemCount })
                 successCount++
-                consecutiveErrors = 0 // Resetear racha de errores tras éxito
+                consecutiveErrors = 0
 
             } catch (e: any) {
                 console.error(`❌ [BACKFILL] ${dateStr}: ${e.message}`)
@@ -184,14 +178,13 @@ export async function GET(request: NextRequest) {
                 totalErrorCount++
                 consecutiveErrors++
 
-                // Si hay 5 errores CONSECUTIVOS, pausar para no saturar Toast API
                 if (consecutiveErrors >= 5) {
                     console.warn('⚠️ [BACKFILL] 5 errores consecutivos alcanzados, deteniendo ejecución.')
+                    remainingDates.push(...datesToProcess.slice(idx + 1))
                     break
                 }
             }
 
-            // Pequeña pausa entre días para no saturar Toast API (rate limit 429)
             await new Promise(resolve => setTimeout(resolve, 1000))
         }
 
@@ -199,10 +192,12 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
+            elapsedMs: Date.now() - startedAt,
             totalDays: allDates.length,
             alreadyCached: existingDates.size,
             processed: results.length,
             requestedToProcess: datesToProcess.length,
+            remainingDates,
             successCount,
             errorCount: totalErrorCount,
             stoppedByConsecutiveErrors: consecutiveErrors >= 5,

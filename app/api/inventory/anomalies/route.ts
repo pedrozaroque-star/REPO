@@ -41,13 +41,16 @@ export async function GET(request: Request) {
         .eq('resolved', false)
         .order('severity', { ascending: true })  // critical first
         .order('business_date', { ascending: false })
+        .order('id', { ascending: true })
         .limit(20)
 
     if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data }, {
+        headers: { 'Cache-Control': 'private, max-age=30' },
+    })
 }
 
 export async function PATCH(request: Request) {
@@ -55,7 +58,13 @@ export async function PATCH(request: Request) {
     if (!auth.authorized) return auth.response!
 
     const supabase = await getSupabaseAdminClient()
-    const { id } = await request.json()
+    let id: string | undefined
+    try {
+        const body = await request.json()
+        id = body?.id
+    } catch {
+        return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
 
     if (!id) {
         return NextResponse.json({ error: 'Missing id' }, { status: 400 })

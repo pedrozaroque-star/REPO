@@ -37,7 +37,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import {
   ACTIVE_PROTEIN_IDS,
@@ -50,8 +50,11 @@ import { EXTERNAL_TRACK_ONLY_ITEM_IDS } from '@/app/inventory/orders/utils'
 import {
   addDaysIso,
   diffCalendarDays,
+  FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+  FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS,
   getBusinessDateLA,
   isValidIsoDate,
+  validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 import {
   evaluatePmixItemsForProtein,
@@ -59,6 +62,20 @@ import {
 } from '@/lib/inventory/toast-meat-sold-resolver'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
+
+const varianceAvtInFlight = new Map<string, Promise<{ status: number; body: any }>>()
+const varianceAvtClosedCache = new Map<string, { expiresAt: number; body: any }>()
+const VARIANCE_AVT_CLOSED_TTL_MS = 60 * 1000
+const VARIANCE_AVT_MAX_CACHE = 16
+
+function setVarianceAvtCacheBounded(key: string, body: any) {
+  if (varianceAvtClosedCache.size >= VARIANCE_AVT_MAX_CACHE) {
+    const firstKey = varianceAvtClosedCache.keys().next().value
+    if (firstKey !== undefined) varianceAvtClosedCache.delete(firstKey)
+  }
+  varianceAvtClosedCache.set(key, { expiresAt: Date.now() + VARIANCE_AVT_CLOSED_TTL_MS, body })
+}
 
 const PAPELITO_ITEM_ID = 'fb83420e-8c32-4e85-a29d-e74de2055807'
 const BAG_CUTOVER_DATE = '2026-07-24'
@@ -298,11 +315,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
     const { searchParams } = new URL(request.url)
     const storeId = (searchParams.get('storeId') || 'all').trim()
     const todayLA = getBusinessDateLA()
@@ -313,12 +325,67 @@ export async function GET(request: NextRequest) {
     const endDate = (searchParams.get('endDate') || defaultEnd).trim()
     const categoryFilter = (searchParams.get('category') || 'all').trim()
 
-    if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
-      return NextResponse.json(
-        { error: 'Rango de fechas inválido (use YYYY-MM-DD con startDate <= endDate).' },
-        { status: 400 }
-      )
+    const maxAllowedDays =
+      storeId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
+    const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
+    if (!rangeCheck.ok) {
+      return NextResponse.json({ error: rangeCheck.error }, { status: 400 })
     }
+
+    const isClosedWindow = endDate < todayLA
+    const cacheKey = `${storeId}|${startDate}|${endDate}|${categoryFilter}`
+    if (isClosedWindow) {
+      const hit = varianceAvtClosedCache.get(cacheKey)
+      if (hit && hit.expiresAt > Date.now()) {
+        return NextResponse.json(hit.body, {
+          headers: { 'Cache-Control': 'private, max-age=60' },
+        })
+      }
+    }
+    const existingInFlight = varianceAvtInFlight.get(cacheKey)
+    if (existingInFlight) {
+      const shared = await existingInFlight
+      return NextResponse.json(shared.body, {
+        status: shared.status,
+        headers: { 'Cache-Control': isClosedWindow && shared.status === 200 ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate' },
+      })
+    }
+
+    const workPromise = computeVarianceAvtPayload({ storeId, startDate, endDate, categoryFilter, todayLA })
+    varianceAvtInFlight.set(cacheKey, workPromise)
+    let result: { status: number; body: any }
+    try {
+      result = await workPromise
+      if (isClosedWindow && result.status === 200) {
+        setVarianceAvtCacheBounded(cacheKey, result.body)
+      }
+    } finally {
+      if (varianceAvtInFlight.get(cacheKey) === workPromise) {
+        varianceAvtInFlight.delete(cacheKey)
+      }
+    }
+
+    return NextResponse.json(result.body, {
+      status: result.status,
+      headers: {
+        'Cache-Control': isClosedWindow && result.status === 200 ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate',
+      },
+    })
+  } catch (err: any) {
+    console.error('Error in GET /api/food-cost/variance-avt:', err)
+    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
+  }
+}
+
+async function computeVarianceAvtPayload(params: {
+  storeId: string
+  startDate: string
+  endDate: string
+  categoryFilter: string
+  todayLA: string
+}): Promise<{ status: number; body: any }> {
+    const { storeId, startDate, endDate, categoryFilter, todayLA } = params
+    const supabase = await getSupabaseAdminClient()
 
     // 1. Resolver sucursales activas (ID numérico + external_id GUID de Toast)
     const { data: storesData, error: storesErr } = await supabase
@@ -345,7 +412,7 @@ export async function GET(request: NextRequest) {
         ? storeByNumericId.get(Number(storeId))
         : storeByGuid.get(storeId)
       if (!single) {
-        return NextResponse.json({ error: 'Sucursal no encontrada.' }, { status: 404 })
+        return { status: 404, body: { error: 'Sucursal no encontrada.' } }
       }
       targetStores = [single]
     }
@@ -395,6 +462,7 @@ export async function GET(request: NextRequest) {
       let q = supabase
         .from('inventory_counts')
         .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
+        .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
         .gte('count_date', anchorLookbackStart)
         .lte('count_date', endDate)
         .order('count_date', { ascending: true })
@@ -467,17 +535,20 @@ export async function GET(request: NextRequest) {
 
     const minTheoDate = addDaysIso(globalMinT0, 1) < startDate ? addDaysIso(globalMinT0, 1) : startDate
 
-    // 4. Consultar en paralelo:
-    //    a) Contexto unificado Toast PMIX (`pmix_daily_cache` + reconciliación QBO Invoices de Bodega)
-    //    b) Llegadas de Bodega (`inventory_order_lines` + `inventory_orders` status IN ('sent','received') en [globalMinT0, globalMaxT1))
-    //    c) Consumo teórico POS de insumos no cárnicos (`inventory_usage_log` paginado)
-    //    d) Sobrante cocido al cierre (`assistant_checklists` checklist_type = 'sobrante')
-    const toastMeatCtx = await loadToastMeatContext({
-      storeNumericIds: targetNumericIds,
-      minDate: minTheoDate,
-      maxDate: endDate,
-      reconcileQbInvoices: true,
-    })
+    // 4. Cargar únicamente lo que exige `categoryFilter`:
+    //    - Si `categoryFilter` excluye Carnes, omitir completamente `loadToastMeatContext` (0 lecturas de `pmix_daily_cache`!).
+    //    - Si `categoryFilter === 'Meat'`, omitir completamente `inventory_usage_log`.
+    const needsMeats = categoryFilter === 'all' || categoryFilter === 'Meat'
+    const needsNonMeatUsage = categoryFilter !== 'Meat'
+
+    const toastMeatCtx = needsMeats
+      ? await loadToastMeatContext({
+          storeNumericIds: targetNumericIds,
+          minDate: minTheoDate,
+          maxDate: endDate,
+          reconcileQbInvoices: true,
+        })
+      : null
 
     const [orderLineRows, usageLogRows, sobranteRows] = await Promise.all([
       fetchAllRows<any>((from, to) => {
@@ -496,34 +567,38 @@ export async function GET(request: NextRequest) {
         }
         return q
       }),
-      fetchAllRows<any>((from, to) => {
-        let q = supabase
-          .from('inventory_usage_log')
-          .select('id, store_id, business_date, inventory_item_id, theoretical_usage')
-          .gte('business_date', minTheoDate)
-          .lte('business_date', endDate)
-          .order('id', { ascending: true })
-          .range(from, to)
-        if (storeId !== 'all') {
-          q = q.in('store_id', targetNumericIds.map(String))
-        }
-        return q
-      }),
-      fetchAllRows<any>((from, to) => {
-        let q = supabase
-          .from('assistant_checklists')
-          .select('id, store_id, checklist_date, shift, user_name, answers, created_at')
-          .eq('checklist_type', 'sobrante')
-          .gte('checklist_date', startDate)
-          .lte('checklist_date', endDate)
-          .order('checklist_date', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, to)
-        if (storeId !== 'all') {
-          q = q.in('store_id', targetNumericIds)
-        }
-        return q
-      }),
+      needsNonMeatUsage
+        ? fetchAllRows<any>((from, to) => {
+            let q = supabase
+              .from('inventory_usage_log')
+              .select('id, store_id, business_date, inventory_item_id, theoretical_usage')
+              .gte('business_date', minTheoDate)
+              .lte('business_date', endDate)
+              .order('id', { ascending: true })
+              .range(from, to)
+            if (storeId !== 'all') {
+              q = q.in('store_id', targetNumericIds.map(String))
+            }
+            return q
+          })
+        : Promise.resolve([]),
+      needsMeats
+        ? fetchAllRows<any>((from, to) => {
+            let q = supabase
+              .from('assistant_checklists')
+              .select('id, store_id, checklist_date, shift, user_name, answers, created_at')
+              .eq('checklist_type', 'sobrante')
+              .gte('checklist_date', startDate)
+              .lte('checklist_date', endDate)
+              .order('checklist_date', { ascending: true })
+              .order('id', { ascending: true })
+              .range(from, to)
+            if (storeId !== 'all') {
+              q = q.in('store_id', targetNumericIds)
+            }
+            return q
+          })
+        : Promise.resolve([]),
     ])
 
     // Indexar llegadas por (storeId, itemId, orderDate)
@@ -552,29 +627,31 @@ export async function GET(request: NextRequest) {
 
     // Indexar consumo teórico exacto Toast POS (PMIX con bundleModifiers: true) de las 8 carnes por (storeId, proteinKey, businessDate) en libras crudas
     const meatTheoByStoreKeyDate = new Map<string, Map<string, number>>()
-    for (const [proteinKey, proteinItemId] of Object.entries(ACTIVE_PROTEIN_IDS) as Array<[ActiveProteinKey, string]>) {
-      const catItem = toastMeatCtx.inventoryById.get(proteinItemId)
-      const yieldPct = Number(catItem?.yield_percent || MEAT_COOKING_YIELDS[proteinKey] * 100 || 100)
-      for (const s of toastMeatCtx.stores) {
-        if (!targetNumericIdSet.has(s.id)) continue
-        const dMap = new Map<string, number>()
-        for (let d = minTheoDate; d <= endDate; d = addDaysIso(d, 1)) {
-          const pmixItems = toastMeatCtx.pmixByStoreDate.get(`${s.external_id}::${d}`) || []
-          if (pmixItems.length === 0) continue
-          const dayUsage = evaluatePmixItemsForProtein({
-            pmixItems,
-            inventoryItemId: proteinItemId,
-            proteinKey,
-            yieldPercent: yieldPct,
-            costPerRawLbStore: 0,
-            costPerRawLbBodega: 0,
-            ctx: toastMeatCtx,
-          })
-          if (dayUsage.rawLbs > 0) {
-            dMap.set(d, dayUsage.rawLbs)
+    if (toastMeatCtx) {
+      for (const [proteinKey, proteinItemId] of Object.entries(ACTIVE_PROTEIN_IDS) as Array<[ActiveProteinKey, string]>) {
+        const catItem = toastMeatCtx.inventoryById.get(proteinItemId)
+        const yieldPct = Number(catItem?.yield_percent || MEAT_COOKING_YIELDS[proteinKey] * 100 || 100)
+        for (const s of toastMeatCtx.stores) {
+          if (!targetNumericIdSet.has(s.id)) continue
+          const dMap = new Map<string, number>()
+          for (let d = minTheoDate; d <= endDate; d = addDaysIso(d, 1)) {
+            const pmixItems = toastMeatCtx.pmixByStoreDate.get(`${s.external_id}::${d}`) || []
+            if (pmixItems.length === 0) continue
+            const dayUsage = evaluatePmixItemsForProtein({
+              pmixItems,
+              inventoryItemId: proteinItemId,
+              proteinKey,
+              yieldPercent: yieldPct,
+              costPerRawLbStore: 0,
+              costPerRawLbBodega: 0,
+              ctx: toastMeatCtx,
+            })
+            if (dayUsage.rawLbs > 0) {
+              dMap.set(d, dayUsage.rawLbs)
+            }
           }
+          meatTheoByStoreKeyDate.set(`${s.id}::${proteinKey}`, dMap)
         }
-        meatTheoByStoreKeyDate.set(`${s.id}::${proteinKey}`, dMap)
       }
     }
 
@@ -1066,8 +1143,9 @@ export async function GET(request: NextRequest) {
           : 'No se encontraron ≥2 conteos físicos humanos en la ventana seleccionada para calcular balance de masas.'
         : undefined
 
-    return NextResponse.json(
-      {
+    return {
+      status: 200,
+      body: {
         storeId,
         startDate,
         endDate,
@@ -1088,14 +1166,5 @@ export async function GET(request: NextRequest) {
         dataQuality,
         message,
       },
-      {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-        },
-      }
-    )
-  } catch (err: any) {
-    console.error('Error in GET /api/food-cost/variance-avt:', err)
-    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
-  }
+    }
 }

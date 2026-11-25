@@ -1743,38 +1743,67 @@ export async function getSalesCategories(storeGuid: string): Promise<Map<string,
     }
 }
 
+const diningOptionsCache = new Map<string, { expiresAt: number; map: Map<string, string> }>()
+const diningOptionsInFlight = new Map<string, Promise<Map<string, string>>>()
+const DINING_OPTIONS_TTL_MS = 15 * 60 * 1000 // 15 min cache (diningOptions casi nunca cambia)
+
 export async function getDiningOptions(storeGuid: string): Promise<Map<string, string>> {
-    const token = await getAuthToken()
-    if (!token) return new Map()
+    const cached = diningOptionsCache.get(storeGuid)
+    if (cached && cached.expiresAt > Date.now()) {
+        return new Map(cached.map)
+    }
 
-    try {
-        const url = `${TOAST_API_HOST}/config/v2/diningOptions`
-        const res = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Toast-Restaurant-External-ID': storeGuid
-            }
-        })
+    const existingPromise = diningOptionsInFlight.get(storeGuid)
+    if (existingPromise) {
+        return new Map(await existingPromise)
+    }
 
-        if (!res.ok) {
-            console.error(`Failed to fetch dining options: ${res.status} ${res.statusText}`)
-            return new Map()
-        }
+    const fetchPromise = (async () => {
+        const token = await getAuthToken()
+        if (!token) return new Map<string, string>()
 
-        const data = await res.json()
-        const map = new Map<string, string>()
-
-        if (Array.isArray(data)) {
-            data.forEach((do_opt: any) => {
-                if (do_opt.guid && do_opt.name) {
-                    map.set(do_opt.guid, do_opt.name)
-                }
+        try {
+            const url = `${TOAST_API_HOST}/config/v2/diningOptions`
+            const res = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Toast-Restaurant-External-ID': storeGuid
+                },
+                signal: AbortSignal.timeout(15_000)
             })
-        }
-        return map
 
-    } catch (e) {
-        console.error("Error fetching dining options:", e)
-        return new Map()
+            if (!res.ok) {
+                console.error(`Failed to fetch dining options: ${res.status} ${res.statusText}`)
+                return new Map<string, string>()
+            }
+
+            const data = await res.json()
+            const map = new Map<string, string>()
+
+            if (Array.isArray(data)) {
+                data.forEach((do_opt: any) => {
+                    if (do_opt.guid && do_opt.name) {
+                        map.set(do_opt.guid, do_opt.name)
+                    }
+                })
+            }
+            if (map.size > 0) {
+                diningOptionsCache.set(storeGuid, { expiresAt: Date.now() + DINING_OPTIONS_TTL_MS, map })
+            }
+            return map
+
+        } catch (e) {
+            console.error("Error fetching dining options:", e)
+            return new Map<string, string>()
+        }
+    })()
+
+    diningOptionsInFlight.set(storeGuid, fetchPromise)
+    try {
+        return new Map(await fetchPromise)
+    } finally {
+        if (diningOptionsInFlight.get(storeGuid) === fetchPromise) {
+            diningOptionsInFlight.delete(storeGuid)
+        }
     }
 }

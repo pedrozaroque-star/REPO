@@ -25,10 +25,22 @@
  *   `pmix_daily_cache` / `getProductMix(bundleModifiers: true)` + `recipes` + `inventory_items` + `inventory_price_history`
  *   + `inventory_counts` + `inventory_orders`/`inventory_order_lines` (`QBO Invoices`)
  *   → `computeStoreToastVsFridgeMeter()` → `/api/inventory/meat-analysis`, `/api/food-cost/variance-avt`, `portion-control-alerts`.
+ *
+ * @notes
+ * - [2026-11-24] BLINDAJE FOOD COST:
+ *   * `pmix_daily_cache` se lee exclusivamente mediante `readPmixDailyCacheChunked` (lotes secuenciales <= 15 filas = ~3.2 MB/lote)
+ *     en lugar de `fetchAllPaginated(1000)` (~182–472 MB JSONB en 1 sola petición), eliminando `57014 statement timeout` y OOM en `ci_small`.
+ *   * Añadido caché TTL de 5 min para catálogos estáticos (`recipes`, `inventory_items`, `toast_menu_items`),
+ *     single-flight + caché TTL de 60s para ventanas cerradas en `loadToastMeatContext`, y 1 sola llamada global QBO en vez de 15 en paralelo.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { getProductMix, type ProductMixItem } from '@/lib/toast-pmix'
+import {
+  isPmixCacheRowFinalized,
+  PMIX_SAFE_CHUNK_ROWS,
+  readPmixDailyCacheChunked,
+} from '@/lib/inventory/pmix-cache-reader'
 import {
   ACTIVE_PROTEIN_IDS,
   MEAT_COOKING_YIELDS,
@@ -284,8 +296,121 @@ export interface LoadedToastMeatContext {
   pmixByStoreDate: Map<string, ProductMixItem[]>
 }
 
+interface CachedMeatStaticCatalog {
+  expiresAt: number
+  recipesData: any[]
+  inventoryById: Map<string, any>
+  toastNameByGuid: Map<string, string>
+  foodRecipesByGuid: Map<string, any[]>
+  guidsByNormalizedMenuName: Map<string, string[]>
+}
+
+const STATIC_CATALOG_TTL_MS = 5 * 60 * 1000 // 5 min para catálogos estáticos
+const CLOSED_CONTEXT_TTL_MS = 60 * 1000 // 60s para ventanas cerradas (reuso entre clics de carnes/categorías)
+const CLOSED_CONTEXT_MAX_ENTRIES = 6
+const MAX_TOAST_MEAT_CONTEXT_SPAN_DAYS = 95
+
+let staticCatalogCache: CachedMeatStaticCatalog | null = null
+let staticCatalogInFlight: Promise<CachedMeatStaticCatalog> | null = null
+
+const inFlightToastMeatContext = new Map<string, Promise<LoadedToastMeatContext>>()
+const closedToastMeatContextCache = new Map<string, { expiresAt: number; ctx: LoadedToastMeatContext }>()
+
+function setClosedContextBounded(key: string, ctx: LoadedToastMeatContext) {
+  if (closedToastMeatContextCache.size >= CLOSED_CONTEXT_MAX_ENTRIES) {
+    const firstKey = closedToastMeatContextCache.keys().next().value
+    if (firstKey !== undefined) closedToastMeatContextCache.delete(firstKey)
+  }
+  closedToastMeatContextCache.set(key, { expiresAt: Date.now() + CLOSED_CONTEXT_TTL_MS, ctx })
+}
+
+async function loadMeatStaticCatalog(supabase: any): Promise<CachedMeatStaticCatalog> {
+  if (staticCatalogCache && staticCatalogCache.expiresAt > Date.now()) {
+    return staticCatalogCache
+  }
+  if (staticCatalogInFlight) {
+    return staticCatalogInFlight
+  }
+  const promise = (async () => {
+    const [recipesData, inventoryData, toastMenuItems] = await Promise.all([
+      fetchAllPaginated<any>((from, to) =>
+        supabase
+          .from('recipes')
+          .select('id, toast_menu_item_guid, inventory_item_id, quantity, unit, type')
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPaginated<any>((from, to) =>
+        supabase
+          .from('inventory_items')
+          .select('id, name, sku, unit_type, unit_measure, quantity_per_unit, purchase_unit_cost, yield_percent, is_bodega')
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPaginated<any>((from, to) =>
+        supabase
+          .from('toast_menu_items')
+          .select('guid, name')
+          .order('guid', { ascending: true })
+          .range(from, to)
+      ),
+    ])
+
+    const inventoryById = new Map<string, any>()
+    for (const item of inventoryData) {
+      inventoryById.set(String(item.id), item)
+    }
+
+    const toastNameByGuid = new Map<string, string>()
+    const guidsByNormalizedMenuName = new Map<string, string[]>()
+    for (const m of toastMenuItems) {
+      const g = String(m.guid || '')
+      const n = String(m.name || '')
+      if (!g) continue
+      toastNameByGuid.set(g, n)
+      const norm = normalizeText(n)
+      if (norm) {
+        const list = guidsByNormalizedMenuName.get(norm) || []
+        list.push(g)
+        guidsByNormalizedMenuName.set(norm, list)
+      }
+    }
+
+    const foodRecipesByGuid = new Map<string, any[]>()
+    for (const r of recipesData) {
+      const rType = String(r.type || 'food')
+      if (rType.startsWith('cogs_')) continue
+      const g = String(r.toast_menu_item_guid || '')
+      if (!g) continue
+      const list = foodRecipesByGuid.get(g) || []
+      list.push(r)
+      foodRecipesByGuid.set(g, list)
+    }
+
+    const built: CachedMeatStaticCatalog = {
+      expiresAt: Date.now() + STATIC_CATALOG_TTL_MS,
+      recipesData,
+      inventoryById,
+      toastNameByGuid,
+      foodRecipesByGuid,
+      guidsByNormalizedMenuName,
+    }
+    staticCatalogCache = built
+    return built
+  })()
+
+  staticCatalogInFlight = promise
+  try {
+    return await promise
+  } finally {
+    if (staticCatalogInFlight === promise) {
+      staticCatalogInFlight = null
+    }
+  }
+}
+
 /**
- * Carga en lote (con `pmix_daily_cache` paginado + fallback en vivo solo para días abiertos/faltantes)
+ * Carga en lote (con `pmix_daily_cache` fragmentado en <= 15 filas/lote + fallback en vivo acotado)
  * todo el contexto necesario para calcular el consumo exacto de Toast POS día por día en 1 o en las 15 tiendas.
  */
 export async function loadToastMeatContext(params: {
@@ -293,9 +418,64 @@ export async function loadToastMeatContext(params: {
   minDate: string
   maxDate: string
   reconcileQbInvoices?: boolean
+  maxLiveFallbackCalls?: number
 }): Promise<LoadedToastMeatContext> {
-  const supabase = await getSupabaseAdminClient()
+  if (!isValidIsoDate(params.minDate) || !isValidIsoDate(params.maxDate) || params.minDate > params.maxDate) {
+    throw new Error(`Rango de fechas inválido en loadToastMeatContext: ${params.minDate}..${params.maxDate}`)
+  }
+  const spanDays = diffCalendarDays(params.minDate, params.maxDate) + 1
+  if (spanDays > MAX_TOAST_MEAT_CONTEXT_SPAN_DAYS) {
+    throw new Error(
+      `Rango de ${spanDays} días excede el límite seguro (${MAX_TOAST_MEAT_CONTEXT_SPAN_DAYS} días) de loadToastMeatContext.`
+    )
+  }
+
   const todayLa = getBusinessDateLA()
+  const isClosedWindow = params.maxDate < todayLa
+  const sortedStoreKey =
+    params.storeNumericIds && params.storeNumericIds.length > 0
+      ? Array.from(new Set(params.storeNumericIds.map(Number))).sort((a, b) => a - b).join(',')
+      : 'all'
+  const contextKey = `${sortedStoreKey}|${params.minDate}|${params.maxDate}`
+
+  if (isClosedWindow) {
+    const hit = closedToastMeatContextCache.get(contextKey)
+    if (hit && hit.expiresAt > Date.now()) {
+      return hit.ctx
+    }
+  }
+
+  const existingInFlight = inFlightToastMeatContext.get(contextKey)
+  if (existingInFlight) {
+    return existingInFlight
+  }
+
+  const workPromise = runLoadToastMeatContext(params, todayLa)
+  inFlightToastMeatContext.set(contextKey, workPromise)
+  try {
+    const built = await workPromise
+    if (isClosedWindow) {
+      setClosedContextBounded(contextKey, built)
+    }
+    return built
+  } finally {
+    if (inFlightToastMeatContext.get(contextKey) === workPromise) {
+      inFlightToastMeatContext.delete(contextKey)
+    }
+  }
+}
+
+async function runLoadToastMeatContext(
+  params: {
+    storeNumericIds?: number[]
+    minDate: string
+    maxDate: string
+    reconcileQbInvoices?: boolean
+    maxLiveFallbackCalls?: number
+  },
+  todayLa: string
+): Promise<LoadedToastMeatContext> {
+  const supabase = await getSupabaseAdminClient()
 
   const { data: storesRows, error: storesError } = await supabase
     .from('stores')
@@ -321,119 +501,83 @@ export async function loadToastMeatContext(params: {
     stores = stores.filter((s) => allowed.has(s.id))
   }
 
-  // Reconciliar facturas QBO de La Bodega en paralelo (respeta cooldown interno de 3 min por tienda)
-  if (params.reconcileQbInvoices !== false && stores.length > 0) {
+  // Reconciliar facturas QBO de La Bodega con UNA sola llamada global/por-tienda (cero fan-out de 15× en paralelo)
+  // y omitiendo ventanas estrictamente antiguas (> 45 días) donde las órdenes ya fueron conciliadas.
+  if (
+    params.reconcileQbInvoices !== false &&
+    stores.length > 0 &&
+    params.maxDate >= addDaysIso(todayLa, -45)
+  ) {
     const ageDays = Math.max(7, diffCalendarDays(params.minDate, todayLa) + 5)
     const lookbackDays = Math.min(45, ageDays)
-    await Promise.allSettled(
-      stores.map((s) =>
-        reconcileStoreOrdersWithQbInvoices({
-          storeId: s.id,
-          lookbackDays,
-          forceResync: false,
-        })
-      )
-    )
+    try {
+      await reconcileStoreOrdersWithQbInvoices({
+        storeId: stores.length === 1 ? stores[0].id : undefined,
+        lookbackDays,
+        forceResync: false,
+      })
+    } catch (qbErr) {
+      console.warn('[ToastMeatResolver] Reconciliación QBO omitida por error transitorio:', qbErr)
+    }
   }
 
   const storeGuids = stores.map((s) => s.external_id)
 
-  const [recipesData, inventoryData, toastMenuItems, cachedPmixRows] = await Promise.all([
-    fetchAllPaginated<any>((from, to) =>
-      supabase
-        .from('recipes')
-        .select('id, toast_menu_item_guid, inventory_item_id, quantity, unit, type')
-        .order('id', { ascending: true })
-        .range(from, to)
-    ),
-    fetchAllPaginated<any>((from, to) =>
-      supabase
-        .from('inventory_items')
-        .select('id, name, sku, unit_type, unit_measure, quantity_per_unit, purchase_unit_cost, yield_percent, is_bodega')
-        .order('id', { ascending: true })
-        .range(from, to)
-    ),
-    fetchAllPaginated<any>((from, to) =>
-      supabase
-        .from('toast_menu_items')
-        .select('guid, name')
-        .order('guid', { ascending: true })
-        .range(from, to)
-    ),
-    storeGuids.length > 0
-      ? fetchAllPaginated<any>((from, to) =>
-          supabase
-            .from('pmix_daily_cache')
-            .select('store_id, business_date, items, updated_at')
-            .in('store_id', storeGuids)
-            .gte('business_date', params.minDate)
-            .lte('business_date', params.maxDate)
-            .order('store_id', { ascending: true })
-            .order('business_date', { ascending: true })
-            .range(from, to)
-        )
-      : Promise.resolve([]),
-  ])
+  // 1. Cargar catálogos estáticos desde caché TTL (5 min) ANTES de leer pmix_daily_cache
+  const catalog = await loadMeatStaticCatalog(supabase)
 
-  const inventoryById = new Map<string, any>()
-  for (const item of inventoryData) {
-    inventoryById.set(String(item.id), item)
-  }
-
-  const toastNameByGuid = new Map<string, string>()
-  const guidsByNormalizedMenuName = new Map<string, string[]>()
-  for (const m of toastMenuItems) {
-    const g = String(m.guid || '')
-    const n = String(m.name || '')
-    if (!g) continue
-    toastNameByGuid.set(g, n)
-    const norm = normalizeText(n)
-    if (norm) {
-      const list = guidsByNormalizedMenuName.get(norm) || []
-      list.push(g)
-      guidsByNormalizedMenuName.set(norm, list)
-    }
-  }
-
-  const foodRecipesByGuid = new Map<string, any[]>()
-  for (const r of recipesData) {
-    const rType = String(r.type || 'food')
-    if (rType.startsWith('cogs_')) continue
-    const g = String(r.toast_menu_item_guid || '')
-    if (!g) continue
-    const list = foodRecipesByGuid.get(g) || []
-    list.push(r)
-    foodRecipesByGuid.set(g, list)
-  }
-
+  // 2. Leer pmix_daily_cache de forma estrictamente secuencial y fragmentada (<= 15 filas/lote = ~3.2 MB)
+  //    Solo consultar fechas cerradas (< todayLa) para no gastar IO en hoy/futuro
   const pmixByStoreDate = new Map<string, ProductMixItem[]>()
-  for (const row of cachedPmixRows) {
-    const guid = String(row.store_id || '')
-    const bDate = String(row.business_date || '')
-    if (!guid || !bDate || bDate >= todayLa) continue
-    if (!Array.isArray(row.items) || row.items.length === 0) continue
-    const updatedAtDateStr = row.updated_at ? getLANowParts(new Date(row.updated_at)).calendarDate : bDate
-    if (updatedAtDateStr < bDate) continue
-    pmixByStoreDate.set(`${guid}::${bDate}`, row.items as ProductMixItem[])
+  const closedMaxDate = params.maxDate < todayLa ? params.maxDate : addDaysIso(todayLa, -1)
+  if (storeGuids.length > 0 && params.minDate <= closedMaxDate) {
+    await readPmixDailyCacheChunked(supabase, {
+      storeGuids,
+      startDate: params.minDate,
+      endDate: closedMaxDate,
+      includeUpdatedAt: true,
+      chunkRows: PMIX_SAFE_CHUNK_ROWS,
+      onChunk: (chunk) => {
+        for (const row of chunk) {
+          const guid = String(row.store_id || '')
+          const bDate = String(row.business_date || '')
+          if (!guid || !bDate || bDate >= todayLa) continue
+          if (!Array.isArray(row.items) || row.items.length === 0) continue
+          if (!isPmixCacheRowFinalized(bDate, row.updated_at, todayLa)) continue
+          pmixByStoreDate.set(`${guid}::${bDate}`, row.items as ProductMixItem[])
+        }
+      },
+    })
   }
 
-  // Descargar en vivo únicamente cualquier `(store, date)` faltante o del día abierto actual (secuencial por tienda para evitar 429)
+  // 3. Descargar en vivo únicamente cualquier `(store, date)` faltante o del día abierto actual
+  //    (nunca fechas futuras, pasando `skipCache: true` si ya confirmamos ausencia en DB y con tope defensivo).
   const allDates: string[] = []
   for (let d = params.minDate; d <= params.maxDate; d = addDaysIso(d, 1)) {
-    allDates.push(d)
+    if (d <= todayLa) allDates.push(d)
   }
+
+  const maxLiveCalls = Math.max(0, params.maxLiveFallbackCalls ?? 20)
+  let liveFallbackCount = 0
 
   for (const store of stores) {
     for (const d of allDates) {
       const key = `${store.external_id}::${d}`
       if (pmixByStoreDate.has(key)) continue
       if (diffCalendarDays(d, todayLa) > 120) continue
+      if (liveFallbackCount >= maxLiveCalls) {
+        pmixByStoreDate.set(key, [])
+        continue
+      }
+      liveFallbackCount++
       try {
         const liveItems = await getProductMix({
           storeId: store.external_id,
           startDate: d,
           endDate: d,
           bundleModifiers: true,
+          // Para fechas pasadas ya verificamos ausencia en `pmix_daily_cache` arriba -> evitar re-hit DB
+          skipCache: d < todayLa,
         })
         pmixByStoreDate.set(key, liveItems)
       } catch (err) {
@@ -445,11 +589,11 @@ export async function loadToastMeatContext(params: {
 
   return {
     stores,
-    inventoryById,
-    recipesData,
-    toastNameByGuid,
-    foodRecipesByGuid,
-    guidsByNormalizedMenuName,
+    inventoryById: catalog.inventoryById,
+    recipesData: catalog.recipesData,
+    toastNameByGuid: catalog.toastNameByGuid,
+    foodRecipesByGuid: catalog.foodRecipesByGuid,
+    guidsByNormalizedMenuName: catalog.guidsByNormalizedMenuName,
     pmixByStoreDate,
   }
 }
@@ -833,6 +977,7 @@ export async function computeToastVsFridgeForIngredient(params: {
             .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes, created_at')
             .eq('inventory_item_id', params.inventoryItemId)
             .in('store_id', possibleCountStoreTokens)
+            .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
             .gte('count_date', anchorLookbackStart)
             .lte('count_date', params.endDate)
             .order('count_date', { ascending: true })
@@ -864,7 +1009,10 @@ export async function computeToastVsFridgeForIngredient(params: {
           itemIds: [params.inventoryItemId],
           minDate: anchorLookbackStart,
           maxDate: params.endDate,
-        }).catch(() => [])
+        }).catch((err) => {
+          console.warn('[ToastMeatResolver] Error leyendo inventory_store_transfers:', err)
+          return []
+        })
       : Promise.resolve([]),
   ])
   const transferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, targetStoreIdSet)

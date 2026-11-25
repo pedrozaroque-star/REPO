@@ -16,6 +16,7 @@
  * - [2026-07-26] BUGFIX: Evita usar caché de PMIX incompleta (creada por pedidos a futuro o catering antes del día operativo real) comprobando que `updated_at` (en Los Angeles time) no sea anterior a `business_date`.
  * - [2026-09-09] BUGFIX & HARDENING: Escritura de caché convertida a síncrona (await) para evitar pérdida de promesas en serverless. Añadido candado de seguridad (Guard Clause) que bloquea Live Fetch a Toast en fechas con más de 120 días de antigüedad cuando no se solicite forzado explícito (skipCache).
  * - [2026-11-23] BUGFIX CRÍTICO: (1) Aplicada regla corporativa de 06:00 AM (`getBusinessDateLA()`) en `todayLa` e `isDirty` para impedir que entre 12:00 AM y 5:59 AM PT se congele `pmix_daily_cache` a medianoche perdiendo las órdenes nocturnas (12 AM–4 AM); (2) Corregida doble resta de `childGross` en `unitPrice` (`selfGross / qty`); (3) Acotados los reintentos por `429` a un máximo de 4 por página con backoff progresivo.
+ * - [2026-11-24] BLINDAJE FOOD COST: (1) `getAuthToken()` y `getDiningOptions()` se cargan bajo demanda solo cuando alguna fecha requiere Toast en vivo (cero llamadas HTTP en caché HIT); (2) lectura por lotes seguros (`readPmixDailyCacheChunked`, <= 10 filas/lote) con propagación explícita de errores DB (nunca dispara tormenta a Toast si falla Postgres); (3) single-flight + caché corto de 45s para consultas en vivo; (4) eliminado spread `push(...modGuids)` (riesgo de stack overflow en V8) y añadido `finally { clearTimeout }` + tope `MAX_ORDERS_PAGES = 100`.
  */
 import { getAuthToken, getDiningOptions } from './toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -23,10 +24,36 @@ import {
     addDaysIso,
     diffCalendarDays,
     getBusinessDateLA,
-    getLANowParts,
 } from '@/lib/inventory/food-cost-sales-resolver'
+import {
+    isPmixCacheRowFinalized,
+    readPmixDailyCacheChunked,
+    type PmixDailyCacheRow,
+} from '@/lib/inventory/pmix-cache-reader'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const MAX_ORDERS_PAGES = 100
+const LIVE_PMIX_TTL_MS = 45 * 1000
+const LIVE_PMIX_MAX_ENTRIES = 60
+
+const inFlightPmix = new Map<string, Promise<ProductMixItem[]>>()
+const livePmixCache = new Map<string, { expiresAt: number; items: ProductMixItem[] }>()
+
+function cloneProductMixItems(items: ProductMixItem[]): ProductMixItem[] {
+    return items.map((item) => ({
+        ...item,
+        modifier_guids: item.modifier_guids ? [...item.modifier_guids] : [],
+    }))
+}
+
+function setLivePmixCacheBounded(key: string, items: ProductMixItem[]) {
+    if (livePmixCache.size >= LIVE_PMIX_MAX_ENTRIES) {
+        const firstKey = livePmixCache.keys().next().value
+        if (firstKey !== undefined) livePmixCache.delete(firstKey)
+    }
+    livePmixCache.set(key, { expiresAt: Date.now() + LIVE_PMIX_TTL_MS, items: cloneProductMixItems(items) })
+}
 
 export interface ProductMixItem {
     guid: string
@@ -53,15 +80,57 @@ export interface ProductMixOptions {
 }
 
 export async function getProductMix(options: ProductMixOptions): Promise<ProductMixItem[]> {
+    const { storeId, startDate, endDate, bundleModifiers = false, mergeDiningOptions = false, skipCache = false } = options
+    if (!ISO_DATE_RE.test(startDate) || !ISO_DATE_RE.test(endDate) || startDate > endDate) {
+        throw new Error(`Invalid getProductMix date range: ${startDate}..${endDate}`)
+    }
+
+    const reqKey = `${storeId}|${startDate}|${endDate}|${bundleModifiers ? 1 : 0}|${mergeDiningOptions ? 1 : 0}|${skipCache ? 1 : 0}`
+    if (!skipCache) {
+        const cachedLive = livePmixCache.get(reqKey)
+        if (cachedLive && cachedLive.expiresAt > Date.now()) {
+            return cloneProductMixItems(cachedLive.items)
+        }
+        const existingInFlight = inFlightPmix.get(reqKey)
+        if (existingInFlight) {
+            return cloneProductMixItems(await existingInFlight)
+        }
+    }
+
+    const workPromise = runGetProductMix(options)
+    if (!skipCache) {
+        inFlightPmix.set(reqKey, workPromise)
+    }
+    try {
+        const result = await workPromise
+        if (!skipCache && startDate === endDate && startDate >= getBusinessDateLA()) {
+            setLivePmixCacheBounded(reqKey, result)
+        }
+        return cloneProductMixItems(result)
+    } finally {
+        if (!skipCache && inFlightPmix.get(reqKey) === workPromise) {
+            inFlightPmix.delete(reqKey)
+        }
+    }
+}
+
+async function runGetProductMix(options: ProductMixOptions): Promise<ProductMixItem[]> {
     const { storeId, startDate, endDate, bundleModifiers = false } = options
-    const token = await getAuthToken()
-    if (!token) throw new Error("Auth Token Failed")
 
-    // Fetch Dining Options Map (GROUP BY DINING OPTION for 3rd Party Split)
-    const diningOptionMap = await getDiningOptions(storeId)
+    // Lazy-loaded ONLY if a date misses cache or is live/dirty (zero Toast HTTP calls on cache HIT)
+    let token: string | null = null
+    let diningOptionMap: Map<string, string> | null = null
+    const ensureToastLiveReady = async () => {
+        if (!token) {
+            token = await getAuthToken()
+            if (!token) throw new Error("Auth Token Failed")
+        }
+        if (!diningOptionMap) {
+            diningOptionMap = await getDiningOptions(storeId)
+        }
+        return { token, diningOptionMap }
+    }
 
-    // Add modifier_guids to map value type (using extended interface internally if needed, or just casting)
-    // We updated the interface above, so it's fine.
     const itemMap = new Map<string, ProductMixItem>()
 
     // Helper to update map
@@ -99,12 +168,12 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             existing.unit_price = unitPrice
         }
 
-        // Collect modifier guids if provided
+        // Collect modifier guids safely without spread stack overflow
         if (modGuids && modGuids.length > 0) {
-            // We just append. If multiple items are merged, we append all their modifiers.
-            // This allows calculating total constituent cost for the group.
             if (!existing.modifier_guids) existing.modifier_guids = []
-            existing.modifier_guids.push(...modGuids)
+            for (let i = 0; i < modGuids.length; i++) {
+                existing.modifier_guids.push(modGuids[i])
+            }
         }
 
         targetMap.set(key, existing)
@@ -123,34 +192,42 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
     const todayLa = getBusinessDateLA()
     const supabase = await getSupabaseAdminClient()
 
-    // Process dates strictly sequentially. 
+    // Lectura por lotes seguros (<= 10 filas por petición) para todas las fechas cerradas en el rango.
+    // Si Postgres devuelve error, propaga la excepción en vez de detonar una tormenta en vivo contra Toast.
+    const cachedByDate = new Map<string, PmixDailyCacheRow>()
+    if (!options.skipCache) {
+        const closedDates = datesToFetch.filter((d) => d < todayLa)
+        if (closedDates.length > 0) {
+            const cacheResult = await readPmixDailyCacheChunked(supabase, {
+                storeGuids: [storeId],
+                startDate: closedDates[0],
+                endDate: closedDates[closedDates.length - 1],
+                includeUpdatedAt: true,
+                chunkRows: 10,
+            })
+            for (const row of cacheResult.rows) {
+                cachedByDate.set(String(row.business_date), row)
+            }
+        }
+    }
+
+    // Process dates strictly sequentially.
     // Toast strictly rate-limits the ordersBulk endpoint; concurrent dates trigger 429
     for (const dateStr of datesToFetch) {
+        if (dateStr > todayLa) {
+            continue
+        }
         const businessDate = dateStr.replace(/-/g, '')
         const isDirty = (dateStr >= todayLa)
 
         // SELF-HEALING CACHE CHECK
         if (!options.skipCache && !isDirty) {
-            const { data: cachedData, error: cacheErr } = await supabase
-                .from('pmix_daily_cache')
-                .select('items, updated_at')
-                .eq('store_id', storeId)
-                .eq('business_date', dateStr)
-                .single();
-
-            if (!cacheErr && cachedData && cachedData.items && Array.isArray(cachedData.items) && cachedData.items.length > 0) {
-                // Validación defensiva: verificar si la caché se generó ANTES de la fecha operativa
-                // (ej. pedido a futuro / catering procesado antes de la fecha operativa real).
-                const updatedAt = new Date(cachedData.updated_at)
-                const updatedAtDateStr = getLANowParts(updatedAt).calendarDate
-
-                if (updatedAtDateStr < dateStr) {
-                    console.log(`[PMIX Cache BYPASS] Caché de pedido futuro detectada para ${dateStr} (${storeId}). Creado el: ${updatedAtDateStr}. Forzando descarga en vivo.`)
+            const cachedData = cachedByDate.get(dateStr)
+            if (cachedData && Array.isArray(cachedData.items) && cachedData.items.length > 0) {
+                if (!isPmixCacheRowFinalized(dateStr, cachedData.updated_at, todayLa)) {
+                    console.log(`[PMIX Cache BYPASS] Caché incompleta/futura detectada para ${dateStr} (${storeId}). updated_at=${cachedData.updated_at}. Forzando descarga en vivo.`)
                 } else {
-                    console.log(`[PMIX Cache HIT] ${dateStr} (${storeId})`)
                     cachedData.items.forEach((item: ProductMixItem) => {
-                        // Convert potential group_name override if mergeDiningOptions is on.
-                        // Doing this locally when loading from cache ensures food-cost queries bypass group grouping.
                         const finalGroupName = options.mergeDiningOptions ? 'All Channels' : (item.group_name || 'Uncategorized')
                         addFn(
                             itemMap,
@@ -181,6 +258,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             continue
         }
 
+        const liveReady = await ensureToastLiveReady()
         console.log(`[PMIX LIVE FETCH] ${dateStr} (${businessDate})...`)
 
         let page = 1
@@ -191,7 +269,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
         const dayItemMap = new Map<string, ProductMixItem>()
 
-        while (hasMore) {
+        while (hasMore && page <= MAX_ORDERS_PAGES) {
             const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
             url.searchParams.append('businessDate', businessDate)
             url.searchParams.append('pageSize', String(pageSize))
@@ -200,30 +278,34 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             const controller = new AbortController()
             const timeoutId = setTimeout(() => controller.abort(), 60000)
 
-            const res = await fetch(url.toString(), {
-                signal: controller.signal,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Toast-Restaurant-External-ID': storeId
-                }
-            })
-            clearTimeout(timeoutId)
+            let entries: unknown
+            try {
+                const res = await fetch(url.toString(), {
+                    signal: controller.signal,
+                    headers: {
+                        'Authorization': `Bearer ${liveReady.token}`,
+                        'Toast-Restaurant-External-ID': storeId
+                    }
+                })
 
-            if (!res.ok) {
-                const errTxt = await res.text().catch(() => '')
-                console.error(`[PMIX] Error ${res.status}: ${errTxt}`)
-                if (res.status === 429 && rateLimitRetries < MAX_429_RETRIES) {
-                    rateLimitRetries++
-                    const backoffMs = Math.min(5000 * rateLimitRetries, 15000)
-                    console.warn(`[Toast API] Rate limited on PMIX page ${page} (retry ${rateLimitRetries}/${MAX_429_RETRIES}), waiting ${backoffMs}ms...`)
-                    await new Promise(r => setTimeout(r, backoffMs))
-                    continue // retry the same page
+                if (!res.ok) {
+                    const errTxt = await res.text().catch(() => '')
+                    console.error(`[PMIX] Error ${res.status}: ${errTxt}`)
+                    if (res.status === 429 && rateLimitRetries < MAX_429_RETRIES) {
+                        rateLimitRetries++
+                        const backoffMs = Math.min(5000 * rateLimitRetries, 15000)
+                        console.warn(`[Toast API] Rate limited on PMIX page ${page} (retry ${rateLimitRetries}/${MAX_429_RETRIES}), waiting ${backoffMs}ms...`)
+                        await new Promise(r => setTimeout(r, backoffMs))
+                        continue // retry the same page
+                    }
+                    throw new Error(`Toast API Error (${storeId}): ${res.status}${res.status === 429 ? ` (exceeded ${MAX_429_RETRIES} rate-limit retries)` : ''}`)
                 }
-                throw new Error(`Toast API Error (${storeId}): ${res.status}${res.status === 429 ? ` (exceeded ${MAX_429_RETRIES} rate-limit retries)` : ''}`)
+                rateLimitRetries = 0
+                entries = await res.json()
+            } finally {
+                clearTimeout(timeoutId)
             }
-            rateLimitRetries = 0
 
-            const entries = await res.json()
             if (!Array.isArray(entries) || entries.length === 0) {
                 hasMore = false
                 continue
@@ -333,8 +415,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                 // Start Group Logic
                 let groupName = 'Uncategorized'
                 const doGuid = sel.diningOption?.guid
-                if (doGuid && diningOptionMap.has(doGuid)) {
-                    groupName = diningOptionMap.get(doGuid)!
+                if (doGuid && liveReady.diningOptionMap.has(doGuid)) {
+                    groupName = liveReady.diningOptionMap.get(doGuid)!
                 } else if (sel.diningOption?.name) {
                     groupName = sel.diningOption.name
                 }
@@ -364,8 +446,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                 if (order.voided) return
                 let orderDO = 'Uncategorized'
                 const oGuid = order.diningOption?.guid
-                if (oGuid && diningOptionMap.has(oGuid)) {
-                    orderDO = diningOptionMap.get(oGuid)!
+                if (oGuid && liveReady.diningOptionMap.has(oGuid)) {
+                    orderDO = liveReady.diningOptionMap.get(oGuid)!
                 } else if (order.diningOption?.name) {
                     orderDO = order.diningOption.name
                 }

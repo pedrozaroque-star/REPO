@@ -21,6 +21,7 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import {
     calculateSafeFoodCostPct,
     calculateSafePackagingCostPct,
+    getBusinessDateLA,
     isInvalidFoodCostCacheRow,
     isValidIsoDate,
     resolveCachedFoodCostDollars,
@@ -96,18 +97,20 @@ export async function GET(request: NextRequest) {
 
         const supabase = await getSupabaseAdminClient()
 
-        // Paginate cached food cost data for the date range to prevent 1,000-row PostgREST truncation (> 66 days)
+        // Paginate cached food cost data deterministically using composite index `(business_date, store_id)`
         const data: any[] = []
-        let offset = 0
         const PAGE_SIZE = 1000
+        const MAX_PAGES = 30
 
-        while (true) {
+        for (let page = 0; page < MAX_PAGES; page++) {
+            const offset = page * PAGE_SIZE
             let query = supabase
                 .from('food_cost_daily_cache')
-                .select('id, business_date, store_id, store_name, total_cost, food_cost, packaging_cost, net_sales, cost_percentage, packaging_percentage, total_items, items_with_recipe, total_meat_lbs, meat_cost, asada_raw_lbs, asada_cost, unmapped_sales, updated_at')
+                .select('business_date, store_id, store_name, total_cost, food_cost, packaging_cost, net_sales, total_meat_lbs, meat_cost, asada_raw_lbs, asada_cost, unmapped_sales')
                 .gte('business_date', startDate)
                 .lte('business_date', endDate)
-                .order('id', { ascending: true })
+                .order('business_date', { ascending: true })
+                .order('store_id', { ascending: true })
                 .range(offset, offset + PAGE_SIZE - 1)
 
             if (storeId && storeId !== 'all') {
@@ -122,7 +125,6 @@ export async function GET(request: NextRequest) {
             if (!pageRows || pageRows.length === 0) break
             data.push(...pageRows)
             if (pageRows.length < PAGE_SIZE) break
-            offset += PAGE_SIZE
         }
 
         if (!data || data.length === 0) {
@@ -236,6 +238,7 @@ export async function GET(request: NextRequest) {
             byStoreName[sname] = formatRollup(val)
         })
 
+        const isClosedCacheRange = endDate < getBusinessDateLA()
         return NextResponse.json({
             totalCost: formattedChain.totalCost,
             totalFoodCost: formattedChain.totalFoodCost,
@@ -257,6 +260,10 @@ export async function GET(request: NextRequest) {
             byStoreName,
             cached: true,
             empty: false
+        }, {
+            headers: {
+                'Cache-Control': isClosedCacheRange ? 'private, max-age=300' : 'private, max-age=30',
+            },
         })
 
     } catch (e: any) {

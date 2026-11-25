@@ -9,7 +9,7 @@
         },
         {
             "path": "/api/cron/sync-labor",
-            "schedule": "0 15 * * *"
+            "schedule": "8 15 * * *"
         },
         {
             "path": "/api/cron/sync-labor",
@@ -17,31 +17,35 @@
         },
         {
             "path": "/api/cron/sync-reviews",
-            "schedule": "0 16,22 * * *"
+            "schedule": "3 16,22 * * *"
         },
         {
             "path": "/api/cron/integrity-check",
-            "schedule": "0 15 * * *"
+            "schedule": "13 13 * * *"
         },
         {
-            "path": "/api/cron/sync-pmix",
-            "schedule": "0 18 * * *"
+            "path": "/api/cron/sync-pmix?batch=1&batches=2",
+            "schedule": "5 17 * * *"
+        },
+        {
+            "path": "/api/cron/sync-pmix?batch=2&batches=2",
+            "schedule": "18 17 * * *"
         },
         {
             "path": "/api/cron/check-missing-meat-modifiers",
-            "schedule": "20 18 * * *"
+            "schedule": "33 17 * * *"
         },
         {
             "path": "/api/cron/sync-food-cost",
-            "schedule": "0 19 * * *"
+            "schedule": "43 17 * * *"
         },
         {
             "path": "/api/cron/check-portion-alerts",
-            "schedule": "15 19 * * *"
+            "schedule": "53 17 * * *"
         },
         {
             "path": "/api/cron/sync-food-cost-today",
-            "schedule": "*/20 * * * *"
+            "schedule": "9,39 * * * *"
         },
         {
             "path": "/api/cron/report-breaks",
@@ -61,7 +65,7 @@
         },
         {
             "path": "/api/inventory/sync-quickbooks",
-            "schedule": "0 2,14 * * *"
+            "schedule": "23 10,13 * * *"
         },
         {
             "path": "/api/cron/sync-accounting",
@@ -69,11 +73,11 @@
         },
         {
             "path": "/api/cron/sync-meat-history",
-            "schedule": "*/10 * * * *"
+            "schedule": "6,16,26,36,46,56 * * * *"
         },
         {
             "path": "/api/cron/smart-rebalance",
-            "schedule": "*/20 * * * *"
+            "schedule": "14,34,54 * * * *"
         },
         {
             "path": "/api/sync-discounts",
@@ -81,7 +85,7 @@
         },
         {
             "path": "/api/cron/sync-sales-today",
-            "schedule": "*/10 * * * *"
+            "schedule": "2,12,22,32,42,52 * * * *"
         },
         {
             "path": "/api/cron/sync-mobile-menu",
@@ -89,11 +93,11 @@
         },
         {
             "path": "/api/cron/sync-drive-thru",
-            "schedule": "*/15 * * * *"
+            "schedule": "4,19,34,49 * * * *"
         },
         {
             "path": "/api/basecamp/sync",
-            "schedule": "*/30 * * * *"
+            "schedule": "11,41 * * * *"
         },
         {
             "path": "/api/cron/sync-supplier-prices",
@@ -109,15 +113,15 @@
         },
         {
             "path": "/api/cron/monitor-system-health",
-            "schedule": "0 15 * * *"
+            "schedule": "28 15 * * *"
         },
         {
             "path": "/api/cron/sync-events",
-            "schedule": "0 13 * * *"
+            "schedule": "3 13 * * *"
         },
         {
             "path": "/api/cron/process-mobile-outbox",
-            "schedule": "*/15 * * * *"
+            "schedule": "7,22,37,52 * * * *"
         },
         {
             "path": "/api/cron/sync-viele-bills",
@@ -145,7 +149,7 @@
         },
         {
             "path": "/api/cron/sync-external-accounting",
-            "schedule": "*/30 * * * *"
+            "schedule": "17,47 * * * *"
         },
         {
             "path": "/api/cron/learn-kore-drive-thru",

@@ -53,32 +53,110 @@ import {
     buildLAInstant,
     calculateSafeFoodCostPct,
     calculateSafePackagingCostPct,
+    FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+    FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS,
     getBusinessDateLA,
-    isValidIsoDate,
     resolveFoodCostNetSales,
+    validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 import { Recipe, InventoryItem } from '@/types/inventory'
 import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 const ASADA_ITEM_ID = ACTIVE_PROTEIN_IDS.asada
 
+interface FoodCostStaticCatalog {
+    expiresAt: number
+    recipesData: any[]
+    inventoryData: any[]
+    allMenuItems: { guid: string; name: string }[]
+}
+
+const FOOD_COST_CATALOG_TTL_MS = 5 * 60 * 1000
+const FOOD_COST_RESPONSE_TTL_CLOSED_MS = 3 * 60 * 1000
+const FOOD_COST_RESPONSE_TTL_LIVE_MS = 45 * 1000
+const FOOD_COST_RESPONSE_MAX_CACHE = 12
+
+let foodCostCatalogCache: FoodCostStaticCatalog | null = null
+let foodCostCatalogInFlight: Promise<FoodCostStaticCatalog> | null = null
+const foodCostResponseCache = new Map<string, { expiresAt: number; payload: { data: any[]; salesNetSales: Record<string, number> } }>()
+const foodCostInFlight = new Map<string, Promise<{ data: any[]; salesNetSales: Record<string, number> }>>()
+
+function setFoodCostCacheBounded(key: string, ttlMs: number, payload: { data: any[]; salesNetSales: Record<string, number> }) {
+    if (foodCostResponseCache.size >= FOOD_COST_RESPONSE_MAX_CACHE) {
+        const firstKey = foodCostResponseCache.keys().next().value
+        if (firstKey !== undefined) foodCostResponseCache.delete(firstKey)
+    }
+    foodCostResponseCache.set(key, { expiresAt: Date.now() + ttlMs, payload })
+}
+
 async function fetchAllRows<T = any>(
     buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
-    pageSize = 1000
+    pageSize = 1000,
+    maxPages = 50
 ): Promise<T[]> {
     const all: T[] = []
-    let offset = 0
-    while (true) {
+    for (let page = 0; page < maxPages; page++) {
+        const offset = page * pageSize
         const { data, error } = await buildQuery(offset, offset + pageSize - 1)
         if (error) throw error
         if (!data || data.length === 0) break
         all.push(...data)
         if (data.length < pageSize) break
-        offset += pageSize
     }
     return all
+}
+
+async function getFoodCostStaticCatalog(supabase: any): Promise<FoodCostStaticCatalog> {
+    if (foodCostCatalogCache && foodCostCatalogCache.expiresAt > Date.now()) {
+        return foodCostCatalogCache
+    }
+    if (foodCostCatalogInFlight) {
+        return foodCostCatalogInFlight
+    }
+    const loader = (async () => {
+        const [recipesData, inventoryData, allMenuItems] = await Promise.all([
+            fetchAllRows<any>((from, to) =>
+                supabase
+                    .from('recipes')
+                    .select('id, toast_menu_item_guid, inventory_item_id, quantity, unit, type')
+                    .order('id', { ascending: true })
+                    .range(from, to)
+            ),
+            fetchAllRows<any>((from, to) =>
+                supabase
+                    .from('inventory_items')
+                    .select('id, sku, name, unit_type, unit_measure, quantity_per_unit, purchase_unit_cost, yield_percent, is_bodega')
+                    .order('id', { ascending: true })
+                    .range(from, to)
+            ),
+            fetchAllRows<{ guid: string; name: string }>((from, to) =>
+                supabase
+                    .from('toast_menu_items')
+                    .select('guid, name')
+                    .order('guid', { ascending: true })
+                    .range(from, to)
+            ),
+        ])
+        const built: FoodCostStaticCatalog = {
+            expiresAt: Date.now() + FOOD_COST_CATALOG_TTL_MS,
+            recipesData,
+            inventoryData,
+            allMenuItems,
+        }
+        foodCostCatalogCache = built
+        return built
+    })()
+    foodCostCatalogInFlight = loader
+    try {
+        return await loader
+    } finally {
+        if (foodCostCatalogInFlight === loader) {
+            foodCostCatalogInFlight = null
+        }
+    }
 }
 
 export async function GET(request: NextRequest) {
@@ -87,17 +165,99 @@ export async function GET(request: NextRequest) {
 
     try {
         const searchParams = request.nextUrl.searchParams
-        const storeId = searchParams.get('storeId')
-        const startDate = searchParams.get('startDate')
-        const endDate = searchParams.get('endDate')
+        const storeId = (searchParams.get('storeId') || '').trim()
+        const startDate = (searchParams.get('startDate') || '').trim()
+        const endDate = (searchParams.get('endDate') || '').trim()
 
         if (!storeId || !startDate || !endDate) {
             return NextResponse.json({ error: 'Missing params' }, { status: 400 })
         }
-        if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
-            return NextResponse.json({ error: 'Invalid startDate or endDate (expected YYYY-MM-DD with startDate <= endDate)' }, { status: 400 })
+
+        const maxAllowedDays =
+            storeId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS
+        const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
+        if (!rangeCheck.ok) {
+            return NextResponse.json(
+                {
+                    error: `${rangeCheck.error} Para consultas históricas mayores a ${maxAllowedDays} días utiliza /api/inventory/food-cost-cache.`,
+                },
+                { status: 400 }
+            )
         }
 
+        const todayBusinessDateLA = getBusinessDateLA()
+        const isLiveRange = endDate >= todayBusinessDateLA
+        const isCronBypass =
+            Boolean(request.headers.get('x-vercel-cron')) ||
+            searchParams.get('bypassCache') === '1'
+        const responseCacheKey = `${storeId}|${startDate}|${endDate}`
+
+        if (!isCronBypass) {
+            const cachedResp = foodCostResponseCache.get(responseCacheKey)
+            if (cachedResp && cachedResp.expiresAt > Date.now()) {
+                return NextResponse.json(cachedResp.payload, {
+                    headers: {
+                        'Cache-Control': isLiveRange ? 'no-store' : 'private, max-age=180',
+                    },
+                })
+            }
+            const existingInFlight = foodCostInFlight.get(responseCacheKey)
+            if (existingInFlight) {
+                const sharedPayload = await existingInFlight
+                return NextResponse.json(sharedPayload, {
+                    headers: {
+                        'Cache-Control': isLiveRange ? 'no-store' : 'private, max-age=180',
+                    },
+                })
+            }
+        }
+
+        const computePromise = computeFoodCostReport({
+            storeId,
+            startDate,
+            endDate,
+            todayBusinessDateLA,
+            isLiveRange,
+        })
+        if (!isCronBypass) {
+            foodCostInFlight.set(responseCacheKey, computePromise)
+        }
+
+        let payload: { data: any[]; salesNetSales: Record<string, number> }
+        try {
+            payload = await computePromise
+            if (!isCronBypass) {
+                setFoodCostCacheBounded(
+                    responseCacheKey,
+                    isLiveRange ? FOOD_COST_RESPONSE_TTL_LIVE_MS : FOOD_COST_RESPONSE_TTL_CLOSED_MS,
+                    payload
+                )
+            }
+        } finally {
+            if (!isCronBypass && foodCostInFlight.get(responseCacheKey) === computePromise) {
+                foodCostInFlight.delete(responseCacheKey)
+            }
+        }
+
+        return NextResponse.json(payload, {
+            headers: {
+                'Cache-Control': isLiveRange ? 'no-store' : 'private, max-age=180',
+            },
+        })
+    } catch (e: any) {
+        console.error('Food Cost API Error:', e)
+        return NextResponse.json({ error: e.message }, { status: 500 })
+    }
+}
+
+async function computeFoodCostReport(params: {
+    storeId: string
+    startDate: string
+    endDate: string
+    todayBusinessDateLA: string
+    isLiveRange: boolean
+}): Promise<{ data: any[]; salesNetSales: Record<string, number> }> {
+        const { storeId, startDate, endDate, todayBusinessDateLA, isLiveRange } = params
         const supabase = await getSupabaseAdminClient()
 
         // 1. Fetch Product Mix (Sales) from Toast
@@ -123,8 +283,8 @@ export async function GET(request: NextRequest) {
             }
 
             console.log(`[FoodCostAPI] Fetching for ${validStores.length} stores...`)
-            // Fetch concurrently with error handling & rate limiting (chunks of 3)
-            const STORE_CONCURRENCY = 3
+            // Concurrencia acotada (2 tiendas a la vez) para proteger Supabase ci_small y límites 429 de Toast
+            const STORE_CONCURRENCY = 2
             const results: any[] = []
 
             for (let i = 0; i < validStores.length; i += STORE_CONCURRENCY) {
@@ -174,10 +334,12 @@ export async function GET(request: NextRequest) {
                     existing.modifier_gross_sales = (existing.modifier_gross_sales || 0) + (item.modifier_gross_sales || 0)
                     existing.half_meat_adjustments = (existing.half_meat_adjustments || 0) + (item.half_meat_adjustments || 0)
 
-                    // Merge modifiers
+                    // Merge modifiers safely without spread stack overflow
                     if (item.modifier_guids && item.modifier_guids.length > 0) {
                         if (!existing.modifier_guids) existing.modifier_guids = []
-                        existing.modifier_guids.push(...item.modifier_guids)
+                        for (let mIdx = 0; mIdx < item.modifier_guids.length; mIdx++) {
+                            existing.modifier_guids.push(item.modifier_guids[mIdx])
+                        }
                     }
                 }
             })
@@ -188,25 +350,31 @@ export async function GET(request: NextRequest) {
             }))
 
         } else {
-            // Single store fetch
-            const currentStore = await supabase.from('stores').select('name').eq('external_id', storeId).single()
-            pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true })
-            succeededStoreIds.add(storeId)
+            // Single store fetch (acepta tanto UUID external_id como ID numérico de stores)
+            let resolvedStoreGuid = storeId
+            let resolvedStoreName = 'Unknown'
+            if (/^\d+$/.test(storeId)) {
+                const currentStore = await supabase.from('stores').select('name, external_id').eq('id', Number(storeId)).maybeSingle()
+                if (currentStore.data?.external_id) resolvedStoreGuid = currentStore.data.external_id
+                if (currentStore.data?.name) resolvedStoreName = currentStore.data.name
+            } else {
+                const currentStore = await supabase.from('stores').select('name').eq('external_id', storeId).maybeSingle()
+                if (currentStore.data?.name) resolvedStoreName = currentStore.data.name
+            }
+            pmixItems = await getProductMix({ storeId: resolvedStoreGuid, startDate, endDate, bundleModifiers: true })
+            succeededStoreIds.add(resolvedStoreGuid)
             pmixItems = pmixItems.map(item => ({
                 ...item,
-                store_id: storeId,
-                store_name: currentStore.data?.name || 'Unknown'
+                store_id: resolvedStoreGuid,
+                store_name: resolvedStoreName
             }))
         }
 
-        // 2. Fetch ALL Recipes, Inventory Items, Price History & Menu Items with deterministic pagination (>1,000-row safe)
-        const recipesData = await fetchAllRows<any>((from, to) =>
-            supabase.from('recipes').select('*').order('id', { ascending: true }).range(from, to)
-        )
-
-        let inventoryData = await fetchAllRows<any>((from, to) =>
-            supabase.from('inventory_items').select('*').order('id', { ascending: true }).range(from, to)
-        )
+        // 2. Cargar catálogos estáticos desde caché TTL (5 min) + historial de precios indexado
+        const staticCatalog = await getFoodCostStaticCatalog(supabase)
+        const recipesData = staticCatalog.recipesData
+        let inventoryData = staticCatalog.inventoryData
+        const allMenuItems = staticCatalog.allMenuItems
 
         // --- SCENARIO B: HISTORICAL PRICES O "LA MÁQUINA DEL TIEMPO" ---
         // Buscamos cuál era el precio de los insumos al cierre laboral oficial (05:59 AM LA del día siguiente a endDate)
@@ -269,11 +437,10 @@ export async function GET(request: NextRequest) {
             })
         })
 
-        // 3b. Build NAME-based fallback map for GUID mismatches (paginated, avoiding .in() URL overflow & 1,000-row cap)
+        // 3b. Build NAME-based fallback map & prebuilt InventoryItem Map (evita reconstruir 15,000 Maps en calculateRecipeCost)
         const nameToRecipeMap = new Map<string, Recipe>()
-
-        const allMenuItems = await fetchAllRows<{ guid: string; name: string }>((from, to) =>
-            supabase.from('toast_menu_items').select('guid, name').order('guid', { ascending: true }).range(from, to)
+        const inventoryItemMap = new Map<string, InventoryItem>(
+            (inventoryData as InventoryItem[]).map((item) => [item.id, item])
         )
         const menuItemNameByGuid = new Map<string, string>(
             allMenuItems.map((mi) => [mi.guid, mi.name])
@@ -400,7 +567,7 @@ export async function GET(request: NextRequest) {
 
             // 1. Calculate base recipe unit cost (both foodCost and channel-filtered packagingCost)
             if (recipeForCost) {
-                const costResult = calculateRecipeCost(recipeForCost as Recipe, inventoryData as InventoryItem[], channelName)
+                const costResult = calculateRecipeCost(recipeForCost as Recipe, inventoryData as InventoryItem[], channelName, inventoryItemMap)
                 baseUnitFoodCost = costResult.foodCost
                 baseUnitPackagingCost = costResult.packagingCost
                 missingPrices += costResult.missingPrices
@@ -466,7 +633,7 @@ export async function GET(request: NextRequest) {
                             })
                         })
 
-                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[], channelName)
+                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[], channelName, inventoryItemMap)
                         totalBaseFoodCost += deltaRes.foodCost
                         totalBasePackagingCost += deltaRes.packagingCost
 
@@ -539,7 +706,7 @@ export async function GET(request: NextRequest) {
                     if (modRecipe) {
                         const isProteinModifier = !!proteinAllocation && modRecipe.ingredients.some(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
                         if (!halfGuids.has(modGuid) && !isProteinModifier) {
-                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], channelName)
+                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], channelName, inventoryItemMap)
                             totalModFoodCost += modRes.foodCost * weight
                             if (!isSubTaco) {
                                 totalModPackagingCost += modRes.packagingCost * weight
@@ -581,7 +748,7 @@ export async function GET(request: NextRequest) {
                                 return t === 'food' || t === 'raw' || t === 'cooked'
                             })
                         }
-                        const subRes = calculateRecipeCost(foodOnlySubRecipe, inventoryData as InventoryItem[], channelName)
+                        const subRes = calculateRecipeCost(foodOnlySubRecipe, inventoryData as InventoryItem[], channelName, inventoryItemMap)
                         const effectiveTacoQty = item.quantity * slotMultiplier
                         totalModFoodCost += subRes.foodCost * effectiveTacoQty
                         missingPrices += subRes.missingPrices
@@ -665,32 +832,38 @@ export async function GET(request: NextRequest) {
 
         // ═══ WRITE-THROUGH CACHE & AUTHORITATIVE SALES ═══
         // Fetch authoritative net_sales from sales_daily_cache for CLOSED days (exact parity with Ventas).
-        // For TODAY (intraday), keep live PMIX net_sales locked to the exact same Toast ordersBulk snapshot
-        // so lagged sales_daily_cache rows (or $0 error rows) can never skew or zero-out Food Cost %.
-        const todayBusinessDateLA = getBusinessDateLA()
-        const isLiveRange = endDate >= todayBusinessDateLA
+        // Omitimos consultar sales_daily_cache cuando `isLiveRange && startDate !== endDate` porque no se usa.
+        const shouldWriteSingleDayCache = startDate === endDate && (!storeId || storeId === 'all')
+        const shouldFetchSalesCache = !isLiveRange || shouldWriteSingleDayCache
         let salesNetSalesMap: Map<string, number> | null = null
         try {
-            const supabaseAdmin = await getSupabaseAdminClient()
-            const salesRows = await fetchAllRows<{ store_id: string; net_sales: number }>((from, to) =>
-                supabaseAdmin
-                    .from('sales_daily_cache')
-                    .select('store_id, net_sales')
-                    .gte('business_date', startDate)
-                    .lte('business_date', endDate)
-                    .order('id', { ascending: true })
-                    .range(from, to)
-            )
+            if (shouldFetchSalesCache) {
+                const salesRows = await fetchAllRows<{ store_id: string; net_sales: number }>((from, to) => {
+                    let q = supabase
+                        .from('sales_daily_cache')
+                        .select('store_id, net_sales')
+                        .gte('business_date', startDate)
+                        .lte('business_date', endDate)
+                        .order('business_date', { ascending: true })
+                        .order('store_id', { ascending: true })
+                        .range(from, to)
+                    if (storeId && storeId !== 'all' && succeededStoreIds.size === 1) {
+                        const [singleGuid] = Array.from(succeededStoreIds)
+                        q = q.eq('store_id', singleGuid)
+                    }
+                    return q
+                })
 
-            salesNetSalesMap = new Map<string, number>()
-            salesRows.forEach((r: any) => {
-                const current = salesNetSalesMap!.get(r.store_id) || 0
-                salesNetSalesMap!.set(r.store_id, current + (Number(r.net_sales) || 0))
-            })
+                salesNetSalesMap = new Map<string, number>()
+                salesRows.forEach((r: any) => {
+                    const current = salesNetSalesMap!.get(r.store_id) || 0
+                    salesNetSalesMap!.set(r.store_id, current + (Number(r.net_sales) || 0))
+                })
+            }
 
             // Write-through cache ONLY for single-day requests across ALL stores
             // Prevents partial cache poisoning when querying an individual store or when a store's Toast fetch failed
-            if (startDate === endDate && (!storeId || storeId === 'all')) {
+            if (shouldWriteSingleDayCache) {
                 const storeAgg = new Map<string, any>()
                 report.forEach(item => {
                     const sid = item.store_id || 'unknown'
@@ -733,7 +906,7 @@ export async function GET(request: NextRequest) {
                 const cacheRows = Array.from(storeAgg.values())
                     .filter(s => !failedStoreIds.has(s.store_id) && s.total_items > 0)
                     .map(s => {
-                        const authoritativeSales = salesNetSalesMap!.get(s.store_id)
+                        const authoritativeSales = salesNetSalesMap?.get(s.store_id)
                         const resolved = resolveFoodCostNetSales({
                             startDate,
                             endDate,
@@ -766,7 +939,7 @@ export async function GET(request: NextRequest) {
                     .filter(row => row.net_sales > 0 || row.food_cost > 0)
 
                 if (cacheRows.length > 0) {
-                    const { error: cacheError } = await supabaseAdmin
+                    const { error: cacheError } = await supabase
                         .from('food_cost_daily_cache')
                         .upsert(cacheRows, { onConflict: 'business_date, store_id' })
 
@@ -794,10 +967,5 @@ export async function GET(request: NextRequest) {
         // Default Sort: Quantity Desc
         report.sort((a, b) => b.quantity - a.quantity)
 
-        return NextResponse.json({ data: report, salesNetSales })
-
-    } catch (e: any) {
-        console.error('Food Cost API Error:', e)
-        return NextResponse.json({ error: e.message }, { status: 500 })
-    }
+        return { data: report, salesNetSales }
 }

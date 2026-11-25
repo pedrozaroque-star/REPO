@@ -31,66 +31,43 @@ export async function GET(request: Request) {
             return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
+        const url = new URL(request.url)
+        const forceRun = url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true'
+
         // 1. Obtener hora y fecha laboral actual en LA timezone (regla 06:00 AM)
         const la = getLANowParts()
         const currentHour = la.hour
         const currentMinute = la.minute
 
         // Restricción de horario: Omitimos la ventana muerta real sin ventas (4:15 AM - 6:59 AM LA),
-        // dejando una última barrida de cierre nocturno a las 4:00 AM tras las últimas órdenes de las 3 AM.
-        if ((currentHour === 4 && currentMinute >= 15) || currentHour === 5 || currentHour === 6) {
-            console.log(`⏳ [CRON FC TODAY] Ejecución omitida en ventana sin ventas (4:15am-6:59am). Hora actual LA: ${currentHour}:${String(currentMinute).padStart(2, '0')}`)
-            return NextResponse.json({ success: true, message: 'Skipped: Dead hours (4:15 AM - 6:59 AM LA)' })
+        // y en madrugada baja (1:00 AM - 3:59 AM LA) corremos solo 1 vez por hora (:09), conservando la barrida de 4:09 AM.
+        if (!forceRun) {
+            if ((currentHour === 4 && currentMinute >= 15) || currentHour === 5 || currentHour === 6) {
+                console.log(`⏳ [CRON FC TODAY] Ejecución omitida en ventana sin ventas (4:15am-6:59am). Hora actual LA: ${currentHour}:${String(currentMinute).padStart(2, '0')}`)
+                return NextResponse.json({ success: true, skipped: true, message: 'Skipped: Dead hours (4:15 AM - 6:59 AM LA)' })
+            }
+            if (currentHour >= 1 && currentHour <= 3 && currentMinute >= 25) {
+                return NextResponse.json({ success: true, skipped: true, message: 'Skipped: Late-night hourly throttle (1:00 AM - 3:59 AM LA)' })
+            }
         }
 
         const todayStr = la.businessDate
 
         console.log(`⏰ [CRON FC TODAY] Sincronizando Food Cost "Hoy": ${todayStr}`)
 
-        // 2. Ejecutar cálculo de food cost para todas las tiendas
-        // Usamos ejecución in-process directa con fallback HTTP para máxima confiabilidad
-        let itemCount = 0
-        try {
-            console.log(`🔄 [CRON FC TODAY] Calculando in-process para ${todayStr}...`)
-            const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}`, {
-                headers: buildInternalCronAuthHeaders(request)
-            })
-            const directRes = await foodCostGet(directReq)
-            
-            if (directRes.ok) {
-                const directJson = await directRes.json()
-                itemCount = directJson.data?.length || 0
-                console.log(`✅ [CRON FC TODAY] In-process exitoso: ${itemCount} items procesados y cacheados.`)
-            } else {
-                throw new Error(`In-process returned status ${directRes.status}`)
-            }
-        } catch (inProcessErr: any) {
-            console.warn(`⚠️ [CRON FC TODAY] In-process falló (${inProcessErr.message}), intentando fallback HTTP...`)
-            const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
-                ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
-                : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
-                    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
-                    : (process.env.VERCEL_URL 
-                        ? `https://${process.env.VERCEL_URL}` 
-                        : 'http://localhost:3000'))
-            
-            const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}`
-            const res = await fetch(apiUrl, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...buildInternalCronAuthHeaders(request)
-                }
-            })
-
-            if (!res.ok) {
-                const errorText = await res.text()
-                throw new Error(`HTTP API responded ${res.status}: ${errorText}`)
-            }
-
-            const json = await res.json()
-            itemCount = json.data?.length || 0
-            console.log(`✅ [CRON FC TODAY] Fallback HTTP exitoso: ${itemCount} items procesados y cacheados.`)
+        // 2. Ejecutar cálculo de food cost in-process directo (sin doble disparo HTTP en cascada si hay error 429/DB)
+        const directReq = new NextRequest(
+            `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${todayStr}&endDate=${todayStr}&bypassCache=1`,
+            { headers: buildInternalCronAuthHeaders(request) }
+        )
+        const directRes = await foodCostGet(directReq)
+        if (!directRes.ok) {
+            const errTxt = await directRes.text().catch(() => '')
+            throw new Error(`In-process returned status ${directRes.status}: ${errTxt.slice(0, 200)}`)
         }
+        const directJson = await directRes.json()
+        const itemCount = directJson.data?.length || 0
+        console.log(`✅ [CRON FC TODAY] In-process exitoso: ${itemCount} items procesados y cacheados.`)
 
         return NextResponse.json({
             success: true,

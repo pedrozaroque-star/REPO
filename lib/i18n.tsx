@@ -12,7 +12,7 @@
  * - Updated to include translations for Roles Hub, checklist reports, daily lineup views, and Mobile/Tablet OS Home Screen + Editable Dock + Web/OS Mode Toggle (`mobile_os`).
  */
 
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useMemo } from 'react';
 
 type Language = 'es' | 'en';
 
@@ -2340,6 +2340,13 @@ export const dictionaries: Record<Language, Dictionary> = {
             subtitle: 'Análisis de Costos Teóricos vs Reales',
             meat_analysis: 'Análisis de Carnes',
             meat_subtitle: 'Consumo Teórico vs Ventas',
+            max_range_exceeded: 'Rango máximo permitido: {max} días para proteger la estabilidad del sistema.',
+            load_error: 'No se pudieron cargar los datos. Intenta de nuevo.',
+            retry: 'Reintentar',
+            apply_dates: 'Aplicar',
+            tickets_range_limit: 'El detalle de tickets está disponible para rangos de hasta 35 días. Reduce el rango de fechas para ver los tickets.',
+            show_portion_alerts: 'Ver Alertas de Control de Porciones y Escalera de Mando',
+            hide_portion_alerts: 'Ocultar Alertas de Control de Porciones',
             fridge_meter: {
                 weekly_test_badge: 'SEMANA DE PRUEBAS PRIVADAS',
                 weekly_test_desc: 'Todos los correos de prueba se envían exclusivamente a carlos@tacosgavilan.com (0 envíos a gerentes, supervisores o tiendas). Las 15 sucursales están capturando sus sobrantes manualmente en Conteo Ciego (Orden Diaria).',
@@ -12505,6 +12512,13 @@ export const dictionaries: Record<Language, Dictionary> = {
             subtitle: 'Theoretical vs Actual Cost Analysis',
             meat_analysis: 'Meat Analysis',
             meat_subtitle: 'Theoretical Usage vs Sales',
+            max_range_exceeded: 'Maximum allowed range: {max} days to protect system stability.',
+            load_error: 'Failed to load data. Please try again.',
+            retry: 'Retry',
+            apply_dates: 'Apply',
+            tickets_range_limit: 'Ticket detail is available for ranges up to 35 days. Narrow the date range to view tickets.',
+            show_portion_alerts: 'Show Portion Control Alerts & Chain of Command',
+            hide_portion_alerts: 'Hide Portion Control Alerts',
             fridge_meter: {
                 weekly_test_badge: 'PRIVATE TEST WEEK',
                 weekly_test_desc: 'All test emails route exclusively to carlos@tacosgavilan.com (0 emails sent to managers, supervisors, or stores). All 15 branches are manually capturing their sealed-bag leftovers in Blind Count (Daily Order).',
@@ -20372,13 +20386,13 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const changeLanguage = (lang: Language) => {
+    const changeLanguage = useCallback((lang: Language) => {
         setLanguage(lang);
         localStorage.setItem('teg_language', lang);
-    };
+    }, []);
 
     // Helper to access nested keys like "nav.title"
-    const t = (path: string, options?: Record<string, unknown>): string => {
+    const t = useCallback((path: string, options?: Record<string, unknown>): string => {
         const keys = path.split('.');
         let current: string | Dictionary = dictionaries[language];
         for (const key of keys) {
@@ -20396,10 +20410,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
             return result;
         }
         return current;
-    };
+    }, [language]);
+
+    const contextValue = useMemo<LanguageContextType>(
+        () => ({ language, setLanguage: changeLanguage, t, dictionary: dictionaries[language] }),
+        [language, changeLanguage, t]
+    );
 
     return (
-        <LanguageContext.Provider value={{ language, setLanguage: changeLanguage, t, dictionary: dictionaries[language] }}>
+        <LanguageContext.Provider value={contextValue}>
             {children}
         </LanguageContext.Provider>
     );

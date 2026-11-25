@@ -81,21 +81,23 @@ export interface LANowParts {
     minuteRatio: number
 }
 
+const LA_PARTS_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+})
+
 /**
  * Extrae todas las componentes de fecha/hora en `America/Los_Angeles` de forma inmune
  * a la zona horaria del navegador o del servidor (UTC en Vercel) y al bug ICU `hour === 24`.
  */
 export function getLANowParts(now: Date = new Date()): LANowParts {
-    const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/Los_Angeles',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hourCycle: 'h23',
-    }).formatToParts(now)
+    const parts = LA_PARTS_FORMATTER.formatToParts(now)
 
     const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '0'
     const year = parseInt(getPart('year'), 10)
@@ -361,4 +363,52 @@ export function shouldAllowSalesCacheUpsert(
         return false
     }
     return true
+}
+
+export const FOOD_COST_MAX_RANGE_ALL_STORES_DAYS = 35
+export const FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS = 65
+export const FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS = 93
+
+const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+export interface DateRangeValidationResult {
+    ok: boolean
+    days: number
+    error?: string
+}
+
+/**
+ * Valida formato `YYYY-MM-DD`, orden `startDate <= endDate` y tope máximo inclusivo de días
+ * para impedir que consultas abiertas de 60–365 días × 15 tiendas saturen la RAM de Supabase.
+ */
+export function validateDateRangeWithinMaxDays(
+    startDate: string,
+    endDate: string,
+    maxDays: number
+): DateRangeValidationResult {
+    if (!STRICT_ISO_DATE_RE.test(startDate) || !STRICT_ISO_DATE_RE.test(endDate)) {
+        return { ok: false, days: 0, error: 'Formato de fecha inválido (use YYYY-MM-DD).' }
+    }
+    const startUtc = new Date(`${startDate}T12:00:00Z`)
+    const endUtc = new Date(`${endDate}T12:00:00Z`)
+    if (
+        Number.isNaN(startUtc.getTime()) ||
+        Number.isNaN(endUtc.getTime()) ||
+        startUtc.toISOString().slice(0, 10) !== startDate ||
+        endUtc.toISOString().slice(0, 10) !== endDate
+    ) {
+        return { ok: false, days: 0, error: 'Fecha de calendario inexistente.' }
+    }
+    if (startDate > endDate) {
+        return { ok: false, days: 0, error: 'startDate debe ser menor o igual a endDate.' }
+    }
+    const inclusiveDays = diffCalendarDays(startDate, endDate) + 1
+    if (inclusiveDays > maxDays) {
+        return {
+            ok: false,
+            days: inclusiveDays,
+            error: `El rango solicitado (${inclusiveDays} días) supera el máximo permitido (${maxDays} días) para proteger la estabilidad de la base de datos. Selecciona una ventana más corta o una sola sucursal.`,
+        }
+    }
+    return { ok: true, days: inclusiveDays }
 }

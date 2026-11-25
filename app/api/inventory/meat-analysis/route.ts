@@ -26,7 +26,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import {
@@ -46,8 +45,11 @@ import {
   addDaysIso,
   buildLAInstant,
   diffCalendarDays,
+  FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+  FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS,
   getBusinessDateLA,
   isValidIsoDate,
+  validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 import {
   buildBagCookingReconciliation,
@@ -60,8 +62,24 @@ import {
 } from '@/lib/inventory/meat-dish-equivalence'
 import {
   computeToastVsFridgeForIngredient,
+  loadToastMeatContext,
   type FridgeLedgerIntervalEntry,
 } from '@/lib/inventory/toast-meat-sold-resolver'
+
+export const maxDuration = 120
+
+const meatAnalysisInFlight = new Map<string, Promise<any>>()
+const meatAnalysisClosedCache = new Map<string, { expiresAt: number; payload: any }>()
+const MEAT_ANALYSIS_CLOSED_TTL_MS = 60 * 1000
+const MEAT_ANALYSIS_MAX_CACHE = 16
+
+function setMeatAnalysisCacheBounded(key: string, payload: any) {
+  if (meatAnalysisClosedCache.size >= MEAT_ANALYSIS_MAX_CACHE) {
+    const firstKey = meatAnalysisClosedCache.keys().next().value
+    if (firstKey !== undefined) meatAnalysisClosedCache.delete(firstKey)
+  }
+  meatAnalysisClosedCache.set(key, { expiresAt: Date.now() + MEAT_ANALYSIS_CLOSED_TTL_MS, payload })
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -247,10 +265,72 @@ export async function GET(request: NextRequest) {
     const endDate = (searchParams.get('endDate') || defaultEnd).trim()
     const requestedIngredientId = (searchParams.get('ingredientId') || ACTIVE_PROTEIN_IDS.asada).trim()
 
-    if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
-      return NextResponse.json({ error: 'Fechas inválidas (use YYYY-MM-DD con startDate <= endDate).' }, { status: 400 })
+    const maxAllowedDays =
+      rawStoreId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
+    const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
+    if (!rangeCheck.ok) {
+      return NextResponse.json({ error: rangeCheck.error }, { status: 400 })
     }
 
+    const isClosedWindow = endDate < todayLA
+    const reqCacheKey = `${rawStoreId}|${startDate}|${endDate}|${requestedIngredientId}`
+    if (isClosedWindow) {
+      const cached = meatAnalysisClosedCache.get(reqCacheKey)
+      if (cached && cached.expiresAt > Date.now()) {
+        return NextResponse.json(cached.payload, {
+          headers: { 'Cache-Control': 'private, max-age=60' },
+        })
+      }
+    }
+    const existingInFlight = meatAnalysisInFlight.get(reqCacheKey)
+    if (existingInFlight) {
+      const shared = await existingInFlight
+      return NextResponse.json(shared.body, {
+        status: shared.status,
+        headers: { 'Cache-Control': isClosedWindow && shared.status === 200 ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate' },
+      })
+    }
+
+    const runPromise = computeMeatAnalysisPayload({
+      rawStoreId,
+      todayLA,
+      startDate,
+      endDate,
+      requestedIngredientId,
+    })
+    meatAnalysisInFlight.set(reqCacheKey, runPromise)
+    let result: { status: number; body: any }
+    try {
+      result = await runPromise
+      if (isClosedWindow && result.status === 200) {
+        setMeatAnalysisCacheBounded(reqCacheKey, result.body)
+      }
+    } finally {
+      if (meatAnalysisInFlight.get(reqCacheKey) === runPromise) {
+        meatAnalysisInFlight.delete(reqCacheKey)
+      }
+    }
+
+    return NextResponse.json(result.body, {
+      status: result.status,
+      headers: {
+        'Cache-Control': isClosedWindow && result.status === 200 ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate',
+      },
+    })
+  } catch (e: any) {
+    console.error('[MeatAnalysisAPI] Error:', e)
+    return NextResponse.json({ error: e.message || 'Internal Server Error' }, { status: 500 })
+  }
+}
+
+async function computeMeatAnalysisPayload(params: {
+  rawStoreId: string
+  todayLA: string
+  startDate: string
+  endDate: string
+  requestedIngredientId: string
+}): Promise<{ status: number; body: any }> {
+    const { rawStoreId, todayLA, startDate, endDate, requestedIngredientId } = params
     const supabase = await getSupabaseAdminClient()
 
     // 1. Resolver sucursales activas
@@ -273,7 +353,7 @@ export async function GET(request: NextRequest) {
         ? storesRows.find((s: any) => Number(s.id) === Number(rawStoreId))
         : storesRows.find((s: any) => String(s.external_id) === rawStoreId)
       if (!singleStore) {
-        return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+        return { status: 404, body: { error: 'Store not found' } }
       }
       selectedStores = [singleStore]
     }
@@ -282,81 +362,19 @@ export async function GET(request: NextRequest) {
     const targetNumericStoreSet = new Set<number>(targetNumericStoreIds)
     const targetGuids = selectedStores.map((s: any) => String(s.external_id)).filter(Boolean)
 
-    // 2. Consultar catálogo, recetas, menú Toast e historial de precios paginados en paralelo con PMIX (bundleModifiers: true)
-    const pmixPromise = (async () => {
-      if (rawStoreId === 'all') {
-        const results = await Promise.all(
-          selectedStores.map(async (s: any) => {
-            try {
-              return await getProductMix({
-                storeId: s.external_id,
-                startDate,
-                endDate,
-                bundleModifiers: true,
-              })
-            } catch (err) {
-              console.error(`[MeatAnalysisAPI] Failed to fetch PMIX for store ${s.external_id}:`, err)
-              return []
-            }
-          })
-        )
-        const aggMap = new Map<string, any>()
-        for (const item of results.flat()) {
-          const key = `${item.guid}__${item.group_name || ''}__${item.name}`
-          const existing = aggMap.get(key)
-          if (!existing) {
-            aggMap.set(key, {
-              ...item,
-              modifier_guids: Array.isArray(item.modifier_guids) ? [...item.modifier_guids] : [],
-            })
-          } else {
-            existing.quantity += Number(item.quantity || 0)
-            existing.net_sales += Number(item.net_sales || 0)
-            existing.gross_sales += Number(item.gross_sales || 0)
-            existing.discounts += Number(item.discounts || 0)
-            existing.voided_quantity += Number(item.voided_quantity || 0)
-            existing.modifier_gross_sales = (existing.modifier_gross_sales || 0) + Number(item.modifier_gross_sales || 0)
-            existing.half_meat_adjustments = (existing.half_meat_adjustments || 0) + Number(item.half_meat_adjustments || 0)
-            if (Array.isArray(item.modifier_guids) && item.modifier_guids.length > 0) {
-              existing.modifier_guids.push(...item.modifier_guids)
-            }
-            if (!existing.unit_price && item.unit_price) existing.unit_price = item.unit_price
-          }
-        }
-        return Array.from(aggMap.values())
-      } else {
-        return await getProductMix({
-          storeId: singleStore.external_id,
-          startDate,
-          endDate,
-          bundleModifiers: true,
-        })
-      }
-    })()
+    // 2. UNA SOLA carga unificada y fragmentada (<= 15 filas/lote) para las 15 sucursales + catálogos estáticos (cacheados 5 min)
+    //    Elimina por completo el fan-out paralelo de 15× getProductMix y la doble descarga en Fase 4.
+    const allActiveStoreIds = storesRows
+      .filter((s: any) => Boolean(s.external_id))
+      .map((s: any) => Number(s.id))
 
-    const [pmixItems, recipesData, inventoryData, toastMenuItems, priceHistoryRows] = await Promise.all([
-      pmixPromise,
-      fetchAllRows<any>((from, to) =>
-        supabase
-          .from('recipes')
-          .select('id, toast_menu_item_guid, inventory_item_id, quantity, unit, type')
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchAllRows<any>((from, to) =>
-        supabase
-          .from('inventory_items')
-          .select('id, name, sku, unit_type, unit_measure, quantity_per_unit, purchase_unit_cost, yield_percent, is_bodega')
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchAllRows<any>((from, to) =>
-        supabase
-          .from('toast_menu_items')
-          .select('guid, name')
-          .order('guid', { ascending: true })
-          .range(from, to)
-      ),
+    const [sharedToastMeatCtx, priceHistoryRows] = await Promise.all([
+      loadToastMeatContext({
+        storeNumericIds: allActiveStoreIds,
+        minDate: addDaysIso(startDate, -3),
+        maxDate: endDate,
+        reconcileQbInvoices: true,
+      }),
       fetchAllRows<any>((from, to) =>
         supabase
           .from('inventory_price_history')
@@ -368,9 +386,54 @@ export async function GET(request: NextRequest) {
       ),
     ])
 
-    const targetItem = inventoryData.find((i: any) => String(i.id) === requestedIngredientId)
+    // Agregar PMIX desde `sharedToastMeatCtx.pmixByStoreDate` exclusivamente para `selectedStores` en `[startDate, endDate]`
+    const pmixItems = (() => {
+      const aggMap = new Map<string, any>()
+      for (const s of selectedStores) {
+        const extId = String(s.external_id || '')
+        if (!extId) continue
+        for (let d = startDate; d <= endDate; d = addDaysIso(d, 1)) {
+          const dayItems = sharedToastMeatCtx.pmixByStoreDate.get(`${extId}::${d}`)
+          if (!dayItems || dayItems.length === 0) continue
+          for (const item of dayItems) {
+            const key = `${item.guid}__${item.group_name || ''}__${item.name}`
+            const existing = aggMap.get(key)
+            if (!existing) {
+              aggMap.set(key, {
+                ...item,
+                modifier_guids: Array.isArray(item.modifier_guids) ? [...item.modifier_guids] : [],
+              })
+            } else {
+              existing.quantity += Number(item.quantity || 0)
+              existing.net_sales += Number(item.net_sales || 0)
+              existing.gross_sales += Number(item.gross_sales || 0)
+              existing.discounts += Number(item.discounts || 0)
+              existing.voided_quantity += Number(item.voided_quantity || 0)
+              existing.modifier_gross_sales = (existing.modifier_gross_sales || 0) + Number(item.modifier_gross_sales || 0)
+              existing.half_meat_adjustments = (existing.half_meat_adjustments || 0) + Number(item.half_meat_adjustments || 0)
+              if (Array.isArray(item.modifier_guids) && item.modifier_guids.length > 0) {
+                for (let mIdx = 0; mIdx < item.modifier_guids.length; mIdx++) {
+                  existing.modifier_guids.push(item.modifier_guids[mIdx])
+                }
+              }
+              if (!existing.unit_price && item.unit_price) existing.unit_price = item.unit_price
+            }
+          }
+        }
+      }
+      return Array.from(aggMap.values())
+    })()
+
+    const recipesData = sharedToastMeatCtx.recipesData
+    const inventoryData = Array.from(sharedToastMeatCtx.inventoryById.values())
+    const toastMenuItems = Array.from(sharedToastMeatCtx.toastNameByGuid.entries()).map(([guid, name]) => ({
+      guid,
+      name,
+    }))
+
+    const targetItem = sharedToastMeatCtx.inventoryById.get(requestedIngredientId)
     if (!targetItem) {
-      return NextResponse.json({ error: 'Ingredient not found' }, { status: 404 })
+      return { status: 404, body: { error: 'Ingredient not found' } }
     }
 
     const inventoryItemId = String(targetItem.id)
@@ -701,53 +764,79 @@ export async function GET(request: NextRequest) {
     const possibleCountStoreTokens = Array.from(new Set([...targetNumericStoreIds.map(String), ...targetGuids]))
     const historyMeatType = proteinKey ? PROTEIN_KEY_TO_HISTORY_TYPE[proteinKey] : null
 
-    const [rawCounts, rawOrderLines, meatHistoryRows, sobranteRows, handoverResult] = await Promise.all([
-      fetchAllRows<any>((from, to) => {
-        let q = supabase
-          .from('inventory_counts')
-          .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
-          .eq('inventory_item_id', inventoryItemId)
-          .gte('count_date', anchorLookbackStart)
-          .lte('count_date', endDate)
-          .order('count_date', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, to)
-        if (rawStoreId !== 'all' && possibleCountStoreTokens.length > 0) {
-          q = q.in('store_id', possibleCountStoreTokens)
-        }
-        return q
-      }),
-      fetchAllRows<any>((from, to) => {
-        let q = supabase
-          .from('inventory_order_lines')
-          .select('id, inventory_item_id, final_qty, adjusted_qty, calculated_qty, inventory_orders!inner(id, store_id, order_date, status, order_type)')
-          .eq('inventory_item_id', inventoryItemId)
-          .eq('inventory_orders.order_type', 'daily')
-          .in('inventory_orders.status', ['sent', 'received'])
-          .gte('inventory_orders.order_date', anchorLookbackStart)
-          .lte('inventory_orders.order_date', endDate)
-          .order('id', { ascending: true })
-          .range(from, to)
-        if (rawStoreId !== 'all') {
-          q = q.in('inventory_orders.store_id', targetNumericStoreIds)
-        }
-        return q
-      }),
-      historyMeatType
-        ? fetchAllRows<any>((from, to) => {
-            let q = supabase
-              .from('meat_consumption_history')
-              .select('id, store_id, business_date, interval_start, raw_lbs')
-              .eq('meat_type', historyMeatType)
-              .gte('business_date', anchorLookbackStart)
-              .lte('business_date', endDate)
+    // Omitir consultas de conteos/órdenes/handover cuando rawStoreId === 'all' (solo se consumen en modo singleStore)
+    const [rawCounts, rawOrderLines, meatHistoryAmPmRows, sobranteRows, handoverResult] = await Promise.all([
+      singleStore && possibleCountStoreTokens.length > 0
+        ? fetchAllRows<any>((from, to) =>
+            supabase
+              .from('inventory_counts')
+              .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
+              .eq('inventory_item_id', inventoryItemId)
+              .in('store_id', possibleCountStoreTokens)
+              .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
+              .gte('count_date', anchorLookbackStart)
+              .lte('count_date', endDate)
+              .order('count_date', { ascending: true })
               .order('id', { ascending: true })
               .range(from, to)
-            if (rawStoreId !== 'all') {
-              q = q.in('store_id', targetNumericStoreIds)
+          )
+        : Promise.resolve([]),
+      singleStore
+        ? fetchAllRows<any>((from, to) =>
+            supabase
+              .from('inventory_order_lines')
+              .select('id, inventory_item_id, final_qty, adjusted_qty, calculated_qty, inventory_orders!inner(id, store_id, order_date, status, order_type)')
+              .eq('inventory_item_id', inventoryItemId)
+              .eq('inventory_orders.order_type', 'daily')
+              .in('inventory_orders.status', ['sent', 'received'])
+              .in('inventory_orders.store_id', targetNumericStoreIds)
+              .gte('inventory_orders.order_date', anchorLookbackStart)
+              .lte('inventory_orders.order_date', endDate)
+              .order('id', { ascending: true })
+              .range(from, to)
+          )
+        : Promise.resolve([]),
+      historyMeatType
+        ? (async (): Promise<Array<{ store_id: number; business_date: string; am_lbs: number; pm_lbs: number }>> => {
+            const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_meat_consumption_ampm_summary', {
+              p_start_date: anchorLookbackStart,
+              p_end_date: endDate,
+              p_meat_types: [historyMeatType],
+              p_store_ids: rawStoreId === 'all' ? null : targetNumericStoreIds,
+            })
+            if (!rpcErr && Array.isArray(rpcRows)) {
+              return rpcRows as any[]
             }
-            return q
-          })
+            console.warn('[MeatAnalysisAPI] Fallback raw meat_consumption_history tras error RPC:', rpcErr?.message)
+            const rawRows = await fetchAllRows<any>((from, to) => {
+              let q = supabase
+                .from('meat_consumption_history')
+                .select('id, store_id, business_date, interval_start, raw_lbs')
+                .eq('meat_type', historyMeatType)
+                .gte('business_date', anchorLookbackStart)
+                .lte('business_date', endDate)
+                .order('id', { ascending: true })
+                .range(from, to)
+              if (rawStoreId !== 'all') {
+                q = q.in('store_id', targetNumericStoreIds)
+              }
+              return q
+            })
+            const agg = new Map<string, { store_id: number; business_date: string; am_lbs: number; pm_lbs: number }>()
+            for (const r of rawRows) {
+              const sId = Number(r.store_id)
+              const bDate = String(r.business_date || '')
+              const lbs = Number(r.raw_lbs || 0)
+              if (!bDate || !Number.isFinite(lbs) || lbs <= 0) continue
+              const k = `${sId}::${bDate}`
+              const cur = agg.get(k) || { store_id: sId, business_date: bDate, am_lbs: 0, pm_lbs: 0 }
+              const hour = parseInt(String(r.interval_start || '12:00:00').slice(0, 2), 10)
+              if (hour >= 6 && hour <= 16) cur.am_lbs += lbs
+              else cur.pm_lbs += lbs
+              agg.set(k, cur)
+            }
+            return Array.from(agg.values())
+          })()
         : Promise.resolve([]),
       proteinKey
         ? fetchAllRows<any>((from, to) => {
@@ -766,22 +855,20 @@ export async function GET(request: NextRequest) {
             return q
           })
         : Promise.resolve([]),
-      // Consulta resiliente de `meat_shift_handover_counts` (5:00 PM shift handover)
+      // Consulta resiliente de `meat_shift_handover_counts` (5:00 PM shift handover; solo en singleStore)
       (async () => {
-        if (!proteinKey) return []
+        if (!proteinKey || !singleStore) return []
         try {
-          let q = supabase
+          const { data, error } = await supabase
             .from('meat_shift_handover_counts')
             .select('id, store_id, business_date, meat_key, sealed_bags, open_cooked_lbs, counted_by_name, notes, updated_at')
             .eq('meat_key', proteinKey)
+            .in('store_id', targetNumericStoreIds)
             .gte('business_date', startDate)
             .lte('business_date', endDate)
             .order('business_date', { ascending: false })
+            .order('id', { ascending: true })
             .limit(200)
-          if (rawStoreId !== 'all') {
-            q = q.in('store_id', targetNumericStoreIds)
-          }
-          const { data, error } = await q
           if (error) return []
           return data || []
         } catch {
@@ -790,31 +877,29 @@ export async function GET(request: NextRequest) {
       })(),
     ])
 
-    // Desglose AM (06:00–16:59) vs PM (17:00–05:59) en [startDate, endDate]
+    // Desglose AM (06:00–16:59) vs PM (17:00–05:59) en [startDate, endDate] desde RPC SQL
     let amHistoryRawLbs = 0
     let pmHistoryRawLbs = 0
     const historyByStoreAndDate = new Map<string, { am: number; pm: number; total: number }>()
 
-    for (const row of meatHistoryRows) {
+    for (const row of meatHistoryAmPmRows) {
       const sId = Number(row.store_id)
       if (!targetNumericStoreSet.has(sId)) continue
       const bDate = String(row.business_date || '')
-      const lbs = Number(row.raw_lbs || 0)
-      if (!bDate || !Number.isFinite(lbs) || lbs <= 0) continue
-
-      const hour = parseInt(String(row.interval_start || '12:00:00').slice(0, 2), 10)
-      const isAm = hour >= 6 && hour <= 16
+      const amLbs = Number(row.am_lbs || 0)
+      const pmLbs = Number(row.pm_lbs || 0)
+      if (!bDate || (amLbs <= 0 && pmLbs <= 0)) continue
 
       const k = `${sId}::${bDate}`
       const cur = historyByStoreAndDate.get(k) || { am: 0, pm: 0, total: 0 }
-      if (isAm) cur.am += lbs
-      else cur.pm += lbs
-      cur.total += lbs
+      if (Number.isFinite(amLbs) && amLbs > 0) cur.am += amLbs
+      if (Number.isFinite(pmLbs) && pmLbs > 0) cur.pm += pmLbs
+      cur.total = cur.am + cur.pm
       historyByStoreAndDate.set(k, cur)
 
       if (bDate >= startDate && bDate <= endDate) {
-        if (isAm) amHistoryRawLbs += lbs
-        else pmHistoryRawLbs += lbs
+        if (Number.isFinite(amLbs) && amLbs > 0) amHistoryRawLbs += amLbs
+        if (Number.isFinite(pmLbs) && pmLbs > 0) pmHistoryRawLbs += pmLbs
       }
     }
 
@@ -865,17 +950,14 @@ export async function GET(request: NextRequest) {
       arrivalsByStoreDate.set(k, (arrivalsByStoreDate.get(k) || 0) + qty)
     }
 
-    // 4b. Motor autoritativo unificado Toast Vendido vs. Refrigerador en las 15 sucursales (con Facturas QBO de Bodega)
-    const allActiveStoreIds = storesRows
-      .filter((s: any) => Boolean(s.external_id))
-      .map((s: any) => Number(s.id))
-
+    // 4b. Motor autoritativo unificado Toast Vendido vs. Refrigerador en las 15 sucursales (REUSANDO `sharedToastMeatCtx` — cero doble lectura PMIX!)
     const unifiedMeter = await computeToastVsFridgeForIngredient({
       inventoryItemId,
       proteinKey,
       startDate,
       endDate,
       storeNumericIds: allActiveStoreIds,
+      ctx: sharedToastMeatCtx,
     })
 
     const storesComparison = [...unifiedMeter.storesSummaries].sort((a, b) => {
@@ -1506,8 +1588,9 @@ export async function GET(request: NextRequest) {
             ? 'AM'
             : 'BOTH'
 
-    return NextResponse.json(
-      {
+    return {
+      status: 200,
+      body: {
         storeId: rawStoreId,
         storeNumericId: singleStore ? Number(singleStore.id) : null,
         storeName: singleStore ? String(singleStore.name) : '15 Sucursales (Consolidado)',
@@ -1616,14 +1699,5 @@ export async function GET(request: NextRequest) {
         familyEquivalence,
         breakdown,
       },
-      {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-        },
-      }
-    )
-  } catch (e: any) {
-    console.error('[MeatAnalysisAPI] Error:', e)
-    return NextResponse.json({ error: e.message || 'Internal Server Error' }, { status: 500 })
-  }
+    }
 }

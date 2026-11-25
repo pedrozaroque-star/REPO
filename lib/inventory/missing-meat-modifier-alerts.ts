@@ -43,6 +43,11 @@ import {
   isVariableMeatMenuItem,
 } from '@/lib/inventory/meat-allocation'
 import {
+  isPmixCacheRowFinalized,
+  readPmixDailyCacheChunked,
+} from '@/lib/inventory/pmix-cache-reader'
+import { getAuthToken, getDiningOptions } from '@/lib/toast-api'
+import {
   buildEscaleraByStore,
   escapeHtml,
   normalizeCorporateEmail,
@@ -493,24 +498,39 @@ export async function scanAndNotifyMissingMeatModifiers(
     stores = stores.filter((s: any) => String(s.id) === rawFilter || String(s.external_id) === rawFilter)
   }
 
-  // 1. Pre-filtro rápido usando `pmix_daily_cache` para consultar Toast `ordersBulk` solo en tiendas con candidatos reales
+  if (stores.length === 0) {
+    return {
+      businessDate,
+      deliveryMode,
+      dryRun,
+      storesEvaluated: 0,
+      storesWithIncidents: 0,
+      groupsDetected: [],
+      emailsDispatched: [],
+    }
+  }
+
+  // 1. Pre-filtro rápido usando `pmix_daily_cache` en lotes pequeños (5 tiendas/lote = ~1 MB/petición)
+  //    con propagación explícita de error DB (nunca disparar 15 tiendas contra Toast si falla Supabase)
   const storeGuids = stores.map((s: any) => String(s.external_id))
-  const { data: pmixRows } = await supabase
-    .from('pmix_daily_cache')
-    .select('store_id, business_date, items')
-    .in('store_id', storeGuids)
-    .eq('business_date', businessDate)
+  const pmixRes = await readPmixDailyCacheChunked(supabase, {
+    storeGuids,
+    startDate: businessDate,
+    endDate: businessDate,
+    includeUpdatedAt: true,
+    chunkRows: 5,
+  })
 
   const pmixByGuid = new Map<string, any[]>()
-  for (const r of pmixRows || []) {
-    if (Array.isArray(r.items)) {
+  for (const r of pmixRes.rows) {
+    if (Array.isArray(r.items) && r.items.length > 0 && isPmixCacheRowFinalized(businessDate, r.updated_at, todayLa)) {
       pmixByGuid.set(String(r.store_id), r.items)
     }
   }
 
   const candidateStores = stores.filter((s: any) => {
     const cached = pmixByGuid.get(String(s.external_id))
-    if (!cached) return true // Si no hay caché aún, revisar en vivo
+    if (!cached) return true // Si no hay caché definitiva aún, revisar en vivo
     return cached.some(
       (item: any) =>
         Number(item?.quantity || 0) > 0 &&
@@ -531,61 +551,69 @@ export async function scanAndNotifyMissingMeatModifiers(
     }
   }
 
-  // 2. Cargar directorios de personal, escalera de mando, checklists y turnos (ventana de 7 días para titulares AM/PM)
+  // 2. Cargar directorios de personal, escalera de mando, checklists y turnos en 2 olas acotadas (máx 3 consultas en paralelo)
   const candidateStoreIds = candidateStores.map((s: any) => Number(s.id))
   const candidateGuids = candidateStores.map((s: any) => String(s.external_id))
   const rollingStart = addDaysIso(businessDate, -6)
   const rollingEnd = addDaysIso(businessDate, 1)
 
-  const [usersRows, toastEmpRows, checklistsRows, schedulesWindowRows, punchesRows, existingAlertsRows] =
-    await Promise.all([
-      fetchAllPaginated<any>((from, to) =>
-        supabase
-          .from('users')
-          .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active, toast_guid')
-          .eq('is_active', true)
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchAllPaginated<any>((from, to) =>
-        supabase
-          .from('toast_employees')
-          .select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name, email, deleted')
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
+  const [usersRows, toastEmpRows, checklistsRes] = await Promise.all([
+    fetchAllPaginated<any>((from, to) =>
       supabase
-        .from('assistant_checklists')
-        .select('store_id, shift, user_id, user_name')
+        .from('users')
+        .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active, toast_guid')
+        .eq('is_active', true)
+        .order('id', { ascending: true })
+        .range(from, to)
+    ),
+    fetchAllPaginated<any>((from, to) =>
+      supabase
+        .from('toast_employees')
+        .select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name, email, deleted')
+        .order('id', { ascending: true })
+        .range(from, to)
+    ),
+    supabase
+      .from('assistant_checklists')
+      .select('store_id, shift, user_id, user_name')
+      .in('store_id', candidateStoreIds)
+      .eq('checklist_date', businessDate),
+  ])
+  if (checklistsRes.error) {
+    throw new Error(`Error leyendo assistant_checklists: ${checklistsRes.error.message}`)
+  }
+  const checklistsRows = checklistsRes.data || []
+
+  const [schedulesWindowRows, punchesRows, existingAlertsRes] = await Promise.all([
+    fetchAllPaginated<any>((from, to) =>
+      supabase
+        .from('schedules')
+        .select('store_id, date, user_id, shift_label, start_time, end_time, role')
         .in('store_id', candidateStoreIds)
-        .eq('checklist_date', businessDate)
-        .then((r) => r.data || []),
-      fetchAllPaginated<any>((from, to) =>
-        supabase
-          .from('schedules')
-          .select('store_id, date, user_id, shift_label, start_time, end_time, role')
-          .in('store_id', candidateStoreIds)
-          .gte('date', rollingStart)
-          .lte('date', rollingEnd)
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchAllPaginated<any>((from, to) =>
-        supabase
-          .from('punches')
-          .select('store_id, employee_toast_guid, clock_in, clock_out, regular_hours, overtime_hours')
-          .in('store_id', candidateGuids)
-          .eq('business_date', businessDate)
-          .order('toast_id', { ascending: true })
-          .range(from, to)
-      ),
+        .gte('date', rollingStart)
+        .lte('date', rollingEnd)
+        .order('id', { ascending: true })
+        .range(from, to)
+    ),
+    fetchAllPaginated<any>((from, to) =>
       supabase
-        .from('missing_meat_modifier_alerts')
-        .select('store_id, shift, live_email_sent_at')
+        .from('punches')
+        .select('store_id, employee_toast_guid, clock_in, clock_out, regular_hours, overtime_hours')
+        .in('store_id', candidateGuids)
         .eq('business_date', businessDate)
-        .in('store_id', candidateStoreIds)
-        .then((r) => r.data || []),
-    ])
+        .order('toast_id', { ascending: true })
+        .range(from, to)
+    ),
+    supabase
+      .from('missing_meat_modifier_alerts')
+      .select('store_id, shift, live_email_sent_at')
+      .eq('business_date', businessDate)
+      .in('store_id', candidateStoreIds),
+  ])
+  if (existingAlertsRes.error) {
+    throw new Error(`Error leyendo missing_meat_modifier_alerts: ${existingAlertsRes.error.message}`)
+  }
+  const existingAlertsRows = existingAlertsRes.data || []
 
   const escaleraByStore = buildEscaleraByStore(stores as any, usersRows)
 
@@ -720,49 +748,56 @@ export async function scanAndNotifyMissingMeatModifiers(
     }
   }
 
-  // 3. Consultar Toast `/orders/v2/ordersBulk` en las sucursales candidatas
-  const token = await getToastAccessToken()
+  // 3. Consultar Toast `/orders/v2/ordersBulk` en las sucursales candidatas (usando token y diningOptions cacheados + guard de tiempo)
+  const token = (await getAuthToken()) || (await getToastAccessToken())
   const formattedBizDate = businessDate.replaceAll('-', '')
   const groupsDetected: StoreShiftMissingMeatGroup[] = []
+  const scanStartedAt = Date.now()
+  const MAX_SCAN_MS = 230_000
 
   for (const store of candidateStores) {
+    if (Date.now() - scanStartedAt > MAX_SCAN_MS) {
+      console.warn(`[MissingMeatMod] Tope de tiempo (${MAX_SCAN_MS}ms) alcanzado; persistiendo tiendas ya escaneadas.`)
+      break
+    }
     const storeId = Number(store.id)
     const externalId = String(store.external_id)
-    const diningMap = await getDiningOptionsMapForStore(token, externalId)
+    const diningMap = await getDiningOptions(externalId).catch(() => getDiningOptionsMapForStore(token, externalId))
     const byShift = new Map<ShiftCode, MissingMeatOrderIncident[]>()
 
-    for (let page = 1; page <= 50; page++) {
-      const url = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${formattedBizDate}&pageSize=100&page=${page}`
-      const batch = await fetchToastJsonWithRetry(url, {
-        Authorization: `Bearer ${token}`,
-        'Toast-Restaurant-External-ID': externalId,
-      })
-      if (!Array.isArray(batch) || batch.length === 0) break
+    try {
+      for (let page = 1; page <= 50; page++) {
+        const url = `${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${formattedBizDate}&pageSize=100&page=${page}`
+        const batch = await fetchToastJsonWithRetry(url, {
+          Authorization: `Bearer ${token}`,
+          'Toast-Restaurant-External-ID': externalId,
+        })
+        if (!Array.isArray(batch) || batch.length === 0) break
 
-      for (const ord of batch) {
-        if (ord?.voided || ord?.deleted) continue
-        const diningChannel =
-          (ord?.diningOption?.guid && diningMap.get(String(ord.diningOption.guid))) ||
-          String(ord?.diningOption?.name || ord?.source || 'Mostrador')
-        const source = String(ord?.source || 'In Store')
+        for (const ord of batch) {
+          if (ord?.voided || ord?.deleted) continue
+          const diningChannel =
+            (ord?.diningOption?.guid && diningMap.get(String(ord.diningOption.guid))) ||
+            String(ord?.diningOption?.name || ord?.source || 'Mostrador')
+          const source = String(ord?.source || 'In Store')
 
-        for (const chk of ord.checks || []) {
-          if (chk?.voided || chk?.deleted) continue
-          const paymentServerGuid =
-            Array.isArray(chk.payments) && chk.payments.length > 0
-              ? chk.payments.find((p: any) => p?.server?.guid)?.server?.guid
-              : null
-          const rawServerGuid = String(paymentServerGuid || ord?.server?.guid || '').trim()
-          const cleanServerGuid = rawServerGuid ? rawServerGuid.toLowerCase() : null
+          for (const chk of ord.checks || []) {
+            if (chk?.voided || chk?.deleted) continue
+            const paymentServerGuid =
+              Array.isArray(chk.payments) && chk.payments.length > 0
+                ? chk.payments.find((p: any) => p?.server?.guid)?.server?.guid
+                : null
+            const rawServerGuid = String(paymentServerGuid || ord?.server?.guid || '').trim()
+            const cleanServerGuid = rawServerGuid ? rawServerGuid.toLowerCase() : null
 
-          for (const sel of chk.selections || []) {
-            if (sel?.voided) continue
-            if (sel?.deferred && !sel?.toastGiftCard) continue
-            const selPrice = Number(sel?.price || 0)
-            const refundAmt = Number(sel?.refundDetails?.refundAmount || 0)
-            if (selPrice > 0 && refundAmt >= selPrice - 0.01) continue
+            for (const sel of chk.selections || []) {
+              if (sel?.voided) continue
+              if (sel?.deferred && !sel?.toastGiftCard) continue
+              const selPrice = Number(sel?.price || 0)
+              const refundAmt = Number(sel?.refundDetails?.refundAmount || 0)
+              if (selPrice > 0 && refundAmt >= selPrice - 0.01) continue
 
-            const qty = Number(sel?.quantity ?? 1)
+              const qty = Number(sel?.quantity ?? 1)
             if (!Number.isFinite(qty) || qty <= 0) continue
 
             const selPre = String(sel?.preModifier?.displayName || '').trim()
@@ -880,9 +915,12 @@ export async function scanAndNotifyMissingMeatModifiers(
         liveCc,
       })
     }
+    } catch (storeScanErr) {
+      console.error(`[MissingMeatMod] Error escaneando tienda #${storeId} (${store.name}):`, storeScanErr)
+    }
   }
 
-  // 4. Persistir registros y despachar correos según `deliveryMode`
+  // 4. Persistir registros (en 1 solo batch upsert con verificación de error) y despachar correos según `deliveryMode`
   const sentAlreadySet = new Set<string>(
     (existingAlertsRows || [])
       .filter((r: any) => Boolean(r.live_email_sent_at))
@@ -892,24 +930,28 @@ export async function scanAndNotifyMissingMeatModifiers(
   const emailsDispatched: DispatchedMissingMeatEmail[] = []
 
   if (!dryRun) {
-    for (const grp of groupsDetected) {
-      await supabase.from('missing_meat_modifier_alerts').upsert(
-        {
-          business_date: grp.businessDate,
-          store_id: grp.storeId,
-          shift: grp.shift,
-          orders_count: grp.ordersCount,
-          items_count: grp.itemsCount,
-          orders_detail: grp.incidents,
-          manager_email: grp.managerEmail,
-          supervisor_email: grp.supervisorEmail,
-          assistant_emails: grp.shiftAssistantEmails,
-          cashier_emails: grp.cashierEmails,
-          cashier_names: grp.cashierNames,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'business_date,store_id,shift' }
-      )
+    if (groupsDetected.length > 0) {
+      const nowUpsertIso = new Date().toISOString()
+      const upsertRows = groupsDetected.map((grp) => ({
+        business_date: grp.businessDate,
+        store_id: grp.storeId,
+        shift: grp.shift,
+        orders_count: grp.ordersCount,
+        items_count: grp.itemsCount,
+        orders_detail: grp.incidents,
+        manager_email: grp.managerEmail,
+        supervisor_email: grp.supervisorEmail,
+        assistant_emails: grp.shiftAssistantEmails,
+        cashier_emails: grp.cashierEmails,
+        cashier_names: grp.cashierNames,
+        updated_at: nowUpsertIso,
+      }))
+      const { error: upsertErr } = await supabase
+        .from('missing_meat_modifier_alerts')
+        .upsert(upsertRows, { onConflict: 'business_date,store_id,shift' })
+      if (upsertErr) {
+        console.error('[MissingMeatMod] Error persistiendo missing_meat_modifier_alerts:', upsertErr.message)
+      }
     }
 
     if (deliveryMode === 'preview_carlos') {

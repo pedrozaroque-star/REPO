@@ -119,6 +119,7 @@ async function queryQbInvoices(params: {
 }
 
 const qbReconcileCooldownCache = new Map<string, number>()
+const qbReconcileInFlight = new Map<string, Promise<QbShippedReconciliationResult>>()
 const QB_RECONCILE_COOLDOWN_MS = 3 * 60 * 1000 // 3 min de enfriamiento en llamadas repetitivas de UI
 
 /**
@@ -146,7 +147,34 @@ export async function reconcileStoreOrdersWithQbInvoices(options?: {
         diffs: [],
       }
     }
+    const existingInFlight = qbReconcileInFlight.get(cooldownKey)
+    if (existingInFlight) {
+      return existingInFlight
+    }
   }
+
+  const runPromise = runReconcileStoreOrdersWithQbInvoices(cooldownKey, options)
+  if (!options?.forceResync) {
+    qbReconcileInFlight.set(cooldownKey, runPromise)
+  }
+  try {
+    return await runPromise
+  } finally {
+    if (!options?.forceResync && qbReconcileInFlight.get(cooldownKey) === runPromise) {
+      qbReconcileInFlight.delete(cooldownKey)
+    }
+  }
+}
+
+async function runReconcileStoreOrdersWithQbInvoices(
+  cooldownKey: string,
+  options?: {
+    storeId?: number | string
+    orderDate?: string
+    lookbackDays?: number
+    forceResync?: boolean
+  }
+): Promise<QbShippedReconciliationResult> {
 
   const lookbackDays = Math.max(1, Math.min(60, options?.lookbackDays ?? 14))
   const todayIso = new Date().toISOString().split('T')[0]
@@ -192,6 +220,9 @@ export async function reconcileStoreOrdersWithQbInvoices(options?: {
     }
 
     if (!candidateOrders || candidateOrders.length === 0) {
+      if (!options?.forceResync) {
+        qbReconcileCooldownCache.set(cooldownKey, Date.now() + QB_RECONCILE_COOLDOWN_MS)
+      }
       return {
         skipped: false,
         candidateOrders: 0,

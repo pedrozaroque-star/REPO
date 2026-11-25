@@ -22,36 +22,67 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import { addDaysIso, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-resolver'
 
+export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // Permitir hasta 5 minutos de ejecución en Vercel
 
 export async function GET(request: Request) {
+    const startedAt = Date.now()
+    const TIME_BUDGET_MS = 245_000
     try {
         const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
         if (!auth.authorized) {
             return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
         }
 
+        const url = new URL(request.url)
+        const batchNum = Math.max(1, parseInt(url.searchParams.get('batch') || '1', 10) || 1)
+        const totalBatches = Math.max(1, Math.min(5, parseInt(url.searchParams.get('batches') || '1', 10) || 1))
+        const daysParam = parseInt(url.searchParams.get('days') || '', 10)
+
         const supabase = await getSupabaseAdminClient()
-        const { data: stores } = await supabase.from('stores').select('external_id, name').eq('is_active', true)
+        const { data: rawStores } = await supabase
+            .from('stores')
+            .select('id, external_id, name')
+            .eq('is_active', true)
+            .order('id', { ascending: true })
 
-        if (!stores || stores.length === 0) throw new Error("No active stores found.")
+        const activeStores = (rawStores || []).filter(s => Boolean(s.external_id))
+        if (activeStores.length === 0) throw new Error("No active stores found.")
 
-        // Calcular los últimos 4 días laborales cerrados usando la regla oficial de las 06:00 AM LA
+        // Dividir tiendas en lotes limpios cuando se invoca con `?batch=1&batches=2`
+        const batchSize = Math.ceil(activeStores.length / totalBatches)
+        const startIdx = (batchNum - 1) * batchSize
+        const stores = activeStores.slice(startIdx, startIdx + batchSize)
+
+        // Calcular días cerrados (regla 06:00 AM LA): 4 días los lunes para barrido semanal, 2 días mar–dom (o ?days=1..7)
         const todayBusinessDate = getBusinessDateLA()
-        const datesToSync: string[] = [1, 2, 3, 4].map(i => addDaysIso(todayBusinessDate, -i))
+        const dowUtc = new Date(`${todayBusinessDate}T12:00:00Z`).getUTCDay()
+        const defaultDays = dowUtc === 1 ? 4 : 2
+        const lookbackDays = Number.isFinite(daysParam) && daysParam >= 1 && daysParam <= 7 ? daysParam : defaultDays
+        const datesToSync: string[] = Array.from({ length: lookbackDays }, (_, idx) =>
+            addDaysIso(todayBusinessDate, -(idx + 1))
+        )
 
-        console.log(`⏰ [CRON PMIX] Iniciando validación PMIX para las fechas cerradas: ${datesToSync.join(', ')} (hoy laboral=${todayBusinessDate})`)
+        console.log(`⏰ [CRON PMIX] Lote ${batchNum}/${totalBatches} (${stores.length} tiendas) | fechas cerradas: ${datesToSync.join(', ')} (hoy laboral=${todayBusinessDate})`)
 
         const results = []
         const refreshedDates = new Set<string>()
+        let stoppedByTimeBudget = false
 
         // Iterar días y tiendas secuencialmente para evitar Rate Limits (429) de Toast
         for (const dateStr of datesToSync) {
+            if (Date.now() - startedAt > TIME_BUDGET_MS) {
+                stoppedByTimeBudget = true
+                break
+            }
             for (const store of stores) {
+                if (Date.now() - startedAt > TIME_BUDGET_MS) {
+                    stoppedByTimeBudget = true
+                    break
+                }
                 if (!store.external_id) continue
 
                 try {
-                    // skipCache: true obliga a Toast a descargar los datos reales otra vez
                     const items = await getProductMix({
                         storeId: store.external_id,
                         startDate: dateStr,
@@ -70,27 +101,20 @@ export async function GET(request: Request) {
             }
         }
 
-        // Invalidar food_cost_daily_cache de los días cuyo PMIX acaba de refrescarse para que sync-food-cost los recalcule al 100%
-        const invalidatedDates = Array.from(refreshedDates)
-        if (invalidatedDates.length > 0) {
-            const { error: invErr } = await supabase
-                .from('food_cost_daily_cache')
-                .delete()
-                .in('business_date', invalidatedDates)
-
-            if (invErr) {
-                console.warn(`⚠️ [CRON PMIX] No se pudo invalidar food_cost_daily_cache para [${invalidatedDates.join(', ')}]:`, invErr.message)
-            } else {
-                console.log(`🧹 [CRON PMIX] Invalidado food_cost_daily_cache para [${invalidatedDates.join(', ')}] previo a sync-food-cost.`)
-            }
-        }
-
-        console.log(`✅ [CRON PMIX] Operación completada exitosamente.`)
+        // BLINDAJE CERO BLACKOUT: NO borramos `food_cost_daily_cache` aquí.
+        // `sync-food-cost` compara `MAX(pmix_daily_cache.updated_at) > MIN(food_cost_daily_cache.updated_at)`
+        // y refresca atómicamente vía UPSERT sin dejar días vacíos que disparen tormentas live desde dashboards.
+        const refreshedList = Array.from(refreshedDates)
+        console.log(`✅ [CRON PMIX] Lote ${batchNum}/${totalBatches} completado en ${Date.now() - startedAt}ms.`)
         return NextResponse.json({
             success: true,
+            batch: batchNum,
+            batches: totalBatches,
+            elapsed_ms: Date.now() - startedAt,
+            stopped_by_time_budget: stoppedByTimeBudget,
             today_business_date: todayBusinessDate,
             processed_dates: datesToSync,
-            invalidated_food_cost_dates: invalidatedDates,
+            refreshed_pmix_dates: refreshedList,
             results,
         })
 

@@ -27,7 +27,7 @@ import {
 } from '@/lib/inventory/missing-meat-modifier-alerts'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 300
 
 async function handleMissingMeatCron(req: Request) {
   const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })

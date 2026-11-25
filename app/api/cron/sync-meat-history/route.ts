@@ -14,7 +14,7 @@
  *   - Blindaje Fail-Closed (`verifyStaffAuth`): exige `CRON_SECRET` o sesión `admin`/`supervisor`.
  */
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
@@ -33,10 +33,12 @@ async function getToastToken() {
                 clientId: CLIENT_ID,
                 clientSecret: CLIENT_SECRET,
                 userAccessType: 'TOAST_MACHINE_CLIENT'
-            })
+            }),
+            signal: AbortSignal.timeout(20_000)
         })
+        if (!res.ok) return null
         const data = await res.json() as any
-        return data.token.accessToken
+        return data?.token?.accessToken || null
     } catch (e) {
         console.error("Error Obteniendo Token:", e)
         return null
@@ -111,15 +113,36 @@ export async function GET(request: Request) {
                     message: 'Skipped: Post-closeout dead hours (6:30 AM - 6:59 AM LA)'
                 })
             }
+            if (laHour >= 1 && laHour <= 3 && laMinute >= 30) {
+                return NextResponse.json({
+                    success: true,
+                    skipped: true,
+                    message: 'Skipped: Late-night hourly throttle (1:00 AM - 3:59 AM LA)'
+                })
+            }
         }
 
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-        const supabase = createClient(supabaseUrl, supabaseKey)
+        const runStartedAt = Date.now()
+        const RUN_TIME_BUDGET_MS = 240_000
+        const supabase = await getSupabaseAdminClient()
 
         console.log("🚀 [CRON] Iniciando Sync Meat History...")
         let token = await getToastToken()
         let tokenTime = Date.now()
+        let tokenRefreshInFlight: Promise<string | null> | null = null
+        const refreshTokenSafe = async (): Promise<string | null> => {
+            if (!tokenRefreshInFlight) {
+                tokenRefreshInFlight = getToastToken().finally(() => {
+                    tokenRefreshInFlight = null
+                })
+            }
+            const refreshed = await tokenRefreshInFlight
+            if (refreshed) {
+                token = refreshed
+                tokenTime = Date.now()
+            }
+            return refreshed
+        }
         if (!token) throw new Error("No Toast Token")
 
         const fetchAll = async (table: string, cols: string) => {
@@ -243,18 +266,29 @@ export async function GET(request: Request) {
                 let page = 1
                 let hasMore = true
                 let maxRetries = 5
+                let auth401Retries = 0
+                const MAX_401_RETRIES = 2
+                const MAX_ORDER_PAGES = 100
                 let fetchIncomplete = false
                 
-                while (hasMore) {
+                while (hasMore && page <= MAX_ORDER_PAGES) {
+                    if (Date.now() - runStartedAt > RUN_TIME_BUDGET_MS) {
+                        fetchIncomplete = true
+                        break
+                    }
                     if (Date.now() - tokenTime > 1000 * 60 * 45) {
-                        token = await getToastToken()
-                        tokenTime = Date.now()
+                        const refreshed = await refreshTokenSafe()
+                        if (!refreshed) {
+                            fetchIncomplete = true
+                            break
+                        }
                     }
 
                 let res;
                 try {
                     res = await fetch(`${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`, {
-                        headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.external_id }
+                        headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.external_id },
+                        signal: AbortSignal.timeout(45_000)
                     })
                 } catch (err: any) {
                     console.error(`Error Red en ${store.name}: ${err.message}`);
@@ -263,8 +297,18 @@ export async function GET(request: Request) {
                 }
                 
                 if (res.status === 401) {
-                    token = await getToastToken()
-                    tokenTime = Date.now()
+                    if (auth401Retries >= MAX_401_RETRIES) {
+                        console.error(`[CRON MEAT] 401 persistente en ${store.name}; abortando para evitar loop infinito.`)
+                        fetchIncomplete = true
+                        break
+                    }
+                    auth401Retries++
+                    const refreshed = await refreshTokenSafe()
+                    if (!refreshed) {
+                        fetchIncomplete = true
+                        break
+                    }
+                    await new Promise(r => setTimeout(r, 1500 * auth401Retries))
                     continue; 
                 }
 

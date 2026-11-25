@@ -19,8 +19,8 @@
  *   botón Volver cuando se abre vía `_blank`, paridad `salesNetSales` y separación de Empaque.
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
-import { ChevronDown, ChevronUp, Store, RefreshCw, ArrowUpDown, Search, CheckCircle2, ArrowLeft, Download } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { ChevronDown, ChevronUp, Store, RefreshCw, ArrowUpDown, Search, CheckCircle2, ArrowLeft, Download, AlertTriangle } from 'lucide-react'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
@@ -37,6 +37,8 @@ import {
     calculateSafeFoodCostPct,
     calculateSafePackagingCostPct,
     escapeCsvCell,
+    FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS,
+    validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 
 interface FoodCostItem {
@@ -112,21 +114,34 @@ function resolveInitialRange(periodParam: string | null, startParam: string | nu
 
 export default function StoreFoodCostDetail() {
     const { t } = useLanguage()
+    const tRef = useRef(t)
+    tRef.current = t
     const router = useRouter()
     const params = useParams()
     const searchParams = useSearchParams()
 
     const [loading, setLoading] = useState(false)
     const [loadingMessage, setLoadingMessage] = useState('')
+    const [errorMsg, setErrorMsg] = useState<string | null>(null)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+    const abortRef = useRef<AbortController | null>(null)
 
     const storeIdParam = params.storeId as string
 
-    const initialRange = resolveInitialRange(
-        searchParams.get('period'),
-        searchParams.get('startDate'),
-        searchParams.get('endDate')
-    )
+    const initialRange = useMemo(() => {
+        const raw = resolveInitialRange(
+            searchParams.get('period'),
+            searchParams.get('startDate'),
+            searchParams.get('endDate')
+        )
+        const check = validateDateRangeWithinMaxDays(raw.start, raw.end, FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS)
+        if (check.ok) return raw
+        return {
+            start: addDaysIso(raw.end, -(FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS - 1)),
+            end: raw.end,
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const [period, setPeriod] = useState(searchParams.get('period') || 'today')
     const [startDate, setStartDate] = useState(initialRange.start)
@@ -151,40 +166,73 @@ export default function StoreFoodCostDetail() {
 
     const refreshData = React.useCallback(async () => {
         if (!storeIdParam || !startDate || !endDate) return
-        setLoading(true)
-        setLoadingMessage(t('sales.loading_fetching'))
-        try {
-            setLoadingMessage(t('sales.loading_processing'))
-            const res = await fetch(`/api/inventory/food-cost?storeId=${encodeURIComponent(storeIdParam)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`)
-            const json = await res.json()
+        const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS)
+        if (!rangeCheck.ok) {
+            setErrorMsg(tRef.current('food_cost.max_range_exceeded', { max: FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS }))
+            setLoading(false)
+            setLoadingMessage('')
+            return
+        }
 
-            if (json.salesNetSales && Object.keys(json.salesNetSales).length > 0) {
+        if (abortRef.current) abortRef.current.abort()
+        const controller = new AbortController()
+        abortRef.current = controller
+
+        setLoading(true)
+        setErrorMsg(null)
+        setLoadingMessage(tRef.current('sales.loading_fetching'))
+        try {
+            setLoadingMessage(tRef.current('sales.loading_processing'))
+            const res = await fetch(
+                `/api/inventory/food-cost?storeId=${encodeURIComponent(storeIdParam)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
+                { signal: controller.signal }
+            )
+            const rawText = await res.text()
+            let json: any = null
+            try {
+                json = rawText ? JSON.parse(rawText) : null
+            } catch {
+                json = null
+            }
+            if (!res.ok) {
+                throw new Error(json?.error || `HTTP ${res.status}`)
+            }
+
+            if (json?.salesNetSales && Object.keys(json.salesNetSales).length > 0) {
                 setSalesNetSales(json.salesNetSales)
             } else {
                 setSalesNetSales(null)
             }
 
-            if (json.data && json.data.length > 0) {
+            if (json?.data && json.data.length > 0) {
                 setData(json.data)
                 setStoreName(json.data[0].store_name || storeIdParam)
             } else {
                 setData([])
             }
-        } catch (e) {
+        } catch (e: any) {
+            if (e?.name === 'AbortError') return
             console.error('Error fetching food cost data:', e)
+            setErrorMsg(e?.message || tRef.current('food_cost.load_error'))
+            setData((prev) => prev ?? [])
         } finally {
-            setLastUpdated(new Date())
-            setLoading(false)
-            setLoadingMessage('')
+            if (abortRef.current === controller) {
+                setLastUpdated(new Date())
+                setLoading(false)
+                setLoadingMessage('')
+            }
         }
-    }, [endDate, startDate, storeIdParam, t])
+    }, [endDate, startDate, storeIdParam])
 
-    // Trigger refresh whenever period, startDate, or endDate changes (including 2nd+ custom date selections!)
+    // Trigger refresh whenever startDate, endDate, or storeIdParam changes
     useEffect(() => {
-        if (period !== 'custom' || (startDate && endDate)) {
+        if (startDate && endDate) {
             refreshData()
         }
-    }, [period, startDate, endDate, refreshData])
+        return () => {
+            if (abortRef.current) abortRef.current.abort()
+        }
+    }, [startDate, endDate, refreshData])
 
     const { filteredTableData, summaryData, tablePmixSales } = useMemo(() => {
         if (!data) return { filteredTableData: [], summaryData: null, tablePmixSales: 0 }
@@ -312,7 +360,7 @@ export default function StoreFoodCostDetail() {
         URL.revokeObjectURL(url)
     }
 
-    if (!data) return (
+    if (!data && !errorMsg) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
             <SurpriseLoader />
             {loadingMessage && (
@@ -366,6 +414,7 @@ export default function StoreFoodCostDetail() {
                                 period={period as 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'}
                                 startDate={startDate}
                                 endDate={endDate}
+                                maxDays={FOOD_COST_MAX_RANGE_FOOD_COST_SINGLE_DAYS}
                                 onChange={(p, s, e) => {
                                     setPeriod(p as 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month')
                                     setStartDate(s)
@@ -387,7 +436,23 @@ export default function StoreFoodCostDetail() {
                     </div>
                 </div>
 
-                {loading && !data.length ? (
+                {errorMsg && (
+                    <div className="mt-4 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-2.5">
+                            <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                            <p className="text-sm font-medium text-rose-700 dark:text-rose-300">{errorMsg}</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={refreshData}
+                            className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors shrink-0 self-start sm:self-auto"
+                        >
+                            {t('food_cost.retry')}
+                        </button>
+                    </div>
+                )}
+
+                {loading && !(data && data.length) ? (
                     <div className="mt-8 flex flex-col items-center justify-center gap-4">
                         <SurpriseLoader />
                         <p className="text-slate-500 dark:text-slate-400 text-sm animate-pulse">{loadingMessage}</p>
@@ -396,7 +461,7 @@ export default function StoreFoodCostDetail() {
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
 
                         {/* Summary Widget */}
-                        <FoodCostSummary data={summaryData!} />
+                        {summaryData && <FoodCostSummary data={summaryData} />}
 
                         {/* Modern Table Product Level */}
                         <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl shadow-xl shadow-black/5 mt-8">

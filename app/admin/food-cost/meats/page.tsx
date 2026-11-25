@@ -49,10 +49,24 @@ import { useLanguage } from '@/lib/i18n'
 import { ACTIVE_PROTEIN_IDS, type ActiveProteinKey } from '@/lib/inventory/meat-allocation'
 import {
   addDaysIso,
+  FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+  FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS,
   formatSignedUSD,
   getBusinessDateLA,
   isValidIsoDate,
+  validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
+
+function clampMeatDateRange(start: string, end: string, isAllStores: boolean): { start: string; end: string } {
+  const maxDays = isAllStores ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
+  const check = validateDateRangeWithinMaxDays(start, end, maxDays)
+  if (check.ok) return { start, end }
+  if (!isValidIsoDate(end)) {
+    const yesterday = addDaysIso(getBusinessDateLA(), -1)
+    return { start: addDaysIso(yesterday, -6), end: yesterday }
+  }
+  return { start: addDaysIso(end, -(maxDays - 1)), end }
+}
 
 type SpanPreset = '1d' | '7d' | '14d' | '30d' | 'custom'
 
@@ -335,8 +349,9 @@ function MeatAnalysisPageContent() {
       const qMeatUuid = resolveMeatIngredientId(sp.get('meat') || sp.get('meat_key') || sp.get('ingredientId'))
 
       if (qStart && isValidIsoDate(qStart) && qEnd && isValidIsoDate(qEnd) && qStart <= qEnd) {
-        setStartDate(qStart)
-        setEndDate(qEnd)
+        const clamped = clampMeatDateRange(qStart, qEnd, !qStore || qStore === 'all')
+        setStartDate(clamped.start)
+        setEndDate(clamped.end)
         setSpanPreset('custom')
         setPeriod('custom')
       }
@@ -423,7 +438,7 @@ function MeatAnalysisPageContent() {
       }
 
       if (!cancelled) {
-        lastAppliedSearchRef.current = typeof window !== 'undefined' ? window.location.search.replace(/^\?/, '') : ''
+        lastAppliedSearchRef.current = searchParamsKey
         setInitialReady(true)
       }
     }
@@ -432,6 +447,7 @@ function MeatAnalysisPageContent() {
     return () => {
       cancelled = true
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Sync subsequent in-app bell notification navigations when already mounted on /admin/food-cost/meats
@@ -455,8 +471,9 @@ function MeatAnalysisPageContent() {
     }
 
     if (qStart && isValidIsoDate(qStart) && qEnd && isValidIsoDate(qEnd) && qStart <= qEnd) {
-      setStartDate(qStart)
-      setEndDate(qEnd)
+      const clamped = clampMeatDateRange(qStart, qEnd, !qStore || qStore === 'all')
+      setStartDate(clamped.start)
+      setEndDate(clamped.end)
       setSpanPreset('custom')
       setPeriod('custom')
     }
@@ -476,8 +493,21 @@ function MeatAnalysisPageContent() {
     return storeId
   }, [storeId, stores, data?.storeNumericId])
 
+  const analysisAbortRef = useRef<AbortController | null>(null)
+  const maxAllowedDays = storeId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
+
   const runAnalysis = useCallback(async () => {
     if (!selectedIngredient || !startDate || !endDate) return
+    const check = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
+    if (!check.ok) {
+      setErrorMsg(t('food_cost.max_range_exceeded', { max: maxAllowedDays }))
+      return
+    }
+
+    if (analysisAbortRef.current) analysisAbortRef.current.abort()
+    const controller = new AbortController()
+    analysisAbortRef.current = controller
+
     setLoading(true)
     setErrorMsg(null)
     try {
@@ -490,11 +520,18 @@ function MeatAnalysisPageContent() {
       const res = await fetch(`/api/inventory/meat-analysis?${qs.toString()}`, {
         credentials: 'include',
         headers: buildAuthHeaders(),
+        signal: controller.signal,
       })
-      const json = await res.json()
-      if (!res.ok || json.error) {
-        setErrorMsg(json.error || `Error ${res.status}`)
-      } else {
+      const rawText = await res.text()
+      let json: any = null
+      try {
+        json = rawText ? JSON.parse(rawText) : null
+      } catch {
+        json = null
+      }
+      if (!res.ok || json?.error) {
+        setErrorMsg(json?.error || `Error ${res.status}`)
+      } else if (json) {
         const cleanedJson = {
           ...json,
           storeName: json.storeNumericId
@@ -510,16 +547,22 @@ function MeatAnalysisPageContent() {
         setData(cleanedJson)
       }
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Error fetching meat analysis')
+      if (e?.name === 'AbortError') return
+      setErrorMsg(e?.message || t('food_cost.load_error'))
     } finally {
-      setLoading(false)
+      if (analysisAbortRef.current === controller) {
+        setLoading(false)
+      }
     }
-  }, [storeId, startDate, endDate, selectedIngredient])
+  }, [storeId, startDate, endDate, selectedIngredient, maxAllowedDays, t])
 
   // Auto-run analysis as soon as stores + ingredients + URL params finish resolving
   useEffect(() => {
     if (!initialReady) return
     runAnalysis()
+    return () => {
+      if (analysisAbortRef.current) analysisAbortRef.current.abort()
+    }
   }, [initialReady, runAnalysis])
 
   const applyPreset = (preset: Exclude<SpanPreset, 'custom'>) => {
@@ -666,7 +709,19 @@ function MeatAnalysisPageContent() {
         <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-slate-900 p-2.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
           <select
             value={storeId}
-            onChange={(e) => setStoreId(e.target.value)}
+            onChange={(e) => {
+              const nextStore = e.target.value
+              setStoreId(nextStore)
+              if (nextStore === 'all') {
+                const clamped = clampMeatDateRange(startDate, endDate, true)
+                if (clamped.start !== startDate || clamped.end !== endDate) {
+                  setStartDate(clamped.start)
+                  setEndDate(clamped.end)
+                  setSpanPreset('custom')
+                  setPeriod('custom')
+                }
+              }
+            }}
             className="px-3 py-2 text-xs font-bold border rounded-lg bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 outline-none"
           >
             <option value="all">{t('sales.all_stores') || (isEn ? 'All 15 Stores' : '15 Sucursales (Consolidado)')}</option>
@@ -711,6 +766,8 @@ function MeatAnalysisPageContent() {
             period={period}
             startDate={startDate}
             endDate={endDate}
+            maxDays={maxAllowedDays}
+            hiddenPresets={storeId === 'all' ? ['quarter'] : []}
             onChange={(p, start, end) => {
               setSpanPreset('custom')
               setPeriod(p as string)

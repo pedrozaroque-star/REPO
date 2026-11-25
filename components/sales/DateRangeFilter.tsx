@@ -33,9 +33,9 @@ import {
 import { es, enUS } from 'date-fns/locale'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
-import { getBusinessDateLA, isValidIsoDate } from '@/lib/inventory/food-cost-sales-resolver'
+import { getBusinessDateLA, isValidIsoDate, validateDateRangeWithinMaxDays } from '@/lib/inventory/food-cost-sales-resolver'
 
-type Period = 'today' | 'yesterday' | 'week' | 'last_week' | 'last_7' | 'month' | 'last_month' | 'quarter' | 'custom'
+export type Period = 'today' | 'yesterday' | 'week' | 'last_week' | 'last_7' | 'month' | 'last_month' | 'quarter' | 'custom'
 
 interface DateRangeFilterProps {
     period: string
@@ -44,6 +44,10 @@ interface DateRangeFilterProps {
     onChange: (period: Period | string, start: string, end: string) => void
     className?: string
     align?: 'left' | 'right'
+    /** Optional inclusive day cap (e.g. 35 for all-stores Food Cost) to prevent heavy multi-month scans. */
+    maxDays?: number
+    /** Optional list of preset IDs to hide (e.g. ['quarter'] when maxDays < 90). */
+    hiddenPresets?: Period[]
 }
 
 const parseDateSafe = (str: string): Date | null => {
@@ -65,7 +69,7 @@ const getBusinessTodayDate = (): Date => {
     return parseDateSafe(bizIso) || new Date()
 }
 
-export default function DateRangeFilter({ period, startDate, endDate, onChange, className, align = 'right' }: DateRangeFilterProps) {
+export default function DateRangeFilter({ period, startDate, endDate, onChange, className, align = 'right', maxDays, hiddenPresets }: DateRangeFilterProps) {
     const { t, language } = useLanguage()
     const localeObj = language === 'es' ? es : enUS
     const [isOpen, setIsOpen] = useState(false)
@@ -73,12 +77,16 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
     const [tempStart, setTempStart] = useState<Date | null>(() => parseDateSafe(startDate))
     const [tempEnd, setTempEnd] = useState<Date | null>(() => parseDateSafe(endDate))
     const [hoverDate, setHoverDate] = useState<Date | null>(null)
+    const [rangeError, setRangeError] = useState<string | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
+
+    const hiddenPresetSet = new Set<string>(hiddenPresets || [])
 
     const resetTempFromProps = () => {
         setTempStart(parseDateSafe(startDate))
         setTempEnd(parseDateSafe(endDate))
         setHoverDate(null)
+        setRangeError(null)
     }
 
     const closeDropdown = () => {
@@ -156,10 +164,20 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
             e = today
         }
 
+        const sIso = formatDateISO(s)
+        const eIso = formatDateISO(e)
+        if (maxDays && maxDays > 0) {
+            const check = validateDateRangeWithinMaxDays(sIso, eIso, maxDays)
+            if (!check.ok) {
+                setRangeError(t('food_cost.max_range_exceeded', { max: maxDays }))
+                return
+            }
+        }
+        setRangeError(null)
         setTempStart(s)
         setTempEnd(e)
         setViewDate(e)
-        onChange(p, formatDateISO(s), formatDateISO(e))
+        onChange(p, sIso, eIso)
         setIsOpen(false)
     }
 
@@ -167,12 +185,23 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
         if (tempStart) {
             const finalEnd = tempEnd || tempStart
             const [s, e] = isBefore(finalEnd, tempStart) ? [finalEnd, tempStart] : [tempStart, finalEnd]
-            onChange('custom', formatDateISO(s), formatDateISO(e))
+            const sIso = formatDateISO(s)
+            const eIso = formatDateISO(e)
+            if (maxDays && maxDays > 0) {
+                const check = validateDateRangeWithinMaxDays(sIso, eIso, maxDays)
+                if (!check.ok) {
+                    setRangeError(t('food_cost.max_range_exceeded', { max: maxDays }))
+                    return
+                }
+            }
+            setRangeError(null)
+            onChange('custom', sIso, eIso)
             setIsOpen(false)
         }
     }
 
     const handleDateClick = (day: Date) => {
+        setRangeError(null)
         if (!tempStart || (tempStart && tempEnd)) {
             setTempStart(day)
             setTempEnd(null)
@@ -319,7 +348,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                         { id: 'last_month', label: t('sales.last_month') },
                                         { id: 'quarter', label: t('sales.quarter') },
                                         { id: 'custom', label: t('sales.custom_date') },
-                                    ].map((item) => (
+                                    ].filter((item) => !hiddenPresetSet.has(item.id)).map((item) => (
                                         <button
                                             key={item.id}
                                             type="button"
@@ -357,13 +386,18 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                     <div className="flex flex-col gap-1.5 flex-1">
                                         <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.start_date')}</label>
-                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDateSafe(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-base bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
+                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => { setRangeError(null); setTempStart(parseDateSafe(e.target.value)) }} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-base bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
                                     </div>
                                     <div className="flex flex-col gap-1.5 flex-1">
                                         <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.end_date')}</label>
-                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDateSafe(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-base bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
+                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => { setRangeError(null); setTempEnd(parseDateSafe(e.target.value)) }} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-base bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full font-semibold" />
                                     </div>
                                 </div>
+                                {rangeError && (
+                                    <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-xl px-3 py-2">
+                                        {rangeError}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="shrink-0 flex gap-3 px-4 py-3 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
@@ -390,7 +424,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 { id: 'month', label: t('sales.current_month') },
                                 { id: 'last_month', label: t('sales.last_month') },
                                 { id: 'quarter', label: t('sales.quarter') },
-                            ].map((item) => (
+                            ].filter((item) => !hiddenPresetSet.has(item.id)).map((item) => (
                                 <button
                                     key={item.id}
                                     type="button"
@@ -440,15 +474,20 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                     {renderMonth(rightMonth)}
                                 </div>
                             </div>
+                            {rangeError && (
+                                <p className="text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-lg px-3 py-2">
+                                    {rangeError}
+                                </p>
+                            )}
                             <div className="flex flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                 <div className="flex items-center gap-2">
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.start_date')}</label>
-                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDateSafe(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" />
+                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => { setRangeError(null); setTempStart(parseDateSafe(e.target.value)) }} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.end_date')}</label>
-                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDateSafe(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" />
+                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => { setRangeError(null); setTempEnd(parseDateSafe(e.target.value)) }} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white" />
                                     </div>
                                 </div>
                                 <div className="flex gap-2 self-end">

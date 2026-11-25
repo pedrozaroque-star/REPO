@@ -238,6 +238,87 @@ export function getVariableFlavorVirtualRecipe(
   return []
 }
 
+interface UsageSyncStaticCatalog {
+  expiresAt: number
+  inventoryItemsData: any[]
+  recipesData: any[]
+  toastMenuItemsData: { guid: string; name: string }[]
+}
+
+const USAGE_SYNC_CATALOG_TTL_MS = 5 * 60 * 1000
+let usageSyncCatalogCache: UsageSyncStaticCatalog | null = null
+let usageSyncCatalogInFlight: Promise<UsageSyncStaticCatalog> | null = null
+
+async function fetchAllUsageRows<T = any>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+  pageSize = 1000,
+  maxPages = 50
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * pageSize
+    const { data, error } = await buildQuery(offset, offset + pageSize - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < pageSize) break
+  }
+  return rows
+}
+
+async function getUsageSyncStaticCatalog(supabase: any): Promise<UsageSyncStaticCatalog> {
+  if (usageSyncCatalogCache && usageSyncCatalogCache.expiresAt > Date.now()) {
+    return usageSyncCatalogCache
+  }
+  if (usageSyncCatalogInFlight) {
+    return usageSyncCatalogInFlight
+  }
+  const loader = (async () => {
+    const [inventoryItemsData, recipesData, toastMenuItemsData] = await Promise.all([
+      fetchAllUsageRows((from, to) =>
+        supabase
+          .from('inventory_items')
+          .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, order_rounding_rule, excel_reference')
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllUsageRows((from, to) =>
+        supabase
+          .from('recipes')
+          .select('id, toast_menu_item_guid, inventory_item_id, quantity, unit, type')
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllUsageRows<{ guid: string; name: string }>((from, to) =>
+        supabase
+          .from('toast_menu_items')
+          .select('guid, name')
+          .order('guid', { ascending: true })
+          .range(from, to)
+      ).catch((menuErr: any) => {
+        console.warn(`[UsageSync] No se pudo cargar toast_menu_items completo: ${menuErr?.message}`)
+        return [] as { guid: string; name: string }[]
+      }),
+    ])
+    const built: UsageSyncStaticCatalog = {
+      expiresAt: Date.now() + USAGE_SYNC_CATALOG_TTL_MS,
+      inventoryItemsData,
+      recipesData,
+      toastMenuItemsData,
+    }
+    usageSyncCatalogCache = built
+    return built
+  })()
+  usageSyncCatalogInFlight = loader
+  try {
+    return await loader
+  } finally {
+    if (usageSyncCatalogInFlight === loader) {
+      usageSyncCatalogInFlight = null
+    }
+  }
+}
+
 /**
  * Calcula y sincroniza el consumo teórico diario por ingrediente en `inventory_usage_log`
  */
@@ -246,22 +327,23 @@ export async function syncDailyInventoryUsage(
   businessDate: string
 ): Promise<DailyUsageSummary[]> {
   const supabase = await getSupabaseAdminClient()
+  const rawStoreInput = String(storeIdInput || '').trim()
+  if (!rawStoreInput) return []
 
-  // Resolve store record to get both numeric ID (dbStoreId) and Toast external_id
-  let dbStoreId = storeIdInput
-  let toastExternalId = storeIdInput
+  // Resolve store record to get both numeric ID (dbStoreId) and Toast external_id (sin interpolación .or)
+  const isNumeric = /^\d+$/.test(rawStoreInput)
+  const storeQuery = supabase.from('stores').select('id, external_id')
+  const { data: storeObj } = isNumeric
+    ? await storeQuery.eq('id', Number(rawStoreInput)).maybeSingle()
+    : await storeQuery.eq('external_id', rawStoreInput).maybeSingle()
 
-  const isNumeric = !isNaN(Number(storeIdInput))
-  const { data: storeObj } = await supabase
-    .from('stores')
-    .select('id, external_id')
-    .or(isNumeric ? `id.eq.${storeIdInput}` : `external_id.eq.${storeIdInput}`)
-    .single()
-
-  if (storeObj) {
-    dbStoreId = storeObj.id.toString()
-    toastExternalId = storeObj.external_id || storeIdInput
+  if (!storeObj?.id || !storeObj?.external_id) {
+    console.warn(`[UsageSync] Sucursal no encontrada para storeIdInput="${rawStoreInput}"`)
+    return []
   }
+
+  const dbStoreId = storeObj.id.toString()
+  const toastExternalId = String(storeObj.external_id)
 
   console.log(`[UsageSync] Sync de consumo teórico para tienda ID:${dbStoreId} (Toast:${toastExternalId}) en fecha ${businessDate}`)
 
@@ -277,12 +359,19 @@ export async function syncDailyInventoryUsage(
       .select('items')
       .eq('store_id', toastExternalId)
       .eq('business_date', businessDate)
-      .single()
+      .maybeSingle()
 
     if (cacheRow?.items) {
-      pmixItems = Array.isArray(cacheRow.items)
-        ? cacheRow.items
-        : (typeof cacheRow.items === 'string' ? JSON.parse(cacheRow.items) : [])
+      if (Array.isArray(cacheRow.items)) {
+        pmixItems = cacheRow.items
+      } else if (typeof cacheRow.items === 'string') {
+        try {
+          const parsed = JSON.parse(cacheRow.items)
+          pmixItems = Array.isArray(parsed) ? parsed : []
+        } catch {
+          pmixItems = []
+        }
+      }
     }
   }
 
@@ -291,80 +380,19 @@ export async function syncDailyInventoryUsage(
     return []
   }
 
-  // Helper determinista para paginar tablas PostgREST sin truncamiento en 1,000 filas
-  const fetchAllUsageRows = async <T = any>(
-    buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
-    pageSize = 1000
-  ): Promise<T[]> => {
-    const rows: T[] = []
-    let offset = 0
-    while (true) {
-      const { data, error } = await buildQuery(offset, offset + pageSize - 1)
-      if (error) throw error
-      if (!data || data.length === 0) break
-      rows.push(...data)
-      if (data.length < pageSize) break
-      offset += pageSize
-    }
-    return rows
-  }
-
-  // 2. Obtener catálogo maestro de inventario, recetas y nombres de menú Toast (paginados)
-  let inventoryItemsData: any[] = []
-  try {
-    inventoryItemsData = await fetchAllUsageRows((from, to) =>
-      supabase
-        .from('inventory_items')
-        .select('id, sku, name, unit_type, purchase_unit_cost, quantity_per_unit, yield_percent, unit_measure, order_rounding_rule, excel_reference')
-        .order('id', { ascending: true })
-        .range(from, to)
-    )
-  } catch (invErr: any) {
-    throw new Error(`Error al consultar inventory_items: ${invErr?.message}`)
-  }
+  // 2. Obtener catálogos maestros desde caché TTL de 5 min (evita re-escanear 3 tablas 15×/día)
+  const { inventoryItemsData, recipesData, toastMenuItemsData } = await getUsageSyncStaticCatalog(supabase)
 
   const inventoryItemsMap = new Map<string, InventoryItem>(
     inventoryItemsData.map(i => [i.id, i as unknown as InventoryItem])
   )
 
-  // 3. Obtener recetas y catálogo de nombres Toast en la base de datos
-  let recipesData: any[] = []
-  try {
-    recipesData = await fetchAllUsageRows((from, to) =>
-      supabase.from('recipes').select('*').order('id', { ascending: true }).range(from, to)
-    )
-  } catch (recipesErr: any) {
-    throw new Error(`Error al consultar recetas: ${recipesErr?.message}`)
-  }
-
-  let toastMenuItemsData: { guid: string; name: string }[] = []
-  try {
-    toastMenuItemsData = await fetchAllUsageRows<{ guid: string; name: string }>((from, to) =>
-      supabase.from('toast_menu_items').select('guid, name').order('guid', { ascending: true }).range(from, to)
-    )
-  } catch (menuErr: any) {
-    console.warn(`[UsageSync] No se pudo cargar toast_menu_items completo: ${menuErr?.message}`)
-  }
   const menuItemNameMap = new Map<string, string>()
   for (const mi of toastMenuItemsData) {
     if (mi.guid && mi.name) {
       menuItemNameMap.set(mi.guid, mi.name.trim())
     }
   }
-
-  const historicalStartDate = new Date(`${businessDate}T12:00:00Z`)
-  historicalStartDate.setUTCDate(historicalStartDate.getUTCDate() - 90)
-  const { data: historicalOrdersData, error: historicalOrdersError } = await supabase
-    .from('inventory_orders')
-    .select('order_date, inventory_order_lines(inventory_item_id, final_qty, adjusted_qty, calculated_qty, leftover_value)')
-    .eq('store_id', dbStoreId)
-    .gte('order_date', historicalStartDate.toISOString().slice(0, 10))
-    .lt('order_date', businessDate)
-
-  if (historicalOrdersError) {
-    console.warn(`[UsageSync] No se pudo cargar historial de sabores: ${historicalOrdersError.message}`)
-  }
-  const historicalOrders = (historicalOrdersData || []) as HistoricalOrder[]
 
   // Agrupar recetas por toast_menu_item_guid
   const recipeMap = new Map<string, any[]>()

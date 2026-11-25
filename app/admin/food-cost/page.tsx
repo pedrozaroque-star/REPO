@@ -21,8 +21,8 @@
  *     corregido denominador con filtro de búsqueda y tienda individual, y habilitada exportación CSV sanitizada.
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
-import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2, AlertTriangle } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
@@ -39,7 +39,21 @@ import {
     calculateSafeFoodCostPct,
     calculateSafePackagingCostPct,
     escapeCsvCell,
+    FOOD_COST_MAX_RANGE_ALL_STORES_DAYS,
+    validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
+
+function clampInitialDateRange(start: string, end: string, maxDays: number): { start: string; end: string } {
+    const check = validateDateRangeWithinMaxDays(start, end, maxDays)
+    if (check.ok) return { start, end }
+    const endUtc = new Date(`${end}T12:00:00Z`)
+    if (Number.isNaN(endUtc.getTime())) {
+        const today = getBusinessDateLA()
+        return { start: today, end: today }
+    }
+    endUtc.setUTCDate(endUtc.getUTCDate() - (maxDays - 1))
+    return { start: endUtc.toISOString().slice(0, 10), end }
+}
 
 interface FoodCostItem {
     guid: string
@@ -96,22 +110,35 @@ function getFcBadgeClasses(pct: number): string {
 
 export default function FoodCostPage() {
     const { t } = useLanguage()
+    const tRef = useRef(t)
+    tRef.current = t
     const urlParams = useSearchParams()
 
     const [loading, setLoading] = useState(false)
     const [loadingMessage, setLoadingMessage] = useState('')
+    const [errorMsg, setErrorMsg] = useState<string | null>(null)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+    const [showPortionPanel, setShowPortionPanel] = useState(false)
+    const abortRef = useRef<AbortController | null>(null)
+
+    const initialClamped = useMemo(() => {
+        const today = getBusinessDateLA()
+        const rawStart = urlParams.get('startDate') || today
+        const rawEnd = urlParams.get('endDate') || rawStart
+        return clampInitialDateRange(rawStart, rawEnd, FOOD_COST_MAX_RANGE_ALL_STORES_DAYS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
         const p = urlParams.get('period')
-        if (p && ['today', 'yesterday', 'week', 'month', 'quarter', 'year', 'custom', 'last_week', 'last_7', 'last_month'].includes(p)) {
+        if (p && ['today', 'yesterday', 'week', 'month', 'custom', 'last_week', 'last_7', 'last_month'].includes(p)) {
             return p as any
         }
         if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
         return 'today'
     })
-    const [startDate, setStartDate] = useState(() => urlParams.get('startDate') || getBusinessDateLA())
-    const [endDate, setEndDate] = useState(() => urlParams.get('endDate') || getBusinessDateLA())
+    const [startDate, setStartDate] = useState(() => initialClamped.start)
+    const [endDate, setEndDate] = useState(() => initialClamped.end)
     const [selectedStore, setSelectedStore] = useState<string>(() => urlParams.get('store') || urlParams.get('storeId') || 'all')
     const [filterTerm, setFilterTerm] = useState('')
 
@@ -131,15 +158,22 @@ export default function FoodCostPage() {
     }
 
     useEffect(() => {
-        (async () => {
+        const controller = new AbortController()
+        ;(async () => {
             try {
-                const res = await fetch('/api/inventory/anomalies')
+                const res = await fetch('/api/inventory/anomalies', { signal: controller.signal })
                 if (res.ok) {
-                    const json = await res.json()
+                    const text = await res.text()
+                    const json = text ? JSON.parse(text) : {}
                     setAnomalies(json.data || [])
                 }
-            } catch {}
+            } catch (err: any) {
+                if (err?.name !== 'AbortError') {
+                    // Non-blocking anomalies banner
+                }
+            }
         })()
+        return () => controller.abort()
     }, [])
 
     const resolveAnomaly = async (id: string) => {
@@ -154,17 +188,41 @@ export default function FoodCostPage() {
     }
 
     const refreshData = React.useCallback(async () => {
+        const queryStart = startDate || getBusinessDateLA()
+        const queryEnd = endDate || queryStart
+        const rangeCheck = validateDateRangeWithinMaxDays(queryStart, queryEnd, FOOD_COST_MAX_RANGE_ALL_STORES_DAYS)
+        if (!rangeCheck.ok) {
+            setErrorMsg(tRef.current('food_cost.max_range_exceeded', { max: FOOD_COST_MAX_RANGE_ALL_STORES_DAYS }))
+            setLoading(false)
+            setLoadingMessage('')
+            return
+        }
+
+        if (abortRef.current) abortRef.current.abort()
+        const controller = new AbortController()
+        abortRef.current = controller
+
         setLoading(true)
-        setLoadingMessage(t('sales.loading_fetching'))
+        setErrorMsg(null)
+        setLoadingMessage(tRef.current('sales.loading_fetching'))
         try {
-            const queryStart = startDate || getBusinessDateLA()
-            const queryEnd = endDate || queryStart
+            setLoadingMessage(tRef.current('sales.loading_processing'))
+            const res = await fetch(
+                `/api/inventory/food-cost?storeId=all&startDate=${encodeURIComponent(queryStart)}&endDate=${encodeURIComponent(queryEnd)}`,
+                { signal: controller.signal }
+            )
+            const rawText = await res.text()
+            let json: any = null
+            try {
+                json = rawText ? JSON.parse(rawText) : null
+            } catch {
+                json = null
+            }
+            if (!res.ok) {
+                throw new Error(json?.error || `HTTP ${res.status}`)
+            }
 
-            setLoadingMessage(t('sales.loading_processing'))
-            const res = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${queryStart}&endDate=${queryEnd}`)
-            const json = await res.json()
-
-            if (json.data) {
+            if (json?.data) {
                 setData(json.data)
 
                 if (json.salesNetSales && Object.keys(json.salesNetSales).length > 0) {
@@ -173,7 +231,7 @@ export default function FoodCostPage() {
                     setSalesNetSales(null)
                 }
 
-                const stores = Array.from(new Set(json.data.map((r: FoodCostItem) => r.store_name || t('sales.unknown_store')))) as string[]
+                const stores = Array.from(new Set(json.data.map((r: FoodCostItem) => r.store_name || tRef.current('sales.unknown_store')))) as string[]
                 const sortedStores = sortStoresAlphabetically(stores)
                 setStoreList(sortedStores)
 
@@ -193,17 +251,25 @@ export default function FoodCostPage() {
                 setStoreList([])
                 setSalesNetSales(null)
             }
-        } catch (e) {
+        } catch (e: any) {
+            if (e?.name === 'AbortError') return
             console.error('Error fetching food cost data:', e)
+            setErrorMsg(e?.message || tRef.current('food_cost.load_error'))
+            setData((prev) => prev ?? [])
         } finally {
-            setLastUpdated(new Date())
-            setLoading(false)
-            setLoadingMessage('')
+            if (abortRef.current === controller) {
+                setLastUpdated(new Date())
+                setLoading(false)
+                setLoadingMessage('')
+            }
         }
-    }, [endDate, startDate, t])
+    }, [endDate, startDate])
 
     useEffect(() => {
         refreshData()
+        return () => {
+            if (abortRef.current) abortRef.current.abort()
+        }
     }, [refreshData])
 
     const { summaryData, storeTableData } = useMemo(() => {
@@ -413,7 +479,22 @@ export default function FoodCostPage() {
         URL.revokeObjectURL(url)
     }
 
-    if (!data) return (
+    // Stable store ID for PortionControlAlertsPanel derived from raw `data` (never from search-filtered `storeTableData`),
+    // so typing in `filterTerm` NEVER triggers `/api/food-cost/portion-alerts` refetches.
+    const resolvedPanelStoreId = useMemo(() => {
+        if (selectedStore === 'all') return undefined
+        if (!data || data.length === 0) return selectedStore
+        const normSelected = formatStoreName(selectedStore).toLowerCase().trim()
+        const match = data.find((item) => {
+            const rawName = item.store_name || ''
+            return rawName === selectedStore ||
+                item.store_id === selectedStore ||
+                formatStoreName(rawName).toLowerCase().trim() === normSelected
+        })
+        return match?.store_id || selectedStore
+    }, [data, selectedStore])
+
+    if (!data && !errorMsg) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
             <SurpriseLoader />
             {loadingMessage && (
@@ -459,6 +540,8 @@ export default function FoodCostPage() {
                                 period={period as 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'}
                                 startDate={startDate}
                                 endDate={endDate}
+                                maxDays={FOOD_COST_MAX_RANGE_ALL_STORES_DAYS}
+                                hiddenPresets={['quarter']}
                                 onChange={(p, s, e) => {
                                     setPeriod(p as 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month')
                                     setStartDate(s)
@@ -535,7 +618,24 @@ export default function FoodCostPage() {
                     </div>
                 )}
 
-                {loading && !data.length ? (
+                {/* ═══ LOAD ERROR BANNER (NEVER HANG SPINNER) ═══ */}
+                {errorMsg && (
+                    <div className="mt-4 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-2.5">
+                            <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                            <p className="text-sm font-medium text-rose-700 dark:text-rose-300">{errorMsg}</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={refreshData}
+                            className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-colors shrink-0 self-start sm:self-auto"
+                        >
+                            {t('food_cost.retry')}
+                        </button>
+                    </div>
+                )}
+
+                {loading && !(data && data.length) ? (
                     <div className="mt-8 flex flex-col items-center justify-center gap-4">
                         <SurpriseLoader />
                         <p className="text-slate-500 dark:text-slate-400 text-sm animate-pulse">{loadingMessage}</p>
@@ -544,15 +644,30 @@ export default function FoodCostPage() {
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
 
                         {/* Summary Widget */}
-                        <FoodCostSummary data={summaryData!} />
+                        {summaryData && <FoodCostSummary data={summaryData} />}
 
-                        {/* Portion Control & Escalera de Mando Panel */}
+                        {/* Portion Control & Escalera de Mando Panel (opt-in collapsible to avoid firing 3 heavy queries on load) */}
                         <div className="mt-8">
-                            <PortionControlAlertsPanel
-                                storeId={selectedStore !== 'all' ? (storeTableData[0]?.store_id || selectedStore) : undefined}
-                                startDate={startDate}
-                                endDate={endDate}
-                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPortionPanel((prev) => !prev)}
+                                className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-white/70 dark:bg-slate-900/60 border border-black/5 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors text-left shadow-sm"
+                            >
+                                <span className="flex items-center gap-2.5 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                    <ShieldAlert size={18} className="text-amber-500" />
+                                    {showPortionPanel ? t('food_cost.hide_portion_alerts') : t('food_cost.show_portion_alerts')}
+                                </span>
+                                {showPortionPanel ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                            </button>
+                            {showPortionPanel && (
+                                <div className="mt-4">
+                                    <PortionControlAlertsPanel
+                                        storeId={resolvedPanelStoreId}
+                                        startDate={startDate}
+                                        endDate={endDate}
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         {/* Charts Widget (only show if viewing "all" to compare stores) */}

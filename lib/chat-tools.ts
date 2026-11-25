@@ -44,7 +44,7 @@
  * - Tacos Gavilan App (/app, v2.1.0): Laboratorio protegido detrás de login TEG (/app, /app/v1, /app/v2, /ordenar) con rutas legales públicas (/app/privacy|terms|support|delete-account, /app/index.html, /clientes, /api/mobile/*); paridad operativa V1 (`/app/v1`, bundle Expo en `public/app/`) y V2 (`components/CustomerAppV2Pro.tsx` modularizado en `components/customer-app-v2/*` con menú en vivo `/api/mobile/menu`, modificadores, bolsa `/api/mobile/cart`, autocompletado `/api/mobile/address/autocomplete`, cotización `/api/mobile/order/quote`, rastreo `/api/mobile/order/status`, Google Maps + GPS Haversine en memoria, 23 platillos incluyendo `taco-buche` y Demo #12 aislado); 15 sucursales (IDs 1, 3..16), Email & SMS OTP 6 dígitos (TTL 10 min en app_mobile_otp_challenges, O(1) lookup, bloqueo 5 intentos), Camino 1 DoorDash Storefront (/api/mobile/doordash/checkout-session), y respaldo order.online Pickup/Delivery dentro de WebView endurecido.
  * - Gavilan POS Cashier Register (/gavilan-pos -> Caja POS, /api/gavilan-pos/register-catalog, /api/gavilan-pos/manager-approval): Diseñado sobre 13.48M unidades reales de pmix_daily_cache (349 días × 15 tiendas), con orden fijo y codificación por color de proteínas por memoria muscular (Asada rojo, Pastor naranja, Pollo ámbar, Cabeza vino, Lengua morado, Carnitas cobre, Buche turquesa, Chorizo carmesí, Vegetariano/Queso esmeralda, Bebidas Large 32oz azul rey / Medium 22oz azul cielo), Estación de Bebidas Drive-Thru & Mostrador (groupBeveragesByFlavor + findCounterpartBeverageSize: 3 secciones operativas Aguas Frescas -> Sodas -> Calientes/Botella, tarjetas pareadas por sabor con botones MED 22oz y LARGE 32oz lado a lado, barra de filtro por tamaño y cambio de tamaño en 1 toque ⇄ L 32oz / M 22oz en el ticket), Riel de Categorías en 2 Columnas Cero-Scroll (224px), Matriz Rápida Proteína × Familia, Franja de Complementos y Bebidas Frecuentes de 1 Toque, 414 modificadores activos en gavilan_pos_register_modifiers organizados en 5 Cubetas Semánticas Conversacionales (NO rojo coral, EXTRA verde esmeralda, PREP azul pizarra, HALF morado, NOTE índigo), validación de grupos obligatorios, encabezados interactivos de Plato/Bolsa (+ Agregando aquí) y botón × para quitar modificadores individuales en 1 toque, buscador instantáneo + teclado numérico de cantidad personalizada (×#), autorización con PIN de gerente (scrypt + salt en gavilan_pos_manager_pins y bitácora gavilan_pos_discount_approvals) para Empleado (50%), Policía (50%/100%) y Void Order, Franja de Cobro Rápido en 1 Toque (Fast Cash con denominaciones inteligentes smartCashDenominations, banner de Cambio a Entregar, Tarjeta y EBT 0% Tax), y Motor Universal de Pago Dividido y Multi-Tender en 4 Modos (BY_AMOUNT por monto libre/multi-método, BY_EQUAL partes iguales ÷2..÷6 con ajuste del centavo impar, BY_PLATE por Plato/Bolsa, y BY_ITEM por artículos individuales P1..P4) con exención parcial de impuestos EBT conforme a CDTFA Reg. 1603 / R&TC §6373 (0% tax en tramos EBT_FOOD, Sales Tax solo sobre el remanente no-EBT) y conteo multi-swipe de tarjetas (cardSwipeCount).
  * - Suite Multimodal Gemini 3.8 & Interactions API (`lib/gemini-interactions.ts`, 2026-11-20): TEG Assistant opera sobre `gemini-3.8-flash` aceptando imágenes/PDFs adjuntos y dictado inteligente `gemini-3.5-transcribe` (`/api/support-chat/transcribe`), complementado por el escáner estructurado de recibos/facturas (`/api/ai/scan-receipt` en `/miles` y `/mantenimiento`) y diagnóstico visual de equipos (`/api/mantenimiento/ai-diagnose`).
- * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling unificado sin auto-colisión a Toast cada 5s (syncToast=true con cola pendingToastSyncRef y buffer clock-skew +2m en endDate) protegido por lease distribuido PostgreSQL de 3.5s (order_ready_sync_leases), canales Realtime aislados por tienda (order-ready-realtime:{storeCode}), recordatorio automático desactivado por defecto en las 15 sucursales (DEFAULT_REMINDER_DELAY_MS=0 en teg_order_ready_reminder_sec_v2, editable solo por Admin), hidratación automática de webhooks sin selections desde Toast API, reconciliación puntual de órdenes huérfanas >25 min (hasta 95 min vía GET /orders/v2/orders/{guid} con cooldown de 30s) y escudo anti-falso-recall ante webhooks tardíos previos al bump de KDS (getLatestToastOrderSnapshotMs <= ready_at). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, la Telemetría de Bocina AI y Tabletas de Cocina (/api/order-ready/telemetry, tablas order_ready_device_status y order_ready_voice_playbacks, RPC get_order_ready_telemetry_summary), el Triple Blindaje Anti-Duplicación en Tableta y Bocina (triggerGestureSafeTap + client_called_at clock-skew reconciliation + localStorage cross-tab speaker lock), y el Motor Táctil Multi-Toque 15.6" para MESWAO B3 (Web Audio tick sintetizado + vibración háptica 0ms, tarjetas gigantes adaptativas para 1-4 órdenes, cuadrícula compacta de 3-4 columnas con desbloqueo automático de scroll pan-y desde 5+ órdenes, watchdog anti-congelamiento de 6.5s/8.5s con AbortController en Fullscreen, radar 40px con changedTouches sin reflows, overscroll-y-contain y desacople multi-puntero con TabletTouchBooster).
+ * - Order Ready Board y Preparador KDS (/order-ready-board, /inventory/preparador, lib/order-ready-sync.ts, lib/order-ready-auto-timer.ts): items_summary usa la propiedad canónica quantity (aceptando qty heredado), consolida platillos con mismos modificadores ordenados sin alterar nombres visuales, descarta quantity <= 0, separa lecturas de BD (syncToast=false en eventos Realtime con debounce de 500ms y reconexiones) del polling unificado sin auto-colisión a Toast cada 5s (syncToast=true con cola pendingToastSyncRef y buffer clock-skew +2m en endDate) protegido por lease distribuido PostgreSQL de 3.5s (order_ready_sync_leases), canales Realtime aislados por tienda (order-ready-realtime:{storeCode}), recordatorio automático desactivado por defecto en las 15 sucursales (DEFAULT_REMINDER_DELAY_MS=0 en teg_order_ready_reminder_sec_v2, editable solo por Admin), hidratación automática de webhooks sin selections desde Toast API, reconciliación puntual de órdenes huérfanas >25 min (hasta 95 min vía GET /orders/v2/orders/{guid} con cooldown de 30s) y escudo anti-falso-recall ante webhooks tardíos previos al bump de KDS (getLatestToastOrderSnapshotMs <= ready_at). Incluye el Modo Manos Libres con Timer Inteligente Adaptativo por platillo y fila FIFO (order_ready_settings id='auto_call_timer_config': 165s rápido, 255s medio, 330s complejo incluyendo Chorizo/Buche/Milanesa/Cubana/Platos/Tortas/Nachos/10+ unidades, +20s por orden adelante hasta 540s) con respaldo táctil manual, la Telemetría de Bocina AI y Tabletas de Cocina (/api/order-ready/telemetry, tablas order_ready_device_status y order_ready_voice_playbacks, RPC get_order_ready_telemetry_summary), el Triple Blindaje Anti-Duplicación en Tableta y Bocina (triggerGestureSafeTap + client_called_at clock-skew reconciliation + localStorage cross-tab speaker lock), el Blindaje de Sesión Staff por Pestaña 24/7 (teg_tab_staff_token en sessionStorage inmune a logins de empleados en /mis-horarios, prioridad Bearer en getOrderReadyAccess, confirmación verde verificada post-entrega en handleCallOrderImpulse con auto-refresh 401, exención de IdleTimer en pantallas operativas y auto-recuperación ante ChunkLoadError), y el Motor Táctil Multi-Toque 15.6" para MESWAO B3 (Web Audio tick sintetizado + vibración háptica 0ms, tarjetas gigantes adaptativas para 1-4 órdenes, cuadrícula compacta de 3-4 columnas con desbloqueo automático de scroll pan-y desde 5+ órdenes, watchdog anti-congelamiento de 6.5s/8.5s con AbortController en Fullscreen, radar 40px con changedTouches sin reflows, overscroll-y-contain y desacople multi-puntero con TabletTouchBooster).
  * - Conciliar Delivery y Pólizas QuickBooks (/admin/conciliar-delivery, /api/delivery-reconciliation, /api/delivery-reconciliation/quickbooks-journal): concilia Toast POS vs Uber Eats, DoorDash y Grubhub orden por orden y por corte semanal usando fuente única de verdad contable (`computePayoutAccountingAmounts`), rastrea recuperaciones en cortes posteriores diferenciando abiertas, verificadas y pérdidas cerradas (`ACCEPTED_LOSS`/`REJECTED`), excluye ajustes `$0.00`, mantiene `CONCILIATED_NEXT_PAYOUT` en tránsito fuera de `4. Listos`, y automatiza Settlement Journal Entries en QuickBooks Online (100XX Banco, 62145/62146/62147 Fees, 12050/12053/12054 Receivables, 40061/40062/40063 Refunds/Error Charges + línea 5 Cuenta 24001 para Sales Tax en reembolsos DoorDash/Grubhub) con estado explícito `PUBLISH_FAILED`.
  * - Contabilidad Externa ERP (/admin/contabilidad-externa, /api/external-accounting, /api/external-accounting/reports, /api/cron/sync-external-accounting): ERP contable 100% puro enfocado en las 8 empresas de Raquel en external_accounting_companies (6 ACTIVE_QBO con sync bidireccional cada 15 min y 2 RETIRED_FROM_QBO_LOCAL_ACTIVE — Chicken Taco Catering LLC y Elveze LLC — con lectura/escritura completa local y qbo_sync_enabled=false), sin publicidad comercial ni add-ons de Intuit, acceso global exclusivo validado por ID y email con expiración estricta JWT (ignoreExpiration: false) para Raquel (45), Roberto (46) y Roque (47), aislamiento Zero-Trust service_role en las 24 tablas external_accounting_*, RPCs y Storage, OAuth QBO con HMAC-SHA256 + nonce cookie y lock distribuido fn_acquire_ext_acct_token_refresh_lock, updates QBO con sparse: true y worker FOR UPDATE SKIP LOCKED (fn_claim_ext_acct_outbox_batch), cobertura ACID PostgreSQL total, protección de transacciones Reconciled (permitiendo reclasificar cuenta de gasto/ingreso pero bloqueando monto/banco/fecha/VOID/DELETE) y conciliación 1:1 para Bancos y Tarjetas de Crédito (PayDownCreditCard, Expense, CreditCardCredit y reversión de cargos/intereses al reabrir/eliminar), paginación determinista fetchAllTableRows sin tope de 1,000 filas, subida directa firmada hasta 15 MB hacia Supabase Storage (create_attachment_upload_url + finalize_attachment_upload con validación MIME/SHA-256), sanitización HTML allowlist (lib/external-accounting-html-sanitize.ts), guardas AbortController contra condiciones de carrera al cambiar de empresa, y motor de reportes CPA con paridad $0.00 en Accrual y Cash Basis sobre balance_sheet, trial_balance, pnl y kpi_scorecard más controles comparePeriod, only1099, hideZeroRows y showCents (.xlsx / .pdf).
  * - Auditoría Semanal Automática de Correos de Empleados Activos (/api/cron/audit-employee-emails, lib/employee-email-auditor.ts, scripts/run-weekly-email-audit.ts): ejecutada todos los sábados por la tarde hora LA California (0 22 * * 6 UTC = 2:00 PM PST / 3:00 PM PDT, con pre-escaneo local puerto 25 a la 1:30 PM), sincroniza las 15 sucursales desde Toast POS (syncToastEmployees), audita todos los correos activos (placeholders @example.com, typos de dominio, reglas de proveedor, Microsoft GetCredentialType, SMTP RCPT TO puerto 25 y caché persistente en integrations employee_email_audit_state) y notifica automáticamente desde el Sistema de Monitoreo (noreply@tacosgavilan.com) a cada Store Manager involucrado (CC Supervisor) más resumen ejecutivo interno.
@@ -58,6 +58,8 @@
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { calculateIngredientCost, type InventoryCostData } from '@/lib/inventory/recipe-calculations'
+import { readPmixDailyCacheChunked } from '@/lib/inventory/pmix-cache-reader'
+import { validateDateRangeWithinMaxDays } from '@/lib/inventory/food-cost-sales-resolver'
 import { generateSmartForecast } from '@/lib/intelligence'
 import {
   scheduleBreaksWithDemand,
@@ -1975,59 +1977,86 @@ async function queryViolationsBudgets(args: any): Promise<string> {
 async function queryProductMix(args: any): Promise<string> {
   const parts: string[] = []
   const dt = args.data_type || 'all'
+  const startDate = String(args.start_date || '').trim()
+  const endDate = String(args.end_date || '').trim()
 
-  // PMIX (product mix) — items is a JSONB column with array of sold items, store_id is Toast external_id (TEXT)
+  // Validar rango defensivo para proteger Supabase ci_small contra lecturas masivas de PMIX JSONB (~218 KB/fila)
+  const maxAllowedDays = args.store_name ? 31 : 7
+  const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
+  if (!rangeCheck.ok) {
+    return `Rango inválido o demasiado amplio para consulta de Product Mix (${startDate}..${endDate}). ${rangeCheck.error || ''} (Máximo: ${maxAllowedDays} días${args.store_name ? '' : ' para las 15 tiendas juntas; especifica store_name para consultar hasta 31 días'}).`
+  }
+
+  // Resolver tienda explícitamente si fue solicitada (nunca caer silenciosamente a las 15 tiendas por typo)
+  let matchExtIds: string[] | undefined = undefined
+  let matchNumericIds: number[] | undefined = undefined
+  if (args.store_name) {
+    const resolvedExt = await getStoreExtIdsByName(args.store_name)
+    const resolvedIds = await getStoreIdsByName(args.store_name)
+    if (resolvedExt.length === 0 && resolvedIds.length === 0) {
+      return `No se encontró ninguna sucursal que coincida con "${args.store_name}".`
+    }
+    matchExtIds = resolvedExt
+    matchNumericIds = resolvedIds
+  }
+
+  // PMIX (product mix) — streaming por lotes seguros (<= 10 filas/lote = ~2.2 MB) evitando picos de RAM
   if (dt === 'all' || dt === 'pmix') {
-    let q = supabaseAdmin.from('pmix_daily_cache')
-      .select('business_date, store_id, items')
-      .gte('business_date', args.start_date).lte('business_date', args.end_date)
-    if (args.store_name) {
-      const matchExtIds = await getStoreExtIdsByName(args.store_name)
-      if (matchExtIds.length) q = q.in('store_id', matchExtIds)
-    }
-    const { data } = await q.limit(500)
-    if (data?.length) {
-      // Aggregate items across all days/stores
-      const itemTotals: Record<string, { qty: number; sales: number }> = {}
-      data.forEach(row => {
-        const items = Array.isArray(row.items) ? row.items : []
-        items.forEach((item: any) => {
-          const name = item.name || item.menuItem || '?'
-          if (!itemTotals[name]) itemTotals[name] = { qty: 0, sales: 0 }
-          itemTotals[name].qty += Number(item.quantity || item.qty || 0)
-          itemTotals[name].sales += Number(item.sales || item.netSales || item.amount || 0)
-        })
-      })
-      const topItems = Object.entries(itemTotals).sort((a, b) => b[1].sales - a[1].sales).slice(0, 30)
+    const itemTotals: Record<string, { qty: number; sales: number }> = {}
+    const pmixRes = await readPmixDailyCacheChunked(supabaseAdmin, {
+      storeGuids: matchExtIds,
+      startDate,
+      endDate,
+      includeUpdatedAt: false,
+      chunkRows: 10,
+      maxRows: 120,
+      onChunk: (chunk) => {
+        for (const row of chunk) {
+          const items = Array.isArray(row.items) ? row.items : []
+          for (const item of items) {
+            const name = item?.name || item?.menuItem || '?'
+            if (!itemTotals[name]) itemTotals[name] = { qty: 0, sales: 0 }
+            itemTotals[name].qty += Number(item?.quantity ?? item?.qty ?? 0)
+            // ProductMixItem persiste ventas netas en `net_sales` (snake_case)
+            itemTotals[name].sales += Number(item?.net_sales ?? item?.sales ?? item?.netSales ?? item?.amount ?? 0)
+          }
+        }
+      },
+    })
+
+    if (pmixRes.totalRowsRead > 0) {
+      const topItems = Object.entries(itemTotals)
+        .sort((a, b) => b[1].sales - a[1].sales || b[1].qty - a[1].qty)
+        .slice(0, 30)
         .map(([name, v]) => `${name}: ${v.qty} sold = ${fmt$(v.sales)}`)
-      parts.push(`Product Mix ${args.start_date} to ${args.end_date} (${data.length} day-store records):\nTop Items:\n${topItems.join('\n')}`)
+      parts.push(
+        `Product Mix ${startDate} to ${endDate} (${pmixRes.totalRowsRead} day-store records${pmixRes.truncated ? ', capped at 120 records' : ''}):\nTop Items:\n${topItems.join('\n')}`
+      )
     }
   }
 
-  // Meat consumption — store_id is numeric BIGINT (stores.id)
+  // Meat consumption — usa RPC agregada SQL (evita truncamiento silencioso de .limit(500) sobre 360 MB)
   if (dt === 'all' || dt === 'meat') {
-    let q = supabaseAdmin.from('meat_consumption_history')
-      .select('store_id, business_date, meat_type, raw_lbs')
-      .gte('business_date', args.start_date).lte('business_date', args.end_date)
-      .order('business_date', { ascending: true })
-    if (args.store_name) {
-      const matchIds = await getStoreIdsByName(args.store_name)
-      if (matchIds.length) q = q.in('store_id', matchIds)
-    }
-    const { data } = await q.limit(500)
-    if (data?.length) {
-      const byMeat: Record<string, number> = {}
-      data.forEach(r => {
-        const mt = r.meat_type || '?'
-        byMeat[mt] = (byMeat[mt] || 0) + (Number(r.raw_lbs) || 0)
-      })
-      const meatLines = Object.entries(byMeat).sort((a, b) => b[1] - a[1])
-        .map(([mt, lbs]) => `${mt}: ${lbs.toFixed(1)} lbs`)
-      parts.push(`Meat Consumption ${args.start_date} to ${args.end_date}:\n${meatLines.join('\n')}`)
+    const { data: rpcMeatRows, error: rpcMeatErr } = await supabaseAdmin.rpc(
+      'get_meat_consumption_totals_by_type',
+      {
+        p_start_date: startDate,
+        p_end_date: endDate,
+        p_store_ids: matchNumericIds && matchNumericIds.length > 0 ? matchNumericIds : null,
+      }
+    )
+
+    if (!rpcMeatErr && Array.isArray(rpcMeatRows) && rpcMeatRows.length > 0) {
+      const meatLines = rpcMeatRows.map(
+        (r: any) => `${r.meat_type || '?'}: ${Number(r.total_raw_lbs || 0).toFixed(1)} lbs`
+      )
+      parts.push(`Meat Consumption ${startDate} to ${endDate}:\n${meatLines.join('\n')}`)
+    } else if (rpcMeatErr) {
+      console.warn('[ChatTools] get_meat_consumption_totals_by_type error:', rpcMeatErr.message)
     }
   }
 
-  return parts.length ? parts.join('\n\n') : `No product mix or meat data for ${args.start_date} to ${args.end_date}.`
+  return parts.length ? parts.join('\n\n') : `No product mix or meat data for ${startDate} to ${endDate}.`
 }
 
 // ── 15. Forecast ──
@@ -2459,6 +2488,18 @@ async function executeCustomSql(args: any, viewerUser?: any): Promise<string> {
     return 'Security Policy Block (INTERNAL ONLY): Direct SQL access to restricted accounting, credential, integration, OTP, or users tables is prohibited. Use dedicated authorized tools (e.g. query_employees, query_stores) when appropriate.'
   }
 
+  // Blindaje RAM Supabase ci_small: bloquear escaneos masivos JSONB directos sobre pmix_daily_cache (411 MB TOAST)
+  if (/\bpmix_daily_cache\b/i.test(normalizedForAudit)) {
+    const touchesHeavyItems =
+      /\bselect\s+\*/i.test(normalizedForAudit) ||
+      /\bitems\b/i.test(normalizedForAudit) ||
+      /\bjsonb_array_elements\b/i.test(normalizedForAudit)
+    const hasTightLimit = /\blimit\s+([1-9]|1[0-5])\b/i.test(normalizedForAudit)
+    if (touchesHeavyItems && !hasTightLimit) {
+      return 'Performance Shield Block (INTERNAL ONLY): Direct unbounded SQL scans over pmix_daily_cache.items (~218 KB JSONB/row) are blocked to protect database RAM. Use the dedicated chunked tool `query_product_mix` instead, or restrict your SQL query to metadata columns (store_id, business_date, updated_at) or LIMIT <= 15.'
+    }
+  }
+
   // Pre-sanitize common store_id = stores.id join mismatches
   sqlQuery = sanitizeSqlStoreJoins(sqlQuery)
 
@@ -2491,19 +2532,25 @@ async function executeCustomSql(args: any, viewerUser?: any): Promise<string> {
     if (Array.isArray(data)) {
       if (data.length === 0) return 'Query executed successfully. 0 rows returned.'
       
-      // Convert JSON array to Markdown table
-      const headers = Object.keys(data[0])
+      // Convert JSON array to Markdown table (acotado a 100 filas para evitar saturación de memoria/contexto)
+      const MAX_SQL_RENDER_ROWS = 100
+      const slicedRows = data.slice(0, MAX_SQL_RENDER_ROWS)
+      const headers = Object.keys(slicedRows[0])
       const headerRow = `| ${headers.join(' | ')} |`
       const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`
-      const dataRows = data.map(row => {
+      const dataRows = slicedRows.map(row => {
         return `| ${headers.map(h => {
           const val = row[h]
           if (val === null || val === undefined) return 'NULL'
-          if (typeof val === 'object') return JSON.stringify(val)
+          if (typeof val === 'object') {
+            const s = JSON.stringify(val)
+            return s.length > 300 ? `${s.slice(0, 300)}…` : s
+          }
           return String(val)
         }).join(' | ')} |`
       })
-      return `${headerRow}\n${separatorRow}\n${dataRows.join('\n')}\n\n*Total rows: ${data.length}*`
+      const truncNote = data.length > MAX_SQL_RENDER_ROWS ? ` *(showing first ${MAX_SQL_RENDER_ROWS} of ${data.length} rows)*` : ''
+      return `${headerRow}\n${separatorRow}\n${dataRows.join('\n')}\n\n*Total rows: ${data.length}*${truncNote}`
     }
 
     return JSON.stringify(data, null, 2)

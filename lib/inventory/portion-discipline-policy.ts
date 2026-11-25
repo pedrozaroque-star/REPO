@@ -1217,11 +1217,16 @@ export async function enforceOverduePortionAlerts(options?: {
   const overdueAlertIds: string[] = []
   const emailsDispatched: DispatchedDisciplineMailSummary[] = []
   let overdueEscalatedCount = 0
+  const contactsCacheByStore = new Map<number, Awaited<ReturnType<typeof resolveStoreChainContacts>>>()
 
   for (const alert of candidates) {
     overdueAlertIds.push(String(alert.id))
     const storeId = Number(alert.store_id)
-    const contacts = await resolveStoreChainContacts(storeId, alert.store_name)
+    let contacts = contactsCacheByStore.get(storeId)
+    if (!contacts) {
+      contacts = await resolveStoreChainContacts(storeId, alert.store_name)
+      contactsCacheByStore.set(storeId, contacts)
+    }
 
     if (shouldPersistDb) {
       const { error: updErr } = await supabase

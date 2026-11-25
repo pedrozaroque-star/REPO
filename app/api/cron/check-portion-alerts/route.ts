@@ -28,11 +28,15 @@ import {
 } from '@/lib/inventory/portion-control-alerts'
 import { enforceOverduePortionAlerts } from '@/lib/inventory/portion-discipline-policy'
 import { ACTIVE_PROTEIN_IDS } from '@/lib/inventory/meat-allocation'
-import { computeToastVsFridgeForIngredient } from '@/lib/inventory/toast-meat-sold-resolver'
+import {
+  computeToastVsFridgeForIngredient,
+  loadToastMeatContext,
+} from '@/lib/inventory/toast-meat-sold-resolver'
+import { addDaysIso, getBusinessDateLA, isValidIsoDate } from '@/lib/inventory/food-cost-sales-resolver'
 import { sendSobrantesExecutiveDigest } from '@/lib/inventory/sobrantes-executive-email'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 300
 
 async function handleCheckPortionAlerts(req: Request) {
   const auth = verifyStaffAuth(req, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
@@ -50,7 +54,7 @@ async function handleCheckPortionAlerts(req: Request) {
     const storeId = url.searchParams.get('store_id')?.trim() || null
     const endDate = url.searchParams.get('date')?.trim() || url.searchParams.get('end_date')?.trim() || null
     const startDate = url.searchParams.get('start_date')?.trim() || null
-    const spanDays = Number(url.searchParams.get('span_days')) || 7
+    const spanDays = Math.max(1, Math.min(35, Number(url.searchParams.get('span_days')) || 7))
     const meatKey = url.searchParams.get('meat_key')?.trim() || null
     const rawTestTo = url.searchParams.get('test_to')?.trim() || null
 
@@ -59,17 +63,36 @@ async function handleCheckPortionAlerts(req: Request) {
       return NextResponse.json({ error: testCheck.error }, { status: 400 })
     }
 
+    // Pre-cargar UNA SOLA VEZ `loadToastMeatContext` (fragmentado <= 15 filas/lote) para compartirlo
+    // entre `scanPortionControlAlerts` y `computeToastVsFridgeForIngredient` (corta RAM/IO a la mitad).
+    const todayLA = getBusinessDateLA()
+    const yesterdayLA = addDaysIso(todayLA, -1)
+    const resolvedEnd = endDate && isValidIsoDate(endDate) && endDate <= yesterdayLA ? endDate : yesterdayLA
+    const rawStart = startDate && isValidIsoDate(startDate) && startDate <= resolvedEnd ? startDate : addDaysIso(resolvedEnd, -(spanDays - 1))
+    const minAllowedStart = addDaysIso(resolvedEnd, -34)
+    const resolvedStart = rawStart < minAllowedStart ? minAllowedStart : rawStart
+
+    const parsedStoreNum = storeId && /^\d+$/.test(storeId) ? [Number(storeId)] : undefined
+    const sharedToastMeatCtx = await loadToastMeatContext({
+      storeNumericIds: parsedStoreNum,
+      minDate: addDaysIso(resolvedStart, -3),
+      maxDate: resolvedEnd,
+      reconcileQbInvoices: true,
+    })
+
     const weeklyTestMode = isPortionAlertsWeeklyTestMode()
     const result = await scanPortionControlAlerts({
       storeId,
-      startDate,
-      endDate,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
       spanDays,
       meatKey,
       dryRun,
       sendEmails: weeklyTestMode ? false : sendEmails,
       forceResend,
       testTo: testCheck.email,
+      toastMeatCtx: sharedToastMeatCtx,
+      reconcileQbInvoices: false,
     })
 
     let executiveDigestSent = false
@@ -79,6 +102,7 @@ async function handleCheckPortionAlerts(req: Request) {
         proteinKey: 'asada',
         startDate: result.periodStart,
         endDate: result.periodEnd,
+        ctx: sharedToastMeatCtx,
       })
       await sendSobrantesExecutiveDigest({
         ingredientName: 'Carne Asada',

@@ -48,9 +48,12 @@ import {
 import { syncDailyInventoryUsage } from '@/lib/inventory/usage-sync'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 
+export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutos máximo en Vercel (Pro)
 
 export async function GET(request: Request) {
+    const startedAt = Date.now()
+    const TIME_BUDGET_MS = 230_000
     try {
         const auth = await verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: true })
         if (!auth.authorized) {
@@ -63,17 +66,18 @@ export async function GET(request: Request) {
         // 1. Obtener fecha laboral actual en LA timezone (regla 06:00 AM)
         const todayBusinessDate = getBusinessDateLA(now)
         const yesterdayStr = addDaysIso(todayBusinessDate, -1)
+        const fourDaysAgoStr = addDaysIso(todayBusinessDate, -4)
         const sevenDaysAgoStr = addDaysIso(todayBusinessDate, -7)
         const firstOfMonthStr = `${todayBusinessDate.slice(0, 8)}01`
 
-        // Garantizar SIEMPRE al menos los últimos 7 días cerrados (incluyendo yesterday el día 1 del mes) + MTD completo
+        // Garantizar SIEMPRE al menos los últimos 7 días cerrados + MTD completo, ordenados DEL MÁS RECIENTE AL MÁS ANTIGUO
         const rangeStartStr = firstOfMonthStr < sevenDaysAgoStr ? firstOfMonthStr : sevenDaysAgoStr
 
         const datesToSync: string[] = []
-        let cur = rangeStartStr
-        while (cur <= yesterdayStr) {
+        let cur = yesterdayStr
+        while (cur >= rangeStartStr) {
             datesToSync.push(cur)
-            cur = addDaysIso(cur, 1)
+            cur = addDaysIso(cur, -1)
         }
 
         // Cargar tiendas activas y detectar dinámicamente columnas opcionales de sucursal en food_cost_anomalies
@@ -87,18 +91,41 @@ export async function GET(request: Request) {
         )
         const minExpectedStores = Math.max(1, validActiveStores.length - 1)
 
+        // Consultar updated_at máximo de `pmix_daily_cache` (solo metadatos, SIN columna `items` JSONB!) para detectar días refrescados por sync-pmix
+        const latestPmixUpdatedByDate = new Map<string, number>()
+        const { data: pmixMetaRows } = await supabase
+            .from('pmix_daily_cache')
+            .select('business_date, updated_at')
+            .gte('business_date', fourDaysAgoStr)
+            .lte('business_date', yesterdayStr)
+        for (const r of pmixMetaRows || []) {
+            if (!r.business_date || !r.updated_at) continue
+            const ts = Date.parse(String(r.updated_at))
+            if (!Number.isFinite(ts)) continue
+            const prev = latestPmixUpdatedByDate.get(String(r.business_date)) || 0
+            if (ts > prev) latestPmixUpdatedByDate.set(String(r.business_date), ts)
+        }
+
         const { error: storeColsProbeErr } = await supabase
             .from('food_cost_anomalies')
             .select('store_number, store_name')
             .limit(0)
         const hasAnomalyStoreCols = !storeColsProbeErr
 
-        console.log(`⏰ [CRON FOOD-COST] Sincronizando ${datesToSync.length} días cerrados: ${datesToSync[0]} → ${datesToSync[datesToSync.length - 1]} (hoy laboral=${todayBusinessDate})`)
+        console.log(`⏰ [CRON FOOD-COST] Verificando ${datesToSync.length} días cerrados (reciente→antiguo): ${datesToSync[0]} → ${datesToSync[datesToSync.length - 1]} (hoy laboral=${todayBusinessDate})`)
 
         const results = []
+        const remainingDates: string[] = []
 
-        // 3. Para cada día, verificar si ya hay cache completo post-cierre y fresco (<12h); si no, recalcular
-        for (const dateStr of datesToSync) {
+        // 3. Para cada día, saltar históricos ya cerrados (>4d) sin caducidad falsa de 12h; en ventana 4d solo recalcular si PMIX es más reciente o falta cobertura
+        for (let idx = 0; idx < datesToSync.length; idx++) {
+            const dateStr = datesToSync[idx]
+            if (Date.now() - startedAt > TIME_BUDGET_MS) {
+                remainingDates.push(...datesToSync.slice(idx))
+                console.warn(`⏱️ [CRON FOOD-COST] Presupuesto de tiempo (${TIME_BUDGET_MS}ms) alcanzado; ${remainingDates.length} días pendientes para siguiente corrida.`)
+                break
+            }
+
             try {
                 const { data: cachedDayRows, error: checkErr } = await supabase
                     .from('food_cost_daily_cache')
@@ -113,57 +140,41 @@ export async function GET(request: Request) {
                     r => !isInvalidFoodCostCacheRow(Number(r.total_cost) || 0, Number(r.net_sales) || 0)
                 )
                 const hasCompleteStoreCoverage = validRows.length >= minExpectedStores
-                // Toda fila debe haberse calculado DESPUÉS de que cerró `dateStr` (regla 6 AM LA) y hace menos de 12h
-                const isFinalizedAndFresh = hasCompleteStoreCoverage && validRows.every(r => {
+                const allWrittenAfterClose = hasCompleteStoreCoverage && validRows.every(r => {
                     if (!r.updated_at) return false
-                    const updatedAt = new Date(r.updated_at)
-                    const writtenBizDate = getBusinessDateLA(updatedAt)
-                    const hoursAgo = (now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60)
-                    return writtenBizDate > dateStr && hoursAgo <= 12
+                    return getBusinessDateLA(new Date(r.updated_at)) > dateStr
                 })
 
-                if (isFinalizedAndFresh) {
-                    console.log(`⏭️ [CRON FOOD-COST] Cache cerrado y fresco para ${dateStr} (${validRows.length} tiendas), saltando.`)
+                let isCacheUpToDate = false
+                if (allWrittenAfterClose) {
+                    if (dateStr < fourDaysAgoStr) {
+                        isCacheUpToDate = true
+                    } else {
+                        const minFcUpdatedMs = validRows.reduce((min, r) => {
+                            const ts = Date.parse(String(r.updated_at || ''))
+                            return Number.isFinite(ts) && ts < min ? ts : min
+                        }, Number.POSITIVE_INFINITY)
+                        const maxPmixUpdatedMs = latestPmixUpdatedByDate.get(dateStr) || 0
+                        isCacheUpToDate = minFcUpdatedMs >= maxPmixUpdatedMs
+                    }
+                }
+
+                if (isCacheUpToDate) {
                     results.push({ date: dateStr, status: 'skipped_fresh_cache', stores: validRows.length })
                     continue
                 }
 
                 console.log(`🔄 [CRON FOOD-COST] Calculando ${dateStr}...`)
-                let json: any = null
-
-                try {
-                    const directReq = new NextRequest(
-                        `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`,
-                        { headers: buildInternalCronAuthHeaders(request) }
-                    )
-                    const directRes = await foodCostGet(directReq)
-                    if (!directRes.ok) {
-                        const errTxt = await directRes.text().catch(() => '')
-                        throw new Error(`In-process responded ${directRes.status}: ${errTxt}`)
-                    }
-                    json = await directRes.json()
-                } catch (inProcErr: any) {
-                    console.warn(`⚠️ [CRON FOOD-COST] In-process falló en ${dateStr} (${inProcErr.message}), usando fallback HTTP...`)
-                    const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
-                        ? process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')
-                        : (process.env.VERCEL_PROJECT_PRODUCTION_URL 
-                            ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` 
-                            : (process.env.VERCEL_URL 
-                                ? `https://${process.env.VERCEL_URL}` 
-                                : 'http://localhost:3000'))
-                    const apiUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}`
-                    const res = await fetch(apiUrl, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...buildInternalCronAuthHeaders(request)
-                        }
-                    })
-                    if (!res.ok) {
-                        const errorText = await res.text()
-                        throw new Error(`API responded ${res.status}: ${errorText}`)
-                    }
-                    json = await res.json()
+                const directReq = new NextRequest(
+                    `http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${dateStr}&endDate=${dateStr}&bypassCache=1`,
+                    { headers: buildInternalCronAuthHeaders(request) }
+                )
+                const directRes = await foodCostGet(directReq)
+                if (!directRes.ok) {
+                    const errTxt = await directRes.text().catch(() => '')
+                    throw new Error(`In-process responded ${directRes.status}: ${errTxt.slice(0, 200)}`)
                 }
+                const json = await directRes.json()
 
                 const itemCount = json?.data?.length || 0
 
@@ -239,11 +250,22 @@ export async function GET(request: Request) {
                 }
                 // ═══ END CAPA B ═══
 
-                // Sincronizar consumo teórico desglosado por ingrediente en inventory_usage_log
+                // Sincronizar consumo teórico en `inventory_usage_log` para días recientes (últimos 4 días) o cuando falte cobertura
                 try {
-                    for (const s of validActiveStores) {
-                        if (s.external_id) {
-                            await syncDailyInventoryUsage(s.external_id, dateStr)
+                    let shouldRunUsageSync = dateStr >= fourDaysAgoStr
+                    if (!shouldRunUsageSync) {
+                        const { count: existingUsageCount } = await supabase
+                            .from('inventory_usage_log')
+                            .select('*', { count: 'exact', head: true })
+                            .eq('business_date', dateStr)
+                        shouldRunUsageSync = (existingUsageCount || 0) < validActiveStores.length
+                    }
+                    if (shouldRunUsageSync) {
+                        for (const s of validActiveStores) {
+                            if (Date.now() - startedAt > TIME_BUDGET_MS) break
+                            if (s.external_id) {
+                                await syncDailyInventoryUsage(s.external_id, dateStr)
+                            }
                         }
                     }
                 } catch (usageErr: any) {
@@ -259,10 +281,12 @@ export async function GET(request: Request) {
             }
         }
 
-        console.log(`✅ [CRON FOOD-COST] Operación completada.`)
+        console.log(`✅ [CRON FOOD-COST] Operación completada (${Date.now() - startedAt}ms).`)
         return NextResponse.json({
             success: true,
+            elapsed_ms: Date.now() - startedAt,
             processed_dates: datesToSync,
+            remaining_dates: remainingDates,
             results,
             processed_at: new Date().toISOString()
         })
