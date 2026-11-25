@@ -93,6 +93,8 @@ export function buildSobrantesExecutiveEmailHtml(params: {
     shortageStores.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceDollarStore || 0), 0)
   )
 
+  const isMultiDayWindow = startDate !== endDate
+
   const shortageRowsHtml =
     shortageStores.length === 0
       ? `<tr><td colspan="4" style="padding:18px;text-align:center;color:#059669;font-weight:700;font-size:14px;">✅ Ninguna sucursal presentó faltante de sobrante en este periodo.</td></tr>`
@@ -101,16 +103,25 @@ export function buildSobrantesExecutiveEmailHtml(params: {
             const actual = Math.round(s.closingBags || 0)
             const missing = Math.max(1, Math.round(Math.abs(s.cumulativeFridgeBalanceBags || 0)))
             const expected = actual + missing
+            const soldSpan = Math.round(s.toastSoldSpanBags || 0)
+            const usedSpan = Math.round(s.fridgeUsedBags ?? soldSpan + missing)
+            const days = Math.max(1, Number(s.spanDays || 1))
+            const dailyAvg = Math.round((missing / days) * 10) / 10
             const lossUsd = formatSignedUSD(-Math.round(Math.abs(s.cumulativeFridgeBalanceDollarStore || 0)), {
               decimals: 0,
             })
             const storeUrl = `${baseUrl}/admin/food-cost/meats?storeId=${encodeURIComponent(String(s.storeId))}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=${meatSlug}`
+            const col2Text = isMultiDayWindow ? `${soldSpan} bolsas` : `${expected} bolsas`
+            const col3Text = isMultiDayWindow ? `${usedSpan} bolsas` : `${actual} bolsas`
+            const col4Text = isMultiDayWindow
+              ? `+${missing} bolsas (~${dailyAvg}/día · ${lossUsd})`
+              : `Faltan ${missing} bolsas (${lossUsd})`
             return `<tr style="border-bottom:1px solid #FEE2E2;">
               <td style="padding:14px 12px;font-size:15px;font-weight:800;color:#111827;"><a href="${escapeHtml(storeUrl)}" target="_blank" style="color:#111827;text-decoration:underline;">${escapeHtml(cleanSummaryName(s))}</a></td>
-              <td style="padding:14px 10px;text-align:center;font-size:15px;font-weight:700;color:#374151;">${expected} bolsas</td>
-              <td style="padding:14px 10px;text-align:center;font-size:15px;font-weight:700;color:#111827;">${actual} bolsas</td>
-              <td style="padding:14px 12px;text-align:right;font-size:15px;font-weight:900;color:#DC2626;">
-                Faltan ${missing} bolsas (${lossUsd})
+              <td style="padding:14px 10px;text-align:center;font-size:15px;font-weight:700;color:#374151;">${col2Text}</td>
+              <td style="padding:14px 10px;text-align:center;font-size:15px;font-weight:700;color:#111827;">${col3Text}</td>
+              <td style="padding:14px 12px;text-align:right;font-size:14px;font-weight:900;color:#DC2626;">
+                ${col4Text}
               </td>
             </tr>`
           })
@@ -169,14 +180,18 @@ export function buildSobrantesExecutiveEmailHtml(params: {
             </tr>
           </table>
 
+          <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:11px 14px;margin-bottom:16px;font-size:12px;color:#1E3A8A;">
+            🕛 <strong>Regla para cifras exactas:</strong> El conteo diario de <strong>Sobrantes</strong> debe capturarse estrictamente <strong>DESPUÉS DEL CIERRE de la sucursal</strong> (una vez cerrada la venta del día en caja).
+          </div>
+
           <div style="font-size:16px;font-weight:900;color:#111827;margin-bottom:10px;">🔴 Sucursales donde Faltó Carne</div>
           <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #FECACA;border-radius:10px;overflow:hidden;">
             <thead>
               <tr style="background:#FEF2F2;font-size:11px;font-weight:800;text-transform:uppercase;color:#991B1B;border-bottom:1px solid #FECACA;">
                 <th style="padding:10px 12px;text-align:left;">Sucursal</th>
-                <th style="padding:10px 10px;text-align:center;">Debía Sobrar</th>
-                <th style="padding:10px 10px;text-align:center;">Capturaron</th>
-                <th style="padding:10px 12px;text-align:right;">Faltante</th>
+                <th style="padding:10px 10px;text-align:center;">${isMultiDayWindow ? 'Ventas en Caja' : 'Debía Sobrar'}</th>
+                <th style="padding:10px 10px;text-align:center;">${isMultiDayWindow ? 'Usaron Real' : 'Capturaron'}</th>
+                <th style="padding:10px 12px;text-align:right;">${isMultiDayWindow ? 'Exceso (Prom./Día)' : 'Faltante'}</th>
               </tr>
             </thead>
             <tbody>${shortageRowsHtml}</tbody>

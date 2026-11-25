@@ -169,14 +169,14 @@ const toOz = (quantity: number, unit: string) => {
 }
 
 export const MEAT_COOKING_YIELDS: Record<keyof typeof ACTIVE_PROTEIN_IDS, number> = {
-  asada: 0.615,    // 61.5% merma parrilla
-  pastor: 0.615,   // 61.5% merma parrilla y cocción
-  pollo: 0.650,    // 65.0% merma cocción
-  cabeza: 0.870,   // 87.0% cocción vapor
-  lengua: 1.000,   // 100.0% procesada
-  carnitas: 1.000, // 100.0% pesaje directo
-  buche: 1.000,    // 100.0% pesaje directo
-  chorizo: 0.750,  // 75.0% (2.0 oz crudo rinde 1.5 oz cocido)
+  asada: 0.615,    // 61.5% merma parrilla oficial
+  pastor: 0.530,   // 53.0% rendimiento real tras adobo líquido en bolsa 5 lb + plancha
+  pollo: 0.575,    // 57.5% rendimiento real tras marinado líquido en bolsa 5 lb + cocción
+  cabeza: 0.785,   // 78.5% rendimiento real tras drenado de jugo/grasa al vapor en bolsa 2.5 lb
+  lengua: 0.925,   // 92.5% rendimiento real descontando jugo natural en bolsa al vacío 2.5 lb
+  carnitas: 1.000, // 100.0% pesaje directo (bolsita 6 oz)
+  buche: 1.000,    // 100.0% pesaje directo (bolsita 6 oz)
+  chorizo: 0.670,  // 67.0% rendimiento real tras grasa fundida en plancha (bolsita 8 oz)
 }
 
 /**

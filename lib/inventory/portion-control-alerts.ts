@@ -751,7 +751,7 @@ export function buildPortionControlEmailHtml(
               <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:22px;font-size:13px;color:#1F2937;">
                 <tr>
                   <td style="padding:10px 14px;border-bottom:1px solid #E5E7EB;">
-                    <strong>1. Gerente de Sucursal (${escapeHtml(escalera.managerName || 'Gerente')}):</strong> Calibrar báscula digital en línea y auditar gramaje cocido exacto: <strong>1.5 oz</strong> taco regular (` + '`1.9 oz`' + ` Carne Dorada) y <strong>6.0 oz</strong> burrito (` + '`12.0 oz`' + ` Meat Only). Confirmar enterado en el sistema hoy.
+                    <strong>1. Gerente de Sucursal (${escapeHtml(escalera.managerName || 'Gerente')}):</strong> Asegurar que el conteo diario de <strong>Sobrantes de Orden Diaria se realice estrictamente DESPUÉS DEL CIERRE de la tienda</strong> (con la venta del día ya cerrada) para tener cifras 100% exactas, calibrar báscula digital en línea y auditar gramaje cocido exacto: <strong>1.5 oz</strong> taco regular (` + '`1.9 oz`' + ` Carne Dorada) y <strong>6.0 oz</strong> burrito (` + '`12.0 oz`' + ` Meat Only).
                   </td>
                 </tr>
                 <tr>

@@ -7,9 +7,9 @@
  *   - Solo calcula insumos de la Orden Diaria de Bodega (alimentos, carnes, tortillas, quesos,
  *     preparados, salsas, y suministros internos). Viele & Sons permanece manual y excluido.
  *   - Procesa tickets completos con selecciones, modificadores anidados y canales de venta/empaque.
- *   - Recetas de carnes aplican rendimientos oficiales (yield %):
- *     Asada: 61.5%, Pastor: 61.5%, Pollo: 65.0%, Cabeza: 87.0%,
- *     Lengua: 100%, Carnitas: 100%, Buche: 100%, Chorizo: 75.0%.
+ *   - Recetas de carnes aplican rendimientos oficiales calibrados (yield %):
+ *     Asada: 61.5%, Pastor: 53.0%, Pollo: 57.5%, Cabeza: 78.5%,
+ *     Lengua: 92.5%, Carnitas: 100%, Buche: 100%, Chorizo: 67.0%.
  *   - Modificadores de carne:
  *     * Extra/Doble Carne: +1.5 oz cocida en tacos/sopes/mulitas; +6.0 oz en burritos/platos/tortas.
  *     * Mitad y Mitad (Half Meat): 50% de carne 1 y 50% de carne 2 sin duplicar la porción base.
