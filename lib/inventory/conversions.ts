@@ -71,6 +71,7 @@ function normalizeUnit(u: string): string {
         'kilogram': 'kg',
         'kg': 'kg',
         'piece': 'pza',
+        'pieza': 'pza',
         'pza': 'pza',
         'each': 'pza',
         'count': 'ct', // treats as pza usually

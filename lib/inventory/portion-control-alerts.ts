@@ -42,6 +42,7 @@
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { DEFAULT_LEADERSHIP_CC } from '@/lib/ronos-email'
 import { resolveAppBaseUrl } from '@/lib/basecamp-todo-email'
 import {
@@ -66,6 +67,10 @@ import {
   loadToastMeatContext,
   type StoreDayProteinToastUsage,
 } from '@/lib/inventory/toast-meat-sold-resolver'
+import {
+  buildStoreItemDateNetTransferMap,
+  fetchConfirmedStoreTransfers,
+} from '@/lib/inventory/store-transfers'
 
 export const CORPORATE_EMAIL_GUARD_REGEX = /^[a-z0-9._%+-]+@tacosgavilan\.com$/i
 const BAG_CUTOVER_DATE_ISO = '2026-07-24'
@@ -526,7 +531,7 @@ export function buildEscaleraByStore(
 
     map.set(storeId, {
       storeId,
-      storeName: store.name,
+      storeName: formatStoreDisplayName(store) || store.name,
       storeCode: store.code || null,
       externalId: store.external_id || null,
       managerName: managers[0]?.full_name || null,
@@ -647,7 +652,8 @@ export function buildPortionControlEmailHtml(
   const appBaseUrl = resolveAppBaseUrl()
   const actionUrl = `${appBaseUrl}/admin/food-cost/meats?store_id=${encodeURIComponent(String(alert.store_id))}&startDate=${encodeURIComponent(alert.period_start)}&endDate=${encodeURIComponent(alert.period_end)}&meat=${encodeURIComponent(alert.meat_key)}`
 
-  const subjectCore = `${isCritical ? '🚨 [CRÍTICO]' : '⚠️ [ALERTA PORCIÓN]'} #${alert.store_id} ${alert.store_name} — ${alert.meat_name.toUpperCase()}: +${alert.variance_bags.toFixed(1)} bolsas (+${formatSignedUSD(alert.dollar_loss_store)}) en ${alert.span_days}d`
+  const cleanAlertStoreName = formatStoreDisplayName({ id: alert.store_id, name: alert.store_name }) || alert.store_name
+  const subjectCore = `${isCritical ? '🚨 [CRÍTICO]' : '⚠️ [ALERTA PORCIÓN]'} ${cleanAlertStoreName} — ${alert.meat_name.toUpperCase()}: +${alert.variance_bags.toFixed(1)} bolsas (+${formatSignedUSD(alert.dollar_loss_store)}) en ${alert.span_days}d`
   const subject = isTest ? `[PRUEBA] ${subjectCore}` : subjectCore
 
   const html = `<!DOCTYPE html>
@@ -664,7 +670,7 @@ export function buildPortionControlEmailHtml(
                 Tacos Gavilan · Control de Porciones y Cadena de Mando
               </div>
               <div style="font-size:21px;font-weight:800;margin-top:6px;">
-                ${isAsada ? '🥩 PRIORIDAD #1 CARNE ASADA' : `🥩 ${escapeHtml(alert.meat_name.toUpperCase())}`} — Sucursal #${alert.store_id} ${escapeHtml(alert.store_name)}
+                ${isAsada ? '🥩 PRIORIDAD #1 CARNE ASADA' : `🥩 ${escapeHtml(alert.meat_name.toUpperCase())}`} — Sucursal ${escapeHtml(cleanAlertStoreName)}
               </div>
               <div style="margin-top:8px;font-size:13px;opacity:0.95;">
                 Periodo medido: <strong>${escapeHtml(alert.period_start)}</strong> al <strong>${escapeHtml(alert.period_end)}</strong> (${alert.span_days} días · Anclas físicas ${escapeHtml(alert.anchor_t0)} → ${escapeHtml(alert.anchor_t1)})
@@ -873,14 +879,14 @@ export async function scanPortionControlAlerts(
   if (usersErr) throw new Error(`Error cargando usuarios: ${usersErr.message}`)
   if (itemsErr) throw new Error(`Error cargando catálogo de carnes: ${itemsErr.message}`)
 
-  const stores = (storesData || []) as Array<{
+  const stores = sortStoresAlphabetically((storesData || []) as Array<{
     id: number
     name: string
     code: string | null
     external_id: string | null
     supervisor_id: number | null
     supervisor_name: string | null
-  }>
+  }>, (s) => s.name, { pinSpecialFirst: false })
 
   if (stores.length === 0) {
     return {
@@ -930,6 +936,7 @@ export async function scanPortionControlAlerts(
     scheduleRows,
     checklistRows,
     priorAlertsRows,
+    confirmedTransfers,
   ] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase
@@ -946,6 +953,7 @@ export async function scanPortionControlAlerts(
       supabase
         .from('inventory_orders')
         .select('id, store_id, order_date, status')
+        .eq('order_type', 'daily')
         .in('store_id', storeIdsNumeric)
         .in('status', ['sent', 'received'])
         .gte('order_date', anchorLookbackStart)
@@ -1033,7 +1041,15 @@ export async function scanPortionControlAlerts(
       .in('store_id', storeIdsNumeric)
       .gte('period_end', addDaysIso(resolvedEndDate, -21))
       .then((r) => r.data || []),
+    fetchConfirmedStoreTransfers({
+      supabase,
+      storeIds: storeIdsNumeric,
+      itemIds,
+      minDate: anchorLookbackStart,
+      maxDate: resolvedEndDate,
+    }).catch(() => []),
   ])
+  const transferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, new Set(storeIdsNumeric))
 
   // Cargar líneas de las órdenes encontradas (en lotes limpios)
   const orderIds = ordersHeaderRows.map((o: any) => String(o.id))
@@ -1412,10 +1428,13 @@ export async function scanPortionControlAlerts(
       const bodegaCostPerBag = round2(bench.defaultBodegaBagCost * costRatio)
       const yieldFactor = liveItem && liveItem.yieldFactor > 0 ? liveItem.yieldFactor : bench.defaultYieldFactor
 
-      // Sumar entregas en [t0, t1)
+      // Sumar entregas en [t0, t1) + traspasos confirmados entre tiendas en (t0, t1]
       let arrivedBags = 0
       for (let d = t0; d < t1; d = addDaysIso(d, 1)) {
         arrivedBags += arrivedByStoreItemDate.get(`${storeId}|${bench.inventoryItemId}|${d}`) || 0
+      }
+      for (let d = addDaysIso(t0, 1); d <= t1; d = addDaysIso(d, 1)) {
+        arrivedBags += transferNetMap.get(`${storeId}::${bench.inventoryItemId}::${d}`)?.netQty || 0
       }
 
       // Sumar consumo exacto Toast POS (`PMIX` con `bundleModifiers: true`) en (t0, t1] y proporción AM vs PM
@@ -1546,7 +1565,7 @@ export async function scanPortionControlAlerts(
       triggeredAlerts.push({
         id: existingRow?.id,
         store_id: storeId,
-        store_name: store.name,
+        store_name: formatStoreDisplayName(store) || store.name,
         period_start: periodStart,
         period_end: periodEnd,
         anchor_t0: t0,
@@ -1773,7 +1792,8 @@ export async function scanPortionControlAlerts(
       alert.email_sent_at = sentIso
 
       if (!safeTestTo && escalera.bellUserIds.length > 0) {
-          const notifTitle = `${alert.severity === 'critical' ? '🚨' : '⚠️'} Porción ${alert.meat_name}: #${alert.store_id} ${alert.store_name}`
+          const cleanBellStore = formatStoreDisplayName({ id: alert.store_id, name: alert.store_name }) || alert.store_name
+          const notifTitle = `${alert.severity === 'critical' ? '🚨' : '⚠️'} Porción ${alert.meat_name}: ${cleanBellStore}`
           const notifMsg = `Exceso físico de +${alert.variance_bags.toFixed(1)} bolsas (+${formatSignedUSD(alert.dollar_loss_store)}) en ${alert.span_days}d (${alert.period_start}..${alert.period_end}). Revisa gramaje y registra acción.`
           const bellRows = escalera.bellUserIds.map((uid) => ({
             user_id: String(uid),
@@ -1866,7 +1886,7 @@ export async function sendExistingPortionAlertById(params: {
   ])
 
   if (!storeRow) {
-    throw new Error(`Sucursal #${row.store_id} no encontrada`)
+    throw new Error(`Sucursal ${formatStoreDisplayName(row.store_id) || row.store_id} no encontrada`)
   }
 
   const escaleraMap = buildEscaleraByStore([storeRow as any], usersData || [])
@@ -1877,7 +1897,7 @@ export async function sendExistingPortionAlertById(params: {
   const alertObj: ComputedPortionAlert = {
     id: row.id,
     store_id: Number(row.store_id),
-    store_name: row.store_name,
+    store_name: formatStoreDisplayName({ id: row.store_id, name: row.store_name }) || row.store_name,
     period_start: row.period_start,
     period_end: row.period_end,
     anchor_t0: addDaysIso(row.period_start, -1),

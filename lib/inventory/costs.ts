@@ -86,8 +86,9 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
         if (!item) return
         
         // --- Filter Packaging by Dining Option ---
+        // Excepción: `virtual-party-tray` incluye siempre su kit completo de charolas, tapas, galones y utensilios en todos los canales (incl. Delivery)
         const type = ing.type || 'food'
-        if (type !== 'food' && diningOption !== undefined) {
+        if (type !== 'food' && diningOption !== undefined && recipe.id !== 'virtual-party-tray') {
             const doLower = diningOption.toLowerCase()
             
             const isDineIn = doLower.includes('here') || doLower.includes('dine')

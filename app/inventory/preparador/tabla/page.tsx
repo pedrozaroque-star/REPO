@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { Store, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
@@ -72,9 +73,13 @@ export default function TablaMaximosPage() {
         const fetchStores = async () => {
             const { data } = await supabase.from('stores').select('id, name').eq('is_active', true).order('name')
             if (data && data.length > 0) {
-                setStores(data)
-                const slauson = data.find(s => s.name.toLowerCase().includes('slauson'))
-                setStoreId(slauson ? slauson.id : data[0].id)
+                const sorted = sortStoresAlphabetically(
+                    data.map((s: any) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+                    (s: any) => s.name
+                )
+                setStores(sorted)
+                const slauson = sorted.find(s => s.name.toLowerCase().includes('slauson'))
+                setStoreId(slauson ? slauson.id : sorted[0].id)
             }
         }
         fetchStores()

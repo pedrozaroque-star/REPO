@@ -58,6 +58,10 @@ import {
   isExternalTrackOnlyDessert,
   isImplausibleArrivalQuantity,
 } from './automation-pilot'
+import {
+  buildStoreItemDateNetTransferMap,
+  fetchConfirmedStoreTransfers,
+} from './store-transfers'
 
 export interface MassBalanceCatalogItem {
   id: string
@@ -116,7 +120,7 @@ export interface HistoricalMassBalanceResult {
 const normalizeText = (val: string | null | undefined): string =>
   String(val || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
-/** IDs canónicos de los 19 insumos de Orden Diaria gobernados por Balance de Masas Histórico */
+/** IDs canónicos de los 20 insumos de Orden Diaria gobernados por Balance de Masas Histórico */
 export const MASS_BALANCE_CANONICAL_IDS = new Set<string>([
   '085ecb0d-c711-4134-ae1a-f7630a22759c', // Horchata
   'b6f3f5de-c554-4650-b0df-09dd5d3ca053', // Tamarindo Concentrate
@@ -128,6 +132,7 @@ export const MASS_BALANCE_CANONICAL_IDS = new Set<string>([
   'a639ad41-81bf-4de6-8dbc-0291005654ad', // 1.5 oz Salsa Roja Pack (400 ct)
   '6c0a3378-8309-48c9-a438-15313cabd9d8', // 1.5 oz Salsa Verde Pack (400 ct)
   '88a992db-c021-4719-88f9-58c70302392e', // Frijol Entero (10 lb salsabar)
+  '202c48b0-f9f9-4304-87a5-07d5e970f0cf', // Salsa Huevos Rancheros (2.3 lb bag)
   '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb', // 1 oz Bolsa de Mixta (190 ct)
   'ea165e4e-d939-49a8-af9a-7bc186f50e2e', // Onion/ Cil. Mix 1/4 (5 lb)
   '34720160-015c-4623-bb1e-98da0e7b4e51', // Queso Tortas/platos/Desayuno (20 pza)
@@ -164,6 +169,7 @@ const SALSABAR_AND_BULK_PATTERNS: RegExp[] = [
   /^salsa\s+(?:roja|verde)$/,
   /^1(?:\.5)?\s*oz\s*salsa\s*(?:roja|verde)\s*pack$/,
   /^frijol\s+entero$/,
+  /^salsa\s+huevos?\s+rancheros?$/,
   /^1\s*oz\s*bolsa\s*de\s*mixta$/,
   /^onion\/?\s*cil\.?\s*mix(?:\s*1\/4)?$/,
   /^queso\s+tortas\/platos\/desayuno$/,
@@ -225,9 +231,16 @@ export function calculateCausalMassBalanceFromSeries(params: {
   counts: HistoricalCountPoint[]
   arrivals: HistoricalOrderArrivalPoint[]
   sales: HistoricalDailySalesPoint[]
+  netTransfers?: Array<{ inventoryItemId: string; transferDate: string; netQty: number }>
   liveActiveOrders?: number
 }): HistoricalMassBalanceResult {
-  const { businessDate, items, counts, arrivals, sales, liveActiveOrders } = params
+  const { businessDate, items, counts, arrivals, sales, netTransfers, liveActiveOrders } = params
+  const netTransferByItemDate = new Map<string, number>()
+  for (const nt of netTransfers || []) {
+    if (!Number.isFinite(nt.netQty) || nt.netQty === 0) continue
+    const k = `${nt.inventoryItemId}:${nt.transferDate}`
+    netTransferByItemDate.set(k, (netTransferByItemDate.get(k) || 0) + nt.netQty)
+  }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
     return {
@@ -403,6 +416,7 @@ export function calculateCausalMassBalanceFromSeries(params: {
       let arr = 0
       for (let s = 0; s < span; s++) {
         arr += arrivalMap.get(`${item.id}:${shiftIsoDate(d0, s)}`) || 0
+        arr += netTransferByItemDate.get(`${item.id}:${shiftIsoDate(d0, s + 1)}`) || 0
       }
       if (c0 + arr - c1 < -2) {
         spikedCountDates.add(d1)
@@ -427,7 +441,7 @@ export function calculateCausalMassBalanceFromSeries(params: {
       const currCount = countMap.get(`${item.id}:${histDate}`)
       if (prevCount === undefined || currCount === undefined) continue
 
-      // Sumar todas las llegadas físicas en [prevDate, histDate) verificando que ninguna sea inverosímil
+      // Sumar todas las llegadas físicas en [prevDate, histDate) + traspasos confirmados en (prevDate, histDate]
       let arrived = 0
       let hasUnreliableSpanArrival = false
       for (let step = 0; step < spanDays; step++) {
@@ -438,6 +452,8 @@ export function calculateCausalMassBalanceFromSeries(params: {
           break
         }
         arrived += arrivalMap.get(arrivalKey) || 0
+        const dTransfer = shiftIsoDate(prevDate, step + 1)
+        arrived += netTransferByItemDate.get(`${item.id}:${dTransfer}`) || 0
       }
       if (hasUnreliableSpanArrival) continue
 
@@ -652,7 +668,7 @@ export async function getHistoricalMassBalanceUsage(
     const lookbackStart = shiftIsoDate(businessDate, -50)
     const targetIds = targetItems.map(i => i.id)
 
-    const [rawCounts, rawOrderLines, rawSales] = await Promise.all([
+    const [rawCounts, rawOrderLines, rawSales, confirmedTransfers] = await Promise.all([
       fetchPaginated<any>((from, to) =>
         db.from('inventory_counts')
           .select('inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
@@ -685,6 +701,13 @@ export async function getHistoricalMassBalanceUsage(
           .order('business_date', { ascending: true })
           .range(from, to)
       ),
+      fetchConfirmedStoreTransfers({
+        supabase: db,
+        storeIds: [storeId],
+        itemIds: targetIds,
+        minDate: lookbackStart,
+        maxDate: businessDate,
+      }),
     ])
 
     const counts: HistoricalCountPoint[] = rawCounts.map((r: any) => ({
@@ -709,12 +732,22 @@ export async function getHistoricalMassBalanceUsage(
       orderCount: Number(r.order_count ?? 0),
     }))
 
+    const transferNetMap = buildStoreItemDateNetTransferMap(
+      confirmedTransfers,
+      new Set([storeId])
+    )
+    const netTransfers = Array.from(transferNetMap.entries()).map(([k, v]) => {
+      const [, inventoryItemId, transferDate] = k.split('::')
+      return { inventoryItemId, transferDate, netQty: v.netQty }
+    })
+
     const computed = calculateCausalMassBalanceFromSeries({
       businessDate,
       items: targetItems,
       counts,
       arrivals,
       sales,
+      netTransfers,
       liveActiveOrders,
     })
     if (computed.status === 'ok') {

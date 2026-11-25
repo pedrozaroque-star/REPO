@@ -6,14 +6,15 @@
  *   y concilia contra las bolsas físicas consumidas de cámara fría (`Count(t0) + Arrived - Count(t1)`).
  *
  * @businessRules
- * - **7 Familias de Cocina (`DishFamilyKey`)**:
- *   1. `'tacos'` — Tacos regulares (`1.5 oz`), Carne Dorada (`1.9 oz`), Doble Carne (`3.0 oz`) y los sub-tacos individuales de esa proteína dentro de cada *Taco Plate* (`3` tacos por plato cuando los 3 son de esa proteína).
- *   2. `'burritos'` — Burritos regulares (`6.0 oz`), *Super Burrito*, *Wet Burrito*, *Meat Only Burrito* (`12.0 oz`), *Extra/Double Meat* y *Burritos de Huevo con Carne* (`3.0–4.0 oz`).
- *   3. `'quesadillas'` — Quesadillas de carne (`6.0 oz` regular y *Super Quesadilla*, `12.0 oz` Doble Carne, `3.0 oz` Mitad Carne).
- *   4. `'mulitas_vampiros'` — Mulitas, *Super Mulitas* y Vampiros (`1.5 oz` base, `3.0 oz` Doble Carne).
- *   5. `'tortas'` — Tortas de carne (`6.0 oz` base, `12.0 oz` Doble Carne, `3.0 oz` Torta con Huevo).
- *   6. `'plates_nachos_sides'` — Platos (*Plato Asada*, etc.), *Super Nachos / Nachos*, *Asada Fries / Fries*, *Sopes* (`1.5 oz`), *Tostadas*, *Side Order Carne* (`6.0 oz`), *Huevos con Carne* y combinaciones sin taco.
- *   7. `'party_trays_lbs'` — *Party Trays / Fiesta Platters* (`15-20`, `20-25`, `25-30`, `30-40 People` -> `6 / 7.5 / 10 / 12 lb` cocidas repartidas entre las carnes elegidas) y carnes individuales por libra (`2 lb / 6 lb / 12 lb Meat`).
+ * - **8 Familias Oficiales del Menú Real de Tacos Gavilan (`DishFamilyKey`)**:
+ *   1. `'tacos'` — Tacos regulares (`1.5 oz`), Carne Dorada (`1.9 oz`), Doble Carne (`3.0 oz`) y los sub-tacos individuales dentro de cada *Taco Plate* (`3` tacos por plato).
+ *   2. `'burritos'` — *Burrito* regular (`6.0 oz`), *Super Burrito* (`6.0 oz`), *Meat Only Burrito* / *Meat Only Super Burrito* (`12.0 oz`), *Double Meat* y *Burrito Huevos con Carne* (`3.0 oz`).
+ *   3. `'quesadillas'` — *Quesadilla* regular y *Super Quesadilla* (`6.0 oz`, `12.0 oz` Doble Carne, `3.0 oz` Mitad Carne).
+ *   4. `'mulitas'` — *Mulita* regular y *Super Mulita* (`1.5 oz` base, `3.0 oz` Doble Carne).
+ *   5. `'sopes'` — *Sope* (`1.5 oz` base, `3.0 oz` Doble Carne).
+ *   6. `'tortas'` — *Torta* (`6.0 oz` base, `12.0 oz` Doble Carne, `3.0 oz` *Torta Huevos con Carne*).
+ *   7. `'plates_nachos_sides'` — *Plato* (`6.0 oz`), *Super Nachos* (`6.0 oz`), *Side Order Carne* (`6.0 oz`) y *Huevos con Carne* (`3.0 oz`).
+ *   8. `'party_trays_lbs'` — *Party Trays / Fiesta Platters* (`15-20`, `20-25`, `25-30`, `30-40 People` -> `6 / 7.5 / 10 / 12 lb` cocidas repartidas entre las carnes elegidas) y carnes por libra (`2 lb / 6 lb / 12 lb Meat`).
  * - **Conteo Real de Tacos en Taco Plates**:
  *   Para un *Taco Plate* de cantidad `10` con los 3 sub-tacos de la proteína analizada, `ordersOrPlatesSold = 10` y `exactUnitsServed = 30` tacos reales servidos.
  *   Cuando el *Taco Plate* combina varias proteínas (ej. `2 Taco Asada + 1 Taco Pollo`) o incluye opciones sin carne (`Taco Vegetariano`), asigna exactamente los sub-tacos correspondientes a cada proteína sin inflar las demás.
@@ -37,7 +38,8 @@ export type DishFamilyKey =
   | 'tacos'
   | 'burritos'
   | 'quesadillas'
-  | 'mulitas_vampiros'
+  | 'mulitas'
+  | 'sopes'
   | 'tortas'
   | 'plates_nachos_sides'
   | 'party_trays_lbs'
@@ -46,7 +48,8 @@ export const DISH_FAMILY_ORDER: readonly DishFamilyKey[] = [
   'tacos',
   'burritos',
   'quesadillas',
-  'mulitas_vampiros',
+  'mulitas',
+  'sopes',
   'tortas',
   'plates_nachos_sides',
   'party_trays_lbs',
@@ -63,17 +66,17 @@ export interface DishFamilyCatalogMeta {
 export const DISH_FAMILY_METADATA: Record<DishFamilyKey, DishFamilyCatalogMeta> = {
   tacos: {
     familyKey: 'tacos',
-    labelEs: 'Tacos (Regulares, Dorados, Dobles y Taco Plates)',
-    labelEn: 'Tacos (Regular, Crispy Meat, Double & Taco Plates)',
-    standardRuleEs: '1.5 oz cocidas/taco (1.9 oz Carne Dorada, 3.0 oz Doble; Taco Plate = 3 sub-tacos)',
-    standardRuleEn: '1.5 oz cooked/taco (1.9 oz Crispy Meat, 3.0 oz Double; Taco Plate = 3 sub-tacos)',
+    labelEs: 'Tacos y Taco Plates',
+    labelEn: 'Tacos & Taco Plates',
+    standardRuleEs: '1.5 oz cocidas/taco (1.9 oz Carne Dorada, 3.0 oz Doble Carne; Taco Plate = 3 tacos)',
+    standardRuleEn: '1.5 oz cooked/taco (1.9 oz Crispy Meat, 3.0 oz Double Meat; Taco Plate = 3 tacos)',
   },
   burritos: {
     familyKey: 'burritos',
-    labelEs: 'Burritos (Regular, Super, Wet, Meat Only y Desayuno)',
-    labelEn: 'Burritos (Regular, Super, Wet, Meat Only & Breakfast)',
-    standardRuleEs: '6.0 oz cocidas/burrito (12.0 oz Meat Only / Doble Carne, 3.0–4.0 oz Huevo)',
-    standardRuleEn: '6.0 oz cooked/burrito (12.0 oz Meat Only / Double Meat, 3.0–4.0 oz Egg)',
+    labelEs: 'Burritos (Regular, Super, Meat Only y Huevos)',
+    labelEn: 'Burritos (Regular, Super, Meat Only & Eggs)',
+    standardRuleEs: '6.0 oz Regular/Super (12.0 oz Meat Only / Doble Carne, 3.0 oz Burrito Huevos)',
+    standardRuleEn: '6.0 oz Regular/Super (12.0 oz Meat Only / Double Meat, 3.0 oz Egg Burrito)',
   },
   quesadillas: {
     familyKey: 'quesadillas',
@@ -82,33 +85,40 @@ export const DISH_FAMILY_METADATA: Record<DishFamilyKey, DishFamilyCatalogMeta> 
     standardRuleEs: '6.0 oz cocidas/quesadilla (12.0 oz Doble Carne, 3.0 oz Mitad Carne)',
     standardRuleEn: '6.0 oz cooked/quesadilla (12.0 oz Double Meat, 3.0 oz Half Meat)',
   },
-  mulitas_vampiros: {
-    familyKey: 'mulitas_vampiros',
-    labelEs: 'Mulitas y Vampiros',
-    labelEn: 'Mulitas & Vampiros',
-    standardRuleEs: '1.5 oz cocidas/pieza (Mulita, Super Mulita y Vampiro; 3.0 oz Doble Carne)',
-    standardRuleEn: '1.5 oz cooked/piece (Mulita, Super Mulita & Vampiro; 3.0 oz Double Meat)',
+  mulitas: {
+    familyKey: 'mulitas',
+    labelEs: 'Mulitas (Regular y Super Mulita)',
+    labelEn: 'Mulitas (Regular & Super Mulita)',
+    standardRuleEs: '1.5 oz cocidas/mulita (3.0 oz Doble Carne)',
+    standardRuleEn: '1.5 oz cooked/mulita (3.0 oz Double Meat)',
+  },
+  sopes: {
+    familyKey: 'sopes',
+    labelEs: 'Sopes',
+    labelEn: 'Sopes',
+    standardRuleEs: '1.5 oz cocidas/sope (3.0 oz Doble Carne)',
+    standardRuleEn: '1.5 oz cooked/sope (3.0 oz Double Meat)',
   },
   tortas: {
     familyKey: 'tortas',
-    labelEs: 'Tortas',
-    labelEn: 'Tortas',
-    standardRuleEs: '6.0 oz cocidas/torta (12.0 oz Doble Carne, 3.0 oz Torta con Huevo)',
+    labelEs: 'Tortas (Regular y Huevos con Carne)',
+    labelEn: 'Tortas (Regular & Eggs with Meat)',
+    standardRuleEs: '6.0 oz cocidas/torta (12.0 oz Doble Carne, 3.0 oz Torta Huevos)',
     standardRuleEn: '6.0 oz cooked/torta (12.0 oz Double Meat, 3.0 oz Egg Torta)',
   },
   plates_nachos_sides: {
     familyKey: 'plates_nachos_sides',
-    labelEs: 'Platos, Nachos, Fries, Sopes, Tostadas y Órdenes de Carne',
-    labelEn: 'Plates, Nachos, Fries, Sopes, Tostadas & Meat Sides',
-    standardRuleEs: '6.0 oz Platos/Nachos/Fries/Side Carne; 1.5 oz Sopes/Tostadas; 3.0–4.0 oz Huevos',
-    standardRuleEn: '6.0 oz Plates/Nachos/Fries/Meat Side; 1.5 oz Sopes/Tostadas; 3.0–4.0 oz Eggs',
+    labelEs: 'Platos, Super Nachos, Huevos y Side Order Carne',
+    labelEn: 'Plates, Super Nachos, Eggs & Side Order Meat',
+    standardRuleEs: '6.0 oz Plato / Super Nachos / Side Order Carne; 3.0 oz Huevos con Carne',
+    standardRuleEn: '6.0 oz Plate / Super Nachos / Side Order Meat; 3.0 oz Eggs with Meat',
   },
   party_trays_lbs: {
     familyKey: 'party_trays_lbs',
-    labelEs: 'Party Trays / Charolas y Carnes por Libra',
-    labelEn: 'Party Trays / Platters & Meat by the Pound',
-    standardRuleEs: 'Charolas 6 / 7.5 / 10 / 12 lb cocidas (divididas por carnes) y órdenes 2 / 6 / 12 lb',
-    standardRuleEn: '6 / 7.5 / 10 / 12 lb cooked trays (split across chosen meats) & 2 / 6 / 12 lb orders',
+    labelEs: 'Party Trays / Fiesta Platters y Carne por Libra (2 / 6 / 12 lb)',
+    labelEn: 'Party Trays / Fiesta Platters & Meat by the Pound (2 / 6 / 12 lb)',
+    standardRuleEs: 'Party Trays 6 / 7.5 / 10 / 12 lb cocidas y órdenes 2 / 6 / 12 lb Meat',
+    standardRuleEn: '6 / 7.5 / 10 / 12 lb cooked Party Trays & 2 / 6 / 12 lb Meat orders',
   },
 }
 
@@ -328,7 +338,11 @@ export function resolveTacoPlateProteinPortion(params: {
   }
 
   const subTacosPerOrder = (3 * targetMatches) / slots.length
-  const cookedOzPerOrder = subTacosPerOrder * 1.5 // 4.5 oz totales por plato de 3 tacos
+  const combinedNorm = rawSources.join(' ')
+  const hasDoubleMeat = /\b(?:double|doble|extra)\s*(?:meat|carne)\b/.test(combinedNorm)
+  const hasCarneDorada = /\bcarne\s*dorada\b/.test(combinedNorm)
+  const ozPerSubTaco = 1.5 + (hasDoubleMeat ? 1.5 : 0) + (hasCarneDorada ? 0.4 : 0)
+  const cookedOzPerOrder = subTacosPerOrder * ozPerSubTaco // 4.5 oz base por plato de 3 tacos (+ extras si aplica)
 
   return {
     recognizedSlotsCount: slots.length,
@@ -363,7 +377,7 @@ export function classifyMeatDishFamily(rawItemName?: string | null, toastGuid?: 
     return 'tacos'
   }
 
-  // 3. Burritos (Regular, Super, Wet, Meat Only, Huevos con Carne)
+  // 3. Burritos (Regular, Super, Meat Only y Huevos con Carne)
   if (/\bburritos?\b/.test(baseNorm)) {
     return 'burritos'
   }
@@ -373,17 +387,22 @@ export function classifyMeatDishFamily(rawItemName?: string | null, toastGuid?: 
     return 'quesadillas'
   }
 
-  // 5. Mulitas y Vampiros
-  if (/\b(?:mulitas?|vampiros?)\b/.test(baseNorm)) {
-    return 'mulitas_vampiros'
+  // 5. Mulitas (Regular y Super Mulita)
+  if (/\bmulitas?\b/.test(baseNorm)) {
+    return 'mulitas'
   }
 
-  // 6. Tortas
+  // 6. Sopes
+  if (/\bsopes?\b/.test(baseNorm)) {
+    return 'sopes'
+  }
+
+  // 7. Tortas
   if (/\btortas?\b/.test(baseNorm)) {
     return 'tortas'
   }
 
-  // 7. Platos, Nachos, Fries, Sopes, Tostadas, Side Order Carne, Huevos y Combinaciones non-taco
+  // 8. Platos, Super Nachos, Side Order Carne y Huevos con Carne
   return 'plates_nachos_sides'
 }
 
@@ -525,9 +544,11 @@ export function buildBagCookingReconciliation(
     tacosServed: round2(accumulators.get('tacos')!.exactUnitsServed),
     burritosServed: round2(accumulators.get('burritos')!.exactUnitsServed),
     quesadillasServed: round2(accumulators.get('quesadillas')!.exactUnitsServed),
-    mulitasServed: round2(accumulators.get('mulitas_vampiros')!.exactUnitsServed),
+    mulitasServed: round2(accumulators.get('mulitas')!.exactUnitsServed),
     tortasServed: round2(accumulators.get('tortas')!.exactUnitsServed),
-    platesSidesServed: round2(accumulators.get('plates_nachos_sides')!.exactUnitsServed),
+    platesSidesServed: round2(
+      accumulators.get('plates_nachos_sides')!.exactUnitsServed + accumulators.get('sopes')!.exactUnitsServed
+    ),
     partyTraysAndLbsServed: round2(accumulators.get('party_trays_lbs')!.exactUnitsServed),
     totalCookedOz: round2(exactTotalCookedOz),
     totalCookedLbs: round2(exactTotalCookedLbs),

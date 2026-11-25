@@ -28,6 +28,10 @@
             "schedule": "0 18 * * *"
         },
         {
+            "path": "/api/cron/check-missing-meat-modifiers",
+            "schedule": "20 18 * * *"
+        },
+        {
             "path": "/api/cron/sync-food-cost",
             "schedule": "0 19 * * *"
         },

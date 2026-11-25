@@ -76,6 +76,11 @@ import { getMissingDailyCounts } from '@/lib/inventory/order-count-validation'
 import { getCronSecret, getServerUser, safeTimingEqual, type ServerUser } from '@/lib/auth-server'
 import { getPilotTicketUsage, type PilotTicketUsage } from '@/lib/inventory/pilot-ticket-usage'
 import {
+    buildStoreItemDateNetTransferMap,
+    fetchConfirmedStoreTransfers,
+    type NetStoreTransferBucket,
+} from '@/lib/inventory/store-transfers'
+import {
     getHistoricalMassBalanceUsage,
     isAutoCycleCountRecord,
     isHistoricalMassBalanceItem,
@@ -935,7 +940,7 @@ export async function calculateDailyOrder(
     const targetField = overrideDayField && overrideDayField !== 'auto' ? overrideDayField : nextDayBaseField
     const actualTargetField = (orderType === 'liquids' || orderType === 'uniforms') ? 'mon_par' : targetField
 
-    const MAX_TELESCOPIC_LOOKBACK_DAYS = 7
+    const MAX_TELESCOPIC_LOOKBACK_DAYS = 16
     const lookbackStartStr = addDays(dateStr, -MAX_TELESCOPIC_LOOKBACK_DAYS)
 
     let storeMode: InventoryAutomationMode = 'off'
@@ -1017,24 +1022,27 @@ export async function calculateDailyOrder(
             return true
         })
 
-        if (anyMissingAnchor) {
+        if (anyMissingAnchor || !countSources) {
             const { data: fallbackPriorRows } = await supabase
                 .from('inventory_counts')
                 .select('inventory_item_id, count_date, quantity_on_hand, counted_by, notes')
                 .eq('store_id', String(storeId))
                 .gte('count_date', lookbackStartStr)
                 .lt('count_date', dateStr)
-                .limit(1000)
+                .limit(5000)
 
             fallbackPriorRows?.forEach((r: any) => {
                 if (r.quantity_on_hand === null || r.quantity_on_hand === undefined) return
-                if (isAutoCycleCountRecord({ countedBy: r.counted_by, notes: r.notes })) return
+                if (isAutoCycleCountRecord({ countedBy: r.counted_by, notes: r.notes })) {
+                    if (mergedPriorCounts[r.inventory_item_id]) {
+                        delete mergedPriorCounts[r.inventory_item_id][r.count_date]
+                    }
+                    return
+                }
                 const num = Number(r.quantity_on_hand)
                 if (!Number.isFinite(num)) return
                 if (!mergedPriorCounts[r.inventory_item_id]) mergedPriorCounts[r.inventory_item_id] = {}
-                if (mergedPriorCounts[r.inventory_item_id][r.count_date] === undefined) {
-                    mergedPriorCounts[r.inventory_item_id][r.count_date] = num
-                }
+                mergedPriorCounts[r.inventory_item_id][r.count_date] = num
             })
         }
     }
@@ -1163,6 +1171,7 @@ export async function calculateDailyOrder(
     let recentOrderError: { message: string } | null = null
     const arrivedByOrderDate = new Map<string, Map<string, number>>()
     const unreliableArrivalByOrderDate = new Map<string, Set<string>>()
+    let storeTransferNetMap = new Map<string, NetStoreTransferBucket>()
     let hasSentOrderToday = false
 
     const trackOnlyIdsInCatalog = new Set(
@@ -1170,14 +1179,23 @@ export async function calculateDailyOrder(
     )
 
     if (orderType === 'daily') {
-        const { data: recentOrderLines, error: orderErr } = await supabase
-            .from('inventory_order_lines')
-            .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, order_id, inventory_orders!inner(order_date, store_id, order_type, status)')
-            .eq('inventory_orders.store_id', storeId)
-            .gte('inventory_orders.order_date', lookbackStartStr)
-            .lte('inventory_orders.order_date', dateStr)
-            .eq('inventory_orders.order_type', 'daily')
-            .in('inventory_orders.status', ['sent', 'received'])
+        const [{ data: recentOrderLines, error: orderErr }, confirmedTransfers] = await Promise.all([
+            supabase
+                .from('inventory_order_lines')
+                .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, order_id, inventory_orders!inner(order_date, store_id, order_type, status)')
+                .eq('inventory_orders.store_id', storeId)
+                .gte('inventory_orders.order_date', lookbackStartStr)
+                .lte('inventory_orders.order_date', dateStr)
+                .eq('inventory_orders.order_type', 'daily')
+                .in('inventory_orders.status', ['sent', 'received']),
+            fetchConfirmedStoreTransfers({
+                supabase,
+                storeIds: [Number(storeId)],
+                minDate: lookbackStartStr,
+                maxDate: dateStr,
+            }).catch(() => []),
+        ])
+        storeTransferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, new Set([Number(storeId)]))
 
         if (orderErr) {
             recentOrderError = { message: orderErr.message }
@@ -1268,6 +1286,9 @@ export async function calculateDailyOrder(
                     }
 
                     const usageD = addDays(anchor.anchorDate, offset + 1) // [anchorDate + 1 .. dateStr]
+                    if (!isTrackOnly) {
+                        arrivedSinceAnchor += storeTransferNetMap.get(`${Number(storeId)}::${item.id}::${usageD}`)?.netQty || 0
+                    }
                     const usageDow = new Date(`${usageD}T12:00:00Z`).getUTCDay()
                     // El cierre dominical en getPilotTicketUsage y getHistoricalMassBalanceUsage ya integra Sáb+Dom
                     if (usageDow === 6 && addDays(usageD, 1) <= dateStr) {
@@ -1720,7 +1741,7 @@ export async function finalizeInventoryPilotCount(
         const serverLine = serverLineMap.get(line.inventory_item_id)
         return buildPilotComparisonLine({
             ...line,
-            automatic_leftover: serverLine?.suggested_leftover ?? line.automatic_leftover ?? null,
+            automatic_leftover: serverLine ? (serverLine.suggested_leftover ?? null) : null,
             par_value: serverLine ? serverLine.par_value : line.par_value,
             rounding_rule: serverLine?.rounding_rule || line.rounding_rule,
         })

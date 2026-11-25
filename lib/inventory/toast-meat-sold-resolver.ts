@@ -10,7 +10,7 @@
  *   * Aplica las 4 ramas deterministas por platillo y modificador:
  *     1. `Party Trays / Fiesta Platters` (`buildPartyTrayVirtualIngredients` 15-20, 20-25, 25-30, 30-40 personas).
  *     2. `Taco Plate` (`resolveTacoPlateProteinPortion`: 3 sub-tacos = `4.5 oz` cocidas repartidas según selección).
- *     3. `parseProteinAllocation` (`Half 50/50`, `Carne Dorada 1.9 oz`, `Double/Extra +100%`, `Meat Only 12 oz`, `Catering 2/6/12 lb`, `Side Order 4 oz`).
+ *     3. `parseProteinAllocation` (`Half 50/50`, `Carne Dorada 1.9 oz`, `Double/Extra +100%`, `Meat Only 12 oz`, `Catering 2/6/12 lb`, `Side Order 6 oz`).
  *     4. Receta directa paginada de `public.recipes` respetando estrictamente `r.type === 'raw'` (`Chorizo`) vs `'cooked' | 'food'`.
  * - **Libro Diario Real del Refrigerador (`Orden Diaria` Bolsas Cerradas + Facturas QBO de La Bodega)**:
  *   * Respeta el contrato oficial: en `Orden Diaria` las carnes se cuentan **exclusivamente en bolsas cerradas**
@@ -58,6 +58,10 @@ import {
   resolveTacoPlateProteinPortion,
   type DishFamilyKey,
 } from '@/lib/inventory/meat-dish-equivalence'
+import {
+  buildStoreItemDateNetTransferMap,
+  fetchConfirmedStoreTransfers,
+} from '@/lib/inventory/store-transfers'
 import { reconcileStoreOrdersWithQbInvoices } from '@/lib/inventory/qb-shipped-reconciliation'
 
 export const BAG_CUTOVER_DATE = '2026-07-24'
@@ -551,7 +555,7 @@ export function evaluatePmixItemsForProtein(params: {
     } else if (isTacoPlateMenuItem(itemName) && proteinKey) {
       const platePortion = resolveTacoPlateProteinPortion({
         itemName,
-        modifierTexts: uniqueModifierTexts,
+        modifierTexts,
         proteinKey,
       })
       if (platePortion.recognizedSlotsCount > 0) {
@@ -651,7 +655,7 @@ export function evaluatePmixItemsForProtein(params: {
     if (rowFamilyKey === 'tacos') usage.tacosUnits += rowExactUnitsServed
     else if (rowFamilyKey === 'burritos') usage.burritosUnits += rowExactUnitsServed
     else if (rowFamilyKey === 'quesadillas') usage.quesadillasUnits += rowExactUnitsServed
-    else if (rowFamilyKey === 'mulitas_vampiros') usage.mulitasUnits += rowExactUnitsServed
+    else if (rowFamilyKey === 'mulitas') usage.mulitasUnits += rowExactUnitsServed
     else if (rowFamilyKey === 'tortas') usage.tortasUnits += rowExactUnitsServed
     else if (rowFamilyKey === 'plates_nachos_sides') usage.platesUnits += rowExactUnitsServed
     else if (rowFamilyKey === 'party_trays_lbs') usage.partyTraysCookedLbs += rowCookedLbs
@@ -821,7 +825,7 @@ export async function computeToastVsFridgeForIngredient(params: {
     new Set([...targetStoreIds.map(String), ...ctx.stores.map((s) => s.external_id)])
   )
 
-  const [rawCounts, rawOrderLines] = await Promise.all([
+  const [rawCounts, rawOrderLines, confirmedTransfers] = await Promise.all([
     possibleCountStoreTokens.length > 0
       ? fetchAllPaginated<any>((from, to) =>
           supabase
@@ -853,7 +857,17 @@ export async function computeToastVsFridgeForIngredient(params: {
             .range(from, to)
         )
       : Promise.resolve([]),
+    targetStoreIds.length > 0
+      ? fetchConfirmedStoreTransfers({
+          supabase,
+          storeIds: targetStoreIds,
+          itemIds: [params.inventoryItemId],
+          minDate: anchorLookbackStart,
+          maxDate: params.endDate,
+        }).catch(() => [])
+      : Promise.resolve([]),
   ])
+  const transferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, targetStoreIdSet)
 
   // 1. Calcular ventas exactas de Toast por `(storeId, businessDate)` desde `addDaysIso(anchorLookbackStart, 1)` hasta `endDate`
   const toastByStoreAndDate = new Map<string, StoreDayProteinToastUsage>()
@@ -998,6 +1012,14 @@ export async function computeToastVsFridgeForIngredient(params: {
       let intervalBurritos = 0
       for (let step = 1; step <= spanDays; step++) {
         const dBiz = addDaysIso(prevAnchorDate, step)
+        const tr = transferNetMap.get(`${store.id}::${params.inventoryItemId}::${dBiz}`)
+        if (tr && tr.netQty !== 0) {
+          arrBags += tr.netQty
+          arrLbs += tr.netQty * getHistoricalMeatBagLbs(proteinKey, dBiz, bagWeightLbs)
+          for (const tag of tr.transferTags) {
+            if (!invNums.includes(tag)) invNums.push(tag)
+          }
+        }
         const u = toastByStoreAndDate.get(`${store.id}::${dBiz}`)
         if (u) {
           intervalToastRawLbs += u.rawLbs
@@ -1128,6 +1150,13 @@ export async function computeToastVsFridgeForIngredient(params: {
       let pBurritos = 0
       for (let step = 1; step <= pendingSpan; step++) {
         const dBiz = addDaysIso(lastCountCovered, step)
+        const tr = transferNetMap.get(`${store.id}::${params.inventoryItemId}::${dBiz}`)
+        if (tr && tr.netQty !== 0) {
+          arrBags += tr.netQty
+          for (const tag of tr.transferTags) {
+            if (!invNums.includes(tag)) invNums.push(tag)
+          }
+        }
         const u = toastByStoreAndDate.get(`${store.id}::${dBiz}`)
         if (u) {
           pToastLbs += u.rawLbs
@@ -1243,6 +1272,14 @@ export async function computeToastVsFridgeForIngredient(params: {
     let spanToastRawLbs = 0
     for (let step = 1; step <= pair.spanDays; step++) {
       const dBiz = addDaysIso(pair.t0, step)
+      const tr = transferNetMap.get(`${store.id}::${params.inventoryItemId}::${dBiz}`)
+      if (tr && tr.netQty !== 0) {
+        spanArrBags += tr.netQty
+        spanArrLbs += tr.netQty * getHistoricalMeatBagLbs(proteinKey, dBiz, bagWeightLbs)
+        for (const tag of tr.transferTags) {
+          if (!spanInvoices.includes(tag)) spanInvoices.push(tag)
+        }
+      }
       const u = toastByStoreAndDate.get(`${store.id}::${dBiz}`)
       if (u) spanToastRawLbs += u.rawLbs
     }

@@ -33,6 +33,7 @@
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import { DEFAULT_LEADERSHIP_CC } from '@/lib/ronos-email'
 import { resolveAppBaseUrl } from '@/lib/basecamp-todo-email'
 import { escapeHtmlSafe, validateEmployeeViolationEmail } from '@/lib/break-violations-policy'
@@ -363,7 +364,7 @@ async function resolveStoreChainContacts(storeId: number, fallbackStoreName?: st
 
   return {
     storeId,
-    storeName: storeRow?.name || fallbackStoreName || `Sucursal #${storeId}`,
+    storeName: formatStoreDisplayName({ id: storeId, name: storeRow?.name || fallbackStoreName }) || 'Sucursal',
     externalId: storeRow?.external_id || null,
     managerName: managers[0]?.full_name || null,
     managerEmail,
@@ -513,11 +514,12 @@ export function buildStrikeEscalationEmailHtml(params: {
       ? '⚠️ STRIKE #2 • ACTA FINAL + SUSPENSIÓN SIN GOCE'
       : '📌 STRIKE #1 • AMONESTACIÓN ESCRITA + BÁSCULA'
 
+  const cleanActionStore = formatStoreDisplayName({ id: action.store_id, name: action.store_name }) || action.store_name
   const baseSubject = isExpulsion
-    ? `🚨 [URGENTE — BAJA OBLIGATORIA POR REINCIDENCIA] #${action.store_id} ${action.store_name} — ${action.employee_name} (${action.employee_role}) • Strike #${action.offense_number} en Porciones (${action.meat_name})`
+    ? `🚨 [URGENTE — BAJA OBLIGATORIA POR REINCIDENCIA] ${cleanActionStore} — ${action.employee_name} (${action.employee_role}) • Strike #${action.offense_number} en Porciones (${action.meat_name})`
     : isStrike2
-      ? `⚠️ [STRIKE 2 — SUSPENSIÓN Y ADVERTENCIA FINAL] #${action.store_id} ${action.store_name} — ${action.employee_name} (${action.employee_role}) • Sobre-Porcionado ${action.meat_name}`
-      : `📌 [STRIKE 1 — AMONESTACIÓN Y BÁSCULA] #${action.store_id} ${action.store_name} — ${action.employee_name} (${action.employee_role})`
+      ? `⚠️ [STRIKE 2 — SUSPENSIÓN Y ADVERTENCIA FINAL] ${cleanActionStore} — ${action.employee_name} (${action.employee_role}) • Sobre-Porcionado ${action.meat_name}`
+      : `📌 [STRIKE 1 — AMONESTACIÓN Y BÁSCULA] ${cleanActionStore} — ${action.employee_name} (${action.employee_role})`
 
   const subject = isTest ? `[PRUEBA] ${baseSubject}` : baseSubject
   const appBaseUrl = resolveAppBaseUrl()
@@ -540,7 +542,7 @@ export function buildStrikeEscalationEmailHtml(params: {
                 ${escapeHtmlSafe(badgeText)}
               </div>
               <div style="font-size:13px;margin-top:6px;opacity:0.95;">
-                Sucursal: <strong>#${action.store_id} ${escapeHtmlSafe(action.store_name)}</strong>
+                Sucursal: <strong>${escapeHtmlSafe(cleanActionStore)}</strong>
                 ${periodStart && periodEnd ? ` · Ventana auditada: <strong>${escapeHtmlSafe(periodStart)} → ${escapeHtmlSafe(periodEnd)}</strong>` : ''}
               </div>
             </td>
@@ -630,11 +632,12 @@ export function buildEmployeePortionStrikeEmailHtml(params: {
       ? '⚠️ SEGUNDA REINCIDENCIA (STRIKE #2) — ACTA FINAL Y SUSPENSIÓN SIN GOCE'
       : '📌 PRIMERA AMONESTACIÓN ESCRITA (STRIKE #1) — CALIBRACIÓN OBLIGATORIA EN BÁSCULA'
 
+  const cleanEmpStore = formatStoreDisplayName({ id: action.store_id, name: action.store_name }) || action.store_name
   const baseSubject = isExpulsion
-    ? `🚨 Tacos Gavilan: Notificación Formal de Baja por 3ª Reincidencia en Control de Porciones — ${action.store_name}`
+    ? `🚨 Tacos Gavilan: Notificación Formal de Baja por 3ª Reincidencia en Control de Porciones — ${cleanEmpStore}`
     : isStrike2
-      ? `⚠️ Tacos Gavilan: Strike #2 (Acta Final y Suspensión) en Control de Porciones — ${action.store_name}`
-      : `📌 Tacos Gavilan: Strike #1 (Amonestación Escrita y Báscula) en Control de Porciones — ${action.store_name}`
+      ? `⚠️ Tacos Gavilan: Strike #2 (Acta Final y Suspensión) en Control de Porciones — ${cleanEmpStore}`
+      : `📌 Tacos Gavilan: Strike #1 (Amonestación Escrita y Báscula) en Control de Porciones — ${cleanEmpStore}`
 
   const subject = isTest ? `[PRUEBA] ${baseSubject}` : baseSubject
 
@@ -650,7 +653,7 @@ export function buildEmployeePortionStrikeEmailHtml(params: {
     <div style="padding:24px;">
       <p style="font-size:15px;margin-top:0;">Estimado(a) <strong>${escapeHtmlSafe(action.employee_name)}</strong> (${escapeHtmlSafe(action.employee_role)}):</p>
       <p style="font-size:14px;line-height:1.6;color:#374151;">
-        Por medio del presente documento queda registrado en tu expediente operativo el <strong>Strike #${action.offense_number}</strong> correspondiente a la sucursal <strong>#${action.store_id} ${escapeHtmlSafe(action.store_name)}</strong> (Turno <strong>${escapeHtmlSafe(action.shift)}</strong>) en el control físico de porciones de <strong>${escapeHtmlSafe(action.meat_name)}</strong>.
+        Por medio del presente documento queda registrado en tu expediente operativo el <strong>Strike #${action.offense_number}</strong> correspondiente a la sucursal <strong>${escapeHtmlSafe(cleanEmpStore)}</strong> (Turno <strong>${escapeHtmlSafe(action.shift)}</strong>) en el control físico de porciones de <strong>${escapeHtmlSafe(action.meat_name)}</strong>.
       </p>
 
       <div style="background:#FEF2F2;border-left:4px solid #DC2626;padding:14px 16px;border-radius:8px;margin:18px 0;font-size:13px;line-height:1.65;">
@@ -807,7 +810,7 @@ export async function recordMandatoryPortionCorrectionAndStrike(
   const insertPayload = {
     alert_id: alertRow.id,
     store_id: storeId,
-    store_name: alertRow.store_name || contacts.storeName,
+    store_name: formatStoreDisplayName({ id: storeId, name: alertRow.store_name || contacts.storeName }) || contacts.storeName,
     employee_key: identity.employeeKey,
     employee_toast_guid: identity.employeeToastGuid,
     employee_user_id: identity.employeeUserId,
@@ -951,7 +954,7 @@ export async function recordMandatoryPortionCorrectionAndStrike(
             type: 'alert',
             title: isExpulsion
               ? `🚨 BAJA OBLIGATORIA (Strike #${stageInfo.offenseNumber}): ${cleanEmployeeName}`
-              : `⚠️ Strike #2 Suspensión: ${cleanEmployeeName} (#${storeId})`,
+              : `⚠️ Strike #2 Suspensión: ${cleanEmployeeName} (${contacts.storeName})`,
             message: `${alertRow.meat_name}: Pesaje báscula ${tacosOz.toFixed(2)} oz taco / ${burritosOz.toFixed(2)} oz burrito.`,
             link: `/admin/food-cost/meats?store_id=${storeId}&meat=${encodeURIComponent(String(alertRow.meat_key || 'asada'))}`,
             is_read: false,
@@ -1247,7 +1250,8 @@ export async function enforceOverduePortionAlerts(options?: {
       : Array.from(new Set(DEFAULT_LEADERSHIP_CC.filter((e) => !finalTo.includes(e))))
     const finalBcc = testCheck.email || finalTo.includes('carlos@tacosgavilan.com') ? [] : ['carlos@tacosgavilan.com']
 
-    const baseSubject = `⏰ [INCUMPLIMIENTO GERENCIAL >24H] #${storeId} ${alert.store_name} — Sin Corrección de Báscula ni Strike (${alert.meat_name} +${Number(alert.variance_bags || 0).toFixed(1)} bolsas)`
+    const cleanOverdueStore = formatStoreDisplayName({ id: storeId, name: alert.store_name || contacts.storeName }) || contacts.storeName
+    const baseSubject = `⏰ [INCUMPLIMIENTO GERENCIAL >24H] ${cleanOverdueStore} — Sin Corrección de Báscula ni Strike (${alert.meat_name} +${Number(alert.variance_bags || 0).toFixed(1)} bolsas)`
     const subject = testCheck.email ? `[PRUEBA] ${baseSubject}` : baseSubject
     const appBaseUrl = resolveAppBaseUrl()
     const actionUrl = `${appBaseUrl}/admin/food-cost/meats?store_id=${encodeURIComponent(String(storeId))}&meat=${encodeURIComponent(String(alert.meat_key || 'asada'))}`
@@ -1259,7 +1263,7 @@ export async function enforceOverduePortionAlerts(options?: {
   <div style="max-width:640px;margin:20px auto;background:#FFFFFF;border:2px solid #DC2626;border-radius:12px;overflow:hidden;">
     <div style="background:#991B1B;color:#FFFFFF;padding:20px 24px;">
       <div style="font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;">TACOS GAVILAN • ESCALAMIENTO POR INCUMPLIMIENTO GERENCIAL (SLA 24 HORAS)</div>
-      <div style="font-size:19px;font-weight:900;margin-top:6px;">⏰ ALERTA VENCIDA SIN CORRECCIÓN OBLIGATORIA EN TIENDA #${storeId} ${escapeHtmlSafe(alert.store_name)}</div>
+      <div style="font-size:19px;font-weight:900;margin-top:6px;">⏰ ALERTA VENCIDA SIN CORRECCIÓN OBLIGATORIA EN TIENDA ${escapeHtmlSafe(cleanOverdueStore)}</div>
     </div>
     <div style="padding:24px;font-size:14px;line-height:1.6;">
       <p style="margin-top:0;">
@@ -1333,7 +1337,7 @@ export async function enforceOverduePortionAlerts(options?: {
           bellTargets.map((uid) => ({
             user_id: uid,
             type: 'alert',
-            title: `⏰ SLA 24h Vencido: #${storeId} ${alert.store_name}`,
+            title: `⏰ SLA 24h Vencido: ${cleanOverdueStore}`,
             message: `Sin corrección obligatoria ni Strike en ${alert.meat_name} (+${Number(alert.variance_bags || 0).toFixed(1)} bolsas). Escalada a Supervisión y Directiva.`,
             link: `/admin/food-cost/meats?store_id=${storeId}&meat=${encodeURIComponent(String(alert.meat_key || 'asada'))}`,
             is_read: false,

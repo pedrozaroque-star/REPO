@@ -36,6 +36,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { purgeTabletStaleCaches, safeLocalStorageSet } from '@/lib/tablet-cache-cleaner'
 import { useWakeLock } from '@/lib/use-wake-lock'
 import BeanCookingTimerTFS4 from '@/components/BeanCookingTimerTFS4'
@@ -424,7 +425,11 @@ export default function BodegaPWA() {
         const fetchStores = async () => {
             const { data } = await supabase.from('stores').select('id, name, opening_time, closing_time').eq('is_active', true).order('name')
             if (data) {
-                setStores(data)
+                const sorted = sortStoresAlphabetically(
+                    data.map((s: any) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+                    (s: any) => s.name
+                )
+                setStores(sorted)
                 // Forzar y persistir tienda si el usuario no es admin/supervisor y tiene tienda asignada
                 const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
                 if (user && !isSuper && user.store_id) {

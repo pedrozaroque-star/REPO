@@ -22,6 +22,7 @@ import {
   type computeToastVsFridgeForIngredient,
 } from '@/lib/inventory/toast-meat-sold-resolver'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { validateTestToEmail } from '@/lib/inventory/portion-control-alerts'
 
 export type UnifiedMeterResult = Awaited<ReturnType<typeof computeToastVsFridgeForIngredient>>
@@ -40,23 +41,49 @@ export function buildSobrantesExecutiveEmailHtml(params: {
   endDate: string
   meter: UnifiedMeterResult
   dashboardUrl?: string
+  recipientEmail?: string
 }): { subject: string; html: string; shortageCount: number; totalShortageUsd: number } {
   const { ingredientName, startDate, endDate, meter } = params
+  const recipientEmail = params.recipientEmail || 'carlos@tacosgavilan.com'
   const baseUrl = resolveAppBaseUrl()
+  const normIng = ingredientName.toLowerCase()
+  const meatSlug = normIng.includes('pastor') ? 'pastor'
+    : normIng.includes('pollo') ? 'pollo'
+    : normIng.includes('cabeza') ? 'cabeza'
+    : normIng.includes('lengua') ? 'lengua'
+    : normIng.includes('chorizo') ? 'chorizo'
+    : normIng.includes('carnitas') ? 'carnitas'
+    : normIng.includes('buche') ? 'buche'
+    : 'asada'
   const linkUrl =
     params.dashboardUrl ||
-    `${baseUrl}/admin/food-cost/meats?storeId=all&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=asada`
+    `${baseUrl}/admin/food-cost/meats?storeId=all&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=${meatSlug}`
 
   const rangeLabel = `${formatShortDateLabelEs(startDate)} al ${formatShortDateLabelEs(endDate)}`
 
-  const shortageStores = meter.storesSummaries
-    .filter((s) => s.hasMeasuredSpan && (s.cumulativeFridgeBalanceBags ?? 0) <= -1.5)
-    .sort((a, b) => (a.cumulativeFridgeBalanceDollarStore ?? 0) - (b.cumulativeFridgeBalanceDollarStore ?? 0))
+  const cleanSummaryName = (s: { storeId: number | string; storeName: string }) =>
+    formatStoreDisplayName({ id: s.storeId, name: s.storeName }) || s.storeName
 
-  const uncountedStores = meter.storesSummaries.filter((s) => !s.hasMeasuredSpan)
+  const shortageStores = sortStoresAlphabetically(
+    meter.storesSummaries.filter(
+      (s) => s.hasMeasuredSpan && !s.hasNegativeCountAnomaly && (s.cumulativeFridgeBalanceBags ?? 0) <= -1
+    ),
+    (s) => cleanSummaryName(s),
+    { pinSpecialFirst: false }
+  )
 
-  const okStores = meter.storesSummaries.filter(
-    (s) => s.hasMeasuredSpan && (s.cumulativeFridgeBalanceBags ?? 0) > -1.5
+  const uncountedStores = sortStoresAlphabetically(
+    meter.storesSummaries.filter((s) => !s.hasMeasuredSpan || s.hasNegativeCountAnomaly),
+    (s) => cleanSummaryName(s),
+    { pinSpecialFirst: false }
+  )
+
+  const okStores = sortStoresAlphabetically(
+    meter.storesSummaries.filter(
+      (s) => s.hasMeasuredSpan && !s.hasNegativeCountAnomaly && (s.cumulativeFridgeBalanceBags ?? 0) > -1
+    ),
+    (s) => cleanSummaryName(s),
+    { pinSpecialFirst: false }
   )
 
   const totalMissingBags = Math.round(
@@ -77,9 +104,9 @@ export function buildSobrantesExecutiveEmailHtml(params: {
             const lossUsd = formatSignedUSD(-Math.round(Math.abs(s.cumulativeFridgeBalanceDollarStore || 0)), {
               decimals: 0,
             })
-            const storeUrl = `${baseUrl}/admin/food-cost/meats?store_id=${encodeURIComponent(String(s.storeId))}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=asada`
+            const storeUrl = `${baseUrl}/admin/food-cost/meats?storeId=${encodeURIComponent(String(s.storeId))}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=${meatSlug}`
             return `<tr style="border-bottom:1px solid #FEE2E2;">
-              <td style="padding:14px 12px;font-size:15px;font-weight:800;color:#111827;"><a href="${escapeHtml(storeUrl)}" target="_blank" style="color:#111827;text-decoration:underline;">#${s.storeId} ${escapeHtml(s.storeName)}</a></td>
+              <td style="padding:14px 12px;font-size:15px;font-weight:800;color:#111827;"><a href="${escapeHtml(storeUrl)}" target="_blank" style="color:#111827;text-decoration:underline;">${escapeHtml(cleanSummaryName(s))}</a></td>
               <td style="padding:14px 10px;text-align:center;font-size:15px;font-weight:700;color:#374151;">${expected} bolsas</td>
               <td style="padding:14px 10px;text-align:center;font-size:15px;font-weight:700;color:#111827;">${actual} bolsas</td>
               <td style="padding:14px 12px;text-align:right;font-size:15px;font-weight:900;color:#DC2626;">
@@ -95,14 +122,14 @@ export function buildSobrantesExecutiveEmailHtml(params: {
       : `<div style="margin-top:20px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 16px;">
           <div style="font-size:13px;font-weight:800;color:#92400E;margin-bottom:4px;">⚠️ Pendiente de Conteo Manual (${uncountedStores.length})</div>
           <div style="font-size:14px;color:#78350F;">
-            ${uncountedStores.map((s) => `<strong>#${s.storeId} ${escapeHtml(s.storeName)}</strong>`).join(', ')} — Sin captura manual suficiente en la semana (ya activa en Conteo Ciego obligatorio).
+            ${uncountedStores.map((s) => `<strong>${escapeHtml(cleanSummaryName(s))}</strong>`).join(', ')} — Sin captura manual suficiente en la semana (ya activa en Conteo Ciego obligatorio).
           </div>
         </div>`
 
   const okPillsHtml = okStores
     .map(
       (s) =>
-        `<span style="display:inline-block;margin:4px 6px 4px 0;padding:6px 10px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;font-size:13px;font-weight:700;color:#065F46;">✅ #${s.storeId} ${escapeHtml(s.storeName)}</span>`
+        `<span style="display:inline-block;margin:4px 6px 4px 0;padding:6px 10px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;font-size:13px;font-weight:700;color:#065F46;">✅ ${escapeHtml(cleanSummaryName(s))}</span>`
     )
     .join('')
 
@@ -115,7 +142,7 @@ export function buildSobrantesExecutiveEmailHtml(params: {
     <table width="620" align="center" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #E5E7EB;">
       <tr>
         <td style="background:#111827;color:#FFFFFF;padding:22px 24px;">
-          <div style="font-size:11px;font-weight:800;color:#93C5FD;text-transform:uppercase;letter-spacing:0.8px;">REPORTE SIMPLE · PRUEBA EXCLUSIVA PARA CARLOS</div>
+          <div style="font-size:11px;font-weight:800;color:#93C5FD;text-transform:uppercase;letter-spacing:0.8px;">REPORTE SIMPLE · VISTA PREVIA EJECUTIVA (${escapeHtml(recipientEmail)})</div>
           <div style="font-size:22px;font-weight:900;margin-top:4px;">📦 Sobrantes de ${escapeHtml(ingredientName)}</div>
           <div style="font-size:13px;color:#D1D5DB;margin-top:4px;">Semana del ${escapeHtml(rangeLabel)} · Ventas Toast vs. Sobrante Capturado</div>
         </td>
@@ -137,7 +164,7 @@ export function buildSobrantesExecutiveEmailHtml(params: {
               <td width="33%" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 12px;text-align:center;">
                 <div style="font-size:11px;font-weight:800;color:#92400E;text-transform:uppercase;">Sin Contar</div>
                 <div style="font-size:24px;font-weight:900;color:#D97706;margin-top:2px;">${uncountedStores.length}</div>
-                <div style="font-size:12px;font-weight:700;color:#B45309;">${uncountedStores[0] ? `#${uncountedStores[0].storeId} ${escapeHtml(uncountedStores[0].storeName)}` : 'Ninguna'}</div>
+                <div style="font-size:12px;font-weight:700;color:#B45309;">${uncountedStores[0] ? escapeHtml(cleanSummaryName(uncountedStores[0])) : 'Ninguna'}</div>
               </td>
             </tr>
           </table>
@@ -171,7 +198,7 @@ export function buildSobrantesExecutiveEmailHtml(params: {
       </tr>
       <tr>
         <td style="background:#F9FAFB;padding:12px 24px;font-size:11px;color:#6B7280;text-align:center;border-top:1px solid #E5E7EB;">
-          Tacos Gavilan · Enviado únicamente a carlos@tacosgavilan.com
+          Tacos Gavilan · Enviado únicamente a ${escapeHtml(recipientEmail)}
         </td>
       </tr>
     </table>
@@ -189,7 +216,7 @@ export async function sendSobrantesExecutiveDigest(params: {
 }) {
   const recipientCheck = validateTestToEmail(params.rawTestTo)
   const targetEmail = recipientCheck.email || 'carlos@tacosgavilan.com'
-  const built = buildSobrantesExecutiveEmailHtml(params)
+  const built = buildSobrantesExecutiveEmailHtml({ ...params, recipientEmail: targetEmail })
   const mailRes = await sendSystemEmail({
     fromName: 'Tacos Gavilan · Sobrantes',
     to: [targetEmail],

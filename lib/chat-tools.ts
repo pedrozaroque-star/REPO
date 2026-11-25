@@ -3718,6 +3718,21 @@ async function queryPortionControlAlertsTool(args: any): Promise<string> {
       }
     }
 
+    const { data: missingMods } = await supabaseAdmin
+      .from('missing_meat_modifier_alerts')
+      .select('business_date, store_id, shift, orders_count, items_count, cashier_names, live_email_sent_at')
+      .gte('business_date', startDate)
+      .lte('business_date', endDate)
+      .order('business_date', { ascending: false })
+      .limit(15)
+
+    if (missingMods && missingMods.length > 0) {
+      out += `\n### 🧾 Órdenes sin Tipo de Carne en Caja (Side Order Carne / 2-6-12 lb Meat)\n`
+      for (const m of missingMods) {
+        out += `- ${m.business_date} | Tienda #${m.store_id} (Turno ${m.shift}): **${m.orders_count} órdenes** (${m.items_count} uds) | Cajera(s): ${(m.cashier_names || []).join(', ') || '-'} | Correo enviado: ${m.live_email_sent_at ? 'Sí' : 'Vista previa'}\n`
+      }
+    }
+
     return out
   } catch (err: any) {
     return `Error en query_portion_control_alerts: ${err.message}`

@@ -319,8 +319,8 @@ export function buildPartyTrayVirtualIngredients(params: {
       : []
   const modsArr = [...modsFromName, ...extraMods, ...fallbackSegments]
 
-  const meatsSet = new Set<string>()
-  const aguasSet = new Set<string>()
+  const meatsCounts = new Map<string, number>()
+  const aguasCounts = new Map<string, number>()
   let exclusiveMeatId: string | null = null
   let exclusiveAguaId: string | null = null
   const exclusivePrefixes = ['todo', 'toda', 'solo', 'pura', 'puro', 'only', 'all']
@@ -339,42 +339,73 @@ export function buildPartyTrayVirtualIngredients(params: {
       }
     }
     for (const [meatKey, meatId] of Object.entries(PARTY_TRAY_MEAT_MAP)) {
-      if (mod.includes(meatKey)) meatsSet.add(meatId)
+      if (mod.includes(meatKey)) {
+        meatsCounts.set(meatId, (meatsCounts.get(meatId) || 0) + 1)
+      }
     }
     for (const [aguaKey, aguaId] of Object.entries(PARTY_TRAY_AGUA_MAP)) {
-      if (mod.includes(aguaKey)) aguasSet.add(aguaId)
+      if (mod.includes(aguaKey)) {
+        aguasCounts.set(aguaId, (aguasCounts.get(aguaId) || 0) + 1)
+      }
     }
   }
-
-  const meatsFound: string[] = exclusiveMeatId
-    ? [exclusiveMeatId]
-    : meatsSet.size > 0
-      ? Array.from(meatsSet)
-      : [...DEFAULT_PARTY_TRAY_MEAT_IDS]
-
-  const aguasFound: string[] = exclusiveAguaId
-    ? [exclusiveAguaId]
-    : aguasSet.size > 0
-      ? Array.from(aguasSet)
-      : [...DEFAULT_PARTY_TRAY_AGUA_IDS]
 
   const ingredients: VirtualPartyTrayIngredient[] = []
 
-  for (const mId of meatsFound) {
+  if (exclusiveMeatId) {
     ingredients.push({
-      inventory_item_id: mId,
-      quantity: guideline.meatLbs / meatsFound.length,
+      inventory_item_id: exclusiveMeatId,
+      quantity: guideline.meatLbs,
       unit: 'lb',
       type: 'cooked',
     })
+  } else if (meatsCounts.size > 0) {
+    const totalMeatWeight = Array.from(meatsCounts.values()).reduce((a, b) => a + b, 0)
+    for (const [mId, w] of meatsCounts.entries()) {
+      ingredients.push({
+        inventory_item_id: mId,
+        quantity: (guideline.meatLbs * w) / totalMeatWeight,
+        unit: 'lb',
+        type: 'cooked',
+      })
+    }
+  } else {
+    for (const mId of DEFAULT_PARTY_TRAY_MEAT_IDS) {
+      ingredients.push({
+        inventory_item_id: mId,
+        quantity: guideline.meatLbs / DEFAULT_PARTY_TRAY_MEAT_IDS.length,
+        unit: 'lb',
+        type: 'cooked',
+      })
+    }
   }
-  for (const aId of aguasFound) {
+
+  if (exclusiveAguaId) {
     ingredients.push({
-      inventory_item_id: aId,
-      quantity: guideline.aguaGallons / aguasFound.length,
+      inventory_item_id: exclusiveAguaId,
+      quantity: guideline.aguaGallons,
       unit: 'gal',
       type: 'raw',
     })
+  } else if (aguasCounts.size > 0) {
+    const totalAguaWeight = Array.from(aguasCounts.values()).reduce((a, b) => a + b, 0)
+    for (const [aId, w] of aguasCounts.entries()) {
+      ingredients.push({
+        inventory_item_id: aId,
+        quantity: (guideline.aguaGallons * w) / totalAguaWeight,
+        unit: 'gal',
+        type: 'raw',
+      })
+    }
+  } else {
+    for (const aId of DEFAULT_PARTY_TRAY_AGUA_IDS) {
+      ingredients.push({
+        inventory_item_id: aId,
+        quantity: guideline.aguaGallons / DEFAULT_PARTY_TRAY_AGUA_IDS.length,
+        unit: 'gal',
+        type: 'raw',
+      })
+    }
   }
 
   const gallonEmptyItem =

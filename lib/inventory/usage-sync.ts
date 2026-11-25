@@ -409,38 +409,39 @@ export async function syncDailyInventoryUsage(
 
           const resolvedMods: { guid?: string; name: string; quantity: number }[] = []
           const resolvedNormSet = new Set<string>()
-          let unresolvedGuidCount = 0
+          const baseMenuName = menuItemNameMap.get(p.guid)
+          const baseNorm = baseMenuName ? normalizeModText(baseMenuName) : ''
 
-          for (const [guid, count] of modGuidCounts.entries()) {
-            const modName = menuItemNameMap.get(guid)
-            if (modName) {
-              resolvedMods.push({ guid, name: modName, quantity: count })
-              resolvedNormSet.add(normalizeModText(modName))
-            } else {
-              unresolvedGuidCount += count
+          // 1. Extraer primero los tokens parentéticos de `p.name` (que representan exactamente 1 orden en PMIX bundleModifiers)
+          //    y escalarlos por `sQty` para preservar conteos exactos en Taco Plate (3 * sQty) y Half & Half (1 * sQty).
+          const parenTokenCounts = new Map<string, { raw: string; count: number }>()
+          const cleanForParen = String(p.name || '').replace(/\(\s*in\s+store\s*\)/gi, '')
+          for (const m of cleanForParen.matchAll(/\(([^)]+)\)/g)) {
+            const groupContent = m[1].trim()
+            if (baseNorm && baseNorm.includes(normalizeModText(`(${groupContent})`))) continue
+            for (const rawTok of groupContent.split(',')) {
+              const tok = rawTok.trim()
+              const tokNorm = normalizeModText(tok)
+              if (!tok || !tokNorm || tokNorm === 'in store' || /^\d+\s*-\s*\d+\s*people$/.test(tokNorm)) continue
+              const prev = parenTokenCounts.get(tokNorm) || { raw: tok, count: 0 }
+              prev.count += 1
+              parenTokenCounts.set(tokNorm, prev)
             }
           }
 
-          const baseMenuName = menuItemNameMap.get(p.guid)
-          // Extraer tokens parentéticos de `p.name` (ej. sub-tacos de Taco Plate o notas no presentes en toast_menu_items)
-          if (unresolvedGuidCount > 0 || baseMenuName) {
-            const baseNorm = baseMenuName ? normalizeModText(baseMenuName) : ''
-            const extraTokenCounts = new Map<string, { raw: string; count: number }>()
-            for (const m of (p.name || '').matchAll(/\(([^)]+)\)/g)) {
-              const groupContent = m[1].trim()
-              if (baseNorm && baseNorm.includes(normalizeModText(`(${groupContent})`))) continue
-              for (const rawTok of groupContent.split(',')) {
-                const tok = rawTok.trim()
-                const tokNorm = normalizeModText(tok)
-                if (!tok || !tokNorm || tokNorm === 'in store' || /^\d+\s*-\s*\d+\s*people$/.test(tokNorm)) continue
-                if (resolvedNormSet.has(tokNorm)) continue
-                const prev = extraTokenCounts.get(tokNorm) || { raw: tok, count: 0 }
-                prev.count += 1
-                extraTokenCounts.set(tokNorm, prev)
-              }
-            }
-            for (const { raw, count } of extraTokenCounts.values()) {
-              resolvedMods.push({ name: raw, quantity: count * sQty })
+          for (const [tokNorm, { raw, count }] of parenTokenCounts.entries()) {
+            resolvedMods.push({ name: raw, quantity: count * sQty })
+            resolvedNormSet.add(tokNorm)
+          }
+
+          // 2. Respaldo desde `modifier_guids` únicamente para modificadores que no estaban ya en el nombre agrupado
+          for (const [guid, count] of modGuidCounts.entries()) {
+            const modName = menuItemNameMap.get(guid)
+            if (modName) {
+              const normMod = normalizeModText(modName.replace(/\(\s*in\s+store\s*\)/gi, ''))
+              if (resolvedNormSet.has(normMod) || resolvedNormSet.has(normalizeModText(modName))) continue
+              resolvedMods.push({ guid, name: modName, quantity: count })
+              resolvedNormSet.add(normMod)
             }
           }
 

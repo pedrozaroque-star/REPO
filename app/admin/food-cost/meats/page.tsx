@@ -37,6 +37,7 @@ import {
   Clock,
 } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import PortionControlAlertsPanel from '@/components/food-cost/PortionControlAlertsPanel'
 import ToastVsFridgeMeterPanel, {
@@ -319,6 +320,7 @@ function MeatAnalysisPageContent() {
   // Escalera de Mando alert dispatch state
   const [sendingAlert, setSendingAlert] = useState<boolean>(false)
   const [alertFeedback, setAlertFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+  const [showTechnicalDetail, setShowTechnicalDetail] = useState<boolean>(false)
 
   // Unified initial load: reads URLSearchParams(window.location.search) directly inside fetchInitialData
   // to eliminate any race between ?store_id / ?storeId / ?meat / dates and /api/stores + /api/inventory/items.
@@ -356,7 +358,12 @@ function MeatAnalysisPageContent() {
         try {
           const sJson = await storesSettled.value.json()
           if (!cancelled && Array.isArray(sJson)) {
-            setStores(sJson)
+            setStores(
+              sortStoresAlphabetically(
+                sJson.map((s: any) => ({ ...s, name: formatStoreDisplayName({ id: s.id, name: s.name }) || s.name })),
+                (s) => s.name
+              )
+            )
             const liveSp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : sp
             const liveQStore = (liveSp.get('storeId') || liveSp.get('store_id') || qStore).trim()
             const defaultFallback = getLoggedInSingleStoreDefault()
@@ -488,7 +495,19 @@ function MeatAnalysisPageContent() {
       if (!res.ok || json.error) {
         setErrorMsg(json.error || `Error ${res.status}`)
       } else {
-        setData(json)
+        const cleanedJson = {
+          ...json,
+          storeName: json.storeNumericId
+            ? formatStoreDisplayName({ id: json.storeNumericId, name: json.storeName }) || json.storeName
+            : json.storeName,
+          storesComparison: Array.isArray(json.storesComparison)
+            ? json.storesComparison.map((sc: any) => ({
+                ...sc,
+                storeName: formatStoreDisplayName({ id: sc.storeNumericId, name: sc.storeName }) || sc.storeName,
+              }))
+            : json.storesComparison,
+        }
+        setData(cleanedJson)
       }
     } catch (e: any) {
       setErrorMsg(e?.message || 'Error fetching meat analysis')
@@ -653,7 +672,7 @@ function MeatAnalysisPageContent() {
             <option value="all">{t('sales.all_stores') || (isEn ? 'All 15 Stores' : '15 Sucursales (Consolidado)')}</option>
             {stores.map((s) => (
               <option key={s.id} value={s.external_id || s.id}>
-                {s.name}
+                {formatStoreDisplayName({ id: s.id, name: s.name })}
               </option>
             ))}
           </select>
@@ -760,8 +779,47 @@ function MeatAnalysisPageContent() {
 
       {data && (
         <>
-          {/* SPOTLIGHT BANNER: Selected Meat Cost & Physical vs POS Mass-Balance */}
-          <div className="rounded-2xl border-2 border-red-500/40 bg-gradient-to-r from-slate-950 via-red-950 to-slate-900 text-white p-5 shadow-lg space-y-4">
+          {/* VISTA PRINCIPAL SIMPLE: CONTROL DE SOBRANTES VS. VENTAS TOAST */}
+          <ToastVsFridgeMeterPanel
+            ingredientName={data.ingredientName}
+            storeName={data.storeName}
+            bagWeightLbs={bagWeight}
+            bagCostStore={data.bagCostStore}
+            expectedEndingBags={phys?.hasMeasuredSpan ? phys.expectedEndingBags : null}
+            endingBags={phys?.hasMeasuredSpan ? phys.endingBags : null}
+            dailyFridgeLedger={data.dailyFridgeLedger || []}
+            storesComparison={data.storesComparison || []}
+            familyEquivalence={data.familyEquivalence || null}
+            selectedStoreNumericId={data.storeNumericId}
+            defaultIngredientId={selectedIngredient}
+            onTransfersUpdated={runAnalysis}
+            onBackToAllStores={() => setStoreId('all')}
+            onSelectStoreNumericId={(targetNumericId) => {
+              const found = stores.find((s) => Number(s.id) === Number(targetNumericId))
+              if (found) {
+                setStoreId(found.external_id || String(found.id))
+              } else {
+                setStoreId(String(targetNumericId))
+              }
+            }}
+          />
+
+          <div className="flex justify-center pt-2">
+            <button
+              type="button"
+              onClick={() => setShowTechnicalDetail((prev) => !prev)}
+              className="px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm cursor-pointer"
+            >
+              {showTechnicalDetail
+                ? t('food_cost.fridge_meter.hide_advanced_btn')
+                : t('food_cost.fridge_meter.show_advanced_btn')}
+            </button>
+          </div>
+
+          {showTechnicalDetail && (
+            <>
+              {/* SPOTLIGHT BANNER: Selected Meat Cost & Physical vs POS Mass-Balance */}
+              <div className="rounded-2xl border-2 border-red-500/40 bg-gradient-to-r from-slate-950 via-red-950 to-slate-900 text-white p-5 shadow-lg space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -905,27 +963,6 @@ function MeatAnalysisPageContent() {
               </div>
             )}
           </div>
-
-          {/* MEDIDOR EXACTO: LO QUE SE VENDE EN TOAST VS. LO QUE HAY EN EL REFRIGERADOR */}
-          <ToastVsFridgeMeterPanel
-            ingredientName={data.ingredientName}
-            bagWeightLbs={bagWeight}
-            bagCostStore={data.bagCostStore}
-            expectedEndingBags={phys?.hasMeasuredSpan ? phys.expectedEndingBags : null}
-            endingBags={phys?.hasMeasuredSpan ? phys.endingBags : null}
-            dailyFridgeLedger={data.dailyFridgeLedger || []}
-            storesComparison={data.storesComparison || []}
-            familyEquivalence={data.familyEquivalence || null}
-            selectedStoreNumericId={data.storeNumericId}
-            onSelectStoreNumericId={(targetNumericId) => {
-              const found = stores.find((s) => Number(s.id) === Number(targetNumericId))
-              if (found) {
-                setStoreId(found.external_id || String(found.id))
-              } else {
-                setStoreId(String(targetNumericId))
-              }
-            }}
-          />
 
           {/* AM vs PM SHIFT ATTRIBUTION CARDS + ESCALERA DE MANDO & 5:00 PM HANDOVER */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -1288,11 +1325,13 @@ function MeatAnalysisPageContent() {
               )}
             </div>
           </div>
+            </>
+          )}
         </>
       )}
 
       {/* 4-Step Chain of Command (Escalera de Mando) Action Panel: Acknowledge / Coaching / Supervisor Verify */}
-      {initialReady && (
+      {showTechnicalDetail && initialReady && (
         <PortionControlAlertsPanel
           key={alertsPanelKey}
           storeId={resolvedAlertsStoreId}
@@ -1301,7 +1340,7 @@ function MeatAnalysisPageContent() {
         />
       )}
 
-      {data && (
+      {showTechnicalDetail && data && (
         <>
           {/* BOTTOM SECTION: Quick Manual Bag Comparator + Product Breakdown Table */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

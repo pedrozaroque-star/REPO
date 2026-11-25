@@ -47,8 +47,10 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { normalizeToLbs } from '@/lib/inventory/conversions'
 import { buildPartyTrayVirtualIngredients, isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
-import { ACTIVE_PROTEIN_IDS, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
+import { ACTIVE_PROTEIN_IDS, detectNonGrillSideProteinKind, parseProteinAllocation } from '@/lib/inventory/meat-allocation'
 import {
+    addDaysIso,
+    buildLAInstant,
     calculateSafeFoodCostPct,
     calculateSafePackagingCostPct,
     getBusinessDateLA,
@@ -207,8 +209,8 @@ export async function GET(request: NextRequest) {
         )
 
         // --- SCENARIO B: HISTORICAL PRICES O "LA MÁQUINA DEL TIEMPO" ---
-        // Buscamos cuál era el precio de los insumos exáctamente el último día de este reporte (endDate)
-        const targetDate = `${endDate}T23:59:59.999Z`
+        // Buscamos cuál era el precio de los insumos al cierre laboral oficial (05:59 AM LA del día siguiente a endDate)
+        const targetDate = buildLAInstant(addDaysIso(endDate, 1), 5, 59).toISOString()
         const historyData = await fetchAllRows<any>((from, to) =>
             supabase
                 .from('inventory_price_history')
@@ -273,6 +275,9 @@ export async function GET(request: NextRequest) {
         const allMenuItems = await fetchAllRows<{ guid: string; name: string }>((from, to) =>
             supabase.from('toast_menu_items').select('guid, name').order('guid', { ascending: true }).range(from, to)
         )
+        const menuItemNameByGuid = new Map<string, string>(
+            allMenuItems.map((mi) => [mi.guid, mi.name])
+        )
 
         if (allMenuItems.length > 0) {
             allMenuItems.forEach((mi) => {
@@ -329,11 +334,17 @@ export async function GET(request: NextRequest) {
                         : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0));
                 const groupLower = String(item.group_name || '').toLowerCase()
                 const isDeliveryGroup = groupLower.includes('uber') || groupLower.includes('door') || groupLower.includes('grub') || groupLower.includes('delivery') || groupLower.includes('3rd party')
+                const ptModTexts = Array.isArray(item.modifier_guids)
+                    ? item.modifier_guids
+                          .map((mg: string) => menuItemNameByGuid.get(mg) || '')
+                          .filter(Boolean)
+                    : []
                 const virtualParty = buildPartyTrayVirtualIngredients({
                     itemName: item.name,
                     unitPrice,
                     toastGuid: item.guid,
                     isDeliveryChannel: isDeliveryGroup,
+                    modifierTexts: ptModTexts,
                     inventoryItems: (inventoryData || []) as InventoryItem[],
                 })
 
@@ -362,6 +373,17 @@ export async function GET(request: NextRequest) {
             let asadaCostPerUnit = 0
 
             const proteinAllocation = !isPartyTray && recipe ? parseProteinAllocation(item.name, recipe.ingredients) : null
+            const nonGrillSideKind = !isPartyTray && /side\s*(?:order\s*)?carne/i.test(item.name)
+                ? detectNonGrillSideProteinKind(item.name)
+                : null
+            const nonGrillSideExtraIngredients =
+                nonGrillSideKind === 'milanesa'
+                    ? [{ inventory_item_id: '5c59d80c-7d7b-45f9-997c-57540127d3a8', quantity: 3, unit: 'pza', type: 'food' }]
+                    : nonGrillSideKind === 'salchicha'
+                        ? [{ inventory_item_id: 'cac598b2-9c18-4055-8f2e-16de22d78535', quantity: 2.3, unit: 'oz', type: 'food' }]
+                        : nonGrillSideKind === 'jamon'
+                            ? [{ inventory_item_id: '5a962d06-d162-425e-a942-c7ad6dab663d', quantity: 4.2, unit: 'oz', type: 'food' }]
+                            : []
             const primaryProteinIngredient = recipe?.ingredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
             const recipeForCost = proteinAllocation && recipe
                 ? {
@@ -370,7 +392,8 @@ export async function GET(request: NextRequest) {
                         ...recipe.ingredients.filter(ingredient => !activeProteinIds.has(ingredient.inventory_item_id)),
                         ...Array.from(proteinAllocation.portionsOz.entries()).map(([inventory_item_id, quantity]) => ({
                             inventory_item_id, quantity, unit: 'oz', type: primaryProteinIngredient?.type || 'cooked'
-                        }))
+                        })),
+                        ...nonGrillSideExtraIngredients,
                     ]
                 }
                 : recipe as Recipe | undefined
@@ -412,14 +435,14 @@ export async function GET(request: NextRequest) {
             // 2. Apply legacy "Half Meat" substitutions directly to the BATCH TOTALS when proteinAllocation is null
             if (!proteinAllocation && recipe && item.modifier_guids && item.modifier_guids.length > 0) {
                 const halfMapping: Record<string, string> = {
-                    'ed889228-98e7-4c49-bc46-8e0718ec1fcf': ACTIVE_PROTEIN_IDS.asada,
-                    'b52ffce5-cc66-4930-bb96-70891c41643e': ACTIVE_PROTEIN_IDS.pastor,
-                    'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3': ACTIVE_PROTEIN_IDS.cabeza,
-                    '443938bb-ec20-4a64-9fa3-91d4f89de0a5': ACTIVE_PROTEIN_IDS.pollo,
-                    '6d1bfd79-8c97-4c81-8e03-729fa08ecc75': ACTIVE_PROTEIN_IDS.carnitas,
-                    'fbe42d67-a0f8-481f-bb28-e1717075c290': ACTIVE_PROTEIN_IDS.buche,
-                    '8717b04b-62c0-4276-96e9-d86430b32b64': ACTIVE_PROTEIN_IDS.lengua,
-                    '37c0cb59-fa76-4b81-b327-cd96784d9f78': ACTIVE_PROTEIN_IDS.chorizo,
+                    'ed889228-98e7-4c49-bc46-8e0718ec1fcf': ACTIVE_PROTEIN_IDS.asada,    // Half Asada (In Store)
+                    'b52ffce5-cc66-4930-bb96-70891c41643e': ACTIVE_PROTEIN_IDS.buche,    // Half Buche (In Store)
+                    'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3': ACTIVE_PROTEIN_IDS.cabeza,   // Half Cabeza (In Store)
+                    '443938bb-ec20-4a64-9fa3-91d4f89de0a5': ACTIVE_PROTEIN_IDS.carnitas, // Half Carnitas (In Store)
+                    '6d1bfd79-8c97-4c81-8e03-729fa08ecc75': ACTIVE_PROTEIN_IDS.chorizo,  // Half Chorizo (In Store)
+                    'fbe42d67-a0f8-481f-bb28-e1717075c290': ACTIVE_PROTEIN_IDS.lengua,   // Half Lengua (In Store)
+                    '8717b04b-62c0-4276-96e9-d86430b32b64': ACTIVE_PROTEIN_IDS.pastor,   // Half Pastor (In Store)
+                    '37c0cb59-fa76-4b81-b327-cd96784d9f78': ACTIVE_PROTEIN_IDS.pollo,    // Half Pollo (In Store)
                 }
                 const halfModsFound = item.modifier_guids.filter((g: string) => g in halfMapping)
 
@@ -471,35 +494,66 @@ export async function GET(request: NextRequest) {
                     '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
                 ])
 
+                const isTacoPlateItem = /^\s*taco\s*plate\b/i.test(item.name)
+                const subTacoGuids = new Set([
+                    '6141b8b8-8707-4632-a837-81cfccffc0e6', // Taco Asada
+                    'a29735c2-48a6-4f65-86c1-e2f27614f718', // Taco Pastor
+                    '87bbf158-caf5-4d15-b747-d8af3185c802', // Taco Pollo
+                    '2073726e-5ec6-417d-a6d2-ae367e663c04', // Taco Cabeza
+                    '24d8b7d3-a261-42a3-bdbb-d44345d51548', // Taco Lengua
+                    'f6c84203-de05-485b-b1db-c80ff297d211', // Taco Chorizo
+                    '51886888-6e37-477b-8147-9741c7145d0b', // Taco Carnitas
+                    'f97a828f-18d0-48aa-ad0d-2b26d0ff59a1', // Taco Buche
+                    '7b591175-fa2c-455a-83cf-2627cd11fcad', // Taco Vegetariano
+                ])
+
                 const modCounts = new Map<string, number>()
                 item.modifier_guids.forEach((g: string) => modCounts.set(g, (modCounts.get(g) || 0) + 1))
 
-                const normalizedModGuids: string[] = []
+                // Para Taco Plate, si Toast pre-escaló `m.quantity` (ej. 15 guids para qty=3), normalizar a exactamente `3 * item.quantity` sub-tacos totales
+                const totalRawSubTacoCount = isTacoPlateItem
+                    ? Array.from(modCounts.entries())
+                          .filter(([g]) => subTacoGuids.has(g))
+                          .reduce((acc, [, c]) => acc + c, 0)
+                    : 0
+                const subTacoScale =
+                    isTacoPlateItem && totalRawSubTacoCount > item.quantity * 3 && totalRawSubTacoCount > 0
+                        ? (item.quantity * 3) / totalRawSubTacoCount
+                        : 1
+
+                const normalizedModGuids: Array<{ guid: string; weight: number; isSubTaco: boolean }> = []
                 modCounts.forEach((count, guid) => {
-                    const capped = Math.min(count, item.quantity)
-                    for (let i = 0; i < capped; i++) {
-                        normalizedModGuids.push(guid)
+                    const isSubTaco = isTacoPlateItem && subTacoGuids.has(guid)
+                    if (isSubTaco) {
+                        normalizedModGuids.push({ guid, weight: count * subTacoScale, isSubTaco: true })
+                    } else {
+                        const capped = Math.min(count, item.quantity)
+                        if (capped > 0) {
+                            normalizedModGuids.push({ guid, weight: capped, isSubTaco: false })
+                        }
                     }
                 })
 
-                normalizedModGuids.forEach((modGuid: string) => {
+                normalizedModGuids.forEach(({ guid: modGuid, weight, isSubTaco }) => {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
                         const isProteinModifier = !!proteinAllocation && modRecipe.ingredients.some(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
                         if (!halfGuids.has(modGuid) && !isProteinModifier) {
                             const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], channelName)
-                            totalModFoodCost += modRes.foodCost
-                            totalModPackagingCost += modRes.packagingCost
+                            totalModFoodCost += modRes.foodCost * weight
+                            if (!isSubTaco) {
+                                totalModPackagingCost += modRes.packagingCost * weight
+                            }
                             missingPrices += modRes.missingPrices
 
                             modRes.breakdown.forEach(b => {
                                 if (activeProteinIds.has(b.inventoryItemId)) {
-                                    const rawLbs = normalizeToLbs(b.quantity, b.unit as any)
+                                    const rawLbs = normalizeToLbs(b.quantity, b.unit as any) * weight
                                     totalModMeatLbs += rawLbs
-                                    totalModMeatCost += b.cost
+                                    totalModMeatCost += b.cost * weight
                                     if (b.inventoryItemId === ASADA_ITEM_ID) {
                                         totalModAsadaLbs += rawLbs
-                                        totalModAsadaCost += b.cost
+                                        totalModAsadaCost += b.cost * weight
                                     }
                                 }
                             })

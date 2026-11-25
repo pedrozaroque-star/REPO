@@ -24,6 +24,7 @@ import { useSearchParams } from 'next/navigation'
 import { fetchOrderableItems, fetchWeeklyData } from '../actions'
 import { getMonday, addDays } from '../utils'
 import { createClient } from '@/lib/supabase-client'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import type { OrderableItem } from '../utils'
 
 /** Obtiene la fecha de negocio (día laboral empieza a las 6am) */
@@ -77,7 +78,7 @@ export default function PrintSheetPage() {
                     .select('name')
                     .eq('id', storeId)
                     .single()
-                setStoreName(storeData?.name || `Tienda #${storeId}`)
+                setStoreName(formatStoreDisplayName(storeData?.name || storeId) || 'Sucursal')
             } catch (err) {
                 console.error('Error loading print data:', err)
             } finally {

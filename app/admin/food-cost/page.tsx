@@ -29,6 +29,7 @@ import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
 import FoodCostCharts from '@/components/food-cost/FoodCostCharts'
 import PortionControlAlertsPanel from '@/components/food-cost/PortionControlAlertsPanel'
 import { formatStoreName } from '@/lib/supabase'
+import { compareStoreNamesAlphabetically, sortStoresAlphabetically } from '@/lib/store-display'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import { useLanguage } from '@/lib/i18n'
@@ -173,7 +174,7 @@ export default function FoodCostPage() {
                 }
 
                 const stores = Array.from(new Set(json.data.map((r: FoodCostItem) => r.store_name || t('sales.unknown_store')))) as string[]
-                const sortedStores = stores.sort()
+                const sortedStores = sortStoresAlphabetically(stores)
                 setStoreList(sortedStores)
 
                 setSelectedStore(prev => {
@@ -325,6 +326,10 @@ export default function FoodCostPage() {
             const aVal = a[sortConfig.key]
             const bVal = b[sortConfig.key]
 
+            if (sortConfig.key === 'storeName') {
+                const cmp = compareStoreNamesAlphabetically(String(aVal || ''), String(bVal || ''))
+                return sortConfig.direction === 'asc' ? cmp : -cmp
+            }
             if (typeof aVal === 'string' && typeof bVal === 'string') {
                 return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
             }

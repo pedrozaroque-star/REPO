@@ -317,6 +317,9 @@ export async function GET(request: NextRequest) {
             existing.voided_quantity += Number(item.voided_quantity || 0)
             existing.modifier_gross_sales = (existing.modifier_gross_sales || 0) + Number(item.modifier_gross_sales || 0)
             existing.half_meat_adjustments = (existing.half_meat_adjustments || 0) + Number(item.half_meat_adjustments || 0)
+            if (Array.isArray(item.modifier_guids) && item.modifier_guids.length > 0) {
+              existing.modifier_guids.push(...item.modifier_guids)
+            }
             if (!existing.unit_price && item.unit_price) existing.unit_price = item.unit_price
           }
         }
@@ -717,8 +720,9 @@ export async function GET(request: NextRequest) {
       fetchAllRows<any>((from, to) => {
         let q = supabase
           .from('inventory_order_lines')
-          .select('id, inventory_item_id, final_qty, adjusted_qty, calculated_qty, inventory_orders!inner(id, store_id, order_date, status)')
+          .select('id, inventory_item_id, final_qty, adjusted_qty, calculated_qty, inventory_orders!inner(id, store_id, order_date, status, order_type)')
           .eq('inventory_item_id', inventoryItemId)
+          .eq('inventory_orders.order_type', 'daily')
           .in('inventory_orders.status', ['sent', 'received'])
           .gte('inventory_orders.order_date', anchorLookbackStart)
           .lte('inventory_orders.order_date', endDate)

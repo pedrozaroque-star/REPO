@@ -18,6 +18,7 @@
 import { cookies, headers } from 'next/headers';
 import { verifyAuthToken, getCronSecret, type DecodedToken } from '@/lib/auth-server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import { getBusinessDate, getDefaultMinStock, parseUniformCategoryAndSize, type UniformCategory, type UniformSize, type UniformsSafeBalance } from './utils';
 
 async function requireUniformsStaffAuth(explicitToken?: string): Promise<DecodedToken | { id: string; email: string; role: string }> {
@@ -89,9 +90,12 @@ export async function fetchStoresForUser(userRole: string, userStoreIds: string[
       .from('stores')
       .select('id, name')
       .eq('is_active', true)
-      .order('id');
+      .order('name');
     if (error) throw new Error(error.message);
-    return data || [];
+    return sortStoresAlphabetically(
+      (data || []).map((s: any) => ({ id: s.id, name: formatStoreDisplayName(s.name) })),
+      (s) => s.name
+    );
   } else {
     const numericStoreIds = (userStoreIds || [])
       .map((id: string) => parseInt(id, 10))
@@ -104,9 +108,12 @@ export async function fetchStoresForUser(userRole: string, userStoreIds: string[
       .select('id, name')
       .in('id', numericStoreIds)
       .eq('is_active', true)
-      .order('id');
+      .order('name');
     if (error) throw new Error(error.message);
-    return data || [];
+    return sortStoresAlphabetically(
+      (data || []).map((s: any) => ({ id: s.id, name: formatStoreDisplayName(s.name) })),
+      (s) => s.name
+    );
   }
 }
 
@@ -1053,7 +1060,7 @@ export async function fetchQBEstimateForReception(storeId: number, searchEstimat
     const { data: otherOrders } = await otherQuery.limit(1);
     if (otherOrders && otherOrders.length > 0) {
       const o = otherOrders[0];
-      const storeName = (o as any).stores?.name || `Tienda #${o.store_id}`;
+      const storeName = formatStoreDisplayName((o as any).stores?.name || o.store_id) || 'otra sucursal';
       return {
         found: false,
         items: [],

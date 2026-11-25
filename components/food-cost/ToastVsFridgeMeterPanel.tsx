@@ -2,34 +2,26 @@
 
 /**
  * @module components/food-cost/ToastVsFridgeMeterPanel
- * @description Panel visual ejecutivo del Medidor "Cierre Diario del Refrigerador: Debería Quedar (Según Toast) vs. Sobrante Real":
- *   1. Banner de Semana de Pruebas Privadas (`carlos@tacosgavilan.com` exclusivo + `shadow_blind` en las 15 sucursales).
- *   2. Corte Diario del Refrigerador al Final del Día (`Refri Inicial + Factura QBO Bodega = Había en Refri − Vendido Toast = Debería Quedar vs. Hay en Refri`).
- *   3. Tabla de Platillos Vendidos en Toast POS → Bolsas Descontadas del Refrigerador (`Tacos`, `Burritos`, `Quesadillas`, etc.).
- *   4. Semáforo de las 15 Sucursales con Último Cierre del Refrigerador + Balance Acumulado del Periodo (selección a 1 clic).
+ * @description Vista ejecutiva simple de lectura en 5 segundos para Control de Sobrantes vs. Ventas Toast POS:
+ *   - MODO 15 SUCURSALES (`selectedStoreNumericId === null`):
+ *     1. Tres cuadros grandes: `Con Faltante` · `En Regla` · `Sin Contar`.
+ *     2. Una sola tabla limpia de 4 columnas con números cerrados (`Sucursal | Debía Sobrar | Capturaron | Resultado`).
+ *   - MODO 1 SUCURSAL (`selectedStoreNumericId !== null`):
+ *     1. Botón `← Ver las 15 sucursales` + encabezado limpio de la sucursal.
+ *     2. Tres cuadros grandes de esa tienda (`Último Cierre` · `Resultado Último Cierre` · `Acumulado del Periodo`).
+ *     3. Una sola tabla limpia `Día por Día` (`Día | Había (Ini + Bodega) | Vendió Toast | Debía Sobrar | Capturaron | Resultado`).
  *
  * @businessRules
- * - Al final del día el sobrante es lo que queda físicamente en bolsas cerradas dentro del refrigerador (`Orden Diaria`).
- * - Signo intuitivo de corte de caja / refrigerador (`Hay en Refri − Debería Quedar`):
- *   * Negativo (`-X bolsas / -$ USD` 🔴): FALTAN bolsas en el refrigerador respecto a las ventas cobradas en Toast POS (pérdida / sobre-porcionado).
- *   * Cerca de cero (`±0.5 bolsa` 🟢): Refrigerador cuadrado con Toast POS.
- *   * Positivo (`+X bolsas / +$ USD` 🔵): Quedaron bolsas cerradas de más en el refrigerador (porción menor a `1.50 oz` o conteo inflado vigilado por `reboundSuspected`).
  * - 100% bilingüe (`es` / `en`) vía `useLanguage()` (`t('food_cost.fridge_meter.*')`).
- * - Sin importaciones de servidor (100% seguro en el bundle cliente de Next.js).
+ * - Números cerrados fáciles de leer en segundos y formato `'en-US'` en `USD`.
  */
 
-import React from 'react'
-import {
-  PackageCheck,
-  Receipt,
-  UtensilsCrossed,
-  Store as StoreIcon,
-  AlertTriangle,
-  CheckCircle2,
-  ShieldCheck,
-} from 'lucide-react'
+import React, { useState } from 'react'
+import { PackageCheck, Store as StoreIcon, ArrowLeft, ArrowRight, ArrowRightLeft, ShieldCheck } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatSignedUSD } from '@/lib/inventory/food-cost-sales-resolver'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
+import StoreTransferModal from '@/components/inventory/StoreTransferModal'
 
 export interface ClientFridgeLedgerEntry {
   startDate: string
@@ -139,6 +131,7 @@ export interface ClientFamilyEquivalence {
 
 interface ToastVsFridgeMeterPanelProps {
   ingredientName: string
+  storeName?: string
   bagWeightLbs: number
   bagCostStore: number
   expectedEndingBags: number | null
@@ -148,538 +141,450 @@ interface ToastVsFridgeMeterPanelProps {
   familyEquivalence: ClientFamilyEquivalence | null
   selectedStoreNumericId: number | null
   onSelectStoreNumericId: (storeNumericId: number) => void
+  onBackToAllStores?: () => void
+  defaultIngredientId?: string | null
+  onTransfersUpdated?: () => void
 }
 
 export default function ToastVsFridgeMeterPanel({
   ingredientName,
+  storeName,
   bagWeightLbs,
   bagCostStore,
-  expectedEndingBags,
-  endingBags,
   dailyFridgeLedger,
   storesComparison,
-  familyEquivalence,
   selectedStoreNumericId,
   onSelectStoreNumericId,
+  onBackToAllStores,
+  defaultIngredientId = null,
+  onTransfersUpdated,
 }: ToastVsFridgeMeterPanelProps) {
-  const { t, language } = useLanguage()
-  const isEn = language === 'en'
+  const { t } = useLanguage()
+  const [showTransferModal, setShowTransferModal] = useState(false)
   const bagsWord = t('food_cost.fridge_meter.bags_unit')
 
-  const renderFridgeBalanceBadge = (
-    balanceBags: number | null,
-    balanceUsd: number | null,
-    unbilledTacos: number | null,
-    reboundSuspected = false
-  ) => {
-    if (balanceBags === null) return <span className="text-slate-400">—</span>
-    const usdVal = balanceUsd ?? 0
-    const isShortage = balanceBags < -0.5
-    const isExtra = balanceBags > 0.5
-    const signBags = balanceBags > 0 ? `+${balanceBags.toFixed(2)}` : balanceBags.toFixed(2)
+  const shortageStores = storesComparison
+    .filter((s) => s.hasMeasuredSpan && !s.hasNegativeCountAnomaly && (s.cumulativeFridgeBalanceBags ?? 0) <= -1)
+    .sort((a, b) => (a.cumulativeFridgeBalanceDollarStore ?? 0) - (b.cumulativeFridgeBalanceDollarStore ?? 0))
 
-    return (
-      <div>
-        <span
-          className={`font-black ${
-            isShortage
-              ? 'text-rose-600 dark:text-rose-400'
-              : isExtra
-                ? 'text-sky-700 dark:text-sky-300'
-                : 'text-emerald-700 dark:text-emerald-400'
-          }`}
-        >
-          {isShortage ? '🔴 ' : isExtra ? '🔵 ' : '🟢 '}
-          {signBags} {bagsWord} ({formatSignedUSD(usdVal, { showPlus: usdVal > 0 })})
+  const uncountedStores = storesComparison.filter((s) => !s.hasMeasuredSpan || s.hasNegativeCountAnomaly)
+  const okStores = storesComparison.filter(
+    (s) => s.hasMeasuredSpan && !s.hasNegativeCountAnomaly && (s.cumulativeFridgeBalanceBags ?? 0) > -1
+  )
+
+  const totalMissingBags = Math.round(
+    shortageStores.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceBags || 0), 0)
+  )
+  const totalShortageUsd = Math.round(
+    shortageStores.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceDollarStore || 0), 0)
+  )
+
+  const isMultiDayWindow = storesComparison.some((s) => s.hasMeasuredSpan && s.spanDays > 2)
+
+  const selectedStoreSummary =
+    selectedStoreNumericId !== null
+      ? storesComparison.find((s) => s.storeId === selectedStoreNumericId) || null
+      : null
+
+  const renderCleanDiffPill = (balanceBags: number | null, balanceUsd: number | null, isCountAnomaly = false) => {
+    if (isCountAnomaly) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 font-bold text-xs">
+          ⚠️ {t('food_cost.fridge_meter.check_count_badge')}
         </span>
-        <div className="text-[10px] font-sans text-slate-500">
-          {isShortage
-            ? `${t('food_cost.fridge_meter.missing_in_fridge')}${
-                unbilledTacos !== null && Math.abs(unbilledTacos) >= 5
-                  ? ` (~${Math.abs(unbilledTacos)} ${t('food_cost.fridge_meter.tacos_word')})`
-                  : ''
-              }`
-            : isExtra
-              ? t('food_cost.fridge_meter.extra_in_fridge')
-              : t('food_cost.fridge_meter.within_tol')}
-        </div>
-        {reboundSuspected && (
-          <div className="text-[10px] font-sans font-bold text-amber-700 dark:text-amber-300 mt-0.5">
-            {t('food_cost.fridge_meter.rebound_warning')}
-          </div>
-        )}
-      </div>
+      )
+    }
+    if (balanceBags === null) return <span className="text-slate-400">—</span>
+    if (balanceBags <= -1) {
+      const missing = Math.max(1, Math.round(Math.abs(balanceBags)))
+      const lossUsd = formatSignedUSD(-Math.round(Math.abs(balanceUsd || missing * bagCostStore)), {
+        decimals: 0,
+      })
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-extrabold text-sm">
+          🔴 {t('food_cost.fridge_meter.missing_bags_fmt')} {missing} {bagsWord} ({lossUsd})
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold text-sm">
+        ✅ {t('food_cost.fridge_meter.in_rule_badge')}
+      </span>
     )
   }
 
-  const periodNetBalanceBags =
-    expectedEndingBags !== null && endingBags !== null
-      ? Math.round((endingBags - expectedEndingBags) * 100) / 100
-      : familyEquivalence?.excessBagsCooked !== null && familyEquivalence?.excessBagsCooked !== undefined
-        ? Math.round(-familyEquivalence.excessBagsCooked * 100) / 100
-        : null
-
-  const periodNetBalanceUsd =
-    familyEquivalence?.dollarLossStoreUsd !== null && familyEquivalence?.dollarLossStoreUsd !== undefined
-      ? Math.round(-familyEquivalence.dollarLossStoreUsd * 100) / 100
-      : periodNetBalanceBags !== null
-        ? Math.round(periodNetBalanceBags * bagCostStore * 100) / 100
-        : null
-
   return (
     <div className="space-y-5">
-      {/* Banner Semana de Pruebas Privadas */}
-      <div className="rounded-xl border border-indigo-200 dark:border-indigo-800/70 bg-indigo-50/90 dark:bg-indigo-950/40 px-4 py-3 flex flex-wrap items-center gap-3">
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-indigo-600 text-white">
+      {/* Cinta discreta de Semana de Pruebas + Botón Traspasos entre Tiendas */}
+      <div className="rounded-xl border border-indigo-200 dark:border-indigo-800/70 bg-indigo-50/90 dark:bg-indigo-950/40 px-4 py-2.5 flex flex-wrap items-center gap-2.5">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase bg-indigo-600 text-white">
           <ShieldCheck className="w-3.5 h-3.5" />
           {t('food_cost.fridge_meter.weekly_test_badge')}
         </span>
-        <p className="text-xs font-semibold text-indigo-950 dark:text-indigo-200 flex-1 min-w-[260px]">
+        <p className="text-xs font-semibold text-indigo-950 dark:text-indigo-200 flex-1 min-w-[240px]">
           {t('food_cost.fridge_meter.weekly_test_desc')}
         </p>
+        <button
+          type="button"
+          onClick={() => setShowTransferModal(true)}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-indigo-100 dark:hover:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-800 dark:text-indigo-200 text-xs font-black shadow-2xs cursor-pointer transition-all"
+        >
+          <ArrowRightLeft className="w-3.5 h-3.5" />
+          {t('food_cost.store_transfers.open_btn')}
+        </button>
       </div>
 
-      {/* 1. CORTE DIARIO DEL REFRIGERADOR AL FINAL DEL DÍA: DEBERÍA QUEDAR (SEGÚN TOAST) VS. HAY EN EL REFRI */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-4 md:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-2 bg-slate-50/70 dark:bg-slate-900">
-          <div>
-            <h2 className="text-base md:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
-              <PackageCheck className="w-5 h-5 text-cyan-600" />
-              <span>{t('food_cost.fridge_meter.ledger_title')}</span>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-100 text-cyan-900 dark:bg-cyan-900/40 dark:text-cyan-200">
-                {ingredientName} ({bagWeightLbs} lb = {formatSignedUSD(bagCostStore)})
-              </span>
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">{t('food_cost.fridge_meter.subtitle')}</p>
+      {/* ===================================================================== */}
+      {/* VISTA A: RESUMEN LIMPIO DE LAS 15 SUCURSALES (IGUAL QUE EL CORREO)    */}
+      {/* ===================================================================== */}
+      {selectedStoreNumericId === null ? (
+        <div className="space-y-5">
+          {/* 3 Cuadros Grandes */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/80 dark:bg-rose-950/30 p-5 text-center shadow-sm">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-rose-800 dark:text-rose-300">
+                {t('food_cost.fridge_meter.card_shortage_stores')}
+              </div>
+              <div className="text-4xl font-black text-rose-600 dark:text-rose-400 mt-1">
+                {shortageStores.length}
+              </div>
+              <div className="text-sm font-bold text-rose-700 dark:text-rose-300 mt-1">
+                {shortageStores.length > 0
+                  ? `−${totalMissingBags} ${bagsWord} (${formatSignedUSD(-totalShortageUsd, { decimals: 0 })})`
+                  : t('food_cost.fridge_meter.card_no_loss')}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/80 dark:bg-emerald-950/30 p-5 text-center shadow-sm">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                {t('food_cost.fridge_meter.card_ok_stores')}
+              </div>
+              <div className="text-4xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                {okStores.length}
+              </div>
+              <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300 mt-1">
+                {t('food_cost.fridge_meter.card_no_loss')}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/30 p-5 text-center shadow-sm">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                {t('food_cost.fridge_meter.card_uncounted_stores')}
+              </div>
+              <div className="text-4xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                {uncountedStores.length}
+              </div>
+              <div className="text-sm font-bold text-amber-700 dark:text-amber-300 mt-1 truncate">
+                {uncountedStores.length > 0
+                  ? sortStoresAlphabetically(uncountedStores, (u) => u.storeName)
+                      .map((u) => formatStoreDisplayName({ id: u.storeId, name: u.storeName }))
+                      .join(', ')
+                  : t('food_cost.fridge_meter.card_none')}
+              </div>
+            </div>
+          </div>
+
+          {/* 1 Sola Tabla Limpia de 4 Columnas + Botón Ver Día por Día */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <StoreIcon className="w-5 h-5 text-slate-700 dark:text-slate-200" />
+                  <span>
+                    {t('food_cost.fridge_meter.stores_ranking_title')} · {ingredientName}
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {t('food_cost.fridge_meter.stores_ranking_hint')}
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-xs border-b border-slate-200 dark:border-slate-700">
+                    <th className="py-3.5 px-4 text-left">{t('food_cost.fridge_meter.col_store')}</th>
+                    <th className="py-3.5 px-4 text-center">
+                      {isMultiDayWindow
+                        ? t('food_cost.fridge_meter.col_sold_day')
+                        : t('food_cost.fridge_meter.col_should_remain')}
+                    </th>
+                    <th className="py-3.5 px-4 text-center">
+                      {isMultiDayWindow
+                        ? t('food_cost.fridge_meter.col_used_real')
+                        : t('food_cost.fridge_meter.col_captured')}
+                    </th>
+                    <th className="py-3.5 px-4 text-right">{t('food_cost.fridge_meter.col_day_result')}</th>
+                    <th className="py-3.5 px-4 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {storesComparison.map((st) => {
+                    const cumBags = st.cumulativeFridgeBalanceBags
+                    const cumUsd = st.cumulativeFridgeBalanceDollarStore
+                    const isShortage = st.hasMeasuredSpan && !st.hasNegativeCountAnomaly && cumBags !== null && cumBags <= -1
+                    const actual = st.closingBags !== null ? Math.round(st.closingBags) : null
+                    const missing = isShortage ? Math.max(1, Math.round(Math.abs(cumBags || 0))) : 0
+                    const expectedDisplay =
+                      !st.hasMeasuredSpan || actual === null
+                        ? null
+                        : isShortage
+                          ? actual + missing
+                          : st.expectedEndingBags !== null
+                            ? Math.max(0, Math.round(st.expectedEndingBags))
+                            : actual
+
+                    const col2Val = isMultiDayWindow
+                      ? st.hasMeasuredSpan
+                        ? Math.round(st.toastSoldSpanBags)
+                        : null
+                      : expectedDisplay
+                    const col3Val = isMultiDayWindow
+                      ? st.hasMeasuredSpan && st.fridgeUsedBags !== null
+                        ? Math.round(st.fridgeUsedBags)
+                        : null
+                      : actual
+
+                    return (
+                      <tr
+                        key={st.storeId}
+                        onClick={() => onSelectStoreNumericId(st.storeId)}
+                        className={`cursor-pointer transition-colors ${
+                          isShortage
+                            ? 'bg-rose-50/35 hover:bg-rose-50/70 dark:bg-rose-950/15 dark:hover:bg-rose-950/30'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white text-base">
+                          {formatStoreDisplayName({ id: st.storeId, name: st.storeName })}
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-bold text-slate-700 dark:text-slate-200">
+                          {col2Val !== null ? `${col2Val} ${bagsWord}` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-extrabold text-slate-900 dark:text-white">
+                          {col3Val !== null ? `${col3Val} ${bagsWord}` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          {!st.hasMeasuredSpan ? (
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                              ⚠️ {t('food_cost.fridge_meter.unmeasured_store')}
+                            </span>
+                          ) : st.hasNegativeCountAnomaly ? (
+                            renderCleanDiffPill(cumBags, cumUsd, true)
+                          ) : isShortage ? (
+                            renderCleanDiffPill(cumBags, cumUsd)
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold text-sm">
+                              ✅ {t('food_cost.fridge_meter.in_rule_badge')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-700 text-white text-xs font-extrabold hover:bg-slate-800">
+                            <span>{t('food_cost.fridge_meter.view_ledger_btn')}</span>
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      ) : (
+        /* ===================================================================== */
+        /* VISTA B: DETALLE DÍA POR DÍA DE UNA SOLA SUCURSAL (SÚPER LIMPIA)      */
+        /* ===================================================================== */
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {onBackToAllStores && (
+              <button
+                type="button"
+                onClick={onBackToAllStores}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-sm font-extrabold hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>{t('food_cost.fridge_meter.back_all_stores')}</span>
+              </button>
+            )}
+            <div className="text-lg md:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <PackageCheck className="w-6 h-6 text-red-600" />
+              <span>
+                {formatStoreDisplayName({ id: selectedStoreNumericId, name: selectedStoreSummary?.storeName || storeName })} · {ingredientName}
+              </span>
+            </div>
+          </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-[10px] border-b border-slate-200 dark:border-slate-700">
-                <th className="p-3 text-left">{t('food_cost.fridge_meter.col_date')}</th>
-                <th className="p-3 text-right">{t('food_cost.fridge_meter.col_open')}</th>
-                <th className="p-3 text-right">{t('food_cost.fridge_meter.col_arrived')}</th>
-                <th className="p-3 text-right bg-slate-200/40 dark:bg-slate-800">
-                  {t('food_cost.fridge_meter.col_available')}
-                </th>
-                <th className="p-3 text-right bg-cyan-50/80 dark:bg-cyan-950/30 text-cyan-900 dark:text-cyan-300">
-                  {t('food_cost.fridge_meter.col_toast_sold')}
-                </th>
-                <th className="p-3 text-right bg-indigo-50/90 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-200">
-                  {t('food_cost.fridge_meter.col_expected_close')}
-                </th>
-                <th className="p-3 text-right bg-amber-50/90 dark:bg-amber-950/35 text-amber-950 dark:text-amber-200">
-                  {t('food_cost.fridge_meter.col_close')}
-                </th>
-                <th className="p-3 text-right">{t('food_cost.fridge_meter.col_diff')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-              {dailyFridgeLedger.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-6 text-center font-sans text-slate-400 font-semibold">
-                    {t('food_cost.no_data')}
-                  </td>
-                </tr>
-              ) : (
-                dailyFridgeLedger.map((row) => {
-                  const isShortageCrit = (row.fridgeBalanceBags ?? 0) <= -2
-                  const isShortageWarn = (row.fridgeBalanceBags ?? 0) < -0.5 && !isShortageCrit
-                  const isAnomaly = row.status === 'count_anomaly'
-                  const isPending = row.status === 'pending_count'
+          {/* 3 Cuadros Grandes de esta Sucursal */}
+          {selectedStoreSummary && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 text-center shadow-sm">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                  {t('food_cost.fridge_meter.card_last_close')}{' '}
+                  {selectedStoreSummary.latestCloseCut ? `(${selectedStoreSummary.latestCloseCut.periodLabel})` : ''}
+                </div>
+                <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">
+                  {selectedStoreSummary.latestCloseCut?.closingBags !== null &&
+                  selectedStoreSummary.latestCloseCut?.closingBags !== undefined
+                    ? `${Math.round(selectedStoreSummary.latestCloseCut.closingBags)} ${bagsWord}`
+                    : '—'}
+                </div>
+                {selectedStoreSummary.latestCloseCut?.closingCountedBy && (
+                  <div className="text-xs font-semibold text-slate-500 mt-1">
+                    {selectedStoreSummary.latestCloseCut.closingCountedBy}
+                  </div>
+                )}
+              </div>
 
-                  return (
-                    <tr
-                      key={`${row.startDate}_${row.endDate}`}
-                      className={
-                        isAnomaly
-                          ? 'bg-purple-50/60 dark:bg-purple-950/20'
-                          : isShortageCrit
-                            ? 'bg-rose-50/55 dark:bg-rose-950/25'
-                            : isShortageWarn
-                              ? 'bg-amber-50/40 dark:bg-amber-950/15'
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 text-center shadow-sm flex flex-col items-center justify-center">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-2">
+                  {t('food_cost.fridge_meter.card_last_result')}
+                </div>
+                {renderCleanDiffPill(
+                  selectedStoreSummary.latestCloseCut?.fridgeBalanceBags ?? null,
+                  selectedStoreSummary.latestCloseCut?.fridgeBalanceDollarStore ?? null
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 text-center shadow-sm flex flex-col items-center justify-center">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-2">
+                  {t('food_cost.fridge_meter.card_period_result')}
+                </div>
+                {renderCleanDiffPill(
+                  selectedStoreSummary.cumulativeFridgeBalanceBags,
+                  selectedStoreSummary.cumulativeFridgeBalanceDollarStore,
+                  selectedStoreSummary.hasNegativeCountAnomaly
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 1 Sola Tabla Limpia Día por Día */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-base md:text-lg font-black text-slate-900 dark:text-white">
+                {t('food_cost.fridge_meter.ledger_title')} ({bagWeightLbs} lb = {formatSignedUSD(bagCostStore)})
+              </h3>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-xs border-b border-slate-200 dark:border-slate-700">
+                    <th className="py-3.5 px-4 text-left">{t('food_cost.fridge_meter.col_date')}</th>
+                    <th className="py-3.5 px-4 text-center">{t('food_cost.fridge_meter.col_had_day')}</th>
+                    <th className="py-3.5 px-4 text-center">{t('food_cost.fridge_meter.col_sold_day')}</th>
+                    <th className="py-3.5 px-4 text-center">{t('food_cost.fridge_meter.col_should_remain')}</th>
+                    <th className="py-3.5 px-4 text-center">{t('food_cost.fridge_meter.col_captured')}</th>
+                    <th className="py-3.5 px-4 text-right">{t('food_cost.fridge_meter.col_day_result')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {dailyFridgeLedger.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400 font-semibold">
+                        {t('food_cost.no_data')}
+                      </td>
+                    </tr>
+                  ) : (
+                    dailyFridgeLedger.map((row) => {
+                      const isPending = row.status === 'pending_count'
+                      const availRounded =
+                        row.availableInFridgeBags !== null ? Math.round(row.availableInFridgeBags) : null
+                      const soldRounded = Math.round(row.toastSoldBags)
+                      const actualRounded = row.closingBags !== null ? Math.round(row.closingBags) : null
+                      const isDayShortage = (row.fridgeBalanceBags ?? 0) <= -1
+                      const dayMissing = isDayShortage
+                        ? Math.max(1, Math.round(Math.abs(row.fridgeBalanceBags || 0)))
+                        : 0
+                      const expectedRounded =
+                        actualRounded !== null && isDayShortage
+                          ? actualRounded + dayMissing
+                          : row.expectedClosingBags !== null
+                            ? Math.max(0, Math.round(row.expectedClosingBags))
+                            : null
+
+                      return (
+                        <tr
+                          key={`${row.startDate}_${row.endDate}`}
+                          className={
+                            isDayShortage
+                              ? 'bg-rose-50/40 dark:bg-rose-950/20'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                      }
-                    >
-                      <td className="p-3 font-sans font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
-                        <div>{row.periodLabel}</div>
-                        <div className="text-[10px] font-normal text-slate-400">
-                          {Math.round(row.tacosSold).toLocaleString()} {t('food_cost.fridge_meter.tacos_word')} ·{' '}
-                          {Math.round(row.burritosSold).toLocaleString()} {t('food_cost.fridge_meter.burritos_word')}
-                        </div>
-                      </td>
+                          }
+                        >
+                          <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
+                            {row.periodLabel}
+                          </td>
 
-                      <td className="p-3 text-right whitespace-nowrap">
-                        <div className="font-bold text-slate-700 dark:text-slate-200">
-                          {row.openingBags !== null ? `${row.openingBags} ${bagsWord}` : '—'}
-                        </div>
-                        {row.openingCountedBy && (
-                          <div className="text-[10px] font-sans text-slate-400 truncate max-w-[130px] ml-auto">
-                            {row.openingCountedBy}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="p-3 text-right whitespace-nowrap">
-                        <div className="font-bold text-indigo-700 dark:text-indigo-300">
-                          +{row.arrivedBags} {bagsWord}
-                        </div>
-                        {row.invoiceNumbers.length > 0 ? (
-                          <div className="text-[10px] font-sans text-indigo-600 dark:text-indigo-400 flex items-center justify-end gap-1">
-                            <Receipt className="w-3 h-3" />
-                            <span>
-                              {t('food_cost.fridge_meter.invoice_label')} {row.invoiceNumbers.join(', ')}
-                            </span>
-                          </div>
-                        ) : row.hasUnreconciledSentOrder ? (
-                          <div className="text-[10px] font-sans text-amber-600">
-                            {t('food_cost.fridge_meter.estimate_pending')}
-                          </div>
-                        ) : null}
-                      </td>
-
-                      <td className="p-3 text-right font-bold bg-slate-100/60 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                        {row.availableInFridgeBags !== null ? `${row.availableInFridgeBags} ${bagsWord}` : '—'}
-                      </td>
-
-                      <td className="p-3 text-right font-black bg-cyan-50/50 dark:bg-cyan-950/20 text-cyan-900 dark:text-cyan-200 whitespace-nowrap">
-                        <div>
-                          −{row.toastSoldBags.toFixed(2)} {bagsWord}
-                        </div>
-                        <div className="text-[10px] font-normal text-cyan-700 dark:text-cyan-400">
-                          {row.toastSoldRawLbs.toFixed(1)} lb
-                        </div>
-                      </td>
-
-                      <td className="p-3 text-right font-black bg-indigo-50/60 dark:bg-indigo-950/25 text-indigo-950 dark:text-indigo-200 whitespace-nowrap">
-                        {row.expectedClosingBags === null ? (
-                          '—'
-                        ) : row.expectedClosingBags < 0 ? (
-                          <div>
-                            <div>0 {bagsWord}</div>
-                            <div className="text-[10px] font-sans font-semibold text-indigo-600 dark:text-indigo-300">
-                              ({isEn ? `Toast exceeded by ${Math.abs(row.expectedClosingBags).toFixed(2)}b` : `Toast superó por ${Math.abs(row.expectedClosingBags).toFixed(2)}b`})
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="font-bold text-slate-800 dark:text-slate-100">
+                              {availRounded !== null ? `${availRounded} ${bagsWord}` : '—'}
                             </div>
-                          </div>
-                        ) : (
-                          `${row.expectedClosingBags.toFixed(2)} ${bagsWord}`
-                        )}
-                      </td>
-
-                      <td className="p-3 text-right bg-amber-50/50 dark:bg-amber-950/20 whitespace-nowrap">
-                        {isPending ? (
-                          <span className="font-sans text-[11px] font-bold text-amber-600">
-                            {t('food_cost.fridge_meter.pending_close')}
-                          </span>
-                        ) : (
-                          <>
-                            <div className="font-black text-amber-950 dark:text-amber-200">
-                              {row.closingBags !== null ? `${row.closingBags} ${bagsWord}` : '—'}
-                            </div>
-                            {row.closingCountedBy && (
-                              <div className="text-[10px] font-sans text-slate-500 truncate max-w-[130px] ml-auto">
-                                {row.closingCountedBy}
+                            {row.openingBags !== null && (
+                              <div className="text-xs text-slate-500">
+                                ({Math.round(row.openingBags)} {t('food_cost.fridge_meter.yesterday_word')} +{' '}
+                                {Math.round(row.arrivedBags)} {t('food_cost.fridge_meter.bodega_word')})
                               </div>
                             )}
-                          </>
-                        )}
-                      </td>
+                          </td>
 
-                      <td className="p-3 text-right whitespace-nowrap">
-                        {isPending ? (
-                          <span className="text-slate-400">—</span>
-                        ) : isAnomaly ? (
-                          <div className="text-purple-700 dark:text-purple-300 font-bold font-sans text-[11px]">
-                            <span className="inline-flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              +{Math.abs(row.fridgeBalanceBags || 0).toFixed(2)}b
-                            </span>
-                            <div className="text-[10px]">{t('food_cost.fridge_meter.count_anomaly')}</div>
-                          </div>
-                        ) : (
-                          renderFridgeBalanceBadge(
-                            row.fridgeBalanceBags,
-                            row.fridgeBalanceDollarStore,
-                            row.unbilledTacosEquiv,
-                            row.reboundSuspected
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                          <td className="py-3.5 px-4 text-center font-bold text-cyan-800 dark:text-cyan-300">
+                            {soldRounded} {bagsWord}
+                          </td>
 
-      {/* 2. PLATILLOS COBRADOS EN TOAST -> BOLSAS DESCONTADAS DEL REFRIGERADOR */}
-      {familyEquivalence && familyEquivalence.families.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="p-4 md:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900">
-            <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <UtensilsCrossed className="w-5 h-5 text-red-600" />
-              <span>{t('food_cost.fridge_meter.dishes_title')}</span>
-            </h3>
-          </div>
+                          <td className="py-3.5 px-4 text-center font-extrabold text-indigo-900 dark:text-indigo-200">
+                            {expectedRounded !== null ? `${expectedRounded} ${bagsWord}` : '—'}
+                          </td>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-[10px] border-b border-slate-200 dark:border-slate-700">
-                  <th className="p-3 text-left">{t('food_cost.fridge_meter.col_family')}</th>
-                  <th className="p-3 text-right">{t('food_cost.fridge_meter.col_units_sold')}</th>
-                  <th className="p-3 text-right">{t('food_cost.fridge_meter.col_cooked_lbs')}</th>
-                  <th className="p-3 text-right">{t('food_cost.fridge_meter.col_raw_lbs')}</th>
-                  <th className="p-3 text-right bg-cyan-50/80 dark:bg-cyan-950/30 text-cyan-900 dark:text-cyan-300">
-                    {t('food_cost.fridge_meter.col_equiv_bags')}
-                  </th>
-                  <th className="p-3 text-right">{t('food_cost.fridge_meter.col_cost_store')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                {familyEquivalence.families
-                  .filter((f) => f.rawLbs > 0)
-                  .map((fam) => (
-                    <tr key={fam.familyKey} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="p-3 font-sans">
-                        <div className="font-bold text-slate-800 dark:text-slate-100">
-                          {isEn ? fam.labelEn : fam.labelEs}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {isEn ? fam.standardRuleEn : fam.standardRuleEs}
-                        </div>
-                      </td>
-                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-100">
-                        {fam.familyKey === 'party_trays_lbs'
-                          ? `${fam.ordersOrPlatesSold.toLocaleString()} ord.`
-                          : Math.round(fam.exactUnitsServed).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-right text-slate-600 dark:text-slate-300">
-                        {fam.cookedLbs.toFixed(1)} lb
-                      </td>
-                      <td className="p-3 text-right text-slate-700 dark:text-slate-200 font-bold">
-                        {fam.rawLbs.toFixed(1)} lb
-                      </td>
-                      <td className="p-3 text-right font-black bg-cyan-50/50 dark:bg-cyan-950/20 text-cyan-900 dark:text-cyan-200">
-                        −{fam.equivalentBagsCooked.toFixed(2)} {bagsWord} ({fam.sharePct.toFixed(1)}%)
-                      </td>
-                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-100">
-                        {formatSignedUSD(fam.costStoreUsd)}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-              <tfoot className="bg-slate-900 text-white font-mono text-xs">
-                <tr>
-                  <td colSpan={4} className="p-3 font-sans font-extrabold text-right">
-                    {t('food_cost.fridge_meter.total_toast_bags')}:
-                  </td>
-                  <td className="p-3 text-right font-black text-cyan-300">
-                    −{familyEquivalence.totals.theoreticalBagsCooked.toFixed(2)} {bagsWord}
-                  </td>
-                  <td className="p-3 text-right text-slate-300">
-                    {familyEquivalence.totals.totalRawLbs.toFixed(1)} lb
-                  </td>
-                </tr>
-                {expectedEndingBags !== null && endingBags !== null && periodNetBalanceBags !== null && (
-                  <>
-                    <tr className="border-t border-slate-800">
-                      <td colSpan={4} className="p-3 font-sans font-extrabold text-right">
-                        {t('food_cost.fridge_meter.total_expected_fridge')}:
-                      </td>
-                      <td className="p-3 text-right font-black text-indigo-300">
-                        {expectedEndingBags.toFixed(2)} {bagsWord}
-                      </td>
-                      <td className="p-3 text-right text-slate-400">—</td>
-                    </tr>
-                    <tr className="border-t border-slate-800">
-                      <td colSpan={4} className="p-3 font-sans font-extrabold text-right">
-                        {t('food_cost.fridge_meter.total_actual_fridge')}:
-                      </td>
-                      <td className="p-3 text-right font-black text-amber-300">
-                        {endingBags.toFixed(2)} {bagsWord}
-                      </td>
-                      <td className="p-3 text-right text-slate-400">—</td>
-                    </tr>
-                    <tr className="border-t border-slate-700 bg-slate-950">
-                      <td colSpan={4} className="p-3 font-sans font-extrabold text-right">
-                        {t('food_cost.fridge_meter.net_bag_diff')}:
-                      </td>
-                      <td
-                        className={`p-3 text-right font-black ${
-                          periodNetBalanceBags < -0.5
-                            ? 'text-rose-400'
-                            : periodNetBalanceBags > 0.5
-                              ? 'text-sky-300'
-                              : 'text-emerald-400'
-                        }`}
-                      >
-                        {periodNetBalanceBags > 0 ? `+${periodNetBalanceBags.toFixed(2)}` : periodNetBalanceBags.toFixed(2)}{' '}
-                        {bagsWord}
-                      </td>
-                      <td
-                        className={`p-3 text-right font-black ${
-                          (periodNetBalanceUsd || 0) < 0
-                            ? 'text-rose-400'
-                            : (periodNetBalanceUsd || 0) > 0
-                              ? 'text-sky-300'
-                              : 'text-emerald-400'
-                        }`}
-                      >
-                        {formatSignedUSD(periodNetBalanceUsd || 0, {
-                          showPlus: (periodNetBalanceUsd || 0) > 0,
-                        })}
-                      </td>
-                    </tr>
-                  </>
-                )}
-              </tfoot>
-            </table>
+                          <td className="py-3.5 px-4 text-center">
+                            {isPending ? (
+                              <span className="text-xs font-bold text-amber-600">
+                                {t('food_cost.fridge_meter.pending_close')}
+                              </span>
+                            ) : (
+                              <div>
+                                <div className="font-black text-slate-900 dark:text-white">
+                                  {actualRounded !== null ? `${actualRounded} ${bagsWord}` : '—'}
+                                </div>
+                                {row.closingCountedBy && (
+                                  <div className="text-xs text-slate-500">{row.closingCountedBy}</div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            {isPending ? (
+                              <span className="text-slate-400">—</span>
+                            ) : (
+                              renderCleanDiffPill(
+                                row.fridgeBalanceBags,
+                                row.fridgeBalanceDollarStore,
+                                row.status === 'count_anomaly' || row.hasNegativeCountAnomaly
+                              )
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* 3. SEMÁFORO DE LAS 15 SUCURSALES: ÚLTIMO CIERRE DEL REFRIGERADOR + BALANCE ACUMULADO */}
-      {storesComparison.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="p-4 md:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900">
-            <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <StoreIcon className="w-5 h-5 text-emerald-600" />
-              <span>{t('food_cost.fridge_meter.stores_ranking_title')}</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">{t('food_cost.fridge_meter.stores_ranking_hint')}</p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-[10px] border-b border-slate-200 dark:border-slate-700">
-                  <th className="p-2.5 text-left">{t('food_cost.fridge_meter.col_store')}</th>
-                  <th className="p-2.5 text-left">{t('food_cost.fridge_meter.col_last_cut')}</th>
-                  <th className="p-2.5 text-right">{t('food_cost.fridge_meter.col_available')}</th>
-                  <th className="p-2.5 text-right bg-cyan-50/80 dark:bg-cyan-950/30 text-cyan-900 dark:text-cyan-300">
-                    {t('food_cost.fridge_meter.col_toast_sold')}
-                  </th>
-                  <th className="p-2.5 text-right bg-indigo-50/90 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-200">
-                    {t('food_cost.fridge_meter.col_expected_close')}
-                  </th>
-                  <th className="p-2.5 text-right bg-amber-50/90 dark:bg-amber-950/35 text-amber-950 dark:text-amber-200">
-                    {t('food_cost.fridge_meter.col_close')}
-                  </th>
-                  <th className="p-2.5 text-right">{t('food_cost.fridge_meter.col_last_diff')}</th>
-                  <th className="p-2.5 text-right">{t('food_cost.fridge_meter.col_cum_diff')}</th>
-                  <th className="p-2.5 text-center"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                {storesComparison.map((st) => {
-                  const isSelected = selectedStoreNumericId === st.storeId
-                  const lc = st.latestCloseCut
-                  const cumBags = st.cumulativeFridgeBalanceBags
-                  const cumUsd = st.cumulativeFridgeBalanceDollarStore
-                  return (
-                    <tr
-                      key={st.storeId}
-                      onClick={() => onSelectStoreNumericId(st.storeId)}
-                      className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? 'bg-red-50/80 dark:bg-red-950/30 font-bold'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <td className="p-2.5 font-sans font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
-                        #{st.storeId} {st.storeName}
-                        {st.hasMeasuredSpan && (
-                          <span className="ml-1.5 text-[10px] font-normal text-slate-400">({st.spanDays}d)</span>
-                        )}
-                      </td>
-                      <td className="p-2.5 font-sans text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                        {lc ? lc.periodLabel : '—'}
-                      </td>
-                      <td className="p-2.5 text-right text-slate-700 dark:text-slate-200">
-                        {lc && lc.availableInFridgeBags !== null ? lc.availableInFridgeBags : '—'}
-                      </td>
-                      <td className="p-2.5 text-right font-bold bg-cyan-50/40 dark:bg-cyan-950/15 text-cyan-900 dark:text-cyan-200">
-                        {lc ? `−${lc.toastSoldBags.toFixed(2)}` : `−${st.toastSoldWindowBags.toFixed(2)}`}
-                      </td>
-                      <td className="p-2.5 text-right font-black bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-950 dark:text-indigo-200">
-                        {!lc || lc.expectedClosingBags === null ? (
-                          '—'
-                        ) : lc.expectedClosingBags < 0 ? (
-                          <span title={isEn ? `Recipe needed ${Math.abs(lc.expectedClosingBags).toFixed(2)} more bags` : `Receta pedía ${Math.abs(lc.expectedClosingBags).toFixed(2)}b más`}>
-                            0 <span className="text-[10px] font-normal text-indigo-600">({lc.expectedClosingBags.toFixed(1)})</span>
-                          </span>
-                        ) : (
-                          lc.expectedClosingBags.toFixed(2)
-                        )}
-                      </td>
-                      <td className="p-2.5 text-right font-black bg-amber-50/50 dark:bg-amber-950/20 text-amber-950 dark:text-amber-200">
-                        {lc && lc.closingBags !== null ? lc.closingBags : '—'}
-                      </td>
-                      <td className="p-2.5 text-right whitespace-nowrap">
-                        {lc && lc.fridgeBalanceBags !== null ? (
-                          <span
-                            className={`font-bold ${
-                              lc.fridgeBalanceBags < -0.5
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : lc.fridgeBalanceBags > 0.5
-                                  ? 'text-sky-700 dark:text-sky-300'
-                                  : 'text-emerald-700 dark:text-emerald-400'
-                            }`}
-                          >
-                            {lc.fridgeBalanceBags > 0
-                              ? `+${lc.fridgeBalanceBags.toFixed(2)}b`
-                              : `${lc.fridgeBalanceBags.toFixed(2)}b`}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="p-2.5 text-right whitespace-nowrap">
-                        {!st.hasMeasuredSpan ? (
-                          <span className="font-sans text-[10px] text-slate-400">
-                            {t('food_cost.fridge_meter.unmeasured_store')}
-                          </span>
-                        ) : st.hasNegativeCountAnomaly ? (
-                          <span className="font-sans text-[11px] font-bold text-purple-700">
-                            ⚠️ {t('food_cost.fridge_meter.count_anomaly')}
-                          </span>
-                        ) : cumBags !== null ? (
-                          <span
-                            className={`font-black ${
-                              cumBags <= -2
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : cumBags > 1
-                                  ? 'text-sky-700 dark:text-sky-300'
-                                  : 'text-emerald-700 dark:text-emerald-400'
-                            }`}
-                          >
-                            {cumBags <= -2 ? '🔴 ' : cumBags > 1 ? '🔵 ' : '🟢 '}
-                            {cumBags > 0 ? `+${cumBags.toFixed(2)}b` : `${cumBags.toFixed(2)}b`} (
-                            {formatSignedUSD(cumUsd || 0, { showPlus: (cumUsd || 0) > 0 })})
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="p-2.5 text-center font-sans">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-200">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          {t('food_cost.fridge_meter.view_ledger_btn')}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <StoreTransferModal
+        isOpen={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+        defaultStoreId={selectedStoreNumericId}
+        defaultIngredientId={defaultIngredientId}
+        onTransfersUpdated={onTransfersUpdated}
+      />
     </div>
   )
 }

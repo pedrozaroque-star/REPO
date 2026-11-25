@@ -84,6 +84,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { 
     BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, 
     X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
@@ -2090,7 +2091,11 @@ export default function PreparadorPage() {
         const fetchStores = async () => {
             const { data } = await supabase.from('stores').select('id, name, code, external_id, opening_time, closing_time').eq('is_active', true).order('name')
             if (data) {
-                setStores(data)
+                const sorted = sortStoresAlphabetically(
+                    data.map((s: any) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+                    (s: any) => s.name
+                )
+                setStores(sorted)
                 
                 // Si el usuario no es admin/supervisor y tiene tienda asignada, fijamos y persistimos su tienda automáticamente
                 const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')

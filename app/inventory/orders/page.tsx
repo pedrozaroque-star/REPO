@@ -74,9 +74,10 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import {
     Package, ClipboardList, ShoppingCart, BarChart3,
-    ArrowLeft, ArrowRight, Copy, Save, Send, RefreshCcw,
+    ArrowLeft, ArrowRight, ArrowRightLeft, Copy, Save, Send, RefreshCcw,
     Check, X, Link, AlertTriangle, ChevronDown, Download, Info, Trash2, Printer, Eye, EyeOff
 } from 'lucide-react'
 import {
@@ -102,6 +103,7 @@ import { ACTIVE_PROTEIN_IDS, MEAT_DEFAULT_BAG_LBS, type ActiveProteinKey } from 
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import PilotComparisonModal from '@/components/PilotComparisonModal'
+import StoreTransferModal from '@/components/inventory/StoreTransferModal'
 import { useLanguage } from '@/lib/i18n'
 
 // ============================================================================
@@ -252,6 +254,7 @@ export default function InventoryOrdersPage() {
     const [searchTerm, setSearchTerm] = useState('')
     const [showIdealInfo, setShowIdealInfo] = useState(false)
     const [showInfoModal, setShowInfoModal] = useState(false)
+    const [showTransferModal, setShowTransferModal] = useState(false)
     const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null)
 
     // QB sending state
@@ -386,7 +389,11 @@ export default function InventoryOrdersPage() {
                         filteredStores = data.filter(s => userStoreIds.includes(String(s.id)))
                     }
                 }
-                setStores(filteredStores)
+                const sortedFiltered = sortStoresAlphabetically(
+                    filteredStores.map((s: any) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+                    (s: any) => s.name
+                )
+                setStores(sortedFiltered)
                 if (!isSuper && user?.store_id) {
                     setStoreId(user.store_id)
                 } else {
@@ -1136,7 +1143,7 @@ export default function InventoryOrdersPage() {
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
-                orderType, nextWeekBases
+                orderType, nextWeekBases, countSources
             )
             setOrderLines(prev => {
                 const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -1200,7 +1207,7 @@ export default function InventoryOrdersPage() {
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField, parBoostPercent,
-                orderType, nextWeekBases
+                orderType, nextWeekBases, countSources
             )
             setOrderLines(prev => {
                 const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -2333,7 +2340,7 @@ export default function InventoryOrdersPage() {
                                     )}
                                 </h2>
                                 <p className="text-xs text-slate-500 mt-0.5">
-                                    Pedido del {editModal.order.order_date} (Store ID: {storeId}) {editModal.order.qb_estimate_number && `| Estimate QB #${editModal.order.qb_estimate_number}`}
+                                    Pedido del {editModal.order.order_date} ({formatStoreDisplayName(stores.find(s => String(s.id) === String(storeId))?.name || storeId)}) {editModal.order.qb_estimate_number && `| Estimate QB #${editModal.order.qb_estimate_number}`}
                                 </p>
                             </div>
                             <button 
@@ -2992,15 +2999,25 @@ export default function InventoryOrdersPage() {
                                             </div>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 {orderType === 'daily' && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleRefreshToastSales}
-                                                        disabled={refreshingToast || loading}
-                                                        className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-sky-100/70 text-sky-900 border border-sky-300 text-xs font-black shadow-2xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
-                                                    >
-                                                        <RefreshCcw size={13} className={refreshingToast ? 'animate-spin' : ''} />
-                                                        <span>{refreshingToast ? t('bodegaOrders.refreshingToast') : t('bodegaOrders.refreshToastBtn')}</span>
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowTransferModal(true)}
+                                                            className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-300 text-xs font-black shadow-2xs flex items-center gap-1.5 cursor-pointer transition-all"
+                                                        >
+                                                            <ArrowRightLeft size={13} />
+                                                            <span>{t('food_cost.store_transfers.open_btn')}</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleRefreshToastSales}
+                                                            disabled={refreshingToast || loading}
+                                                            className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-sky-100/70 text-sky-900 border border-sky-300 text-xs font-black shadow-2xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
+                                                        >
+                                                            <RefreshCcw size={13} className={refreshingToast ? 'animate-spin' : ''} />
+                                                            <span>{refreshingToast ? t('bodegaOrders.refreshingToast') : t('bodegaOrders.refreshToastBtn')}</span>
+                                                        </button>
+                                                    </>
                                                 )}
                                                 {isAssisted2Tier && (
                                                     <button
@@ -5267,6 +5284,13 @@ export default function InventoryOrdersPage() {
                     </div>
                 </div>
             )}
+
+            <StoreTransferModal
+                isOpen={showTransferModal}
+                onClose={() => setShowTransferModal(false)}
+                defaultStoreId={storeId ? Number(storeId) : null}
+                onTransfersUpdated={handleRefreshToastSales}
+            />
         </div>
     )
 }

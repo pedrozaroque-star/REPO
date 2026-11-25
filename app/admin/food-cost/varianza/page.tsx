@@ -37,6 +37,7 @@ import {
 import FoodCostNavigationTabs from '@/components/food-cost/FoodCostNavigationTabs'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import {
   addDaysIso,
   escapeCsvCell,
@@ -144,7 +145,14 @@ export default function AvTVariancePage() {
     fetch('/api/stores')
       .then((res) => res.json())
       .then((json) => {
-        if (Array.isArray(json)) setStores(json)
+        if (Array.isArray(json)) {
+          setStores(
+            sortStoresAlphabetically(
+              json.map((s: any) => ({ ...s, name: formatStoreDisplayName({ id: s.id, name: s.name }) || s.name })),
+              (s) => s.name
+            )
+          )
+        }
       })
       .catch((err) => console.error('Failed to load stores:', err))
   }, [])
@@ -292,7 +300,7 @@ export default function AvTVariancePage() {
               <option value="all">{t('avt.all_stores') || (isEn ? 'All 15 Stores (Consolidated)' : 'Todas las Sucursales (Consolidado)')}</option>
               {stores.map((s) => (
                 <option key={s.id} value={s.external_id || s.id}>
-                  {s.name}
+                  {formatStoreDisplayName({ id: s.id, name: s.name })}
                 </option>
               ))}
             </select>

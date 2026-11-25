@@ -43,6 +43,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatSignedUSD, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-resolver'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 export interface PortionControlAlertsPanelProps {
   storeId?: string
@@ -204,23 +205,26 @@ const MEAT_BAG_LBS_MAP: Record<string, number> = {
   buche: 0.375,
 }
 
-const CANONICAL_STORES: ReadonlyArray<{ id: number; name: string }> = [
-  { id: 1, name: '#1 Rialto' },
-  { id: 3, name: '#3 West Covina' },
-  { id: 4, name: '#4 Azusa' },
-  { id: 5, name: '#5 LA Broadway' },
-  { id: 6, name: '#6 LA Central' },
-  { id: 7, name: '#7 Slauson' },
-  { id: 8, name: '#8 Hollywood' },
-  { id: 9, name: '#9 Santa Ana' },
-  { id: 10, name: '#10 La Puente' },
-  { id: 11, name: '#11 Huntington Park' },
-  { id: 12, name: '#12 Norwalk' },
-  { id: 13, name: '#13 Bell' },
-  { id: 14, name: '#14 Lynwood' },
-  { id: 15, name: '#15 South Gate' },
-  { id: 16, name: '#16 Downey' },
-]
+const CANONICAL_STORES: ReadonlyArray<{ id: number; name: string }> = sortStoresAlphabetically(
+  [
+    { id: 4, name: 'Azusa' },
+    { id: 13, name: 'Bell' },
+    { id: 16, name: 'Downey' },
+    { id: 8, name: 'Hollywood' },
+    { id: 11, name: 'Huntington Park' },
+    { id: 5, name: 'LA Broadway' },
+    { id: 6, name: 'LA Central' },
+    { id: 10, name: 'La Puente' },
+    { id: 14, name: 'Lynwood' },
+    { id: 12, name: 'Norwalk' },
+    { id: 1, name: 'Rialto' },
+    { id: 9, name: 'Santa Ana' },
+    { id: 7, name: 'Slauson' },
+    { id: 15, name: 'South Gate' },
+    { id: 3, name: 'West Covina' },
+  ],
+  (s) => s.name
+)
 
 const MEAT_OPTIONS: ReadonlyArray<{ key: string; es: string; en: string }> = [
   { key: 'asada', es: 'Carne Asada (Bolsa 10 lb)', en: 'Carne Asada (10 lb Bag)' },
@@ -996,7 +1000,7 @@ export default function PortionControlAlertsPanel({
           </div>
           <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {handovers[0]
-              ? `${t('portion_alerts.latest_prefix')} #${handovers[0].store_id} (${handovers[0].business_date}) · ${handovers[0].sealed_bags} ${t('portion_alerts.bags_unit')}`
+              ? `${t('portion_alerts.latest_prefix')} ${formatStoreDisplayName(handovers[0].store_id)} (${handovers[0].business_date}) · ${handovers[0].sealed_bags} ${t('portion_alerts.bags_unit')}`
               : t('portion_alerts.no_handovers_yet')}
           </div>
         </div>
@@ -1091,7 +1095,7 @@ export default function PortionControlAlertsPanel({
                       </span>
 
                       <h3 className="text-base font-extrabold text-gray-900 dark:text-white">
-                        #{alert.store_id} {alert.store_name}
+                        {formatStoreDisplayName({ id: alert.store_id, name: alert.store_name })}
                       </h3>
 
                       <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
@@ -1434,7 +1438,7 @@ export default function PortionControlAlertsPanel({
                       >
                         <td className="py-3 px-3 align-top">
                           <div className="font-bold text-gray-900 dark:text-white">
-                            #{row.store_id} {row.store_name}
+                            {formatStoreDisplayName({ id: row.store_id, name: row.store_name })}
                           </div>
                           <div className="text-[11px] text-gray-500 dark:text-gray-400">
                             {new Date(row.created_at).toLocaleString()}
@@ -1559,7 +1563,7 @@ export default function PortionControlAlertsPanel({
                     {t('portion_alerts.modal_coach_title')}
                   </h3>
                   <p className="text-xs font-semibold text-rose-700 dark:text-rose-300 mt-0.5">
-                    #{coachingAlert.store_id} {coachingAlert.store_name} · {coachingAlert.meat_name} (+
+                    {formatStoreDisplayName({ id: coachingAlert.store_id, name: coachingAlert.store_name })} · {coachingAlert.meat_name} (+
                     {Number(coachingAlert.variance_bags).toFixed(1)} {t('portion_alerts.bags_unit')})
                   </p>
                   <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-1">

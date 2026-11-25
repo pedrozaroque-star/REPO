@@ -36,6 +36,12 @@ import { addDaysIso, getBusinessDateLA } from '@/lib/inventory/food-cost-sales-r
 // Ej: "(Bag of 5 lbs)" → { qty: 5, unit: 'lb', description: '(Bag of 5 lbs)' }
 // Ej: "(Crate of 400 ct)" → { qty: 400, unit: 'pza', description: '(Crate of 400 ct)' }
 // Ej: "(Bag of 1 Gallon)" → { qty: 1, unit: 'gal', description: '(Bag of 1 Gallon)' }
+// Empaques físicos verificados en operación cuyo texto legado en QBO RecurringTransaction no debe sobrescribir la base:
+const LOCKED_PACKAGING_OVERRIDES: Record<string, { qty: number; unit: string; description: string }> = {
+    '62968b74-7877-4650-aa43-4ec6e9eb1888': { qty: 440, unit: 'oz', description: '(Case of 440 oz)' }, // Amarillo Cheese (4 bolsas x 110 oz)
+    '8ba55664-5ca9-4886-8ac8-acf1fd070713': { qty: 1, unit: 'pza', description: '(Per Unit)' },        // Cheesecake individual
+};
+
 function parsePackaging(description: string | undefined | null): { qty: number; unit: string; description: string } | null {
     if (!description) return null;
     
@@ -44,9 +50,23 @@ function parsePackaging(description: string | undefined | null): { qty: number; 
     if (!parenMatch) return null;
     
     const innerText = parenMatch[1];
+
+    // 1b. Soportar pesos compuestos exactos como "(Bag of 6 lbs 9 oz)" -> 6 + 9/16 = 6.5625 lb
+    const compoundLbOz = innerText.match(/([\d.]+)\s*lbs?\s+([\d.]+)\s*oz\b/i);
+    if (compoundLbOz) {
+        const lbs = parseFloat(compoundLbOz[1]);
+        const oz = parseFloat(compoundLbOz[2]);
+        if (Number.isFinite(lbs) && Number.isFinite(oz) && (lbs + oz / 16) > 0) {
+            return {
+                qty: Number((lbs + oz / 16).toFixed(4)),
+                unit: 'lb',
+                description: parenMatch[0].trim(),
+            };
+        }
+    }
     
     // 2. Buscar un patrón de número seguido por unidad admitida
-    const unitRegex = /([\d.]+)\s*(lbs?|oz|gal(?:lon)?s?|ct|pza?|kg|g|l|ml|fl\s*oz)\b/i;
+    const unitRegex = /([\d.]+)\s*(lbs?|oz|gal(?:lon)?s?|ct|pza?|unis?|units?|rolls?|kg|g|l|ml|fl\s*oz)\b/i;
     const match = innerText.match(unitRegex);
     if (!match) return null;
     
@@ -59,6 +79,8 @@ function parsePackaging(description: string | undefined | null): { qty: number; 
         'oz': 'oz', 'fl oz': 'fl oz',
         'gal': 'gal', 'gallon': 'gal', 'gallons': 'gal',
         'ct': 'pza', 'pz': 'pza', 'pza': 'pza',
+        'uni': 'pza', 'unis': 'pza', 'unit': 'pza', 'units': 'pza',
+        'roll': 'pza', 'rolls': 'pza',
         'kg': 'kg', 'g': 'g', 'l': 'l', 'ml': 'ml'
     };
     
@@ -401,12 +423,13 @@ export async function POST(request: Request) {
         // Solo se actualizan: order_unit_description, unit_measure, quantity_per_unit.
         // ====================================================================
         try {
-            for (const [qbItemId, pkgInfo] of packagingMap.entries()) {
+            for (const [qbItemId, rawPkgInfo] of packagingMap.entries()) {
                 const mapping = existingMappings?.find(m => m.qb_item_id === qbItemId);
                 if (!mapping) continue;
                 const invItemId = mapping.inventory_item_id;
                 const currentItem = internalItems.find(i => i.id === invItemId);
                 if (currentItem && externalSupplierItemIds.has(currentItem.id)) continue;
+                const pkgInfo = LOCKED_PACKAGING_OVERRIDES[invItemId] || rawPkgInfo;
 
                 // PROTECCIÓN DE PIEZAS: Si el item se vende por pieza (pza/unit/dz), NO permitir que el sync cambie unit_measure a peso/volumen (lb, oz, gal)
                 const isPieceItem = currentItem?.unit_measure === 'pza' || currentItem?.unit_measure === 'unit' || currentItem?.unit_measure === 'dz';

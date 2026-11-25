@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import {
   fetchUniformsPricing, fetchUniformsStock, saveInitialCount,
   saveManualAudit, recordUniformSale, recordNewHirePackage,
@@ -98,7 +99,10 @@ function UniformsContent() {
         });
         const data = await res.json();
         if (Array.isArray(data)) {
-          const storeList = data.map((s: any) => ({ id: s.id, name: s.name }));
+          const storeList = sortStoresAlphabetically(
+            data.map((s: any) => ({ id: s.id, name: formatStoreDisplayName(s.name) })),
+            (s) => s.name
+          );
           setStores(storeList);
           
           if (!isExecutive && user) {
