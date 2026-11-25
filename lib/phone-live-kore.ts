@@ -44,6 +44,8 @@
  * - Calibrado Fase 25 (`2026-11-21`): validación en tiempo real de tickets (`validate_order_ticket` + compuerta en
  *   `create_manager_callback` contra Supabase + Toast POS `/orders/v2/ordersBulk`), candado determinista anti-cuelgue
  *   ante frustración o `"me voy con la competencia"`, 2 soluciones urgentes `< 1h` para grupos grandes y menú verbal íntegro.
+ * - Calibrado v15 (`2026-11-23`): paridad con `phone-live-bridge` v15 — menú agrupado sin pérdida por precio/categoría,
+ *   base de conocimiento servida vía `search_menu_item_price` y directorio compacto de IDs (`-68%` tokens por turno).
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -78,6 +80,7 @@ import {
   normalizeUsPhoneDigits10
 } from '@/lib/phone-caller-id'
 import { loadActivePhoneLearnedRules } from '@/lib/phone-agent-learning'
+import { createOrUpdateDeliveryArmorPhoneNote } from '@/lib/delivery-armor-phone-notes'
 import { getPhoneAgentSpeech } from '@/lib/order-ready-tts'
 import {
   KORE_LIVE_MODEL,
@@ -180,7 +183,7 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'search_menu_item_price',
     behavior: 'BLOCKING',
     description:
-      'Busca precios exactos en USD e ingredientes en el menú en vivo de la sucursal (soporta uno o varios platillos separados por comas o "y").',
+      'Busca en <1ms precios exactos en USD, ingredientes, desayunos, historia (1992), empleo o políticas oficiales en el menú y base de conocimiento en vivo de la sucursal.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -249,6 +252,30 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
         }
       },
       required: []
+    }
+  },
+  {
+    name: 'send_delivery_armor_order_note',
+    behavior: 'BLOCKING',
+    description:
+      'Envía una ALERTA PARPADEANTE en vivo a la tableta Delivery Armor de empaque para que la cajera agregue condimentos gratuitos (salsas, chiles, limones, cebollas, servilletas, utensilios) o aplique una modificación sin costo a un platillo (sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz) en una orden de DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online. PROHIBIDO para artículos pagados extra. Pide antes: plataforma, nombre en la orden, código de la app o 1–2 platillos, y el detalle exacto.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        platform: { type: 'STRING', description: "'DOORDASH', 'UBER_EATS', 'GRUBHUB' o 'TOAST_ONLINE'." },
+        customer_name: { type: 'STRING', description: 'Nombre exacto en la orden de la aplicación.' },
+        order_code: { type: 'STRING', description: 'Código de la orden o últimos dígitos si el cliente los tiene.' },
+        ordered_items: { type: 'STRING', description: '1 o 2 platillos pedidos para identificar la orden si no tiene código o hay homónimos.' },
+        request_type: { type: 'STRING', description: "'condiments', 'item_modification' o 'both'." },
+        requested_condiments: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Condimentos gratis EN ESPAÑOL.' },
+        item_modifications: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Modificaciones sin costo por platillo EN ESPAÑOL.' },
+        note_summary_es: { type: 'STRING', description: 'Resumen claro SIEMPRE EN ESPAÑOL para la cajera en la tableta.' },
+        note_summary_en: { type: 'STRING', description: 'Resumen corto en inglés opcional.' },
+        caller_phone: { type: 'STRING', description: "'CALLER_ID' o teléfono de 10 dígitos." },
+        target_store_id: { type: 'INTEGER', description: 'ID de sucursal destino (1, 3..16) solo si ordenó en otra tienda.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no baja a Toast y confirmó que la acaba de enviar hace segundos.' }
+      },
+      required: ['platform', 'customer_name', 'note_summary_es']
     }
   },
   {
@@ -391,58 +418,59 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
   )
   const questionOnlyText = getPostDisclosurePrompt(lang, scheduleEval)
 
-  const menuCatalogSummary = buildLiveMenuCatalogText(customerBranchDisplay, liveMenuItems, {
-    includeFiestaPlat: true
-  })
+  const byCatPrice = new Map<string, Map<string, string[]>>()
+  for (const m of liveMenuItems) {
+    const cat = String(m.category_name || 'Menu')
+    const price = `$${Number(m.price || 0).toFixed(2)}`
+    if (!byCatPrice.has(cat)) byCatPrice.set(cat, new Map())
+    const pMap = byCatPrice.get(cat)!
+    if (!pMap.has(price)) pMap.set(price, [])
+    pMap.get(price)!.push(String(m.name || '').trim())
+  }
+  const groupedMenuLines: string[] = [`CATÁLOGO EN VIVO EN ${customerBranchDisplay} (USD):`]
+  for (const [cat, pMap] of byCatPrice.entries()) {
+    const groups: string[] = []
+    for (const [price, names] of pMap.entries()) {
+      groups.push(`${price}: ${names.join(', ')}`)
+    }
+    groupedMenuLines.push(`[${cat}] ${groups.join(' | ')}`)
+  }
+  const menuCatalogSummary = groupedMenuLines.join('\n')
+
   const platterInfo = recommendFiestaPlatters(null, liveMenuItems)
   const plattersSummary = platterInfo.packages
     .map(
       (p) =>
-        `- ${p.labelEs}: ${p.price !== null ? '$' + p.price.toFixed(2) + ' USD' : 'consultar en tacosgavilan.com'} (${p.meatLbs} lbs carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs}, ${p.aguasGallons} gal agua fresca; incluye ${p.extrasSummaryEs})`
+        `- ${p.labelEs}: ${p.price !== null ? '$' + p.price.toFixed(2) + ' USD' : 'ver tacosgavilan.com'} (${p.meatLbs}lb carne, ${p.riceBeansTrayEs}, ${p.tortillasSummaryEs}, ${p.aguasGallons}gal agua; ${p.extrasSummaryEs})`
     )
     .join('\n')
 
-  const directoryLines = allActiveStores
-    .map((s) => {
-      const lbl = formatCustomerStoreName(s, lang, { style: 'display' })
-      const cross = getCustomerStoreCrossStreets(s, lang)
-      const addr = formatStoreAddressForAgent(s.address, lang, { includeZip: false })
-      const hrs = lang === 'en' ? s.compactHoursEn : s.compactHoursEs
-      const acceptsEbt = ![1, 9].includes(Number(s.id))
-      return `- #${s.id} ${lbl}${cross ? ` [Esquina: ${cross}]` : ''}: ${addr} | Tel: ${s.phone} | ${s.has_drive_thru ? 'CON Drive-Thru' : 'Sin Drive-Thru'} | ${acceptsEbt ? 'EBT solo en mostrador' : 'Sin EBT'} | Horario: ${hrs}`
-    })
-    .join('\n')
+  const directoryLines =
+    `IDs de las 15 sucursales: ` +
+    allActiveStores
+      .map((s) => `#${s.id} ${formatCustomerStoreName(s, lang, { style: 'display' })}${s.has_drive_thru ? ' [DT]' : ''}`)
+      .join(', ') +
+    '. Para dirección exacta, teléfono u horario en vivo de OTRA sucursal invoca SIEMPRE `find_other_stores`.'
 
-  const ctxWithHours = ctx as typeof ctx & { allSpecialHours?: typeof ctx.specialHours }
-  const crossComparison = buildCrossStoreHoursComparison(
-    allActiveStores,
-    lang,
-    ctxWithHours.allSpecialHours || ctx.specialHours || []
-  )
+  const crossComparison = ''
+  const kbLines = ''
+  void knowledgeBase
 
-  const kbLines = ((knowledgeBase || []) as Array<{
-    category?: string | null
-    title?: string | null
-    title_en?: string | null
-    answer_es?: string | null
-    answer_en?: string | null
-  }>)
-    .filter((k) => String(k?.category || '').toLowerCase() !== 'staff')
-    .slice(0, 60)
-    .map((k) => {
-      const kbTitle = lang === 'en' ? k.title_en || k.title : k.title || k.title_en
-      return `- [${k.category}] ${kbTitle}: ${lang === 'en' ? k.answer_en || k.answer_es : k.answer_es || k.answer_en}`
-    })
-    .join('\n')
-
+  const seenLearned = new Set<string>()
   const learnedLines = learnedRules
-    .slice(0, 35)
+    .filter((r) => {
+      if (r.itemKind === 'latency_insight' || r.itemKind === 'audio_prewarm') return false
+      const txt = String(lang === 'en' ? r.ruleEn || r.ruleEs : r.ruleEs || r.ruleEn).trim()
+      const key = normalizeSearchText(txt).slice(0, 90)
+      if (!key || seenLearned.has(key)) return false
+      seenLearned.add(key)
+      return true
+    })
+    .slice(0, 16)
     .map((r, idx) => {
-      const txt = lang === 'en' ? r.ruleEn || r.ruleEs : r.ruleEs || r.ruleEn
-      const trig = lang === 'en' ? r.triggerEn || r.trigger : r.trigger || r.triggerEn || ''
-      const kindTag = r.itemKind === 'stt_synonym' ? 'STT' : r.category.toUpperCase()
-      const scope = r.storeId ? `SOLO ${customerBranchDisplay}` : 'GLOBAL'
-      return `${idx + 1}. [${kindTag} - ${scope}] (${trig}): ${txt}`
+      const txt = String(lang === 'en' ? r.ruleEn || r.ruleEs : r.ruleEs || r.ruleEn).replace(/\s+/g, ' ').trim()
+      const scope = r.storeId ? ` [${customerBranchDisplay}]` : ''
+      return `${idx + 1}.${scope} ${txt}`
     })
     .join('\n')
 
@@ -515,8 +543,8 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - Nunca transferimos llamadas a celulares personales. Toda atención gerencial se envía en vivo a la pantalla de la tienda con \`create_manager_callback\` y \`reason_summary\` SIEMPRE EN ESPAÑOL.`,
     callerIdGuidanceLine,
     `   - **PREGUNTA EL CAMBIO / DETALLE EXACTO ANTES DE GUARDAR + ACTUALIZACIÓN OBLIGATORIA POST-RECADO (CERO PROMESAS FALSAS)**: Cuando el cliente quiera editar una orden, pedir condimentos o dejar aviso a cocina/gerente, pregunta SIEMPRE qué cambio o detalle exacto necesita y en qué platillo ANTES de invocar \`create_manager_callback\`. **Y SI DESPUÉS DE HABER GUARDADO EL RECADO** el cliente agrega CUALQUIER dato nuevo, ingrediente o platillo (ej. "sin queso", "para el Taco Plate", "sin cebolla", código o sucursal), **ESTÁ ESTRICTAMENTE PROHIBIDO** decir "ya lo agregué / ya lo anoté / ya se lo compartí al gerente" sin **VOLVER A INVOCAR \`create_manager_callback\` PRIMERO** con el \`reason_summary\` completo en español incluyendo todo lo anterior y lo nuevo (el sistema actualiza el mismo recado automáticamente sin duplicarlo).`,
-    `   - **Condimentos gratis en orden existente vs productos pagados**: para salsas, chiles, limones, cebollas o servilletas gratis en una orden YA hecha (sin costo), pregunta qué condimentos desea, nombre, número/código de orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}) -> ejecuta \`create_manager_callback\` (\`reason_category: "condiments_note"\`, \`urgency: "normal"\`) aclarando que se incluyen sin costo si la orden aún no ha salido (para agregar comida o bebidas con costo diles que deben pedirlas aparte en **tacosgavilan.com** o en caja).`,
-    `   - **Uber Eats / DoorDash / Grubhub (Estatus y Ajustes Sin Costo)**: si preguntan el estatus real de una orden de delivery o pickup por nombre/código (ej. "Enrique 012234" o "Asia"), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir "estoy revisando". Cambios con costo, agregar comida, dirección, cancelaciones o reembolsos se gestionan en **Ayuda (Help)** de su app. Para un **ajuste menor sin costo** en una orden activa (ej. quitar queso, cebolla o cilantro) o avisar retraso al gerente, pregunta **qué ajuste exacto y en qué platillo**, su nombre, código de orden (si no lo tiene, usa "SIN TICKET" sin bucle) y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}) -> \`create_manager_callback\` (\`reason_category: "delivery_issue"\`), aclarando que aplica solo si cocina aún no ha sellado la orden.`,
+    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (ALERTA PARPADEANTE EN TABLETA DELIVERY ARMOR)**: Si un cliente de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com** llama para agregar **condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, servilletas, cubiertos) O una **modificación sin costo** a un platillo (taco, burrito, mulita, quesadilla, torta, plato — ej. sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz), pregunta en una sola frase: **1) plataforma (DoorDash/Uber Eats/Grubhub/Online), 2) nombre en la orden, 3) código de la app o 1–2 platillos que pidió, y 4) condimentos o cambio exacto y en qué platillo**, y **EJECUTA DE INMEDIATO \`send_delivery_armor_order_note\`** (con \`note_summary_es\` SIEMPRE EN ESPAÑOL) para que la orden exacta parpadee en vivo en la tableta Delivery Armor de empaque. Sigue con honestidad el resultado de la herramienta (\`ALREADY_DELIVERED\`, \`AMBIGUOUS\`, \`SENT_TO_TABLET_REOPEN_BAG\`, \`NOT_FOUND\`). Si después agrega otro detalle, vuelve a invocarla. Artículos pagados extra NO se agregan por teléfono (van en su app o en orden aparte). (Para órdenes directas en tienda/Drive-Thru sin plataforma, usa \`create_manager_callback\` con \`condiments_note\`.)`,
+    `   - **Uber Eats / DoorDash / Grubhub (Estatus, Retrasos y Reembolsos)**: si preguntan el estatus real de una orden de delivery o pickup por nombre/código (ej. "Enrique 012234" o "Asia"), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir "estoy revisando". Cambios con costo, agregar comida pagada, dirección, cancelaciones o reembolsos se gestionan en **Ayuda (Help)** de su app. Para retrasos largos esperando repartidor -> \`create_manager_callback\` (\`reason_category: "delivery_issue"\`).`,
     `   - **Pidió en sucursal equivocada en tacosgavilan.com**: pregunta en cuál sucursal cayó, nombre, orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}), y llama \`create_manager_callback\` con \`target_store_id\` de esa tienda (\`reason_category: "wrong_store_order"\`).`,
     `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL + DETALLE OBLIGATORIO)**: ANTES de guardar el recado DEBES saber **qué platillo faltó o qué estuvo mal** (PROHIBIDO guardar un recado vago tipo "problema en Drive-Thru" sin preguntar primero qué faltó). Solicita con respeto los **4 datos obligatorios**: **1) qué artículo faltó/estuvo mal + número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : '10 dígitos'})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** (*"Without the ticket number, it is unlikely we can verify the mistake"*). **REGLA CRÍTICA DE SUCURSAL Y TICKET**: en cuanto el cliente te diga un número de ticket u orden, **INVOCA DE INMEDIATO \`validate_order_ticket\`** — **Y SI EL CLIENTE MENCIONA OTRA SUCURSAL** (ej. South Gate #15, Lynwood #14), **PASA SIEMPRE SU \`target_store_id\`** en \`validate_order_ticket\` ANTES de decirle que no existe. Si \`found: true\`, confirma que ya localizaste su orden en el sistema y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (incluyendo el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si confirma que no lo tiene, pasa directo a registrar con \`ticket_or_order_number: "SIN TICKET"\` sin prometer reposición. **SI ENCUENTRA SU COMIDA DURANTE LA LLAMADA**, vuelve a invocar \`create_manager_callback\` indicando que encontró su platillo para cerrar la alerta automáticamente. Cuando invoques una herramienta bloqueante espera su resultado en silencio. EJECUTA \`create_manager_callback\` ANTES de confirmar al cliente, y luego ${callbackOutcomeInstruction}`,
     `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta pide su nombre, confirma teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone="CALLER_ID"` : 'real de 10 dígitos'}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin volver a frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmarlo y ${callbackOutcomeInstruction}`,
@@ -907,6 +935,33 @@ async function executePhoneKoreLiveToolCore(params: {
     const naturalQuote =
       clauses.length > 0 ? composeNaturalMenuPriceReply(liveMenuItems, rawQuery, lang) : null
     const matches = rankMenuItemsForPrompt(liveMenuItems, rawQuery, 10)
+    const qNorm = normalizeSearchText(rawQuery)
+    const qTokens = qNorm.split(/\s+/).filter((w) => w.length >= 3)
+    type KbEntryLite = {
+      category?: string | null
+      title?: string | null
+      title_en?: string | null
+      answer_es?: string | null
+      answer_en?: string | null
+    }
+    const kbList: KbEntryLite[] = Array.isArray(ctx.knowledgeBase) ? (ctx.knowledgeBase as KbEntryLite[]) : []
+    const matchedPolicies = kbList
+      .filter((k: KbEntryLite) => String(k?.category || '').toLowerCase() !== 'staff')
+      .map((k: KbEntryLite): { k: KbEntryLite; score: number } => {
+        const hay = normalizeSearchText(`${k.category || ''} ${k.title || ''} ${k.title_en || ''} ${k.answer_es || ''} ${k.answer_en || ''}`)
+        let score = qNorm && hay.includes(qNorm) ? 10 : 0
+        for (const tk of qTokens) if (hay.includes(tk)) score += 3
+        return { k, score }
+      })
+      .filter((x: { k: KbEntryLite; score: number }) => x.score > 0)
+      .sort((a: { k: KbEntryLite; score: number }, b: { k: KbEntryLite; score: number }) => b.score - a.score)
+      .slice(0, 4)
+      .map(({ k }: { k: KbEntryLite; score: number }) => ({
+        category: k.category,
+        title: lang === 'en' ? k.title_en || k.title : k.title || k.title_en,
+        answer: lang === 'en' ? k.answer_en || k.answer_es : k.answer_es || k.answer_en
+      }))
+
     return {
       response: {
         storeName: customerBranchDisplay,
@@ -914,7 +969,8 @@ async function executePhoneKoreLiveToolCore(params: {
         query: rawQuery,
         naturalSuggestedReply: naturalQuote || null,
         matchesFound: matches.length,
-        items: matches
+        items: matches,
+        ...(matchedPolicies.length > 0 ? { policies: matchedPolicies } : {})
       },
       callbackCreated: null,
       unansweredFlagged: null,
@@ -1006,6 +1062,49 @@ async function executePhoneKoreLiveToolCore(params: {
       },
       callbackCreated: null,
       unansweredFlagged: qText || null,
+      shouldEndCall: false
+    }
+  }
+
+  if (toolName === 'send_delivery_armor_order_note') {
+    const reqTargetId = Number(toolArgs?.target_store_id)
+    const destStoreId = Number.isInteger(reqTargetId) && reqTargetId > 0 ? reqTargetId : Number(store.id)
+    const rawConds = Array.isArray(toolArgs?.requested_condiments)
+      ? toolArgs.requested_condiments.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : []
+    const rawMods = Array.isArray(toolArgs?.item_modifications)
+      ? toolArgs.item_modifications.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : []
+    const summaryEs = normalizePhoneCallbackReasonToSpanish(
+      String(toolArgs?.note_summary_es || '').trim() ||
+        [
+          rawConds.length > 0 ? `Condimentos gratis: ${rawConds.join(', ')}` : '',
+          rawMods.length > 0 ? `Modificación: ${rawMods.join('; ')}` : ''
+        ]
+          .filter(Boolean)
+          .join(' | ')
+    )
+    const daRes = await createOrUpdateDeliveryArmorPhoneNote({
+      storeId: destStoreId,
+      source,
+      callSid,
+      platform: toolArgs?.platform ? String(toolArgs.platform) : null,
+      customerName: String(toolArgs?.customer_name || '').trim(),
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
+      callerName: String(toolArgs?.customer_name || '').trim(),
+      callerPhone: callerNumber || null,
+      requestType: toolArgs?.request_type ? String(toolArgs.request_type) : null,
+      noteSummaryEs: summaryEs,
+      noteSummaryEn: toolArgs?.note_summary_en ? String(toolArgs.note_summary_en).trim() : null,
+      requestedCondiments: rawConds,
+      itemModifications: rawMods,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched)
+    })
+    return {
+      response: daRes,
+      callbackCreated: null,
+      unansweredFlagged: null,
       shouldEndCall: false
     }
   }

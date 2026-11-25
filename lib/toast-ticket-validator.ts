@@ -237,17 +237,23 @@ export function cleanSpokenTicketNumber(rawInput: string | null | undefined): {
     .replace(/^#+/, '')
     .trim()
 
+  // Si dictaron un código hexadecimal de 5 caracteres deletreado ("A-B-C-D-E" o "A B C D E" o "A-9-F-2-B"), colapsarlo
+  if (/^(?:[A-Fa-f0-9][\s\-]+){4}[A-Fa-f0-9]$/.test(working)) {
+    working = working.replace(/[\s\-]+/g, '').toUpperCase()
+  }
+
   // Extraer token principal con al menos un dígito (ej. "1600", "0983", "7AF29", "SEED-1043")
+  // o código hexadecimal de 5 caracteres de Uber Eats (ej. "ABCDE", "FACEB")
   const explicitHash = raw.match(/#\s*([A-Za-z0-9][A-Za-z0-9\-]{0,19})/)
   let token = ''
-  if (explicitHash && /\d/.test(explicitHash[1])) {
+  if (explicitHash && (/\d/.test(explicitHash[1]) || /^[A-Fa-f]{5}$/.test(explicitHash[1]))) {
     token = explicitHash[1].trim()
-  } else if (/^[A-Za-z0-9][A-Za-z0-9\-]{0,19}$/.test(working) && /\d/.test(working)) {
+  } else if (/^[A-Za-z0-9][A-Za-z0-9\-]{0,19}$/.test(working) && (/\d/.test(working) || /^[A-Fa-f]{5}$/.test(working))) {
     token = working
   } else {
     const tokenMatches = Array.from(working.matchAll(/\b([A-Za-z0-9][A-Za-z0-9\-]{0,19})\b/g))
       .map((m) => m[1])
-      .filter((t) => /\d/.test(t))
+      .filter((t) => /\d/.test(t) || /^[A-Fa-f]{5}$/.test(t))
     if (tokenMatches.length > 0) {
       token = tokenMatches[0]
     }
@@ -749,14 +755,17 @@ async function querySupabaseTicketSources(
     const dispStrip = /^\d+$/.test(disp) ? disp.replace(/^0+(?=\d)/, '') : disp
     const cref = String(r.courier_order_reference || '').trim().toUpperCase()
     const qc = r.quick_checks && typeof r.quick_checks === 'object' ? r.quick_checks : {}
-    const pk = String((qc as any).platformOrderKey || '').trim().toUpperCase()
-    const sk = String((qc as any).shortOrderKey || '').trim().toUpperCase()
+    const pkRaw = String((qc as any).platformOrderKey || '').trim().toUpperCase()
+    const skRaw = String((qc as any).shortOrderKey || '').trim().toUpperCase()
+    const stripPref = (s: string) => s.replace(/^(?:DD|SF|CAV|GH|UBER|UE|TOAST|QR)\s*#?\s*/i, '').replace(/[^A-Z0-9]/g, '')
+    const pk = stripPref(pkRaw)
+    const sk = stripPref(skRaw)
     return (
       candUpperSet.has(disp) ||
       candUpperSet.has(dispStrip) ||
       (cref.length > 0 && (candUpperSet.has(cref) || candidates.some((c) => c.length >= 4 && cref.includes(c.toUpperCase())))) ||
-      (pk.length > 0 && candUpperSet.has(pk)) ||
-      (sk.length > 0 && candUpperSet.has(sk))
+      (pk.length > 0 && (candUpperSet.has(pkRaw) || candUpperSet.has(pk) || candidates.some((c) => c.length >= 4 && pk.endsWith(c.toUpperCase())))) ||
+      (sk.length > 0 && (candUpperSet.has(skRaw) || candUpperSet.has(sk)))
     )
   }
   const matchedDpa =

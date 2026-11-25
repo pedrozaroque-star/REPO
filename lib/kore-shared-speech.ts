@@ -252,10 +252,12 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     .replace(/\blinguas?\b/gi, (m) => (/s$/i.test(m) ? 'lenguas' : 'lengua'))
     // Plataformas de delivery con colisión STT ("Dortmund" / "Door Dash" -> "DoorDash")
     .replace(/\b(?:dortmund|door\s+dash|dordash|ordash)\b/gi, 'DoorDash')
-    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata")
+    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata", "una chata" / "agua de chata")
     .replace(/\bch[ao]mpur{1,2}ado(s?)\b/gi, 'champurrado$1')
     .replace(/\b(?:chapurrado|champorado)(s?)\b/gi, 'champurrado$1')
     .replace(/\b(?:whore\s*chata|or\s+chata|hor\s*chat{1,2}a|orchata)(s?)\b/gi, 'horchata$1')
+    .replace(/\b(un[ao]s?\s+|dos\s+|tres\s+|agua(?:s)?\s+(?:fresca(?:s)?\s+)?de\s+|gal[oó]n(?:es)?\s+de\s+|mediana\s+de\s+|grande\s+de\s+)chata(s?)\b/gi, '$1horchata$2')
+    .replace(/\bchata(s?)(\s+(?:mediana|mediano|grande|medium|large|gal[oó]n|gallon))\b/gi, 'horchata$1$2')
     // Festivos, urgencias, pagos y servicio Drive-Thru
     .replace(/\b(?:thansgiving|thanks\s+giving)\b/gi, 'thanksgiving')
     .replace(/\bes\s+insurgente\b/gi, 'es urgente')
@@ -1831,5 +1833,124 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
     return true
   }
 
+  // b.9 Robocalls / spam / telemarketing financiero o comercial
+  if (
+    /\b(?:reduce\s+the\s+interest|accruing\s+on\s+your\s+balance|resolution\s+specialist|press\s+2\s+to\s+speak|debt\s+relief|telemarketing|robocall|spam\/telemarketing|llamadas?\s+de\s+spam|auto\s+warranty|extended\s+warranty|social\s+security\s+number|merchant\s+cash\s+advance)\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+
+  // b.10 Prohibición sagrada: cobrar, procesar pagos o tomar órdenes por teléfono
+  if (
+    /\b(?:procesar\s+el\s+pago[^.!?]{0,60}por\s+telefono|cobrar[^.!?]{0,40}por\s+telefono|pago\s+(?:de\s+(?:los\s+)?articulos?\s+extra\s+)?por\s+telefono|tomar\s+(?:la\s+)?tarjeta\s+por\s+telefono|process\s+(?:the\s+)?payment[^.!?]{0,50}(?:by|over\s+the)\s+phone|take\s+(?:orders?|payments?)\s+over\s+the\s+phone)\b/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.11 Prohibición de enviar al cliente al teléfono de la misma tienda o a un correo de soporte genérico inexistente (en vez de recado al gerente)
+  if (
+    /\b(?:proporcionar\s+el\s+numero\s+de\s+telefono\s+de\s+la\s+sucursal|dar\s+el\s+numero\s+de\s+(?:la\s+)?sucursal|correo\s+de\s+(?:soporte|contacto)|provide\s+the\s+store(?:'s)?\s+phone\s+number|support\s+email)\b/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.12 Prohibición de transferir a celulares personales, ofrecer descuentos por volumen, pasteles o prometer reembolsos
+  if (
+    /\b(?:transferir\s+(?:la\s+llamada\s+)?al\s+(?:celular|telefono\s+personal)|descuento(?:s)?\s+por\s+volumen|vender\s+pasteles|prometer\s+(?:reembolso|reposicion)|transfer\s+to\s+(?:the\s+)?manager(?:'s)?\s+(?:cell|personal)\s+phone|promise\s+a\s+refund)\b/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.13 Meta-propuestas de ingeniería de audio/DSP/VAD o ruido STT irrelevante fuera del menú
+  if (
+    /\b(?:implementar\s+un\s+filtro\s+de\s+deteccion\s+de\s+silencio|esperar\s+a\s+que\s+el\s+cliente\s+termine\s+de\s+hablar|my\s+tree|tua\s+orden)\b/.test(
+      normAll
+    )
+  ) {
+    return true
+  }
+
+  // b.14 Duplicados ya blindados en v13-v18 (bloqueo de idioma inglés, pregunta genérica sin regla)
+  if (
+    /\bwhy\s+i\s+speak\s+english\b/.test(normTrigger) ||
+    (/^definir\s+criterio\s+oficial\s+de\s+respuesta\s+para:/.test(normRule) && normRule.length < 180)
+  ) {
+    return true
+  }
+
   return false
+}
+
+export interface LearningAutopilotDecision {
+  decision: 'auto_apply' | 'reject' | 'needs_owner_input'
+  promotedItemKind: string
+  reason: string
+}
+
+const HIGH_RISK_OWNER_ONLY_POLICY_RE =
+  /\b(?:nuevo\s+descuento|descuento\s+especial|cambiar\s+el\s+precio|nuevo\s+precio|modificar\s+precios?|nuevo\s+horario\s+oficial|abrir\s+(?:mas\s+temprano|mas\s+tarde)|cerrar\s+(?:mas\s+temprano|mas\s+tarde)|aceptar\s+ebt\s+en\s+(?:rialto|santa\s+ana|drive[\s-]*thru)|vender\s+nuevo\s+producto|reembolso\s+automatico|new\s+discount|change\s+prices?|accept\s+ebt\s+at\s+(?:rialto|santa\s+ana|drive[\s-]*thru))\b/
+
+const VALID_MENU_OR_OPS_INTENDED_TERM_RE =
+  /\b(?:taco|burrito|quesadilla|mulita|torta|sope|nacho|plato|plate|flan|cheesecake|horchata|jamaica|tamarindo|pina|pineapple|limonada|lemonade|champurrado|cafe|coffee|agua|soda|coca|coke|asada|pastor|adobada|pollo|chicken|cabeza|lengua|buche|chorizo|carnitas|milanesa|cubana|frijol|beans|arroz|rice|salsa|cebolla|cilantro|guacamole|crema|queso|cotija|fresco|monterey|ebt|calfresh|drive[\s-]*thru|doordash|uber|grubhub|fiesta|platter|catering|pickup|delivery|regular|super|mediana|grande|galon|desayuno|breakfast|huevo|egg|thanksgiving|navidad|christmas)\b/
+
+/**
+ * Autopiloto Blindado (*Guarded Autopilot*) compartido entre Teléfono y Drive-Thru:
+ * - Descarta automáticamente spam, robocalls, ruido STT y propuestas que contradigan políticas oficiales.
+ * - Auto-aplica (`auto_apply`) sin intervención manual los sinónimos STT válidos del menú/operación y
+ *   las reglas operativas de servicio seguras y accionables (regla clara >= 28 chars, sin alterar precios/EBT/horarios).
+ * - Reserva `needs_owner_input` estrictamente para cambios financieros o estratégicos inéditos de alto riesgo.
+ */
+export function evaluateLearningAutopilotDecision(
+  candidate: KoreCandidateQualityInput | null | undefined
+): LearningAutopilotDecision {
+  const itemKind = String(candidate?.itemKind ?? candidate?.item_kind ?? 'doubt_for_owner').trim()
+  if (!candidate) {
+    return { decision: 'reject', promotedItemKind: itemKind, reason: 'empty_candidate' }
+  }
+  const sourceType = String(candidate.sourceType ?? candidate.source_type ?? '').trim()
+  if (sourceType === 'manual_owner' || sourceType === 'manual') {
+    return { decision: 'auto_apply', promotedItemKind: itemKind, reason: 'manual_owner' }
+  }
+  if (itemKind === 'latency_insight' || itemKind === 'audio_prewarm') {
+    return { decision: 'auto_apply', promotedItemKind: itemKind, reason: 'telemetry_or_cache' }
+  }
+  if (shouldRejectCandidateLearningFinding(candidate)) {
+    return { decision: 'reject', promotedItemKind: itemKind, reason: 'rejected_by_safety_guard' }
+  }
+
+  const rawRuleEs = String(candidate.proposedRuleEs ?? candidate.proposed_rule_es ?? '').trim()
+  const rawRuleEn = String(candidate.proposedRuleEn ?? candidate.proposed_rule_en ?? '').trim()
+  const rawTrigger = String(candidate.questionOrTrigger ?? candidate.question_or_trigger ?? '').trim()
+  const normRule = stripDiacriticsLower(`${rawRuleEs} ${rawRuleEn}`).replace(/\s+/g, ' ').trim()
+  const normAll = stripDiacriticsLower(`${rawTrigger} ${rawRuleEs} ${rawRuleEn}`).replace(/\s+/g, ' ').trim()
+
+  // Sinónimos fonéticos STT: auto-aplicar solo si apuntan a un término oficial del menú/operación de Tacos Gavilan
+  if (itemKind === 'stt_synonym' || itemKind === 'synonym_fix') {
+    if (rawRuleEs.length < 18 || !VALID_MENU_OR_OPS_INTENDED_TERM_RE.test(normAll)) {
+      return { decision: 'reject', promotedItemKind: itemKind, reason: 'non_domain_stt_noise' }
+    }
+    return { decision: 'auto_apply', promotedItemKind: itemKind, reason: 'safe_domain_stt_synonym' }
+  }
+
+  // Descartar dudas vagas sin una regla operativa accionable (para nunca llenar la bandeja con basura)
+  if (rawRuleEs.length < 28) {
+    return { decision: 'reject', promotedItemKind: itemKind, reason: 'vague_without_actionable_rule' }
+  }
+
+  // Solo escalar al dueño cambios estratégicos/financieros de alto impacto (precios, nuevos descuentos, EBT, nuevos horarios)
+  if (HIGH_RISK_OWNER_ONLY_POLICY_RE.test(normRule)) {
+    return { decision: 'needs_owner_input', promotedItemKind: 'doubt_for_owner', reason: 'high_risk_owner_policy' }
+  }
+
+  // Todo lo demás (reglas operativas seguras de atención al cliente ya filtradas por los candados b.1-b.14) -> AUTO-APLICAR
+  const promotedKind = itemKind === 'doubt_for_owner' ? 'learned_rule' : itemKind
+  return { decision: 'auto_apply', promotedItemKind: promotedKind, reason: 'safe_operational_autopilot' }
 }

@@ -80,6 +80,24 @@ a,
     filter: brightness(0.95);
 }
 
+/* Parpadeo de alto contraste para alertas telefónicas de condimentos/modificaciones en Tableta Delivery Armor */
+@keyframes deliveryPhoneAlertBlink {
+    0%, 100% {
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.95), 0 0 22px rgba(234, 88, 12, 0.55);
+        border-color: #d97706;
+        background-color: #fffbeb;
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.95), 0 0 30px rgba(220, 38, 38, 0.7);
+        border-color: #dc2626;
+        background-color: #fef3c7;
+    }
+}
+
+.da-phone-alert-blink {
+    animation: deliveryPhoneAlertBlink 1.05s ease-in-out infinite;
+}
+
 /* Impresión limpia con fidelidad cromática (Certificados SOP, Hoja de Control y Bitácoras) */
 @media print {
     html,

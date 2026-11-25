@@ -41,6 +41,21 @@
  * - v14 (2026-11-23, Privacy by Design / CCPA-CPRA): el nombre resuelto del directorio interno (`toast_employees`/`users`/lealtad)
  *   y CNAM se conserva exclusivamente para uso interno en `phone_calls.caller_name` (`/admin/llamadas`) y JAMÁS se inyecta en el
  *   system prompt de Kore ni se pronuncia al aire; Kore solo confirma los últimos 4 dígitos del teléfono y siempre pide el nombre de viva voz.
+ * - v15 (2026-11-23, Optimización de Costos Gemini 3.8 Live + Caché μ-law): adelgazamiento sin pérdida de `buildBridgeSystemPromptAndData`
+ *   (`~70%` menos tokens por turno: menú agrupado por precio/categoría, `phone_knowledge_base` servida en `<1 ms` desde RAM vía
+ *   `search_menu_item_price`, directorio compacto de IDs + `find_other_stores` en RAM) y cierre `end_call` de costo cero usando
+ *   clip `Kore 3.8` (`8 kHz μ-law`) reciclado desde Supabase Storage (`order-ready-tts/phone_v6/Kore/`) sin re-invocar turno final.
+ * - v16 (2026-11-24): nueva herramienta `send_delivery_armor_order_note` para clientes de DoorDash, Uber Eats, Grubhub y
+ *   Tacos Gavilan Online que llaman para agregar condimentos gratuitos o modificar sin costo un platillo (taco/burrito/mulita/etc.):
+ *   solicita plataforma + nombre en app + código o 1-2 platillos, empareja la orden viva vía `/api/delivery-armor/phone-notes`
+ *   (con respaldo directo a `delivery_armor_phone_notes` + Realtime Broadcast) y hace parpadear la orden exacta en la tableta Delivery Armor.
+ * - v17 (2026-11-24): contestaciones festivas oficiales pre-grabadas (ES y EN) 100% alineadas carácter por carácter con `lib/holidays.ts`
+ *   para las 7 fechas anuales (Thanksgiving cierre 4:00 PM + reapertura viernes 11:00 AM, Black Friday apertura 11:00 AM, Nochebuena 24 dic,
+ *   Navidad 25 dic, Fin de Año 31 dic, Año Nuevo 1 ene y Viernes Santo), lookahead de reapertura real en `evaluateStoreSchedule`,
+ *   respaldo perpetuo de festivos oficiales si `phone_special_hours` omite una fecha y timeout de `fetchMulawPromptClip` ampliado a `4500 ms`.
+ * - v18 (2026-11-24): cobertura 24h completa de audios festivos pre-grabados también en madrugada (1:00–5:59 AM tras cerrar el turno nocturno
+ *   previo en Thanksgiving, Nochebuena, Fin de Año y Viernes Santo) y excepción oficial de #6 Los Ángeles (Central y Washington): en los 3 días
+ *   de cierre temprano (Thanksgiving, 24 dic y 31 dic), Comedor y Drive-Thru cierran al mismo tiempo a las 4:00 PM.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -375,15 +390,201 @@ function normalizeBridgeWeeklyMap(rawWeekly: unknown): Record<number, { open: st
   return byDay
 }
 
+type BridgeOfficialHolidayKey =
+  | "new_years_day"
+  | "good_friday"
+  | "thanksgiving"
+  | "day_after_thanksgiving"
+  | "christmas_eve"
+  | "christmas_day"
+  | "new_years_eve"
+
+function addBridgeUtcDays(dateStr: string, offsetDays: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + offsetDays)).toISOString().slice(0, 10)
+}
+
+function getBridgeOfficialHoliday(dateStr: string): {
+  holidayKey: BridgeOfficialHolidayKey
+  holidayName: string
+  isClosedAllDay: boolean
+  openTime: string | null
+  closeTime: string | null
+} | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
+  const year = Number(dateStr.slice(0, 4))
+  const mmdd = dateStr.slice(5)
+  if (mmdd === "01-01") {
+    return { holidayKey: "new_years_day", holidayName: "Año Nuevo / New Year's Day", isClosedAllDay: false, openTime: "11:00", closeTime: null }
+  }
+  if (mmdd === "12-24") {
+    return { holidayKey: "christmas_eve", holidayName: "Nochebuena / Christmas Eve", isClosedAllDay: false, openTime: null, closeTime: "16:00" }
+  }
+  if (mmdd === "12-25") {
+    return { holidayKey: "christmas_day", holidayName: "Navidad / Christmas Day", isClosedAllDay: true, openTime: null, closeTime: null }
+  }
+  if (mmdd === "12-31") {
+    return { holidayKey: "new_years_eve", holidayName: "Fin de Año / New Year's Eve", isClosedAllDay: false, openTime: null, closeTime: "16:00" }
+  }
+  // Thanksgiving: 4th Thursday of November; Day After Thanksgiving: Friday after
+  const nov1Dow = new Date(Date.UTC(year, 10, 1)).getUTCDay()
+  const firstThu = 1 + ((4 - nov1Dow + 7) % 7)
+  const tgDay = firstThu + 21
+  const tgStr = `${year}-11-${String(tgDay).padStart(2, "0")}`
+  if (dateStr === tgStr) {
+    return { holidayKey: "thanksgiving", holidayName: "Día de Acción de Gracias / Thanksgiving", isClosedAllDay: false, openTime: null, closeTime: "16:00" }
+  }
+  const bfStr = addBridgeUtcDays(tgStr, 1)
+  if (dateStr === bfStr) {
+    return { holidayKey: "day_after_thanksgiving", holidayName: "Viernes después de Thanksgiving / Black Friday", isClosedAllDay: false, openTime: "11:00", closeTime: null }
+  }
+  // Good Friday (Anonymous Gregorian Easter algorithm - 2 days)
+  const a = year % 19
+  const b = Math.floor(year / 100)
+  const c = year % 100
+  const d = Math.floor(b / 4)
+  const e = b % 4
+  const f = Math.floor((b + 8) / 25)
+  const g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4)
+  const k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const eMonth = Math.floor((h + l - 7 * m + 114) / 31)
+  const eDay = ((h + l - 7 * m + 114) % 31) + 1
+  const gfStr = new Date(Date.UTC(year, eMonth - 1, eDay - 2)).toISOString().slice(0, 10)
+  if (dateStr === gfStr) {
+    return { holidayKey: "good_friday", holidayName: "Viernes Santo / Good Friday", isClosedAllDay: true, openTime: null, closeTime: null }
+  }
+  return null
+}
+
+/**
+ * 100% idéntico carácter por carácter a `buildOfficialHolidayClosedGreeting` en `lib/holidays.ts`
+ * para reutilizar los mismos WAVs pre-grabados en `order-ready-tts/phone_v6/Kore/`.
+ */
+function buildBridgeHolidayClosedGreeting(params: {
+  holidayKey: BridgeOfficialHolidayKey
+  phase: "closed_all_day" | "before_open" | "after_close"
+  todayDayEs: string
+  todayDayEn: string
+  openFmt?: string | null
+  closeFmt?: string | null
+  nextOpenDayEs?: string | null
+  nextOpenDayEn?: string | null
+  nextOpenFmt?: string | null
+  tomorrowIsClosedHoliday?: boolean
+}): { promptEs: string; promptEn: string } {
+  const openFmt = params.openFmt || "10:00 AM"
+  const closeFmt = params.closeFmt || "4:00 PM"
+  const nextOpenFmt = params.nextOpenFmt || "10:00 AM"
+  const nextDayEs = (params.nextOpenDayEs || "").toLowerCase()
+  const nextDayEn = params.nextOpenDayEn || ""
+  const todayEs = (params.todayDayEs || "").toLowerCase()
+  const todayEn = params.todayDayEn || ""
+
+  if (params.holidayKey === "thanksgiving") {
+    if (params.phase === "before_open") {
+      return {
+        promptEs: `¡Feliz Día de Acción de Gracias! En este momento nuestra sucursal aún está cerrada; hoy abrimos ${atTimeEsBridge(openFmt)} y cerramos temprano ${atTimeEsBridge(closeFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `Happy Thanksgiving! Our location is currently closed; today we open at ${openFmt} and close early at ${closeFmt}. How can I help you today?`
+      }
+    }
+    return {
+      promptEs: `¡Feliz Día de Acción de Gracias! En este momento nuestra sucursal ya está cerrada; hoy cerramos temprano ${atTimeEsBridge(closeFmt)} y mañana ${nextDayEs || "viernes"} abrimos ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+      promptEn: `Happy Thanksgiving! Our location is currently closed; today we closed early at ${closeFmt}, and we reopen tomorrow, ${nextDayEn || "Friday"}, at ${nextOpenFmt}. How can I help you today?`
+    }
+  }
+
+  if (params.holidayKey === "day_after_thanksgiving") {
+    if (params.phase === "before_open") {
+      return {
+        promptEs: `En este momento nuestra sucursal aún está cerrada; hoy ${todayEs || "viernes"} abrimos en horario especial ${atTimeEsBridge(openFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `Our location is currently closed; today, ${todayEn || "Friday"}, we open with special hours at ${openFmt}. How can I help you today?`
+      }
+    }
+    return {
+      promptEs: `En este momento nuestra sucursal ya está cerrada; hoy cerramos ${atTimeEsBridge(closeFmt)} y mañana ${nextDayEs || "sábado"} abrimos ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+      promptEn: `Our location is currently closed; we closed today at ${closeFmt}, and we reopen tomorrow, ${nextDayEn || "Saturday"}, at ${nextOpenFmt}. How can I help you today?`
+    }
+  }
+
+  if (params.holidayKey === "christmas_eve") {
+    if (params.phase === "before_open") {
+      return {
+        promptEs: `¡Feliz Nochebuena! En este momento nuestra sucursal aún está cerrada; hoy abrimos ${atTimeEsBridge(openFmt)} y cerramos temprano ${atTimeEsBridge(closeFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `Merry Christmas Eve! Our location is currently closed; today we open at ${openFmt} and close early at ${closeFmt}. How can I help you today?`
+      }
+    }
+    if (params.tomorrowIsClosedHoliday) {
+      return {
+        promptEs: `¡Feliz Nochebuena! En este momento nuestra sucursal ya está cerrada; hoy cerramos temprano ${atTimeEsBridge(closeFmt)}, mañana permanecemos cerrados por Navidad y reanudamos servicio el ${nextDayEs || "sábado"} ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `Merry Christmas Eve! Our location is currently closed; today we closed early at ${closeFmt}, we are closed tomorrow for Christmas Day, and we reopen ${nextDayEn || "Saturday"} at ${nextOpenFmt}. How can I help you today?`
+      }
+    }
+    return {
+      promptEs: `¡Feliz Nochebuena! En este momento nuestra sucursal ya está cerrada; hoy cerramos temprano ${atTimeEsBridge(closeFmt)} y mañana ${nextDayEs} abrimos ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+      promptEn: `Merry Christmas Eve! Our location is currently closed; today we closed early at ${closeFmt}, and we reopen tomorrow, ${nextDayEn}, at ${nextOpenFmt}. How can I help you today?`
+    }
+  }
+
+  if (params.holidayKey === "christmas_day") {
+    return {
+      promptEs: `¡Feliz Navidad! Hoy permanecemos cerrados todo el día por Navidad y reanudamos servicio mañana ${nextDayEs || "sábado"} ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+      promptEn: `Merry Christmas! We are closed all day today for Christmas Day, and we reopen tomorrow, ${nextDayEn || "Saturday"}, at ${nextOpenFmt}. How can I help you today?`
+    }
+  }
+
+  if (params.holidayKey === "new_years_eve") {
+    if (params.phase === "before_open") {
+      return {
+        promptEs: `En este momento nuestra sucursal aún está cerrada; hoy por Fin de Año abrimos ${atTimeEsBridge(openFmt)} y cerramos temprano ${atTimeEsBridge(closeFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `Our location is currently closed; today for New Year's Eve we open at ${openFmt} and close early at ${closeFmt}. How can I help you today?`
+      }
+    }
+    return {
+      promptEs: `¡Feliz Año Nuevo! En este momento nuestra sucursal ya está cerrada; hoy por Fin de Año cerramos temprano ${atTimeEsBridge(closeFmt)} y mañana ${nextDayEs || "viernes"} abrimos ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+      promptEn: `Happy New Year's Eve! Our location is currently closed; today we closed early at ${closeFmt}, and we reopen tomorrow, ${nextDayEn || "Friday"}, at ${nextOpenFmt}. How can I help you today?`
+    }
+  }
+
+  if (params.holidayKey === "new_years_day") {
+    if (params.phase === "before_open") {
+      return {
+        promptEs: `¡Feliz Año Nuevo! En este momento nuestra sucursal aún está cerrada; hoy ${todayEs || "viernes"} abrimos en horario especial ${atTimeEsBridge(openFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `Happy New Year! Our location is currently closed; today, ${todayEn || "Friday"}, we open with special hours at ${openFmt}. How can I help you today?`
+      }
+    }
+    return {
+      promptEs: `¡Feliz Año Nuevo! En este momento nuestra sucursal ya está cerrada; hoy cerramos ${atTimeEsBridge(closeFmt)} y mañana ${nextDayEs} abrimos ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+      promptEn: `Happy New Year! Our location is currently closed; we closed today at ${closeFmt}, and we reopen tomorrow, ${nextDayEn}, at ${nextOpenFmt}. How can I help you today?`
+    }
+  }
+
+  return {
+    promptEs: `En este momento permanecemos cerrados todo el día por Viernes Santo y reanudamos servicio mañana ${nextDayEs || "sábado"} ${atTimeEsBridge(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+    promptEn: `We are closed all day today for Good Friday, and we reopen tomorrow, ${nextDayEn || "Saturday"}, at ${nextOpenFmt}. How can I help you today?`
+  }
+}
+
 function resolveBridgeDaySchedule(
   storeIdNum: number,
   regular: { open: string; close: string } | undefined,
   dateStr: string,
   specialHours: any[]
-): { isClosedAllDay: boolean; open: string; close: string; isSpecial: boolean; holidayName: string | null } {
+): {
+  isClosedAllDay: boolean
+  open: string
+  close: string
+  isSpecial: boolean
+  holidayName: string | null
+  holidayKey: BridgeOfficialHolidayKey | null
+} {
   const regOpen = regular?.open || "10:00"
   const regClose = regular?.close || "00:00"
   const regClosed = /^closed$/i.test(regOpen) || /^closed$/i.test(regClose)
+  const official = getBridgeOfficialHoliday(dateStr)
   const sp =
     specialHours.find((s) => s.event_date === dateStr && s.store_id !== null && Number(s.store_id) === storeIdNum) ||
     specialHours.find((s) => s.event_date === dateStr && s.store_id === null) ||
@@ -398,7 +599,8 @@ function resolveBridgeDaySchedule(
         open: "CLOSED",
         close: "CLOSED",
         isSpecial: true,
-        holidayName: sp.holiday_name || "día festivo"
+        holidayName: sp.holiday_name || official?.holidayName || "día festivo",
+        holidayKey: official?.holidayKey || null
       }
     }
     const effOpen = spOpen
@@ -412,7 +614,35 @@ function resolveBridgeDaySchedule(
       open: effOpen,
       close: effClose,
       isSpecial: true,
-      holidayName: sp.holiday_name || null
+      holidayName: sp.holiday_name || official?.holidayName || null,
+      holidayKey: official?.holidayKey || null
+    }
+  }
+
+  if (official) {
+    if (official.isClosedAllDay || regClosed) {
+      return {
+        isClosedAllDay: true,
+        open: "CLOSED",
+        close: "CLOSED",
+        isSpecial: true,
+        holidayName: official.holidayName,
+        holidayKey: official.holidayKey
+      }
+    }
+    const effOpen = official.openTime
+      ? parseMinBridge(official.openTime) < parseMinBridge(regOpen)
+        ? regOpen
+        : official.openTime
+      : regOpen
+    const effClose = official.closeTime || regClose
+    return {
+      isClosedAllDay: false,
+      open: effOpen,
+      close: effClose,
+      isSpecial: true,
+      holidayName: official.holidayName,
+      holidayKey: official.holidayKey
     }
   }
 
@@ -421,7 +651,8 @@ function resolveBridgeDaySchedule(
     open: regOpen,
     close: regClose,
     isSpecial: false,
-    holidayName: null
+    holidayName: null,
+    holidayKey: null
   }
 }
 
@@ -434,6 +665,25 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
   const todayDayEn = BRIDGE_DAY_NAMES_EN[pt.dayOfWeek]
   const prevDayEs = BRIDGE_DAY_NAMES_ES[pt.yesterdayDayOfWeek]
   const prevDayEn = BRIDGE_DAY_NAMES_EN[pt.yesterdayDayOfWeek]
+
+  const findNextOpenBridge = (startOffset: number) => {
+    for (let offset = startOffset; offset <= 7; offset++) {
+      const dStr = addBridgeUtcDays(pt.dateStr, offset)
+      const dow = (pt.dayOfWeek + offset) % 7
+      const sched = resolveBridgeDaySchedule(storeIdNum, byDay[dow], dStr, specialHours)
+      if (!sched.isClosedAllDay) {
+        return {
+          offset,
+          dow,
+          dayEs: BRIDGE_DAY_NAMES_ES[dow],
+          dayEn: BRIDGE_DAY_NAMES_EN[dow],
+          openFmt: fmt12h(sched.open),
+          sched
+        }
+      }
+    }
+    return null
+  }
 
   let prevJustClosedInfo: { phraseEs: string; phraseEn: string } | null = null
 
@@ -463,24 +713,42 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
     }
   }
 
-  // 2. Horario efectivo de hoy (respetando días festivos con open_time/close_time parciales)
+  // 2. Horario efectivo de hoy (respetando días festivos en phone_special_hours + calendario perpetuo)
   const todaySched = resolveBridgeDaySchedule(storeIdNum, byDay[pt.dayOfWeek], pt.dateStr, specialHours)
 
   if (todaySched.isClosedAllDay) {
     const hName = todaySched.holidayName || "día festivo"
+    const nextOpen = findNextOpenBridge(1)
     const prevTailEs = prevJustClosedInfo ? `Nuestro turno de ${prevDayEs} ${prevJustClosedInfo.phraseEs}; hoy ` : "Hoy "
     const prevTailEn = prevJustClosedInfo ? `Our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn}; today ` : "Today "
+    const reopenEs = nextOpen ? ` Reanudamos servicio ${nextOpen.offset === 1 ? `mañana ${nextOpen.dayEs}` : `el ${nextOpen.dayEs}`} ${atTimeEsBridge(nextOpen.openFmt)}.` : ""
+    const reopenEn = nextOpen ? ` We reopen ${nextOpen.offset === 1 ? `tomorrow (${nextOpen.dayEn})` : `on ${nextOpen.dayEn}`} at ${nextOpen.openFmt}.` : ""
+    const canonicalClosed = todaySched.holidayKey
+      ? buildBridgeHolidayClosedGreeting({
+            holidayKey: todaySched.holidayKey,
+            phase: "closed_all_day",
+            todayDayEs,
+            todayDayEn,
+            nextOpenDayEs: nextOpen?.dayEs || null,
+            nextOpenDayEn: nextOpen?.dayEn || null,
+            nextOpenFmt: nextOpen?.openFmt || null
+          })
+        : null
     return {
       isOpenNow: false,
       todayCloseFmt: "CERRADO",
-      statusEs: `Cerrado en ${dispEs}: ${prevTailEs}permanecemos cerrados todo el día por ${hName}.`,
-      statusEn: `Closed at ${dispEn}: ${prevTailEn}we are closed all day for ${hName}.`,
-      closedPromptEs: prevJustClosedInfo
-        ? `En este momento ya cerramos; el turno de ${prevDayEs} ${prevJustClosedInfo.phraseEs} y hoy permanecemos cerrados por ${hName}. ¿En qué te ayudo hoy?`
-        : `En este momento estamos cerrados por ${hName}. ¿En qué te ayudo hoy?`,
-      closedPromptEn: prevJustClosedInfo
-        ? `We are currently closed; our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn} and we are closed today for ${hName}. How can I help you today?`
-        : `We are currently closed for ${hName}. How can I help you today?`
+      statusEs: `Cerrado en ${dispEs}: ${prevTailEs}permanecemos cerrados todo el día por ${hName}.${reopenEs}`,
+      statusEn: `Closed at ${dispEn}: ${prevTailEn}we are closed all day for ${hName}.${reopenEn}`,
+      closedPromptEs: canonicalClosed
+        ? canonicalClosed.promptEs
+        : prevJustClosedInfo
+          ? `En este momento ya cerramos; el turno de ${prevDayEs} ${prevJustClosedInfo.phraseEs} y hoy permanecemos cerrados por ${hName}. ¿En qué te ayudo hoy?`
+          : `En este momento estamos cerrados por ${hName}. ¿En qué te ayudo hoy?`,
+      closedPromptEn: canonicalClosed
+        ? canonicalClosed.promptEn
+        : prevJustClosedInfo
+          ? `We are currently closed; our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn} and we are closed today for ${hName}. How can I help you today?`
+          : `We are currently closed for ${hName}. How can I help you today?`
     }
   }
 
@@ -495,15 +763,19 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
     return {
       isOpenNow: true,
       todayCloseFmt: closeFmt,
-      statusEs: `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} nuestro horario es de ${openFmt} a ${closeFmt}.`,
-      statusEn: `Currently open at ${dispEn}; today's (${todayDayEn}) hours are ${openFmt} to ${closeFmt}.`,
+      statusEs: todaySched.isSpecial && todaySched.holidayName
+        ? `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} (${todaySched.holidayName}) tenemos horario especial de ${openFmt} a ${closeFmt}.`
+        : `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} nuestro horario es de ${openFmt} a ${closeFmt}.`,
+      statusEn: todaySched.isSpecial && todaySched.holidayName
+        ? `Currently open at ${dispEn}; today (${todayDayEn}, ${todaySched.holidayName}) our special holiday hours are ${openFmt} to ${closeFmt}.`
+        : `Currently open at ${dispEn}; today's (${todayDayEn}) hours are ${openFmt} to ${closeFmt}.`,
       closedPromptEs: "",
       closedPromptEn: ""
     }
   }
 
   if (pt.totalMin < openM) {
-    if (pt.hour < 6 && prevJustClosedInfo) {
+    if (pt.hour < 6 && prevJustClosedInfo && !todaySched.holidayKey) {
       return {
         isOpenNow: false,
         todayCloseFmt: closeFmt,
@@ -513,23 +785,83 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
         closedPromptEn: `We are currently closed; our ${prevDayEn} shift ${prevJustClosedInfo.phraseEn} and we reopen today at ${openFmt}. How can I help you today?`
       }
     }
+    const canonicalBefore = todaySched.holidayKey
+      ? buildBridgeHolidayClosedGreeting({
+          holidayKey: todaySched.holidayKey,
+          phase: "before_open",
+          todayDayEs,
+          todayDayEn,
+          openFmt,
+          closeFmt
+        })
+      : null
     return {
       isOpenNow: false,
       todayCloseFmt: closeFmt,
-      statusEs: `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs} abrimos ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}.`,
-      statusEn: `Currently closed at ${dispEn}; today (${todayDayEn}) we open at ${openFmt} and close at ${closeFmt}.`,
-      closedPromptEs: `En este momento aún estamos cerrados; hoy ${todayDayEs} abrimos ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}. ¿En qué te ayudo hoy?`,
-      closedPromptEn: `We are currently closed; today we open at ${openFmt} and close at ${closeFmt}. How can I help you today?`
+      statusEs: todaySched.isSpecial && todaySched.holidayName
+        ? `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs} (${todaySched.holidayName}) abrimos en horario especial ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}.`
+        : `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs} abrimos ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}.`,
+      statusEn: todaySched.isSpecial && todaySched.holidayName
+        ? `Currently closed at ${dispEn}; today (${todayDayEn}, ${todaySched.holidayName}) we open with special hours at ${openFmt} and close at ${closeFmt}.`
+        : `Currently closed at ${dispEn}; today (${todayDayEn}) we open at ${openFmt} and close at ${closeFmt}.`,
+      closedPromptEs: canonicalBefore
+        ? canonicalBefore.promptEs
+        : `En este momento aún estamos cerrados; hoy ${todayDayEs} abrimos ${atTimeEsBridge(openFmt)} y cerramos ${atTimeEsBridge(closeFmt)}. ¿En qué te ayudo hoy?`,
+      closedPromptEn: canonicalBefore
+        ? canonicalBefore.promptEn
+        : `We are currently closed; today we open at ${openFmt} and close at ${closeFmt}. How can I help you today?`
     }
   }
+
+  // Ya cerró por hoy: mirar horario REAL de mañana (+1 día, y +2 si mañana está cerrado todo el día como Navidad)
+  const tomorrowDateStr = addBridgeUtcDays(pt.dateStr, 1)
+  const tomorrowDow = (pt.dayOfWeek + 1) % 7
+  const tomorrowSched = resolveBridgeDaySchedule(storeIdNum, byDay[tomorrowDow], tomorrowDateStr, specialHours)
+  const nextOpenAfter = tomorrowSched.isClosedAllDay ? findNextOpenBridge(2) : {
+    offset: 1,
+    dow: tomorrowDow,
+    dayEs: BRIDGE_DAY_NAMES_ES[tomorrowDow],
+    dayEn: BRIDGE_DAY_NAMES_EN[tomorrowDow],
+    openFmt: fmt12h(tomorrowSched.open),
+    sched: tomorrowSched
+  }
+
+  const canonicalAfter = todaySched.holidayKey
+    ? buildBridgeHolidayClosedGreeting({
+        holidayKey: todaySched.holidayKey,
+        phase: "after_close",
+        todayDayEs,
+        todayDayEn,
+        closeFmt,
+        nextOpenDayEs: nextOpenAfter?.dayEs || null,
+        nextOpenDayEn: nextOpenAfter?.dayEn || null,
+        nextOpenFmt: nextOpenAfter?.openFmt || null,
+        tomorrowIsClosedHoliday: tomorrowSched.isClosedAllDay
+      })
+    : null
+
+  const statusReopenEs = tomorrowSched.isClosedAllDay
+    ? ` Mañana permanecemos cerrados${tomorrowSched.holidayName ? ` por ${tomorrowSched.holidayName}` : ""}${nextOpenAfter ? ` y reanudamos servicio el ${nextOpenAfter.dayEs} ${atTimeEsBridge(nextOpenAfter.openFmt)}` : ""}.`
+    : nextOpenAfter
+      ? ` Mañana ${nextOpenAfter.dayEs} abrimos ${atTimeEsBridge(nextOpenAfter.openFmt)}.`
+      : ""
+  const statusReopenEn = tomorrowSched.isClosedAllDay
+    ? ` We are closed tomorrow${tomorrowSched.holidayName ? ` for ${tomorrowSched.holidayName}` : ""}${nextOpenAfter ? ` and reopen ${nextOpenAfter.dayEn} at ${nextOpenAfter.openFmt}` : ""}.`
+    : nextOpenAfter
+      ? ` We reopen tomorrow (${nextOpenAfter.dayEn}) at ${nextOpenAfter.openFmt}.`
+      : ""
 
   return {
     isOpenNow: false,
     todayCloseFmt: closeFmt,
-    statusEs: `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs} cerramos ${atTimeEsBridge(closeFmt)}.`,
-    statusEn: `Currently closed at ${dispEn}; we closed today at ${closeFmt}.`,
-    closedPromptEs: `En este momento ya cerramos por hoy (cerramos ${atTimeEsBridge(closeFmt)}). ¿En qué te ayudo hoy?`,
-    closedPromptEn: `We are currently closed for the night (closed at ${closeFmt}). How can I help you today?`
+    statusEs: `Cerrado en este momento en ${dispEs}; hoy ${todayDayEs}${todaySched.holidayName ? ` (${todaySched.holidayName})` : ""} cerramos ${atTimeEsBridge(closeFmt)}.${statusReopenEs}`,
+    statusEn: `Currently closed at ${dispEn}; today (${todayDayEn}${todaySched.holidayName ? `, ${todaySched.holidayName}` : ""}) we closed at ${closeFmt}.${statusReopenEn}`,
+    closedPromptEs: canonicalAfter
+      ? canonicalAfter.promptEs
+      : `En este momento ya cerramos por hoy (cerramos ${atTimeEsBridge(closeFmt)}).${nextOpenAfter ? ` Mañana ${nextOpenAfter.dayEs} abrimos ${atTimeEsBridge(nextOpenAfter.openFmt)}.` : ""} ¿En qué te ayudo hoy?`,
+    closedPromptEn: canonicalAfter
+      ? canonicalAfter.promptEn
+      : `We are currently closed for the night (closed at ${closeFmt}).${nextOpenAfter ? ` We reopen tomorrow at ${nextOpenAfter.openFmt}.` : ""} How can I help you today?`
   }
 }
 
@@ -667,6 +999,9 @@ async function signTtsUrl(
   return `${baseUrl}/api/phone/tts?lang=${lang}&voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(cleanText)}&sig=${sig}&rate=8000`
 }
 
+const BRIDGE_CACHED_FAREWELL_ES = "Con gusto. ¡Gracias por llamar a Tacos Gavilan, que tengas un excelente día!"
+const BRIDGE_CACHED_FAREWELL_EN = "You are very welcome! Thank you for calling Tacos Gavilan, have a wonderful day!"
+
 async function fetchMulawPromptClip(
   baseUrl: string,
   ttsSecret: string,
@@ -678,7 +1013,7 @@ async function fetchMulawPromptClip(
   if (hit) return hit
   try {
     const url = await signTtsUrl(baseUrl, ttsSecret, text, lang, "Kore")
-    const res = await fetch(url, { signal: AbortSignal.timeout(2600) })
+    const res = await fetch(url, { signal: AbortSignal.timeout(4500) })
     if (!res.ok) return null
     const wavBytes = new Uint8Array(await res.arrayBuffer())
     const mulaw = convertWavBytesToMulaw8k(wavBytes)
@@ -1692,9 +2027,15 @@ async function handleTwilioHttpPost(req: Request): Promise<Response> {
           }).catch(() => null)
         }
       }
-      // Pre-calentar en RAM el clip μ-law de "¿En qué te ayudo hoy?" y el contexto de tienda mientras suena el aviso CIPA (~10 s)
+      // Pre-calentar en RAM los clips μ-law ("¿En qué te ayudo hoy?" + despedida) y el contexto de tienda mientras suena el aviso CIPA (~10 s)
       await Promise.all([
         fetchMulawPromptClip(secrets.publicAppBaseUrl, secrets.ttsSigningSecret, greetings.questionOnly, activeLang),
+        fetchMulawPromptClip(
+          secrets.publicAppBaseUrl,
+          secrets.ttsSigningSecret,
+          activeLang === "en" ? BRIDGE_CACHED_FAREWELL_EN : BRIDGE_CACHED_FAREWELL_ES,
+          activeLang
+        ),
         buildBridgeSystemPromptAndData(store.id, activeLang, fromNumber, effectiveCallerName, effectiveCallerSource).catch(() => null)
       ])
     })()
@@ -1750,11 +2091,12 @@ const LIVE_TOOL_DECLARATIONS = [
   {
     name: "search_menu_item_price",
     behavior: "BLOCKING",
-    description: "Busca precios exactos en USD e ingredientes en el menú en vivo de la sucursal.",
+    description:
+      "Busca en <1ms precios exactos en USD, ingredientes, desayunos, historia (1992), empleo, catering o políticas oficiales en el menú y base de conocimiento en vivo de la sucursal.",
     parameters: {
       type: "OBJECT",
       properties: {
-        query: { type: "STRING", description: "Platillo o bebida a consultar." }
+        query: { type: "STRING", description: "Platillo, bebida, ingrediente o tema a consultar." }
       },
       required: ["query"]
     }
@@ -1796,6 +2138,68 @@ const LIVE_TOOL_DECLARATIONS = [
         target_store_id: { type: "INTEGER", description: "ID de sucursal (1, 3..16) si el cliente indicó que compró en otra tienda distinta." }
       },
       required: []
+    }
+  },
+  {
+    name: "send_delivery_armor_order_note",
+    behavior: "BLOCKING",
+    description:
+      "Envía una ALERTA PARPADEANTE en tiempo real a la tableta de empaque Delivery Armor de la sucursal para que la cajera que está empacando una orden de DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online agregue condimentos gratuitos (salsas, chiles, limones, cebollas, servilletas, cubiertos) o aplique una modificación sin costo a un platillo (ej. sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz). PROHIBIDO usarla para agregar comida o bebidas con costo extra. ANTES de invocarla, pide al cliente: (1) plataforma (DoorDash, Uber Eats, Grubhub u Online), (2) nombre como aparece en su orden, (3) código de orden de la app o 1–2 platillos que pidió para identificarla con precisión, y (4) qué condimentos gratuitos o qué modificación sin costo y en qué platillo desea. Si después agrega otro condimento o cambio, VUELVE A INVOCARLA para actualizar la alerta.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        platform: {
+          type: "STRING",
+          description: "Plataforma donde hizo la orden: 'DOORDASH', 'UBER_EATS', 'GRUBHUB', o 'TOAST_ONLINE'."
+        },
+        customer_name: {
+          type: "STRING",
+          description: "Nombre exacto como aparece en la orden de la aplicación (ej. 'Maria Gonzalez', 'Cameron K')."
+        },
+        order_code: {
+          type: "STRING",
+          description: "Código de la orden en la app o últimos dígitos si el cliente los tiene (ej. '2DFF4', '60446F49', '#2845')."
+        },
+        ordered_items: {
+          type: "STRING",
+          description: "1 o 2 platillos que pidió el cliente (ej. '2 tacos de asada y burrito de pollo') para identificar la orden si no tiene código o hay nombres repetidos."
+        },
+        request_type: {
+          type: "STRING",
+          description: "'condiments' (solo condimentos gratis), 'item_modification' (solo ajuste sin costo en platillo) o 'both' (ambos)."
+        },
+        requested_condiments: {
+          type: "ARRAY",
+          items: { type: "STRING" },
+          description: "Lista corta EN ESPAÑOL de condimentos gratuitos solicitados (ej. ['Salsa roja', 'Salsa verde', 'Limones', 'Chiles asados'])."
+        },
+        item_modifications: {
+          type: "ARRAY",
+          items: { type: "STRING" },
+          description: "Lista corta EN ESPAÑOL de modificaciones sin costo indicando el platillo (ej. ['Burrito de Asada: sin cebolla ni cilantro', 'Taco Plate: sin queso'])."
+        },
+        note_summary_es: {
+          type: "STRING",
+          description: "Resumen corto y muy claro SIEMPRE EN ESPAÑOL para la cajera de empaque en la tableta (ej. 'Agregar 4 salsas rojas y limones. Burrito de Asada SIN cebolla.')."
+        },
+        note_summary_en: {
+          type: "STRING",
+          description: "Resumen breve en inglés opcional (ej. 'Add 4 red salsas & limes. Asada Burrito NO onion.')."
+        },
+        caller_phone: {
+          type: "STRING",
+          description: "Envía 'CALLER_ID' o teléfono alterno de 10 dígitos si lo dio."
+        },
+        target_store_id: {
+          type: "INTEGER",
+          description: "ID de sucursal destino (1, 3..16) solo si ordenó en otra sucursal distinta."
+        },
+        confirm_save_unmatched: {
+          type: "BOOLEAN",
+          description: "Solo envía true en un segundo intento si la orden todavía no baja a Toast y el cliente confirmó que la acaba de enviar hace segundos a ESTA sucursal."
+        }
+      },
+      required: ["platform", "customer_name", "note_summary_es"]
     }
   },
   {
@@ -1862,6 +2266,7 @@ type BridgePromptData = {
   config: any
   specialHours: any[]
   menuItems: any[]
+  kbEntries: any[]
   schedEval: ReturnType<typeof evaluateStoreSchedule>
   greetings: ReturnType<typeof buildInitialGreetingTexts>
   spokenAddr: string
@@ -1925,55 +2330,48 @@ async function buildBridgeSystemPromptAndData(
   const laMeta = LA_CROSS_STREETS[Number(store.id)]
   const spokenAddr = expandStreetAddress(store.address || "", lang)
 
-  // Agrupar menú compacto por categoría
-  const byCat = new Map<string, string[]>()
+  // Agrupar menú sin pérdida por categoría + precio (100% de platillos y precios reales en ~75% menos tokens)
+  const byCatPrice = new Map<string, Map<string, string[]>>()
   for (const m of menuItems) {
     const cat = String(m.category_name || "Menu")
-    if (!byCat.has(cat)) byCat.set(cat, [])
-    const price = Number(m.price || 0).toFixed(2)
-    byCat.get(cat)!.push(`${m.name}: $${price}`)
+    const price = `$${Number(m.price || 0).toFixed(2)}`
+    if (!byCatPrice.has(cat)) byCatPrice.set(cat, new Map())
+    const pMap = byCatPrice.get(cat)!
+    if (!pMap.has(price)) pMap.set(price, [])
+    pMap.get(price)!.push(String(m.name || "").trim())
   }
   const menuTextLines: string[] = []
-  for (const [cat, items] of byCat.entries()) {
-    menuTextLines.push(`[${cat}] ${items.join(" | ")}`)
+  for (const [cat, pMap] of byCatPrice.entries()) {
+    const groups: string[] = []
+    for (const [price, names] of pMap.entries()) {
+      groups.push(`${price}: ${names.join(", ")}`)
+    }
+    menuTextLines.push(`[${cat}] ${groups.join(" | ")}`)
   }
 
   const trayLines = PARTY_TRAYS.map((t) => {
     const found = findPartyTrayMenuItem(menuItems, t.key)
-    const p = found ? `$${Number(found.price).toFixed(2)} USD` : "consultar en tacosgavilan.com"
-    return `- Fiesta Platter ${t.key} (${t.guests}): ${p} — ${t.meatLbs} lbs carne (Asada/Pollo/Pastor), ${t.riceLbs} lbs arroz y ${t.beansLbs} lbs frijol, ${t.cornDoz} docenas maíz o ${t.flourDoz} docenas harina (o mitad y mitad), ${t.aguasGal} galones agua fresca, salsas, limones, cilantro/cebolla, platos, vasos y utensilios.`
+    const p = found ? `$${Number(found.price).toFixed(2)} USD` : "ver tacosgavilan.com"
+    return `- Fiesta Platter ${t.key} (${t.guests}): ${p} (${t.meatLbs}lb carne, ${t.riceLbs}lb arroz, ${t.beansLbs}lb frijol, ${t.cornDoz}doc maíz o ${t.flourDoz}doc harina, ${t.aguasGal}gal agua, salsas/platos/utensilios)`
   }).join("\n")
 
-  // Directorio compacto con estatus en vivo y horario de HOY (para consultar horario semanal de otra tienda usar find_other_stores)
-  const dirLines = stores
-    .map((s) => {
-      const lbl = customerStoreDisplay(s, lang)
-      const la = LA_CROSS_STREETS[Number(s.id)]
-      const cross = la ? ` [${lang === "en" ? la.crossEn : la.crossEs}]` : ""
-      const ebt = ![1, 9].includes(Number(s.id)) ? "EBT comedor" : "Sin EBT"
-      const ev = evaluateStoreSchedule(s, specialHours, pt)
-      const stateTag = ev.isOpenNow ? "Abierta" : "Cerrada"
-      return `- #${s.id} ${lbl}${cross}: ${expandStreetAddress(s.address || "", lang)} | Tel: ${s.phone} | ${s.has_drive_thru ? "CON Drive-Thru" : "Sin Drive-Thru"} | ${ebt} | ${stateTag}: ${lang === "en" ? ev.statusEn : ev.statusEs}`
-    })
-    .join("\n")
+  // Mapa compacto de IDs de las 15 sucursales (para dirección/teléfono/horario en vivo de otra tienda -> find_other_stores en 0ms RAM)
+  const storeIdMapLine = stores
+    .map((s) => `#${s.id} ${customerStoreDisplay(s, lang)}${s.has_drive_thru ? " [DT]" : ""}`)
+    .join(", ")
 
-  // Omitir entrada duplicada de precios fijos (#084304c3) y resumen redundante largo si ya van en vivo arriba
-  const kbLines = kbEntries
-    .filter((k) => {
-      const cat = String(k.category || "").toLowerCase()
-      if (cat === "staff") return false
-      if (String(k.id || "") === "084304c3-8629-471b-9277-3b47518a962d") return false
-      return true
-    })
-    .slice(0, 60)
-    .map((k) => `- [${k.category}] ${lang === "en" ? k.title_en || k.title : k.title || k.title_en}: ${lang === "en" ? k.answer_en || k.answer_es : k.answer_es || k.answer_en}`)
-    .join("\n")
+  const activeKbEntries = kbEntries.filter((k) => String(k?.category || "").toLowerCase() !== "staff")
 
+  const seenLearnedNorm = new Set<string>()
   const learnedLines = (Array.isArray(learnedItems) ? learnedItems : [])
     .filter((r) => {
       if (!r || (!r.proposed_rule_es && !r.proposed_rule_en)) return false
       if (r.item_kind === "latency_insight" || r.item_kind === "audio_prewarm") return false
       if (r.applies_to_channels === "drive_thru_only") return false
+      const rawTxt = String(lang === "en" ? r.proposed_rule_en || r.proposed_rule_es : r.proposed_rule_es || r.proposed_rule_en).trim()
+      const key = normalizeSearch(rawTxt).slice(0, 90)
+      if (!key || seenLearnedNorm.has(key)) return false
+      seenLearnedNorm.add(key)
       return true
     })
     .sort((a, b) => {
@@ -1984,13 +2382,13 @@ async function buildBridgeSystemPromptAndData(
       const bStore = Number(b.store_id) === storeId ? 0 : 1
       return aStore - bStore
     })
-    .slice(0, 35)
+    .slice(0, 16)
     .map((r, i) => {
-      const kindTag = r.item_kind === "stt_synonym" ? "STT" : String(r.category || "general").toUpperCase()
-      const scopeTag = Number(r.store_id) === storeId ? `SOLO ${dispName}` : "GLOBAL"
-      const txt = lang === "en" ? r.proposed_rule_en || r.proposed_rule_es : r.proposed_rule_es || r.proposed_rule_en
-      const trig = lang === "en" ? r.question_or_trigger_en || r.question_or_trigger || "" : r.question_or_trigger || r.question_or_trigger_en || ""
-      return `${i + 1}. [${kindTag} - ${scopeTag}] (${trig}): ${txt}`
+      const scopeTag = Number(r.store_id) === storeId ? ` [${dispName}]` : ""
+      const txt = String(lang === "en" ? r.proposed_rule_en || r.proposed_rule_es : r.proposed_rule_es || r.proposed_rule_en)
+        .replace(/\s+/g, " ")
+        .trim()
+      return `${i + 1}.${scopeTag} ${txt}`
     })
     .join("\n")
 
@@ -2018,54 +2416,42 @@ async function buildBridgeSystemPromptAndData(
   const systemText = [
     baseLangAnchor,
     "",
-    `Eres Kore, la recepcionista telefónica en vivo de **Tacos Gavilan** en **${spokenName}** (Sucursal #${store.id}${laMeta ? `, esquina oficial: ${lang === "en" ? laMeta.crossEn : laMeta.crossEs}` : ""}), California, EE. UU. CONCORDANCIA DE GÉNERO FEMENINO EN ESPAÑOL: Eres mujer; al hablar de ti usa siempre adjetivos femeninos ("aquí sigo lista", "estoy lista", "quedo atenta", "segura"; PROHIBIDO decirte "listo" o "atento").`,
-    `REGLAS INQUEBRANTABLES DE IDENTIDAD, VOZ Y NEGOCIO:`,
-    `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO INMEDIATO EN TU PRIMERA ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos, armamos ni procesamos órdenes nuevas de comida por teléfono. Si el cliente dice frases de intención de compra como 'quiero dos tacos y dos burritos', 'voy a querer...', 'dame...', 'me das...', 'puedo pedir...', 'me tomas la orden', 'I want two tacos...', 'can I order...':`,
-    `   - EN TU PRIMERA ORACIÓN dile con amabilidad que **no tomamos órdenes por teléfono** e invítalo a ordenar fácilmente en **tacosgavilan.com** para recoger${store.has_drive_thru ? " o directamente en caja o por el Drive-Thru" : " o directamente en caja"}.`,
-    `   - ESTRICTAMENTE PROHIBIDO actuar como cajera o preguntar '¿Regular o Super?', '¿qué carne?', '¿con todo?' o '¿algo más de tu orden?'.`,
-    `   - Si mencionan platillos, solo si aporta utilidad informativa da sus precios unitarios directos en USD (y para burrito/quesadilla/mulita sin especificar Super, informa ambos precios Regular y Super sin preguntar cuál prefiere ni decir 'tamaño'), cerrando sin tomar pedido. Excepción única: reclamos o condimentos de un pedido YA realizado (Regla #7).`,
-    `   - PROHIBIDO decir las palabras 'política', 'políticas', 'reglamentos' o 'policy'.`,
-    `1. MARCA Y MONEDA: El nombre oficial es estrictamente **Tacos Gavilan** (JAMÁS digas 'Tacos El Gavilan'). Todos los precios son exclusivamente en **dólares y centavos estadounidenses (USD)** (PROHIBIDO decir 'pesos' o 'MXN').`,
-    `2. ESTILO DE VOZ EN VIVO (ÁGIL Y HUMANO): Tono cálido, amable, natural y directo. CERO muletillas iniciales (NO empieces con '¡Sí!', '¡Claro que sí!', '¡Por supuesto!' ni '¡Hola!'). Respuestas cortas y fluidas de **1 a 2 oraciones (8 a 20 palabras)**; solo usa hasta 50-60 palabras cuando coticen múltiples platillos o Fiesta Platters. Ya saludaste al contestar: NO vuelvas a saludar. Si preguntan si grabamos su voz o si es legal, responde cálido y directo en 1 frase sin sonar robótico: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto en el momento para atenderte y por eso escuchaste el aviso al inicio.'`,
-    `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo 'Broadway', 'Central', 'Slauson', 'LA Broadway' o 'LA Central'. SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway). Pronuncia las calles completas sin abreviaturas.`,
-    `4. HORARIOS Y DESAYUNOS EN VIVO (Hoy ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]} ${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT${pt.hour < 6 ? " — ES MADRUGADA: si reabrimos esta misma mañana, di SIEMPRE 'hoy' / 'today', JAMÁS 'mañana' / 'tomorrow'" : ""}):`,
-    `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn}`,
+    `Eres Kore, recepcionista telefónica en vivo de **Tacos Gavilan** en **${spokenName}** (#${store.id}${laMeta ? `, esquina: ${lang === "en" ? laMeta.crossEn : laMeta.crossEs}` : ""}), dir: ${spokenAddr}, tel: ${store.phone}, CA, EE. UU. Eres mujer: en español usa siempre adjetivos femeninos ("lista", "atenta", "segura"; jamás "listo"/"atento").`,
+    `REGLAS INQUEBRANTABLES:`,
+    `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO EN 1.ª ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos órdenes nuevas de comida por teléfono ('quiero...', 'dame...', 'puedo pedir...', 'can I order...'). En tu 1.ª oración dile amablemente que **no tomamos órdenes por teléfono** e invítalo a ordenar en **tacosgavilan.com** para recoger${store.has_drive_thru ? " o directamente en caja o Drive-Thru" : " o directamente en caja"}. PROHIBIDO actuar como cajera ('¿Regular o Super?', '¿qué carne?', '¿algo más de tu orden?') o decir 'políticas'/'policy'. Si mencionan platillos, solo da precios unitarios en USD (en burrito/quesadilla/mulita sin especificar Super informa Regular y Super sin preguntar preferencia).`,
+    `1. MARCA Y MONEDA: Estrictamente **Tacos Gavilan** (JAMÁS 'Tacos El Gavilan'). Precios siempre en **USD ($)** (JAMÁS 'pesos'/'MXN').`,
+    `2. VOZ EN VIVO: Cálida, directa, 1-2 oraciones (8-20 palabras; hasta 55 al cotizar varios ítems o Fiesta Platters). CERO muletillas iniciales ('¡Sí!', '¡Claro que sí!', '¡Por supuesto!', '¡Hola!'). Ya saludaste: NO re-saludes. Si preguntan si grabamos su voz: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto al momento para atenderte.'`,
+    `3. LOS ÁNGELES (#5, #6 y #7): PROHIBIDO decir solo 'Broadway', 'Central' o 'Slauson'. Di SIEMPRE **Los Ángeles** + esquina oficial sin abreviar calles: #5 **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, Drive-Thru; salón comedor cierra 1h antes que Drive-Thru en días regulares, EXCEPTO Thanksgiving, 24 dic y 31 dic donde Comedor y Drive-Thru cierran juntos a las 4:00 PM); #7 **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway).`,
+    `4. HORARIOS Y DESAYUNOS AQUÍ (Hoy ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]} ${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT${pt.hour < 6 ? " — MADRUGADA: si reabrimos esta mañana di 'hoy'/'today', JAMÁS 'mañana'/'tomorrow'" : ""}):`,
+    `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn} | Semanal: ${compactWeeklySummary(store.weekly_hours)}`,
     !schedEval.isOpenNow
-      ? `   - **ALERTA ROJA — SUCURSAL CERRADA EN ESTE MOMENTO (CRÍTICO PARA UBER EATS / DOORDASH / SISTEMAS AUTOMÁTICOS)**: Esta sucursal está **CERRADA AHORA MISMO** (${schedEval.statusEs} / ${schedEval.statusEn}). Si cualquier persona o sistema automático (Uber Eats, DoorDash, Grubhub) pregunta 'are you open right now?', 'just double checking you're actually open' o '¿están abiertos ahorita?', **ESTÁ ESTRICTAMENTE PROHIBIDO** comenzar tu respuesta con 'Yes' o 'Sí', y **ESTÁ ESTRICTAMENTE PROHIBIDO** decir 'we are definitely open for business' o 'sí estamos abiertos'. Empieza SIEMPRE de forma rotunda con **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** y solo después indica la hora de apertura.`
+      ? `   - **ALERTA ROJA — CERRADO AHORA**: Si preguntan 'are you open right now?' o '¿están abiertos?', PROHIBIDO iniciar con 'Yes'/'Sí'. Inicia rotundo: **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** e indica apertura.`
       : "",
-    `   - Horario semanal aquí: ${compactWeeklySummary(store.weekly_hours)}`,
-    `   - Festivos anuales oficiales: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM en Thanksgiving, Nochebuena (24 dic) y Fin de Año (31 dic); abre 11:00 AM en Año Nuevo (1 ene) y Black Friday.`,
-    `   - **Desayunos (las 15 sucursales)**: Todos los días desde la apertura hasta las **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON POR HOY — ofrece nuestro menú regular"}). **Café caliente (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ disponibles TODO EL DÍA**.`,
-    `5. DRIVE-THRU Y EBT CALFRESH:`,
-    `   - Drive-Thru aquí: ${store.has_drive_thru ? "SÍ tenemos Drive-Thru." : "NO tenemos Drive-Thru aquí (solo comedor y para llevar)."} Las 6 tiendas con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate.`,
-    `   - EBT CalFresh aquí: ${config.accepts_ebt ? "SÍ aceptamos EBT CalFresh ÚNICAMENTE pasando adentro a la caja del mostrador del comedor; JAMÁS se procesa EBT por la ventanilla del Drive-Thru." : "NO aceptamos EBT CalFresh en esta sucursal (Rialto y Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple Pay/Google Pay."}`,
-    `6. MENÚ COMPLETO POR VOZ, REGULAR VS SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
-    `   - **RECITA EL MENÚ COMPLETO POR VOZ (PROHIBIDO MANDAR A LA WEB PARA VER EL MENÚ)**: Si preguntan "¿qué venden?", "¿qué hay en el menú?", "¿me repites el menú?", "no lo quiero visitar, ¿me lo puedes decir tú?" o "¿es toda la comida que tienen?", NUNCA los envíes a visitar tacosgavilan.com para ver el menú (tacosgavilan.com solo se menciona si desean ordenar en línea), y JAMÁS respondas "sí, ese es todo nuestro menú" si omitiste alguna categoría. Incluye SIEMPRE explícitamente **Taco Plate (3 tacos con arroz y frijoles)**, **Platos completos (con arroz, frijoles, guacamole, ensalada y tortillas)** y **Desayunos (todos los días hasta las 2:00 PM: burritos, tortas y platos de huevos)** además de **Tacos, Burritos (Regular, Super y Meat Only), Quesadillas, Mulitas, Tortas (Asada, Pastor, Milanesa, Cubana y más), Sopes, Super Nachos**, las **8 carnes** (Carne Asada, Al Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo y Carnitas), bebidas (**Aguas Frescas de Horchata, Jamaica, Piña y Tamarindo, sodas de fuente, agua embotellada, y Café y Champurrado todo el día**), postres (**Flan y Cheesecake** individuales) y **Charolas Fiesta Platter**.`,
-    `   - Si consultan varios precios, informa cada uno en USD y el subtotal aproximado ('más impuestos' / 'plus tax') si ya especificaron todo; si falta Regular/Super informa ambos precios SIN tomar pedido.`,
-    `   - Jamás digas 'tamaño'/'size' en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (Burrito Regular = carne, arroz y frijol; Super añade queso, guacamole y crema; Mulita y Quesadilla Regular ya incluyen queso y Super añade guacamole y crema; Supreme/Supremo = Super).`,
-    `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas); **Champurrado 16 oz y Caja 96 oz, Café 16 oz**. PROHIBIDO decir 'chica', 'pequeña' o 'small'.`,
-    `   - Postres: **SOLO Flan y Cheesecake individuales** (NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni alcohol).`,
-    `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se pueden ordenar **directamente en caja/mostrador**, en **tacosgavilan.com** (pickup o delivery vía order.online) o en **plataformas de delivery (Uber Eats, DoorDash, Grubhub)** con mínimo **1 hora de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. 'ya los quiero para ahorita en media hora', '¿qué hago?'), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para no perder su evento: **(a)** pasar directo al mostrador${store.has_drive_thru ? " o al Drive-Thru" : ""} para preparar al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y confirmar su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken}` : "teléfono de 10 dígitos"}) con \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
-    `   - Correcciones fonéticas naturales (ES + EN): 'torta corona'/'cubana crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'moo lita'/'malita'='mulita', 'case a dia'='quesadilla', 'so pay'/'soapy'='sope', 'or chata'='horchata', 'a plan'='flan' (en comida/postre), 'whole beans'/'whole pinto beans'/'pot beans'='frijol de la olla ($0.00)', 'Dortmund'/'Door Dash'='DoorDash', 'ibt'/'evt'/'tarjetas abc'='EBT', 'dritro'/'through the drive'='Drive-Thru'.`,
-    `7. RECADOS AL GERENTE Y RECLAMOS CON VALIDACIÓN REAL DE TICKET (CERO TRANSFERENCIAS TELEFÓNICAS):`,
-    `   - Nunca transferimos llamadas a celulares personales. Usa \`create_manager_callback\` para alertas prioritarias en la pantalla de tienda y escribe \`reason_summary\` **SIEMPRE EN ESPAÑOL** claro para el gerente.`,
+    `   - Festivos: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM Thanksgiving, 24 dic y 31 dic; abre 11:00 AM 1 ene y Black Friday. Desayunos en las 15 tiendas: apertura a **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON HOY"}). **Café (16 oz) y Champurrado (16 oz y Caja 96 oz) TODO EL DÍA**.`,
+    `5. DRIVE-THRU, EBT Y OTRAS SUCURSALES:`,
+    `   - Aquí: ${store.has_drive_thru ? "SÍ tenemos Drive-Thru." : "NO tenemos Drive-Thru (solo comedor y mostrador)."} Las 6 con Drive-Thru: West Covina (#3), Los Ángeles Central y Washington (#6), La Puente (#10), Norwalk (#12), Lynwood (#14) y South Gate (#15).`,
+    `   - EBT CalFresh aquí: ${config.accepts_ebt ? "SÍ aceptamos EBT ÚNICAMENTE adentro en mostrador del comedor; JAMÁS por Drive-Thru." : "NO aceptamos EBT aquí (#1 Rialto y #9 Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple/Google Pay."}`,
+    `   - IDs de las 15 sucursales: ${storeIdMapLine}. Para dirección, teléfono u horario en vivo de OTRA sucursal invoca SIEMPRE \`find_other_stores\`.`,
+    `6. MENÚ POR VOZ, REGULAR/SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
+    `   - **RECITA EL MENÚ POR VOZ**: Si preguntan qué vendemos o el menú completo, NUNCA los mandes a tacosgavilan.com a verlo ni omitas categorías: incluye **Taco Plate (3 tacos con arroz y frijol)**, **Platos completos**, **Desayunos (hasta 2 PM)**, **Tacos, Burritos (Regular, Super y Meat Only), Quesadillas, Mulitas, Tortas (Asada, Pastor, Milanesa, Cubana, etc.), Sopes (sin lechuga), Super Nachos**, **8 carnes** (Asada, Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo, Carnitas), **Aguas Frescas (Horchata, Jamaica, Piña, Tamarindo), sodas, agua, Café y Champurrado todo el día**, **Flan y Cheesecake** individuales y **Fiesta Platters**.`,
+    `   - Jamás digas 'tamaño'/'size' en comida: es **Regular** o **Super** (Burrito Reg = carne/arroz/frijol; Super +queso/guacamole/crema; Mulita/Quesadilla Reg ya llevan queso y Super +guacamole/crema). Bebidas frías: SOLO **Mediana 22 oz**, **Grande 32 oz** y **Galón 128 oz** (PROHIBIDO 'chica'/'small'). Postres: SOLO **Flan y Cheesecake** (sin pasteles de cumpleaños ni ingreso de pasteles externos, sin churros/menudo/birria/pozole/suadero/tripa/alcohol ni descuentos por volumen). Prep pickup ~7-15 min; nacimos en 1992 (Gage y Main, LA); animales de servicio bienvenidos; empleo en tienda o tacosgavilan.com. Para dudas detalladas de ingredientes/políticas invoca \`search_menu_item_price\`.`,
+    `   - **Fiesta Platters**: en caja, **tacosgavilan.com** (pickup o delivery vía order.online) o Uber Eats/DoorDash/Grubhub con **1h de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\`). **Si necesitan comida para grupo en MENOS de 1h**, NO cierres la venta: ofrece **(a)** pasar al mostrador${store.has_drive_thru ? " o Drive-Thru" : ""} por órdenes individuales al momento, **O (b)** registrar \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente revise capacidad de cocina.`,
+    `   - Fonética STT: 'torta corona'/'crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'malita'='mulita', 'soapy'='sope', 'a plan'='flan', 'whole/pot beans'='frijol de la olla ($0)', 'Dortmund'='DoorDash', 'ibt'/'evt'/'abc'='EBT', 'dritro'='Drive-Thru'.`,
+    `7. RECADOS AL GERENTE Y VALIDACIÓN DE TICKET (CERO TRANSFERENCIAS):`,
+    `   - Usa \`create_manager_callback\` con \`reason_summary\` **SIEMPRE EN ESPAÑOL** claro.`,
     callerIdGuidanceLine,
-    `   - **PREGUNTA EL CAMBIO / DETALLE EXACTO ANTES DE GUARDAR + ACTUALIZACIÓN OBLIGATORIA POST-RECADO (CERO PROMESAS FALSAS)**: Cuando el cliente quiera editar una orden, pedir condimentos o dejar aviso a cocina/gerente, pregunta SIEMPRE qué cambio o detalle exacto necesita y en qué platillo ANTES de invocar \`create_manager_callback\` (no guardes un recado vago sin saber qué pidió). **Y SI DESPUÉS DE HABER GUARDADO EL RECADO** el cliente agrega CUALQUIER dato nuevo, ingrediente o platillo (ej. 'sin queso', 'para el Taco Plate', 'sin cebolla', código o sucursal), **ESTÁ ESTRICTAMENTE PROHIBIDO** decir 'ya lo agregué / ya lo anoté / ya se lo compartí al gerente' sin **VOLVER A INVOCAR \`create_manager_callback\` PRIMERO** con el \`reason_summary\` completo en español incluyendo todo lo anterior y lo nuevo (el sistema actualiza el mismo recado automáticamente sin duplicarlo).`,
-    `   - **Condimentos gratis en orden existente vs productos pagados**: para salsas, chiles, limones, cebollas o servilletas gratis en orden YA hecha (sin costo), pregunta qué condimentos desea, nombre, número/código de orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` (\`reason_category: 'condiments_note'\`, \`urgency: 'normal'\`), aclarando que aplican sin costo si la orden aún no ha salido (para agregar comida o bebidas con costo diles pedirlas aparte en **tacosgavilan.com** o en caja).`,
-    `   - **Uber Eats / DoorDash / Grubhub (Estatus y Ajustes Sin Costo)**: si preguntan el estatus real de una orden de delivery o pickup por código o nombre (ej. 'Enrique 012234' o 'Asia'), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir 'estoy revisando'. Cambios con costo, agregar comida, dirección, cancelación o reembolso se gestionan en **Ayuda (Help)** de su app. Para un **ajuste menor sin costo** en una orden activa (ej. quitar queso, cebolla o cilantro) o avisar retraso al gerente, pregunta **qué ajuste exacto y en qué platillo**, su nombre, código de orden (si no lo tiene, usa \`'SIN TICKET'\` sin bucle) y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` (\`reason_category: 'delivery_issue'\`), aclarando que aplica solo si cocina aún no ha sellado la orden.`,
-    `   - **Sucursal equivocada en tacosgavilan.com**: pregunta en cuál tienda cayó, nombre, orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : "10 dígitos"}) -> \`create_manager_callback\` con \`target_store_id\` (\`reason_category: 'wrong_store_order'\`).`,
-    `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL + DETALLE OBLIGATORIO)**: ANTES de guardar el recado DEBES saber **qué platillo faltó o qué estuvo mal** (PROHIBIDO guardar un recado vago tipo 'problema en Drive-Thru' sin preguntar primero qué faltó). Pide con respeto los **4 datos obligatorios**: **1) qué artículo faltó/estuvo mal + número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : "10 dígitos"})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** ('Without the ticket number, it is unlikely we can verify the mistake'). **REGLA CRÍTICA DE SUCURSAL Y TICKET**: en cuanto el cliente diga un número de ticket u orden (ej. '220 de hoy' o '1600'), **INVOCA DE INMEDIATO \`validate_order_ticket\`** — **Y SI EL CLIENTE MENCIONA OTRA SUCURSAL** (ej. South Gate #15, Lynwood #14, Vernon y Broadway #5), **PASA SIEMPRE SU \`target_store_id\`** en \`validate_order_ticket\` ANTES de decirle que el ticket no existe. Si \`found: true\`, confirma con amabilidad que ya localizaste su orden y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (mencionando el rango de tickets del día si el sistema lo entrega) y pídele verificar recibo, sucursal o plataforma. **SALIDA SIN BUCLE**: si confirma que perdió, tiró o no tiene su ticket, NO vuelvas a pedirlo: pasa directo a registrar con \`ticket_or_order_number: 'SIN TICKET'\` sin prometer reposición. **SI EL CLIENTE ENCUENTRA SU COMIDA DURANTE LA LLAMADA** (ej. 'Oh, I found my carnitas plate in my car'), vuelve a invocar \`create_manager_callback\` con \`reason_summary: 'Cliente confirmó que encontró su platillo durante la llamada'\` para cerrar automáticamente la alerta sin molestar al gerente. Cuando invoques una herramienta bloqueante espera su respuesta en silencio antes de hablar. EJECUTA \`create_manager_callback\` ANTES de confirmar, y luego ${callbackOutcome}`,
-    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta pide su nombre, confirma teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone='CALLER_ID'` : "real de 10 dígitos"}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmar y ${callbackOutcome}`,
-    `8. CERO CUELGUES ANTE FRUSTRACIÓN, RUIDO VIAL Y CIERRE LIMPIO: Ignora ruidos breves de carretera/motor en el carro que suenen como sílabas ajenas sin sentido (jamás interrumpas diciendo 'la llamada no se escucha claramente' por ruido vial). Si el cliente te interrumpe diciendo '¿qué?', 'perdón' o 'repite' mientras enumerabas carnes o platillos, repite la lista COMPLETA desde el principio. **PROHIBIDO COLGAR O INVOCAR \`end_call\`** si el cliente expresa frustración, molestia, queja, '¿qué hago?', **'me voy con la competencia'** o **'¿por qué me colgaste?'** sin despedirse explícitamente ('adiós', 'bye', 'hasta luego', 'eso es todo, gracias'): ante frustración retén al cliente con empatía ofreciendo soluciones reales o avisar urgente al gerente (y si pregunta por qué se cortó una llamada previa, discúlpate con calidez aclarando que nunca colgamos a propósito y atiéndelo al instante). Tampoco invoques \`end_call\` cuando solo diga 'okay, gracias', 'gracias' o 'perfecto' (pregunta primero '¿Te puedo ayudar con algo más?'). Solo cuando confirme explícitamente que ya terminó o se despida ('es todo, gracias', 'no gracias, bye', 'adiós', 'that is all, thank you'), despídete cálidamente en una oración sin preguntas e invoca \`end_call\`.`,
-    "",
-    `DIRECTORIO EN VIVO DE LAS 15 SUCURSALES:`,
-    dirLines,
+    `   - **DETALLE EXACTO ANTES DE GUARDAR + RE-INVOCACIÓN OBLIGATORIA**: Pregunta qué cambio/detalle exacto y en qué platillo ANTES de llamar \`create_manager_callback\`. Si DESPUÉS de guardar el cliente agrega CUALQUIER dato nuevo ('sin queso', 'Taco Plate', código), **VUELVE A INVOCAR \`create_manager_callback\` PRIMERO** con todo acumulado antes de confirmar.`,
+    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (ALERTA PARPADEANTE A TABLETA DELIVERY ARMOR)**: Si el cliente llamó sobre una orden de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com** para agregar **condimentos gratuitos** (salsas roja/verde, chiles, limones, cebollas, servilletas, utensilios) O hacer una **modificación sin costo** a un platillo (taco, burrito, mulita, quesadilla, torta, plato — ej. sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz): **1)** Pregunta en una sola frase natural **qué plataforma usó (DoorDash/Uber Eats/Grubhub/Online), el nombre como aparece en su orden, el código de la app (o 1–2 platillos que pidió si no lo ve) y exactamente qué condimentos o ajuste en qué platillo desea**; **2)** **INVOCA DE INMEDIATO \`send_delivery_armor_order_note\`** con \`note_summary_es\` SIEMPRE EN ESPAÑOL para que la orden exacta **parpadee en vivo en la tableta Delivery Armor** frente a la cajera que empaca; **3)** Responde según el resultado real: si ya salió con el chofer (\`ALREADY_DELIVERED\`) díselo con honestidad; si hay dos órdenes parecidas (\`AMBIGUOUS\`) pide la inicial del apellido, el código o un platillo; si la bolsa ya estaba sellada (\`SENT_TO_TABLET_REOPEN_BAG\`) aclara que alertamos a empaque para agregarlo antes de entregarla al chofer si todavía no sale; si todavía no baja (\`NOT_FOUND\`), verifica tienda/nombre y si la acaba de mandar re-invoca con \`confirm_save_unmatched: true\`. **PROHIBIDO** agregar comida o bebidas con costo por teléfono (eso va en su app o pedido aparte). Si el cliente después agrega otro condimento o cambio, **VUELVE A INVOCAR \`send_delivery_armor_order_note\`**. (Para órdenes en comedor/Drive-Thru sin plataforma, usa \`create_manager_callback\` con \`condiments_note\`.)`,
+    `   - **Uber/DoorDash/Grubhub (estatus, retrasos y reembolsos)**: para estatus invoca \`validate_order_ticket\` (código y/o \`customer_name\`). Cambios con costo, agregar comida pagada, dirección, cancelaciones o reembolsos van en **Ayuda (Help)** de su app; retrasos largos esperando repartidor -> \`create_manager_callback\` (\`reason_category: 'delivery_issue'\`).`,
+    `   - **Sucursal equivocada web**: tienda donde cayó, nombre, orden y teléfono -> \`wrong_store_order\` con \`target_store_id\`.`,
+    `   - **Faltantes / orden mal en tienda, DT o web**: pide **1) qué faltó/estuvo mal + ticket, 2) fecha, 3) nombre, 4) confirmar teléfono**, advirtiendo 1 vez que sin ticket es poco probable verificarlo. En cuanto dé número de ticket **INVOCA DE INMEDIATO \`validate_order_ticket\`** (con \`target_store_id\` si compró en otra sucursal). Si no conserva ticket usa \`'SIN TICKET'\` sin bucle. Si encuentra su comida durante la llamada, re-invoca \`create_manager_callback\` indicando que la encontró para auto-cerrar la alerta. Ejecuta la herramienta en silencio ANTES de confirmar y luego ${callbackOutcome}`,
+    `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: pide nombre, confirma teléfono y motivo breve -> \`create_manager_callback\` en español y ${callbackOutcome}`,
+    `8. CERO CUELGUES ANTE FRUSTRACIÓN Y CIERRE LIMPIO: Ignora ruido vial sin sentido. Si piden repetir lista, repítela completa. **PROHIBIDO \`end_call\`** si hay frustración, queja, 'me voy con la competencia', '¿por qué me colgaste?' o simple 'okay, gracias' (pregunta '¿Te puedo ayudar con algo más?'). Solo tras despedida explícita ('es todo, gracias', 'adiós', 'bye', 'that is all, thank you'), despídete en 1 oración sin preguntas e invoca \`end_call\`.`,
     "",
     `CHAROLAS FIESTA PLATTER:`,
     trayLines,
     "",
-    kbLines ? `BASE DE CONOCIMIENTO OFICIAL:\n${kbLines}\n` : "",
-    learnedLines ? `REGLAS APRENDIDAS PRIORITARIAS:\n${learnedLines}\n` : "",
+    learnedLines ? `REGLAS APRENDIDAS:\n${learnedLines}\n` : "",
     `CATÁLOGO EN VIVO EN ${dispName} (USD):`,
     menuTextLines.join("\n")
   ]
@@ -2078,6 +2464,7 @@ async function buildBridgeSystemPromptAndData(
     config,
     specialHours,
     menuItems,
+    kbEntries: activeKbEntries,
     schedEval,
     greetings,
     spokenAddr,
@@ -2487,12 +2874,12 @@ function cleanBridgeSpokenTicket(rawInput: string): { isNoTicket: boolean; ticke
     .trim()
   const explicitHash = raw.match(/#\s*([A-Za-z0-9][A-Za-z0-9\-]{0,19})/)
   let token = ""
-  if (explicitHash && /\d/.test(explicitHash[1])) token = explicitHash[1].trim()
-  else if (/^[A-Za-z0-9][A-Za-z0-9\-]{0,19}$/.test(working) && /\d/.test(working)) token = working
+  if (explicitHash && (/\d/.test(explicitHash[1]) || /^[A-Fa-f]{5}$/.test(explicitHash[1]))) token = explicitHash[1].trim()
+  else if (/^[A-Za-z0-9][A-Za-z0-9\-]{0,19}$/.test(working) && (/\d/.test(working) || /^[A-Fa-f]{5}$/.test(working))) token = working
   else {
     const matches = Array.from(working.matchAll(/\b([A-Za-z0-9][A-Za-z0-9\-]{0,19})\b/g))
       .map((m) => m[1])
-      .filter((t) => /\d/.test(t))
+      .filter((t) => /\d/.test(t) || /^[A-Fa-f]{5}$/.test(t))
     if (matches.length > 0) token = matches[0]
   }
   if (!token) return { isNoTicket: false, ticketNumber: "", candidates: [] }
@@ -2869,6 +3256,142 @@ async function queryVercelVerifyOrderFallback(params: {
   }
 }
 
+async function postBridgeDeliveryArmorPhoneNote(params: {
+  storeId: number
+  callSid: string
+  callId?: string | null
+  callbackId?: string | null
+  platform?: string | null
+  customerName: string
+  orderCode?: string | null
+  orderedItemsHint?: string | null
+  callerName?: string | null
+  callerPhone?: string | null
+  requestType?: string | null
+  noteSummaryEs: string
+  noteSummaryEn?: string | null
+  requestedCondiments?: string[]
+  itemModifications?: string[]
+  confirmSaveUnmatched?: boolean
+  businessDate: string
+}): Promise<Record<string, any>> {
+  const secrets = await loadSecrets()
+  if (secrets.publicAppBaseUrl && secrets.ttsSigningSecret) {
+    try {
+      const ts = String(Date.now())
+      const canonical = `${params.storeId}|${params.callSid}|${params.customerName}|${ts}`
+      const sig = await hmacSha256Hex(secrets.ttsSigningSecret, canonical)
+      const res = await fetch(`${secrets.publicAppBaseUrl}/api/delivery-armor/phone-notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: params.storeId,
+          source: "twilio",
+          callSid: params.callSid,
+          callId: params.callId || null,
+          callbackId: params.callbackId || null,
+          platform: params.platform || null,
+          customerName: params.customerName,
+          orderCode: params.orderCode || null,
+          orderedItemsHint: params.orderedItemsHint || null,
+          callerName: params.callerName || params.customerName,
+          callerPhone: params.callerPhone || null,
+          requestType: params.requestType || "condiments",
+          noteSummaryEs: params.noteSummaryEs,
+          noteSummaryEn: params.noteSummaryEn || null,
+          requestedCondiments: params.requestedCondiments || [],
+          itemModifications: params.itemModifications || [],
+          confirmSaveUnmatched: Boolean(params.confirmSaveUnmatched),
+          ts,
+          sig
+        }),
+        signal: AbortSignal.timeout(6500)
+      })
+      if (res.ok) {
+        const j = await res.json().catch(() => null)
+        if (j && typeof j === "object" && typeof j.outcome === "string") {
+          return j
+        }
+      }
+    } catch {
+      // Continuar con respaldo directo a Supabase si Vercel no responde o está en despliegue
+    }
+  }
+
+  // Respaldo directo a Supabase + Realtime Broadcast para cero pérdida incluso durante un deploy de Vercel
+  const platRaw = normalizeSearch(params.platform || "")
+  const normPlat = /doordash|door dash|dd|caviar|dortmund/.test(platRaw)
+    ? "DOORDASH"
+    : /uber|postmates/.test(platRaw)
+      ? "UBER_EATS"
+      : /grubhub|gh/.test(platRaw)
+        ? "GRUBHUB"
+        : /toast|online|tacosgavilan/.test(platRaw)
+          ? "TOAST_ONLINE"
+          : "OTHER"
+  const conds = Array.isArray(params.requestedCondiments) ? params.requestedCondiments.filter(Boolean) : []
+  const mods = Array.isArray(params.itemModifications) ? params.itemModifications.filter(Boolean) : []
+  const reqType =
+    conds.length > 0 && mods.length > 0
+      ? "both"
+      : params.requestType === "item_modification" || mods.length > 0
+        ? "item_modification"
+        : "condiments"
+
+  const insRes = await fetch(`${SUPABASE_URL}/rest/v1/delivery_armor_phone_notes`, {
+    method: "POST",
+    headers: dbHeaders({ Prefer: "return=representation" }),
+    body: JSON.stringify({
+      store_id: params.storeId,
+      business_date: params.businessDate,
+      source: "twilio",
+      call_id: params.callId || null,
+      callback_id: params.callbackId || null,
+      match_status: "UNMATCHED",
+      platform: normPlat,
+      platform_order_key: params.orderCode || null,
+      short_order_key: params.orderCode || null,
+      order_customer_name: params.customerName,
+      order_stage_at_alert: "UNMATCHED",
+      caller_name: params.callerName || params.customerName,
+      caller_phone: params.callerPhone || null,
+      request_type: reqType,
+      note_summary_es: params.noteSummaryEs,
+      note_summary_en: params.noteSummaryEn || null,
+      requested_condiments: conds,
+      item_modifications: mods,
+      ordered_items_hint: params.orderedItemsHint || null,
+      status: "pending"
+    })
+  }).catch(() => null)
+  const rows = insRes && insRes.ok ? await insRes.json().catch(() => []) : []
+  const noteId = Array.isArray(rows) && rows[0]?.id ? String(rows[0].id) : ""
+  if (noteId) {
+    await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: dbHeaders(),
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `blindaje-delivery-phone-notes-${params.storeId}`,
+            event: "phone_note_updated",
+            payload: { storeId: params.storeId, noteId, toastOrderGuid: null, status: "pending", ts: Date.now() }
+          }
+        ]
+      })
+    }).catch(() => null)
+  }
+  return {
+    ok: Boolean(noteId),
+    outcome: "SENT_UNMATCHED_BANNER",
+    note: noteId ? { id: noteId, noteSummaryEs: params.noteSummaryEs, platform: normPlat } : null,
+    messageEs:
+      "Aviso enviado en vivo a la barra superior de la tableta de Delivery Armor para la cajera de empaque; incluirán tus condimentos o ajuste siempre que la orden aún no haya salido.",
+    messageEn:
+      "Live alert sent to the top banner of our Delivery Armor packing tablet for the packing cashier; they will include your condiments or adjustment as long as the order has not left yet."
+  }
+}
+
 async function queryBridgeToastTickets(
   storeGuid: string,
   yyyymmdd: string,
@@ -3139,6 +3662,7 @@ async function executeLiveTool(params: {
   config: any
   specialHours: any[]
   menuItems: any[]
+  kbEntries?: any[]
   lang: PhoneLang
   callerNumber: string
   recentUserText: string
@@ -3160,6 +3684,7 @@ async function executeLiveTool(params: {
     config,
     specialHours,
     menuItems,
+    kbEntries,
     lang,
     callerNumber,
     recentUserText,
@@ -3215,6 +3740,106 @@ async function executeLiveTool(params: {
     }
   }
 
+  if (toolName === "send_delivery_armor_order_note") {
+    const reqTargetId = Number(toolArgs?.target_store_id)
+    const destStore =
+      Number.isInteger(reqTargetId) && reqTargetId > 0 ? stores.find((s) => Number(s.id) === reqTargetId) || store : store
+    const customerNameArg = String(toolArgs?.customer_name || "").replace(/\s+/g, " ").trim()
+    const rawPlatformArg = String(toolArgs?.platform || "").trim()
+    const orderCodeArg = String(toolArgs?.order_code || "").trim()
+    const orderedItemsArg = String(toolArgs?.ordered_items || "").trim()
+    const rawConds = Array.isArray(toolArgs?.requested_condiments)
+      ? toolArgs.requested_condiments.map((x: any) => String(x || "").trim()).filter(Boolean)
+      : []
+    const rawMods = Array.isArray(toolArgs?.item_modifications)
+      ? toolArgs.item_modifications.map((x: any) => String(x || "").trim()).filter(Boolean)
+      : []
+    const rawSummary = String(toolArgs?.note_summary_es || "").replace(/\s+/g, " ").trim()
+    const summaryEs = normalizeCallbackReasonToSpanish(
+      rawSummary ||
+        [
+          rawConds.length > 0 ? `Condimentos gratis: ${rawConds.join(", ")}` : "",
+          rawMods.length > 0 ? `Modificación: ${rawMods.join("; ")}` : ""
+        ]
+          .filter(Boolean)
+          .join(" | ")
+    )
+    const summaryEn = toolArgs?.note_summary_en ? String(toolArgs.note_summary_en).replace(/\s+/g, " ").trim() : null
+
+    if (!customerNameArg || customerNameArg.length < 2) {
+      return {
+        response: {
+          ok: false,
+          outcome: "MISSING_INFO",
+          message: "Pide primero el nombre exacto como aparece en la orden de DoorDash, Uber Eats o Grubhub."
+        },
+        shouldEndCall: false,
+        hadCallback: false
+      }
+    }
+    if (!summaryEs || summaryEs.length < 4) {
+      return {
+        response: {
+          ok: false,
+          outcome: "MISSING_INFO",
+          message: "Pregunta primero exactamente qué condimentos gratis o qué modificación sin costo (y en qué platillo) necesita."
+        },
+        shouldEndCall: false,
+        hadCallback: false
+      }
+    }
+
+    const ownTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
+    const rawCallerIdE164 = cleanUsTenPhone(callerNumber)
+    const validCallerIdE164 = rawCallerIdE164 && !ownTen.has(normalizeDigits10(rawCallerIdE164)) ? rawCallerIdE164 : null
+    const rawPhoneArg = String(toolArgs?.caller_phone || "").trim()
+    const argE164 = rawPhoneArg && rawPhoneArg.toUpperCase() !== "CALLER_ID" ? cleanUsTenPhone(rawPhoneArg) : null
+    const cleanPhone = (argE164 && !ownTen.has(normalizeDigits10(argE164)) ? argE164 : validCallerIdE164) || null
+
+    let callId: string | null = null
+    if (callSid) {
+      const cRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id&limit=1`)
+      callId = cRows[0]?.id ? String(cRows[0].id) : null
+    }
+
+    const daRes = await postBridgeDeliveryArmorPhoneNote({
+      storeId: Number(destStore.id),
+      callSid,
+      callId,
+      platform: rawPlatformArg || null,
+      customerName: customerNameArg,
+      orderCode: orderCodeArg || null,
+      orderedItemsHint: orderedItemsArg || null,
+      callerName: customerNameArg,
+      callerPhone: cleanPhone,
+      requestType: toolArgs?.request_type ? String(toolArgs.request_type) : null,
+      noteSummaryEs: summaryEs,
+      noteSummaryEn: summaryEn,
+      requestedCondiments: rawConds,
+      itemModifications: rawMods,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched),
+      businessDate: pt.businessDate
+    })
+
+    if (daRes.ok && callSid) {
+      const reqCat = rawMods.length > 0 ? "delivery_issue" : "condiments_note"
+      await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+        method: "PATCH",
+        headers: dbHeaders(),
+        body: JSON.stringify({
+          primary_intent: reqCat,
+          summary: `Delivery Armor (${daRes.matchedOrder?.platform || rawPlatformArg || "Delivery"} ${daRes.matchedOrder?.shortOrderKey || orderCodeArg || customerNameArg}): ${summaryEs}`.slice(0, 320)
+        })
+      }).catch(() => null)
+    }
+
+    return {
+      response: daRes,
+      shouldEndCall: false,
+      hadCallback: false
+    }
+  }
+
   if (toolName === "validate_order_ticket") {
     const reqTargetId = Number(toolArgs?.target_store_id)
     const targetStore =
@@ -3256,11 +3881,11 @@ async function executeLiveTool(params: {
         statusEn: schedEval.statusEn,
         diningRoomClosingNoteEs:
           Number(store.id) === 6
-            ? "ÚNICAMENTE aquí en Los Ángeles (Central y Washington) el salón comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre."
+            ? "ÚNICAMENTE aquí en Los Ángeles (Central y Washington) el salón comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre (EXCEPCIÓN: en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic, Comedor y Drive-Thru cierran juntos a las 4:00 PM)."
             : "El comedor cierra a la hora oficial publicada de la sucursal.",
         diningRoomClosingNoteEn:
           Number(store.id) === 6
-            ? "ONLY here at Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close."
+            ? "ONLY here at Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close (EXCEPTION: on Thanksgiving, Christmas Eve Dec 24, and New Year's Eve Dec 31, both Dining Room and Drive-Thru close together at 4:00 PM)."
             : "The dining room closes at the published closing time.",
         weeklyHours: compactWeeklySummary(store.weekly_hours)
       },
@@ -3275,7 +3900,7 @@ async function executeLiveTool(params: {
     const scored = menuItems
       .map((m) => {
         const hay = normalizeSearch(`${m.name} ${m.category_name} ${m.description || ""}`)
-        let score = hay.includes(qNorm) ? 10 : 0
+        let score = qNorm && hay.includes(qNorm) ? 10 : 0
         for (const tk of tokens) if (hay.includes(tk)) score += 3
         return { m, score }
       })
@@ -3289,12 +3914,30 @@ async function executeLiveTool(params: {
         description: m.description || ""
       }))
 
+    const kbList = Array.isArray(kbEntries) ? kbEntries : []
+    const matchedPolicies = kbList
+      .map((k) => {
+        const hay = normalizeSearch(`${k.category || ""} ${k.title || ""} ${k.title_en || ""} ${k.answer_es || ""} ${k.answer_en || ""}`)
+        let score = qNorm && hay.includes(qNorm) ? 10 : 0
+        for (const tk of tokens) if (hay.includes(tk)) score += 3
+        return { k, score }
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map(({ k }) => ({
+        category: k.category,
+        title: lang === "en" ? k.title_en || k.title : k.title || k.title_en,
+        answer: lang === "en" ? k.answer_en || k.answer_es : k.answer_es || k.answer_en
+      }))
+
     return {
       response: {
         storeName: dispName,
         currency: "USD",
         matchesFound: scored.length,
-        items: scored
+        items: scored,
+        ...(matchedPolicies.length > 0 ? { policies: matchedPolicies } : {})
       },
       shouldEndCall: false,
       hadCallback: false
@@ -3825,6 +4468,40 @@ async function executeLiveTool(params: {
       body: JSON.stringify(callPatch)
     }).catch(() => null)
 
+    // Red de seguridad Delivery Armor: si create_manager_callback se usó para condimentos o ajuste sin costo de DD/Uber/Grubhub,
+    // encender también la alerta parpadeante en la tableta Delivery Armor ligada a este callbackId.
+    const shouldMirrorToDeliveryArmor =
+      !wasAutoResolved &&
+      (category === "condiments_note" || (category === "delivery_issue" && isDelivery)) &&
+      /\b(uber|doordash|door\s*dash|grubhub|postmates|online|tacosgavilan|salsa|limon|chile|cebolla|cilantro|queso|crema|servilleta|condimento|tortilla)\b/i.test(
+        normalizeSearch(`${fullUserContext} ${savedSummary}`)
+      )
+    if (shouldMirrorToDeliveryArmor) {
+      const inferredPlat = /doordash|door\s*dash|caviar/i.test(`${fullUserContext} ${savedSummary}`)
+        ? "DOORDASH"
+        : /uber|postmates/i.test(`${fullUserContext} ${savedSummary}`)
+          ? "UBER_EATS"
+          : /grubhub/i.test(`${fullUserContext} ${savedSummary}`)
+            ? "GRUBHUB"
+            : "TOAST_ONLINE"
+      void postBridgeDeliveryArmorPhoneNote({
+        storeId: Number(destStore.id),
+        callSid,
+        callId,
+        callbackId: savedId,
+        platform: inferredPlat,
+        customerName: callerName,
+        orderCode: rawTicket && !/^SIN TICKET/i.test(rawTicket) ? rawTicket : null,
+        orderedItemsHint: recentUserText.slice(0, 220),
+        callerName,
+        callerPhone: cleanPhone,
+        requestType: category === "condiments_note" ? "condiments" : "item_modification",
+        noteSummaryEs: baseReason,
+        confirmSaveUnmatched: true,
+        businessDate: pt.businessDate
+      }).catch(() => null)
+    }
+
     return {
       response: {
         success: true,
@@ -3898,6 +4575,7 @@ function handleTwilioWebSocket(req: Request): Response {
   let latestCallbackTicket: string | null = null
   let latestIntent = "general"
   let pendingEndCall = false
+  let geminiClosingForHangup = false
   let turnCounter = 0
   let awaitingHangupMark = ""
   let hangupTimer: ReturnType<typeof setTimeout> | null = null
@@ -4509,6 +5187,7 @@ function handleTwilioWebSocket(req: Request): Response {
               config: dataRef.config,
               specialHours: dataRef.specialHours,
               menuItems: dataRef.menuItems,
+              kbEntries: dataRef.kbEntries,
               lang: activeLang,
               callerNumber,
               recentUserText: recentUser,
@@ -4542,6 +5221,69 @@ function handleTwilioWebSocket(req: Request): Response {
             })
           }
 
+          if (
+            pendingEndCall &&
+            fCalls.length === 1 &&
+            String(fCalls[0]?.name || "") === "end_call" &&
+            !closed &&
+            twilioWs.readyState === WebSocket.OPEN
+          ) {
+            let lastUserIdx = -1
+            for (let i = transcript.length - 1; i >= 0; i--) {
+              if (transcript[i].role === "user") {
+                lastUserIdx = i
+                break
+              }
+            }
+            const alreadySpokeFarewell = transcript
+              .slice(lastUserIdx + 1)
+              .some((e) => e.role === "assistant" && String(e.text || "").trim().length > 0)
+
+            const armHangupAndCloseGemini = (closeReason: string) => {
+              const tail = outResampler.flush()
+              if (tail.length > 0) sendMulawToTwilio(tail)
+              const markName = `turn_${++turnCounter}`
+              if (streamSid && twilioWs.readyState === WebSocket.OPEN) {
+                twilioWs.send(JSON.stringify({ event: "mark", streamSid, mark: { name: markName } }))
+              }
+              awaitingHangupMark = markName
+              if (hangupTimer) clearTimeout(hangupTimer)
+              hangupTimer = setTimeout(() => {
+                void hangupTwilioCallCleanly()
+              }, 6500)
+              geminiClosingForHangup = true
+              try {
+                if (gws.readyState === WebSocket.OPEN) gws.close(1000, closeReason)
+              } catch {}
+            }
+
+            if (alreadySpokeFarewell) {
+              armHangupAndCloseGemini("end_call_already_spoken")
+              return
+            }
+
+            const farewellText = activeLang === "en" ? BRIDGE_CACHED_FAREWELL_EN : BRIDGE_CACHED_FAREWELL_ES
+            const cachedFarewellClip = secretsCache
+              ? await fetchMulawPromptClip(
+                  secretsCache.publicAppBaseUrl,
+                  secretsCache.ttsSigningSecret,
+                  farewellText,
+                  activeLang
+                )
+              : null
+
+            if (cachedFarewellClip && cachedFarewellClip.length > 0 && !closed && twilioWs.readyState === WebSocket.OPEN) {
+              sendMulawToTwilio(cachedFarewellClip)
+              transcript.push({
+                role: "assistant",
+                text: farewellText,
+                timestamp: new Date().toISOString()
+              })
+              armHangupAndCloseGemini("end_call_cached_clip")
+              return
+            }
+          }
+
           if (!closed && gws.readyState === WebSocket.OPEN) {
             gws.send(JSON.stringify({ toolResponse: { functionResponses } }))
           }
@@ -4564,6 +5306,7 @@ function handleTwilioWebSocket(req: Request): Response {
     }
 
     gws.onclose = () => {
+      if (geminiClosingForHangup) return
       if (!closed) {
         const shouldReconnectViaResume = !pendingEndCall && !isRefreshingWorker && twilioWs.readyState === WebSocket.OPEN
         closed = true
@@ -5000,7 +5743,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v14",
+      version: "v18",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"

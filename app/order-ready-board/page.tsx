@@ -74,6 +74,7 @@
  *   con cancelación automática si se cierra en KDS o si ya fue llamada desde tableta.
  * - OPTIMIZACIÓN TELEMETRÍA BOCINA (2026-11-19): El latido periódico (`heartbeat`) de `speaker_board` pasa de 60s a 300s (5 min) y omite el latido periódico cuando hubo un `playback_ack` exitoso hace `< 4 min` para la misma sucursal, manteniendo intacto el aviso instantáneo (300ms) ante cambios de estado (`isMuted`, `audioUnlocked`, `voiceVolume`, `isFullscreen`) y sin alterar el polling ni locuciones de órdenes.
  * - DESACTIVACIÓN POR DEFECTO DE RECORDATORIO AUTOMÁTICO (2026-11-23, Huntington Park): `DEFAULT_REMINDER_DELAY_MS = 0` y migración a `teg_order_ready_reminder_sec_v2` (`0s` = Desactivado por defecto en las 15 sucursales, restringido a Admin), eliminando repeticiones automáticas no solicitadas cuando una orden aún sigue en preparación durante horas pico.
+ * - ALERTA TEMPORAL DE CONDIMENTOS DELIVERY ARMOR (2026-11-24): Monta `<DeliveryPhoneNotesAlertPanel variant="board" />` junto a `PhoneCallbackAlertBanner` (estrictamente oculto en Modo TV/Fullscreen para proteger PII y apagado automáticamente en `#7 Slauson` por contar ya con tableta física Delivery Armor), con botón circular `✕` de cierre individual por orden sincronizado en tiempo real con la tableta de llamado (`/inventory/preparador`).
  */
 
 'use client'
@@ -125,6 +126,7 @@ import { AVAILABLE_VOICES, VoiceId, isValidVoice, isForbiddenRaulVoice } from '@
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import { STORE_GUID_BY_CODE } from '@/lib/toast-stores'
 import { formatCustomerStoreName } from '@/lib/customer-store-names'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { isDrinkOrDessertOnlyOrder, compareOrdersKdsFifo } from '@/lib/order-ready-filter'
 import {
   AutoCallMode,
@@ -140,6 +142,7 @@ import {
 } from '@/lib/order-ready-auto-timer'
 import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
 import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
+import DeliveryPhoneNotesAlertPanel from '@/components/DeliveryPhoneNotesAlertPanel'
 import OrderReadyVoiceAuditModal from '@/components/OrderReadyVoiceAuditModal'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -211,23 +214,26 @@ const ANNOUNCE_REPEATS = 1
 /** Recordatorio automático desactivado por defecto (0ms = 100% control manual desde tableta de cocina) */
 const DEFAULT_REMINDER_DELAY_MS = 0
 
-const STORES_LIST = [
-  { code: 'LYNWOOD', name: 'Lynwood (#14)' },
-  { code: 'AZUSA', name: 'Azusa' },
-  { code: 'BELL', name: 'Bell' },
-  { code: 'DOWNEY', name: 'Downey' },
-  { code: 'HOLLYWOOD', name: 'Hollywood' },
-  { code: 'HPARK', name: 'Huntington Park' },
-  { code: 'LABROADWY', name: 'LA Broadway' },
-  { code: 'LACENTRAL', name: 'LA Central' },
-  { code: 'LAPUENTE', name: 'La Puente' },
-  { code: 'NORWALK', name: 'Norwalk' },
-  { code: 'RIALTO', name: 'Rialto' },
-  { code: 'SANTAANA', name: 'Santa Ana' },
-  { code: 'SLAUSON', name: 'Slauson' },
-  { code: 'SOUTHGATE', name: 'South Gate' },
-  { code: 'WCOVINA', name: 'West Covina' }
-]
+const STORES_LIST = sortStoresAlphabetically(
+  [
+    { code: 'AZUSA', name: 'Azusa' },
+    { code: 'BELL', name: 'Bell' },
+    { code: 'DOWNEY', name: 'Downey' },
+    { code: 'HOLLYWOOD', name: 'Hollywood' },
+    { code: 'HPARK', name: 'Huntington Park' },
+    { code: 'LABROADWY', name: 'LA Broadway' },
+    { code: 'LACENTRAL', name: 'LA Central' },
+    { code: 'LAPUENTE', name: 'La Puente' },
+    { code: 'LYNWOOD', name: 'Lynwood' },
+    { code: 'NORWALK', name: 'Norwalk' },
+    { code: 'RIALTO', name: 'Rialto' },
+    { code: 'SANTAANA', name: 'Santa Ana' },
+    { code: 'SLAUSON', name: 'Slauson' },
+    { code: 'SOUTHGATE', name: 'South Gate' },
+    { code: 'WCOVINA', name: 'West Covina' }
+  ],
+  (s) => s.name
+)
 
 function OrderReadyBoardContent() {
   const { t, language, setLanguage } = useLanguage()
@@ -3224,13 +3230,22 @@ function OrderReadyBoardContent() {
         </div>
       )}
 
-      {/* Banner de Recados Telefónicos Prioritarios (Contestadora IA — Oculto en Modo TV/F11 de clientes para proteger PII) */}
+      {/* Banner de Recados Telefónicos Prioritarios y Alertas Delivery Armor Temporales (Contestadora IA — Ocultos en Modo TV/F11 de clientes para proteger PII) */}
       {!isFullscreen && !isKioskTvQuery && !isWindowKioskFullscreen && (
-        <PhoneCallbackAlertBanner
-          storeCode={selectedStore}
-          ready={storeOk}
-          includeSimulator={isAdmin && adminSimPreview}
-        />
+        <>
+          <DeliveryPhoneNotesAlertPanel
+            storeCode={selectedStore}
+            ready={storeOk}
+            includeSimulator={isAdmin && adminSimPreview}
+            soundEnabled={!isMuted}
+            variant="board"
+          />
+          <PhoneCallbackAlertBanner
+            storeCode={selectedStore}
+            ready={storeOk}
+            includeSimulator={isAdmin && adminSimPreview}
+          />
+        </>
       )}
 
       {/* Top Header / Barra Superior */}
@@ -3262,11 +3277,15 @@ function OrderReadyBoardContent() {
                       : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
                   }`}
                 >
-                  {visibleStores.map((s) => (
+                  {sortStoresAlphabetically(visibleStores, (s) =>
+                    isFullscreen || isKioskTvQuery || isWindowKioskFullscreen
+                      ? formatCustomerStoreName({ code: s.code, name: s.name }, language === 'en' ? 'en' : 'es')
+                      : formatStoreDisplayName(s.name)
+                  ).map((s) => (
                     <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                       {isFullscreen || isKioskTvQuery || isWindowKioskFullscreen
                         ? formatCustomerStoreName({ code: s.code, name: s.name }, language === 'en' ? 'en' : 'es')
-                        : s.name}
+                        : formatStoreDisplayName(s.name)}
                     </option>
                   ))}
                 </select>
@@ -3573,9 +3592,9 @@ function OrderReadyBoardContent() {
                       isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                   >
-                    {visibleStores.map((s) => (
+                    {sortStoresAlphabetically(visibleStores, (s) => s.name).map((s) => (
                       <option key={s.code} value={s.code} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                        {s.name}
+                        {formatStoreDisplayName(s.name)}
                       </option>
                     ))}
                   </select>

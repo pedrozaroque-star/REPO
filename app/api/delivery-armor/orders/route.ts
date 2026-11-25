@@ -8,7 +8,7 @@
  * @businessRules
  *   - Solo procesa órdenes off-premise (excluye comedor Dine-In tradicional).
  *   - Respeta el día laboral de 6:00 AM a 5:59 AM del día siguiente.
- *   - Por defecto admite las sucursales del plan piloto: Slauson (#7) y LA Central (#6).
+ *   - Habilitado para las 15 sucursales de Tacos Gavilan.
  *
  * @dataFlow
  *   Client Tablet/Admin -> GET /api/delivery-armor/orders?storeId=6 -> fetchOffPremiseOrders() -> Toast API + Supabase -> Response JSON.
@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchOffPremiseOrders, getActiveStorePinSession } from '@/lib/delivery-armor'
+import { listDeliveryArmorPhoneNotes } from '@/lib/delivery-armor-phone-notes'
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,14 +26,16 @@ export async function GET(req: NextRequest) {
     const storeIdParam = searchParams.get('storeId') || '6' // Default LA Central (#6)
     const storeId = parseInt(storeIdParam, 10)
     const businessDate = searchParams.get('businessDate') || undefined
+    const includeSimulator = searchParams.get('includeSimulator') === '1'
 
     if (isNaN(storeId) || storeId <= 0) {
       return NextResponse.json({ ok: false, error: 'Parámetro storeId inválido.' }, { status: 400 })
     }
 
-    const [result, activeSession] = await Promise.all([
+    const [result, activeSession, phoneNotes] = await Promise.all([
       fetchOffPremiseOrders(storeId, businessDate),
-      getActiveStorePinSession(storeId)
+      getActiveStorePinSession(storeId),
+      listDeliveryArmorPhoneNotes(storeId, { businessDate, includeSimulator })
     ])
 
     return NextResponse.json({
@@ -42,7 +45,8 @@ export async function GET(req: NextRequest) {
       businessDate: result.businessDate,
       orders: result.orders,
       totalOrders: result.orders.length,
-      activeSession
+      activeSession,
+      phoneNotes
     })
   } catch (err: any) {
     console.error('Error en /api/delivery-armor/orders:', err)

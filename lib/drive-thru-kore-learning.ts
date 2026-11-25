@@ -71,6 +71,7 @@ import {
   extractDirectCustomerIntentFromNoisyTurn,
   isExplicitWholeOrderCancelIntent,
   isLikelyBackgroundMediaSpeech,
+  evaluateLearningAutopilotDecision,
   shouldRejectCandidateLearningFinding,
   type KoreCandidateQualityInput
 } from '@/lib/kore-shared-speech'
@@ -2004,16 +2005,23 @@ async function upsertCandidateFinding(f: CandidateFinding): Promise<'inserted' |
     }
   }
 
-  if (
-    f.sourceType !== 'manual_owner' &&
-    f.sourceType !== 'manual' &&
-    existing?.status !== 'approved' &&
-    shouldRejectCandidateLearningFinding({
+  let effectiveStatus: KoreLearningItemStatus = f.status
+  let effectiveItemKind: KoreLearningItemKind = f.itemKind
+
+  if (f.sourceType !== 'manual_owner' && f.sourceType !== 'manual' && existing?.status !== 'approved') {
+    const autopilot = evaluateLearningAutopilotDecision({
       ...f,
       appliesToChannels
     })
-  ) {
-    return 'skipped'
+    if (autopilot.decision === 'reject') {
+      return 'skipped'
+    }
+    if (autopilot.decision === 'auto_apply' && effectiveStatus === 'needs_owner_input') {
+      effectiveStatus = 'auto_applied'
+      if (autopilot.promotedItemKind === 'learned_rule') {
+        effectiveItemKind = 'learned_rule'
+      }
+    }
   }
 
   if (existing?.id) {
@@ -2080,8 +2088,8 @@ async function upsertCandidateFinding(f: CandidateFinding): Promise<'inserted' |
       applies_to_channels: appliesToChannels,
       dedupe_key: f.dedupeKey,
       source_type: f.sourceType,
-      item_kind: f.itemKind,
-      status: f.status,
+      item_kind: effectiveItemKind,
+      status: effectiveStatus,
       question_or_trigger: f.questionOrTrigger,
       question_or_trigger_en: f.questionOrTriggerEn ?? null,
       customer_quote: f.customerQuote ?? null,

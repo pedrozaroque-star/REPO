@@ -480,6 +480,126 @@ export function getOfficialStoreHolidaySchedule(targetDate: string): OfficialSto
     return rules.find((r) => r.event_date === targetDate) || null
 }
 
+export interface OfficialHolidayClosedGreetingParams {
+    holidayKey: OfficialStoreHolidayRule['holiday_key']
+    phase: 'closed_all_day' | 'before_open' | 'after_close'
+    todayDayEs: string
+    todayDayEn: string
+    openFmt?: string | null
+    closeFmt?: string | null
+    nextOpenDayEs?: string | null
+    nextOpenDayEn?: string | null
+    nextOpenFmt?: string | null
+    tomorrowIsClosedHoliday?: boolean
+}
+
+function formatAtTimeEs(fmt12: string): string {
+    return /^1:/i.test(String(fmt12 || '').trim()) ? `a la ${fmt12}` : `a las ${fmt12}`
+}
+
+/**
+ * Construye la contestación telefónica canónica (ES y EN) para las 7 fechas festivas oficiales
+ * cuando la sucursal está cerrada (cerrado todo el día, antes de abrir o tras cierre temprano).
+ * Debe mantenerse 100% idéntica carácter por carácter a `buildBridgeHolidayClosedGreeting` en
+ * `supabase/functions/phone-live-bridge/index.ts` para compartir los mismos WAVs pre-grabados
+ * en `order-ready-tts/phone_v6/Kore/`.
+ */
+export function buildOfficialHolidayClosedGreeting(
+    params: OfficialHolidayClosedGreetingParams
+): { promptEs: string; promptEn: string } {
+    const openFmt = params.openFmt || '10:00 AM'
+    const closeFmt = params.closeFmt || '4:00 PM'
+    const nextOpenFmt = params.nextOpenFmt || '10:00 AM'
+    const nextDayEs = (params.nextOpenDayEs || '').toLowerCase()
+    const nextDayEn = params.nextOpenDayEn || ''
+    const todayEs = (params.todayDayEs || '').toLowerCase()
+    const todayEn = params.todayDayEn || ''
+
+    if (params.holidayKey === 'thanksgiving') {
+        if (params.phase === 'before_open') {
+            return {
+                promptEs: `¡Feliz Día de Acción de Gracias! En este momento nuestra sucursal aún está cerrada; hoy abrimos ${formatAtTimeEs(openFmt)} y cerramos temprano ${formatAtTimeEs(closeFmt)}. ¿En qué te ayudo hoy?`,
+                promptEn: `Happy Thanksgiving! Our location is currently closed; today we open at ${openFmt} and close early at ${closeFmt}. How can I help you today?`
+            }
+        }
+        return {
+            promptEs: `¡Feliz Día de Acción de Gracias! En este momento nuestra sucursal ya está cerrada; hoy cerramos temprano ${formatAtTimeEs(closeFmt)} y mañana ${nextDayEs || 'viernes'} abrimos ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+            promptEn: `Happy Thanksgiving! Our location is currently closed; today we closed early at ${closeFmt}, and we reopen tomorrow, ${nextDayEn || 'Friday'}, at ${nextOpenFmt}. How can I help you today?`
+        }
+    }
+
+    if (params.holidayKey === 'day_after_thanksgiving') {
+        if (params.phase === 'before_open') {
+            return {
+                promptEs: `En este momento nuestra sucursal aún está cerrada; hoy ${todayEs || 'viernes'} abrimos en horario especial ${formatAtTimeEs(openFmt)}. ¿En qué te ayudo hoy?`,
+                promptEn: `Our location is currently closed; today, ${todayEn || 'Friday'}, we open with special hours at ${openFmt}. How can I help you today?`
+            }
+        }
+        return {
+            promptEs: `En este momento nuestra sucursal ya está cerrada; hoy cerramos ${formatAtTimeEs(closeFmt)} y mañana ${nextDayEs || 'sábado'} abrimos ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+            promptEn: `Our location is currently closed; we closed today at ${closeFmt}, and we reopen tomorrow, ${nextDayEn || 'Saturday'}, at ${nextOpenFmt}. How can I help you today?`
+        }
+    }
+
+    if (params.holidayKey === 'christmas_eve') {
+        if (params.phase === 'before_open') {
+            return {
+                promptEs: `¡Feliz Nochebuena! En este momento nuestra sucursal aún está cerrada; hoy abrimos ${formatAtTimeEs(openFmt)} y cerramos temprano ${formatAtTimeEs(closeFmt)}. ¿En qué te ayudo hoy?`,
+                promptEn: `Merry Christmas Eve! Our location is currently closed; today we open at ${openFmt} and close early at ${closeFmt}. How can I help you today?`
+            }
+        }
+        if (params.tomorrowIsClosedHoliday) {
+            return {
+                promptEs: `¡Feliz Nochebuena! En este momento nuestra sucursal ya está cerrada; hoy cerramos temprano ${formatAtTimeEs(closeFmt)}, mañana permanecemos cerrados por Navidad y reanudamos servicio el ${nextDayEs || 'sábado'} ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+                promptEn: `Merry Christmas Eve! Our location is currently closed; today we closed early at ${closeFmt}, we are closed tomorrow for Christmas Day, and we reopen ${nextDayEn || 'Saturday'} at ${nextOpenFmt}. How can I help you today?`
+            }
+        }
+        return {
+            promptEs: `¡Feliz Nochebuena! En este momento nuestra sucursal ya está cerrada; hoy cerramos temprano ${formatAtTimeEs(closeFmt)} y mañana ${nextDayEs} abrimos ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+            promptEn: `Merry Christmas Eve! Our location is currently closed; today we closed early at ${closeFmt}, and we reopen tomorrow, ${nextDayEn}, at ${nextOpenFmt}. How can I help you today?`
+        }
+    }
+
+    if (params.holidayKey === 'christmas_day') {
+        return {
+            promptEs: `¡Feliz Navidad! Hoy permanecemos cerrados todo el día por Navidad y reanudamos servicio mañana ${nextDayEs || 'sábado'} ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+            promptEn: `Merry Christmas! We are closed all day today for Christmas Day, and we reopen tomorrow, ${nextDayEn || 'Saturday'}, at ${nextOpenFmt}. How can I help you today?`
+        }
+    }
+
+    if (params.holidayKey === 'new_years_eve') {
+        if (params.phase === 'before_open') {
+            return {
+                promptEs: `En este momento nuestra sucursal aún está cerrada; hoy por Fin de Año abrimos ${formatAtTimeEs(openFmt)} y cerramos temprano ${formatAtTimeEs(closeFmt)}. ¿En qué te ayudo hoy?`,
+                promptEn: `Our location is currently closed; today for New Year's Eve we open at ${openFmt} and close early at ${closeFmt}. How can I help you today?`
+            }
+        }
+        return {
+            promptEs: `¡Feliz Año Nuevo! En este momento nuestra sucursal ya está cerrada; hoy por Fin de Año cerramos temprano ${formatAtTimeEs(closeFmt)} y mañana ${nextDayEs || 'viernes'} abrimos ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+            promptEn: `Happy New Year's Eve! Our location is currently closed; today we closed early at ${closeFmt}, and we reopen tomorrow, ${nextDayEn || 'Friday'}, at ${nextOpenFmt}. How can I help you today?`
+        }
+    }
+
+    if (params.holidayKey === 'new_years_day') {
+        if (params.phase === 'before_open') {
+            return {
+                promptEs: `¡Feliz Año Nuevo! En este momento nuestra sucursal aún está cerrada; hoy ${todayEs || 'viernes'} abrimos en horario especial ${formatAtTimeEs(openFmt)}. ¿En qué te ayudo hoy?`,
+                promptEn: `Happy New Year! Our location is currently closed; today, ${todayEn || 'Friday'}, we open with special hours at ${openFmt}. How can I help you today?`
+            }
+        }
+        return {
+            promptEs: `¡Feliz Año Nuevo! En este momento nuestra sucursal ya está cerrada; hoy cerramos ${formatAtTimeEs(closeFmt)} y mañana ${nextDayEs} abrimos ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+            promptEn: `Happy New Year! Our location is currently closed; we closed today at ${closeFmt}, and we reopen tomorrow, ${nextDayEn}, at ${nextOpenFmt}. How can I help you today?`
+        }
+    }
+
+    // good_friday
+    return {
+        promptEs: `En este momento permanecemos cerrados todo el día por Viernes Santo y reanudamos servicio mañana ${nextDayEs || 'sábado'} ${formatAtTimeEs(nextOpenFmt)}. ¿En qué te ayudo hoy?`,
+        promptEn: `We are closed all day today for Good Friday, and we reopen tomorrow, ${nextDayEn || 'Saturday'}, at ${nextOpenFmt}. How can I help you today?`
+    }
+}
+
 /**
  * Devuelve las próximas fechas oficiales con horario especial dentro de una ventana de `daysAhead` días (por defecto 150 días).
  */

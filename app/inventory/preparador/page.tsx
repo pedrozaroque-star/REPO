@@ -79,12 +79,18 @@
  *     2) Heartbeat de telemetría elevado de 60s a 300s (5m), conservando envío inmediato al montar y en `visibilitychange`.
  *     3) `preparador-manual-schedule` elevado de 3m a 5m con guardia `visibilityState` y sin `&_t`/`cache:'no-store'` en polling de fondo (conserva bypass `&_t` en guardados explícitos del gerente y despertar tableta).
  *     4) `preparador/intelligence` elevado de 3m a 10m con guardia `visibilityState` y sin `&_t`/`cache:'no-store'`; `meat_consumption_history` elevado de 3m a 5m con guardia `visibilityState`.
+ *   - ALERTA TEMPORAL DE CONDIMENTOS DELIVERY ARMOR (2026-11-24):
+ *     Monta `<DeliveryPhoneNotesAlertPanel variant="tablet" />` justo debajo de la barra superior (fuera de `data-orders-hit-zone`
+ *     para que el radar de proximidad con guantes no intercepte los botones), replicando exactamente el parpadeo, timbre triple,
+ *     aviso de bolsa sellada, botón circular rojo `✕` de cierre individual por orden estilo Preparador y confirmación en tiempo real
+ *     (`< 500 ms`) en las 14 sucursales sin tableta física de Delivery Armor (apagado automáticamente en `#7 Slauson` que ya cuenta con ella).
  */
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
+import DeliveryPhoneNotesAlertPanel from '@/components/DeliveryPhoneNotesAlertPanel'
 import { 
     BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, 
     X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
@@ -2850,6 +2856,14 @@ export default function PreparadorPage() {
                     </div>
                 )}
             </div>
+
+            {/* ALERTA TEMPORAL DELIVERY ARMOR (Condimentos / Modificaciones de órdenes DoorDash, Uber Eats, Grubhub y Online — 0 px cuando no hay alertas activas) */}
+            <DeliveryPhoneNotesAlertPanel
+                storeId={Number(storeId) || null}
+                ready={Boolean(storeId)}
+                soundEnabled={true}
+                variant="tablet"
+            />
 
             {/* CONTENEDOR PRINCIPAL: VISTA APP EN MÓVIL (< lg) / SPLIT SCREEN EN DESKTOP (>= lg) */}
             <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0 pb-16 lg:pb-0 relative">

@@ -234,6 +234,7 @@
 
 import twilio from 'twilio'
 import { cleanSpokenTicketNumber, validateStoreOrderTicket } from '@/lib/toast-ticket-validator'
+import { createOrUpdateDeliveryArmorPhoneNote } from '@/lib/delivery-armor-phone-notes'
 import {
   KORE_BREAKFAST_CUTOFF_LABEL,
   isKoreBreakfastCategory,
@@ -254,7 +255,11 @@ import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-da
 import { getGeminiKeyPoolWithRemote, VoiceId, resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import { PARTY_TRAY_GUIDELINES } from '@/lib/inventory/party-tray-guidelines'
 import { buildMeaningfulCallSummary, formatLast4ForSpeech, mergeCallbackReasonSummaries, normalizeUsPhoneDigits10 } from '@/lib/phone-caller-id'
-import { getOfficialStoreHolidaySchedule, getUpcomingOfficialStoreHolidays } from '@/lib/holidays'
+import {
+  buildOfficialHolidayClosedGreeting,
+  getOfficialStoreHolidaySchedule,
+  getUpcomingOfficialStoreHolidays
+} from '@/lib/holidays'
 import { extractPhoneDigits, isFictitiousNanpPhone, normalizeUsPhoneE164 } from '@/lib/phone-agent-access'
 import {
   loadActivePhoneLearnedRules,
@@ -1068,6 +1073,19 @@ export function evaluateStoreSchedulePure(params: {
         ? `Our ${prevJustClosedInfo.dayEn} late-night shift ${prevJustClosedInfo.phraseEn}; today `
         : ''
 
+      const officialTodayRule = getOfficialStoreHolidaySchedule(pt.dateStr)
+      const canonicalClosed = officialTodayRule
+        ? buildOfficialHolidayClosedGreeting({
+              holidayKey: officialTodayRule.holiday_key,
+              phase: 'closed_all_day',
+              todayDayEs: dayEs,
+              todayDayEn: dayEn,
+              nextOpenDayEs: nextOpen ? DAY_NAMES_ES[nextOpen.dow] : null,
+              nextOpenDayEn: nextOpen ? DAY_NAMES_EN[nextOpen.dow] : null,
+              nextOpenFmt: nextOpen ? nextOpenEs : null
+            })
+          : null
+
       return {
         storeId,
         storeName,
@@ -1090,12 +1108,16 @@ export function evaluateStoreSchedulePure(params: {
         statusMessageEn: todaySched.isSpecial
           ? `${prevPrefixEn}Today (${formatHolidayForParenEn(todaySched.holidayNameEn) || dayEn}) ${ourLocLowEn} is closed all day for the holiday.${reopenTailEn}`
           : `${prevPrefixEn}Today (${dayEn}) ${ourLocLowEn} is closed all day.${reopenTailEn}`,
-        closedGreetingPromptEs: todaySched.isSpecial
-          ? `En este momento nuestra sucursal está cerrada; ${prevPrefixEs}hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`
-          : `En este momento nuestra sucursal está cerrada; ${prevPrefixEs}hoy permanecemos cerrados todo el día${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
-        closedGreetingPromptEn: todaySched.isSpecial
-          ? `Our location is currently closed; ${prevPrefixEn}we are closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`
-          : `Our location is currently closed; ${prevPrefixEn}we are closed all day${reopenSpokenEn}. How can I help you?`,
+        closedGreetingPromptEs: canonicalClosed
+          ? canonicalClosed.promptEs
+          : todaySched.isSpecial
+            ? `En este momento nuestra sucursal está cerrada; ${prevPrefixEs}hoy permanecemos cerrados todo el día por ${spokenHolEs}${reopenSpokenEs}. ¿En qué te puedo ayudar?`
+            : `En este momento nuestra sucursal está cerrada; ${prevPrefixEs}hoy permanecemos cerrados todo el día${reopenSpokenEs}. ¿En qué te puedo ayudar?`,
+        closedGreetingPromptEn: canonicalClosed
+          ? canonicalClosed.promptEn
+          : todaySched.isSpecial
+            ? `Our location is currently closed; ${prevPrefixEn}we are closed all day for ${spokenHolEn}${reopenSpokenEn}. How can I help you?`
+            : `Our location is currently closed; ${prevPrefixEn}we are closed all day${reopenSpokenEn}. How can I help you?`,
         weeklySummaryEs: buildWeeklySummary(wh, 'es'),
         weeklySummaryEn: buildWeeklySummary(wh, 'en')
       }
@@ -1139,14 +1161,28 @@ export function evaluateStoreSchedulePure(params: {
       const spokenHolEn = expandHolidayMonthsEn(cleanSpokenHoliday(todaySched.holidayNameEn || todaySched.holidayName))
       const hEs = formatHolidayForParenhEs(todaySched.holidayName)
       const hEn = formatHolidayForParenEn(todaySched.holidayNameEn || todaySched.holidayName)
+      const officialTodayRule = getOfficialStoreHolidaySchedule(pt.dateStr)
       statusMessageEs = `En este momento la ${branchNounEs} está cerrada${prevClosedNoteEs}. Hoy ${dayEs} (${hEs}) abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
       statusMessageEn = `${ourLocCapEn} is currently closed${prevClosedNoteEn}. Today (${dayEn}, ${hEn}) we reopen at ${openEn} (special holiday hours) and close at ${closeEn}.`
-      closedGreetingPromptEs = prevJustClosedInfo
-        ? `En este momento ya cerramos; el turno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs} y hoy por ${spokenHolEs} abrimos ${atTimeEs(openEs)}. ¿En qué te puedo ayudar?`
-        : `En este momento nuestra sucursal aún está cerrada; hoy por ${spokenHolEs} abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
-      closedGreetingPromptEn = prevJustClosedInfo
-        ? `We are currently closed; our ${prevJustClosedInfo.dayEn} shift ${prevJustClosedInfo.phraseEn} and today for ${spokenHolEn} we reopen at ${openEn}. How can I help you?`
-        : `Our location is currently closed; today for ${spokenHolEn} we open at ${openEn} and close at ${closeEn}. How can I help you?`
+      if (officialTodayRule) {
+        const canonicalBefore = buildOfficialHolidayClosedGreeting({
+          holidayKey: officialTodayRule.holiday_key,
+          phase: 'before_open',
+          todayDayEs: dayEs,
+          todayDayEn: dayEn,
+          openFmt: openEs,
+          closeFmt: closeEs
+        })
+        closedGreetingPromptEs = canonicalBefore.promptEs
+        closedGreetingPromptEn = canonicalBefore.promptEn
+      } else {
+        closedGreetingPromptEs = prevJustClosedInfo
+          ? `En este momento ya cerramos; el turno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs} y hoy por ${spokenHolEs} abrimos ${atTimeEs(openEs)}. ¿En qué te puedo ayudar?`
+          : `En este momento nuestra sucursal aún está cerrada; hoy por ${spokenHolEs} abrimos en horario especial ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}. ¿En qué te puedo ayudar?`
+        closedGreetingPromptEn = prevJustClosedInfo
+          ? `We are currently closed; our ${prevJustClosedInfo.dayEn} shift ${prevJustClosedInfo.phraseEn} and today for ${spokenHolEn} we reopen at ${openEn}. How can I help you?`
+          : `Our location is currently closed; today for ${spokenHolEn} we open at ${openEn} and close at ${closeEn}. How can I help you?`
+      }
     } else if (prevJustClosedInfo) {
       statusMessageEs = `En este momento la ${branchNounEs} está cerrada (el turno nocturno de ${prevJustClosedInfo.dayEs.toLowerCase()} ${prevJustClosedInfo.phraseEs}). Volvemos a abrir hoy ${dayEs.toLowerCase()} ${atTimeEs(openEs)} y cerramos ${atTimeEs(closeEs)}.`
       statusMessageEn = `${ourLocCapEn} is currently closed (our ${prevJustClosedInfo.dayEn} late-night shift ${prevJustClosedInfo.phraseEn}). Today, ${dayEn}, we reopen at ${openEn} and close at ${closeEn}.`
@@ -1187,6 +1223,7 @@ export function evaluateStoreSchedulePure(params: {
     const tomorrowDow = (pt.dayOfWeek + 1) % 7
     const tomorrowSched = getScheduleForDay(tomorrowDow, tomorrowDateStr)
 
+    const officialTodayAfter = getOfficialStoreHolidaySchedule(pt.dateStr)
     if (tomorrowSched.isClosedAllDay) {
       const nextOpen = findNextOpenDay(2)
       const nextOpenEs = nextOpen ? formatTime12h(nextOpen.sched.open, 'es') : ''
@@ -1205,8 +1242,24 @@ export function evaluateStoreSchedulePure(params: {
 
       statusMessageEs = `En este momento la ${branchNounEs} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana permanecemos cerrados${tomorrowSched.holidayName ? ` por ${formatHolidayForParenhEs(tomorrowSched.holidayName)}` : ''}${reopenNextEs}.`
       statusMessageEn = `${ourLocCapEn} is closed for the day (closed at ${closeEn}${closedReasonEn}). We will be closed tomorrow${tomorrowSched.holidayNameEn || tomorrowSched.holidayName ? ` for ${formatHolidayForParenEn(tomorrowSched.holidayNameEn || tomorrowSched.holidayName)}` : ''}${reopenNextEn}.`
-      closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs}, mañana permanecemos cerrados${spokenTomHolEs ? ` por ${spokenTomHolEs}` : ''}${reopenNextEs}. ¿En qué te puedo ayudar?`
-      closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, we remain closed tomorrow${spokenTomHolEn ? ` for ${spokenTomHolEn}` : ''}${reopenSpokenNextEn}. How can I help you?`
+      if (officialTodayAfter) {
+        const canonicalAfter = buildOfficialHolidayClosedGreeting({
+          holidayKey: officialTodayAfter.holiday_key,
+          phase: 'after_close',
+          todayDayEs: dayEs,
+          todayDayEn: dayEn,
+          closeFmt: closeEs,
+          nextOpenDayEs: nextOpen ? DAY_NAMES_ES[nextOpen.dow] : null,
+          nextOpenDayEn: nextOpen ? DAY_NAMES_EN[nextOpen.dow] : null,
+          nextOpenFmt: nextOpen ? nextOpenEs : null,
+          tomorrowIsClosedHoliday: true
+        })
+        closedGreetingPromptEs = canonicalAfter.promptEs
+        closedGreetingPromptEn = canonicalAfter.promptEn
+      } else {
+        closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs}, mañana permanecemos cerrados${spokenTomHolEs ? ` por ${spokenTomHolEs}` : ''}${reopenNextEs}. ¿En qué te puedo ayudar?`
+        closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, we remain closed tomorrow${spokenTomHolEn ? ` for ${spokenTomHolEn}` : ''}${reopenSpokenNextEn}. How can I help you?`
+      }
     } else {
       const tomOpenEs = formatTime12h(tomorrowSched.open, 'es')
       const tomOpenEn = formatTime12h(tomorrowSched.open, 'en')
@@ -1221,8 +1274,24 @@ export function evaluateStoreSchedulePure(params: {
 
       statusMessageEs = `En este momento la ${branchNounEs} ya cerró por hoy (cerró ${atTimeEs(closeEs)}${closedReasonEs}). Mañana abrimos ${atTimeEs(tomOpenEs)}${tomorrowSpecialEs}.`
       statusMessageEn = `${ourLocCapEn} is closed for the day (closed at ${closeEn}${closedReasonEn}). We reopen tomorrow at ${tomOpenEn}${tomorrowSpecialEn}.`
-      closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs} y mañana ${DAY_NAMES_ES[tomorrowDow].toLowerCase()} abrimos ${atTimeEs(tomOpenEs)}. ¿En qué te puedo ayudar?`
-      closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, and we reopen tomorrow, ${DAY_NAMES_EN[tomorrowDow]}, at ${tomOpenEn}. How can I help you?`
+      if (officialTodayAfter) {
+        const canonicalAfter = buildOfficialHolidayClosedGreeting({
+          holidayKey: officialTodayAfter.holiday_key,
+          phase: 'after_close',
+          todayDayEs: dayEs,
+          todayDayEn: dayEn,
+          closeFmt: closeEs,
+          nextOpenDayEs: DAY_NAMES_ES[tomorrowDow],
+          nextOpenDayEn: DAY_NAMES_EN[tomorrowDow],
+          nextOpenFmt: tomOpenEs,
+          tomorrowIsClosedHoliday: false
+        })
+        closedGreetingPromptEs = canonicalAfter.promptEs
+        closedGreetingPromptEn = canonicalAfter.promptEn
+      } else {
+        closedGreetingPromptEs = `En este momento nuestra sucursal ya está cerrada; ${todayClosedPartEs} y mañana ${DAY_NAMES_ES[tomorrowDow].toLowerCase()} abrimos ${atTimeEs(tomOpenEs)}. ¿En qué te puedo ayudar?`
+        closedGreetingPromptEn = `Our location is currently closed; ${todayClosedPartEn}, and we reopen tomorrow, ${DAY_NAMES_EN[tomorrowDow]}, at ${tomOpenEn}. How can I help you?`
+      }
     }
   }
 
@@ -4576,6 +4645,28 @@ const PHONE_AGENT_TOOLS = [
         }
       },
       {
+        name: 'send_delivery_armor_order_note',
+        description:
+          'Envía una alerta parpadeante en tiempo real a la tableta Delivery Armor de empaque para órdenes de DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online cuando el cliente pide condimentos gratuitos (salsas, chiles, limones, cebollas, servilletas) o una modificación sin costo a un platillo (sin queso, sin cebolla, sin cilantro, tortillas de harina/maíz). Pide antes plataforma, nombre en la orden, código de la app o 1–2 platillos y el detalle exacto.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            platform: { type: 'STRING', description: "'DOORDASH', 'UBER_EATS', 'GRUBHUB' o 'TOAST_ONLINE'." },
+            customer_name: { type: 'STRING', description: 'Nombre en la orden de la aplicación.' },
+            order_code: { type: 'STRING', description: 'Código de la orden o últimos dígitos si los tiene.' },
+            ordered_items: { type: 'STRING', description: '1 o 2 platillos pedidos para identificarla si no tiene código o hay homónimos.' },
+            request_type: { type: 'STRING', description: "'condiments', 'item_modification' o 'both'." },
+            requested_condiments: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Condimentos gratis EN ESPAÑOL.' },
+            item_modifications: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Modificaciones sin costo por platillo EN ESPAÑOL.' },
+            note_summary_es: { type: 'STRING', description: 'Resumen claro SIEMPRE EN ESPAÑOL para la cajera en la tableta.' },
+            note_summary_en: { type: 'STRING', description: 'Resumen breve en inglés opcional.' },
+            target_store_id: { type: 'INTEGER', description: 'ID de sucursal destino (1, 3..16) solo si ordenó en otra tienda.' },
+            confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no baja a Toast y confirmó que la acaba de enviar hace segundos.' }
+          },
+          required: ['platform', 'customer_name', 'note_summary_es']
+        }
+      },
+      {
         name: 'create_manager_callback',
         description:
           'Registra un Recado Prioritario para el Gerente o una Nota de Empaque (condimentos gratis) en la pantalla /order-ready-board de la sucursal (sin transferir llamadas a celulares personales). Soporta enrutamiento directo a otra sucursal mediante target_store_id cuando un pedido cayó en una tienda equivocada. Úsalo ÚNICAMENTE cuando ya tengas nombre y teléfono real de 10 dígitos (o en llamada Twilio pida usar su mismo número).',
@@ -7536,13 +7627,19 @@ export function resolveCanonicalPreparedReply(params: {
             : `Disculpa, no tomamos órdenes por teléfono. Puedes hacer tu pedido fácilmente en tacosgavilan.com para pasar a recoger, o ${store.has_drive_thru ? 'pedir directamente en caja o por el Drive-Thru.' : 'pedir directamente en caja.'} ¿Te ayudo con algo más?`
       }
     case 'today_hours': {
+      const isCentralEarlyHoliday =
+        Number(store.id) === 6 && scheduleEval.isSpecialHolidaySchedule && scheduleEval.todayClose === '16:00'
       const centralNoteEs =
         Number(store.id) === 6
-          ? ' Aquí el comedor cierra 1 hora antes y el Drive-Thru continúa abierto hasta el cierre.'
+          ? isCentralEarlyHoliday
+            ? ' Hoy por día festivo tanto el comedor como el Drive-Thru cierran al mismo tiempo a las 4:00 PM.'
+            : ' Aquí el comedor cierra 1 hora antes y el Drive-Thru continúa abierto hasta el cierre.'
           : ''
       const centralNoteEn =
         Number(store.id) === 6
-          ? ' Here our dining room closes 1 hour earlier while the Drive-Thru stays open until closing.'
+          ? isCentralEarlyHoliday
+            ? ' Today for the holiday, both our dining room and Drive-Thru close together at 4:00 PM.'
+            : ' Here our dining room closes 1 hour earlier while the Drive-Thru stays open until closing.'
           : ''
       return {
         replyText:
@@ -7553,16 +7650,22 @@ export function resolveCanonicalPreparedReply(params: {
       }
     }
     case 'today_hours_and_drive_thru': {
+      const isCentralEarlyHoliday =
+        Number(store.id) === 6 && scheduleEval.isSpecialHolidaySchedule && scheduleEval.todayClose === '16:00'
       const dtSentence =
         lang === 'en'
           ? store.has_drive_thru
             ? Number(store.id) === 6
-              ? 'Yes, this location has Drive-Thru service; our dining room closes 1 hour earlier while the Drive-Thru stays open until closing.'
+              ? isCentralEarlyHoliday
+                ? 'Yes, this location has Drive-Thru service; today for the holiday, both our dining room and Drive-Thru close together at 4:00 PM.'
+                : 'Yes, this location has Drive-Thru service; our dining room closes 1 hour earlier while the Drive-Thru stays open until closing.'
               : 'Yes, this location has Drive-Thru service.'
             : 'This location does not have a Drive-Thru, only counter and dining room service.'
           : store.has_drive_thru
             ? Number(store.id) === 6
-              ? 'Sí contamos con Drive-Thru; aquí el comedor cierra 1 hora antes y el Drive-Thru continúa abierto hasta el cierre.'
+              ? isCentralEarlyHoliday
+                ? 'Sí contamos con Drive-Thru; hoy por día festivo tanto el comedor como el Drive-Thru cierran al mismo tiempo a las 4:00 PM.'
+                : 'Sí contamos con Drive-Thru; aquí el comedor cierra 1 hora antes y el Drive-Thru continúa abierto hasta el cierre.'
               : 'Sí contamos con servicio de Drive-Thru en esta sucursal.'
             : 'Esta sucursal no cuenta con Drive-Thru, solo servicio en caja y comedor.'
       return {
@@ -8658,7 +8761,7 @@ export async function processPhoneAgentTurn(params: {
    - **Si llama un REPARTIDOR**: ${store.has_drive_thru ? `En esta sucursal (${customerBranchDisplay}), mientras el comedor esté abierto recogen en el mostrador; si el comedor ya cerró pero el Drive-Thru sigue abierto, pueden recoger por la ventanilla del Drive-Thru mostrando el nombre y código de la orden. Si la sucursal ya está totalmente cerrada, díselo con claridad.` : `En esta sucursal (${customerBranchDisplay}) NO tenemos Drive-Thru, por lo que todas las órdenes de DoorDash y Uber Eats se recogen en el mostrador dentro del horario de la tienda (usa el "Estado actual en vivo" de arriba). Si tiene algún inconveniente, ofrécele avisar en vivo al gerente.`}
    - **Si llama un CLIENTE sobre su orden de Uber Eats / DoorDash / Grubhub**:
      * **Modificar platillos pagados, agregar comida con costo, cambiar dirección o pedir reembolso**: Explica con claridad y empatía que, como el pago se procesó por esa aplicación externa, la sucursal **no puede modificar platillos con costo, cambiar la dirección ni emitir reembolsos**; debe gestionarlo o cancelarlo directo en su aplicación en la sección **Ayuda (Help)**.
-     * **Ajuste menor sin costo antes de empacar** (ej. quitar cebolla/cilantro): Pide nombre, teléfono de 10 dígitos, plataforma y código de orden para enviar un aviso urgente (\`reason_category: "delivery_issue"\`), aclarando honestamente que **solo aplica si la bolsa aún no se ha empacado ni entregado al repartidor**.
+     * **Condimentos gratis o ajuste menor sin costo en orden activa** (salsas, chiles, limones, cebollas, servilletas, o quitar queso/cebolla/cilantro/crema, salsa aparte, tortillas de harina/maíz): Pide **plataforma (DoorDash/Uber Eats/Grubhub), nombre en la orden, código de la app o 1–2 platillos que pidió, y exactamente qué condimentos o modificación en qué platillo desea**, y ejecuta **\`send_delivery_armor_order_note\`** para que la orden parpadee en vivo en la tableta de Delivery Armor para la cajera que empaca (responde con honestidad según el resultado de la herramienta).
      * **La orden NO ha llegado aún (retraso)**: Explica que la entrega física depende del repartidor asignado e invítalo a revisar el estado en su app; si lleva mucho tiempo esperando repartidor, ofrece tomar nombre, teléfono de 10 dígitos y código de orden para enviar aviso a tienda (\`reason_category: "delivery_issue"\`) y revisar si la bolsa sigue en el mostrador.
      * **La orden LLEGÓ EQUIVOCADA o INCOMPLETA**: Pide disculpas sinceras, indícale reportarlo en la sección **Ayuda** de Uber Eats / DoorDash / Grubhub para recibir su reembolso o crédito directo, y además ofrece tomar nombre, teléfono de 10 dígitos y código/detalle (\`reason_category: "delivery_issue"\` o \`"missing_or_wrong_item"\`) para avisar en vivo al Gerente.
 6. **Condimentos Gratis, Sucursal Equivocada, Reclamos Directos, Objetos Olvidados, Empleados o Proveedores**:
@@ -8846,6 +8949,33 @@ ${postOrderRulesBlock}
   ])
 
   const executeTool = async (toolName: string, toolArgs: any): Promise<any> => {
+    if (toolName === 'send_delivery_armor_order_note') {
+      const reqTargetId = Number(toolArgs?.target_store_id)
+      const destStoreId = Number.isInteger(reqTargetId) && reqTargetId > 0 ? reqTargetId : Number(store.id)
+      const rawConds = Array.isArray(toolArgs?.requested_condiments)
+        ? toolArgs.requested_condiments.map((x: any) => String(x || '').trim()).filter(Boolean)
+        : []
+      const rawMods = Array.isArray(toolArgs?.item_modifications)
+        ? toolArgs.item_modifications.map((x: any) => String(x || '').trim()).filter(Boolean)
+        : []
+      return createOrUpdateDeliveryArmorPhoneNote({
+        storeId: destStoreId,
+        source,
+        callSid,
+        platform: toolArgs?.platform ? String(toolArgs.platform) : null,
+        customerName: String(toolArgs?.customer_name || '').trim(),
+        orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+        orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
+        callerName: String(toolArgs?.customer_name || '').trim(),
+        callerPhone: callerNumber || null,
+        requestType: toolArgs?.request_type ? String(toolArgs.request_type) : null,
+        noteSummaryEs: String(toolArgs?.note_summary_es || '').trim(),
+        noteSummaryEn: toolArgs?.note_summary_en ? String(toolArgs.note_summary_en).trim() : null,
+        requestedCondiments: rawConds,
+        itemModifications: rawMods,
+        confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched)
+      })
+    }
     if (toolName === 'validate_order_ticket') {
       const reqTargetId = Number(toolArgs?.target_store_id)
       const checkStoreId = Number.isInteger(reqTargetId) && reqTargetId > 0 ? reqTargetId : Number(store.id)
@@ -8897,11 +9027,11 @@ ${postOrderRulesBlock}
         acceptsEbt: config.accepts_ebt,
         diningRoomVsDriveThruNoteEs:
           Number(store.id) === 6
-            ? 'Únicamente en #6 Los Ángeles (Central y Washington) el comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre.'
+            ? 'Únicamente en #6 Los Ángeles (Central y Washington) el comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre (EXCEPCIÓN: en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic, Comedor y Drive-Thru cierran juntos a las 4:00 PM).'
             : 'El comedor cierra a la hora publicada de la sucursal.',
         diningRoomVsDriveThruNoteEn:
           Number(store.id) === 6
-            ? 'Only at #6 Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close.'
+            ? 'Only at #6 Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close (EXCEPTION: on Thanksgiving, Christmas Eve Dec 24, and New Year\'s Eve Dec 31, both Dining Room and Drive-Thru close together at 4:00 PM).'
             : 'The dining room closes at the store\'s published closing time.',
         ...scheduleEval,
         upcomingHolidays: upcomingHolidays.slice(0, 7)

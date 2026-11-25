@@ -11,7 +11,7 @@
  *   - Flujo directo sin pasos innecesarios: 1. CONFIRMAR ORDEN COMPLETA Y SELLADA -> 2. Blindar la entrega.
  * @dataFlow Toast -> /api/delivery-armor/orders -> tableta fullscreen + locutor KDS (/api/order-ready/tts) -> /api/delivery-armor/audit -> Supabase.
  * @notes
- *   - Piloto Slauson (#7) y LA Central (#6).
+ *   - Habilitado en las 15 sucursales de Tacos Gavilan ordenadas alfabéticamente y sin número `#`.
  *   - Blindaje anti-regresión de estatus (Oct 2026):
  *     1) Separación de lastStorageSyncAtRef (500ms) y lastServerHeartbeatAtRef (15s) en recordCashierActivity() para que el heartbeat al servidor nunca sea bloqueado por toques continuos en pantalla.
  *     2) Control de secuencia fetchSeqRef y mapa inmutable stickyAuditsRef para impedir que un polling de 4s en vuelo sobrescriba o regrese una orden LISTA o ENTREGADA a EMPACANDO.
@@ -28,7 +28,9 @@ import { useWakeLock } from '@/lib/use-wake-lock'
 import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
 import {
   AlertTriangle,
+  BellRing,
   CheckCircle2,
+  PhoneCall,
   Clock,
   Delete,
   Globe,
@@ -51,8 +53,21 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null
 
 const STORES = [
-  { id: 7, name: 'Slauson (#7)' },
-  { id: 6, name: 'LA Central (#6)' }
+  { id: 4, name: 'Azusa' },
+  { id: 13, name: 'Bell' },
+  { id: 16, name: 'Downey' },
+  { id: 8, name: 'Hollywood' },
+  { id: 11, name: 'Huntington Park' },
+  { id: 5, name: 'LA Broadway' },
+  { id: 6, name: 'LA Central' },
+  { id: 10, name: 'La Puente' },
+  { id: 14, name: 'Lynwood' },
+  { id: 12, name: 'Norwalk' },
+  { id: 1, name: 'Rialto' },
+  { id: 9, name: 'Santa Ana' },
+  { id: 7, name: 'Slauson' },
+  { id: 15, name: 'South Gate' },
+  { id: 3, name: 'West Covina' }
 ]
 
 const PIN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutos sin actividad para cerrar sesión del PIN de la cajera
@@ -128,6 +143,72 @@ interface Item {
   price: number
   modifiers: string[]
   isDrink: boolean
+}
+
+interface PhoneNoteUI {
+  id: string
+  storeId: number
+  matchStatus: 'MATCHED' | 'UNMATCHED' | 'ALREADY_DELIVERED'
+  toastOrderGuid: string | null
+  toastDisplayNumber: string | null
+  platform: Platform
+  platformOrderKey: string | null
+  shortOrderKey: string | null
+  orderCustomerName: string | null
+  orderStageAtAlert: string | null
+  callerName: string
+  callerPhone: string | null
+  requestType: 'condiments' | 'item_modification' | 'both'
+  noteSummaryEs: string
+  noteSummaryEn: string | null
+  requestedCondiments: string[]
+  itemModifications: string[]
+  orderedItemsHint: string | null
+  status: 'pending' | 'acknowledged' | 'applied' | 'dismissed'
+  appliedByName: string | null
+  appliedAt: string | null
+  createdAt: string
+}
+
+function normalizePhoneNoteCode(raw: string | null | undefined): string {
+  return String(raw || '')
+    .toUpperCase()
+    .replace(/^(?:DD|SF|CAV|GH|UBER|UE|TOAST|QR)\s*#?\s*/i, '')
+    .replace(/[^A-Z0-9]/g, '')
+    .trim()
+}
+
+function doesUnmatchedPhoneNoteMatchOrder(note: PhoneNoteUI, order: Order): boolean {
+  if (note.toastOrderGuid) return note.toastOrderGuid === order.guid
+  if (order.isVoided || order.audit?.status === 'released') return false
+  if (note.platform && note.platform !== 'OTHER' && order.platform !== 'OTHER' && note.platform !== order.platform) {
+    return false
+  }
+  const nCode = normalizePhoneNoteCode(note.shortOrderKey || note.platformOrderKey || note.toastDisplayNumber)
+  if (nCode.length >= 4) {
+    const oCodes = [
+      normalizePhoneNoteCode(order.shortOrderKey),
+      normalizePhoneNoteCode(order.platformOrderKey),
+      normalizePhoneNoteCode(order.ticket)
+    ].filter(Boolean)
+    if (oCodes.some(c => c === nCode || c.endsWith(nCode) || nCode.endsWith(c))) return true
+  }
+  const nName = (note.orderCustomerName || note.callerName || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+  const oName = (order.customer || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+  if (nName.length >= 3 && oName.length >= 3) {
+    const nFirst = nName.split(/\s+/)[0] || ''
+    const oFirst = oName.split(/\s+/)[0] || ''
+    if (nFirst.length >= 3 && nFirst === oFirst) return true
+  }
+  return false
 }
 
 interface Order {
@@ -420,6 +501,8 @@ export default function BlindajeDeliveryEmpaquePage() {
   const [remainingMs, setRemainingMs] = useState<number>(PIN_SESSION_DURATION_MS)
   const [pin, setPin] = useState('')
   const [orders, setOrders] = useState<Order[]>([])
+  const [phoneNotes, setPhoneNotes] = useState<PhoneNoteUI[]>([])
+  const [applyingPhoneNoteId, setApplyingPhoneNoteId] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [bags, setBags] = useState<Record<string, number>>({})
@@ -448,6 +531,7 @@ export default function BlindajeDeliveryEmpaquePage() {
   const isPlayingAudioRef = useRef<boolean>(false)
   const prevKdsStatusRef = useRef<Map<string, 'IN_KITCHEN' | 'READY'>>(new Map())
   const announcedGuidsRef = useRef<Set<string>>(new Set())
+  const announcedPhoneNoteIdsRef = useRef<Set<string>>(new Set())
   const initializedStoreRef = useRef<number | null>(null)
   const packerRef = useRef<Packer | null>(null)
   const showHistoryRef = useRef<boolean>(false)
@@ -613,6 +697,45 @@ export default function BlindajeDeliveryEmpaquePage() {
   }, [unlockAudio])
 
   // Descargar y cachear en memoria el ArrayBuffer WAV desde Supabase Storage (evita fallos de fetch a blob:)
+  // Timbre telefónico triple distintivo para alertas de condimentos/modificaciones enviadas por la Contestadora IA
+  const playPhoneNoteAlertChime = useCallback(async () => {
+    try {
+      unlockAudio()
+      const ctx = audioCtxRef.current
+      if (!ctx) return
+      if (ctx.state === 'suspended') {
+        await ctx.resume().catch(() => {})
+      }
+      const now = ctx.currentTime + 0.03
+      const master = ctx.createGain()
+      master.gain.setValueAtTime(1.4, now)
+      master.connect(ctx.destination)
+
+      const pulses = [0, 0.24, 0.48]
+      for (const offset of pulses) {
+        const oscA = ctx.createOscillator()
+        const oscB = ctx.createOscillator()
+        const env = ctx.createGain()
+        oscA.type = 'triangle'
+        oscB.type = 'sine'
+        oscA.frequency.setValueAtTime(1046.5, now + offset) // C6
+        oscB.frequency.setValueAtTime(1567.98, now + offset) // G6
+        env.gain.setValueAtTime(0.0001, now + offset)
+        env.gain.linearRampToValueAtTime(0.55, now + offset + 0.015)
+        env.gain.exponentialRampToValueAtTime(0.0008, now + offset + 0.19)
+        oscA.connect(env)
+        oscB.connect(env)
+        env.connect(master)
+        oscA.start(now + offset)
+        oscB.start(now + offset)
+        oscA.stop(now + offset + 0.21)
+        oscB.stop(now + offset + 0.21)
+      }
+    } catch {
+      // ignore
+    }
+  }, [unlockAudio])
+
   const getCachedAudioBuffer = useCallback((cacheKey: string, endpointUrl: string): Promise<ArrayBuffer | null> => {
     const existing = clipCacheRef.current.get(cacheKey)
     if (existing) return existing
@@ -1112,6 +1235,22 @@ export default function BlindajeDeliveryEmpaquePage() {
     }
   }, [packer, storeId, handleSessionReplacedError])
 
+  // Suscripción Realtime Broadcast (sin PII) para encender alertas telefónicas de Delivery Armor en <500ms
+  useEffect(() => {
+    if (!supabase) return
+    const noteChannel = supabase
+      .channel(`blindaje-delivery-phone-notes-${storeId}`, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'phone_note_updated' }, () => {
+        void fetchOrders()
+      })
+      .subscribe()
+
+    return () => {
+      if (supabase) supabase.removeChannel(noteChannel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId])
+
   // Reloj y sensores de inactividad: cierra la sesión del PIN de la cajera tras 10 minutos sin actividad
   useEffect(() => {
     if (!packer) return
@@ -1388,6 +1527,19 @@ export default function BlindajeDeliveryEmpaquePage() {
 
       persistStickyAudits()
       setOrders(next)
+      if (Array.isArray(data.phoneNotes)) {
+        const incomingNotes: PhoneNoteUI[] = data.phoneNotes
+        setPhoneNotes(incomingNotes)
+        const brandNewPending = incomingNotes.filter(
+          n => (n.status === 'pending' || n.status === 'acknowledged') && !announcedPhoneNoteIdsRef.current.has(n.id)
+        )
+        if (brandNewPending.length > 0) {
+          for (const bn of brandNewPending) {
+            announcedPhoneNoteIdsRef.current.add(bn.id)
+          }
+          void playPhoneNoteAlertChime()
+        }
+      }
       // Si había un mensaje de error de red/polling previo, limpiarlo automáticamente al recibir datos frescos
       setError(prev =>
         prev &&
@@ -1417,7 +1569,7 @@ export default function BlindajeDeliveryEmpaquePage() {
     } finally {
       setLoading(false)
     }
-  }, [storeId, packer, persistAnnouncedGuid, persistStickyAudits, enqueueOrderAnnouncement, handleSessionReplacedError, t])
+  }, [storeId, packer, persistAnnouncedGuid, persistStickyAudits, enqueueOrderAnnouncement, handleSessionReplacedError, playPhoneNoteAlertChime, t])
 
   // Monitoreo continuo del KDS (8s activo, 60s en ventana cerrada 4:15-6:59 AM LA, pausado cuando la pestaña está oculta)
   useEffect(() => {
@@ -1611,14 +1763,48 @@ export default function BlindajeDeliveryEmpaquePage() {
     fetchOrders
   ])
 
+  const { phoneNotesByGuid, pendingPhoneNotes, unmatchedPendingNotes } = useMemo(() => {
+    const byGuid = new Map<string, PhoneNoteUI[]>()
+    const unmatched: PhoneNoteUI[] = []
+    const pendingList: PhoneNoteUI[] = []
+
+    for (const note of phoneNotes) {
+      const isPending = note.status === 'pending' || note.status === 'acknowledged'
+      if (isPending) pendingList.push(note)
+
+      let targetGuid: string | null = note.toastOrderGuid || null
+      if (!targetGuid && isPending) {
+        const autoMatch = orders.find(o => doesUnmatchedPhoneNoteMatchOrder(note, o))
+        if (autoMatch) targetGuid = autoMatch.guid
+      }
+
+      if (targetGuid) {
+        const list = byGuid.get(targetGuid) || []
+        list.push(note)
+        byGuid.set(targetGuid, list)
+      } else if (isPending) {
+        unmatched.push(note)
+      }
+    }
+
+    return {
+      phoneNotesByGuid: byGuid,
+      pendingPhoneNotes: pendingList,
+      unmatchedPendingNotes: unmatched
+    }
+  }, [phoneNotes, orders])
+
   const activeQueueOrders = useMemo(() => {
     const base = showHistory ? [...orders] : orders.filter(o => isOrderCurrentlyActive(o, dismissedVoided))
     return base.sort((a, b) => {
+      const aHasPhone = (phoneNotesByGuid.get(a.guid) || []).some(n => n.status === 'pending' || n.status === 'acknowledged')
+      const bHasPhone = (phoneNotesByGuid.get(b.guid) || []).some(n => n.status === 'pending' || n.status === 'acknowledged')
+      if (aHasPhone !== bHasPhone) return aHasPhone ? -1 : 1
       const prioDiff = getOrderOperationalPriority(a) - getOrderOperationalPriority(b)
       if (prioDiff !== 0) return prioDiff
       return new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
     })
-  }, [orders, showHistory, dismissedVoided])
+  }, [orders, showHistory, dismissedVoided, phoneNotesByGuid])
 
   // Detectar colisiones de nombres (mismo nombre exacto, mismo primer nombre con apellido diferente, o nombre muy parecido)
   // únicamente entre órdenes activas pendientes de entregar (cuando ya se entregó una de las 2 al chofer, se quita el color rojo de inmediato)
@@ -1655,6 +1841,49 @@ export default function BlindajeDeliveryEmpaquePage() {
     [order, collisionsByGuid]
   )
   const isCollisionConfirmed = order ? currentCollisions.length === 0 || !!collisionAck[order.guid] : true
+  const selectedOrderPhoneNotes = useMemo(
+    () => (order ? phoneNotesByGuid.get(order.guid) || [] : []),
+    [order, phoneNotesByGuid]
+  )
+  const selectedPendingPhoneNotes = useMemo(
+    () => selectedOrderPhoneNotes.filter(n => n.status === 'pending' || n.status === 'acknowledged'),
+    [selectedOrderPhoneNotes]
+  )
+
+  const handleApplyPhoneNote = useCallback(
+    async (note: PhoneNoteUI, matchedOrderObj?: Order | null) => {
+      if (!packer) return
+      recordCashierActivity()
+      setApplyingPhoneNoteId(note.id)
+      setError(null)
+      try {
+        const res = await fetch('/api/delivery-armor/phone-notes', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            noteId: note.id,
+            storeId,
+            action: 'apply',
+            pin: packer.pin,
+            actorName: packer.name,
+            matchedOrderGuid: matchedOrderObj?.guid || note.toastOrderGuid || null,
+            matchedDisplayNumber: matchedOrderObj?.ticket || note.toastDisplayNumber || null
+          })
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || 'Error al confirmar la nota telefónica.')
+        }
+        setPhoneNotes(prev => prev.map(item => (item.id === note.id ? (data.note as PhoneNoteUI) : item)))
+        setSuccess(t('blindaje_delivery.phone_note_applied_toast'))
+      } catch (e: any) {
+        setError(e?.message || 'Error al confirmar la nota telefónica.')
+      } finally {
+        setApplyingPhoneNoteId(null)
+      }
+    },
+    [packer, storeId, recordCashierActivity, t]
+  )
 
   // Si la cajera abre la vista de "Pasadas" para consultar alguna orden, cerrarla automáticamente a los 45 segundos
   // para que nunca se queden visibles las órdenes con estatus ENTREGADA en la cola operativa
@@ -2244,6 +2473,14 @@ export default function BlindajeDeliveryEmpaquePage() {
               {activeAnnouncement}
             </div>
           )}
+          {pendingPhoneNotes.length > 0 && (
+            <div className="mb-4 p-4 rounded-2xl border-4 border-amber-500 bg-amber-50 text-amber-950 text-center text-base sm:text-lg font-black flex items-center justify-center gap-2 da-phone-alert-blink">
+              <PhoneCall className="w-6 h-6 text-red-600 flex-shrink-0 animate-bounce" />
+              <span>
+                {pendingPhoneNotes.length} {t('blindaje_delivery.phone_note_pin_alert')}
+              </span>
+            </div>
+          )}
 
           <ShieldCheck className="w-16 h-16 sm:w-20 sm:h-20 text-red-600 mx-auto" />
           <h1 className="text-4xl sm:text-5xl font-black text-center mt-2">{t('blindaje_delivery.station_title')}</h1>
@@ -2426,6 +2663,91 @@ export default function BlindajeDeliveryEmpaquePage() {
           </div>
         )}
 
+        {pendingPhoneNotes.length > 0 && (
+          <div className="rounded-3xl border-4 border-amber-500 bg-amber-50 p-4 shadow-lg space-y-2.5 da-phone-alert-blink">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 text-red-700">
+                <BellRing className="w-7 h-7 flex-shrink-0 animate-bounce" />
+                <span className="text-lg sm:text-xl font-black uppercase tracking-tight">
+                  {t('blindaje_delivery.phone_note_banner_title')} ({pendingPhoneNotes.length})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void playPhoneNoteAlertChime()}
+                className="px-3 py-1.5 rounded-xl bg-amber-200 hover:bg-amber-300 text-amber-950 text-xs font-black flex items-center gap-1.5"
+              >
+                <Volume2 className="w-4 h-4" />
+                <span>🔊</span>
+              </button>
+            </div>
+            <div className="space-y-2">
+              {pendingPhoneNotes.map(note => {
+                const matchedOrder =
+                  (note.toastOrderGuid ? orders.find(o => o.guid === note.toastOrderGuid) : null) ||
+                  orders.find(o => doesUnmatchedPhoneNoteMatchOrder(note, o)) ||
+                  null
+                const summaryText = language === 'en' && note.noteSummaryEn ? note.noteSummaryEn : note.noteSummaryEs
+                return (
+                  <div
+                    key={note.id}
+                    className="p-3 rounded-2xl bg-white/95 border-2 border-amber-400 flex flex-wrap items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-black">
+                          {label(note.platform)}
+                        </span>
+                        <strong className="text-base sm:text-lg font-black text-slate-950">
+                          {matchedOrder?.customer || note.orderCustomerName || note.callerName}
+                        </strong>
+                        {(matchedOrder?.ticket || note.shortOrderKey || note.toastDisplayNumber) && (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-100 border border-amber-300 text-amber-950 text-xs font-mono font-black">
+                            {matchedOrder
+                              ? `Check #${matchedOrder.ticket}`
+                              : note.shortOrderKey || `#${note.toastDisplayNumber}`}
+                          </span>
+                        )}
+                        {!matchedOrder && (
+                          <span className="px-2 py-0.5 rounded-lg bg-red-100 text-red-700 text-xs font-black">
+                            {t('blindaje_delivery.phone_note_unmatched_tag')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm sm:text-base font-extrabold text-red-800 mt-1">{summaryText}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {matchedOrder ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            recordCashierActivity()
+                            setSelected(matchedOrder.guid)
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm sm:text-base font-black shadow-sm"
+                        >
+                          {t('blindaje_delivery.phone_note_open_order_btn')} →
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={applyingPhoneNoteId === note.id}
+                          onClick={() => void handleApplyPhoneNote(note, null)}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm sm:text-base font-black disabled:opacity-40 shadow-sm"
+                        >
+                          {applyingPhoneNoteId === note.id
+                            ? t('blindaje_delivery.phone_note_applying_btn')
+                            : `✓ ${t('blindaje_delivery.phone_note_apply_btn')}`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-lg font-bold flex gap-3 items-center">
             <AlertTriangle className="w-6 h-6 flex-shrink-0" />
@@ -2502,6 +2824,13 @@ export default function BlindajeDeliveryEmpaquePage() {
                 const isSelected = selected === value.guid
                 const cardCollisions = collisionsByGuid.get(value.guid) || []
                 const hasCollision = cardCollisions.length > 0
+                const cardPhoneNotes = phoneNotesByGuid.get(value.guid) || []
+                const cardPendingPhoneNotes = cardPhoneNotes.filter(
+                  n => n.status === 'pending' || n.status === 'acknowledged'
+                )
+                const cardAppliedPhoneNotes = cardPhoneNotes.filter(n => n.status === 'applied')
+                const hasPendingPhoneNote = cardPendingPhoneNotes.length > 0
+                const isSealedWithPhoneNote = hasPendingPhoneNote && value.audit?.status === 'ready'
                 return (
                   <button
                     key={value.guid}
@@ -2514,7 +2843,9 @@ export default function BlindajeDeliveryEmpaquePage() {
                     })}
                     className={`min-w-[245px] sm:min-w-[275px] landscape:min-w-0 landscape:w-full lg:min-w-0 lg:w-full p-4 rounded-2xl border-2 text-left flex-shrink-0 transition-all active:scale-[0.98] touch-manipulation ${
                       isSelected ? stageInfo.cardSelectedClass : stageInfo.cardClass
-                    } ${hasCollision ? 'ring-4 ring-red-600/80 border-red-600' : ''}`}
+                    } ${hasCollision ? 'ring-4 ring-red-600/80 border-red-600' : ''} ${
+                      hasPendingPhoneNote ? 'da-phone-alert-blink border-amber-600' : ''
+                    }`}
                   >
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-sm font-extrabold text-slate-700">{label(value.platform)}</span>
@@ -2544,6 +2875,29 @@ export default function BlindajeDeliveryEmpaquePage() {
                           ? t('blindaje_delivery.bag_singular')
                           : t('blindaje_delivery.bag_plural')}
                       </small>
+                    )}
+                    {hasPendingPhoneNote && (
+                      <div className="mt-2 px-2.5 py-2 rounded-xl bg-amber-600 text-white text-xs font-black space-y-0.5 shadow-sm">
+                        <div className="flex items-center gap-1.5">
+                          <PhoneCall className="w-4 h-4 flex-shrink-0 animate-bounce" />
+                          <span className="truncate uppercase">
+                            {isSealedWithPhoneNote
+                              ? t('blindaje_delivery.phone_note_reopen_bag_badge')
+                              : t('blindaje_delivery.phone_note_card_badge')}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-bold text-amber-50 line-clamp-2 leading-snug">
+                          {cardPendingPhoneNotes
+                            .map(n => (language === 'en' && n.noteSummaryEn ? n.noteSummaryEn : n.noteSummaryEs))
+                            .join(' • ')}
+                        </div>
+                      </div>
+                    )}
+                    {!hasPendingPhoneNote && cardAppliedPhoneNotes.length > 0 && (
+                      <div className="mt-2 px-2.5 py-1 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-black flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="truncate">{t('blindaje_delivery.phone_note_applied_badge')}</span>
+                      </div>
                     )}
                     {hasCollision && (
                       <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-red-600 text-white text-xs font-black flex items-center gap-1.5 animate-pulse">
@@ -2576,6 +2930,107 @@ export default function BlindajeDeliveryEmpaquePage() {
               </div>
             ) : (
               <div data-order-detail="true" className="space-y-4">
+                {/* ALERTA PARPADEANTE DE NOTA TELEFÓNICA DE CLIENTE (CONDIMENTOS GRATIS / MODIFICACIÓN SIN COSTO) */}
+                {selectedPendingPhoneNotes.length > 0 && (
+                  <section className="rounded-3xl border-4 border-amber-500 bg-amber-50 overflow-hidden shadow-xl da-phone-alert-blink">
+                    <div className="bg-gradient-to-r from-amber-600 to-red-600 text-white px-5 py-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <PhoneCall className="w-8 h-8 flex-shrink-0 animate-bounce" />
+                        <div>
+                          <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight leading-tight">
+                            {t('blindaje_delivery.phone_note_detail_title')}
+                          </h2>
+                          <p className="text-amber-100 text-sm font-bold">
+                            {label(order.platform)} • {order.customer} • Check #{order.ticket}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      {order.audit?.status === 'ready' && (
+                        <div className="p-3.5 rounded-2xl bg-red-600 text-white text-sm sm:text-base font-black flex items-center gap-2.5">
+                          <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+                          <span>{t('blindaje_delivery.phone_note_detail_reopen_warn')}</span>
+                        </div>
+                      )}
+                      {selectedPendingPhoneNotes.map(note => {
+                        const summaryText = language === 'en' && note.noteSummaryEn ? note.noteSummaryEn : note.noteSummaryEs
+                        return (
+                          <div key={note.id} className="p-4 rounded-2xl bg-white border-2 border-amber-400 space-y-3 shadow-sm">
+                            <p className="text-xl sm:text-2xl font-black text-slate-950 leading-snug">{summaryText}</p>
+                            {note.requestedCondiments.length > 0 && (
+                              <div>
+                                <div className="text-xs font-black uppercase tracking-wider text-amber-800 mb-1.5">
+                                  {t('blindaje_delivery.phone_note_condiments_label')}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {note.requestedCondiments.map((c, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="px-3 py-1 rounded-xl bg-amber-100 border border-amber-400 text-amber-950 text-sm sm:text-base font-black"
+                                    >
+                                      + {c}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {note.itemModifications.length > 0 && (
+                              <div>
+                                <div className="text-xs font-black uppercase tracking-wider text-red-700 mb-1.5">
+                                  {t('blindaje_delivery.phone_note_modifications_label')}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {note.itemModifications.map((m, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="px-3 py-1 rounded-xl bg-red-100 border border-red-400 text-red-950 text-sm sm:text-base font-black"
+                                    >
+                                      ✏️ {m}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {order.items.length > 0 && (
+                              <div className="pt-2 border-t border-slate-200">
+                                <div className="text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                                  {t('blindaje_delivery.phone_note_order_items_label')}
+                                </div>
+                                <ul className="space-y-1 text-sm font-bold text-slate-800">
+                                  {order.items.map(it => (
+                                    <li key={it.id} className="flex flex-wrap items-baseline gap-1.5">
+                                      <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-900 font-black text-xs">
+                                        {it.quantity}×
+                                      </span>
+                                      <span>{it.name}</span>
+                                      {it.modifiers.length > 0 && (
+                                        <span className="text-xs font-semibold text-slate-500">
+                                          ({it.modifiers.join(', ')})
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              disabled={applyingPhoneNoteId === note.id}
+                              onClick={() => void handleApplyPhoneNote(note, order)}
+                              className="w-full h-14 sm:h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-lg sm:text-xl font-black disabled:opacity-40 shadow-md transition-transform touch-manipulation"
+                            >
+                              {applyingPhoneNoteId === note.id
+                                ? t('blindaje_delivery.phone_note_applying_btn')
+                                : `✓ ${t('blindaje_delivery.phone_note_apply_btn')} (${packer.name.split(' ')[0]})`}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )}
+
                 {/* ALERTA DE ALTO ÉNFASIS SI HAY COLISIÓN DE NOMBRE DUPLICADO O MUY PARECIDO DESDE KDS */}
                 {currentCollisions.length > 0 && (
                   <section className="rounded-3xl border-4 border-red-600 bg-red-50 overflow-hidden shadow-lg">
@@ -2802,13 +3257,20 @@ export default function BlindajeDeliveryEmpaquePage() {
                           </div>
                         )}
 
+                        {selectedPendingPhoneNotes.length > 0 && order.audit?.status !== 'released' && !order.isVoided && (
+                          <div className="p-3.5 rounded-2xl bg-amber-100 border-2 border-amber-500 text-amber-950 text-sm sm:text-base font-black flex items-center gap-2.5">
+                            <PhoneCall className="w-5 h-5 text-red-600 flex-shrink-0" />
+                            <span>{t('blindaje_delivery.phone_note_block_seal_warn')}</span>
+                          </div>
+                        )}
+
                         {order.audit?.status !== 'released' && !order.isVoided && (!isOrderPacked || isEditingStep1) && (
                           <button
                             type="button"
                             {...bindForgivingTap(`markReady:${order.guid}`, () => {
                               void markReady()
                             })}
-                            disabled={busy || isInKitchenBlocked}
+                            disabled={busy || isInKitchenBlocked || selectedPendingPhoneNotes.length > 0}
                             className="w-full h-16 sm:h-20 rounded-2xl bg-slate-950 active:scale-[0.98] text-white text-xl sm:text-2xl font-black disabled:opacity-30 transition-transform touch-manipulation"
                           >
                             {isOrderPacked

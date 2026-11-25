@@ -53,7 +53,7 @@
 import { createHash } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sanitizeCustomerStoreReferencesInText } from '@/lib/customer-store-names'
-import { shouldRejectCandidateLearningFinding } from '@/lib/kore-shared-speech'
+import { evaluateLearningAutopilotDecision, shouldRejectCandidateLearningFinding } from '@/lib/kore-shared-speech'
 import {
   generateGeminiLearningJson,
   getGeminiKeyPoolWithRemote,
@@ -1614,15 +1614,23 @@ async function upsertPhoneLearningFinding(
     }
   }
 
-  if (
-    f.sourceType !== 'manual_owner' &&
-    existing?.status !== 'approved' &&
-    shouldRejectCandidateLearningFinding({
+  let effectiveStatus: PhoneLearningItemStatus = f.status
+  let effectiveItemKind: PhoneLearningItemKind = f.itemKind
+
+  if (f.sourceType !== 'manual_owner' && existing?.status !== 'approved') {
+    const autopilot = evaluateLearningAutopilotDecision({
       ...f,
       appliesToChannels: inferredChannels
     })
-  ) {
-    return 'skipped'
+    if (autopilot.decision === 'reject') {
+      return 'skipped'
+    }
+    if (autopilot.decision === 'auto_apply' && effectiveStatus === 'needs_owner_input') {
+      effectiveStatus = 'auto_applied'
+      if (autopilot.promotedItemKind === 'learned_rule') {
+        effectiveItemKind = 'learned_rule'
+      }
+    }
   }
 
   if (existing?.id) {
@@ -1673,10 +1681,10 @@ async function upsertPhoneLearningFinding(
 
   let kbEntryId: string | null = null
   if (
-    f.status === 'auto_applied' &&
-    f.itemKind !== 'audio_prewarm' &&
-    f.itemKind !== 'latency_insight' &&
-    f.itemKind !== 'stt_synonym' &&
+    effectiveStatus === 'auto_applied' &&
+    effectiveItemKind !== 'audio_prewarm' &&
+    effectiveItemKind !== 'latency_insight' &&
+    effectiveItemKind !== 'stt_synonym' &&
     (inferredChannels === 'both' || inferredChannels === 'phone_only') &&
     (f.fastReplyEs || f.proposedRuleEs)
   ) {
@@ -1699,8 +1707,8 @@ async function upsertPhoneLearningFinding(
       source_call_id: f.sourceCallId,
       dedupe_key: f.dedupeKey,
       source_type: f.sourceType,
-      item_kind: f.itemKind,
-      status: f.status,
+      item_kind: effectiveItemKind,
+      status: effectiveStatus,
       applies_to_channels: inferredChannels,
       category: f.category || 'general',
       question_or_trigger: f.questionOrTrigger,
