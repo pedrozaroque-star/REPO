@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getServerUser, authorizeStoreScope } from '@/lib/auth-server'
+import { getServerUser, authorizeStoreScope, resolveCachedStore } from '@/lib/auth-server'
 import {
     CANONICAL_STATIONS_CATALOG,
     type ClearedStationAssignmentScope,
@@ -20,10 +20,10 @@ import {
  * @module RolesAPI
  * @description API de lectura y persistencia transaccional de asignaciones de estaciones (`station_assignments`).
  * @businessRules
- * - GET requiere sesión autenticada y alcance autorizado sobre `store_id` (`action: 'view'`, empleados pueden leer su tienda en modo tableta/kiosco).
- * - POST requiere sesión autenticada con permisos explícitos `edit_assignments` (`admin`, `supervisor`, `manager`, `asistente`/`assistant` de la tienda; `shift_leader` NO tiene permiso para editar asignaciones).
- * - Validación estricta de fechas reales de calendario (`isValidCalendarDateISO`), `station_group` y arreglo `tasks`.
- * - Reemplazo 100% atómico en PostgreSQL mediante `replace_station_assignments_atomic` con control de concurrencia optimista (`expected_revision` -> HTTP 409 en conflicto).
+ * - GET requiere sesión autenticada y alcance autorizado sobre `store_id` (`action: 'view'`, incluyendo `gerente`, `general_manager`, `shift_leader` / `shift leader` y `employee` en tableta/kiosco).
+ * - POST requiere sesión autenticada con permisos explícitos `edit_assignments` (`admin`, `supervisor`, `manager`, `gerente`, `general_manager`, `asistente`/`assistant` de la tienda; `shift_leader` NO tiene permiso para editar asignaciones).
+ * - Validación estricta de fechas reales de calendario (`isValidCalendarDateISO`), `station_group` (con soporte de tildes NFD como `'Salón'`) y arreglo `tasks`.
+ * - Reemplazo 100% atómico en PostgreSQL mediante `replace_station_assignments_atomic` con control de concurrencia optimista (`expected_revision` -> HTTP 409 en conflicto incluyendo `current_revision` y `revisions: { ALL, AM, PM }`).
  * - GET y la lectura previa AM usan paginación exacta y comparan la revisión antes/después; conteo ausente, variable o revisión modificada abortan la lectura.
  * - La clonación de semana completa requiere confirmación explícita y `expected_revision` del rango destino para impedir sobrescribir cambios concurrentes.
  * @dataFlow
@@ -32,7 +32,59 @@ import {
  * - Remediación integral de hallazgos A12, A13, A16, A18 y Hallazgo 2 de permisos/validación (2026-10-20).
  * - Fail-closed de lecturas paginadas y control de revisión estable en rango (2026-10-21).
  * - 2026-11-19 (Paquete 2A): Eliminada llave duplicada `data: rows` en respuesta `include_meta=1` tras verificar que el 100% de consumidores (`AsignacionDiariaTab.tsx:1162, 1637`) leen `assignments`, reduciendo a la mitad el payload JSON.
+ * - 2026-11-25: Soporte completo para `gerente`/`general_manager`/`shift leader`, validación de empleados sin truncamiento de 1,000 filas (incluyendo `schedules`/`users` y `store_ids` serializados) y retorno de `current_revision` + `revisions` en respuestas HTTP 409.
  */
+
+const ALLOWED_VIEW_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'gerente',
+    'general_manager',
+    'asistente',
+    'assistant',
+    'planificador',
+    'shift_leader',
+    'shift leader',
+    'shiftleader',
+    'employee',
+]
+
+const ALLOWED_EDIT_ROLES = [
+    'admin',
+    'supervisor',
+    'manager',
+    'gerente',
+    'general_manager',
+    'asistente',
+    'assistant',
+]
+
+function parseSafeStoreIds(raw: unknown): string[] {
+    if (Array.isArray(raw)) {
+        return raw.map((v) => String(v ?? '').trim()).filter(Boolean)
+    }
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim()
+        if (!trimmed) return []
+        try {
+            const parsed = JSON.parse(trimmed)
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v ?? '').trim()).filter(Boolean)
+            }
+            if (parsed !== null && parsed !== undefined) {
+                return [String(parsed).trim()].filter(Boolean)
+            }
+        } catch {
+            return trimmed
+                .replace(/^[\[{]+|[\]}]+$/g, '')
+                .split(',')
+                .map((s) => s.replace(/^["']+|["']+$/g, '').trim())
+                .filter(Boolean)
+        }
+    }
+    return []
+}
 
 const VALID_CANONICAL_STATIONS_NORM = new Set(
     CANONICAL_STATIONS_CATALOG.flatMap(s => [
@@ -91,12 +143,21 @@ export async function GET(req: Request) {
             allowEmployeeRead: true,
             requireWrite: false,
             action: 'view',
+            allowedRoles: ALLOWED_VIEW_ROLES,
         })
         if (!authScope.authorized) {
             return NextResponse.json({ error: authScope.error || 'Acceso denegado a esta sucursal' }, { status: authScope.status })
         }
 
-        const canonicalStoreGuid = authScope.canonicalExternalId || store_id
+        let canonicalStoreGuid = authScope.canonicalExternalId || ''
+        if (!canonicalStoreGuid) {
+            const cachedStore = await resolveCachedStore(store_id, supabaseAdmin)
+            canonicalStoreGuid = cachedStore?.external_id || store_id
+        }
+
+        const noCacheHeaders = {
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+        }
 
         if (revision_only) {
             const revisionResult = await readAssignmentsRevision(canonicalStoreGuid, start_date, end_date, null)
@@ -108,7 +169,7 @@ export async function GET(req: Request) {
             }
             return NextResponse.json(
                 { revision: revisionResult.revision },
-                { headers: { 'X-Assignments-Revision': revisionResult.revision } }
+                { headers: { ...noCacheHeaders, 'X-Assignments-Revision': revisionResult.revision } }
             )
         }
 
@@ -196,12 +257,12 @@ export async function GET(req: Request) {
                         PM: revisionPm,
                     },
                 },
-                { headers: { 'X-Assignments-Revision': revision } }
+                { headers: { ...noCacheHeaders, 'X-Assignments-Revision': revision } }
             )
         }
 
         return NextResponse.json(rows, {
-            headers: { 'X-Assignments-Revision': revision }
+            headers: { ...noCacheHeaders, 'X-Assignments-Revision': revision }
         })
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -292,14 +353,32 @@ export async function POST(req: Request) {
             allowEmployeeRead: false,
             requireWrite: true,
             action: 'edit_assignments',
-            allowedRoles: ['admin', 'supervisor', 'manager', 'asistente', 'assistant'],
+            allowedRoles: ALLOWED_EDIT_ROLES,
         })
         if (!authScope.authorized) {
             return NextResponse.json({ error: authScope.error || 'Acceso denegado a esta tienda' }, { status: authScope.status })
         }
 
-        const canonicalStoreGuid = authScope.canonicalExternalId || String(store_id)
-        const canonicalStoreNum = authScope.canonicalNumericId
+        let canonicalStoreGuid = authScope.canonicalExternalId || ''
+        let canonicalStoreNum: number | null =
+            authScope.canonicalNumericId !== undefined && authScope.canonicalNumericId !== null
+                ? Number(authScope.canonicalNumericId)
+                : null
+
+        if (!canonicalStoreGuid || canonicalStoreNum === null) {
+            const cachedStore = await resolveCachedStore(store_id, supabaseAdmin)
+            if (cachedStore) {
+                if (!canonicalStoreGuid && cachedStore.external_id) {
+                    canonicalStoreGuid = cachedStore.external_id
+                }
+                if (canonicalStoreNum === null && Number.isFinite(cachedStore.id)) {
+                    canonicalStoreNum = cachedStore.id
+                }
+            }
+        }
+        if (!canonicalStoreGuid) {
+            canonicalStoreGuid = String(store_id).trim()
+        }
 
         // Validar cada elemento de assignments antes de tocar la base de datos (A16 / Hallazgo 2)
         const distinctEmployeeIds = new Set<string>()
@@ -417,7 +496,11 @@ export async function POST(req: Request) {
             )
             const rawGroup = String(
                 a.station_group || canonicalEntry?.group || 'front'
-            ).trim().toLowerCase()
+            )
+                .trim()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
             const normalizedGroup =
                 rawGroup === 'salon'
                     ? 'front'
@@ -522,38 +605,26 @@ export async function POST(req: Request) {
             }
         }
 
-        // Verificar que todos los employee_id existan y pertenezcan o tengan turno en la sucursal (A16)
+        // Verificar que todos los employee_id existan y pertenezcan o tengan turno/horario en la sucursal (A16, sin truncamiento de 1,000 filas)
         if (distinctEmployeeIds.size > 0) {
             const empIdList = Array.from(distinctEmployeeIds)
-            const [empRes, shiftRes, prevAssignRes] = await Promise.all([
-                supabaseAdmin
-                    .from('toast_employees')
-                    .select('id, store_ids')
-                    .in('id', empIdList),
-                supabaseAdmin
-                    .from('shifts')
-                    .select('employee_id')
-                    .eq('store_id', canonicalStoreGuid)
-                    .in('employee_id', empIdList),
-                supabaseAdmin
-                    .from('station_assignments')
-                    .select('employee_id')
-                    .eq('store_id', canonicalStoreGuid)
-                    .in('employee_id', empIdList)
-            ])
-
-            if (empRes.error || shiftRes.error || prevAssignRes.error) {
-                const readErr = empRes.error || shiftRes.error || prevAssignRes.error
-                return NextResponse.json({ error: readErr!.message }, { status: 500 })
-            }
-
             const empMap = new Map<string, any>()
-            for (const row of empRes.data || []) {
-                empMap.set(String(row.id), row)
-            }
-            const shiftEmpSet = new Set((shiftRes.data || []).map((r: any) => String(r.employee_id)))
-            const prevAssignEmpSet = new Set((prevAssignRes.data || []).map((r: any) => String(r.employee_id)))
 
+            for (let i = 0; i < empIdList.length; i += 200) {
+                const chunk = empIdList.slice(i, i + 200)
+                const empRes = await supabaseAdmin
+                    .from('toast_employees')
+                    .select('id, toast_guid, first_name, last_name, chosen_name, email, store_ids')
+                    .in('id', chunk)
+                if (empRes.error) {
+                    return NextResponse.json({ error: empRes.error.message }, { status: 500 })
+                }
+                for (const row of empRes.data || []) {
+                    empMap.set(String(row.id), row)
+                }
+            }
+
+            const unresolvedIds = new Set<string>()
             for (const empId of empIdList) {
                 const empRow = empMap.get(empId)
                 if (!empRow) {
@@ -563,18 +634,124 @@ export async function POST(req: Request) {
                     )
                 }
 
-                const storeIdsArr = Array.isArray(empRow.store_ids) ? empRow.store_ids.map(String) : []
+                const storeIdsArr = parseSafeStoreIds(empRow.store_ids)
                 const belongsByStoreIds =
                     storeIdsArr.includes(canonicalStoreGuid) ||
                     (canonicalStoreNum !== null && storeIdsArr.includes(String(canonicalStoreNum)))
-                const belongsByShiftOrHistory = shiftEmpSet.has(empId) || prevAssignEmpSet.has(empId)
 
-                if (!belongsByStoreIds && !belongsByShiftOrHistory) {
+                if (!belongsByStoreIds) {
+                    unresolvedIds.add(empId)
+                }
+            }
+
+            if (unresolvedIds.size > 0) {
+                const scanStoreMembershipPaginated = async (
+                    table: 'shifts' | 'station_assignments',
+                    dateColumn: 'shift_date' | 'assignment_date',
+                    targetIds: string[]
+                ): Promise<{ found: Set<string>; error: string | null }> => {
+                    const found = new Set<string>()
+                    const pageSize = 1000
+                    for (let page = 0; page < 25 && found.size < targetIds.length; page++) {
+                        const offset = page * pageSize
+                        const res = await supabaseAdmin
+                            .from(table)
+                            .select('id, employee_id')
+                            .eq('store_id', canonicalStoreGuid)
+                            .in('employee_id', targetIds)
+                            .order(dateColumn, { ascending: false })
+                            .order('id', { ascending: true })
+                            .range(offset, offset + pageSize - 1)
+                        if (res.error) return { found, error: res.error.message }
+                        const batch = res.data || []
+                        for (const r of batch) {
+                            if (r?.employee_id) found.add(String(r.employee_id))
+                        }
+                        if (batch.length < pageSize) break
+                    }
+                    return { found, error: null }
+                }
+
+                const pendingArr = Array.from(unresolvedIds)
+                const [shiftsCheck, assignCheck] = await Promise.all([
+                    scanStoreMembershipPaginated('shifts', 'shift_date', pendingArr),
+                    scanStoreMembershipPaginated('station_assignments', 'assignment_date', pendingArr),
+                ])
+
+                if (shiftsCheck.error || assignCheck.error) {
                     return NextResponse.json(
-                        { error: `El empleado (${empId}) no pertenece ni tiene turnos asignados en esta sucursal` },
-                        { status: 400 }
+                        { error: (shiftsCheck.error || assignCheck.error)! },
+                        { status: 500 }
                     )
                 }
+
+                for (const id of shiftsCheck.found) unresolvedIds.delete(id)
+                for (const id of assignCheck.found) unresolvedIds.delete(id)
+            }
+
+            if (unresolvedIds.size > 0 && canonicalStoreNum !== null) {
+                const [storeUsersRes, schedUsersRes] = await Promise.all([
+                    supabaseAdmin
+                        .from('users')
+                        .select('id, full_name, email, toast_guid, store_id')
+                        .eq('store_id', canonicalStoreNum),
+                    supabaseAdmin
+                        .from('schedules')
+                        .select('user_id')
+                        .eq('store_id', canonicalStoreNum)
+                        .order('date', { ascending: false })
+                        .limit(1000),
+                ])
+
+                const schedUserIds = Array.from(
+                    new Set(
+                        (schedUsersRes.data || [])
+                            .map((s: any) => (s?.user_id !== null && s?.user_id !== undefined ? Number(s.user_id) : NaN))
+                            .filter((n) => Number.isFinite(n))
+                    )
+                )
+                const candidateUsers: any[] = [...(storeUsersRes.data || [])]
+                const seenUserIds = new Set(candidateUsers.map((u) => Number(u.id)))
+                const extraUserIds = schedUserIds.filter((uid) => !seenUserIds.has(uid))
+                if (extraUserIds.length > 0) {
+                    const { data: extraUsers } = await supabaseAdmin
+                        .from('users')
+                        .select('id, full_name, email, toast_guid, store_id')
+                        .in('id', extraUserIds)
+                    if (Array.isArray(extraUsers)) candidateUsers.push(...extraUsers)
+                }
+
+                for (const empId of Array.from(unresolvedIds)) {
+                    const empRow = empMap.get(empId)
+                    if (!empRow) continue
+                    const eGuid = String(empRow.toast_guid || '').trim()
+                    const eEmail = String(empRow.email || '').trim().toLowerCase()
+                    const eFullNorm = normalizeText(`${empRow.first_name || ''} ${empRow.last_name || ''}`)
+                    const eChosenNorm = normalizeText(`${empRow.chosen_name || ''} ${empRow.last_name || ''}`)
+
+                    const matchedUser = candidateUsers.find((u) => {
+                        const uGuid = String(u?.toast_guid || '').trim()
+                        const uEmail = String(u?.email || '').trim().toLowerCase()
+                        const uNameNorm = normalizeText(u?.full_name || '')
+                        if (eGuid && uGuid && eGuid === uGuid) return true
+                        if (eEmail && uEmail && eEmail === uEmail) return true
+                        if (uNameNorm && (uNameNorm === eFullNorm || (Boolean(eChosenNorm) && uNameNorm === eChosenNorm))) {
+                            return true
+                        }
+                        return false
+                    })
+                    if (matchedUser) {
+                        unresolvedIds.delete(empId)
+                    }
+                }
+            }
+
+            if (unresolvedIds.size > 0) {
+                const firstInvalid = Array.from(unresolvedIds)[0]
+                return NextResponse.json(
+                    { error: `El empleado (${firstInvalid}) no pertenece ni tiene turnos asignados en esta sucursal` },
+                    { status: 400 }
+                )
             }
         }
 
@@ -593,11 +770,32 @@ export async function POST(req: Request) {
 
         if (rpcError) {
             if (rpcError.message?.includes('CONFLICT_REVISION_MISMATCH')) {
+                const [revAllRes, revAmRes, revPmRes] = await Promise.all([
+                    readAssignmentsRevision(canonicalStoreGuid, String(start_date), String(end_date), null),
+                    readAssignmentsRevision(canonicalStoreGuid, String(start_date), String(end_date), 'AM'),
+                    readAssignmentsRevision(canonicalStoreGuid, String(start_date), String(end_date), 'PM'),
+                ])
+                const revAll = revAllRes.revision || null
+                const revAm = revAmRes.revision || revAll
+                const revPm = revPmRes.revision || revAll
+                const currentScopedRevision =
+                    active_shift === 'AM'
+                        ? revAm
+                        : active_shift === 'PM'
+                          ? revPm
+                          : revAll
+
                 return NextResponse.json(
                     {
                         error: 'Las asignaciones fueron modificadas por otra sesión antes de guardar. Recarga para ver los cambios más recientes.',
                         code: 'CONFLICT_REVISION_MISMATCH',
                         details: rpcError.message,
+                        current_revision: currentScopedRevision,
+                        revisions: {
+                            ALL: revAll,
+                            AM: revAm,
+                            PM: revPm,
+                        },
                     },
                     { status: 409 }
                 )

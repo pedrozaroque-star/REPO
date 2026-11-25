@@ -30,6 +30,7 @@
  *   - Fix: Restricción de edición de asignaciones (`canEditAssignments`) para que `shift_leader` consulte el tablero sin permisos de escritura sobre asignaciones.
  *   - Fix: La clonación de semana completa compara `expected_revision` del destino dentro de la RPC; cambios concurrentes se rechazan sin reemplazar asignaciones recientes.
  *   - Fix: Al abrir una estación en el Tablero Operativo (`selectedSlotForCard`), el panel de actividades soporta Zoom táctil con 2 dedos (`pinch-to-zoom`), controles `- / 100% / +` (hasta 250% con reacomodo automático de columnas y tipografía fluida) y vista ampliada de tarjeta individual al tocar cualquier actividad (con navegación `< Anterior / Siguiente >`).
+ *   - Fix [2026-11-25]: Hidratación unificada de nómina + turnos vía servidor autenticado (`GET /api/roles/employees?...&include_shifts=1` con `getTabletNoCacheHeaders`, auto-refresh 401 + reintento), partición completa de selectores en 3 grupos (`scheduledActiveEmployees`, `otherShiftEmployees`, `offDutyEmployees`) + fallback para asignados archivados, rastreo `isDirty` multi-turno (`AM`+`PM`) con guardado secuencial serializado (`savingLockRef`), blindaje contra trampa de medianoche (`00:00–05:59 AM`: auto-avance restringido a `showVisualBoard` + banner ámbar en fechas pasadas) y franja compacta interactiva de Liderazgo y Actividades Extra en `showVisualBoard`.
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -72,8 +73,13 @@ import {
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/components/ProtectedRoute';
 import { useWakeLock } from '@/lib/use-wake-lock';
-import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner';
+import {
+  ensureFreshTabletAuth,
+  getTabletNoCacheHeaders,
+  purgeTabletStaleCaches,
+} from '@/lib/tablet-cache-cleaner';
 import { supabase } from '@/lib/supabase';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import {
   calculateStoreOffsetsForDate,
   applyTimeOffset,
@@ -280,6 +286,36 @@ const DAY_LABELS_KEYS = [
   'actividades.daily.day_sun',
 ];
 
+const STORE_BOUND_ROLES = [
+  'manager',
+  'gerente',
+  'general_manager',
+  'asistente',
+  'assistant',
+  'shift_leader',
+  'shift leader',
+  'shiftleader',
+];
+
+const BOARD_LEADERSHIP_AND_EXTRA_SLOTS: Array<{
+  stationKey: string;
+  labelEs: string;
+  labelEn: string;
+  group: string;
+  isLeadership: boolean;
+}> = [
+  { stationKey: 'MANAGER', labelEs: 'Manager', labelEn: 'Manager', group: 'leadership', isLeadership: true },
+  { stationKey: 'ASSISTANT', labelEs: 'Asistente', labelEn: 'Assistant', group: 'leadership', isLeadership: true },
+  { stationKey: 'SHIFT_LEADER_MALE', labelEs: 'Shift Leader (M)', labelEn: 'Shift Leader (M)', group: 'leadership', isLeadership: true },
+  { stationKey: 'SHIFT_LEADER_FEMALE', labelEs: 'Shift Leader (F)', labelEn: 'Shift Leader (F)', group: 'leadership', isLeadership: true },
+  { stationKey: 'ACTIVIDADES EXTRA 1', labelEs: 'Extra 1', labelEn: 'Extra 1', group: 'kitchen', isLeadership: false },
+  { stationKey: 'ACTIVIDADES EXTRA 2', labelEs: 'Extra 2', labelEn: 'Extra 2', group: 'kitchen', isLeadership: false },
+  { stationKey: 'ACTIVIDADES EXTRA 3', labelEs: 'Extra 3', labelEn: 'Extra 3', group: 'kitchen', isLeadership: false },
+  { stationKey: 'ACTIVIDADES EXTRA 4', labelEs: 'Extra 4', labelEn: 'Extra 4', group: 'kitchen', isLeadership: false },
+  { stationKey: 'ACTIVIDADES EXTRA 5', labelEs: 'Extra 5', labelEn: 'Extra 5', group: 'kitchen', isLeadership: false },
+  { stationKey: 'ACTIVIDADES EXTRA 6', labelEs: 'Extra 6', labelEn: 'Extra 6', group: 'kitchen', isLeadership: false },
+];
+
 // ════════════════════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════════════════════
@@ -409,8 +445,7 @@ const getDisplayName = (emp: Employee): string => {
 
 /** Format store name (strip "Tacos Gavilan" prefix) */
 const formatStoreName = (name: string | null | undefined): string => {
-  if (!name) return '';
-  return name.replace(/^Tacos Gavilan\s+/i, '').trim();
+  return formatStoreDisplayName(name);
 };
 
 /** Resolve section group from station name */
@@ -542,9 +577,17 @@ export default function AsignacionDiariaTab() {
 
   // Auto-detectar tienda del usuario logueado (Auto-detect logged-in user's store)
   // Admin y Supervisor pueden cambiar a cualquier tienda; Manager solo su tienda
-  const userRole = (user?.role || '').toLowerCase();
+  const userRole = (user?.role || '').trim().toLowerCase();
   const canChangeStore = ['admin', 'supervisor'].includes(userRole);
-  const canEditAssignments = ['admin', 'supervisor', 'manager', 'asistente', 'assistant'].includes(userRole);
+  const canEditAssignments = [
+    'admin',
+    'supervisor',
+    'manager',
+    'gerente',
+    'general_manager',
+    'asistente',
+    'assistant',
+  ].includes(userRole);
 
   // ── State ──
   const [stores, setStores] = useState<Store[]>([]);
@@ -591,16 +634,19 @@ export default function AsignacionDiariaTab() {
   const [publishPreviewLoading, setPublishPreviewLoading] = useState(false);
   const [publishPreviewData, setPublishPreviewData] = useState<any | null>(null);
 
-  // ── Secuencias para descartar respuestas obsoletas al cambiar de tienda/fecha (A15) ──
-  const shiftsReqSeqRef = useRef(0);
+  // ── Secuencias y candados para descartar respuestas obsoletas y serializar guardados (A15) ──
   const assignmentsReqSeqRef = useRef(0);
-  const weekShiftsReqSeqRef = useRef(0);
   const employeesReqSeqRef = useRef(0);
   const isDirtyRef = useRef(false);
+  const persistedAssignmentsRef = useRef<Assignment[]>([]);
+  const latestAssignmentsRef = useRef<Assignment[]>([]);
+  const savingLockRef = useRef<Promise<void>>(Promise.resolve());
+  const lastSelfSaveAtRef = useRef<number>(0);
+  const [authExpiredBanner, setAuthExpiredBanner] = useState(false);
 
-  // @notes: Bug 1 - Sync selectedStoreId when user loads for managers to avoid race condition
+  // Sync selectedStoreId when user loads for all store-bound roles (manager, gerente, general_manager, asistente, assistant, shift_leader)
   useEffect(() => {
-    if (user?.store_id && (userRole === 'manager' || userRole === 'asistente')) {
+    if (user?.store_id && STORE_BOUND_ROLES.includes(userRole)) {
       setSelectedStoreId(String(user.store_id));
     }
   }, [user?.store_id, userRole]);
@@ -797,12 +843,11 @@ export default function AsignacionDiariaTab() {
     return () => clearInterval(cacheInterval);
   }, []);
 
-  // Centinela cada 15s: reloj en vivo, corte 6:00 AM CA (día + semana + turno AM), corte 5:00 PM CA (turno PM),
-  // auto-retorno tras 2 min de inactividad en modo Tablero (o 15 min en editor sin cambios locales), y modal de despertar tras 3 horas (A05, A14)
+  // Centinela cada 15s: reloj en vivo; auto-avance de fecha/turno y auto-retorno EXCLUSIVOS del modo Tablero Kiosco (showVisualBoard),
+  // evitando que entre 00:00 y 05:59 AM el editor regrese silenciosamente a la semana anterior mientras el manager edita.
   useEffect(() => {
     const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000; // 3 horas
-    const IDLE_RETURN_BOARD_MS = 10 * 60 * 1000; // 10 minutos en modo Tablero
-    const IDLE_RETURN_EDITOR_MS = 15 * 60 * 1000; // 15 minutos en modo Editor (solo si no hay borrador sucio)
+    const IDLE_RETURN_BOARD_MS = 10 * 60 * 1000; // 10 minutos SOLO en modo Tablero Kiosco
 
     const timer = setInterval(() => {
       setLiveNow(new Date());
@@ -811,10 +856,18 @@ export default function AsignacionDiariaTab() {
       const currentShiftNow = getCurrentShiftLA();
       const idleMs = Date.now() - lastInteractionAtRef.current;
 
+      if (!showVisualBoard) {
+        // En vista de lista / editor: actualizar referencias sin mover jamás selectedDay, currentWeekStart ni activeShift en segundo plano
+        lastBusinessDateRef.current = todayBDateStr;
+        lastAutoShiftRef.current = currentShiftNow;
+        return;
+      }
+
+      // Modo Kiosco / Tablero Visual (showVisualBoard === true):
       // Caso 1: Cruce de 6:00 AM en California (Nuevo Día Laboral)
       if (lastBusinessDateRef.current && lastBusinessDateRef.current !== todayBDateStr) {
         if (!isDirtyRef.current) {
-          console.log(`[Actividades 24/7] 🌅 Cambio de día laboral detectado: ${lastBusinessDateRef.current} -> ${todayBDateStr}`);
+          console.log(`[Actividades 24/7] 🌅 Cambio de día laboral detectado en Tablero: ${lastBusinessDateRef.current} -> ${todayBDateStr}`);
           lastBusinessDateRef.current = todayBDateStr;
           lastAutoShiftRef.current = currentShiftNow;
           setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
@@ -826,10 +879,10 @@ export default function AsignacionDiariaTab() {
           void purgeTabletStaleCaches({ force: true });
         }
       } else if (lastAutoShiftRef.current !== currentShiftNow) {
-        // Caso 2: Cruce automático de turno (ej. 5:00 PM -> cambio automático de AM a PM)
+        // Caso 2: Cruce automático de turno (ej. 5:00 PM -> cambio automático de AM a PM en Tablero)
         lastAutoShiftRef.current = currentShiftNow;
         if (!isDirtyRef.current) {
-          console.log(`[Actividades 24/7] 🌇 Cambio automático de turno detectado: -> ${currentShiftNow}`);
+          console.log(`[Actividades 24/7] 🌇 Cambio automático de turno detectado en Tablero: -> ${currentShiftNow}`);
           setActiveShift(currentShiftNow);
           setSelectedSlotForCard(null);
           setSelectedEmployeeCard(null);
@@ -837,15 +890,14 @@ export default function AsignacionDiariaTab() {
         }
       } else {
         lastBusinessDateRef.current = todayBDateStr;
-        // Caso 3: Retorno automático solo si no hay cambios locales sin guardar (A05, A14)
+        // Caso 3: Retorno automático tras 10 min de inactividad en modo Tablero Kiosco
         const viewedDateStr = formatDateISO(selectedDay);
-        const returnThresholdMs = showVisualBoard ? IDLE_RETURN_BOARD_MS : IDLE_RETURN_EDITOR_MS;
         if (
           !isDirtyRef.current &&
           (viewedDateStr !== todayBDateStr || activeShift !== currentShiftNow) &&
-          idleMs >= returnThresholdMs
+          idleMs >= IDLE_RETURN_BOARD_MS
         ) {
-          console.log(`[Actividades 24/7] 🔄 Retornando automáticamente a Hoy (${todayBDateStr}) y turno ${currentShiftNow}`);
+          console.log(`[Actividades 24/7] 🔄 Retornando automáticamente en Tablero a Hoy (${todayBDateStr}) y turno ${currentShiftNow}`);
           setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
           setSelectedDay(todayBDate);
           setActiveShift(currentShiftNow);
@@ -855,7 +907,7 @@ export default function AsignacionDiariaTab() {
         }
       }
 
-      // Caso 4: Tras 3 horas de inactividad continua, mostrar modal para despertar tableta
+      // Caso 4: Tras 3 horas de inactividad continua en Tablero, mostrar modal para despertar tableta
       if (!showWakeUpModal && !wakingUpTablet && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
         setShowWakeUpModal(true);
       }
@@ -876,6 +928,16 @@ export default function AsignacionDiariaTab() {
   }, [selectedStore]);
 
   const selectedDateStr = useMemo(() => formatDateISO(selectedDay), [selectedDay]);
+  const todayBusinessDateStr = useMemo(() => formatDateISO(getBusinessToday()), [liveNow]);
+  const isViewingPastDate = selectedDateStr < todayBusinessDateStr;
+
+  useEffect(() => {
+    persistedAssignmentsRef.current = persistedAssignments;
+  }, [persistedAssignments]);
+
+  useEffect(() => {
+    latestAssignmentsRef.current = assignments;
+  }, [assignments]);
 
   // Calcular desfases horarios por tienda y día de la semana (A01, A02, A03)
   const storeOffsets: StoreOffsets = useMemo(() => {
@@ -883,21 +945,41 @@ export default function AsignacionDiariaTab() {
     return calculateStoreOffsetsForDate(selectedStore, selectedDateStr);
   }, [selectedStore, selectedDateStr]);
 
-  // Detectar si existen cambios locales sin guardar en la vista actual (A14)
-  const isDirty = useMemo(() => {
-    const serializeSlice = (list: Assignment[]) =>
+  const serializeShiftSlice = useCallback(
+    (list: Assignment[], dateStr: string, shift: 'AM' | 'PM') =>
       list
+        .map((a) => ({
+          ...a,
+          sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+        }))
         .filter(
           (a) =>
-            a.assignment_date === selectedDateStr &&
-            a.sub_position?.endsWith(`_${activeShift}`) &&
+            a.assignment_date === dateStr &&
+            a.sub_position?.endsWith(`_${shift}`) &&
             Boolean(a.employee_id)
         )
         .map((a) => `${a.sub_position}:${a.employee_id}:${a.main_station || ''}:${(a.tasks || []).join(',')}`)
         .sort()
-        .join('|');
-    return serializeSlice(assignments) !== serializeSlice(persistedAssignments);
-  }, [assignments, persistedAssignments, selectedDateStr, activeShift]);
+        .join('|'),
+    []
+  );
+
+  // Detectar si existen cambios locales sin guardar en AM o PM del día seleccionado (evitando perder AM al cambiar a PM)
+  const isAmDirty = useMemo(
+    () =>
+      serializeShiftSlice(assignments, selectedDateStr, 'AM') !==
+      serializeShiftSlice(persistedAssignments, selectedDateStr, 'AM'),
+    [assignments, persistedAssignments, selectedDateStr, serializeShiftSlice]
+  );
+
+  const isPmDirty = useMemo(
+    () =>
+      serializeShiftSlice(assignments, selectedDateStr, 'PM') !==
+      serializeShiftSlice(persistedAssignments, selectedDateStr, 'PM'),
+    [assignments, persistedAssignments, selectedDateStr, serializeShiftSlice]
+  );
+
+  const isDirty = isAmDirty || isPmDirty;
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -930,16 +1012,17 @@ export default function AsignacionDiariaTab() {
     return `${format(start, 'MMM d', { locale })} - ${format(end, 'MMM d, yyyy', { locale })}`;
   }, [currentWeekStart, locale]);
 
+  const dayAllShifts = useMemo(() => {
+    return shifts.filter((s) => s.shift_date === selectedDateStr);
+  }, [shifts, selectedDateStr]);
+
   // Filtrar turnos por traslape real de intervalo con el periodo AM o PM (A06)
   // AM window: 06:00 - 16:59 | PM window: 17:00 - 05:59 (día siguiente)
   const todayShifts = useMemo(() => {
-    return shifts.filter((s) => {
-      if (s.shift_date !== selectedDateStr) return false;
-      return doesShiftOverlapPeriod(s.start_time, s.end_time, activeShift);
-    });
-  }, [shifts, selectedDateStr, activeShift]);
+    return dayAllShifts.filter((s) => doesShiftOverlapPeriod(s.start_time, s.end_time, activeShift));
+  }, [dayAllShifts, activeShift]);
 
-  // Build roster of employees for the day
+  // Build roster of employees for the active shift
   const roster = useMemo(() => {
     return todayShifts.map((s) => {
       const emp = employees.find((e) => String(e.id) === String(s.employee_id));
@@ -958,7 +1041,25 @@ export default function AsignacionDiariaTab() {
     });
   }, [todayShifts, employees, assignments, selectedDateStr, activeShift]);
 
-  // Split roster: available (not callback) vs absent (callback)
+  // Unique employees scheduled in the active shift today (unfiltered by sidebar searchQuery so station <select> options never vanish)
+  const scheduledActiveEmployees = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Employee[] = [];
+    for (const r of roster) {
+      if (r.isAbsent || !r.employee) continue;
+      const idStr = String(r.employee.id);
+      if (seen.has(idStr)) continue;
+      seen.add(idStr);
+      list.push(r.employee);
+    }
+    return list;
+  }, [roster]);
+
+  const availableIdsSet = useMemo(() => {
+    return new Set(scheduledActiveEmployees.map((e) => String(e.id)));
+  }, [scheduledActiveEmployees]);
+
+  // Split roster for left sidebar: available (not callback) vs absent (callback)
   const availableRoster = useMemo(() => {
     let list = roster.filter((r) => !r.isAbsent && r.employee);
     if (searchQuery) {
@@ -975,13 +1076,44 @@ export default function AsignacionDiariaTab() {
     return roster.filter((r) => r.isAbsent && r.employee);
   }, [roster]);
 
-  // Employees assigned to this store but NOT scheduled for today (day off / vacation)
+  // Employees with a shift TODAY in the opposite shift (PM when viewing AM, AM when viewing PM, or callback today)
+  const otherShiftEmployees = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{ employee: Employee; shift: ShiftRecord; isCallback: boolean }> = [];
+    for (const s of dayAllShifts) {
+      const empId = String(s.employee_id);
+      if (availableIdsSet.has(empId) || seen.has(empId)) continue;
+      const emp = employees.find((e) => String(e.id) === empId);
+      if (!emp || emp.deleted) continue;
+      seen.add(empId);
+      list.push({
+        employee: emp,
+        shift: s,
+        isCallback: s.is_callback === true,
+      });
+    }
+    return list.sort((a, b) => getDisplayName(a.employee).localeCompare(getDisplayName(b.employee)));
+  }, [dayAllShifts, availableIdsSet, employees]);
+
+  // All remaining active store employees (!e.deleted) not in availableIdsSet nor otherShiftEmployees (no weekShiftEmpIds truncation gate)
   const offDutyEmployees = useMemo(() => {
-    const todayScheduledIds = new Set(shifts.filter(s => s.shift_date === selectedDateStr).map(s => String(s.employee_id)));
+    const otherIds = new Set(otherShiftEmployees.map((item) => String(item.employee.id)));
     return employees
-      .filter((e) => !e.deleted && !todayScheduledIds.has(String(e.id)) && weekShiftEmpIds.has(String(e.id)))
+      .filter(
+        (e) =>
+          !e.deleted &&
+          !availableIdsSet.has(String(e.id)) &&
+          !otherIds.has(String(e.id))
+      )
       .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
-  }, [employees, shifts, selectedDateStr, weekShiftEmpIds]);
+  }, [employees, availableIdsSet, otherShiftEmployees]);
+
+  const allSelectableOptionIds = useMemo(() => {
+    const ids = new Set<string>(availableIdsSet);
+    for (const item of otherShiftEmployees) ids.add(String(item.employee.id));
+    for (const emp of offDutyEmployees) ids.add(String(emp.id));
+    return ids;
+  }, [availableIdsSet, otherShiftEmployees, offDutyEmployees]);
 
   // Build assignment map: sub_position -> Assignment
   const assignmentMap = useMemo(() => {
@@ -1107,48 +1239,103 @@ export default function AsignacionDiariaTab() {
       .from('stores')
       .select('id, name, external_id, opening_time, closing_time, weekly_hours, has_drive_thru')
       .order('name');
-    if (data) setStores(data as Store[]);
+    if (data) setStores(sortStoresAlphabetically(data as Store[], (s) => s.name));
   }, []);
 
-  const fetchShifts = useCallback(async () => {
-    if (!selectedStoreGuid) return;
-    const seq = ++shiftsReqSeqRef.current;
-    const { data } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('store_id', selectedStoreGuid)
-      .eq('shift_date', selectedDateStr);
-    if (seq !== shiftsReqSeqRef.current) return;
-    setShifts((data || []) as ShiftRecord[]);
-  }, [selectedStoreGuid, selectedDateStr]);
+  const fetchWithTabletAuth = useCallback(
+    async (url: string, init?: RequestInit): Promise<Response> => {
+      const buildInit = (): RequestInit => ({
+        ...init,
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          ...getTabletNoCacheHeaders(),
+          ...(init?.headers || {}),
+        },
+      });
+      let res = await fetch(url, buildInit());
+      if (res.status === 401) {
+        const refreshed = await ensureFreshTabletAuth(true);
+        if (refreshed) {
+          res = await fetch(url, buildInit());
+        }
+        if (res.status === 401) {
+          setAuthExpiredBanner(true);
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.removeItem('teg_token');
+              localStorage.removeItem('teg_user');
+              sessionStorage.removeItem('teg_tab_staff_token');
+              sessionStorage.removeItem('teg_tab_staff_user');
+            } catch {}
+            window.location.replace('/login');
+          }
+        } else if (res.ok) {
+          setAuthExpiredBanner(false);
+        }
+      } else if (res.ok) {
+        setAuthExpiredBanner(false);
+      }
+      return res;
+    },
+    []
+  );
 
-  const fetchEmployees = useCallback(async () => {
-    if (!selectedStoreGuid) return;
-    const seq = ++employeesReqSeqRef.current;
-    try {
-      const res = await fetch(
-        `/api/roles/employees?store_id=${encodeURIComponent(selectedStoreGuid)}&reference_date=${encodeURIComponent(selectedDateStr)}`
-      );
-      if (res.ok) {
+  // Hidrata nómina completa + turnos del día + week_shift_employee_ids desde el servidor autenticado (cero supabase.from('shifts') cliente)
+  const fetchEmployees = useCallback(
+    async (overrideDateStr?: string, overrideStoreGuid?: string) => {
+      const targetStoreGuid = overrideStoreGuid || selectedStoreGuid;
+      const targetDateStr = overrideDateStr || selectedDateStr;
+      if (!targetStoreGuid || !targetDateStr) return;
+      const seq = ++employeesReqSeqRef.current;
+      try {
+        const res = await fetchWithTabletAuth(
+          `/api/roles/employees?store_id=${encodeURIComponent(targetStoreGuid)}&date=${encodeURIComponent(targetDateStr)}&reference_date=${encodeURIComponent(targetDateStr)}&include_shifts=1`
+        );
+        if (!res.ok) {
+          console.error(`[fetchEmployees] HTTP ${res.status}:`, await res.text());
+          return;
+        }
         const data = await res.json();
         if (seq !== employeesReqSeqRef.current) return;
         if (Array.isArray(data)) {
           setEmployees(data as Employee[]);
           return;
         }
+        if (data && typeof data === 'object') {
+          if (Array.isArray(data.employees)) {
+            setEmployees(data.employees as Employee[]);
+          }
+          if (Array.isArray(data.shifts)) {
+            setShifts(data.shifts as ShiftRecord[]);
+          }
+          if (Array.isArray(data.week_shift_employee_ids)) {
+            setWeekShiftEmpIds(
+              new Set(data.week_shift_employee_ids.map((id: unknown) => String(id)))
+            );
+          }
+        }
+      } catch (err) {
+        console.error('[fetchEmployees] Error fetching scoped store employees & shifts:', err);
       }
-    } catch (err) {
-      console.error('[fetchEmployees] Error fetching scoped store employees:', err);
-    }
-  }, [selectedStoreGuid, selectedDateStr]);
+    },
+    [selectedStoreGuid, selectedDateStr, fetchWithTabletAuth]
+  );
 
   const fetchAssignments = useCallback(
-    async (options?: { forceOverwrite?: boolean }) => {
-      if (!selectedStoreGuid) return;
+    async (options?: {
+      forceOverwrite?: boolean;
+      overrideDateStr?: string;
+      overrideStoreGuid?: string;
+      fromBackgroundSync?: boolean;
+    }) => {
+      const targetStoreGuid = options?.overrideStoreGuid || selectedStoreGuid;
+      const targetDateStr = options?.overrideDateStr || selectedDateStr;
+      if (!targetStoreGuid || !targetDateStr) return;
       const seq = ++assignmentsReqSeqRef.current;
       try {
-        const res = await fetch(
-          `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${selectedDateStr}&end_date=${selectedDateStr}&include_meta=1`
+        const res = await fetchWithTabletAuth(
+          `/api/roles?store_id=${encodeURIComponent(targetStoreGuid)}&start_date=${encodeURIComponent(targetDateStr)}&end_date=${encodeURIComponent(targetDateStr)}&include_meta=1`
         );
         if (!res.ok) {
           console.error(`[fetchAssignments] HTTP ${res.status}:`, await res.text());
@@ -1171,6 +1358,7 @@ export default function AsignacionDiariaTab() {
         const fetchedRev: string | null =
           !Array.isArray(data) && typeof data?.revision === 'string' ? data.revision : null;
 
+        persistedAssignmentsRef.current = fetchedList;
         setPersistedAssignments(fetchedList);
         if (fetchedRev) {
           setAssignmentsRevision(fetchedRev);
@@ -1182,26 +1370,30 @@ export default function AsignacionDiariaTab() {
         }
 
         // Si el manager tiene cambios locales sin guardar y es un refresco de fondo (Realtime/heartbeat),
-        // NO sobrescribir su borrador local (A14).
+        // NO sobrescribir su borrador local (A14). Ignorar eco inmediato de nuestro propio guardado.
         if (!options?.forceOverwrite && isDirtyRef.current) {
+          if (options?.fromBackgroundSync && Date.now() - lastSelfSaveAtRef.current < 3000) {
+            return;
+          }
           setRemoteUpdatePending(true);
           return;
         }
 
+        latestAssignmentsRef.current = fetchedList;
         setAssignments(fetchedList);
         setRemoteUpdatePending(false);
       } catch (err) {
         console.error('Error fetching assignments:', err);
       }
     },
-    [selectedStoreGuid, selectedDateStr]
+    [selectedStoreGuid, selectedDateStr, fetchWithTabletAuth]
   );
 
   const fetchPositionActivities = useCallback(async () => {
     try {
       const [paRes, procRes] = await Promise.all([
-        fetch('/api/roles/activities'),
-        fetch('/api/procedimientos'),
+        fetchWithTabletAuth('/api/roles/activities'),
+        fetchWithTabletAuth('/api/procedimientos'),
       ]);
       if (paRes.ok) {
         const data = await paRes.json();
@@ -1223,25 +1415,7 @@ export default function AsignacionDiariaTab() {
     } catch (err) {
       console.error('Error fetching position activities:', err);
     }
-  }, []);
-
-  // Ventana histórica centrada en selectedDay (-60 días a +14 días) en lugar de new Date() (A24)
-  const fetchWeekShiftEmpIds = useCallback(async () => {
-    if (!selectedStoreGuid) return;
-    const seq = ++weekShiftsReqSeqRef.current;
-    const lookbackStart = formatDateISO(subDays(selectedDay, 60));
-    const lookbackEnd = formatDateISO(addDays(selectedDay, 14));
-    const { data } = await supabase
-      .from('shifts')
-      .select('employee_id')
-      .eq('store_id', selectedStoreGuid)
-      .gte('shift_date', lookbackStart)
-      .lte('shift_date', lookbackEnd);
-    if (seq !== weekShiftsReqSeqRef.current) return;
-    if (data) {
-      setWeekShiftEmpIds(new Set(data.map((s: { employee_id: string }) => String(s.employee_id))));
-    }
-  }, [selectedStoreGuid, selectedDay]);
+  }, [fetchWithTabletAuth]);
 
   // ── Initial load ──
   useEffect(() => {
@@ -1258,8 +1432,8 @@ export default function AsignacionDiariaTab() {
       debounceTimer = setTimeout(() => {
         fetchPositionActivities();
         if (selectedStoreGuid) {
-          fetchAssignments({ forceOverwrite: false });
-          fetchShifts();
+          fetchAssignments({ forceOverwrite: false, fromBackgroundSync: true });
+          fetchEmployees();
         }
       }, 500);
     };
@@ -1293,8 +1467,8 @@ export default function AsignacionDiariaTab() {
     const heartbeat = setInterval(() => {
       fetchPositionActivities();
       if (selectedStoreGuid) {
-        fetchAssignments({ forceOverwrite: false });
-        fetchShifts();
+        fetchAssignments({ forceOverwrite: false, fromBackgroundSync: true });
+        fetchEmployees();
       }
     }, 3 * 60 * 1000);
 
@@ -1303,7 +1477,31 @@ export default function AsignacionDiariaTab() {
       clearInterval(heartbeat);
       supabase.removeChannel(channel);
     };
-  }, [selectedStoreGuid, fetchPositionActivities, fetchAssignments, fetchShifts]);
+  }, [selectedStoreGuid, fetchPositionActivities, fetchAssignments, fetchEmployees]);
+
+  // ── Refresco dedicado cada 60s + visibilitychange + online en Modo Tablero Kiosco (showVisualBoard) ──
+  useEffect(() => {
+    if (!showVisualBoard || !selectedStoreGuid) return;
+    const syncVisualBoard = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void fetchAssignments({ forceOverwrite: false, fromBackgroundSync: true });
+      void fetchEmployees();
+      void fetchPositionActivities();
+    };
+    const boardInterval = setInterval(syncVisualBoard, 60_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncVisualBoard();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', syncVisualBoard);
+    return () => {
+      clearInterval(boardInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', syncVisualBoard);
+    };
+  }, [showVisualBoard, selectedStoreGuid, fetchAssignments, fetchEmployees, fetchPositionActivities]);
 
   // ── When store or date changes ──
   useEffect(() => {
@@ -1312,9 +1510,7 @@ export default function AsignacionDiariaTab() {
     const loadData = async () => {
       setLoading(true);
       await Promise.all([
-        fetchShifts(),
         fetchAssignments({ forceOverwrite: true }),
-        fetchWeekShiftEmpIds(),
         fetchEmployees(),
       ]);
       if (!cancelled) setLoading(false);
@@ -1323,7 +1519,7 @@ export default function AsignacionDiariaTab() {
     return () => {
       cancelled = true;
     };
-  }, [selectedStoreGuid, selectedDateStr, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds, fetchEmployees]);
+  }, [selectedStoreGuid, selectedDateStr, fetchAssignments, fetchEmployees]);
 
   // ── Actions ──
   const getAssignee = useCallback((date: Date, station: string) => {
@@ -1333,112 +1529,169 @@ export default function AsignacionDiariaTab() {
 
   const handleSave = async (forceWithoutRevision = false, overrideAssignments?: Assignment[]) => {
     if (!canEditAssignments || !selectedStoreGuid) return;
-    setSaving(true);
-    setSaveSuccess(false);
+    const targetStoreGuid = selectedStoreGuid;
+    const targetDateStr = selectedDateStr;
 
-    const sourceAssignments = overrideAssignments ?? assignments;
-    const currentSlice = sourceAssignments
-      .map((a) => ({
-        ...a,
-        sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
-      }))
-      .filter(
-        (a) =>
-          a.assignment_date === selectedDateStr &&
-          a.sub_position?.endsWith(`_${activeShift}`) &&
-          a.employee_id
+    const runSaveJob = async () => {
+      setSaving(true);
+      setSaveSuccess(false);
+
+      const sourceAssignments = overrideAssignments ?? latestAssignmentsRef.current;
+      const dirtyShifts = (['AM', 'PM'] as const).filter(
+        (sh) =>
+          serializeShiftSlice(sourceAssignments, targetDateStr, sh) !==
+          serializeShiftSlice(persistedAssignmentsRef.current, targetDateStr, sh)
       );
+      const shiftsToPersist: Array<'AM' | 'PM'> =
+        dirtyShifts.length > 0 ? dirtyShifts : [activeShift];
 
-    const activeScopedKeysInSlice = new Set(
-      currentSlice.map(
-        (a) =>
-          `${normalizeText(selectedStoreGuid)}|${a.assignment_date}|${normalizeText(a.sub_position || '')}`
-      )
-    );
-    const clearedAssignments: ClearedStationAssignmentScope[] = persistedAssignments
-      .map((a) => ({
-        ...a,
-        sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
-      }))
-      .filter(
-        (a) =>
-          normalizeText(String(a.store_id || selectedStoreGuid)) === normalizeText(selectedStoreGuid) &&
-          a.assignment_date === selectedDateStr &&
-          a.sub_position?.endsWith(`_${activeShift}`) &&
-          a.employee_id &&
-          !activeScopedKeysInSlice.has(
-            `${normalizeText(selectedStoreGuid)}|${a.assignment_date}|${normalizeText(a.sub_position || '')}`
-          )
-      )
-      .map((a) => ({
-        store_id: selectedStoreGuid,
-        assignment_date: a.assignment_date,
-        main_station: a.main_station,
-        sub_position: a.sub_position,
-      }));
+      try {
+        let allSucceeded = true;
 
-    const payload: Record<string, any> = {
-      assignments: currentSlice,
-      cleared_assignments: clearedAssignments,
-      store_id: selectedStoreGuid,
-      start_date: selectedDateStr,
-      end_date: selectedDateStr,
-      active_shift: activeShift,
+        for (const shiftToSave of shiftsToPersist) {
+          const currentSlice = sourceAssignments
+            .map((a) => ({
+              ...a,
+              sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+            }))
+            .filter(
+              (a) =>
+                a.assignment_date === targetDateStr &&
+                a.sub_position?.endsWith(`_${shiftToSave}`) &&
+                Boolean(a.employee_id)
+            );
+
+          const activeScopedKeysInSlice = new Set(
+            currentSlice.map(
+              (a) =>
+                `${normalizeText(targetStoreGuid)}|${a.assignment_date}|${normalizeText(a.sub_position || '')}`
+            )
+          );
+          const clearedAssignments: ClearedStationAssignmentScope[] = persistedAssignmentsRef.current
+            .map((a) => ({
+              ...a,
+              sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM'),
+            }))
+            .filter(
+              (a) =>
+                normalizeText(String(a.store_id || targetStoreGuid)) === normalizeText(targetStoreGuid) &&
+                a.assignment_date === targetDateStr &&
+                a.sub_position?.endsWith(`_${shiftToSave}`) &&
+                Boolean(a.employee_id) &&
+                !activeScopedKeysInSlice.has(
+                  `${normalizeText(targetStoreGuid)}|${a.assignment_date}|${normalizeText(a.sub_position || '')}`
+                )
+            )
+            .map((a) => ({
+              store_id: targetStoreGuid,
+              assignment_date: a.assignment_date,
+              main_station: a.main_station,
+              sub_position: a.sub_position,
+            }));
+
+          const payload: Record<string, any> = {
+            assignments: currentSlice,
+            cleared_assignments: clearedAssignments,
+            store_id: targetStoreGuid,
+            start_date: targetDateStr,
+            end_date: targetDateStr,
+            active_shift: shiftToSave,
+          };
+
+          const expectedRevForShift =
+            assignmentsRevisionsByShiftRef.current[shiftToSave] ||
+            assignmentsRevisionsByShiftRef.current.ALL ||
+            assignmentsRevision;
+          if (!forceWithoutRevision && expectedRevForShift) {
+            payload.expected_revision = expectedRevForShift;
+          }
+
+          const res = await fetchWithTabletAuth('/api/roles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+
+          if (res.status === 409) {
+            allSucceeded = false;
+            if (data?.revisions && typeof data.revisions === 'object') {
+              assignmentsRevisionsByShiftRef.current = {
+                ALL:
+                  typeof data.revisions.ALL === 'string'
+                    ? data.revisions.ALL
+                    : assignmentsRevisionsByShiftRef.current.ALL,
+                AM:
+                  typeof data.revisions.AM === 'string'
+                    ? data.revisions.AM
+                    : assignmentsRevisionsByShiftRef.current.AM,
+                PM:
+                  typeof data.revisions.PM === 'string'
+                    ? data.revisions.PM
+                    : assignmentsRevisionsByShiftRef.current.PM,
+              };
+              if (typeof data.revisions.ALL === 'string') {
+                setAssignmentsRevision(data.revisions.ALL);
+              }
+            }
+            if (typeof data?.current_revision === 'string' && data.current_revision) {
+              assignmentsRevisionsByShiftRef.current[shiftToSave] = data.current_revision;
+            }
+
+            const shouldReload = confirm(
+              `${t('actividades.daily.conflict_reload_error')}\n\n${t('actividades.daily.conflict_reload_prompt')}`
+            );
+            if (shouldReload) {
+              await fetchAssignments({ forceOverwrite: true });
+            }
+            break;
+          }
+
+          if (data.success) {
+            lastSelfSaveAtRef.current = Date.now();
+            if (typeof data.revision === 'string' && data.revision) {
+              assignmentsRevisionsByShiftRef.current[shiftToSave] = data.revision;
+            }
+            if (typeof data?.revisions?.ALL === 'string' && data.revisions.ALL) {
+              assignmentsRevisionsByShiftRef.current.ALL = data.revisions.ALL;
+              setAssignmentsRevision(data.revisions.ALL);
+            }
+            const nextPersisted = [
+              ...persistedAssignmentsRef.current.filter(
+                (a) =>
+                  !(
+                    a.assignment_date === targetDateStr &&
+                    normalizeAssignmentSubPosition(a.main_station, a.sub_position, 'AM').endsWith(
+                      `_${shiftToSave}`
+                    )
+                  )
+              ),
+              ...currentSlice,
+            ];
+            persistedAssignmentsRef.current = nextPersisted;
+            setPersistedAssignments(nextPersisted);
+          } else {
+            allSucceeded = false;
+            alert(data.error || t('actividades.daily.save_error'));
+            break;
+          }
+        }
+
+        if (allSucceeded) {
+          setRemoteUpdatePending(false);
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+        }
+      } catch {
+        alert(t('actividades.daily.save_error'));
+      } finally {
+        setSaving(false);
+      }
     };
 
-    const expectedRevForShift =
-      assignmentsRevisionsByShiftRef.current[activeShift] || assignmentsRevision;
-    if (!forceWithoutRevision && expectedRevForShift) {
-      payload.expected_revision = expectedRevForShift;
-    }
-
-    try {
-      const res = await fetch('/api/roles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-
-      if (res.status === 409) {
-        const shouldReload = confirm(
-          `${t('actividades.daily.conflict_reload_error')}\n\n${
-            language === 'es'
-              ? '¿Deseas recargar los datos actuales del servidor? (Cancelar para mantener tu borrador en pantalla)'
-              : 'Do you want to reload current server data? (Cancel to keep your draft on screen)'
-          }`
-        );
-        if (shouldReload) {
-          await fetchAssignments({ forceOverwrite: true });
-        } else if (data.current_revision) {
-          setAssignmentsRevision(data.current_revision);
-          assignmentsRevisionsByShiftRef.current[activeShift] = data.current_revision;
-        }
-        return;
-      }
-
-      if (data.success) {
-        if (data.revision) {
-          setAssignmentsRevision(data.revision);
-          assignmentsRevisionsByShiftRef.current[activeShift] = data.revision;
-        }
-        setPersistedAssignments((prev) => {
-          const otherSlices = prev.filter(
-            (a) => !(a.assignment_date === selectedDateStr && a.sub_position?.endsWith(`_${activeShift}`))
-          );
-          return [...otherSlices, ...currentSlice];
-        });
-        setRemoteUpdatePending(false);
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-      } else {
-        alert(data.error || t('actividades.daily.save_error'));
-      }
-    } catch {
-      alert(t('actividades.daily.save_error'));
-    } finally {
-      setSaving(false);
-    }
+    const nextLock = savingLockRef.current.then(runSaveJob, runSaveJob);
+    savingLockRef.current = nextLock;
+    return nextLock;
   };
 
   const updateAssignment = useCallback(
@@ -1451,12 +1704,14 @@ export default function AsignacionDiariaTab() {
     ) => {
       if (!canEditAssignments) return;
       const subPos = `${station}_${activeShift}`;
+      const canonicalGroup = getSectionForStation(station) || group;
       const stationActivitiesList = activityMap[station] || [];
       const defaultTasks = stationActivitiesList
         .map((pa) => pa.operating_procedures?.activity)
         .filter(Boolean) as string[];
 
-      const existingForStation = assignments.find(
+      const currentSource = latestAssignmentsRef.current;
+      const existingForStation = currentSource.find(
         (a) => a.assignment_date === dateStr && a.sub_position === subPos
       );
       const mergedTasks = Array.from(
@@ -1468,7 +1723,7 @@ export default function AsignacionDiariaTab() {
         ])
       );
 
-      const filtered = assignments.filter(
+      const filtered = currentSource.filter(
         (a) => !(a.assignment_date === dateStr && a.sub_position === subPos)
       );
       const nextAssignments: Assignment[] = !employeeId
@@ -1481,24 +1736,26 @@ export default function AsignacionDiariaTab() {
               assignment_date: dateStr,
               main_station: station,
               sub_position: subPos,
-              station_group: group,
+              station_group: canonicalGroup,
               tasks: mergedTasks,
             },
           ];
 
+      latestAssignmentsRef.current = nextAssignments;
       setAssignments(nextAssignments);
       if (options?.autoSave) {
         void handleSave(false, nextAssignments);
       }
     },
-    [canEditAssignments, selectedStoreGuid, activeShift, activityMap, assignments, handleSave]
+    [canEditAssignments, selectedStoreGuid, activeShift, activityMap, handleSave]
   );
 
   const handleSlotClick = useCallback((stationKey: string, label: string, group: string, emp: any, assignee: any) => {
+    const canonicalGroup = getSectionForStation(stationKey) || group;
     setSelectedSlotForCard({ 
       stationKey, 
       label, 
-      assignee: assignee ? { ...assignee, station_group: group } : null
+      assignee: assignee ? { ...assignee, station_group: canonicalGroup } : null
     });
     setSelectedEmployeeCard(emp);
     setIsReassigning(false);
@@ -1511,9 +1768,11 @@ export default function AsignacionDiariaTab() {
   };
 
   const handleDiscardChanges = useCallback(() => {
-    setAssignments(persistedAssignments);
+    latestAssignmentsRef.current = persistedAssignmentsRef.current;
+    setAssignments(persistedAssignmentsRef.current);
+    isDirtyRef.current = false;
     setRemoteUpdatePending(false);
-  }, [persistedAssignments]);
+  }, []);
 
   const handleOpenPublishPreview = useCallback(async () => {
     if (!selectedStoreGuid) return;
@@ -1523,7 +1782,7 @@ export default function AsignacionDiariaTab() {
     try {
       const weekStartStr = formatDateISO(currentWeekStart);
       const weekEndStr = formatDateISO(addDays(currentWeekStart, 6));
-      const res = await fetch('/api/notifications/publish-schedule', {
+      const res = await fetchWithTabletAuth('/api/notifications/publish-schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1540,7 +1799,7 @@ export default function AsignacionDiariaTab() {
     } finally {
       setPublishPreviewLoading(false);
     }
-  }, [selectedStoreGuid, currentWeekStart]);
+  }, [selectedStoreGuid, currentWeekStart, fetchWithTabletAuth]);
 
   const handleCopyPreviousWeek = useCallback(async () => {
     if (!selectedStoreGuid) return;
@@ -1549,8 +1808,8 @@ export default function AsignacionDiariaTab() {
       const prevDate = subDays(selectedDay, 7);
       const prevDateStr = formatDateISO(prevDate);
       
-      const res = await fetch(
-        `/api/roles?store_id=${selectedStoreGuid}&start_date=${prevDateStr}&end_date=${prevDateStr}`
+      const res = await fetchWithTabletAuth(
+        `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${encodeURIComponent(prevDateStr)}&end_date=${encodeURIComponent(prevDateStr)}`
       );
       if (!res.ok) throw new Error('Failed to fetch previous week assignments');
       
@@ -1578,28 +1837,23 @@ export default function AsignacionDiariaTab() {
 
         const clonedAssignments = shiftFiltered
           .filter((a: any) => a.employee_id)
-          .map((a: any) => {
-          const stationActivitiesList = activityMap[a.main_station] || [];
-          const defaultTasks = stationActivitiesList
-            .map(pa => pa.operating_procedures?.activity)
-            .filter(Boolean) as string[];
-
-          return {
+          .map((a: any) => ({
             store_id: selectedStoreGuid,
             employee_id: a.employee_id,
             assignment_date: selectedDateStr,
             main_station: a.main_station,
             sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, activeShift),
-            station_group: a.station_group,
-            tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
-          };
-        });
+            station_group: getSectionForStation(a.main_station) || a.station_group,
+            tasks: Array.isArray(a.tasks) ? a.tasks : [],
+          }));
 
         setAssignments((prev) => {
           const otherShifts = prev.filter(
             (a) => !(a.assignment_date === selectedDateStr && a.sub_position?.endsWith(`_${activeShift}`))
           );
-          return [...otherShifts, ...clonedAssignments];
+          const next = [...otherShifts, ...clonedAssignments];
+          latestAssignmentsRef.current = next;
+          return next;
         });
         
         setSaveSuccess(false);
@@ -1611,11 +1865,11 @@ export default function AsignacionDiariaTab() {
     } finally {
       setCopying(false);
     }
-  }, [selectedStoreGuid, selectedDay, selectedDateStr, activeShift, activityMap, language]);
+  }, [selectedStoreGuid, selectedDay, selectedDateStr, activeShift, language, fetchWithTabletAuth]);
 
   const handleCopyPreviousWeekAll = useCallback(async () => {
     if (!canEditAssignments || !selectedStoreGuid) return;
-    if (!confirm(language === 'es' ? '¿Estás seguro de que quieres clonar TODA la semana pasada? Esto reemplazará todas las asignaciones de esta semana de forma permanente.' : 'Are you sure you want to clone the ENTIRE previous week? This will overwrite all assignments for the current week permanently.')) return;
+    if (!confirm(t('actividades.daily.clone_all_confirm'))) return;
     
     setCopyingAll(true);
     try {
@@ -1628,7 +1882,7 @@ export default function AsignacionDiariaTab() {
       const currentWeekStartStr = formatDateISO(currentWeekStart);
       const currentWeekEndStr = formatDateISO(currentWeekEnd);
 
-      const res = await fetch(
+      const res = await fetchWithTabletAuth(
         `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${prevWeekStartStr}&end_date=${prevWeekEndStr}&include_meta=1`
       );
       if (!res.ok) throw new Error('Failed to fetch previous week assignments');
@@ -1647,29 +1901,25 @@ export default function AsignacionDiariaTab() {
       const clonedAssignments = data
         .filter((a: any) => a.employee_id)
         .map((a: any) => {
-        const prevAssignDate = new Date(a.assignment_date + 'T00:00:00');
-        const nextAssignDate = addDays(prevAssignDate, 7);
-        const nextAssignDateStr = formatDateISO(nextAssignDate);
+          const prevAssignDate = new Date(a.assignment_date + 'T00:00:00');
+          const nextAssignDate = addDays(prevAssignDate, 7);
+          const nextAssignDateStr = formatDateISO(nextAssignDate);
 
-        const rowShift =
-          (extractLiteralShiftSuffix(a.sub_position) || extractLiteralShiftSuffix(a.main_station)) === 'PM'
-            ? 'PM'
-            : 'AM';
-        const stationActivitiesList = activityMap[a.main_station] || [];
-        const defaultTasks = stationActivitiesList
-          .map(pa => pa.operating_procedures?.activity)
-          .filter(Boolean) as string[];
+          const rowShift =
+            (extractLiteralShiftSuffix(a.sub_position) || extractLiteralShiftSuffix(a.main_station)) === 'PM'
+              ? 'PM'
+              : 'AM';
 
-        return {
-          store_id: selectedStoreGuid,
-          employee_id: a.employee_id,
-          assignment_date: nextAssignDateStr,
-          main_station: a.main_station,
-          sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, rowShift),
-          station_group: a.station_group,
-          tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
-        };
-      });
+          return {
+            store_id: selectedStoreGuid,
+            employee_id: a.employee_id,
+            assignment_date: nextAssignDateStr,
+            main_station: a.main_station,
+            sub_position: normalizeAssignmentSubPosition(a.main_station, a.sub_position, rowShift),
+            station_group: getSectionForStation(a.main_station) || a.station_group,
+            tasks: Array.isArray(a.tasks) ? a.tasks : [],
+          };
+        });
 
       if (clonedAssignments.length === 0) {
         alert(language === 'es' ? 'No se encontraron asignaciones válidas con empleado en la semana anterior para copiar.' : 'No valid employee assignments found in the previous week.');
@@ -1678,9 +1928,7 @@ export default function AsignacionDiariaTab() {
       }
 
       // Capturar justo antes del reemplazo la revisión de toda la semana destino.
-      // La RPC la compara dentro de la transacción; si otro manager guardó después,
-      // el reemplazo completo se rechaza con 409 y no borra sus asignaciones.
-      const targetSnapshotRes = await fetch(
+      const targetSnapshotRes = await fetchWithTabletAuth(
         `/api/roles?store_id=${encodeURIComponent(selectedStoreGuid)}&start_date=${currentWeekStartStr}&end_date=${currentWeekEndStr}&revision_only=1`
       );
       if (!targetSnapshotRes.ok) throw new Error('Failed to read current target-week revision');
@@ -1689,7 +1937,7 @@ export default function AsignacionDiariaTab() {
         throw new Error('Target week assignments did not include a stable revision');
       }
 
-      const saveRes = await fetch('/api/roles', {
+      const saveRes = await fetchWithTabletAuth('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1704,26 +1952,25 @@ export default function AsignacionDiariaTab() {
 
       const saveResult = await saveRes.json();
       if (saveResult.success) {
-        await Promise.all([fetchShifts(), fetchAssignments({ forceOverwrite: true })]);
+        lastSelfSaveAtRef.current = Date.now();
+        await Promise.all([fetchEmployees(), fetchAssignments({ forceOverwrite: true })]);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
-        alert(language === 'es' ? '¡Semana completa clonada y guardada con éxito!' : 'Entire week cloned and saved successfully!');
+        alert(t('actividades.daily.clone_all_success'));
       } else if (saveResult.code === 'CONFLICT_REVISION_MISMATCH') {
-        alert(language === 'es'
-          ? 'No se clonó la semana: las asignaciones de destino cambiaron desde que se revisaron. No se sobrescribió ningún cambio. Recarga la semana y vuelve a intentarlo.'
-          : 'The week was not cloned: target assignments changed after review. No changes were overwritten. Reload the week and try again.');
+        alert(t('actividades.daily.clone_all_conflict'));
       } else {
-        alert(language === 'es' ? 'Hubo un error al guardar las asignaciones clonadas.' : 'Error saving cloned assignments.');
+        alert(saveResult.error || t('actividades.daily.save_error'));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error cloning entire week:', err);
-      alert(language === 'es' ? 'Hubo un error al clonar la semana.' : 'An error occurred while cloning the week.');
+      alert(err?.message || t('actividades.daily.save_error'));
     } finally {
       setCopyingAll(false);
     }
-  }, [canEditAssignments, selectedStoreGuid, currentWeekStart, activeShift, activityMap, language, fetchShifts, fetchAssignments]);
+  }, [canEditAssignments, selectedStoreGuid, currentWeekStart, language, t, fetchWithTabletAuth, fetchEmployees, fetchAssignments]);
 
-  // ── Despertar Tableta (Reconfiguración 24/7 + Limpieza Caché + Día/Turno Actual) ──
+  // ── Despertar Tableta (Reconfiguración 24/7 + Limpieza Caché + Día/Turno Actual sin closure viejo) ──
   const handleWakeUpTablet = useCallback(async () => {
     lastInteractionAtRef.current = Date.now();
     setShowWakeUpModal(false);
@@ -1742,19 +1989,25 @@ export default function AsignacionDiariaTab() {
       lastBusinessDateRef.current = todayBDateStr;
       lastAutoShiftRef.current = currentShiftNow;
 
-      setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
-      setSelectedDay(todayBDate);
-      setActiveShift(currentShiftNow);
-      setSelectedSlotForCard(null);
-      setSelectedEmployeeCard(null);
-      setIsReassigning(false);
+      const targetDateForRefresh = !isDirtyRef.current || showVisualBoard ? todayBDateStr : selectedDateStr;
+      if (!isDirtyRef.current || showVisualBoard) {
+        setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
+        setSelectedDay(todayBDate);
+        setActiveShift(currentShiftNow);
+        setSelectedSlotForCard(null);
+        setSelectedEmployeeCard(null);
+        setIsReassigning(false);
+      }
 
       await Promise.all([
         fetchStores(),
         fetchPositionActivities(),
-        fetchShifts(),
-        fetchAssignments({ forceOverwrite: true }),
-        fetchWeekShiftEmpIds(),
+        fetchEmployees(targetDateForRefresh, selectedStoreGuid),
+        fetchAssignments({
+          forceOverwrite: !isDirtyRef.current,
+          overrideDateStr: targetDateForRefresh,
+          overrideStoreGuid: selectedStoreGuid,
+        }),
       ]);
 
       setTabletWakeSuccess(true);
@@ -1764,16 +2017,29 @@ export default function AsignacionDiariaTab() {
     } finally {
       setWakingUpTablet(false);
     }
-  }, [wakingUpTablet, wakeLock, fetchStores, fetchPositionActivities, fetchShifts, fetchAssignments, fetchWeekShiftEmpIds]);
+  }, [
+    wakingUpTablet,
+    wakeLock,
+    showVisualBoard,
+    selectedDateStr,
+    selectedStoreGuid,
+    fetchStores,
+    fetchPositionActivities,
+    fetchEmployees,
+    fetchAssignments,
+  ]);
 
   // ── Navigation con confirmación si hay borrador sin guardar (A14) ──
   const confirmNavigateIfDirty = (): boolean => {
     if (!isDirtyRef.current) return true;
-    return confirm(
-      language === 'es'
-        ? 'Tienes cambios sin guardar en este turno. ¿Deseas cambiar de vista y descartar los cambios locales?'
-        : 'You have unsaved changes in this shift. Do you want to switch views and discard local changes?'
-    );
+    const discardConfirmed = confirm(t('actividades.daily.discard_unsaved_prompt'));
+    if (discardConfirmed) {
+      latestAssignmentsRef.current = persistedAssignmentsRef.current;
+      setAssignments(persistedAssignmentsRef.current);
+      isDirtyRef.current = false;
+      setRemoteUpdatePending(false);
+    }
+    return discardConfirmed;
   };
 
   const goToPrevWeek = () => {
@@ -2039,33 +2305,38 @@ export default function AsignacionDiariaTab() {
               })}
             </div>
 
-            {/* Shift toggle */}
+            {/* Shift toggle (cambiar AM <-> PM en el mismo día conserva el borrador de ambos turnos) */}
             <div className="flex items-center bg-white/60 dark:bg-slate-800/60 rounded-xl p-1 border border-slate-200/50 dark:border-slate-700/50">
-              {(['AM', 'PM'] as const).map((shift) => (
-                <button
-                  key={shift}
-                  onClick={() => {
-                    if (activeShift !== shift && !confirmNavigateIfDirty()) return;
-                    setActiveShift(shift);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${
-                    activeShift === shift
-                      ? shift === 'AM'
-                        ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md'
-                        : 'bg-gradient-to-r from-indigo-600 to-purple-700 text-white shadow-md'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50'
-                  }`}
-                >
-                  {shift === 'AM' ? (
-                    <Sun className="w-3.5 h-3.5" />
-                  ) : (
-                    <Moon className="w-3.5 h-3.5" />
-                  )}
-                  {shift === 'AM'
-                    ? t('actividades.daily.shift_am')
-                    : t('actividades.daily.shift_pm')}
-                </button>
-              ))}
+              {(['AM', 'PM'] as const).map((shift) => {
+                const shiftHasDraft = shift === 'AM' ? isAmDirty : isPmDirty;
+                return (
+                  <button
+                    key={shift}
+                    onClick={() => {
+                      setActiveShift(shift);
+                    }}
+                    className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${
+                      activeShift === shift
+                        ? shift === 'AM'
+                          ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md'
+                          : 'bg-gradient-to-r from-indigo-600 to-purple-700 text-white shadow-md'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    {shift === 'AM' ? (
+                      <Sun className="w-3.5 h-3.5" />
+                    ) : (
+                      <Moon className="w-3.5 h-3.5" />
+                    )}
+                    {shift === 'AM'
+                      ? t('actividades.daily.shift_am')
+                      : t('actividades.daily.shift_pm')}
+                    {shiftHasDraft && (
+                      <span className="w-2 h-2 rounded-full bg-amber-300 ring-2 ring-white dark:ring-slate-900" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -2079,22 +2350,73 @@ export default function AsignacionDiariaTab() {
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/50">
                   <AlertCircle className="w-3.5 h-3.5" />
                   {t('actividades.daily.unsaved_changes_warning')}
+                  {isAmDirty && isPmDirty ? ' (AM + PM)' : isAmDirty ? ' (AM)' : ' (PM)'}
                 </span>
               )}
               {remoteUpdatePending && (
                 <button
                   type="button"
-                  onClick={() => fetchAssignments({ forceOverwrite: true })}
+                  onClick={() => {
+                    if (!confirmNavigateIfDirty()) return;
+                    void fetchAssignments({ forceOverwrite: true });
+                  }}
                   className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/50 hover:bg-blue-200 transition-colors"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  {language === 'es'
-                    ? 'Hay cambios remotos nuevos — clic para actualizar'
-                    : 'New remote changes available — click to reload'}
+                  {t('actividades.daily.remote_changes_reload')}
                 </button>
               )}
             </div>
           </div>
+
+          {/* Banner de Sesión Expirada (401) */}
+          {authExpiredBanner && (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-rose-100/90 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200">
+              <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-600 dark:text-rose-400" />
+                <span>{t('actividades.daily.session_expired_banner')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = '/login';
+                }}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all"
+              >
+                {t('actividades.daily.relogin_btn')}
+              </button>
+            </div>
+          )}
+
+          {/* Banner Ámbar de Fecha Pasada (Blindaje Trampa de Medianoche 00:00–05:59 AM) */}
+          {isViewingPastDate && (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-amber-100/95 dark:bg-amber-950/60 border-2 border-amber-400/80 dark:border-amber-700 text-amber-950 dark:text-amber-200 shadow-sm">
+              <div className="flex items-start sm:items-center gap-2.5 text-xs sm:text-sm">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 dark:text-amber-400 mt-0.5 sm:mt-0" />
+                <div>
+                  <p className="font-extrabold">
+                    {t('actividades.daily.past_date_warning_title')} ({format(selectedDay, 'EEEE, MMM d, yyyy', { locale })})
+                  </p>
+                  <p className="text-[11px] sm:text-xs font-medium opacity-90">
+                    {t('actividades.daily.past_date_warning_desc')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!confirmNavigateIfDirty()) return;
+                  const todayBDate = getBusinessToday();
+                  setCurrentWeekStart(startOfWeek(todayBDate, { weekStartsOn: 1 }));
+                  setSelectedDay(todayBDate);
+                  setActiveShift(getCurrentShiftLA());
+                }}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all shrink-0"
+              >
+                {t('actividades.daily.go_to_today_btn')}
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -2356,16 +2678,22 @@ export default function AsignacionDiariaTab() {
                                       ? `⚠ ${t('actividades.daily.vacant')}`
                                       : `— ${t('actividades.daily.unassign')} —`}
                                   </option>
-                                  {availableRoster.map((r) => {
-                                    const emp = r.employee!;
-                                    return (
-                                      <option key={emp.id} value={String(emp.id)}>
-                                        {getDisplayName(emp)}
-                                      </option>
-                                    );
-                                  })}
+                                  {scheduledActiveEmployees.map((emp) => (
+                                    <option key={emp.id} value={String(emp.id)}>
+                                      {getDisplayName(emp)}
+                                    </option>
+                                  ))}
+                                  {otherShiftEmployees.length > 0 && (
+                                    <optgroup label={`── ⏱ ${t('actividades.daily.other_shift_today')} ──`}>
+                                      {otherShiftEmployees.map((item) => (
+                                        <option key={`other-${item.employee.id}`} value={String(item.employee.id)}>
+                                          {getDisplayName(item.employee)} ⏱
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
                                   {offDutyEmployees.length > 0 && (
-                                    <optgroup label={`── ${t('actividades.daily.off_duty')} ──`}>
+                                    <optgroup label={`── 🌙 ${t('actividades.daily.off_duty')} ──`}>
                                       {offDutyEmployees.map((emp) => (
                                         <option key={`off-${emp.id}`} value={String(emp.id)}>
                                           {getDisplayName(emp)} 🌙
@@ -2373,6 +2701,18 @@ export default function AsignacionDiariaTab() {
                                       ))}
                                     </optgroup>
                                   )}
+                                  {(() => {
+                                    const rawAssignedId = assignment?.employee_id ? String(assignment.employee_id) : '';
+                                    if (!rawAssignedId || allSelectableOptionIds.has(rawAssignedId)) return null;
+                                    const fallbackName = assignedEmp
+                                      ? getDisplayName(assignedEmp)
+                                      : `ID ${rawAssignedId.slice(0, 8)}`;
+                                    return (
+                                      <optgroup label={`── ${t('actividades.daily.archived_assigned_group')} ──`}>
+                                        <option value={rawAssignedId}>{fallbackName}</option>
+                                      </optgroup>
+                                    );
+                                  })()}
                                 </select>
 
                                 {/* Activity checklist */}
@@ -2433,10 +2773,36 @@ export default function AsignacionDiariaTab() {
         <AnimatePresence>
           {showVisualBoard && (() => {
             const boardHasDriveThru = isConfirmedStoreDriveThru(selectedStore) && hasDriveThru;
-            const cardHeightClass = boardHasDriveThru ? 'h-[9.5vh] sm:h-[10.2vh]' : 'h-[14vh] sm:h-[16vh]';
-            const containerGapClass = boardHasDriveThru ? 'gap-[0.8vh] sm:gap-[1.2vh]' : 'gap-[2.5vh] sm:gap-[4vh]';
+            const activeExtraBoardItems = BOARD_LEADERSHIP_AND_EXTRA_SLOTS.map((slot) => {
+              const assignee = getAssignee(selectedDay, `${slot.stationKey}_${activeShift}`);
+              if (!assignee?.employee_id) return null;
+              const emp =
+                employees.find((e) => String(e.id) === String(assignee.employee_id)) ||
+                (assignee as any).toast_employees ||
+                null;
+              const localizedLabel = language === 'es' ? slot.labelEs : slot.labelEn;
+              return { ...slot, label: localizedLabel, assignee, emp };
+            }).filter((x): x is NonNullable<typeof x> => Boolean(x));
+            const hasExtraStrip = activeExtraBoardItems.length > 0;
+
+            const cardHeightClass = boardHasDriveThru
+              ? hasExtraStrip
+                ? 'h-[8.6vh] sm:h-[9.2vh]'
+                : 'h-[9.5vh] sm:h-[10.2vh]'
+              : hasExtraStrip
+              ? 'h-[12.2vh] sm:h-[13.8vh]'
+              : 'h-[14vh] sm:h-[16vh]';
+            const containerGapClass = boardHasDriveThru
+              ? hasExtraStrip
+                ? 'gap-[0.5vh] sm:gap-[0.8vh]'
+                : 'gap-[0.8vh] sm:gap-[1.2vh]'
+              : hasExtraStrip
+              ? 'gap-[1.2vh] sm:gap-[2vh]'
+              : 'gap-[2.5vh] sm:gap-[4vh]';
             const containerPaddingClass = boardHasDriveThru
-              ? 'pt-[0.8vh] pb-[1vh] px-[1.5vw]'
+              ? 'pt-[0.6vh] pb-[0.8vh] px-[1.5vw]'
+              : hasExtraStrip
+              ? 'pt-[1vh] pb-[1.5vh] px-[1.5vw]'
               : 'pt-[2vh] pb-[3vh] px-[1.5vw]';
 
             return (
@@ -2482,7 +2848,6 @@ export default function AsignacionDiariaTab() {
                         <button
                           key={sh}
                           onClick={() => {
-                            if (activeShift !== sh && !confirmNavigateIfDirty()) return;
                             setActiveShift(sh);
                           }}
                           className={`px-4 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-black transition-all uppercase tracking-wider ${
@@ -2500,7 +2865,9 @@ export default function AsignacionDiariaTab() {
                       <button
                         onClick={() => {
                           if (!confirmNavigateIfDirty()) return;
-                          setSelectedDay((d) => subDays(d, 1));
+                          const prevD = subDays(selectedDay, 1);
+                          setSelectedDay(prevD);
+                          setCurrentWeekStart(startOfWeek(prevD, { weekStartsOn: 1 }));
                         }}
                         className="w-8 h-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:text-indigo-600 transition-colors shadow-sm"
                       >
@@ -2512,7 +2879,9 @@ export default function AsignacionDiariaTab() {
                       <button
                         onClick={() => {
                           if (!confirmNavigateIfDirty()) return;
-                          setSelectedDay((d) => addDays(d, 1));
+                          const nextD = addDays(selectedDay, 1);
+                          setSelectedDay(nextD);
+                          setCurrentWeekStart(startOfWeek(nextD, { weekStartsOn: 1 }));
                         }}
                         className="w-8 h-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:text-indigo-600 transition-colors shadow-sm"
                       >
@@ -2535,6 +2904,79 @@ export default function AsignacionDiariaTab() {
                     </button>
                   </div>
                 </div>
+
+                {/* Auth Expired Warning in Visual Board */}
+                {authExpiredBanner && (
+                  <div className="bg-rose-600 text-white px-[2vw] py-[0.8vh] flex items-center justify-between gap-3 flex-shrink-0">
+                    <div className="flex items-center gap-2 text-xs sm:text-sm font-black uppercase tracking-wider">
+                      <AlertCircle size={18} />
+                      <span>{t('actividades.daily.session_expired_banner')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.location.href = '/login';
+                      }}
+                      className="px-4 py-1 rounded-full bg-white text-rose-700 text-xs font-black uppercase tracking-widest shadow-sm"
+                    >
+                      {t('actividades.daily.relogin_btn')}
+                    </button>
+                  </div>
+                )}
+
+                {/* Franja Compacta Interactiva: Liderazgo y Actividades Extra asignadas en el turno */}
+                {hasExtraStrip && (
+                  <div
+                    data-testid="visual-board-leadership-extras-strip"
+                    className="w-full bg-slate-100/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800 px-[1.5vw] py-[0.55vh] flex items-center gap-[0.6vw] overflow-x-auto no-scrollbar flex-shrink-0"
+                  >
+                    <span className="text-[1.1vh] sm:text-[1.25vh] font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 whitespace-nowrap flex items-center gap-1 pr-1">
+                      <Crown className="w-[1.5vh] h-[1.5vh] min-w-[12px] min-h-[12px]" />
+                      {t('actividades.daily.board_leadership_extras')}:
+                    </span>
+                    <div className="flex items-center gap-[0.45vw] flex-wrap">
+                      {activeExtraBoardItems.map((item) => {
+                        const firstName = item.emp
+                          ? item.emp.chosen_name || item.emp.first_name || ''
+                          : '';
+                        const lastName = item.emp?.last_name || '';
+                        const shortName = item.emp
+                          ? `${firstName} ${lastName ? lastName.charAt(0) + '.' : ''}`.trim()
+                          : `ID ${String(item.assignee.employee_id).slice(0, 6)}`;
+                        return (
+                          <button
+                            key={item.stationKey}
+                            type="button"
+                            data-touch-tap="true"
+                            data-testid="visual-board-extra-slot"
+                            data-station-key={item.stationKey}
+                            onClick={() =>
+                              handleSlotClick(
+                                item.stationKey,
+                                item.label,
+                                item.group,
+                                item.emp,
+                                item.assignee
+                              )
+                            }
+                            className={`px-[0.75vw] py-[0.35vh] rounded-lg border text-left flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs ${
+                              item.isLeadership
+                                ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300/80 dark:border-purple-700/70 text-purple-900 dark:text-purple-200 hover:border-purple-500'
+                                : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300/80 dark:border-amber-700/70 text-amber-900 dark:text-amber-200 hover:border-amber-500'
+                            }`}
+                          >
+                            <span className="text-[1vh] sm:text-[1.15vh] font-extrabold uppercase opacity-75 whitespace-nowrap">
+                              {item.label}:
+                            </span>
+                            <span className="text-[1.15vh] sm:text-[1.35vh] font-black uppercase tracking-tight whitespace-nowrap">
+                              {shortName}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Layout Content — Physical Workstation Floor Map (Salón, Cocina, Drive-Thru) */}
                 <div
@@ -2805,7 +3247,13 @@ export default function AsignacionDiariaTab() {
                 {/* Clock Status in bottom right */}
                 <div className="absolute bottom-2 right-4 flex items-end gap-3 opacity-30 pointer-events-none transform scale-75 origin-bottom-right">
                   <div className="text-right">
-                    <p className="text-[8px] font-black uppercase tracking-[0.1em] text-zinc-400 font-mono">SYS STATUS: OK</p>
+                    <p
+                      className={`text-[8px] font-black uppercase tracking-[0.1em] font-mono ${
+                        authExpiredBanner ? 'text-rose-500' : 'text-zinc-400'
+                      }`}
+                    >
+                      {authExpiredBanner ? 'SYS STATUS: AUTH REQUIRED' : 'SYS STATUS: OK'}
+                    </p>
                   </div>
                   <div className="w-px h-6 bg-zinc-300 dark:bg-zinc-700" />
                   <div className="flex flex-col">
@@ -3433,13 +3881,7 @@ export default function AsignacionDiariaTab() {
                             <span>{t('actividades.daily.leave_vacant')}</span>
                           </button>
                           {(() => {
-                            // Only show employees scheduled at this store today (from roster)
-                            const rosterEmployees = todayShifts
-                              .filter(s => !s.is_callback)
-                              .map(s => employees.find(e => String(e.id) === String(s.employee_id)))
-                              .filter((e): e is Employee => !!e)
-                              // Deduplicate (cross-shift employees may appear twice)
-                              .filter((e, idx, arr) => arr.findIndex(x => String(x.id) === String(e.id)) === idx);
+                            const rosterEmployees = scheduledActiveEmployees;
 
                             const shiftSuffix = `_${activeShift}`;
                             const targetStationKey = selectedSlotForCard.stationKey || selectedSlotForCard.label;
@@ -3491,6 +3933,70 @@ export default function AsignacionDiariaTab() {
                                 </button>
                               );
                             });
+
+                            // Employees scheduled in the opposite shift today (AM vs PM)
+                            const otherShiftButtons = otherShiftEmployees.length > 0 ? (
+                              <>
+                                <div className="col-span-full w-full flex items-center gap-3 py-2 mt-2">
+                                  <div className="flex-1 border-t border-dashed border-sky-300 dark:border-sky-800" />
+                                  <span className="text-xs font-bold text-sky-600 dark:text-sky-400 uppercase tracking-widest whitespace-nowrap">
+                                    ⏱ {t('actividades.daily.other_shift_today')}
+                                  </span>
+                                  <div className="flex-1 border-t border-dashed border-sky-300 dark:border-sky-800" />
+                                </div>
+                                {otherShiftEmployees.map((item) => {
+                                  const e = item.employee;
+                                  const coveredStations = assignments
+                                    .filter(
+                                      (a) =>
+                                        a.assignment_date === formatDateISO(selectedDay) &&
+                                        a.sub_position?.endsWith(shiftSuffix) &&
+                                        String(a.employee_id) === String(e.id) &&
+                                        a.main_station !== targetStationKey
+                                    )
+                                    .map((a) => a.main_station)
+                                    .filter(Boolean);
+
+                                  return (
+                                    <button
+                                      key={`other-${e.id}`}
+                                      onClick={() => {
+                                        updateAssignment(
+                                          formatDateISO(selectedDay),
+                                          targetStationKey,
+                                          String(e.id),
+                                          currentAssignee?.station_group || getSectionForStation(targetStationKey),
+                                          { autoSave: true }
+                                        );
+                                        setSelectedEmployeeCard(e);
+                                        setIsReassigning(false);
+                                      }}
+                                      className="w-full p-4 rounded-2xl bg-sky-50/50 dark:bg-sky-950/15 border border-dashed border-sky-200 dark:border-sky-800/50 shadow-sm hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-all text-left flex items-center gap-4 group"
+                                    >
+                                      <div className="w-12 h-12 bg-sky-100/80 dark:bg-sky-900/30 rounded-xl flex items-center justify-center text-lg font-black text-sky-600 dark:text-sky-400 group-hover:text-indigo-600 shadow-inner flex-shrink-0">
+                                        {(e.chosen_name || e.first_name)?.[0]?.toUpperCase()}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase leading-tight mb-0.5 truncate">
+                                          {e.chosen_name || e.first_name}
+                                        </p>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate">
+                                          {e.last_name}
+                                        </p>
+                                      </div>
+                                      {coveredStations.length > 0 && (
+                                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/50 px-2.5 py-1 rounded-lg uppercase">
+                                          {t('actividades.daily.already_covers')} {coveredStations.join(', ')}
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] font-bold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-900/40 px-2.5 py-1 rounded-lg uppercase">
+                                        {t('actividades.daily.other_shift_badge')}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </>
+                            ) : null;
 
                             // Off-duty employees (day off / vacation)
                             const offDutyButtons = offDutyEmployees.length > 0 ? (
@@ -3558,6 +4064,7 @@ export default function AsignacionDiariaTab() {
                             return (
                               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                                 {scheduledButtons}
+                                {otherShiftButtons}
                                 {offDutyButtons}
                               </div>
                             );

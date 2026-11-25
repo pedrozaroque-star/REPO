@@ -129,8 +129,9 @@ export async function POST(request: Request) {
       }
     })
 
+    // httpOnly: false requerido para mantener sincronización consistente con /api/login, /api/auth/google/callback y browserAuthFetch
     response.cookies.set('teg_token', newToken, {
-      httpOnly: true,
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',

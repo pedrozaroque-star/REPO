@@ -59,8 +59,35 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
 
   const checkAuth = () => {
     try {
-      const token = localStorage.getItem('teg_token')
-      const userStr = localStorage.getItem('teg_user')
+      const is24x7KioskSurface = Boolean(
+        pathname === '/inventory/preparador' ||
+        pathname?.startsWith('/inventory/preparador/') ||
+        pathname === '/order-ready-board' ||
+        pathname?.startsWith('/order-ready-board/') ||
+        pathname === '/actividades' ||
+        pathname?.startsWith('/actividades/')
+      )
+
+      let token = localStorage.getItem('teg_token')
+      let userStr = localStorage.getItem('teg_user')
+
+      // En pantallas operativas 24/7, respaldar sesión Staff en sessionStorage y recuperarla si otra pestaña (ej. /mis-horarios) sobrescribió o limpió localStorage
+      if (is24x7KioskSurface) {
+        const parsedCurrent = userStr ? (JSON.parse(userStr) as AuthUser) : null
+        if (token && parsedCurrent && parsedCurrent.user_type !== 'employee' && parsedCurrent.role?.toLowerCase() !== 'employee') {
+          try {
+            sessionStorage.setItem('teg_tab_staff_token', token)
+            sessionStorage.setItem('teg_tab_staff_user', userStr!)
+          } catch {}
+        } else {
+          const tabStaffToken = sessionStorage.getItem('teg_tab_staff_token')
+          const tabStaffUser = sessionStorage.getItem('teg_tab_staff_user')
+          if (tabStaffToken && tabStaffUser) {
+            token = tabStaffToken
+            userStr = tabStaffUser
+          }
+        }
+      }
 
       if (!token || !userStr) {
         router.replace('/login')
@@ -91,6 +118,10 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
             console.log('Token expired and renewal rejected, redirecting to login')
             localStorage.removeItem('teg_token')
             localStorage.removeItem('teg_user')
+            try {
+              sessionStorage.removeItem('teg_tab_staff_token')
+              sessionStorage.removeItem('teg_tab_staff_user')
+            } catch {}
             router.replace('/login')
           }
         })
@@ -184,8 +215,35 @@ export function useAuth() {
 
   const loadUser = () => {
     try {
-      const token = localStorage.getItem('teg_token')
-      const userStr = localStorage.getItem('teg_user')
+      let token = localStorage.getItem('teg_token')
+      let userStr = localStorage.getItem('teg_user')
+
+      if (typeof window !== 'undefined') {
+        const curPath = window.location.pathname || ''
+        const is24x7Surface =
+          curPath === '/inventory/preparador' ||
+          curPath.startsWith('/inventory/preparador/') ||
+          curPath === '/order-ready-board' ||
+          curPath.startsWith('/order-ready-board/') ||
+          curPath === '/actividades' ||
+          curPath.startsWith('/actividades/')
+        if (is24x7Surface) {
+          const parsedCur = userStr ? (JSON.parse(userStr) as AuthUser) : null
+          if (token && parsedCur && parsedCur.user_type !== 'employee' && parsedCur.role?.toLowerCase() !== 'employee') {
+            try {
+              sessionStorage.setItem('teg_tab_staff_token', token)
+              sessionStorage.setItem('teg_tab_staff_user', userStr!)
+            } catch {}
+          } else {
+            const tabStaffToken = sessionStorage.getItem('teg_tab_staff_token')
+            const tabStaffUser = sessionStorage.getItem('teg_tab_staff_user')
+            if (tabStaffToken && tabStaffUser) {
+              token = tabStaffToken
+              userStr = tabStaffUser
+            }
+          }
+        }
+      }
 
       if (userStr) {
         const userData = JSON.parse(userStr)

@@ -30,6 +30,75 @@ export function SystemUpdateDetector() {
     const [showSuccess, setShowSuccess] = useState(false)
     const [dismissedUpdateKey, setDismissedUpdateKey] = useState<string | null>(null)
 
+    // Auto-recuperación ante ChunkLoadError cuando Vercel rota despliegues en pestañas abiertas 24/7
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const isChunkError = (msg: string) =>
+            /ChunkLoadError|Loading chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(
+                msg
+            )
+        const recoverFromStaleChunk = (rawReason: unknown) => {
+            const msg =
+                typeof rawReason === 'string'
+                    ? rawReason
+                    : String((rawReason as any)?.message || (rawReason as any)?.reason?.message || '')
+            if (!isChunkError(msg)) return
+            try {
+                const lastAttempt = Number(sessionStorage.getItem('teg_chunk_recovery_at') || '0')
+                if (Date.now() - lastAttempt < 90_000) return
+                sessionStorage.setItem('teg_chunk_recovery_at', String(Date.now()))
+                sessionStorage.setItem('teg_update_completed', 'true')
+            } catch {}
+            window.location.reload()
+        }
+        const onWinError = (ev: ErrorEvent) => recoverFromStaleChunk(ev.error || ev.message)
+        const onUnhandledRejection = (ev: PromiseRejectionEvent) => recoverFromStaleChunk(ev.reason)
+        window.addEventListener('error', onWinError)
+        window.addEventListener('unhandledrejection', onUnhandledRejection)
+        return () => {
+            window.removeEventListener('error', onWinError)
+            window.removeEventListener('unhandledrejection', onUnhandledRejection)
+        }
+    }, [])
+
+    // En tabletas táctiles de cocina (/inventory/preparador) y tableros fullscreen de /actividades, aplicar nuevas versiones automáticamente en reposo (>45s desde detección y >15s sin toques)
+    // Nota: /order-ready-board NO recarga solo en despliegues normales para preservar el AudioContext desbloqueado en PCs Windows.
+    useEffect(() => {
+        if (typeof window === 'undefined' || !hasUpdate) return
+        const isPrepTabletRoute = Boolean(
+            pathname === '/inventory/preparador' || pathname?.startsWith('/inventory/preparador/')
+        )
+        const isActividadesRoute = Boolean(
+            pathname === '/actividades' || pathname?.startsWith('/actividades/')
+        )
+        if (!isPrepTabletRoute && !isActividadesRoute) return
+
+        let lastTouchAt = Date.now()
+        const markTouch = () => {
+            lastTouchAt = Date.now()
+        }
+        window.addEventListener('pointerdown', markTouch, { passive: true })
+        window.addEventListener('touchstart', markTouch, { passive: true })
+
+        const detectedAt = Date.now()
+        const checkIdleReload = setInterval(() => {
+            if (document.visibilityState !== 'visible') return
+            if (isActividadesRoute && !document.querySelector('[data-testid="visual-board-portal"]')) return
+            if (Date.now() - detectedAt < 45_000) return
+            if (Date.now() - lastTouchAt < 15_000) return
+            try {
+                sessionStorage.setItem('teg_update_completed', 'true')
+            } catch {}
+            window.location.reload()
+        }, 5000)
+
+        return () => {
+            clearInterval(checkIdleReload)
+            window.removeEventListener('pointerdown', markTouch)
+            window.removeEventListener('touchstart', markTouch)
+        }
+    }, [hasUpdate, pathname])
+
     useEffect(() => {
         if (isTvMode) return
         // Check if we just updated

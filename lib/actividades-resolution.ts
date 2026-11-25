@@ -645,7 +645,12 @@ export const ALLOWED_STATION_GROUPS: ReadonlySet<string> = new Set([
 
 export function isValidStationGroup(group: string | null | undefined): boolean {
     if (!group || typeof group !== 'string') return false;
-    return ALLOWED_STATION_GROUPS.has(group.trim().toLowerCase());
+    const normalized = group
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    return ALLOWED_STATION_GROUPS.has(normalized);
 }
 
 /**
@@ -2390,6 +2395,8 @@ export function mergeUnsuffixedAssignmentsIntoAmSlice<
         );
         const rawGroup = String(row.station_group || canonicalEntry?.group || 'front')
             .trim()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
             .toLowerCase();
         const normalizedGroup =
             rawGroup === 'salon' ? 'front' : rawGroup === 'cocina' ? 'kitchen' : rawGroup;
