@@ -90,6 +90,13 @@ export default function FoodCostNavigationTabs({ preserveParams }: FoodCostNavig
             path: '/admin/food-cost/varianza',
             icon: <Scale size={16} />,
             exactMatch: false
+        },
+        {
+            id: 'tvf',
+            label: t('food_cost.nav_tvf'),
+            path: '/admin/food-cost/teorico-vs-fisico',
+            icon: <Scale size={16} />,
+            exactMatch: false
         }
     ]
 
@@ -97,7 +104,12 @@ export default function FoodCostNavigationTabs({ preserveParams }: FoodCostNavig
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/60 mb-6 shadow-sm overflow-x-auto">
             {tabs.map(tab => {
                 const isActive = tab.exactMatch
-                    ? pathname === tab.path || (pathname.startsWith('/admin/food-cost/') && !pathname.startsWith('/admin/food-cost/meats') && !pathname.startsWith('/admin/food-cost/varianza'))
+                    ? pathname === tab.path || (
+                        pathname.startsWith('/admin/food-cost/') &&
+                        !pathname.startsWith('/admin/food-cost/meats') &&
+                        !pathname.startsWith('/admin/food-cost/varianza') &&
+                        !pathname.startsWith('/admin/food-cost/teorico-vs-fisico')
+                    )
                     : pathname.startsWith(tab.path)
 
                 return (

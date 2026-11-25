@@ -524,6 +524,15 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         : 'Análisis integral de Food Cost por sucursal, rendimiento de carnes y margen por platillo'
                 },
                 {
+                    name: t('items.theoretical_vs_physical'),
+                    plainName: 'Reporte Teórico vs. Físico',
+                    path: '/admin/food-cost/teorico-vs-fisico',
+                    icon: <BarChart3 size={20} />,
+                    badgeText: 'NEW',
+                    roles: ['admin', 'manager', 'supervisor'],
+                    tooltip: t('descriptions.theoretical_vs_physical')
+                },
+                {
                     name: t('items.supplier_prices') || 'Radar de Precios',
                     plainName: 'Radar de Precios',
                     path: '/admin/precios-proveedores',
