@@ -6,9 +6,9 @@
  *   mientras se despliegan las tabletas dedicadas de empaque en todas las sucursales.
  *
  * @businessRules
- * - **Exclusión de Sucursales con Tableta Física Delivery Armor**: `#7 Slauson` (`STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET`)
- *   ya opera su propia tableta física de Delivery Armor, por lo que esta alerta temporal se apaga por completo en Slauson
- *   (0 peticiones, 0 Realtime, 0 sonido, 0 px) y solo se muestra en las otras 14 sucursales mientras reciben sus tabletas.
+ * - **Exclusión de Sucursales con Tableta Física Delivery Armor**: `#7 Slauson` y `#8 Hollywood` (`STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET`)
+ *   ya operan con su propia tableta física de Delivery Armor, por lo que esta alerta temporal se apaga por completo en esas tiendas
+ *   (0 peticiones, 0 Realtime, 0 sonido, 0 px) y solo se muestra en las otras 13 sucursales mientras reciben sus tabletas.
  * - **Cero Ruido en Reposo**: Cuando no hay alertas `pending` o `acknowledged` para la sucursal activa, renderiza `null`
  *   (0 px de altura) para no estorbar la operación normal de llamado de clientes ni parrilla.
  * - **Tiempo Real < 500 ms + Fallback Seguro**: Se suscribe al canal Supabase Realtime Broadcast
@@ -74,7 +74,8 @@ const STORE_ID_BY_CODE: Record<string, number> = {
  * Al desplegar nuevas tabletas físicas en otras tiendas, basta agregar su `store_id` aquí.
  */
 export const STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET = new Set<number>([
-  7 // #7 Slauson (Los Ángeles - Slauson y Broadway)
+  7, // #7 Slauson (Los Ángeles - Slauson y Broadway)
+  8  // #8 Hollywood
 ])
 
 export function shouldShowTemporaryDeliveryPhoneAlertForStore(storeId: number | null | undefined): boolean {
@@ -454,7 +455,7 @@ export default function DeliveryPhoneNotesAlertPanel({
     [nowTick, t]
   )
 
-  // En sucursales que ya tienen tableta física de Delivery Armor (ej. #7 Slauson), no mostrar alerta temporal
+  // En sucursales que ya tienen tableta física de Delivery Armor (#7 Slauson, #8 Hollywood), no mostrar alerta temporal
   if (!isStoreEligible) {
     return null
   }
@@ -473,27 +474,41 @@ export default function DeliveryPhoneNotesAlertPanel({
     )
   }
 
+  const isRedTabletTheme = variant === 'tablet'
+
   return (
     <section
       data-no-proximity="true"
       aria-live="assertive"
       className={`shrink-0 z-30 ${
-        variant === 'tablet'
-          ? 'px-2.5 sm:px-4 py-2.5 bg-amber-100/90 dark:bg-amber-950/70 border-b-4 border-amber-500 max-h-[46vh] overflow-y-auto'
+        isRedTabletTheme
+          ? 'px-2.5 sm:px-4 py-2.5 bg-red-700 dark:bg-red-950 border-b-4 border-red-900 max-h-[46vh] overflow-y-auto'
           : 'px-3 sm:px-5 py-3 bg-amber-100/90 dark:bg-amber-950/70 border-b-4 border-amber-500'
       }`}
     >
-      <div className="rounded-2xl sm:rounded-3xl border-4 border-amber-500 bg-amber-50 p-3 sm:p-4 shadow-xl space-y-3 da-phone-alert-blink">
-        {/* Cabecera parpadeante idéntica a Delivery Armor */}
+      <div
+        className={`rounded-2xl sm:rounded-3xl border-4 p-3 sm:p-4 shadow-xl space-y-3 ${
+          isRedTabletTheme
+            ? 'border-red-300 bg-red-600 da-phone-alert-blink-red'
+            : 'border-amber-500 bg-amber-50 da-phone-alert-blink'
+        }`}
+      >
+        {/* Cabecera parpadeante (rojo intenso en tableta Preparador / ámbar-rojo en tablero) */}
         <div className="flex items-center justify-between gap-2.5 flex-wrap">
-          <div className="flex items-center gap-2.5 text-red-700 min-w-0">
+          <div className={`flex items-center gap-2.5 min-w-0 ${isRedTabletTheme ? 'text-white' : 'text-red-700'}`}>
             <BellRing className="w-6 h-6 sm:w-7 sm:h-7 flex-shrink-0 animate-bounce" />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base sm:text-xl font-black uppercase tracking-tight leading-tight">
                   {t('blindaje_delivery.phone_note_banner_title')} ({pendingNotes.length})
                 </h2>
-                <span className="px-2 py-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-950 text-[11px] font-black uppercase tracking-wide">
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wide ${
+                    isRedTabletTheme
+                      ? 'bg-red-950/75 border border-red-200/70 text-red-50'
+                      : 'bg-amber-200 border border-amber-400 text-amber-950'
+                  }`}
+                >
                   {t('blindaje_delivery.phone_note_temp_badge')}
                 </span>
               </div>
@@ -504,7 +519,11 @@ export default function DeliveryPhoneNotesAlertPanel({
             type="button"
             onClick={() => void playPhoneNoteAlertChime(true)}
             title={t('blindaje_delivery.phone_note_replay_sound_tooltip')}
-            className="px-3 py-2 rounded-xl bg-amber-200 hover:bg-amber-300 active:scale-95 text-amber-950 text-xs font-black flex items-center gap-1.5 border border-amber-400 shadow-xs cursor-pointer touch-manipulation"
+            className={`px-3 py-2 rounded-xl active:scale-95 text-xs font-black flex items-center gap-1.5 border shadow-xs cursor-pointer touch-manipulation ${
+              isRedTabletTheme
+                ? 'bg-white/20 hover:bg-white/30 text-white border-white/50'
+                : 'bg-amber-200 hover:bg-amber-300 text-amber-950 border-amber-400'
+            }`}
           >
             <Volume2 className="w-4 h-4" />
             <span>🔊</span>
@@ -512,7 +531,7 @@ export default function DeliveryPhoneNotesAlertPanel({
         </div>
 
         {errorMsg && (
-          <div className="p-2.5 rounded-xl bg-red-600 text-white text-xs sm:text-sm font-black flex items-center gap-2">
+          <div className="p-2.5 rounded-xl bg-red-950 border border-red-300 text-white text-xs sm:text-sm font-black flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -532,11 +551,13 @@ export default function DeliveryPhoneNotesAlertPanel({
             return (
               <div
                 key={note.id}
-                className="relative rounded-2xl bg-white border-2 border-amber-400 p-3 sm:p-4 shadow-md space-y-2.5 text-slate-950"
+                className={`relative rounded-2xl bg-white border-2 p-3 sm:p-4 shadow-md space-y-2.5 text-slate-950 ${
+                  isRedTabletTheme ? 'border-red-400 ring-2 ring-red-200/80' : 'border-amber-400'
+                }`}
               >
                 {/* Alerta roja prioritaria si la bolsa ya estaba sellada */}
                 {isReopenBag && (
-                  <div className="p-2.5 sm:p-3 rounded-xl bg-red-600 text-white text-xs sm:text-sm font-black flex items-center gap-2 shadow-sm">
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-red-700 text-white text-xs sm:text-sm font-black flex items-center gap-2 shadow-sm">
                     <AlertTriangle className="w-5 h-5 shrink-0 animate-pulse" />
                     <span>{t('blindaje_delivery.phone_note_detail_reopen_warn')}</span>
                   </div>
@@ -549,11 +570,21 @@ export default function DeliveryPhoneNotesAlertPanel({
                       {plat.label}
                     </span>
                     <span className="inline-flex items-center gap-1.5 text-lg sm:text-2xl font-black text-slate-950 leading-none">
-                      <PhoneCall className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 shrink-0" />
+                      <PhoneCall
+                        className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${
+                          isRedTabletTheme ? 'text-red-600' : 'text-amber-600'
+                        }`}
+                      />
                       <span>{customerDisplay}</span>
                     </span>
                     {note.shortOrderKey && (
-                      <span className="px-2.5 py-0.5 rounded-lg bg-amber-100 border border-amber-400 text-amber-950 text-xs sm:text-sm font-mono font-black">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-lg text-xs sm:text-sm font-mono font-black ${
+                          isRedTabletTheme
+                            ? 'bg-red-100 border border-red-400 text-red-950'
+                            : 'bg-amber-100 border border-amber-400 text-amber-950'
+                        }`}
+                      >
                         {note.shortOrderKey}
                       </span>
                     )}
@@ -610,14 +641,22 @@ export default function DeliveryPhoneNotesAlertPanel({
                   <div className="flex flex-wrap gap-3 pt-0.5">
                     {note.requestedCondiments.length > 0 && (
                       <div className="space-y-1">
-                        <div className="text-[11px] font-black uppercase tracking-wider text-amber-800">
+                        <div
+                          className={`text-[11px] font-black uppercase tracking-wider ${
+                            isRedTabletTheme ? 'text-red-700' : 'text-amber-800'
+                          }`}
+                        >
                           {t('blindaje_delivery.phone_note_condiments_label')}
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {note.requestedCondiments.map((c, idx) => (
                             <span
                               key={idx}
-                              className="px-2.5 py-1 rounded-xl bg-amber-100 border border-amber-400 text-amber-950 text-xs sm:text-sm font-black"
+                              className={`px-2.5 py-1 rounded-xl text-xs sm:text-sm font-black ${
+                                isRedTabletTheme
+                                  ? 'bg-red-50 border-2 border-red-400 text-red-950'
+                                  : 'bg-amber-100 border border-amber-400 text-amber-950'
+                              }`}
                             >
                               + {c}
                             </span>

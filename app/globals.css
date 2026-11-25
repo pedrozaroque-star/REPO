@@ -98,6 +98,24 @@ a,
     animation: deliveryPhoneAlertBlink 1.05s ease-in-out infinite;
 }
 
+/* Variante rojo intenso de alta visibilidad para la alerta temporal en tabletas PREPARADOR */
+@keyframes deliveryPhoneAlertBlinkRed {
+    0%, 100% {
+        box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.95), 0 0 24px rgba(185, 28, 28, 0.7);
+        border-color: #fca5a5;
+        background-color: #dc2626;
+    }
+    50% {
+        box-shadow: 0 0 0 7px rgba(239, 68, 68, 1), 0 0 36px rgba(220, 38, 38, 0.95);
+        border-color: #fef08a;
+        background-color: #991b1b;
+    }
+}
+
+.da-phone-alert-blink-red {
+    animation: deliveryPhoneAlertBlinkRed 0.95s ease-in-out infinite;
+}
+
 /* Impresión limpia con fidelidad cromática (Certificados SOP, Hoja de Control y Bitácoras) */
 @media print {
     html,
