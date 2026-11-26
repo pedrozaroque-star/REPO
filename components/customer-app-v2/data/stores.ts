@@ -23,6 +23,7 @@ import type {
   V2AuthoritativeStore,
 } from '../types'
 import { formatCustomerStoreName } from '@/lib/customer-store-names'
+import { getOfficialStoreHolidaySchedule, type OfficialStoreHolidayRule } from '@/lib/holidays'
 import { sortStoresAlphabetically } from '@/lib/store-display'
 
 export function buildSchedule(
@@ -223,10 +224,10 @@ const RAW_V2_STORES: V2AuthoritativeStore[] = [
     latitude: 33.953703,
     longitude: -118.130299,
     toastOrderingUrl: 'https://order.online/store/tacos-gavilan-downey-302620',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     weeklySchedule: buildSchedule({
-      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_12AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
+      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
     }),
   },
   {
@@ -283,10 +284,10 @@ const RAW_V2_STORES: V2AuthoritativeStore[] = [
     latitude: 33.975055,
     longitude: -118.229235,
     toastOrderingUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849',
-    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     weeklySchedule: buildSchedule({
-      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_2AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
+      0: W_10AM_12AM, 1: W_10AM_12AM, 2: W_10AM_12AM, 3: W_10AM_12AM, 4: W_10AM_1AM, 5: W_10AM_3AM, 6: W_10AM_3AM,
     }),
   },
   {
@@ -398,10 +399,78 @@ export function formatUsPhoneDisplay(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}`
 }
 
+function formatHour12V2(hour24: number): string {
+  const h = ((Math.trunc(hour24) % 24) + 24) % 24
+  if (h === 0) return '12:00 AM'
+  if (h === 12) return '12:00 PM'
+  return h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
+}
+
+function shiftCalendarDateStr(dateStr: string, deltaDays: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + deltaDays, 12, 0, 0)).toISOString().slice(0, 10)
+}
+
+interface EffectiveHolidayDayWindow {
+  isClosedAllDay: boolean
+  openHour: number
+  closeHour: number
+  labelEn: string
+  labelEs: string
+  isEarlyClose: boolean
+  isLateOpen: boolean
+  rule: OfficialStoreHolidayRule | null
+}
+
+function resolveEffectiveHolidayWindow(
+  base: DailyScheduleWindow,
+  dateStr: string
+): EffectiveHolidayDayWindow {
+  const rule = getOfficialStoreHolidaySchedule(dateStr)
+  if (!rule) {
+    return {
+      isClosedAllDay: false,
+      openHour: base.openHour,
+      closeHour: base.closeHour,
+      labelEn: base.labelEn,
+      labelEs: base.labelEs,
+      isEarlyClose: false,
+      isLateOpen: false,
+      rule: null,
+    }
+  }
+  if (rule.is_closed) {
+    return {
+      isClosedAllDay: true,
+      openHour: 0,
+      closeHour: 0,
+      labelEn: `Closed All Day (${rule.holiday_name_en})`,
+      labelEs: `Cerrado todo el día (${rule.holiday_name_es})`,
+      isEarlyClose: false,
+      isLateOpen: false,
+      rule,
+    }
+  }
+  const openHour = rule.open_time ? Number(rule.open_time.split(':')[0]) : base.openHour
+  const closeHour = rule.close_time ? Number(rule.close_time.split(':')[0]) : base.closeHour
+  const rangeStr = `${formatHour12V2(openHour)} – ${formatHour12V2(closeHour)}`
+  return {
+    isClosedAllDay: false,
+    openHour,
+    closeHour,
+    labelEn: rangeStr,
+    labelEs: rangeStr,
+    isEarlyClose: Boolean(rule.close_time && closeHour < base.closeHour),
+    isLateOpen: Boolean(rule.open_time && openHour > base.openHour),
+    rule,
+  }
+}
+
 /**
- * Calcula si una sucursal se encuentra abierta en tiempo real en America/Los_Angeles.
- * Si la hora decimal está entre 00:00 y 04:59 y el turno nocturno previo sigue abierto,
- * reporta correctamente la etiqueta de horario de `prevWindow` (la jornada aún activa).
+ * Calcula si una sucursal se encuentra abierta en tiempo real en America/Los_Angeles,
+ * respetando las 7 fechas festivas oficiales anuales (`lib/holidays.ts`: cierres totales,
+ * cierres tempranos a las 4:00 PM, aperturas tarde a las 11:00 AM y cero derrame post-medianoche
+ * tras cierres tempranos o días cerrados).
  */
 export function getStoreStatusInLA(
   store: V2AuthoritativeStore,
@@ -411,15 +480,23 @@ export function getStoreStatusInLA(
   isOpen: boolean
   badgeText: string
   todayHours: string
+  holidayName?: string | null
+  isHolidaySpecial?: boolean
 } {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     weekday: 'short',
     hour: 'numeric',
     minute: 'numeric',
     hour12: false,
   })
   const parts = formatter.formatToParts(now)
+  const yearStr = parts.find((p) => p.type === 'year')?.value ?? '2026'
+  const monthStr = parts.find((p) => p.type === 'month')?.value ?? '01'
+  const dayStr = parts.find((p) => p.type === 'day')?.value ?? '01'
   const weekdayStr = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun'
   const hourStr = parts.find((p) => p.type === 'hour')?.value ?? '12'
   const minuteStr = parts.find((p) => p.type === 'minute')?.value ?? '0'
@@ -427,32 +504,87 @@ export function getStoreStatusInLA(
   let hour = parseInt(hourStr, 10)
   if (Number.isNaN(hour) || hour === 24) hour = 0
   const decimalHour = hour + (parseInt(minuteStr, 10) || 0) / 60
-  const todayWindow = store.weeklySchedule[dayIndex]
 
-  let isOpen = false
-  let displayWindow: DailyScheduleWindow = todayWindow
+  const todayDateStr = `${yearStr}-${monthStr}-${dayStr}`
+  const prevDateStr = shiftCalendarDateStr(todayDateStr, -1)
+  const prevDayIndex = ((dayIndex + 6) % 7) as DayOfWeekIndex
 
-  if (decimalHour < 5) {
-    const prevDayIndex = ((dayIndex + 6) % 7) as DayOfWeekIndex
-    const prevWindow = store.weeklySchedule[prevDayIndex]
-    isOpen = decimalHour + 24 < prevWindow.closeHour
-    if (isOpen) {
-      displayWindow = prevWindow
+  const prevEff = resolveEffectiveHolidayWindow(store.weeklySchedule[prevDayIndex], prevDateStr)
+  const todayEff = resolveEffectiveHolidayWindow(store.weeklySchedule[dayIndex], todayDateStr)
+
+  // 1. Verificar turno nocturno previo (00:00–04:59 AM PT): cero derrame tras cierre temprano (4 PM) o día cerrado
+  if (decimalHour < 5 && !prevEff.isClosedAllDay && prevEff.closeHour > 24 && decimalHour + 24 < prevEff.closeHour) {
+    return {
+      isOpen: true,
+      badgeText: lang === 'en' ? 'Open Now' : 'Abierto Ahora',
+      todayHours: lang === 'en' ? prevEff.labelEn : prevEff.labelEs,
+      holidayName: null,
+      isHolidaySpecial: false,
     }
-  } else {
-    isOpen = decimalHour >= todayWindow.openHour && decimalHour < todayWindow.closeHour
+  }
+
+  // 2. Día festivo cerrado todo el día (Viernes Santo / Navidad)
+  if (todayEff.isClosedAllDay) {
+    return {
+      isOpen: false,
+      badgeText: lang === 'en' ? 'Closed for Holiday' : 'Cerrado por Día Festivo',
+      todayHours: lang === 'en' ? todayEff.labelEn : todayEff.labelEs,
+      holidayName: todayEff.rule ? (lang === 'en' ? todayEff.rule.holiday_name_en : todayEff.rule.holiday_name_es) : null,
+      isHolidaySpecial: true,
+    }
+  }
+
+  const isOpen = decimalHour >= todayEff.openHour && decimalHour < todayEff.closeHour
+  const holidayName = todayEff.rule
+    ? lang === 'en'
+      ? todayEff.rule.holiday_name_en
+      : todayEff.rule.holiday_name_es
+    : null
+
+  if (isOpen) {
+    const closeStr = formatHour12V2(todayEff.closeHour)
+    return {
+      isOpen: true,
+      badgeText: todayEff.isEarlyClose
+        ? lang === 'en'
+          ? `Closes early ${closeStr}`
+          : `Cierre temprano ${closeStr}`
+        : lang === 'en'
+        ? 'Open Now'
+        : 'Abierto Ahora',
+      todayHours: lang === 'en' ? todayEff.labelEn : todayEff.labelEs,
+      holidayName,
+      isHolidaySpecial: Boolean(todayEff.rule),
+    }
+  }
+
+  if (todayEff.isEarlyClose && decimalHour >= todayEff.closeHour) {
+    return {
+      isOpen: false,
+      badgeText: lang === 'en' ? 'Closed · Holiday' : 'Cerrado por Día Festivo',
+      todayHours: lang === 'en' ? todayEff.labelEn : todayEff.labelEs,
+      holidayName,
+      isHolidaySpecial: true,
+    }
+  }
+
+  if (todayEff.isLateOpen && decimalHour < todayEff.openHour) {
+    const openStr = formatHour12V2(todayEff.openHour)
+    return {
+      isOpen: false,
+      badgeText: lang === 'en' ? `Opens ${openStr} (Holiday)` : `Abre ${openStr} (Festivo)`,
+      todayHours: lang === 'en' ? todayEff.labelEn : todayEff.labelEs,
+      holidayName,
+      isHolidaySpecial: true,
+    }
   }
 
   return {
-    isOpen,
-    badgeText: isOpen
-      ? lang === 'en'
-        ? 'Open Now'
-        : 'Abierto Ahora'
-      : lang === 'en'
-      ? 'Closed'
-      : 'Cerrado',
-    todayHours: lang === 'en' ? displayWindow.labelEn : displayWindow.labelEs,
+    isOpen: false,
+    badgeText: lang === 'en' ? 'Closed' : 'Cerrado',
+    todayHours: lang === 'en' ? todayEff.labelEn : todayEff.labelEs,
+    holidayName,
+    isHolidaySpecial: Boolean(todayEff.rule),
   }
 }
 

@@ -20,9 +20,9 @@ const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', '
 const STORE_CLOSING_HOURS: Record<string, Record<number, number>> = {
     'Azusa': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 25, 6: 25 },
     'Bell': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },
-    'Downey': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },
+    'Downey': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 25, 5: 27, 6: 27 },
     'Hollywood': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },
-    'Huntington': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 26, 5: 27, 6: 27 },
+    'Huntington': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 25, 5: 27, 6: 27 },
     'LA Broadway': { 0: 26, 1: 25, 2: 25, 3: 25, 4: 26, 5: 28, 6: 28 }, // Mon is 25 (1am)
     'LA Central': { 0: 26, 1: 26, 2: 26, 3: 26, 4: 27, 5: 28, 6: 28 },
     'La Puente': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },
@@ -36,7 +36,7 @@ const STORE_CLOSING_HOURS: Record<string, Record<number, number>> = {
 }
 
 const STORE_OPENING_HOURS: Record<string, number> = {
-    'Azusa': 10, 'Bell': 10, 'Downey': 9, 'Hollywood': 9, 'Huntington': 10,
+    'Azusa': 10, 'Bell': 10, 'Downey': 10, 'Hollywood': 9, 'Huntington': 10,
     'LA Broadway': 8, 'LA Central': 8, 'La Puente': 10, 'Lynwood': 9,
     'Norwalk': 9, 'Rialto': 9, 'Santa Ana': 10, 'Slauson': 10,
     'South Gate': 10, 'West Covina': 9

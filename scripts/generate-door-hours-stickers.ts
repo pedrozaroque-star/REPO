@@ -1036,19 +1036,36 @@ async function main(): Promise<void> {
       const pdfFile = `${meta.fileStem}_Door_Sticker_18x5.5in.pdf`;
       const pngPath = path.join(pngDir, pngFile);
       const pdfPath = path.join(pdfDir, pdfFile);
+      const pngTmpPath = path.join(pngDir, `${meta.fileStem}.tmp.png`);
+      const pdfTmpPath = path.join(pdfDir, `${meta.fileStem}.tmp.pdf`);
+
+      const atomicReplace = async (tmpPath: string, finalPath: string) => {
+        for (let attempt = 0; attempt < 8; attempt++) {
+          try {
+            fs.renameSync(tmpPath, finalPath);
+            return;
+          } catch (err) {
+            if (attempt === 7) throw err;
+            await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+          }
+        }
+      };
 
       const rawScreenshot = await page.screenshot({ type: 'png' });
       await sharp(Buffer.from(rawScreenshot))
         .withMetadata({ density: 300 })
         .png()
-        .toFile(pngPath);
-      await page.pdf({
-        path: pdfPath,
+        .toFile(pngTmpPath);
+      await atomicReplace(pngTmpPath, pngPath);
+
+      const pdfBytes = await page.pdf({
         width: '18in',
         height: '5.5in',
         printBackground: true,
         preferCSSPageSize: true,
       });
+      fs.writeFileSync(pdfTmpPath, pdfBytes);
+      await atomicReplace(pdfTmpPath, pdfPath);
 
       manifest.push({
         rank: meta.rank,
@@ -1082,7 +1099,20 @@ async function main(): Promise<void> {
   }
 
   const manifestPath = path.join(outBase, 'stores_door_stickers_manifest.json');
-  fs.writeFileSync(manifestPath, JSON.stringify({ generatedAt: new Date().toISOString(), dimensionsInches: { width: 18.0, height: 5.5 }, stores: manifest }, null, 2));
+  const manifestTmpPath = path.join(outBase, 'stores_door_stickers_manifest.tmp.json');
+  fs.writeFileSync(
+    manifestTmpPath,
+    JSON.stringify({ generatedAt: new Date().toISOString(), dimensionsInches: { width: 18.0, height: 5.5 }, stores: manifest }, null, 2)
+  );
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      fs.renameSync(manifestTmpPath, manifestPath);
+      break;
+    } catch (err) {
+      if (attempt === 7) throw err;
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+    }
+  }
   console.log(`\nDone! Generated 15 PDFs + 15 PNGs + manifest at ${manifestPath}`);
 }
 

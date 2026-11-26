@@ -22,9 +22,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const STORE_CLOSING_HOURS: Record<string, Record<number, number>> = {
     'Azusa': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 25, 6: 25 },  // 10AM → 12AM, Fri-Sat: 1AM
     'Bell': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },  // 10AM → 12AM, Fri-Sat: 2AM
-    'Downey': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },  // 12AM / 3AM
+    'Downey': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 25, 5: 27, 6: 27 },  // 10AM → 12AM, Thu: 1AM, Fri-Sat: 3AM
     'Hollywood': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },  // 9AM → 12AM, Fri-Sat: 3AM
-    'Huntington': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 26, 5: 27, 6: 27 },  // 10AM → 12AM, Thu: 2AM, Fri-Sat: 3AM
+    'Huntington': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 25, 5: 27, 6: 27 },  // 10AM → 12AM, Thu: 1AM, Fri-Sat: 3AM
     'LA Broadway': { 0: 26, 1: 25, 2: 25, 3: 25, 4: 26, 5: 28, 6: 28 },  // Sun:2AM, Mon-Wed:1AM, Thu:2AM / 4AM
     'LA Central': { 0: 26, 1: 26, 2: 26, 3: 26, 4: 27, 5: 28, 6: 28 },  // 2AM, Thu:3AM / 4AM
     'La Puente': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },  // 12AM / 2AM
@@ -41,7 +41,7 @@ const STORE_CLOSING_HOURS: Record<string, Record<number, number>> = {
 const STORE_OPENING_HOURS: Record<string, number> = {
     'Azusa': 10,        // Opens 10AM
     'Bell': 10,         // Opens 10AM
-    'Downey': 9,        // Opens 9AM
+    'Downey': 10,       // Opens 10AM
     'Hollywood': 9,     // Opens 9AM
     'Huntington': 10,   // Opens 10AM
     'LA Broadway': 8,   // Opens 8AM

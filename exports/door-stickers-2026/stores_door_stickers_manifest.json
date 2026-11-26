@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-17T04:04:29.995Z",
+  "generatedAt": "2026-11-26T21:58:28.204Z",
   "dimensionsInches": {
     "width": 18,
     "height": 5.5
@@ -582,8 +582,8 @@
           "dayEn": "THURSDAY",
           "dayEs": "JUEVES",
           "open": "10 AM",
-          "close": "12 AM",
-          "isExtended": false
+          "close": "1 AM",
+          "isExtended": true
         },
         {
           "dayEn": "FRIDAY",
@@ -783,7 +783,7 @@
           "dayEn": "THURSDAY",
           "dayEs": "JUEVES",
           "open": "10 AM",
-          "close": "2 AM",
+          "close": "1 AM",
           "isExtended": true
         },
         {

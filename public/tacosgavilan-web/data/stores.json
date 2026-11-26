@@ -210,8 +210,8 @@
     "lng": -118.130299,
     "toastUrl": "https://order.online/store/tacos-gavilan-downey-302620",
     "hours": {
-      "en": "Sun – Thu: 10:00 AM – 12:00 AM | Fri – Sat: 10:00 AM – 3:00 AM",
-      "es": "Dom – Jue: 10:00 AM – 12:00 AM | Vie – Sáb: 10:00 AM – 3:00 AM"
+      "en": "Sun – Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 1:00 AM | Fri – Sat: 10:00 AM – 3:00 AM",
+      "es": "Dom – Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 1:00 AM | Vie – Sáb: 10:00 AM – 3:00 AM"
     },
     "isActive": true
   },
@@ -282,8 +282,8 @@
     "lng": -118.229235,
     "toastUrl": "https://order.online/store/tacos-gavilan-huntington-park-260849",
     "hours": {
-      "en": "Sun – Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri – Sat: 10:00 AM – 3:00 AM",
-      "es": "Dom – Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie – Sáb: 10:00 AM – 3:00 AM"
+      "en": "Sun – Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 1:00 AM | Fri – Sat: 10:00 AM – 3:00 AM",
+      "es": "Dom – Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 1:00 AM | Vie – Sáb: 10:00 AM – 3:00 AM"
     },
     "isActive": true
   },

@@ -1663,11 +1663,23 @@ async function queryFeedback(args: any): Promise<string> {
 
 // ── 10. Stores ──
 async function queryStores(): Promise<string> {
-  const { data, error } = await supabaseAdmin.from('stores').select('id, name, code, external_id, address, city, state, zip_code, phone, is_active, has_drive_thru, opening_time, closing_time, supervisor_name')
+  const { data, error } = await supabaseAdmin.from('stores').select('id, name, code, external_id, address, city, state, zip_code, phone, is_active, has_drive_thru, opening_time, closing_time, weekly_hours, supervisor_name')
   if (error) return `Error: ${error.message}`
   if (!data?.length) return 'No stores found.'
 
-  const lines = data.map(s => `${clean(s.name)} (Code: ${s.code || '-'}) | ID: ${s.id} | External: ${s.external_id || '-'} | Active: ${s.is_active} | Drive-Thru: ${s.has_drive_thru} | Hours: ${s.opening_time || '-'}-${s.closing_time || '-'} | Supervisor: ${s.supervisor_name || '-'} | ${s.address || ''}, ${s.city || ''}, ${s.state || ''} ${s.zip_code || ''}`)
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const formatWeekly = (wh: any): string => {
+    if (!Array.isArray(wh) || wh.length === 0) return ''
+    return [...wh]
+      .sort((a, b) => Number(a?.day ?? 0) - Number(b?.day ?? 0))
+      .map((d: any) => `${dayNames[Number(d?.day)] ?? d?.day}:${d?.open || '-'}-${d?.close || '-'}`)
+      .join(', ')
+  }
+
+  const lines = data.map(s => {
+    const weeklyStr = formatWeekly(s.weekly_hours)
+    return `${clean(s.name)} (Code: ${s.code || '-'}) | ID: ${s.id} | External: ${s.external_id || '-'} | Active: ${s.is_active} | Drive-Thru: ${s.has_drive_thru} | Hours: ${weeklyStr || `${s.opening_time || '-'}-${s.closing_time || '-'}`} | Supervisor: ${s.supervisor_name || '-'} | ${s.address || ''}, ${s.city || ''}, ${s.state || ''} ${s.zip_code || ''}`
+  })
   return `Stores (${data.length}):\n${lines.join('\n')}`
 }
 

@@ -133,8 +133,8 @@ const VERIFIED_15_BRANCHES: VerifiedBranchRow[] = [
     name: 'Downey Florence & Paramount',
     address: '7947 E. Florence Ave, Downey, CA 90240',
     phone: '(562) 927-7486',
-    hoursEn: 'Sun–Thu: 10:00 AM – 12:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Jue: 10:00 AM – 12:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     toastOnlineUrl: 'https://order.online/store/tacos-gavilan-downey-302620',
   },
   {
@@ -166,8 +166,8 @@ const VERIFIED_15_BRANCHES: VerifiedBranchRow[] = [
     name: 'Huntington Park Florence & Santa Fe',
     address: '2425 E. Florence Ave, Huntington Park, CA 90255',
     phone: '(323) 581-7309',
-    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 2:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
-    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 2:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
+    hoursEn: 'Sun–Wed: 10:00 AM – 12:00 AM | Thu: 10:00 AM – 1:00 AM | Fri–Sat: 10:00 AM – 3:00 AM',
+    hoursEs: 'Dom–Mié: 10:00 AM – 12:00 AM | Jue: 10:00 AM – 1:00 AM | Vie–Sáb: 10:00 AM – 3:00 AM',
     toastOnlineUrl: 'https://order.online/store/tacos-gavilan-huntington-park-260849',
   },
   {

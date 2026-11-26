@@ -271,10 +271,10 @@ document.addEventListener('DOMContentLoaded', () => {
         'west-covina':     { 0:[10,25],1:[10,25],2:[10,25],3:[10,25],4:[10,25],5:[10,27],6:[10,27] },
         'rialto':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
         'south-gate':      { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,27],6:[10,27] },
-        'downey':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,27],6:[10,27] },
+        'downey':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,25],5:[10,27],6:[10,27] },
         'hollywood':       { 0:[9,24], 1:[9,24], 2:[9,24], 3:[9,24], 4:[9,24], 5:[9,27], 6:[9,27] },
         'santa-ana':       { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
-        'huntington-park': { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,26],5:[10,27],6:[10,27] },
+        'huntington-park': { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,25],5:[10,27],6:[10,27] },
         'la-puente':       { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
         'azusa':           { 0:[10,23],1:[10,23],2:[10,23],3:[10,23],4:[10,23],5:[10,24],6:[10,24] },
         'bell':            { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] }
@@ -293,39 +293,113 @@ document.addEventListener('DOMContentLoaded', () => {
             return h < 12 ? (h + ':00 AM') : ((h - 12) + ':00 PM');
         };
 
+        const getOfficialHolidayRule = (dateStr) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+            const year = Number(dateStr.slice(0, 4));
+            if (!Number.isInteger(year) || year < 2020 || year > 2100) return null;
+            const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+            const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+            const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+            const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+            const m = Math.floor((a + 11 * h + 22 * l) / 451);
+            const eMonth = Math.floor((h + l - 7 * m + 114) / 31);
+            const eDay = ((h + l - 7 * m + 114) % 31) + 1;
+            const goodFriday = new Date(Date.UTC(year, eMonth - 1, eDay - 2, 12, 0, 0)).toISOString().slice(0, 10);
+            const nov1Dow = new Date(Date.UTC(year, 10, 1, 12, 0, 0)).getUTCDay();
+            const fourthThuDay = 1 + ((4 - nov1Dow + 7) % 7) + 21;
+            const thanksgiving = new Date(Date.UTC(year, 10, fourthThuDay, 12, 0, 0)).toISOString().slice(0, 10);
+            const blackFriday = new Date(Date.UTC(year, 10, fourthThuDay + 1, 12, 0, 0)).toISOString().slice(0, 10);
+            if (dateStr === year + '-01-01') return { isClosed: false, openHour: 11, closeHour: null, nameEn: "New Year's Day", nameEs: 'Año Nuevo' };
+            if (dateStr === goodFriday) return { isClosed: true, openHour: null, closeHour: null, nameEn: 'Good Friday', nameEs: 'Viernes Santo' };
+            if (dateStr === thanksgiving) return { isClosed: false, openHour: null, closeHour: 16, nameEn: 'Thanksgiving', nameEs: 'Día de Acción de Gracias' };
+            if (dateStr === blackFriday) return { isClosed: false, openHour: 11, closeHour: null, nameEn: 'Black Friday', nameEs: 'Horario Especial' };
+            if (dateStr === year + '-12-24') return { isClosed: false, openHour: null, closeHour: 16, nameEn: 'Christmas Eve', nameEs: 'Nochebuena' };
+            if (dateStr === year + '-12-25') return { isClosed: true, openHour: null, closeHour: null, nameEn: 'Christmas Day', nameEs: 'Navidad' };
+            if (dateStr === year + '-12-31') return { isClosed: false, openHour: null, closeHour: 16, nameEn: "New Year's Eve", nameEs: 'Fin de Año' };
+            return null;
+        };
+
+        const shiftDateUTC = (dateStr, delta) => {
+            const s = dateStr.split('-').map(Number);
+            return new Date(Date.UTC(s[0], s[1] - 1, s[2] + delta, 12, 0, 0)).toISOString().slice(0, 10);
+        };
+
+        const resolveEffectiveWin = (regWin, dateStr) => {
+            const rule = getOfficialHolidayRule(dateStr);
+            if (!rule) return { isClosedAllDay: false, openHour: regWin[0], closeHour: regWin[1], isEarlyClose: false, isLateOpen: false, rule: null };
+            if (rule.isClosed) return { isClosedAllDay: true, openHour: 0, closeHour: 0, isEarlyClose: false, isLateOpen: false, rule };
+            const openHour = rule.openHour != null ? rule.openHour : regWin[0];
+            const closeHour = rule.closeHour != null ? rule.closeHour : regWin[1];
+            return { isClosedAllDay: false, openHour, closeHour, isEarlyClose: rule.closeHour != null && closeHour < regWin[1], isLateOpen: rule.openHour != null && openHour > regWin[0], rule };
+        };
+
         const computeStatus = (slug, lang, nowDate = new Date()) => {
             const sched = (slug && Object.prototype.hasOwnProperty.call(STORE_WEEKLY_SCHEDULES, slug)) ? STORE_WEEKLY_SCHEDULES[slug] : null;
             if (!sched) return null;
             const isEs = lang === 'es';
             const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
             const parts = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/Los_Angeles', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false
+                timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false
             }).formatToParts(nowDate);
+            const yearStr = parts.find(p => p.type === 'year')?.value || '2026';
+            const monthStr = parts.find(p => p.type === 'month')?.value || '01';
+            const dayStr = parts.find(p => p.type === 'day')?.value || '01';
             const wdStr = parts.find(p => p.type === 'weekday')?.value || 'Mon';
             const rawHour = Number(parts.find(p => p.type === 'hour')?.value ?? '12');
             const minute = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
             const hour = rawHour === 24 ? 0 : rawHour;
             const dayIdx = Object.prototype.hasOwnProperty.call(weekdayMap, wdStr) ? weekdayMap[wdStr] : 1;
-            const prevWin = sched[(dayIdx + 6) % 7];
-            const todayWin = sched[dayIdx];
-            const nextWin = sched[(dayIdx + 1) % 7];
             const nowMins = hour * 60 + minute;
 
-            if (prevWin[1] > 24 && nowMins < (prevWin[1] - 24) * 60) {
-                const c = formatHour12(prevWin[1]);
+            const todayDateStr = yearStr + '-' + monthStr + '-' + dayStr;
+            const prevEff = resolveEffectiveWin(sched[(dayIdx + 6) % 7], shiftDateUTC(todayDateStr, -1));
+            const todayEff = resolveEffectiveWin(sched[dayIdx], todayDateStr);
+            const nextEff = resolveEffectiveWin(sched[(dayIdx + 1) % 7], shiftDateUTC(todayDateStr, 1));
+
+            if (!prevEff.isClosedAllDay && prevEff.closeHour > 24 && nowMins < (prevEff.closeHour - 24) * 60) {
+                const c = formatHour12(prevEff.closeHour);
                 return { isOpen: true, label: isEs ? ('Abierto hasta ' + c) : ('Open until ' + c) };
             }
-            if (nowMins >= todayWin[0] * 60 && nowMins < todayWin[1] * 60) {
-                const c = formatHour12(todayWin[1]);
-                return { isOpen: true, label: isEs ? ('Abierto hasta ' + c) : ('Open until ' + c) };
+            if (todayEff.isClosedAllDay) {
+                const hn = isEs ? todayEff.rule.nameEs : todayEff.rule.nameEn;
+                return { isOpen: false, label: isEs ? ('Cerrado por Día Festivo (' + hn + ')') : ('Closed for Holiday (' + hn + ')') };
             }
-            if (nowMins < todayWin[0] * 60) {
-                const o = formatHour12(todayWin[0]);
-                return { isOpen: false, label: isEs ? ('Abre a las ' + o) : ('Opens at ' + o) };
+            if (nowMins >= todayEff.openHour * 60 && nowMins < todayEff.closeHour * 60) {
+                const c = formatHour12(todayEff.closeHour);
+                return {
+                    isOpen: true,
+                    label: todayEff.isEarlyClose
+                        ? (isEs ? ('Abierto · Cierre temprano ' + c) : ('Open · Closes early ' + c))
+                        : (isEs ? ('Abierto hasta ' + c) : ('Open until ' + c))
+                };
             }
-            const no = formatHour12(nextWin[0]);
-            return { isOpen: false, label: isEs ? ('Abre mañana ' + no) : ('Opens tomorrow ' + no) };
+            if (nowMins < todayEff.openHour * 60) {
+                const o = formatHour12(todayEff.openHour);
+                return {
+                    isOpen: false,
+                    label: todayEff.isLateOpen
+                        ? (isEs ? ('Horario festivo · Abre a las ' + o) : ('Holiday hours · Opens at ' + o))
+                        : (isEs ? ('Abre a las ' + o) : ('Opens at ' + o))
+                };
+            }
+            if (nextEff.isClosedAllDay) {
+                const nh = isEs ? nextEff.rule.nameEs : nextEff.rule.nameEn;
+                return {
+                    isOpen: false,
+                    label: todayEff.isEarlyClose
+                        ? (isEs ? ('Cerrado · Festivo (' + formatHour12(todayEff.closeHour) + ')') : ('Closed · Holiday (' + formatHour12(todayEff.closeHour) + ')'))
+                        : (isEs ? ('Cerrado · Mañana cerrado (' + nh + ')') : ('Closed · Closed tomorrow (' + nh + ')'))
+                };
+            }
+            const no = formatHour12(nextEff.openHour);
+            return {
+                isOpen: false,
+                label: todayEff.isEarlyClose
+                    ? (isEs ? ('Cerrado · Abre mañana ' + no) : ('Closed · Opens tomorrow ' + no))
+                    : (isEs ? ('Abre mañana ' + no) : ('Opens tomorrow ' + no))
+            };
         };
+        window.__tgComputeLocationStatus = computeStatus;
 
         const buildUrl = (href, mode) => {
             const clean = String(href || '').split('?')[0].replace(/\/+$/, '');

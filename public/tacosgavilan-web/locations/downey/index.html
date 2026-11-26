@@ -66,6 +66,34 @@
     "latitude": 33.953703,
     "longitude": -118.130299
   },
+  "openingHoursSpecification": [
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday"
+      ],
+      "opens": "10:00",
+      "closes": "00:00"
+    },
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": "Thursday",
+      "opens": "10:00",
+      "closes": "01:00"
+    },
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Friday",
+        "Saturday"
+      ],
+      "opens": "10:00",
+      "closes": "03:00"
+    }
+  ],
   "potentialAction": {
     "@type": "OrderAction",
     "target": {
@@ -350,8 +378,12 @@
                     </div>
                     <div class="schedule-rows">
                                 <div class="schedule-row">
-                                    <span class="schedule-day" data-en="Sun – Thu" data-es="Dom – Jue">Sun – Thu</span>
+                                    <span class="schedule-day" data-en="Sun – Wed" data-es="Dom – Mié">Sun – Wed</span>
                                     <span class="schedule-time">10:00 AM – 12:00 AM</span>
+                                </div>
+                                <div class="schedule-row">
+                                    <span class="schedule-day" data-en="Thursday" data-es="Jueves">Thursday</span>
+                                    <span class="schedule-time">10:00 AM – 1:00 AM</span>
                                 </div>
                                 <div class="schedule-row schedule-row-highlight">
                                     <span class="schedule-day" data-en="Fri – Sat" data-es="Vie – Sáb">Fri – Sat</span>

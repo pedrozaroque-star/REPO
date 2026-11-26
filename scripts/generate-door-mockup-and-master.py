@@ -731,8 +731,18 @@ def merge_and_verify_master_pdf(manifest: dict, page1_pdf: Path):
         assert "00" not in txt_no_phone, f"Found unexpected '00' in PDF text of {p}: {txt}"
         writer.append(str(p))
 
-    with open(master_pdf, "wb") as f:
+    tmp_master = master_pdf.with_suffix(".tmp.pdf")
+    with open(tmp_master, "wb") as f:
         writer.write(f)
+    import time
+    for attempt in range(8):
+        try:
+            os.replace(tmp_master, master_pdf)
+            break
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.35 * (attempt + 1))
     page1_pdf.unlink(missing_ok=True)
 
     # Final verification of Master PDF
@@ -740,11 +750,13 @@ def merge_and_verify_master_pdf(manifest: dict, page1_pdf: Path):
     assert len(m_reader.pages) == 16, f"Expected 16 pages in Master PDF, got {len(m_reader.pages)}"
     p0_box = m_reader.pages[0].mediabox
     assert abs(float(p0_box.width) - 792.0) < 0.5 and abs(float(p0_box.height) - 612.0) < 0.5
+    p0_txt = m_reader.pages[0].extract_text() or ""
+    assert "DOWNEY" in p0_txt and "HUNTINGTON PARK" in p0_txt, "Missing Downey or HP in Page 1 summary table"
     for idx in range(1, 16):
         b = m_reader.pages[idx].mediabox
         assert abs(float(b.width) - 1296.0) < 0.5 and abs(float(b.height) - 396.0) < 0.5
 
-    print(f"[OK] Merged & verified 16-page Master PDF -> {master_pdf}")
+    print(f"[OK] Merged & verified 16-page Master PDF (atomic replace) -> {master_pdf}")
     return master_pdf
 
 
@@ -769,11 +781,19 @@ def main():
     assert len(manifest["stores"]) == 15
 
     stamp_300_dpi_on_pngs(manifest)
-    diag_path = generate_annotated_door_diagram()
-    mockup_path = generate_before_after_mockup()
+    existing_diag = EXPORTS_DIR / "door_measurements_annotated.png"
+    existing_mockup = EXPORTS_DIR / "door_before_after_mockup.png"
+    if PHOTO_PATH.exists():
+        diag_path = generate_annotated_door_diagram()
+        mockup_path = generate_before_after_mockup()
+    else:
+        assert existing_diag.exists() and existing_mockup.exists(), "Missing door diagrams and source photo"
+        diag_path, mockup_path = existing_diag, existing_mockup
+        print("[OK] Reusing existing photogrammetric diagrams in exports/door-stickers-2026/")
     page1_pdf = build_tech_pack_page1_pdf(manifest, diag_path, mockup_path)
     merge_and_verify_master_pdf(manifest, page1_pdf)
-    copy_previews_for_artifact(manifest, diag_path, mockup_path)
+    if ARTIFACT_DIR.exists():
+        copy_previews_for_artifact(manifest, diag_path, mockup_path)
     print("\nALL DOOR STICKER DELIVERABLES VERIFIED SUCCESSFULLY.")
 
 

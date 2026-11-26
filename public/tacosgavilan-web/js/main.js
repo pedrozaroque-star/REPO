@@ -1971,10 +1971,10 @@ document.addEventListener('DOMContentLoaded', () => {
         'west-covina':     { 0:[10,25],1:[10,25],2:[10,25],3:[10,25],4:[10,25],5:[10,27],6:[10,27] },
         'rialto':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
         'south-gate':      { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,27],6:[10,27] },
-        'downey':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,27],6:[10,27] },
+        'downey':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,25],5:[10,27],6:[10,27] },
         'hollywood':       { 0:[9,24], 1:[9,24], 2:[9,24], 3:[9,24], 4:[9,24], 5:[9,27], 6:[9,27] },
         'santa-ana':       { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
-        'huntington-park': { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,26],5:[10,27],6:[10,27] },
+        'huntington-park': { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,25],5:[10,27],6:[10,27] },
         'la-puente':       { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
         'azusa':           { 0:[10,23],1:[10,23],2:[10,23],3:[10,23],4:[10,23],5:[10,24],6:[10,24] },
         'bell':            { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] }
@@ -2022,6 +2022,69 @@ document.addEventListener('DOMContentLoaded', () => {
         return (h - 12) + ':00 PM';
     };
 
+    // Multi-year 7 Official Tacos Gavilan Store Holidays (exact parity with lib/holidays.ts)
+    const getOfficialHolidayRuleForDate = (dateStr) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+        const year = Number(dateStr.slice(0, 4));
+        if (!Number.isInteger(year) || year < 2020 || year > 2100) return null;
+        // Meeus/Jones/Butcher Gregorian Easter -> Good Friday (-2 days)
+        const a = year % 19;
+        const b = Math.floor(year / 100);
+        const c = year % 100;
+        const d = Math.floor(b / 4);
+        const e = b % 4;
+        const f = Math.floor((b + 8) / 25);
+        const g = Math.floor((b - f + 1) / 3);
+        const h = (19 * a + b - d - g + 15) % 30;
+        const i = Math.floor(c / 4);
+        const k = c % 4;
+        const l = (32 + 2 * e + 2 * i - h - k) % 7;
+        const m = Math.floor((a + 11 * h + 22 * l) / 451);
+        const easterMonth = Math.floor((h + l - 7 * m + 114) / 31);
+        const easterDay = ((h + l - 7 * m + 114) % 31) + 1;
+        const gfUtc = new Date(Date.UTC(year, easterMonth - 1, easterDay - 2, 12, 0, 0));
+        const goodFriday = gfUtc.toISOString().slice(0, 10);
+        // 4th Thursday of November (Thanksgiving) + Day After (Black Friday)
+        const nov1Dow = new Date(Date.UTC(year, 10, 1, 12, 0, 0)).getUTCDay();
+        const fourthThuDay = 1 + ((4 - nov1Dow + 7) % 7) + 21;
+        const thanksgiving = new Date(Date.UTC(year, 10, fourthThuDay, 12, 0, 0)).toISOString().slice(0, 10);
+        const blackFriday = new Date(Date.UTC(year, 10, fourthThuDay + 1, 12, 0, 0)).toISOString().slice(0, 10);
+
+        if (dateStr === year + '-01-01') return { key: 'new_years_day', isClosed: false, openHour: 11, closeHour: null, nameEn: "New Year's Day", nameEs: 'Año Nuevo' };
+        if (dateStr === goodFriday) return { key: 'good_friday', isClosed: true, openHour: null, closeHour: null, nameEn: 'Good Friday', nameEs: 'Viernes Santo' };
+        if (dateStr === thanksgiving) return { key: 'thanksgiving', isClosed: false, openHour: null, closeHour: 16, nameEn: 'Thanksgiving', nameEs: 'Día de Acción de Gracias' };
+        if (dateStr === blackFriday) return { key: 'day_after_thanksgiving', isClosed: false, openHour: 11, closeHour: null, nameEn: 'Black Friday', nameEs: 'Horario Especial' };
+        if (dateStr === year + '-12-24') return { key: 'christmas_eve', isClosed: false, openHour: null, closeHour: 16, nameEn: 'Christmas Eve', nameEs: 'Nochebuena' };
+        if (dateStr === year + '-12-25') return { key: 'christmas_day', isClosed: true, openHour: null, closeHour: null, nameEn: 'Christmas Day', nameEs: 'Navidad' };
+        if (dateStr === year + '-12-31') return { key: 'new_years_eve', isClosed: false, openHour: null, closeHour: 16, nameEn: "New Year's Eve", nameEs: 'Fin de Año' };
+        return null;
+    };
+
+    const shiftDateStrUTC = (dateStr, deltaDays) => {
+        const segs = dateStr.split('-').map(Number);
+        return new Date(Date.UTC(segs[0], segs[1] - 1, segs[2] + deltaDays, 12, 0, 0)).toISOString().slice(0, 10);
+    };
+
+    const resolveEffectiveDayWindowLA = (regWin, dateStr) => {
+        const rule = getOfficialHolidayRuleForDate(dateStr);
+        if (!rule) {
+            return { isClosedAllDay: false, openHour: regWin[0], closeHour: regWin[1], isEarlyClose: false, isLateOpen: false, rule: null };
+        }
+        if (rule.isClosed) {
+            return { isClosedAllDay: true, openHour: 0, closeHour: 0, isEarlyClose: false, isLateOpen: false, rule };
+        }
+        const openHour = rule.openHour != null ? rule.openHour : regWin[0];
+        const closeHour = rule.closeHour != null ? rule.closeHour : regWin[1];
+        return {
+            isClosedAllDay: false,
+            openHour,
+            closeHour,
+            isEarlyClose: rule.closeHour != null && closeHour < regWin[1],
+            isLateOpen: rule.openHour != null && openHour > regWin[0],
+            rule
+        };
+    };
+
     const getStoreLiveStatusLA = (slug, lang = currentLang, nowDate = new Date()) => {
         const sched = (slug && Object.prototype.hasOwnProperty.call(STORE_WEEKLY_SCHEDULES, slug))
             ? STORE_WEEKLY_SCHEDULES[slug]
@@ -2032,12 +2095,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
         const parts = new Intl.DateTimeFormat('en-US', {
             timeZone: 'America/Los_Angeles',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
             weekday: 'short',
             hour: 'numeric',
             minute: 'numeric',
             hour12: false
         }).formatToParts(nowDate);
 
+        const yearStr = parts.find(p => p.type === 'year')?.value || '2026';
+        const monthStr = parts.find(p => p.type === 'month')?.value || '01';
+        const dayStr = parts.find(p => p.type === 'day')?.value || '01';
         const wdStr = parts.find(p => p.type === 'weekday')?.value || 'Mon';
         const rawHour = Number(parts.find(p => p.type === 'hour')?.value ?? '12');
         const minute = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
@@ -2047,47 +2116,80 @@ document.addEventListener('DOMContentLoaded', () => {
         const nextIdx = (dayIdx + 1) % 7;
         const nowMins = hour * 60 + minute;
 
-        const prevWin = sched[prevIdx];
-        const todayWin = sched[dayIdx];
-        const nextWin = sched[nextIdx];
+        const todayDateStr = yearStr + '-' + monthStr + '-' + dayStr;
+        const prevDateStr = shiftDateStrUTC(todayDateStr, -1);
+        const nextDateStr = shiftDateStrUTC(todayDateStr, 1);
 
-        // 1. Check previous day's overnight shift first (e.g., 1:30 AM Saturday during Fri 8 AM - 4 AM shift)
-        if (prevWin[1] > 24 && nowMins < (prevWin[1] - 24) * 60) {
-            const closeStr = formatHour12(prevWin[1]);
+        const prevEff = resolveEffectiveDayWindowLA(sched[prevIdx], prevDateStr);
+        const todayEff = resolveEffectiveDayWindowLA(sched[dayIdx], todayDateStr);
+        const nextEff = resolveEffectiveDayWindowLA(sched[nextIdx], nextDateStr);
+
+        // 1. Previous day's overnight shift (zero spillover if yesterday closed early at 4 PM or was closed all day)
+        if (!prevEff.isClosedAllDay && prevEff.closeHour > 24 && nowMins < (prevEff.closeHour - 24) * 60) {
+            const closeStr = formatHour12(prevEff.closeHour);
             return {
                 isOpen: true,
                 label: isEs ? ('Abierto hasta ' + closeStr) : ('Open until ' + closeStr),
-                activeHours: formatHour12(prevWin[0]) + ' – ' + closeStr
+                activeHours: formatHour12(prevEff.openHour) + ' – ' + closeStr
             };
         }
 
-        // 2. Check today's regular/overnight shift
-        if (nowMins >= todayWin[0] * 60 && nowMins < todayWin[1] * 60) {
-            const closeStr = formatHour12(todayWin[1]);
-            return {
-                isOpen: true,
-                label: isEs ? ('Abierto hasta ' + closeStr) : ('Open until ' + closeStr),
-                activeHours: formatHour12(todayWin[0]) + ' – ' + closeStr
-            };
-        }
-
-        // 3. Closed: either opens later today or tomorrow
-        if (nowMins < todayWin[0] * 60) {
-            const openStr = formatHour12(todayWin[0]);
+        // 2. Closed all day for official holiday (Christmas Day / Good Friday)
+        if (todayEff.isClosedAllDay) {
+            const hName = isEs ? todayEff.rule.nameEs : todayEff.rule.nameEn;
             return {
                 isOpen: false,
-                label: isEs ? ('Abre a las ' + openStr) : ('Opens at ' + openStr),
-                activeHours: openStr + ' – ' + formatHour12(todayWin[1])
+                label: isEs ? ('Cerrado por Día Festivo (' + hName + ')') : ('Closed for Holiday (' + hName + ')'),
+                activeHours: isEs ? 'Cerrado todo el día' : 'Closed All Day'
             };
         }
 
-        const nextOpenStr = formatHour12(nextWin[0]);
+        // 3. Open during today's window (regular or holiday-adjusted)
+        if (nowMins >= todayEff.openHour * 60 && nowMins < todayEff.closeHour * 60) {
+            const closeStr = formatHour12(todayEff.closeHour);
+            return {
+                isOpen: true,
+                label: todayEff.isEarlyClose
+                    ? (isEs ? ('Abierto · Cierre temprano ' + closeStr) : ('Open · Closes early ' + closeStr))
+                    : (isEs ? ('Abierto hasta ' + closeStr) : ('Open until ' + closeStr)),
+                activeHours: formatHour12(todayEff.openHour) + ' – ' + closeStr
+            };
+        }
+
+        // 4. Closed before today's opening
+        if (nowMins < todayEff.openHour * 60) {
+            const openStr = formatHour12(todayEff.openHour);
+            return {
+                isOpen: false,
+                label: todayEff.isLateOpen
+                    ? (isEs ? ('Horario festivo · Abre a las ' + openStr) : ('Holiday hours · Opens at ' + openStr))
+                    : (isEs ? ('Abre a las ' + openStr) : ('Opens at ' + openStr)),
+                activeHours: openStr + ' – ' + formatHour12(todayEff.closeHour)
+            };
+        }
+
+        // 5. Closed after today's closing
+        if (nextEff.isClosedAllDay) {
+            const nh = isEs ? nextEff.rule.nameEs : nextEff.rule.nameEn;
+            return {
+                isOpen: false,
+                label: todayEff.isEarlyClose
+                    ? (isEs ? ('Cerrado · Festivo (' + formatHour12(todayEff.closeHour) + ')') : ('Closed · Holiday (' + formatHour12(todayEff.closeHour) + ')'))
+                    : (isEs ? ('Cerrado · Mañana cerrado (' + nh + ')') : ('Closed · Closed tomorrow (' + nh + ')')),
+                activeHours: isEs ? ('Cerrado mañana (' + nh + ')') : ('Closed tomorrow (' + nh + ')')
+            };
+        }
+
+        const nextOpenStr = formatHour12(nextEff.openHour);
         return {
             isOpen: false,
-            label: isEs ? ('Abre mañana ' + nextOpenStr) : ('Opens tomorrow ' + nextOpenStr),
-            activeHours: nextOpenStr + ' – ' + formatHour12(nextWin[1])
+            label: todayEff.isEarlyClose
+                ? (isEs ? ('Cerrado · Abre mañana ' + nextOpenStr) : ('Closed · Opens tomorrow ' + nextOpenStr))
+                : (isEs ? ('Abre mañana ' + nextOpenStr) : ('Opens tomorrow ' + nextOpenStr)),
+            activeHours: nextOpenStr + ' – ' + formatHour12(nextEff.closeHour)
         };
     };
+    window.__tgGetStoreLiveStatusLA = getStoreLiveStatusLA;
 
     const getOrderCtaLabel = (mode = currentOrderMode, lang = currentLang) => {
         const isEs = lang === 'es';
@@ -3550,7 +3652,8 @@ document.addEventListener('DOMContentLoaded', () => {
             code: 'DOWNEY',
             thumb: '/img/downeylocation-600.jpg',
             rows: [
-                { dayEn: 'Sun – Thu', dayEs: 'Dom – Jue', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Sun – Wed', dayEs: 'Dom – Mié', time: '10:00 AM – 12:00 AM', highlight: false },
+                { dayEn: 'Thursday', dayEs: 'Jueves', time: '10:00 AM – 1:00 AM', highlight: false },
                 { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
             ]
         },
@@ -3575,7 +3678,7 @@ document.addEventListener('DOMContentLoaded', () => {
             thumb: '/img/hp_thumb-600.jpg',
             rows: [
                 { dayEn: 'Sun – Wed', dayEs: 'Dom – Mié', time: '10:00 AM – 12:00 AM', highlight: false },
-                { dayEn: 'Thursday', dayEs: 'Jueves', time: '10:00 AM – 2:00 AM', highlight: false },
+                { dayEn: 'Thursday', dayEs: 'Jueves', time: '10:00 AM – 1:00 AM', highlight: false },
                 { dayEn: 'Fri – Sat', dayEs: 'Vie – Sáb', time: '10:00 AM – 3:00 AM', highlight: true }
             ]
         },
