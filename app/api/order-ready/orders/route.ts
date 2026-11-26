@@ -207,6 +207,7 @@ export async function GET(request: Request) {
     if (isPrepView) {
       return NextResponse.json({
         success: true,
+        authenticated: Boolean(access),
         businessDate: currentBusinessDate,
         shift: currentShift,
         inProgressOrders: outputInProgressOrders
@@ -215,6 +216,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
+      authenticated: Boolean(access),
       storeCode,
       businessDate: currentBusinessDate,
       shift: currentShift,

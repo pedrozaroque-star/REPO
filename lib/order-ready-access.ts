@@ -16,6 +16,7 @@
  * @notes
  * - Cache en memoria 180 s (3 min) por usuario + caché dedicada de 15 min para tiendas activas (`id, code, name, supervisor_id, is_active`) con deduplicación in-flight: evita golpear `stores` y `users` en cada ciclo de polling sin comprometer el aislamiento por sucursal.
  * - Los nombres se normalizan sin tildes/mayúsculas/prefijo "Tacos Gavilan" para tolerar variantes.
+ * - Fix 2026-11-24: `getOrderReadyAccess` prioriza `Authorization: Bearer` sobre la cookie `teg_token` e itera todos los tokens candidatos descartando sesiones `employee` (`/mis-horarios`), evitando que el inicio de sesión de un empleado en otra pestaña de la PC de sucursal bloquee la bocina o la tableta.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -153,37 +154,74 @@ export function canAccessStore(access: OrderReadyAccess, storeCode: string): boo
  */
 export async function getOrderReadyAccess(req: Request): Promise<OrderReadyAccess | null> {
   const user = await getServerUser(req)
-  if (user) {
-    return resolveOrderReadyAccess(user.id, user.role)
+  if (user && String(user.role || '').trim().toLowerCase() !== 'employee') {
+    const directAccess = await resolveOrderReadyAccess(user.id, user.role)
+    if (directAccess.all || directAccess.codes.length > 0) {
+      return directAccess
+    }
   }
 
   try {
-    let token: string | undefined
+    const candidateTokens: string[] = []
+
+    // Prioridad 1: Authorization Bearer explícito de la pestaña activa (inmune a cookies de /mis-horarios en otras pestañas)
+    if (req) {
+      const authHeader = req.headers.get('authorization') || req.headers.get('Authorization')
+      if (authHeader?.startsWith('Bearer ')) {
+        const bearer = authHeader.substring(7).trim()
+        if (bearer && bearer !== 'null' && bearer !== 'undefined') {
+          candidateTokens.push(bearer)
+        }
+      }
+    }
+
+    // Prioridad 2: Cookie del request store de Next.js
     try {
       const cookieStore = await cookies()
-      token = cookieStore.get('teg_token')?.value
+      const cookieVal = cookieStore.get('teg_token')?.value?.trim()
+      if (cookieVal && !candidateTokens.includes(cookieVal)) {
+        candidateTokens.push(cookieVal)
+      }
     } catch {
       // Ignorar si cookies() no está disponible
     }
 
-    if (!token && req) {
-      const authHeader = req.headers.get('authorization')
-      if (authHeader?.startsWith('Bearer ')) {
-        token = authHeader.substring(7).trim()
+    // Prioridad 3: Header Cookie directo (ej. llamadas simuladas o contextos fuera de App Router store)
+    if (req) {
+      const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+      const match = cookieHeader.match(/(?:^|;\s*)teg_token=([^;]+)/)
+      if (match?.[1]) {
+        let decodedCookie = match[1].trim()
+        try {
+          decodedCookie = decodeURIComponent(decodedCookie)
+        } catch {}
+        if (decodedCookie && !candidateTokens.includes(decodedCookie)) {
+          candidateTokens.push(decodedCookie)
+        }
       }
     }
 
-    if (!token) return null
+    if (candidateTokens.length === 0) return null
 
     const secret = getJwtSecret()
     if (!secret) return null
 
-    const decoded = jwt.verify(token, secret, { ignoreExpiration: true }) as any
-    if (!decoded || !decoded.sub) return null
-
-    const access = await resolveOrderReadyAccess(decoded.sub, decoded.user_role)
-    if (!access.all && access.codes.length === 0) return null
-    return access
+    for (const candidate of candidateTokens) {
+      try {
+        const decoded = jwt.verify(candidate, secret, { algorithms: ['HS256'], ignoreExpiration: true }) as any
+        if (!decoded || !decoded.sub) continue
+        if (decoded.user_type === 'employee' || String(decoded.user_role || '').toLowerCase() === 'employee') {
+          continue
+        }
+        const access = await resolveOrderReadyAccess(decoded.sub, decoded.user_role)
+        if (access.all || access.codes.length > 0) {
+          return access
+        }
+      } catch {
+        continue
+      }
+    }
+    return null
   } catch {
     return null
   }

@@ -57,6 +57,35 @@ const BASECAMP_SYNC_ROLES = new Set([
     'basecamp',
 ])
 
+const SINGLE_STORE_STAFF_ROLES = new Set([
+    'manager',
+    'asistente',
+    'general_manager',
+    'gerente',
+    'assistant',
+    'shift_leader',
+])
+
+function extractDeactivateIds(body: any, userData: any, excludeId?: number | null): number[] {
+    const rawList: unknown[] = []
+    if (Array.isArray(body?.deactivateUserIds)) rawList.push(...body.deactivateUserIds)
+    if (Array.isArray(userData?.deactivateUserIds)) rawList.push(...userData.deactivateUserIds)
+    if (body?.deactivateCurrentId !== undefined && body?.deactivateCurrentId !== null) {
+        rawList.push(body.deactivateCurrentId)
+    }
+    if (userData?.deactivateCurrentId !== undefined && userData?.deactivateCurrentId !== null) {
+        rawList.push(userData.deactivateCurrentId)
+    }
+    const ids = new Set<number>()
+    for (const item of rawList) {
+        const n = Number(item)
+        if (Number.isFinite(n) && n > 0 && n !== Number(excludeId)) {
+            ids.add(n)
+        }
+    }
+    return Array.from(ids)
+}
+
 export async function POST(request: NextRequest) {
     const auth = verifyStaffAuth(request, { allowCron: false })
     if (!auth.authorized || !auth.user) return auth.response!
@@ -89,7 +118,7 @@ export async function POST(request: NextRequest) {
         // 1. Obtener usuario objetivo en public.users
         const { data: targetUser, error: targetErr } = await supabaseAdmin
             .from('users')
-            .select('id, email, role, password, auth_id, is_active')
+            .select('id, email, role, password, auth_id, is_active, toast_guid, phone, store_id, store_scope, position_type')
             .eq('id', targetIdNum)
             .maybeSingle()
 
@@ -171,7 +200,8 @@ export async function POST(request: NextRequest) {
                 sanitizedData.email = userData.email.trim().toLowerCase()
             }
             if (userData.phone !== undefined) {
-                sanitizedData.phone = typeof userData.phone === 'string' ? userData.phone.trim() : null
+                sanitizedData.phone =
+                    typeof userData.phone === 'string' && userData.phone.trim() ? userData.phone.trim() : null
             }
             if (userData.avatar_url !== undefined) {
                 sanitizedData.avatar_url = typeof userData.avatar_url === 'string' ? userData.avatar_url.trim() : null
@@ -190,7 +220,7 @@ export async function POST(request: NextRequest) {
             }
             if (userData.store_scope !== undefined) {
                 sanitizedData.store_scope = Array.isArray(userData.store_scope)
-                    ? userData.store_scope.map((s: unknown) => String(s))
+                    ? userData.store_scope.map((s: unknown) => String(s)).filter(Boolean)
                     : null
             }
             if (userData.is_active !== undefined) {
@@ -207,6 +237,57 @@ export async function POST(request: NextRequest) {
                     typeof userData.toast_guid === 'string' && userData.toast_guid.trim()
                         ? userData.toast_guid.trim()
                         : null
+            }
+
+            // Auto-poblar teléfono desde toast_employees si phone está vacío y hay toast_guid
+            const effectiveToastGuid = (
+                sanitizedData.toast_guid !== undefined ? sanitizedData.toast_guid : targetUser.toast_guid
+            ) as string | null
+            const effectivePhone = (
+                sanitizedData.phone !== undefined ? sanitizedData.phone : targetUser.phone
+            ) as string | null
+            if ((!effectivePhone || !String(effectivePhone).trim()) && effectiveToastGuid) {
+                const { data: toastEmp } = await supabaseAdmin
+                    .from('toast_employees')
+                    .select('phone')
+                    .eq('toast_guid', effectiveToastGuid)
+                    .maybeSingle()
+                if (typeof toastEmp?.phone === 'string' && toastEmp.phone.trim()) {
+                    sanitizedData.phone = toastEmp.phone.trim()
+                }
+            }
+
+            // Sincronizar automáticamente store_scope con [store.code] para roles operativos de una sola sucursal
+            const effectiveRole = ((sanitizedData.role as string | undefined) || currentTargetRole).trim().toLowerCase()
+            const effectiveStoreId =
+                sanitizedData.store_id !== undefined
+                    ? (sanitizedData.store_id as number | null)
+                    : targetUser.store_id !== null && targetUser.store_id !== undefined && Number.isFinite(Number(targetUser.store_id))
+                      ? Number(targetUser.store_id)
+                      : null
+
+            if (SINGLE_STORE_STAFF_ROLES.has(effectiveRole)) {
+                if (effectiveStoreId && effectiveStoreId > 0) {
+                    const { data: storeRow } = await supabaseAdmin
+                        .from('stores')
+                        .select('code')
+                        .eq('id', effectiveStoreId)
+                        .maybeSingle()
+                    sanitizedData.store_scope =
+                        typeof storeRow?.code === 'string' && storeRow.code.trim()
+                            ? [storeRow.code.trim()]
+                            : null
+                } else {
+                    sanitizedData.store_scope = null
+                }
+                if (!sanitizedData.position_type) {
+                    sanitizedData.position_type = targetUser.position_type || 'kitchen'
+                }
+            } else if (effectiveRole === 'planificador' || effectiveRole === 'basecamp') {
+                if (userData.store_id !== undefined || requestedRole !== undefined) {
+                    sanitizedData.store_id = null
+                    sanitizedData.store_scope = null
+                }
             }
             // Solo permitir desconexión explícita de Gmail (nunca inyectar refresh_token desde cliente)
             if (
@@ -322,6 +403,32 @@ export async function POST(request: NextRequest) {
         invalidateActiveUserStatusCache(targetUser.id, targetUser.email)
         if (typeof sanitizedData.email === 'string') {
             invalidateActiveUserStatusCache(targetUser.id, sanitizedData.email)
+        }
+
+        // Desactivar usuarios reemplazados/salientes DESPUÉS de que la actualización principal haya sido exitosa
+        if (canManagePrivilegedFields) {
+            const idsToDeactivate = extractDeactivateIds(body, userData, targetUser.id)
+            if (idsToDeactivate.length > 0) {
+                const { data: targetsToDeact } = await supabaseAdmin
+                    .from('users')
+                    .select('id, email, role')
+                    .in('id', idsToDeactivate)
+                const allowedDeactUsers = (targetsToDeact || []).filter((u: any) => {
+                    if (isAdmin) return true
+                    const r = String(u.role || '').trim().toLowerCase()
+                    return r !== 'admin' && r !== 'administrador' && r !== 'supervisor'
+                })
+                const allowedIds = allowedDeactUsers.map((u: any) => Number(u.id))
+                if (allowedIds.length > 0) {
+                    await supabaseAdmin
+                        .from('users')
+                        .update({ is_active: false, updated_at: new Date().toISOString() })
+                        .in('id', allowedIds)
+                    for (const u of allowedDeactUsers) {
+                        invalidateActiveUserStatusCache(u.id, u.email)
+                    }
+                }
+            }
         }
 
         // Sincronizar contraseña en texto plano con Supabase Auth (GoTrue aplica su propio hash interno)

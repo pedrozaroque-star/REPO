@@ -50,6 +50,35 @@ const BASECAMP_SYNC_ROLES = new Set([
     'basecamp',
 ])
 
+const SINGLE_STORE_STAFF_ROLES = new Set([
+    'manager',
+    'asistente',
+    'general_manager',
+    'gerente',
+    'assistant',
+    'shift_leader',
+])
+
+function extractDeactivateIds(body: any, otherData: any, excludeId?: number | null): number[] {
+    const rawList: unknown[] = []
+    if (Array.isArray(body?.deactivateUserIds)) rawList.push(...body.deactivateUserIds)
+    if (Array.isArray(otherData?.deactivateUserIds)) rawList.push(...otherData.deactivateUserIds)
+    if (body?.deactivateCurrentId !== undefined && body?.deactivateCurrentId !== null) {
+        rawList.push(body.deactivateCurrentId)
+    }
+    if (otherData?.deactivateCurrentId !== undefined && otherData?.deactivateCurrentId !== null) {
+        rawList.push(otherData.deactivateCurrentId)
+    }
+    const ids = new Set<number>()
+    for (const item of rawList) {
+        const n = Number(item)
+        if (Number.isFinite(n) && n > 0 && n !== Number(excludeId)) {
+            ids.add(n)
+        }
+    }
+    return Array.from(ids)
+}
+
 export async function POST(request: NextRequest) {
     const auth = verifyStaffAuth(request, { allowedRoles: ['admin', 'supervisor'], allowCron: false })
     if (!auth.authorized || !auth.user) return auth.response!
@@ -155,6 +184,45 @@ export async function POST(request: NextRequest) {
                 ? Number(rawStoreId)
                 : null
 
+        const cleanToastGuid =
+            typeof rawToastGuid === 'string' && rawToastGuid.trim() ? rawToastGuid.trim() : null
+
+        let resolvedPhone =
+            typeof rawPhone === 'string' && rawPhone.trim() ? rawPhone.trim() : null
+
+        if (!resolvedPhone && cleanToastGuid) {
+            const { data: toastEmp } = await supabaseAdmin
+                .from('toast_employees')
+                .select('phone')
+                .eq('toast_guid', cleanToastGuid)
+                .maybeSingle()
+            if (typeof toastEmp?.phone === 'string' && toastEmp.phone.trim()) {
+                resolvedPhone = toastEmp.phone.trim()
+            }
+        }
+
+        let resolvedStoreScope: string[] | null = Array.isArray(rawStoreScope)
+            ? rawStoreScope.map((s: unknown) => String(s)).filter(Boolean)
+            : null
+
+        if (SINGLE_STORE_STAFF_ROLES.has(targetRole)) {
+            if (parsedStoreId) {
+                const { data: storeRow } = await supabaseAdmin
+                    .from('stores')
+                    .select('code')
+                    .eq('id', parsedStoreId)
+                    .maybeSingle()
+                resolvedStoreScope =
+                    typeof storeRow?.code === 'string' && storeRow.code.trim()
+                        ? [storeRow.code.trim()]
+                        : null
+            } else {
+                resolvedStoreScope = null
+            }
+        } else if (targetRole !== 'supervisor' && (!resolvedStoreScope || resolvedStoreScope.length === 0)) {
+            resolvedStoreScope = null
+        }
+
         const userPayload: Record<string, unknown> = {
             auth_id: newUserId,
             email: normalizedEmail,
@@ -162,16 +230,16 @@ export async function POST(request: NextRequest) {
             full_name: fullName,
             role: targetRole,
             store_id: parsedStoreId,
-            store_scope: Array.isArray(rawStoreScope) ? rawStoreScope.map((s: unknown) => String(s)) : null,
+            store_scope: resolvedStoreScope,
             is_active: typeof rawIsActive === 'boolean' ? rawIsActive : true,
-            phone: typeof rawPhone === 'string' && rawPhone.trim() ? rawPhone.trim() : null,
+            phone: resolvedPhone,
+            toast_guid: cleanToastGuid,
         }
 
         if (typeof rawPositionType === 'string' && rawPositionType.trim()) {
             userPayload.position_type = rawPositionType.trim()
-        }
-        if (typeof rawToastGuid === 'string' && rawToastGuid.trim()) {
-            userPayload.toast_guid = rawToastGuid.trim()
+        } else if (SINGLE_STORE_STAFF_ROLES.has(targetRole)) {
+            userPayload.position_type = 'kitchen'
         }
 
         const { data: insertedUser, error: dbError } = await supabaseAdmin
@@ -187,6 +255,30 @@ export async function POST(request: NextRequest) {
         }
 
         invalidateActiveUserStatusCache(insertedUser?.id, insertedUser?.email)
+
+        // 3. Desactivar usuarios reemplazados/salientes DESPUÉS de que la creación haya sido exitosa
+        const idsToDeactivate = extractDeactivateIds(body, otherData, insertedUser?.id)
+        if (idsToDeactivate.length > 0) {
+            const { data: targetsToDeact } = await supabaseAdmin
+                .from('users')
+                .select('id, email, role')
+                .in('id', idsToDeactivate)
+            const allowedDeactUsers = (targetsToDeact || []).filter((u: any) => {
+                if (isAdmin) return true
+                const r = String(u.role || '').trim().toLowerCase()
+                return r !== 'admin' && r !== 'administrador' && r !== 'supervisor'
+            })
+            const allowedIds = allowedDeactUsers.map((u: any) => Number(u.id))
+            if (allowedIds.length > 0) {
+                await supabaseAdmin
+                    .from('users')
+                    .update({ is_active: false, updated_at: new Date().toISOString() })
+                    .in('id', allowedIds)
+                for (const u of allowedDeactUsers) {
+                    invalidateActiveUserStatusCache(u.id, u.email)
+                }
+            }
+        }
 
         // Sincronizar de forma no destructiva en bc_people para que el colaborador aparezca listo en Basecamp
         if (insertedUser && insertedUser.is_active !== false && BASECAMP_SYNC_ROLES.has(targetRole)) {

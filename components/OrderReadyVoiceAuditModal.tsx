@@ -34,6 +34,7 @@ import {
   X
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import type { StoreTelemetryItem } from '@/app/api/order-ready/telemetry/route'
 
 interface TelemetryResponse {
@@ -142,7 +143,8 @@ export default function OrderReadyVoiceAuditModal({
 
   if (!isOpen) return null
 
-  const mutedStores = (data?.stores || []).filter((s) => s.speakerState === 'muted')
+  const sortedTelemetryStores = sortStoresAlphabetically(data?.stores || [], (s) => s.storeName)
+  const mutedStores = sortedTelemetryStores.filter((s) => s.speakerState === 'muted')
   const summary = data?.summary
 
   return (
@@ -255,7 +257,7 @@ export default function OrderReadyVoiceAuditModal({
               <p className="text-xs sm:text-sm font-bold">
                 {t('orderReadyBoard.audit_muted_alert_banner').replace(
                   '{stores}',
-                  mutedStores.map((s) => s.storeName).join(', ')
+                  mutedStores.map((s) => formatStoreDisplayName(s.storeName)).join(', ')
                 )}
               </p>
             </div>
@@ -376,7 +378,7 @@ export default function OrderReadyVoiceAuditModal({
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDark ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
-                  {(data?.stores || []).map((st) => {
+                  {sortedTelemetryStores.map((st) => {
                     const isCurrent = st.storeCode === selectedStore
                     const barColor =
                       st.pctTabletCalled >= 80
@@ -401,7 +403,7 @@ export default function OrderReadyVoiceAuditModal({
                         {/* Store */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold">{st.storeName}</span>
+                            <span className="font-bold">{formatStoreDisplayName(st.storeName)}</span>
                             <span
                               className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                                 st.autoCallMode === 'smart'

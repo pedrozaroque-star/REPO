@@ -74,7 +74,8 @@
  *   con cancelación automática si se cierra en KDS o si ya fue llamada desde tableta.
  * - OPTIMIZACIÓN TELEMETRÍA BOCINA (2026-11-19): El latido periódico (`heartbeat`) de `speaker_board` pasa de 60s a 300s (5 min) y omite el latido periódico cuando hubo un `playback_ack` exitoso hace `< 4 min` para la misma sucursal, manteniendo intacto el aviso instantáneo (300ms) ante cambios de estado (`isMuted`, `audioUnlocked`, `voiceVolume`, `isFullscreen`) y sin alterar el polling ni locuciones de órdenes.
  * - DESACTIVACIÓN POR DEFECTO DE RECORDATORIO AUTOMÁTICO (2026-11-23, Huntington Park): `DEFAULT_REMINDER_DELAY_MS = 0` y migración a `teg_order_ready_reminder_sec_v2` (`0s` = Desactivado por defecto en las 15 sucursales, restringido a Admin), eliminando repeticiones automáticas no solicitadas cuando una orden aún sigue en preparación durante horas pico.
- * - ALERTA TEMPORAL DE CONDIMENTOS DELIVERY ARMOR (2026-11-24): Monta `<DeliveryPhoneNotesAlertPanel variant="board" />` junto a `PhoneCallbackAlertBanner` (estrictamente oculto en Modo TV/Fullscreen para proteger PII y apagado automáticamente en `#7 Slauson` por contar ya con tableta física Delivery Armor), con botón circular `✕` de cierre individual por orden sincronizado en tiempo real con la tableta de llamado (`/inventory/preparador`).
+ * - ALERTA TEMPORAL DE CONDIMENTOS DELIVERY ARMOR (2026-11-24): Monta `<DeliveryPhoneNotesAlertPanel variant="board" />` junto a `PhoneCallbackAlertBanner` (estrictamente oculto en Modo TV/Fullscreen para proteger PII y apagado automáticamente en `#7 Slauson` y `#8 Hollywood` por contar ya con tableta física Delivery Armor), con botón circular `✕` de cierre individual por orden sincronizado en tiempo real con la tableta de llamado (`/inventory/preparador`).
+ * - BLINDAJE DE SESIÓN STAFF POR PESTAÑA Y AUTO-RECUPERACIÓN 24/7 (2026-11-24): Todas las llamadas a `/api/order-ready/{my-stores,orders,call,telemetry,settings}` adjuntan `getTabletNoCacheHeaders()` (`teg_tab_staff_token` aislado en `sessionStorage` inmune a sesiones de empleados en `/mis-horarios`), `my-stores` reintenta automáticamente ante micro-cortes para no bloquear `storeOk`, y `teg_board_audio_unlocked` reanuda `AudioContext` tras recargas cuando Chrome lo permite.
  */
 
 'use client'
@@ -140,7 +141,7 @@ import {
   isStoreSmartAutoCallEnabled,
   sanitizeAutoCallTimerConfig
 } from '@/lib/order-ready-auto-timer'
-import { purgeTabletStaleCaches, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
+import { purgeTabletStaleCaches, getTabletNoCacheHeaders, ensureFreshTabletAuth } from '@/lib/tablet-cache-cleaner'
 import PhoneCallbackAlertBanner from '@/components/PhoneCallbackAlertBanner'
 import DeliveryPhoneNotesAlertPanel from '@/components/DeliveryPhoneNotesAlertPanel'
 import OrderReadyVoiceAuditModal from '@/components/OrderReadyVoiceAuditModal'
@@ -258,20 +259,48 @@ function OrderReadyBoardContent() {
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch('/api/order-ready/my-stores', {
-          cache: 'no-store',
-          headers: getTabletNoCacheHeaders()
-        })
-        const data = await res.json()
-        if (!cancelled) {
-          setAccess(res.ok && data.success ? { all: !!data.all, codes: data.codes || [] } : { all: false, codes: [] })
+    const loadMyStores = async () => {
+      const delays = [0, 1500, 4000]
+      for (let attempt = 0; attempt < delays.length; attempt++) {
+        if (cancelled) return
+        if (delays[attempt] > 0) {
+          await new Promise((r) => setTimeout(r, delays[attempt]))
         }
-      } catch {
-        if (!cancelled) setAccess({ all: false, codes: [] })
+        try {
+          let res = await fetch('/api/order-ready/my-stores', {
+            cache: 'no-store',
+            credentials: 'include',
+            headers: getTabletNoCacheHeaders()
+          })
+          if (res.status === 401) {
+            const refreshed = await ensureFreshTabletAuth(true)
+            if (refreshed) {
+              res = await fetch('/api/order-ready/my-stores', {
+                cache: 'no-store',
+                credentials: 'include',
+                headers: getTabletNoCacheHeaders()
+              })
+            }
+          }
+          const data = await res.json()
+          if (res.ok && data.success) {
+            if (!cancelled) {
+              setAccess({ all: !!data.all, codes: data.codes || [] })
+            }
+            return
+          }
+          if (res.status === 401 || res.status === 403) {
+            break
+          }
+        } catch {
+          // retry on transient network error
+        }
       }
-    })()
+      if (!cancelled) {
+        setAccess({ all: false, codes: [] })
+      }
+    }
+    void loadMyStores()
     return () => {
       cancelled = true
     }
@@ -652,7 +681,11 @@ function OrderReadyBoardContent() {
   // Cargar configuración global de voz, plantillas y Timer Inteligente desde Supabase (/api/order-ready/settings)
   const fetchGlobalSettings = useCallback(async () => {
     try {
-      const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
+      const res = await fetch('/api/order-ready/settings', {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: getTabletNoCacheHeaders()
+      })
       const data = await res.json()
       if (data.success && data.settings?.voice && isValidVoice(data.settings.voice)) {
         setSelectedVoice(data.settings.voice)
@@ -690,7 +723,8 @@ function OrderReadyBoardContent() {
       // Enviar únicamente los 5 niveles numéricos para que el servidor preserve storeModes atómicamente en BD
       const res = await fetch('/api/order-ready/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
         body: JSON.stringify({
           autoCallTimer: {
             fastSec: sanitized.fastSec,
@@ -748,7 +782,8 @@ function OrderReadyBoardContent() {
     try {
       const res = await fetch('/api/order-ready/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
         body: JSON.stringify({ storeModePatch: { storeCode: normCode, mode } })
       })
       const data = await res.json()
@@ -1151,10 +1186,38 @@ function OrderReadyBoardContent() {
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume().catch(() => {})
       }
+      try {
+        sessionStorage.setItem('teg_board_audio_unlocked', '1')
+      } catch {}
       setAudioUnlocked(true)
     } catch (e) {
       console.warn('Audio unlock error:', e)
     }
+  }, [])
+
+  // Si la pestaña ya tenía audio desbloqueado antes de una recarga y Chrome permite reanudar AudioContext (Media Engagement / Kiosk), restaurar sin requerir clic
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      if (sessionStorage.getItem('teg_board_audio_unlocked') !== '1') return
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioContextClass) return
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContextClass()
+      }
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'running') {
+        setAudioUnlocked(true)
+      } else {
+        ctx.resume()
+          .then(() => {
+            if (ctx.state === 'running') {
+              setAudioUnlocked(true)
+            }
+          })
+          .catch(() => {})
+      }
+    } catch {}
   }, [])
 
   // Desbloquear AudioContext y permisos de sonido del navegador ante cualquier interacción global
@@ -1872,7 +1935,8 @@ function OrderReadyBoardContent() {
             const ackStoreCode = String(nextOrder.store_code || selectedStore).toUpperCase()
             fetch('/api/order-ready/telemetry', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
               signal: AbortSignal.timeout(4000),
               body: JSON.stringify({
                 action: 'playback_ack',
@@ -1893,6 +1957,8 @@ function OrderReadyBoardContent() {
               .then((res) => {
                 if (res.ok) {
                   lastPlaybackAckRef.current = { storeCode: ackStoreCode, at: Date.now() }
+                } else if (res.status === 401) {
+                  ensureFreshTabletAuth(true).catch(() => {})
                 }
               })
               .catch(() => {})
@@ -1901,11 +1967,15 @@ function OrderReadyBoardContent() {
           // 3. Marcar como anunciada en backend SOLO para el anuncio automático inicial
           if (!nextOrder._manualReplay && !nextOrder._fromTablet && !nextOrder._reminder) {
             try {
-              await fetch('/api/order-ready/orders', {
+              const patchRes = await fetch('/api/order-ready/orders', {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
                 body: JSON.stringify({ id: nextOrder.id, announced: true })
               })
+              if (patchRes.status === 401) {
+                ensureFreshTabletAuth(true).catch(() => {})
+              }
             } catch (e) {
               console.warn('Error marking announced:', e)
             }
@@ -2272,11 +2342,18 @@ function OrderReadyBoardContent() {
       const res = await fetch(`/api/order-ready/orders?storeCode=${selectedStore}&syncToast=${syncToast}&forceToast=${forceToast}&minutes=45&_t=${Date.now()}`, {
         signal: controller.signal,
         cache: 'no-store',
+        credentials: 'include',
         headers: getTabletNoCacheHeaders()
       })
+      if (res.status === 401) {
+        ensureFreshTabletAuth(true).catch(() => {})
+      }
       const data = await res.json()
 
       if (data.success) {
+        if (data.authenticated === false && !isKioskTvQuery) {
+          ensureFreshTabletAuth(true).catch(() => {})
+        }
         if (data.businessDate) {
           if (businessDateRef.current && data.businessDate !== businessDateRef.current) {
             resetForNewBusinessDay(data.businessDate)
@@ -2643,7 +2720,8 @@ function OrderReadyBoardContent() {
       }
       fetch('/api/order-ready/telemetry', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
         signal: AbortSignal.timeout(4000),
         body: JSON.stringify({
           action: 'heartbeat',
@@ -2655,7 +2733,13 @@ function OrderReadyBoardContent() {
           voiceVolume,
           isFullscreen
         })
-      }).catch(() => {})
+      })
+        .then((res) => {
+          if (res.status === 401) {
+            ensureFreshTabletAuth(true).catch(() => {})
+          }
+        })
+        .catch(() => {})
     }
 
     const debounceTimer = setTimeout(() => sendSpeakerHeartbeat(false), 300)
@@ -2726,9 +2810,10 @@ function OrderReadyBoardContent() {
 
       ;(async () => {
         try {
-          const res = await fetch('/api/order-ready/call', {
+          let res = await fetch('/api/order-ready/call', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
             body: JSON.stringify({
               orderId: ord.id,
               orderNumber: numStr,
@@ -2739,6 +2824,25 @@ function OrderReadyBoardContent() {
             }),
             signal: AbortSignal.timeout(5000)
           })
+          if (res.status === 401) {
+            const refreshed = await ensureFreshTabletAuth(true)
+            if (refreshed) {
+              res = await fetch('/api/order-ready/call', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
+                body: JSON.stringify({
+                  orderId: ord.id,
+                  orderNumber: numStr,
+                  storeCode: targetStoreCode,
+                  diningOption: ord.dining_option,
+                  storeName: targetStoreName,
+                  autoTimerOnlyIfUnannounced: true
+                }),
+                signal: AbortSignal.timeout(5000)
+              })
+            }
+          }
           if (res.ok) {
             const resJson = await res.json()
             if (resJson?.autoTriggered && !resJson?.skippedAutoTimer) {
@@ -2831,7 +2935,8 @@ function OrderReadyBoardContent() {
     try {
       const res = await fetch('/api/order-ready/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
         body: JSON.stringify({
           storeCode: selectedStore,
           orderNumber: String(randomNum),

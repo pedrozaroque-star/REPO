@@ -83,7 +83,11 @@
  *     Monta `<DeliveryPhoneNotesAlertPanel variant="tablet" />` justo debajo de la barra superior (fuera de `data-orders-hit-zone`
  *     para que el radar de proximidad con guantes no intercepte los botones), replicando exactamente el parpadeo, timbre triple,
  *     aviso de bolsa sellada, botón circular rojo `✕` de cierre individual por orden estilo Preparador y confirmación en tiempo real
- *     (`< 500 ms`) en las 14 sucursales sin tableta física de Delivery Armor (apagado automáticamente en `#7 Slauson` que ya cuenta con ella).
+ *     (`< 500 ms`) en las 13 sucursales sin tableta física de Delivery Armor (apagado automáticamente en `#7 Slauson` y `#8 Hollywood` que ya cuentan con ella).
+ *   - BLINDAJE DE SESIÓN STAFF 24/7 Y CONFIRMACIÓN REAL DE LLAMADO (2026-11-24):
+ *     1) `handleCallOrderImpulse`, `sendPrepHeartbeat`, `loadAutoTimerSettings` y el respaldo de `autoTimer` envían siempre `Authorization: Bearer` (`getTabletNoCacheHeaders()`) + `credentials: 'include'` con auto-renovación inmediata en `401` (`ensureFreshTabletAuth(true)`).
+ *     2) Eliminado falso positivo verde optimista previo al `fetch`: la tarjeta solo marca verde ("¡Llamada Enviada!") cuando el broadcast WebSocket o `POST /api/order-ready/call` confirma entrega real; si ambos fallan muestra alerta roja de reintento y libera el bloqueo en 400ms.
+ *     3) `fetchReadyOrders` detecta `authenticated: false` en `GET /api/order-ready/orders?view=prep` y renueva silenciosamente el JWT antes de que el cocinero toque la pantalla.
  */
 'use client'
 
@@ -608,6 +612,7 @@ export default function PreparadorPage() {
     const callingIdsRef = useRef<Set<string>>(new Set())
     const [callingOrderIds, setCallingOrderIds] = useState<Set<string>>(new Set())
     const [callSuccessOrderIds, setCallSuccessOrderIds] = useState<Set<string>>(new Set())
+    const [callErrorOrderIds, setCallErrorOrderIds] = useState<Set<string>>(new Set())
     const realtimeChannelRef = useRef<any>(null)
     const [hideDrinks, setHideDrinks] = useState(true)
     const [hideCookingPanel, setHideCookingPanel] = useState(false)
@@ -661,7 +666,11 @@ export default function PreparadorPage() {
         let cancelled = false
         const loadAutoTimerSettings = async () => {
             try {
-                const res = await fetch('/api/order-ready/settings', { cache: 'no-store' })
+                const res = await fetch('/api/order-ready/settings', {
+                    cache: 'no-store',
+                    credentials: 'include',
+                    headers: getTabletNoCacheHeaders()
+                })
                 if (!res.ok) return
                 const json = await res.json()
                 if (!cancelled && json?.success && json?.autoCallTimer) {
@@ -686,14 +695,22 @@ export default function PreparadorPage() {
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
             fetch('/api/order-ready/telemetry', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
                 signal: AbortSignal.timeout(4000),
                 body: JSON.stringify({
                     action: 'heartbeat',
                     storeCode: currentStoreCode,
-                    deviceRole: 'prep_tablet'
+                    deviceRole: 'prep_tablet',
+                    isFullscreen
                 })
-            }).catch(() => {})
+            })
+                .then((res) => {
+                    if (res.status === 401) {
+                        ensureFreshTabletAuth(true).catch(() => {})
+                    }
+                })
+                .catch(() => {})
         }
         sendPrepHeartbeat()
         const hbInterval = setInterval(sendPrepHeartbeat, 300_000)
@@ -914,6 +931,9 @@ export default function PreparadorPage() {
                     ensureFreshTabletAuth(true).catch(() => {})
                 } else if (syncRes.ok && !runController.signal.aborted) {
                     const syncJson = await syncRes.json()
+                    if (syncJson?.authenticated === false) {
+                        ensureFreshTabletAuth(true).catch(() => {})
+                    }
                     if (Array.isArray(syncJson?.inProgressOrders)) {
                         applyReadyOrdersIfChanged(filterAndDedupePrepOrders(syncJson.inProgressOrders, storeCode, todayLA))
                         lastOrdersSyncSuccessAtRef.current = Date.now()
@@ -1166,9 +1186,10 @@ export default function PreparadorPage() {
 
             ;(async () => {
                 try {
-                    const res = await fetch('/api/order-ready/call', {
+                    let res = await fetch('/api/order-ready/call', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
                         body: JSON.stringify({
                             orderId: ord.id,
                             orderNumber: numStr,
@@ -1179,6 +1200,25 @@ export default function PreparadorPage() {
                         }),
                         signal: AbortSignal.timeout(5000)
                     })
+                    if (res.status === 401) {
+                        const refreshed = await ensureFreshTabletAuth(true)
+                        if (refreshed) {
+                            res = await fetch('/api/order-ready/call', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
+                                body: JSON.stringify({
+                                    orderId: ord.id,
+                                    orderNumber: numStr,
+                                    storeCode: currentStoreCode,
+                                    diningOption: ord.dining_option,
+                                    storeName,
+                                    autoTimerOnlyIfUnannounced: true
+                                }),
+                                signal: AbortSignal.timeout(5000)
+                            })
+                        }
+                    }
                     if (res.ok) {
                         const resJson = await res.json()
                         if (resJson?.autoTriggered && !resJson?.skippedAutoTimer) {
@@ -1686,10 +1726,16 @@ export default function PreparadorPage() {
 
         callingIdsRef.current.add(order.id)
         setCallingOrderIds(prev => new Set(prev).add(order.id))
-        setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
+        setCallErrorOrderIds(prev => {
+            if (!prev.has(order.id)) return prev
+            const next = new Set(prev)
+            next.delete(order.id)
+            return next
+        })
 
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (order?.store_code || currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
+        let deliveredOk = false
 
         try {
             const calledAt = new Date().toISOString()
@@ -1706,24 +1752,26 @@ export default function PreparadorPage() {
             // 1. Broadcast WebSocket directo de cliente (0ms)
             const wsPromise = realtimeChannelRef.current
                 ? Promise.race([
-                      realtimeChannelRef.current.send({
-                          type: 'broadcast',
-                          event: 'call_order',
-                          payload: {
-                              order_id: order.id,
-                              order_number: order.order_number,
-                              store_code: storeCode,
-                              dining_option: order.dining_option,
-                              store_name: order?.store_name || currentStore?.name || storeCode,
-                              called_at: calledAt
-                          }
-                      }),
-                      new Promise((resolve) => setTimeout(resolve, 1500))
+                      realtimeChannelRef.current
+                          .send({
+                              type: 'broadcast',
+                              event: 'call_order',
+                              payload: {
+                                  order_id: order.id,
+                                  order_number: order.order_number,
+                                  store_code: storeCode,
+                                  dining_option: order.dining_option,
+                                  store_name: order?.store_name || currentStore?.name || storeCode,
+                                  called_at: calledAt
+                              }
+                          })
+                          .then((status: string) => status === 'ok')
+                          .catch(() => false),
+                      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500))
                   ])
-                : Promise.resolve()
+                : Promise.resolve(false)
 
-            // 2. Endpoint REST con reintento automático (hasta 3 intentos: 0ms, +550ms, +1250ms)
-            // para que un micro-corte de Wi-Fi en cocina jamás pierda el primer toque del cocinero.
+            // 2. Endpoint REST con Bearer JWT Staff + auto-renovación en 401 y hasta 3 intentos (0ms, +550ms, +1250ms)
             const apiPromise = (async () => {
                 const retryDelays = [0, 550, 1250]
                 for (let attempt = 0; attempt < retryDelays.length; attempt++) {
@@ -1731,12 +1779,25 @@ export default function PreparadorPage() {
                         await new Promise((r) => setTimeout(r, retryDelays[attempt]))
                     }
                     try {
-                        const res = await fetch('/api/order-ready/call', {
+                        let res = await fetch('/api/order-ready/call', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
                             body: callBody,
-                            signal: AbortSignal.timeout(3500)
+                            signal: AbortSignal.timeout(4000)
                         })
+                        if (res.status === 401 || res.status === 403) {
+                            const refreshed = await ensureFreshTabletAuth(true)
+                            if (refreshed) {
+                                res = await fetch('/api/order-ready/call', {
+                                    method: 'POST',
+                                    credentials: 'include',
+                                    headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
+                                    body: callBody,
+                                    signal: AbortSignal.timeout(4000)
+                                })
+                            }
+                        }
                         if (res.ok) return true
                     } catch (fetchErr) {
                         if (attempt === retryDelays.length - 1) {
@@ -1747,12 +1808,27 @@ export default function PreparadorPage() {
                 return false
             })()
 
-            await Promise.allSettled([wsPromise, apiPromise])
+            const [wsSettled, apiSettled] = await Promise.allSettled([wsPromise, apiPromise])
+            const wsOk = wsSettled.status === 'fulfilled' && wsSettled.value === true
+            const apiOk = apiSettled.status === 'fulfilled' && apiSettled.value === true
+            deliveredOk = apiOk || wsOk
+
+            if (deliveredOk) {
+                setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
+                if (!String(order.id).startsWith('bev-')) {
+                    setReadyOrdersList(prev =>
+                        prev.map(item => (item.id === order.id ? { ...item, announced_at: calledAt } : item))
+                    )
+                }
+            } else {
+                setCallErrorOrderIds(prev => new Set(prev).add(order.id))
+            }
         } catch (err) {
             console.error('Error enviando impulso de orden desde tableta:', err)
+            setCallErrorOrderIds(prev => new Set(prev).add(order.id))
         } finally {
-            // Cooldown de 1800ms por orden sincronizado con el debounce de 1.8s del tablero de bocina
-            // para evitar llamadas duplicadas si el guante rebota o mantiene presión larga
+            // Si el envío fue exitoso aplica cooldown de 1800ms anti-rebote; si falló libera en 400ms para reintentar al instante
+            const releaseMs = deliveredOk ? 1800 : 400
             setTimeout(() => {
                 callingIdsRef.current.delete(order.id)
                 setCallingOrderIds(prev => {
@@ -1760,9 +1836,16 @@ export default function PreparadorPage() {
                     next.delete(order.id)
                     return next
                 })
-            }, 1800)
+            }, releaseMs)
             setTimeout(() => {
                 setCallSuccessOrderIds(prev => {
+                    if (!prev.has(order.id)) return prev
+                    const next = new Set(prev)
+                    next.delete(order.id)
+                    return next
+                })
+                setCallErrorOrderIds(prev => {
+                    if (!prev.has(order.id)) return prev
                     const next = new Set(prev)
                     next.delete(order.id)
                     return next
@@ -3492,6 +3575,7 @@ export default function PreparadorPage() {
                                         {readyOrdersList.map((order, queueIdx) => {
                                             const isCalling = callingOrderIds.has(order.id)
                                             const isSuccess = callSuccessOrderIds.has(order.id)
+                                            const isCallError = callErrorOrderIds.has(order.id)
                                             const isAlreadyAnnounced = Boolean(order.announced_at)
                                             const isSingleOrder = readyOrdersList.length === 1
                                             const isCompactMultiOrder = readyOrdersList.length >= 5
@@ -3553,6 +3637,8 @@ export default function PreparadorPage() {
                                                     } ${
                                                         isCalling
                                                             ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
+                                                            : isCallError
+                                                            ? 'ring-4 ring-red-500 border-red-500 bg-red-50 dark:bg-red-950/70 shadow-lg'
                                                             : isSuccess
                                                             ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-emerald-500/20'
                                                             : isSmartAutoVoiceStore && isAlreadyAnnounced
@@ -3631,6 +3717,8 @@ export default function PreparadorPage() {
                                                     } ${
                                                         isCalling
                                                             ? 'bg-emerald-600 text-white animate-pulse shadow-md'
+                                                            : isCallError
+                                                            ? 'bg-red-600 text-white shadow-md'
                                                             : isSuccess
                                                             ? 'bg-emerald-700 text-white'
                                                             : isSmartAutoVoiceStore && isAlreadyAnnounced
@@ -3643,6 +3731,11 @@ export default function PreparadorPage() {
                                                             <>
                                                                 <Megaphone size={17} className="animate-bounce shrink-0" />
                                                                 <span className="truncate">{t('prep.callingOrder')}</span>
+                                                            </>
+                                                        ) : isCallError ? (
+                                                            <>
+                                                                <AlertTriangle size={17} className="shrink-0" />
+                                                                <span className="truncate">{t('prep.orderCallError')}</span>
                                                             </>
                                                         ) : isSuccess ? (
                                                             <>
