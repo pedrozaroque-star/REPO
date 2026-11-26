@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.34.0',
-    versionNumber: '2.34.0',
+    version: 'v2.35.0',
+    versionNumber: '2.35.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.34.0',
-    labelEn: 'November 2026 • SM TEG v2.34.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.35.0',
+    labelEn: 'November 2026 • SM TEG v2.35.0',
     brand: 'SM TEG',
     lastUpdated: '2026-11-25'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.35.0',
+        date: '25-Nov-2026',
+        titleEs: 'Blindaje Integral de Protección de Servidores en 5 Módulos Críticos + vercel.json 0 Colisiones (40 Crons), TVF 5-Layer Shield & Paridad 6-Vías (a190d587), Telefonía Kore v22 Calendario Festivo 7 Días (040ca617) y Kore Drive-Thru Fase 29 (Lectura Hablada Obligatoria de Modificadores)',
+        titleEn: 'Server Protection Hardening Across 5 Critical Modules + Zero-Collision vercel.json (40 Crons), TVF 5-Layer Shield & 6-Way Anchor Parity (a190d587), Kore Live Phone v22 7-Day Holiday Calendar (040ca617) & Kore Drive-Thru Phase 29 (Mandatory Spoken Modifier Readback)',
+        highlightsEs: [
+            'Blindaje de Protección de Servidores en 5 Módulos Críticos + vercel.json (19 archivos — 90/90 estáticas, 18/18 ejecución y 0 colisiones en 10,080 min semanales): límite de concurrencia (<= 3), paginación determinista MAX_PAGES, fragmentación .in(<=150), topes maxDays, caché single-flight, higiene de polling y escalonamiento de los 40 crons en Contabilidad Externa, Conciliación Delivery, Dashboard KPIs/Alertas, Descuentos/Toast y Preparador/Order Ready',
+            'TVF 5-Layer Shield, Paridad 6-Vías y Calibración Confirmada de 10 Recetas de Cocina (commit a190d587): blindaje Supabase contra OOM/522, regla de Queso Fresco aparte y reglas permanentes de protección de servidores activas en producción',
+            'Telefonía Kore Live v22 / Deploy v24 (commit 040ca617): inyección del calendario efectivo festivo de 7 días con horarios exactos de mañana y viernes (Thanksgiving/Black Friday) en phone-live-bridge, Kore Live y soporte',
+            'Kore Drive-Thru Fase 29 (4 archivos): nuevo motor bilingüe formatKoreSpokenOrderReadback exigiendo repetir línea por línea todos los modificadores, condimentos, salsas, cortesías y preparaciones en cada confirmación (confirm_order y get_order) y supresión de fast-clips genéricos mudos',
+            'Cierre Ejecutivo de Noviembre 2026 (176.4h consolidadas), 216/216 tablas públicas con RLS activo, 40 crons sin colisiones y selección/compra de flota de 15 tabletas comerciales Samsung Galaxy Tab S10 FE para cocina'
+        ],
+        highlightsEn: [
+            'Server Protection Hardening Across 5 Critical Modules + Zero-Collision vercel.json (19 files — 90/90 static, 18/18 runtime & 0 collisions across 10,080 weekly minutes): enforced concurrency caps (<= 3), deterministic MAX_PAGES pagination, .in(<=150) chunking, maxDays limits, single-flight caching, polling hygiene, and 40-cron staggering across External Accounting, Delivery Reconciliation, Dashboard KPIs/Alerts, Discounts/Toast, and Preparador/Order Ready',
+            'TVF 5-Layer Shield, 6-Way Anchor Parity & 10 Confirmed Kitchen Recipe Calibrations (commit a190d587): Supabase OOM/522 protection, separate Queso Fresco packing rule, and permanent server-protection guardrails live in production',
+            'Kore Live Phone v22 / Deploy v24 (commit 040ca617): injected 7-day holiday-aware effective calendar with exact tomorrow/Friday hours (Thanksgiving/Black Friday) across phone-live-bridge, Kore Live, and support chat',
+            'Kore Drive-Thru Phase 29 (4 files): new bilingual formatKoreSpokenOrderReadback engine enforcing full item-by-item readback of modifiers, condiments, salsas, freebies, and prep styles on every confirmation (confirm_order & get_order) while suppressing generic silent fast-clips',
+            'November 2026 Executive Report Closure (176.4h consolidated), 216/216 public RLS tables, 40 collision-free crons, and 15-unit Samsung Galaxy Tab S10 FE commercial kitchen tablet fleet procurement'
+        ]
+    },
     {
         version: 'v2.34.0',
         date: '25-Nov-2026',
