@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.35.0',
-    versionNumber: '2.35.0',
+    version: 'v2.36.0',
+    versionNumber: '2.36.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.35.0',
-    labelEn: 'November 2026 • SM TEG v2.35.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.36.0',
+    labelEn: 'November 2026 • SM TEG v2.36.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-25'
+    lastUpdated: '2026-11-26'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.36.0',
+        date: '26-Nov-2026',
+        titleEs: 'Arquitectura Modular Preparador & Bodega (Escudo Triple Anti-Toque Fantasma + lib/kitchen-touch.ts), Candado Definitivo noreply@tacosgavilan.com, Banner Perpetuo Bilingüe 7 Festivos Oficiales + Schema.org 15 Tiendas y Sincronización Horarios HP & Downey',
+        titleEn: 'Preparador & Bodega Modular Architecture (Triple Ghost-Tap Shield + lib/kitchen-touch.ts), Strict noreply@tacosgavilan.com Enforcement, Perpetual Bilingual 7-Official-Holiday Web Banner + 15-Store Schema.org & HP/Downey Hours Sync',
+        highlightsEs: [
+            'Rediseño y Modularización de Tabletas Preparador y Bodega (14 archivos — 5 nuevos componentes en components/preparador/* + lib/kitchen-touch.ts + 144 claves i18n): tirador retráctil anclado en el flujo flex sobre la línea divisoria para todas las resoluciones (1920px, MESWAO 15.6" y Samsung Galaxy Tab S10 FE 10.9") y Escudo Triple Anti-Toque Fantasma (disparo release-only + ventana de bloqueo 500–550 ms)',
+            'Candado Estricto noreply@tacosgavilan.com (9 archivos): refuerzo transversal en lib/system-mailer.ts, alertas de porciones/modificadores de carne, auditoría de correos, publicación de horarios, comentarios de inspección y correos de autenticación móvil para garantizar 0 envíos desde cuentas personales',
+            'Banner Perpetuo Bilingüe de 7 Festivos Oficiales + Schema.org JSON-LD en 15 Tiendas (commits 9c4b2cfc y a276ea59 + tacosgavilan-web 82f95bf y b4a3cc1): actualización de horarios de Huntington Park y Downey (Jueves 1:00 AM), datos estructurados openingHoursSpecification / specialOpeningHoursSpecification en tacosgavilan.com y /nueva-web con cache-busting verificado',
+            'Auditoría de Horarios en Mapas/Plataformas (Google Business Profile, Apple Business Connect, Toast Web y Delivery), stickers corregidos de puerta enviados a imprenta para HP/Downey y consolidación ejecutiva de Noviembre 2026 (182.1h, 216/216 RLS, 40 crons sin colisiones)'
+        ],
+        highlightsEn: [
+            'Preparador & Bodega Tablet Modular Overhaul (14 files — 5 new components under components/preparador/* + lib/kitchen-touch.ts + 144 i18n keys): flex-anchored seam toggle across all resolutions (1920px, MESWAO 15.6", Samsung Galaxy Tab S10 FE 10.9") and Triple Ghost-Tap Shield (release-only trigger + 500–550 ms call-suppression window)',
+            'Strict noreply@tacosgavilan.com Sender Enforcement (9 files): hardened lib/system-mailer.ts, missing-meat/portion alerts, employee email auditor, schedule notifications, inspection comments, and mobile auth emails guaranteeing zero personal-account sends',
+            'Perpetual Bilingual 7-Official-Holiday Web Banner & 15-Store Schema.org JSON-LD (commits 9c4b2cfc & a276ea59 + tacosgavilan-web 82f95bf & b4a3cc1): updated Huntington Park & Downey Thu 1:00 AM hours, published openingHoursSpecification & specialOpeningHoursSpecification across tacosgavilan.com and /nueva-web with verified cache-busting',
+            'Maps & Platforms Hours Audit (Google Business Profile, Apple Business Connect, Toast Web & Delivery), corrected HP/Downey door stickers sent to print, and November 2026 executive consolidation (182.1h, 216/216 RLS, 40 collision-free crons)'
+        ]
+    },
     {
         version: 'v2.35.0',
         date: '25-Nov-2026',
