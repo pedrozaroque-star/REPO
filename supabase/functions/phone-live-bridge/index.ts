@@ -56,6 +56,16 @@
  * - v18 (2026-11-24): cobertura 24h completa de audios festivos pre-grabados también en madrugada (1:00–5:59 AM tras cerrar el turno nocturno
  *   previo en Thanksgiving, Nochebuena, Fin de Año y Viernes Santo) y excepción oficial de #6 Los Ángeles (Central y Washington): en los 3 días
  *   de cierre temprano (Thanksgiving, 24 dic y 31 dic), Comedor y Drive-Thru cierran al mismo tiempo a las 4:00 PM.
+ * - v19 (2026-11-24): 3 nuevas herramientas operativas conectadas en vivo a la tableta PREPARADOR (`/inventory/preparador`), `/order-ready-board`
+ *   y Delivery Armor vía HMAC `/api/delivery-armor/phone-notes`: (1) `request_toast_pickup_time_change`, (2) `coordinate_wrong_store_order`
+ *   (alerta dual simultánea a AMBAS sucursales: NO PREPARAR + PREPARAR AQUÍ) y (3) `send_fiesta_platter_prep_alert` (Fiesta Platters a cocineros).
+ * - v20 (2026-11-24): regla por estatus de preparación en órdenes delivery — en estatus `IN_KITCHEN` (PREPARACIÓN) permite quitar/modificar
+ *   ingredientes del platillo (ej. sin frijol en un burrito) y agregar/editar condimentos gratis (`replace_condiments`); si ya salió de cocina
+ *   (`READY` / `PACKED_AND_SEALED`) bloquea modificaciones al platillo (`ALREADY_PREPARED_NO_ITEM_MOD` / `SENT_CONDIMENTS_ONLY_ALREADY_PREPARED`)
+ *   y permite únicamente condimentos gratis aparte.
+ * - v21 (2026-11-25): soporte oficial de Café de Olla + Café Regular (16 oz todo el día bajo SKU `Coffee`), Burritos mitad y mitad (50%/50% de
+ *   2 carnes a `$0.00` extra en Regular, Super, Meat Only y Meat Only Super), opciones sin costo en caja (`Carne Dorada`, `Tortilla Dorada`,
+ *   `Partido en Dos`), normalización STT `"fe de la hoya"` -> `"café de olla"`, y `find_other_stores` completo con horarios en fallback.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -2194,12 +2204,106 @@ const LIVE_TOOL_DECLARATIONS = [
           type: "INTEGER",
           description: "ID de sucursal destino (1, 3..16) solo si ordenó en otra sucursal distinta."
         },
+        replace_condiments: {
+          type: "BOOLEAN",
+          description: "true si el cliente está editando o reemplazando condimentos que pidió antes en la misma orden."
+        },
         confirm_save_unmatched: {
           type: "BOOLEAN",
           description: "Solo envía true en un segundo intento si la orden todavía no baja a Toast y el cliente confirmó que la acaba de enviar hace segundos a ESTA sucursal."
         }
       },
       required: ["platform", "customer_name", "note_summary_es"]
+    }
+  },
+  {
+    name: "request_toast_pickup_time_change",
+    behavior: "BLOCKING",
+    description:
+      "Ayuda a un cliente con una orden de Toast / tacosgavilan.com a cambiar el horario para recoger su pedido (más tarde o más temprano). Valida horario real de la sucursal y envía alerta parpadeante en vivo a cocina en la tableta PREPARADOR.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        customer_name: { type: "STRING", description: "Nombre en la orden." },
+        order_code: { type: "STRING", description: "Número de orden Toast si lo tiene." },
+        requested_pickup_time: { type: "STRING", description: "Nueva hora exacta para recoger (ej. '2:30 PM', '6:00 PM', 'en 1 hora')." },
+        requested_date: { type: "STRING", description: "Opcional: 'today', 'tomorrow' o YYYY-MM-DD." },
+        caller_phone: { type: "STRING", description: "'CALLER_ID' o teléfono de 10 dígitos." },
+        ordered_items: { type: "STRING", description: "Platillos pedidos si los menciona." },
+        extra_notes: { type: "STRING", description: "Nota breve en español para cocina." },
+        target_store_id: { type: "INTEGER", description: "ID de sucursal (1, 3..16) solo si ordenó en otra tienda." },
+        confirm_save_unmatched: { type: "BOOLEAN", description: "true en 2do intento si aún no aparece en Toast." }
+      },
+      required: ["customer_name", "requested_pickup_time"]
+    }
+  },
+  {
+    name: "coordinate_wrong_store_order",
+    behavior: "BLOCKING",
+    description:
+      "Cuando el cliente se equivocó de sucursal al ordenar, envía ALERTA SIMULTÁNEA en vivo a las 2 sucursales involucradas: NO PREPARAR a paid_store_id y PREPARAR AQUÍ con los platillos pagados a prepare_store_id.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        paid_store_id: { type: "INTEGER", description: "ID de sucursal (1, 3..16) donde cayó/se pagó la orden por error." },
+        prepare_store_id: { type: "INTEGER", description: "ID de sucursal (1, 3..16) donde el cliente QUIERE recoger y donde debe prepararse." },
+        customer_name: { type: "STRING", description: "Nombre del cliente en la orden." },
+        order_code: { type: "STRING", description: "Número o código de orden." },
+        platform: { type: "STRING", description: "'TOAST_ONLINE', 'DOORDASH', 'UBER_EATS' o 'GRUBHUB'." },
+        caller_phone: { type: "STRING", description: "'CALLER_ID' o teléfono de 10 dígitos." },
+        ordered_items: { type: "STRING", description: "Platillos ordenados si aún no baja a Toast." },
+        requested_pickup_time: { type: "STRING", description: "Hora estimada para recoger (opcional)." },
+        extra_notes: { type: "STRING", description: "Nota breve en español." },
+        confirm_save_unmatched: { type: "BOOLEAN", description: "true si ya confirmaste los platillos con el cliente." }
+      },
+      required: ["paid_store_id", "prepare_store_id", "customer_name"]
+    }
+  },
+  {
+    name: "send_fiesta_platter_prep_alert",
+    behavior: "BLOCKING",
+    description:
+      "Cuando un cliente ordenó un Fiesta Platter / Party Tray en DoorDash, Uber Eats, Grubhub o Online y la app no le dejó seleccionar todas las carnes, aguas o tortillas que quiere, valida las libras/galones oficiales (1 sola carne o varias, ej. 12 lbs = 4 Asada, 4 Pollo, 4 Pastor) y envía alerta directo a los cocineros en la tableta PREPARADOR.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        platform: { type: "STRING", description: "'DOORDASH', 'UBER_EATS', 'GRUBHUB' o 'TOAST_ONLINE'." },
+        customer_name: { type: "STRING", description: "Nombre del cliente." },
+        order_code: { type: "STRING", description: "Código o número de orden." },
+        package_size: { type: "STRING", description: "'15-20' (6 lb), '20-25' (7.5 lb), '25-30' (10 lb) o '30-40' (12 lb)." },
+        meat_breakdown: {
+          type: "ARRAY",
+          description: "Carnes solicitadas: [{ meat: 'Asada'|'Pollo'|'Al Pastor'|'Carnitas'|'Cabeza'|'Lengua'|'Buche'|'Chorizo', lbs?: número }].",
+          items: {
+            type: "OBJECT",
+            properties: {
+              meat: { type: "STRING" },
+              lbs: { type: "NUMBER" }
+            },
+            required: ["meat"]
+          }
+        },
+        aguas_breakdown: {
+          type: "ARRAY",
+          description: "Opcional: [{ flavor: 'Horchata'|'Jamaica'|'Piña'|'Tamarindo', gallons?: número }].",
+          items: {
+            type: "OBJECT",
+            properties: {
+              flavor: { type: "STRING" },
+              gallons: { type: "NUMBER" }
+            },
+            required: ["flavor"]
+          }
+        },
+        tortillas_preference: { type: "STRING", description: "Opcional: 'Maíz', 'Harina' o 'Mitad Maíz y Mitad Harina'." },
+        requested_condiments: { type: "ARRAY", items: { type: "STRING" }, description: "Condimentos gratis extra EN ESPAÑOL." },
+        extra_notes: { type: "STRING", description: "Nota adicional para cocina EN ESPAÑOL." },
+        requested_pickup_time: { type: "STRING", description: "Hora de recolección programada (opcional)." },
+        caller_phone: { type: "STRING", description: "'CALLER_ID' o teléfono de 10 dígitos." },
+        target_store_id: { type: "INTEGER", description: "ID de sucursal (1, 3..16) solo si ordenó en otra tienda." },
+        confirm_save_unmatched: { type: "BOOLEAN", description: "true en 2do intento si aún no aparece en Toast." }
+      },
+      required: ["platform", "customer_name"]
     }
   },
   {
@@ -2338,7 +2442,9 @@ async function buildBridgeSystemPromptAndData(
     if (!byCatPrice.has(cat)) byCatPrice.set(cat, new Map())
     const pMap = byCatPrice.get(cat)!
     if (!pMap.has(price)) pMap.set(price, [])
-    pMap.get(price)!.push(String(m.name || "").trim())
+    const rawItemName = String(m.name || "").trim()
+    const displayItemName = rawItemName === "Coffee" ? "Coffee (Café de Olla / Café Regular 16 oz)" : rawItemName
+    pMap.get(price)!.push(displayItemName)
   }
   const menuTextLines: string[] = []
   for (const [cat, pMap] of byCatPrice.entries()) {
@@ -2427,23 +2533,25 @@ async function buildBridgeSystemPromptAndData(
     !schedEval.isOpenNow
       ? `   - **ALERTA ROJA — CERRADO AHORA**: Si preguntan 'are you open right now?' o '¿están abiertos?', PROHIBIDO iniciar con 'Yes'/'Sí'. Inicia rotundo: **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** e indica apertura.`
       : "",
-    `   - Festivos: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM Thanksgiving, 24 dic y 31 dic; abre 11:00 AM 1 ene y Black Friday. Desayunos en las 15 tiendas: apertura a **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON HOY"}). **Café (16 oz) y Champurrado (16 oz y Caja 96 oz) TODO EL DÍA**.`,
+    `   - Festivos: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM Thanksgiving, 24 dic y 31 dic; abre 11:00 AM 1 ene y Black Friday. Desayunos en las 15 tiendas: apertura a **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON HOY"}). **Café de Olla tradicional, Café Regular (16 oz) y Champurrado (16 oz y Caja 96 oz) TODO EL DÍA**.`,
     `5. DRIVE-THRU, EBT Y OTRAS SUCURSALES:`,
     `   - Aquí: ${store.has_drive_thru ? "SÍ tenemos Drive-Thru." : "NO tenemos Drive-Thru (solo comedor y mostrador)."} Las 6 con Drive-Thru: West Covina (#3), Los Ángeles Central y Washington (#6), La Puente (#10), Norwalk (#12), Lynwood (#14) y South Gate (#15).`,
     `   - EBT CalFresh aquí: ${config.accepts_ebt ? "SÍ aceptamos EBT ÚNICAMENTE adentro en mostrador del comedor; JAMÁS por Drive-Thru." : "NO aceptamos EBT aquí (#1 Rialto y #9 Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple/Google Pay."}`,
     `   - IDs de las 15 sucursales: ${storeIdMapLine}. Para dirección, teléfono u horario en vivo de OTRA sucursal invoca SIEMPRE \`find_other_stores\`.`,
     `6. MENÚ POR VOZ, REGULAR/SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
     `   - **RECITA EL MENÚ POR VOZ**: Si preguntan qué vendemos o el menú completo, NUNCA los mandes a tacosgavilan.com a verlo ni omitas categorías: incluye **Taco Plate (3 tacos con arroz y frijol)**, **Platos completos**, **Desayunos (hasta 2 PM)**, **Tacos, Burritos (Regular, Super y Meat Only), Quesadillas, Mulitas, Tortas (Asada, Pastor, Milanesa, Cubana, etc.), Sopes (sin lechuga), Super Nachos**, **8 carnes** (Asada, Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo, Carnitas), **Aguas Frescas (Horchata, Jamaica, Piña, Tamarindo), sodas, agua, Café y Champurrado todo el día**, **Flan y Cheesecake** individuales y **Fiesta Platters**.`,
-    `   - Jamás digas 'tamaño'/'size' en comida: es **Regular** o **Super** (Burrito Reg = carne/arroz/frijol; Super +queso/guacamole/crema; Mulita/Quesadilla Reg ya llevan queso y Super +guacamole/crema). Bebidas frías: SOLO **Mediana 22 oz**, **Grande 32 oz** y **Galón 128 oz** (PROHIBIDO 'chica'/'small'). Postres: SOLO **Flan y Cheesecake** (sin pasteles de cumpleaños ni ingreso de pasteles externos, sin churros/menudo/birria/pozole/suadero/tripa/alcohol ni descuentos por volumen). Prep pickup ~7-15 min; nacimos en 1992 (Gage y Main, LA); animales de servicio bienvenidos; empleo en tienda o tacosgavilan.com. Para dudas detalladas de ingredientes/políticas invoca \`search_menu_item_price\`.`,
+    `   - Jamás digas 'tamaño'/'size' en comida: es **Regular** o **Super** (Burrito Reg = carne/arroz/frijol; Super +queso/guacamole/crema; Mulita/Quesadilla Reg ya llevan queso y Super +guacamole/crema). **BURRITOS MITAD Y MITAD ($0.00 EXTRA)**: en todos los Burritos (Regular, Super, Meat Only y Meat Only Super) SÍ se puede combinar mitad y mitad (50%/50%) de 2 carnes sin cargo extra, además de opciones sin costo en caja como Carne Dorada, Tortilla Dorada y Partido en Dos. **CAFÉ DE OLLA (16 oz)**: manejamos tanto **Café de Olla tradicional** como **Café Regular** todo el día (mismo precio de Coffee; JAMÁS niegues Café de Olla!). Bebidas frías: SOLO **Mediana 22 oz**, **Grande 32 oz** y **Galón 128 oz** (PROHIBIDO 'chica'/'small'); Champurrado solo vaso **16 oz** o Caja **96 oz**. Postres: SOLO **Flan y Cheesecake** (sin pasteles de cumpleaños ni ingreso de pasteles externos, sin churros/menudo/birria/pozole/suadero/tripa/alcohol ni descuentos por volumen). Prep pickup ~7-15 min; nacimos en 1992 (Gage y Main, LA); animales de servicio bienvenidos; empleo en tienda o tacosgavilan.com. Para dudas detalladas invoca \`search_menu_item_price\`.`,
     `   - **Fiesta Platters**: en caja, **tacosgavilan.com** (pickup o delivery vía order.online) o Uber Eats/DoorDash/Grubhub con **1h de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\`). **Si necesitan comida para grupo en MENOS de 1h**, NO cierres la venta: ofrece **(a)** pasar al mostrador${store.has_drive_thru ? " o Drive-Thru" : ""} por órdenes individuales al momento, **O (b)** registrar \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente revise capacidad de cocina.`,
-    `   - Fonética STT: 'torta corona'/'crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'malita'='mulita', 'soapy'='sope', 'a plan'='flan', 'whole/pot beans'='frijol de la olla ($0)', 'Dortmund'='DoorDash', 'ibt'/'evt'/'abc'='EBT', 'dritro'='Drive-Thru'.`,
+    `   - Fonética STT: 'fe de la hoya'/'cafe de la hoya'='café de olla', 'torta corona'/'crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'malita'='mulita', 'soapy'='sope', 'a plan'='flan', 'whole/pot beans'='frijol de la olla ($0)', 'Dortmund'='DoorDash', 'ibt'/'evt'/'abc'='EBT', 'dritro'='Drive-Thru'.`,
     `7. RECADOS AL GERENTE Y VALIDACIÓN DE TICKET (CERO TRANSFERENCIAS):`,
     `   - Usa \`create_manager_callback\` con \`reason_summary\` **SIEMPRE EN ESPAÑOL** claro.`,
     callerIdGuidanceLine,
     `   - **DETALLE EXACTO ANTES DE GUARDAR + RE-INVOCACIÓN OBLIGATORIA**: Pregunta qué cambio/detalle exacto y en qué platillo ANTES de llamar \`create_manager_callback\`. Si DESPUÉS de guardar el cliente agrega CUALQUIER dato nuevo ('sin queso', 'Taco Plate', código), **VUELVE A INVOCAR \`create_manager_callback\` PRIMERO** con todo acumulado antes de confirmar.`,
-    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (ALERTA PARPADEANTE A TABLETA DELIVERY ARMOR)**: Si el cliente llamó sobre una orden de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com** para agregar **condimentos gratuitos** (salsas roja/verde, chiles, limones, cebollas, servilletas, utensilios) O hacer una **modificación sin costo** a un platillo (taco, burrito, mulita, quesadilla, torta, plato — ej. sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz): **1)** Pregunta en una sola frase natural **qué plataforma usó (DoorDash/Uber Eats/Grubhub/Online), el nombre como aparece en su orden, el código de la app (o 1–2 platillos que pidió si no lo ve) y exactamente qué condimentos o ajuste en qué platillo desea**; **2)** **INVOCA DE INMEDIATO \`send_delivery_armor_order_note\`** con \`note_summary_es\` SIEMPRE EN ESPAÑOL para que la orden exacta **parpadee en vivo en la tableta Delivery Armor** frente a la cajera que empaca; **3)** Responde según el resultado real: si ya salió con el chofer (\`ALREADY_DELIVERED\`) díselo con honestidad; si hay dos órdenes parecidas (\`AMBIGUOUS\`) pide la inicial del apellido, el código o un platillo; si la bolsa ya estaba sellada (\`SENT_TO_TABLET_REOPEN_BAG\`) aclara que alertamos a empaque para agregarlo antes de entregarla al chofer si todavía no sale; si todavía no baja (\`NOT_FOUND\`), verifica tienda/nombre y si la acaba de mandar re-invoca con \`confirm_save_unmatched: true\`. **PROHIBIDO** agregar comida o bebidas con costo por teléfono (eso va en su app o pedido aparte). Si el cliente después agrega otro condimento o cambio, **VUELVE A INVOCAR \`send_delivery_armor_order_note\`**. (Para órdenes en comedor/Drive-Thru sin plataforma, usa \`create_manager_callback\` con \`condiments_note\`.)`,
+    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (REGLA POR ESTATUS DE PREPARACIÓN)**: Si el cliente llamó sobre una orden de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com**: **(a) Si la orden sigue en estatus PREPARACIÓN (\`IN_KITCHEN\`)**, SÍ se permite **quitar/modificar ingredientes sin costo del platillo** (ej. **sin frijol en el burrito**, sin queso, sin cebolla, sin cilantro, sin arroz, sin crema, salsa aparte, tortillas de harina/maíz — alertando directo a cocina en PREPARADOR y empaque) **Y** **agregar o editar condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, servilletas, utensilios); **(b) Si ya salió de cocina (\`READY\` / \`PACKED_AND_SEALED\`)**, ya NO se pueden quitar ingredientes de un platillo ya preparado (\`ALREADY_PREPARED_NO_ITEM_MOD\` / \`SENT_CONDIMENTS_ONLY_ALREADY_PREPARED\`), pero SÍ se pueden **agregar/editar condimentos gratis** antes de entregar al chofer. **1)** Pregunta en una sola frase plataforma, nombre en la orden, código (o 1–2 platillos) y cambio/condimentos exactos; **2)** **INVOCA DE INMEDIATO \`send_delivery_armor_order_note\`** con \`note_summary_es\` EN ESPAÑOL (pasa \`replace_condiments: true\` si edita condimentos previos); **3)** Responde con total honestidad según el estatus real devuelto (\`ALREADY_PREPARED_NO_ITEM_MOD\`, \`SENT_CONDIMENTS_ONLY_ALREADY_PREPARED\`, \`ALREADY_DELIVERED\`, \`AMBIGUOUS\`, \`SENT_TO_TABLET_REOPEN_BAG\`, \`NOT_FOUND\`). **PROHIBIDO** agregar comida o bebidas con costo por teléfono.`,
     `   - **Uber/DoorDash/Grubhub (estatus, retrasos y reembolsos)**: para estatus invoca \`validate_order_ticket\` (código y/o \`customer_name\`). Cambios con costo, agregar comida pagada, dirección, cancelaciones o reembolsos van en **Ayuda (Help)** de su app; retrasos largos esperando repartidor -> \`create_manager_callback\` (\`reason_category: 'delivery_issue'\`).`,
-    `   - **Sucursal equivocada web**: tienda donde cayó, nombre, orden y teléfono -> \`wrong_store_order\` con \`target_store_id\`.`,
+    `   - **Cambio de horario en orden Toast / tacosgavilan.com**: si quiere recoger su pedido más tarde o más temprano, pide nombre, número de orden y la nueva hora exacta e **INVOCA \`request_toast_pickup_time_change\`** (valida horario real y alerta a cocina en PREPARADOR para tenerla lista a esa hora).`,
+    `   - **Sucursal equivocada (ALERTA A LAS 2 SUCURSALES)**: siempre ayuda coordinando ambas tiendas: pregunta (1) en qué sucursal cayó por error (\`paid_store_id\`), (2) en cuál quiere recoger (\`prepare_store_id\`, confirmando entrecalles en Los Ángeles), (3) nombre, orden y teléfono, e **INVOCA \`coordinate_wrong_store_order\`** para mandar alerta 🛑 NO PREPARAR a la tienda equivocada y 🍳 PREPARAR AQUÍ con los platillos pagados a la que quiere el cliente. (En delivery con chofer de Uber/DD/GH aclara que el chofer va a la tienda de su app por lo que conviene cancelar en app si busca entrega a domicilio; para pickup o coordinación igual envía la alerta doble.)`,
+    `   - **Fiesta Platters en plataformas (carnes/aguas/tortillas que la app no dejó elegir)**: si en Uber Eats, DoorDash, Grubhub o Online no pudo seleccionar todas las carnes/productos que quiere dentro del total de su paquete (1 sola carne o varias en libras exactas: 15-20=6 lb, 20-25=7.5 lb, 25-30=10 lb, 30-40=12 lb; ej. 12 lb = 4 Asada, 4 Pollo, 4 Pastor), pide plataforma, nombre, código/orden, tamaño y desglose exacto e **INVOCA \`send_fiesta_platter_prep_alert\`** directo a los cocineros en la tableta PREPARADOR.`,
     `   - **Faltantes / orden mal en tienda, DT o web**: pide **1) qué faltó/estuvo mal + ticket, 2) fecha, 3) nombre, 4) confirmar teléfono**, advirtiendo 1 vez que sin ticket es poco probable verificarlo. En cuanto dé número de ticket **INVOCA DE INMEDIATO \`validate_order_ticket\`** (con \`target_store_id\` si compró en otra sucursal). Si no conserva ticket usa \`'SIN TICKET'\` sin bucle. Si encuentra su comida durante la llamada, re-invoca \`create_manager_callback\` indicando que la encontró para auto-cerrar la alerta. Ejecuta la herramienta en silencio ANTES de confirmar y luego ${callbackOutcome}`,
     `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: pide nombre, confirma teléfono y motivo breve -> \`create_manager_callback\` en español y ${callbackOutcome}`,
     `8. CERO CUELGUES ANTE FRUSTRACIÓN Y CIERRE LIMPIO: Ignora ruido vial sin sentido. Si piden repetir lista, repítela completa. **PROHIBIDO \`end_call\`** si hay frustración, queja, 'me voy con la competencia', '¿por qué me colgaste?' o simple 'okay, gracias' (pregunta '¿Te puedo ayudar con algo más?'). Solo tras despedida explícita ('es todo, gracias', 'adiós', 'bye', 'that is all, thank you'), despídete en 1 oración sin preguntas e invoca \`end_call\`.`,
@@ -3272,6 +3380,7 @@ async function postBridgeDeliveryArmorPhoneNote(params: {
   noteSummaryEn?: string | null
   requestedCondiments?: string[]
   itemModifications?: string[]
+  replaceCondiments?: boolean
   confirmSaveUnmatched?: boolean
   businessDate: string
 }): Promise<Record<string, any>> {
@@ -3301,6 +3410,7 @@ async function postBridgeDeliveryArmorPhoneNote(params: {
           noteSummaryEn: params.noteSummaryEn || null,
           requestedCondiments: params.requestedCondiments || [],
           itemModifications: params.itemModifications || [],
+          replaceCondiments: Boolean(params.replaceCondiments),
           confirmSaveUnmatched: Boolean(params.confirmSaveUnmatched),
           ts,
           sig
@@ -3389,6 +3499,167 @@ async function postBridgeDeliveryArmorPhoneNote(params: {
       "Aviso enviado en vivo a la barra superior de la tableta de Delivery Armor para la cajera de empaque; incluirán tus condimentos o ajuste siempre que la orden aún no haya salido.",
     messageEn:
       "Live alert sent to the top banner of our Delivery Armor packing tablet for the packing cashier; they will include your condiments or adjustment as long as the order has not left yet."
+  }
+}
+
+async function postBridgeKitchenOrderAlert(
+  mode: "pickup_time_change" | "wrong_store_transfer" | "fiesta_platter_custom",
+  params: Record<string, any> & { storeId: number; callSid: string; customerName: string; businessDate: string }
+): Promise<Record<string, any>> {
+  const secrets = await loadSecrets()
+  if (secrets.publicAppBaseUrl && secrets.ttsSigningSecret) {
+    try {
+      const ts = String(Date.now())
+      const canonical = `${params.storeId}|${params.callSid}|${params.customerName}|${ts}`
+      const sig = await hmacSha256Hex(secrets.ttsSigningSecret, canonical)
+      const res = await fetch(`${secrets.publicAppBaseUrl}/api/delivery-armor/phone-notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...params,
+          mode,
+          source: "twilio",
+          ts,
+          sig
+        }),
+        signal: AbortSignal.timeout(8000)
+      })
+      if (res.ok) {
+        const j = await res.json().catch(() => null)
+        if (j && typeof j === "object" && typeof j.outcome === "string") {
+          return j
+        }
+      }
+    } catch {
+      // Continuar con respaldo directo a Supabase si Vercel no responde o está desplegando
+    }
+  }
+
+  // Respaldo directo a Supabase + Realtime Broadcast para cero pérdida ante deploy de Vercel
+  const emitPing = async (stId: number, noteId: string) => {
+    await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: dbHeaders(),
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `blindaje-delivery-phone-notes-${stId}`,
+            event: "phone_note_updated",
+            payload: { storeId: stId, noteId, toastOrderGuid: null, status: "pending", ts: Date.now() }
+          }
+        ]
+      })
+    }).catch(() => null)
+  }
+
+  if (mode === "wrong_store_transfer") {
+    const paidStoreId = Number(params.paidStoreId || params.storeId)
+    const prepareStoreId = Number(params.prepareStoreId)
+    if (!Number.isInteger(prepareStoreId) || prepareStoreId <= 0 || paidStoreId === prepareStoreId) {
+      return {
+        ok: false,
+        outcome: "MISSING_INFO",
+        messageEs: "Confirma con el cliente las 2 sucursales distintas: donde cayó el pedido y donde desea recoger.",
+        messageEn: "Confirm both distinct stores with the caller: where the order landed and where they want to pick up."
+      }
+    }
+    const orderRef = params.orderCode ? `#${String(params.orderCode).replace(/^#/, "").trim()}` : "Sin número"
+    const stopRes = await fetch(`${SUPABASE_URL}/rest/v1/delivery_armor_phone_notes`, {
+      method: "POST",
+      headers: { ...dbHeaders(), Prefer: "return=representation" },
+      body: JSON.stringify({
+        store_id: paidStoreId,
+        origin_store_id: Number(params.calledStoreId || params.storeId) || null,
+        related_store_id: prepareStoreId,
+        business_date: params.businessDate,
+        source: "twilio",
+        call_id: params.callId || null,
+        match_status: "UNMATCHED",
+        platform: "TOAST_ONLINE",
+        short_order_key: orderRef !== "Sin número" ? orderRef : null,
+        order_customer_name: params.customerName,
+        caller_name: params.customerName,
+        caller_phone: params.callerPhone || null,
+        request_type: "wrong_store_stop",
+        note_summary_es: `🛑 NO PREPARAR — SUCURSAL EQUIVOCADA: Orden ${orderRef} de ${params.customerName} se movió a otra sucursal. NO cocinar ni empacar aquí.`,
+        note_summary_en: `🛑 DO NOT PREPARE — WRONG LOCATION: Order ${orderRef} for ${params.customerName} moved to another store. DO NOT cook or pack here.`,
+        ordered_items_hint: params.orderedItemsHint || null,
+        requested_pickup_time: params.requestedPickupTime || null,
+        status: "pending"
+      })
+    }).catch(() => null)
+    const prepRes = await fetch(`${SUPABASE_URL}/rest/v1/delivery_armor_phone_notes`, {
+      method: "POST",
+      headers: { ...dbHeaders(), Prefer: "return=representation" },
+      body: JSON.stringify({
+        store_id: prepareStoreId,
+        origin_store_id: Number(params.calledStoreId || params.storeId) || null,
+        related_store_id: paidStoreId,
+        business_date: params.businessDate,
+        source: "twilio",
+        call_id: params.callId || null,
+        match_status: "UNMATCHED",
+        platform: "TOAST_ONLINE",
+        short_order_key: orderRef !== "Sin número" ? orderRef : null,
+        order_customer_name: params.customerName,
+        caller_name: params.customerName,
+        caller_phone: params.callerPhone || null,
+        request_type: "wrong_store_prepare",
+        note_summary_es: `🍳 PREPARAR AQUÍ — ORDEN PAGADA EN OTRA SUCURSAL: Cliente ${params.customerName} recogerá aquí (orden ${orderRef}).`,
+        note_summary_en: `🍳 PREPARE HERE — PAID AT ANOTHER LOCATION: Customer ${params.customerName} will pick up here (order ${orderRef}).`,
+        ordered_items_hint: params.orderedItemsHint || null,
+        requested_pickup_time: params.requestedPickupTime || null,
+        status: "pending"
+      })
+    }).catch(() => null)
+    const stopRows = stopRes && stopRes.ok ? await stopRes.json().catch(() => []) : []
+    const prepRows = prepRes && prepRes.ok ? await prepRes.json().catch(() => []) : []
+    const sId = Array.isArray(stopRows) && stopRows[0]?.id ? String(stopRows[0].id) : ""
+    const pId = Array.isArray(prepRows) && prepRows[0]?.id ? String(prepRows[0].id) : ""
+    if (sId) await emitPing(paidStoreId, sId)
+    if (pId) await emitPing(prepareStoreId, pId)
+    return {
+      ok: Boolean(sId && pId),
+      outcome: "DUAL_ALERTS_SENT_UNMATCHED",
+      messageEs: "Ya enviamos la alerta en vivo a ambas sucursales: donde cayó el pedido para que NO lo preparen, y donde deseas recoger para que te lo preparen allá.",
+      messageEn: "We sent live alerts to both locations: DO NOT prepare at the wrong store, and PREPARE HERE at your preferred location."
+    }
+  }
+
+  const reqType = mode === "pickup_time_change" ? "pickup_time_change" : "fiesta_platter_custom"
+  const fallbackSummaryEs =
+    mode === "pickup_time_change"
+      ? `⏰ CAMBIO DE HORARIO TOAST: Cliente ${params.customerName} solicita recoger a las ${params.requestedPickupTime || "horario indicado"}.`
+      : `🎉 FIESTA PLATTER (${params.packageSize || "personalizado"}) — INSTRUCCIÓN COCINEROS para ${params.customerName}.`
+  const insRes = await fetch(`${SUPABASE_URL}/rest/v1/delivery_armor_phone_notes`, {
+    method: "POST",
+    headers: { ...dbHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify({
+      store_id: params.storeId,
+      business_date: params.businessDate,
+      source: "twilio",
+      call_id: params.callId || null,
+      match_status: "UNMATCHED",
+      platform: mode === "pickup_time_change" ? "TOAST_ONLINE" : "OTHER",
+      short_order_key: params.orderCode ? String(params.orderCode).trim() : null,
+      order_customer_name: params.customerName,
+      caller_name: params.customerName,
+      caller_phone: params.callerPhone || null,
+      request_type: reqType,
+      note_summary_es: fallbackSummaryEs,
+      ordered_items_hint: params.orderedItemsHint || null,
+      requested_pickup_time: params.requestedPickupTime || null,
+      status: "pending"
+    })
+  }).catch(() => null)
+  const rows = insRes && insRes.ok ? await insRes.json().catch(() => []) : []
+  const noteId = Array.isArray(rows) && rows[0]?.id ? String(rows[0].id) : ""
+  if (noteId) await emitPing(params.storeId, noteId)
+  return {
+    ok: Boolean(noteId),
+    outcome: mode === "pickup_time_change" ? "SENT_UNMATCHED_ALERT" : "SENT_UNMATCHED_TO_PREPARADOR",
+    messageEs: "Alerta enviada en vivo a la tableta PREPARADOR de cocina.",
+    messageEn: "Live alert sent to the kitchen PREPARADOR tablet."
   }
 }
 
@@ -3817,6 +4088,7 @@ async function executeLiveTool(params: {
       noteSummaryEn: summaryEn,
       requestedCondiments: rawConds,
       itemModifications: rawMods,
+      replaceCondiments: Boolean(toolArgs?.replace_condiments),
       confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched),
       businessDate: pt.businessDate
     })
@@ -3838,6 +4110,156 @@ async function executeLiveTool(params: {
       shouldEndCall: false,
       hadCallback: false
     }
+  }
+
+  if (toolName === "request_toast_pickup_time_change") {
+    const reqTargetId = Number(toolArgs?.target_store_id)
+    const destStore =
+      Number.isInteger(reqTargetId) && reqTargetId > 0 ? stores.find((s) => Number(s.id) === reqTargetId) || store : store
+    const customerNameArg = String(toolArgs?.customer_name || "").replace(/\s+/g, " ").trim()
+    const requestedTimeArg = String(toolArgs?.requested_pickup_time || "").replace(/\s+/g, " ").trim()
+    const ownTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
+    const rawCallerIdE164 = cleanUsTenPhone(callerNumber)
+    const validCallerIdE164 = rawCallerIdE164 && !ownTen.has(normalizeDigits10(rawCallerIdE164)) ? rawCallerIdE164 : null
+    const rawPhoneArg = String(toolArgs?.caller_phone || "").trim()
+    const argE164 = rawPhoneArg && rawPhoneArg.toUpperCase() !== "CALLER_ID" ? cleanUsTenPhone(rawPhoneArg) : null
+    const cleanPhone = (argE164 && !ownTen.has(normalizeDigits10(argE164)) ? argE164 : validCallerIdE164) || null
+
+    let callId: string | null = null
+    if (callSid) {
+      const cRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id&limit=1`)
+      callId = cRows[0]?.id ? String(cRows[0].id) : null
+    }
+
+    const res = await postBridgeKitchenOrderAlert("pickup_time_change", {
+      storeId: Number(destStore.id),
+      callSid,
+      callId,
+      customerName: customerNameArg,
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      requestedPickupTime: requestedTimeArg,
+      requestedDate: toolArgs?.requested_date ? String(toolArgs.requested_date).trim() : null,
+      callerPhone: cleanPhone,
+      orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
+      extraNotes: toolArgs?.extra_notes ? normalizeCallbackReasonToSpanish(String(toolArgs.extra_notes).trim()) : null,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched),
+      businessDate: pt.businessDate
+    })
+
+    if (res.ok && callSid) {
+      await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+        method: "PATCH",
+        headers: dbHeaders(),
+        body: JSON.stringify({
+          primary_intent: "pickup_time_change",
+          summary: `Cambio horario Toast (${customerNameArg} -> ${res.requestedPickupTimeFormatted || requestedTimeArg})`.slice(0, 320)
+        })
+      }).catch(() => null)
+    }
+
+    return { response: res, shouldEndCall: false, hadCallback: false }
+  }
+
+  if (toolName === "coordinate_wrong_store_order") {
+    const paidStoreId = Number(toolArgs?.paid_store_id)
+    const prepareStoreId = Number(toolArgs?.prepare_store_id)
+    const customerNameArg = String(toolArgs?.customer_name || "").replace(/\s+/g, " ").trim()
+    const ownTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
+    const rawCallerIdE164 = cleanUsTenPhone(callerNumber)
+    const validCallerIdE164 = rawCallerIdE164 && !ownTen.has(normalizeDigits10(rawCallerIdE164)) ? rawCallerIdE164 : null
+    const rawPhoneArg = String(toolArgs?.caller_phone || "").trim()
+    const argE164 = rawPhoneArg && rawPhoneArg.toUpperCase() !== "CALLER_ID" ? cleanUsTenPhone(rawPhoneArg) : null
+    const cleanPhone = (argE164 && !ownTen.has(normalizeDigits10(argE164)) ? argE164 : validCallerIdE164) || null
+
+    let callId: string | null = null
+    if (callSid) {
+      const cRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id&limit=1`)
+      callId = cRows[0]?.id ? String(cRows[0].id) : null
+    }
+
+    const res = await postBridgeKitchenOrderAlert("wrong_store_transfer", {
+      storeId: Number.isInteger(paidStoreId) && paidStoreId > 0 ? paidStoreId : Number(store.id),
+      calledStoreId: Number(store.id),
+      paidStoreId,
+      prepareStoreId,
+      callSid,
+      callId,
+      platform: toolArgs?.platform ? String(toolArgs.platform) : "TOAST_ONLINE",
+      customerName: customerNameArg,
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      callerPhone: cleanPhone,
+      orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
+      requestedPickupTime: toolArgs?.requested_pickup_time ? String(toolArgs.requested_pickup_time).trim() : null,
+      extraNotes: toolArgs?.extra_notes ? normalizeCallbackReasonToSpanish(String(toolArgs.extra_notes).trim()) : null,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched),
+      businessDate: pt.businessDate
+    })
+
+    if (res.ok && callSid) {
+      await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+        method: "PATCH",
+        headers: dbHeaders(),
+        body: JSON.stringify({
+          primary_intent: "wrong_store_order",
+          summary: `Sucursal equivocada (Alerta dual #${paidStoreId} NO PREPARAR -> #${prepareStoreId} PREPARAR AQUÍ, ${customerNameArg})`.slice(0, 320)
+        })
+      }).catch(() => null)
+    }
+
+    return { response: res, shouldEndCall: false, hadCallback: Boolean(res.ok) }
+  }
+
+  if (toolName === "send_fiesta_platter_prep_alert") {
+    const reqTargetId = Number(toolArgs?.target_store_id)
+    const destStore =
+      Number.isInteger(reqTargetId) && reqTargetId > 0 ? stores.find((s) => Number(s.id) === reqTargetId) || store : store
+    const customerNameArg = String(toolArgs?.customer_name || "").replace(/\s+/g, " ").trim()
+    const ownTen = new Set([normalizeDigits10(store.phone), normalizeDigits10(config.twilio_phone_number)].filter(Boolean))
+    const rawCallerIdE164 = cleanUsTenPhone(callerNumber)
+    const validCallerIdE164 = rawCallerIdE164 && !ownTen.has(normalizeDigits10(rawCallerIdE164)) ? rawCallerIdE164 : null
+    const rawPhoneArg = String(toolArgs?.caller_phone || "").trim()
+    const argE164 = rawPhoneArg && rawPhoneArg.toUpperCase() !== "CALLER_ID" ? cleanUsTenPhone(rawPhoneArg) : null
+    const cleanPhone = (argE164 && !ownTen.has(normalizeDigits10(argE164)) ? argE164 : validCallerIdE164) || null
+
+    let callId: string | null = null
+    if (callSid) {
+      const cRows = await pgSelect(`phone_calls?call_sid=eq.${encodeURIComponent(callSid)}&select=id&limit=1`)
+      callId = cRows[0]?.id ? String(cRows[0].id) : null
+    }
+
+    const res = await postBridgeKitchenOrderAlert("fiesta_platter_custom", {
+      storeId: Number(destStore.id),
+      callSid,
+      callId,
+      platform: toolArgs?.platform ? String(toolArgs.platform) : null,
+      customerName: customerNameArg,
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      callerPhone: cleanPhone,
+      packageSize: toolArgs?.package_size ? String(toolArgs.package_size).trim() : null,
+      meatBreakdown: Array.isArray(toolArgs?.meat_breakdown) ? toolArgs.meat_breakdown : null,
+      aguasBreakdown: Array.isArray(toolArgs?.aguas_breakdown) ? toolArgs.aguas_breakdown : null,
+      tortillasPreference: toolArgs?.tortillas_preference ? String(toolArgs.tortillas_preference).trim() : null,
+      requestedCondiments: Array.isArray(toolArgs?.requested_condiments)
+        ? toolArgs.requested_condiments.map(String)
+        : null,
+      extraNotes: toolArgs?.extra_notes ? normalizeCallbackReasonToSpanish(String(toolArgs.extra_notes).trim()) : null,
+      requestedPickupTime: toolArgs?.requested_pickup_time ? String(toolArgs.requested_pickup_time).trim() : null,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched),
+      businessDate: pt.businessDate
+    })
+
+    if (res.ok && callSid) {
+      await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
+        method: "PATCH",
+        headers: dbHeaders(),
+        body: JSON.stringify({
+          primary_intent: "fiesta_platter_custom",
+          summary: `Fiesta Platter PREPARADOR (${customerNameArg}, ${toolArgs?.package_size || res.spec?.packageSize || ""})`.slice(0, 320)
+        })
+      }).catch(() => null)
+    }
+
+    return { response: res, shouldEndCall: false, hadCallback: false }
   }
 
   if (toolName === "validate_order_ticket") {
@@ -3895,23 +4317,37 @@ async function executeLiveTool(params: {
   }
 
   if (toolName === "search_menu_item_price") {
-    const qNorm = normalizeSearch(String(toolArgs?.query || ""))
-    const tokens = qNorm.split(/\s+/).filter((w) => w.length >= 3)
+    const rawQ = String(toolArgs?.query || "")
+      .replace(/\bfe\s+de\s+(?:la\s+)?(?:hoya|olla)\b/gi, "cafe de olla")
+      .replace(/\bcaf[eé]\s+de\s+(?:la\s+)?hoya\b/gi, "cafe de olla")
+    const qNorm = normalizeSearch(rawQ)
+    const asksCoffeeOrOlla =
+      !/\bfrijol(?:es)?\b|\bbeans?\b/.test(qNorm) &&
+      /\b(?:cafe|cafecito|coffee|olla|hoya)\b/.test(qNorm)
+    const asksHalfBurrito = /\bburritos?\b/.test(qNorm) && /\b(?:mitad|half|50|dos\s+carnes|two\s+meats|campechano)\b/.test(qNorm)
+    const tokens = qNorm
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !(asksCoffeeOrOlla && w === "olla"))
     const scored = menuItems
       .map((m) => {
+        const isCoffeeSku = normalizeSearch(m.name) === "coffee"
         const hay = normalizeSearch(`${m.name} ${m.category_name} ${m.description || ""}`)
         let score = qNorm && hay.includes(qNorm) ? 10 : 0
         for (const tk of tokens) if (hay.includes(tk)) score += 3
+        if (asksCoffeeOrOlla && isCoffeeSku) score += 30
         return { m, score }
       })
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12)
       .map(({ m }) => ({
-        name: m.name,
+        name: m.name === "Coffee" ? "Coffee (Café de Olla / Café Regular 16 oz)" : m.name,
         category: m.category_name,
         priceUsd: `$${Number(m.price).toFixed(2)} USD`,
-        description: m.description || ""
+        description:
+          m.name === "Coffee"
+            ? "16 oz hot cup — serves BOTH traditional spiced Café de Olla AND Café Regular all day at the same price."
+            : m.description || ""
       }))
 
     const kbList = Array.isArray(kbEntries) ? kbEntries : []
@@ -3937,6 +4373,14 @@ async function executeLiveTool(params: {
         currency: "USD",
         matchesFound: scored.length,
         items: scored,
+        ...(asksHalfBurrito
+          ? {
+              halfAndHalfBurritoPolicy:
+                lang === "en"
+                  ? "All 4 Burrito categories (Regular, Super, Meat Only, Meat Only Super) can be ordered 50/50 half-and-half with any two meats at $0.00 extra charge."
+                  : "En las 4 categorías de Burritos (Regular, Super, Meat Only y Meat Only Super) SÍ se puede combinar mitad y mitad (50%/50%) de dos carnes sin cargo extra ($0.00)."
+            }
+          : {}),
         ...(matchedPolicies.length > 0 ? { policies: matchedPolicies } : {})
       },
       shouldEndCall: false,
@@ -4069,30 +4513,31 @@ async function executeLiveTool(params: {
 
   if (toolName === "find_other_stores") {
     const fNorm = normalizeSearch(String(toolArgs?.search_city_or_filter || ""))
+    const mapStoreWithHours = (s: any) => {
+      const ev = evaluateStoreSchedule(s, specialHours, pt)
+      return {
+        id: s.id,
+        name: customerStoreDisplay(s, lang),
+        spokenName: customerStoreSpoken(s, lang),
+        address: expandStreetAddress(s.address || "", lang),
+        phone: s.phone,
+        hasDriveThru: Boolean(s.has_drive_thru),
+        acceptsEbtInDiningRoom: ![1, 9].includes(Number(s.id)),
+        isOpenNow: ev.isOpenNow,
+        hours: compactWeeklySummary(s.weekly_hours),
+        status: lang === "en" ? ev.statusEn : ev.statusEs
+      }
+    }
     const list = stores
       .filter((s) => {
-        if (!fNorm || /^(all|todas|todos|sucursales|stores)$/.test(fNorm)) return true
+        if (!fNorm || /^(all|todas|todos|sucursales|stores|horarios?|hours)$/.test(fNorm)) return true
         if (fNorm.includes("drive")) return Boolean(s.has_drive_thru)
         const disp = `${customerStoreDisplay(s, "es")} ${customerStoreDisplay(s, "en")} ${s.address || ""}`
         return normalizeSearch(disp).includes(fNorm)
       })
-      .map((s) => {
-        const ev = evaluateStoreSchedule(s, specialHours, pt)
-        return {
-          id: s.id,
-          name: customerStoreDisplay(s, lang),
-          spokenName: customerStoreSpoken(s, lang),
-          address: expandStreetAddress(s.address || "", lang),
-          phone: s.phone,
-          hasDriveThru: Boolean(s.has_drive_thru),
-          acceptsEbtInDiningRoom: ![1, 9].includes(Number(s.id)),
-          isOpenNow: ev.isOpenNow,
-          hours: compactWeeklySummary(s.weekly_hours),
-          status: lang === "en" ? ev.statusEn : ev.statusEs
-        }
-      })
+      .map(mapStoreWithHours)
     return {
-      response: { stores: list.length > 0 ? list : stores.map((s) => ({ id: s.id, name: customerStoreDisplay(s, lang) })) },
+      response: { stores: list.length > 0 ? list : stores.map(mapStoreWithHours) },
       shouldEndCall: false,
       hadCallback: false
     }
@@ -4301,7 +4746,7 @@ async function executeLiveTool(params: {
     const taggedReason =
       ticketValidationTag && !baseReason.includes(ticketValidationTag.trim()) ? `${baseReason}${ticketValidationTag}` : baseReason
     const finalSummary =
-      Number(destStore.id) !== Number(store.id)
+      Number(destStore.id) !== Number(store.id) && !taggedReason.includes("-> Enrutada a #")
         ? `[Llamó a #${store.id} ${dispName} -> Enrutada a #${destStore.id} ${destDisplay}] ${taggedReason}`
         : taggedReason
 
@@ -4336,7 +4781,7 @@ async function executeLiveTool(params: {
         ticket_or_order_number: mergedTicket,
         urgency: mergedUrgency,
         store_id: Number(destStore.id),
-        origin_store_id: Number(destStore.id) !== Number(store.id) ? Number(store.id) : existingRow.origin_store_id ?? null
+        origin_store_id: Number(destStore.id) !== Number(store.id) ? Number(store.id) : null
       }
       if (isResolvedByCallerNow) {
         patchBody.status = "resolved"
@@ -5743,7 +6188,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v18",
+      version: "v21",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"

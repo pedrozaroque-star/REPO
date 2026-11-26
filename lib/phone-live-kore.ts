@@ -81,6 +81,11 @@ import {
 } from '@/lib/phone-caller-id'
 import { loadActivePhoneLearnedRules } from '@/lib/phone-agent-learning'
 import { createOrUpdateDeliveryArmorPhoneNote } from '@/lib/delivery-armor-phone-notes'
+import {
+  createFiestaPlatterCustomPrepAlert,
+  createToastPickupTimeChangeAlert,
+  createWrongStoreTransferAlerts
+} from '@/lib/phone-kitchen-alerts'
 import { getPhoneAgentSpeech } from '@/lib/order-ready-tts'
 import {
   KORE_LIVE_MODEL,
@@ -273,9 +278,100 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
         note_summary_en: { type: 'STRING', description: 'Resumen corto en inglés opcional.' },
         caller_phone: { type: 'STRING', description: "'CALLER_ID' o teléfono de 10 dígitos." },
         target_store_id: { type: 'INTEGER', description: 'ID de sucursal destino (1, 3..16) solo si ordenó en otra tienda.' },
+        replace_condiments: { type: 'BOOLEAN', description: 'true si el cliente está editando/cambiando condimentos que había pedido antes (reemplaza la lista previa).' },
         confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no baja a Toast y confirmó que la acaba de enviar hace segundos.' }
       },
       required: ['platform', 'customer_name', 'note_summary_es']
+    }
+  },
+  {
+    name: 'request_toast_pickup_time_change',
+    behavior: 'BLOCKING',
+    description:
+      'Ayuda a un cliente con una orden de Toast / tacosgavilan.com que llama para cambiar el horario para recoger su pedido (más tarde o más temprano). Valida que la nueva hora esté dentro del horario real de la sucursal y envía alerta parpadeante en vivo a la tableta PREPARADOR de cocina y mostrador para que tengan su orden fresca a la hora exacta que especificó.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        customer_name: { type: 'STRING', description: 'Nombre en la orden de Toast / tacosgavilan.com.' },
+        order_code: { type: 'STRING', description: 'Número de orden o confirmación de Toast si el cliente lo tiene.' },
+        requested_pickup_time: { type: 'STRING', description: 'Nueva hora exacta solicitada para recoger (ej. "2:30 PM", "6:00 PM", "en 1 hora").' },
+        requested_date: { type: 'STRING', description: 'Opcional: "today", "tomorrow" o fecha YYYY-MM-DD si no es hoy.' },
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono de 10 dígitos.' },
+        ordered_items: { type: 'STRING', description: 'Platillos de la orden si el cliente los menciona.' },
+        extra_notes: { type: 'STRING', description: 'Nota adicional en español para cocina (opcional).' },
+        target_store_id: { type: 'INTEGER', description: 'ID de sucursal (1, 3..16) solo si ordenó en otra tienda.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no aparece en Toast y el cliente confirmó la sucursal.' }
+      },
+      required: ['customer_name', 'requested_pickup_time']
+    }
+  },
+  {
+    name: 'coordinate_wrong_store_order',
+    behavior: 'BLOCKING',
+    description:
+      'Cuando un cliente se equivocó de sucursal al hacer su orden, envía una ALERTA EN VIVO SIMULTÁNEA a las 2 sucursales involucradas: (1) a la sucursal donde cayó el pedido por error (`paid_store_id`) le avisa NO PREPARAR, y (2) a la sucursal donde el cliente quiere recoger (`prepare_store_id`) le avisa PREPARAR AQUÍ con los platillos exactos y datos de la orden ya pagada.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        paid_store_id: { type: 'INTEGER', description: 'ID de la sucursal (1, 3..16) donde cayó / se pagó el pedido por error.' },
+        prepare_store_id: { type: 'INTEGER', description: 'ID de la sucursal (1, 3..16) donde el cliente QUIERE recoger y donde debe prepararse.' },
+        customer_name: { type: 'STRING', description: 'Nombre del cliente en la orden.' },
+        order_code: { type: 'STRING', description: 'Número o código de la orden.' },
+        platform: { type: 'STRING', description: "'TOAST_ONLINE', 'DOORDASH', 'UBER_EATS' o 'GRUBHUB'." },
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono de 10 dígitos.' },
+        ordered_items: { type: 'STRING', description: 'Platillos ordenados (útil si aún no baja a Toast para que la tienda destino sepa qué cocinar).' },
+        requested_pickup_time: { type: 'STRING', description: 'Hora estimada a la que pasará a recoger (opcional).' },
+        extra_notes: { type: 'STRING', description: 'Nota adicional en español (opcional).' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true si ya tienes los platillos confirmados por el cliente aunque Toast no haya empatado aún.' }
+      },
+      required: ['paid_store_id', 'prepare_store_id', 'customer_name']
+    }
+  },
+  {
+    name: 'send_fiesta_platter_prep_alert',
+    behavior: 'BLOCKING',
+    description:
+      'Cuando un cliente pidió un Fiesta Platter / Party Tray en DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online y la plataforma no le permitió seleccionar todas las carnes, aguas frescas o tortillas que desea, valida el reparto contra las libras/galones oficiales del paquete (1 sola carne o varias, ej. 12 lbs = 4 Asada, 4 Pollo, 4 Pastor) y envía alerta directa en vivo a los cocineros en la tableta PREPARADOR.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        platform: { type: 'STRING', description: "'DOORDASH', 'UBER_EATS', 'GRUBHUB' o 'TOAST_ONLINE'." },
+        customer_name: { type: 'STRING', description: 'Nombre del cliente en la orden.' },
+        order_code: { type: 'STRING', description: 'Código o número de orden.' },
+        package_size: { type: 'STRING', description: "Tamaño del Fiesta Platter: '15-20' (6 lb), '20-25' (7.5 lb), '25-30' (10 lb) o '30-40' (12 lb)." },
+        meat_breakdown: {
+          type: 'ARRAY',
+          description: 'Lista de carnes solicitadas (1 sola carne o varias). Cada elemento: { meat: "Asada"|"Pollo"|"Al Pastor"|"Carnitas"|"Cabeza"|"Lengua"|"Buche"|"Chorizo", lbs?: número }.',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              meat: { type: 'STRING' },
+              lbs: { type: 'NUMBER' }
+            },
+            required: ['meat']
+          }
+        },
+        aguas_breakdown: {
+          type: 'ARRAY',
+          description: 'Opcional: sabores de agua fresca ({ flavor: "Horchata"|"Jamaica"|"Piña"|"Tamarindo", gallons?: número }).',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              flavor: { type: 'STRING' },
+              gallons: { type: 'NUMBER' }
+            },
+            required: ['flavor']
+          }
+        },
+        tortillas_preference: { type: 'STRING', description: 'Opcional: "Maíz", "Harina" o "Mitad Maíz y Mitad Harina".' },
+        requested_condiments: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Condimentos gratis extra opcionales EN ESPAÑOL.' },
+        extra_notes: { type: 'STRING', description: 'Notas adicionales para cocina EN ESPAÑOL (opcional).' },
+        requested_pickup_time: { type: 'STRING', description: 'Hora programada de recolección si la mencionó (opcional).' },
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono de 10 dígitos.' },
+        target_store_id: { type: 'INTEGER', description: 'ID de sucursal (1, 3..16) solo si ordenó en otra tienda.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no baja a Toast y confirmó que la acaba de enviar o está programada.' }
+      },
+      required: ['platform', 'customer_name']
     }
   },
   {
@@ -527,25 +623,27 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
       : '',
     `   - Horario semanal: ${scheduleEval.weeklySummaryEs}`,
     `   - Próximos festivos oficiales: ${holidaysSummary || 'Viernes Santo y Navidad cerrado; Thanksgiving, 24 dic y 31 dic cierra 4:00 PM; 1 ene y Black Friday abre 11:00 AM.'}`,
-    `   - **Desayunos (15 sucursales)**: Disponibles todos los días desde que abrimos hasta las **${KORE_BREAKFAST_CUTOFF_LABEL}** (${breakfastWin.open && scheduleEval.isOpenNow ? 'AHORA DISPONIBLES' : 'YA TERMINARON POR HOY — ofrecer menú regular'}). **Café caliente (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ están disponibles TODO EL DÍA**.`,
+    `   - **Desayunos (15 sucursales)**: Disponibles todos los días desde que abrimos hasta las **${KORE_BREAKFAST_CUTOFF_LABEL}** (${breakfastWin.open && scheduleEval.isOpenNow ? 'AHORA DISPONIBLES' : 'YA TERMINARON POR HOY — ofrecer menú regular'}). **Tanto Café de Olla tradicional como Café Regular (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ están disponibles TODO EL DÍA**.`,
     `5. DRIVE-THRU Y PAGOS / EBT CALFRESH:`,
     `   - Drive-Thru aquí: ${store.has_drive_thru ? 'SÍ contamos con Drive-Thru.' : 'NO tenemos Drive-Thru aquí (solo comedor y para llevar).'} Las únicas 6 sucursales con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate.`,
     `   - EBT CalFresh aquí: ${config.accepts_ebt ? 'SÍ aceptamos EBT CalFresh ÚNICAMENTE pasando adentro a la caja del mostrador del comedor; JAMÁS se procesa EBT por la ventanilla del Drive-Thru.' : 'NO aceptamos EBT CalFresh en esta sucursal (Rialto y Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple Pay/Google Pay.'}`,
     `7. MENÚ COMPLETO POR VOZ, REGULAR VS SUPER, BEBIDAS, POSTRES Y CHAROLAS:`,
     `   - **RECITA EL MENÚ COMPLETO POR VOZ (PROHIBIDO MANDAR A LA WEB PARA VER EL MENÚ)**: Cuando pregunten "¿qué venden?", "¿qué hay en el menú?", "¿me repites el menú?", "no lo quiero visitar, ¿me lo puedes decir tú?" o "¿es toda la comida que tienen?", NUNCA los envíes a visitar tacosgavilan.com para ver el menú (tacosgavilan.com solo se menciona si desean ordenar en línea), y JAMÁS digas "sí, ese es todo nuestro menú" si omitiste alguna categoría. Incluye SIEMPRE explícitamente **Taco Plate (3 tacos con arroz y frijoles)**, **Platos completos (con arroz, frijoles, guacamole, ensalada y tortillas)** y **Desayunos (todos los días hasta las 2:00 PM: burritos, platos y tortas de huevo)** además de **Tacos, Burritos (Regular, Super y Meat Only), Quesadillas, Mulitas, Tortas (Asada, Pastor, Milanesa, Cubana y más), Sopes, Super Nachos**, las **8 carnes** (Carne Asada, Al Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo y Carnitas), bebidas (**Aguas Frescas de Horchata, Jamaica, Piña y Tamarindo, sodas de fuente, Café y Champurrado todo el día**), postres (**Flan y Cheesecake** individuales) y **Charolas Fiesta Platter**.`,
     `   - Si piden varios platillos o hacen una pregunta compuesta (ej. precio + qué incluye o acompañamientos), responde SIEMPRE ambas cosas con exactitud: **Taco Plate** incluye **3 tacos a elegir (los 3 de una carne o combinados: Asada/res, Pastor/cerdo, Pollo/chicken, Carnitas, Chorizo, Cabeza, Lengua, Buche, Vegetariano) + arroz mexicano y frijoles refritos**; **Platos** (Plato Asada, etc.) incluyen carne + arroz, frijoles, guacamole, ensalada y tortillas; **Sopes** llevan tortilla gruesa de maíz con frijoles, crema, queso Cotija y carne (JAMÁS lechuga ni tomate). Cotiza TODOS con su precio unitario exacto en USD y la suma subtotal ("más impuestos" / "plus tax"), o usa \`search_menu_item_price\`.`,
-    `   - PROHIBIDO decir "tamaño" o "size" en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; "Supreme/Supremo" = Super). Diferencia exacta: Burrito Regular = carne, arroz y frijol (Super suma queso Monterey Jack, guacamole y crema); **Mulita y Quesadilla Regular YA incluyen queso Monterey Jack derretido** (Super solo suma guacamole y crema). Si preguntan qué sale más barato al quitar un ingrediente de un Super (ej. Mulita sin crema), calcula con exactitud los precios del catálogo en vivo antes de responder (nunca afirmes sin sumar que Super siempre es más barato).`,
-    `   - Bebidas frías (Horchata, Jamaica, Piña, Tamarindo y sodas): únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (aguas). PROHIBIDO decir "chica", "pequeña" o "small".`,
+    `   - PROHIBIDO decir "tamaño" o "size" en comida: burritos, quesadillas y mulitas son **Regular** o **Super** (si no especifican Super, da ambos precios Regular y Super; "Supreme/Supremo" = Super). **BURRITOS MITAD Y MITAD ($0.00 EXTRA)**: en todos los Burritos (Regular, Super, Meat Only y Meat Only Super) **SÍ se puede pedir la carne mitad y mitad (50%/50%) de cualesquiera 2 carnes sin cargo extra**, además de opciones sin costo en caja como Carne Dorada, Tortilla Dorada y Partido en Dos. Diferencia exacta: Burrito Regular = carne, arroz y frijol (Super suma queso Monterey Jack, guacamole y crema); **Mulita y Quesadilla Regular YA incluyen queso Monterey Jack derretido** (Super solo suma guacamole y crema). Si preguntan qué sale más barato al quitar un ingrediente de un Super (ej. Mulita sin crema), calcula con exactitud los precios del catálogo en vivo antes de responder.`,
+    `   - Bebidas: frías (Horchata, Jamaica, Piña, Tamarindo y sodas) únicamente **Mediana de 22 onzas**, **Grande de 32 onzas** y **Galón de 128 onzas** (PROHIBIDO decir "chica", "pequeña" o "small"). Calientes todo el día: **Café de Olla tradicional y Café Regular** ambos en vaso de **16 onzas** (mismo precio de Coffee en el catálogo; JAMÁS niegues el Café de Olla!), y **Champurrado** únicamente en vaso de **16 onzas** o **Caja de 96 onzas**.`,
     `   - Postres: **SOLO Flan y Cheesecake individuales**. NO vendemos pasteles de cumpleaños, churros, menudo, birria, pozole, suadero, tripa ni cerveza/alcohol.`,
     `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se pueden ordenar **directamente en caja/mostrador**, en línea en **tacosgavilan.com** (para recoger o con envío vía \`order.online\`) o en **plataformas de delivery (Uber Eats, DoorDash, Grubhub)** con mínimo **1 hora de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. "ya los quiero para ahorita en media hora", "¿qué hago?"), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para atender su evento hoy mismo: **(a)** pasar directo al mostrador${store.has_drive_thru ? ' o al Drive-Thru' : ''} para prepararles al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y teléfono de 10 dígitos con \`create_manager_callback\` (\`urgency: "high"\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
-    `   - Correcciones fonéticas naturales (ES + EN): "torta corona"/"cubana crota"="torta cubana", "sasada"/"a sada"/"salad burrito"/"pasada"/"hadas"="asada", "adobada"/"al pasture"="pastor", "muleta"/"moo lita"/"malita"="mulita", "case a dia"="quesadilla", "so pay"/"soapy"="sope", "or chata"="horchata", "a plan"="flan" (en comida/postre), "whole beans"/"whole pinto beans"/"pot beans"="frijol de la olla ($0.00)", "Dortmund"/"Door Dash"="DoorDash", "ibt"/"evt"/"tarjetas abc"="EBT", "dritro"/"through the drive"="Drive-Thru". Ignora ruido de TV/radio de fondo.`,
+    `   - Correcciones fonéticas naturales (ES + EN): "fe de la hoya"/"cafe de la hoya"="café de olla", "torta corona"/"cubana crota"="torta cubana", "sasada"/"a sada"/"salad burrito"/"pasada"/"hadas"="asada", "adobada"/"al pasture"="pastor", "muleta"/"moo lita"/"malita"="mulita", "case a dia"="quesadilla", "so pay"/"soapy"="sope", "or chata"="horchata", "a plan"="flan" (en comida/postre), "whole beans"/"whole pinto beans"/"pot beans"="frijol de la olla ($0.00)", "Dortmund"/"Door Dash"="DoorDash", "ibt"/"evt"/"tarjetas abc"="EBT", "dritro"/"through the drive"="Drive-Thru". Ignora ruido de TV/radio de fondo.`,
     `8. RECADOS AL GERENTE, NOTAS DE EMPAQUE Y RECLAMOS CON VALIDACIÓN REAL DE TICKET (CERO TRANSFERENCIAS TELEFÓNICAS):`,
     `   - Nunca transferimos llamadas a celulares personales. Toda atención gerencial se envía en vivo a la pantalla de la tienda con \`create_manager_callback\` y \`reason_summary\` SIEMPRE EN ESPAÑOL.`,
     callerIdGuidanceLine,
     `   - **PREGUNTA EL CAMBIO / DETALLE EXACTO ANTES DE GUARDAR + ACTUALIZACIÓN OBLIGATORIA POST-RECADO (CERO PROMESAS FALSAS)**: Cuando el cliente quiera editar una orden, pedir condimentos o dejar aviso a cocina/gerente, pregunta SIEMPRE qué cambio o detalle exacto necesita y en qué platillo ANTES de invocar \`create_manager_callback\`. **Y SI DESPUÉS DE HABER GUARDADO EL RECADO** el cliente agrega CUALQUIER dato nuevo, ingrediente o platillo (ej. "sin queso", "para el Taco Plate", "sin cebolla", código o sucursal), **ESTÁ ESTRICTAMENTE PROHIBIDO** decir "ya lo agregué / ya lo anoté / ya se lo compartí al gerente" sin **VOLVER A INVOCAR \`create_manager_callback\` PRIMERO** con el \`reason_summary\` completo en español incluyendo todo lo anterior y lo nuevo (el sistema actualiza el mismo recado automáticamente sin duplicarlo).`,
-    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (ALERTA PARPADEANTE EN TABLETA DELIVERY ARMOR)**: Si un cliente de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com** llama para agregar **condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, servilletas, cubiertos) O una **modificación sin costo** a un platillo (taco, burrito, mulita, quesadilla, torta, plato — ej. sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz), pregunta en una sola frase: **1) plataforma (DoorDash/Uber Eats/Grubhub/Online), 2) nombre en la orden, 3) código de la app o 1–2 platillos que pidió, y 4) condimentos o cambio exacto y en qué platillo**, y **EJECUTA DE INMEDIATO \`send_delivery_armor_order_note\`** (con \`note_summary_es\` SIEMPRE EN ESPAÑOL) para que la orden exacta parpadee en vivo en la tableta Delivery Armor de empaque. Sigue con honestidad el resultado de la herramienta (\`ALREADY_DELIVERED\`, \`AMBIGUOUS\`, \`SENT_TO_TABLET_REOPEN_BAG\`, \`NOT_FOUND\`). Si después agrega otro detalle, vuelve a invocarla. Artículos pagados extra NO se agregan por teléfono (van en su app o en orden aparte). (Para órdenes directas en tienda/Drive-Thru sin plataforma, usa \`create_manager_callback\` con \`condiments_note\`.)`,
+    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (REGLA POR ESTATUS DE PREPARACIÓN)**: Si un cliente de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com** llama para **quitar/modificar un ingrediente sin costo dentro de un platillo** (ej. **sin frijol en el burrito**, sin queso, sin cebolla, sin cilantro, sin arroz, sin crema, salsa aparte, tortillas de harina/maíz) O para **agregar/editar condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, servilletas, cubiertos): **(a) Si la orden sigue en estatus PREPARACIÓN (\`IN_KITCHEN\`)**, SÍ se permiten **ambos** (quitar ingredientes del platillo — alertando directo a cocina en PREPARADOR y empaque — Y agregar/editar condimentos gratis); **(b) Si ya salió de cocina (\`READY\` / \`PACKED_AND_SEALED\`)**, ya NO se pueden quitar ingredientes del platillo ya cocinado (\`ALREADY_PREPARED_NO_ITEM_MOD\` / \`SENT_CONDIMENTS_ONLY_ALREADY_PREPARED\`), pero SÍ se pueden agregar/editar condimentos gratis antes de entregar al repartidor. Pregunta en una frase: **1) plataforma, 2) nombre en la orden, 3) código de la app o 1–2 platillos, y 4) cambio exacto / condimentos**, y **EJECUTA DE INMEDIATO \`send_delivery_armor_order_note\`** (usa \`replace_condiments: true\` si el cliente está editando condimentos previos). Responde con total honestidad según el resultado de la herramienta. Artículos pagados extra NO se agregan por teléfono.`,
     `   - **Uber Eats / DoorDash / Grubhub (Estatus, Retrasos y Reembolsos)**: si preguntan el estatus real de una orden de delivery o pickup por nombre/código (ej. "Enrique 012234" o "Asia"), INVOCA \`validate_order_ticket\` pasando \`ticket_or_order_number\` y/o \`customer_name\` antes de decir "estoy revisando". Cambios con costo, agregar comida pagada, dirección, cancelaciones o reembolsos se gestionan en **Ayuda (Help)** de su app. Para retrasos largos esperando repartidor -> \`create_manager_callback\` (\`reason_category: "delivery_issue"\`).`,
-    `   - **Pidió en sucursal equivocada en tacosgavilan.com**: pregunta en cuál sucursal cayó, nombre, orden y confirma su teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'}), y llama \`create_manager_callback\` con \`target_store_id\` de esa tienda (\`reason_category: "wrong_store_order"\`).`,
+    `   - **CAMBIO DE HORARIO DE RECOLECCIÓN EN ÓRDENES TOAST / TACOSGAVILAN.COM**: Si un cliente ordenó por Toast / tacosgavilan.com y quiere **cambiar la hora para recoger su pedido** (más tarde o más temprano), ayúdale de inmediato: pide su **nombre, número de orden (o código) y la nueva hora exacta** a la que pasará, y **EJECUTA \`request_toast_pickup_time_change\`** (valida contra el horario real de la sucursal y envía alerta en vivo a cocina en la tableta PREPARADOR para que se la tengan fresca a la hora que pidió).`,
+    `   - **SUCURSAL EQUIVOCADA — ALERTA COORDINADA A LAS 2 SUCURSALES**: Si el cliente se equivocó de sucursal al hacer su orden (tacosgavilan.com o para recoger), **SIEMPRE ayúdale coordinando ambas tiendas**: pregunta exactamente **(1) en qué sucursal cayó el pedido por error, (2) en cuál sucursal quiere recoger (confirmando entrecalles si es en Los Ángeles), (3) nombre, número de orden y teléfono (${callerLast4Spoken ? `Caller ID terminado en ${callerLast4Spoken}` : '10 dígitos'})**, y **EJECUTA \`coordinate_wrong_store_order\`** pasando \`paid_store_id\` (donde cayó -> recibe alerta 🛑 NO PREPARAR) y \`prepare_store_id\` (donde quiere recoger -> recibe alerta 🍳 PREPARAR AQUÍ con los platillos pagados). (Si pidió entrega con chofer por Uber Eats/DoorDash/Grubhub, aclara que el repartidor irá a la tienda de su app por lo que conviene cancelar en la app si busca envío a domicilio; si pasa a recoger o pide coordinar, igual envía la alerta doble.)`,
+    `   - **PERSONALIZACIÓN DE FIESTA PLATTERS EN PLATAFORMAS -> TABLETA PREPARADOR**: Si un cliente pidió un **Fiesta Platter / Party Tray** en DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online y la app no le dejó seleccionar todas las carnes, aguas frescas o tortillas que desea (puede ser **1 sola carne o varias divididas en libras exactas** dentro del total de su paquete: 15-20 = 6 lbs, 20-25 = 7.5 lbs, 25-30 = 10 lbs, 30-40 = 12 lbs; ej. 12 lbs = 4 Asada, 4 Pollo, 4 Pastor), pide **plataforma, nombre, código/número de orden, tamaño del Fiesta Platter y exactamente cómo quiere sus carnes/aguas/tortillas**, y **EJECUTA \`send_fiesta_platter_prep_alert\`** para que la instrucción aparezca en vivo en la tableta **PREPARADOR** directo a los cocineros.`,
     `   - **Órdenes equivocadas o incompletas en tienda, Drive-Thru o tacosgavilan.com (VALIDACIÓN EN TIEMPO REAL + DETALLE OBLIGATORIO)**: ANTES de guardar el recado DEBES saber **qué platillo faltó o qué estuvo mal** (PROHIBIDO guardar un recado vago tipo "problema en Drive-Thru" sin preguntar primero qué faltó). Solicita con respeto los **4 datos obligatorios**: **1) qué artículo faltó/estuvo mal + número de ticket, 2) fecha de compra, 3) nombre y 4) confirmación de su teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno` : '10 dígitos'})**, advirtiendo UNA SOLA VEZ que **sin el número de ticket es poco probable determinar la equivocación** (*"Without the ticket number, it is unlikely we can verify the mistake"*). **REGLA CRÍTICA DE SUCURSAL Y TICKET**: en cuanto el cliente te diga un número de ticket u orden, **INVOCA DE INMEDIATO \`validate_order_ticket\`** — **Y SI EL CLIENTE MENCIONA OTRA SUCURSAL** (ej. South Gate #15, Lynwood #14), **PASA SIEMPRE SU \`target_store_id\`** en \`validate_order_ticket\` ANTES de decirle que no existe. Si \`found: true\`, confirma que ya localizaste su orden en el sistema y pide solo lo que falte; si \`found: false\`, infórmale con claridad que ese número **NO aparece registrado** (incluyendo el rango de tickets del día) y pídele verificar su recibo, sucursal/fecha o plataforma. **SALIDA SIN BUCLE**: si confirma que no lo tiene, pasa directo a registrar con \`ticket_or_order_number: "SIN TICKET"\` sin prometer reposición. **SI ENCUENTRA SU COMIDA DURANTE LA LLAMADA**, vuelve a invocar \`create_manager_callback\` indicando que encontró su platillo para cerrar la alerta automáticamente. Cuando invoques una herramienta bloqueante espera su resultado en silencio. EJECUTA \`create_manager_callback\` ANTES de confirmar al cliente, y luego ${callbackOutcomeInstruction}`,
     `   - **Objetos olvidados, empleados, proveedores o hablar con gerente**: en una sola pregunta pide su nombre, confirma teléfono (${callerLast4Spoken ? `mismo número terminado en ${callerLast4Spoken} o uno alterno -> caller_phone="CALLER_ID"` : 'real de 10 dígitos'}) y brevemente el motivo (si ya dio nombre y confirmó teléfono sin querer dar más motivo, registra el recado sin volver a frenarlo), escribe \`reason_summary\` SIEMPRE EN ESPAÑOL, ejecuta \`create_manager_callback\` ANTES de confirmarlo y ${callbackOutcomeInstruction}`,
     `9. CERO CUELGUES ANTE FRUSTRACIÓN, REPETICIÓN COMPLETA Y CIERRE LIMPIO: Si el cliente te interrumpe diciendo "¿qué?", "perdón" o "repite" mientras enumerabas algo, repite la lista COMPLETA desde el principio (incluyendo el primer elemento). **PROHIBIDO COLGAR O INVOCAR \`end_call\`** si el cliente expresa frustración, molestia, queja, "¿qué hago?", **"me voy con la competencia"** o **"¿por qué me colgaste?"** sin despedirse explícitamente ("adiós", "bye", "hasta luego", "eso es todo, gracias"): ante frustración retén al cliente con empatía ofreciendo alternativas inmediatas o avisar urgente al gerente en turno (y si pregunta por qué se cortó una llamada anterior, discúlpate con calidez explicando que nunca colgamos a propósito y atiéndelo al instante). Tampoco invoques \`end_call\` cuando solo diga "okay, gracias", "gracias" o "perfecto" (pregunta primero "¿Te puedo ayudar con algo más?"). Solo cuando confirme explícitamente que terminó o se despida ("es todo, gracias", "no gracias, bye", "adiós", "that's all, thank you"), despídete cálidamente en una oración sin preguntas e invoca \`end_call\`.`,
@@ -1084,6 +1182,11 @@ async function executePhoneKoreLiveToolCore(params: {
           .filter(Boolean)
           .join(' | ')
     )
+    const rawPhoneArg = String(toolArgs?.caller_phone || '').trim()
+    const resolvedCallerPhone =
+      rawPhoneArg && rawPhoneArg.toUpperCase() !== 'CALLER_ID'
+        ? normalizeUsPhoneDigits10(rawPhoneArg) || rawPhoneArg
+        : callerNumber || null
     const daRes = await createOrUpdateDeliveryArmorPhoneNote({
       storeId: destStoreId,
       source,
@@ -1093,16 +1196,112 @@ async function executePhoneKoreLiveToolCore(params: {
       orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
       orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
       callerName: String(toolArgs?.customer_name || '').trim(),
-      callerPhone: callerNumber || null,
+      callerPhone: resolvedCallerPhone,
       requestType: toolArgs?.request_type ? String(toolArgs.request_type) : null,
       noteSummaryEs: summaryEs,
       noteSummaryEn: toolArgs?.note_summary_en ? String(toolArgs.note_summary_en).trim() : null,
       requestedCondiments: rawConds,
       itemModifications: rawMods,
+      replaceCondiments: Boolean(toolArgs?.replace_condiments),
       confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched)
     })
     return {
       response: daRes,
+      callbackCreated: null,
+      unansweredFlagged: null,
+      shouldEndCall: false
+    }
+  }
+
+  if (toolName === 'request_toast_pickup_time_change') {
+    const reqTargetId = Number(toolArgs?.target_store_id)
+    const destStoreId = Number.isInteger(reqTargetId) && reqTargetId > 0 ? reqTargetId : Number(store.id)
+    const rawPhoneArg = String(toolArgs?.caller_phone || '').trim()
+    const resolvedCallerPhone =
+      rawPhoneArg && rawPhoneArg.toUpperCase() !== 'CALLER_ID'
+        ? normalizeUsPhoneDigits10(rawPhoneArg) || rawPhoneArg
+        : callerNumber || null
+    const res = await createToastPickupTimeChangeAlert({
+      storeId: destStoreId,
+      source,
+      callSid,
+      customerName: String(toolArgs?.customer_name || '').trim(),
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      requestedPickupTime: String(toolArgs?.requested_pickup_time || '').trim(),
+      requestedDate: toolArgs?.requested_date ? String(toolArgs.requested_date).trim() : null,
+      callerPhone: resolvedCallerPhone,
+      orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
+      extraNotes: toolArgs?.extra_notes ? String(toolArgs.extra_notes).trim() : null,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched)
+    })
+    return {
+      response: res,
+      callbackCreated: null,
+      unansweredFlagged: null,
+      shouldEndCall: false
+    }
+  }
+
+  if (toolName === 'coordinate_wrong_store_order') {
+    const paidStoreId = Number(toolArgs?.paid_store_id)
+    const prepareStoreId = Number(toolArgs?.prepare_store_id)
+    const rawPhoneArg = String(toolArgs?.caller_phone || '').trim()
+    const resolvedCallerPhone =
+      rawPhoneArg && rawPhoneArg.toUpperCase() !== 'CALLER_ID'
+        ? normalizeUsPhoneDigits10(rawPhoneArg) || rawPhoneArg
+        : callerNumber || null
+    const res = await createWrongStoreTransferAlerts({
+      calledStoreId: Number(store.id),
+      paidStoreId,
+      prepareStoreId,
+      source,
+      callSid,
+      platform: toolArgs?.platform ? String(toolArgs.platform) : null,
+      customerName: String(toolArgs?.customer_name || '').trim(),
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      callerPhone: resolvedCallerPhone,
+      orderedItemsHint: toolArgs?.ordered_items ? String(toolArgs.ordered_items).trim() : null,
+      requestedPickupTime: toolArgs?.requested_pickup_time ? String(toolArgs.requested_pickup_time).trim() : null,
+      extraNotes: toolArgs?.extra_notes ? String(toolArgs.extra_notes).trim() : null,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched)
+    })
+    return {
+      response: res,
+      callbackCreated: null,
+      unansweredFlagged: null,
+      shouldEndCall: false
+    }
+  }
+
+  if (toolName === 'send_fiesta_platter_prep_alert') {
+    const reqTargetId = Number(toolArgs?.target_store_id)
+    const destStoreId = Number.isInteger(reqTargetId) && reqTargetId > 0 ? reqTargetId : Number(store.id)
+    const rawPhoneArg = String(toolArgs?.caller_phone || '').trim()
+    const resolvedCallerPhone =
+      rawPhoneArg && rawPhoneArg.toUpperCase() !== 'CALLER_ID'
+        ? normalizeUsPhoneDigits10(rawPhoneArg) || rawPhoneArg
+        : callerNumber || null
+    const res = await createFiestaPlatterCustomPrepAlert({
+      storeId: destStoreId,
+      source,
+      callSid,
+      platform: toolArgs?.platform ? String(toolArgs.platform) : null,
+      customerName: String(toolArgs?.customer_name || '').trim(),
+      orderCode: toolArgs?.order_code ? String(toolArgs.order_code).trim() : null,
+      callerPhone: resolvedCallerPhone,
+      packageSize: toolArgs?.package_size ? String(toolArgs.package_size).trim() : null,
+      meatBreakdown: Array.isArray(toolArgs?.meat_breakdown) ? toolArgs.meat_breakdown : null,
+      aguasBreakdown: Array.isArray(toolArgs?.aguas_breakdown) ? toolArgs.aguas_breakdown : null,
+      tortillasPreference: toolArgs?.tortillas_preference ? String(toolArgs.tortillas_preference).trim() : null,
+      requestedCondiments: Array.isArray(toolArgs?.requested_condiments)
+        ? toolArgs.requested_condiments.map(String)
+        : null,
+      extraNotes: toolArgs?.extra_notes ? String(toolArgs.extra_notes).trim() : null,
+      requestedPickupTime: toolArgs?.requested_pickup_time ? String(toolArgs.requested_pickup_time).trim() : null,
+      confirmSaveUnmatched: Boolean(toolArgs?.confirm_save_unmatched)
+    })
+    return {
+      response: res,
       callbackCreated: null,
       unansweredFlagged: null,
       shouldEndCall: false

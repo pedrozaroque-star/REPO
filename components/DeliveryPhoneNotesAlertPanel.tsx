@@ -42,11 +42,11 @@
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, BellRing, CheckCircle2, PhoneCall, Utensils, Volume2, X } from 'lucide-react'
+import { AlertTriangle, ArrowRightLeft, BellRing, CheckCircle2, ChefHat, Clock, PhoneCall, Utensils, Volume2, X } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
-import { resolveCustomerStoreMeta } from '@/lib/customer-store-names'
-import type { DeliveryArmorPhoneNote } from '@/lib/delivery-armor-phone-notes'
+import { formatCustomerStoreName, resolveCustomerStoreMeta } from '@/lib/customer-store-names'
+import type { DeliveryArmorNoteRequestType, DeliveryArmorPhoneNote } from '@/lib/delivery-armor-phone-notes'
 import type { DeliveryPlatform } from '@/lib/delivery-armor'
 
 const STORE_ID_BY_CODE: Record<string, number> = {
@@ -78,8 +78,43 @@ export const STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET = new Set<number>([
   8  // #8 Hollywood
 ])
 
+/**
+ * Tipos de alerta operativa de cocina que SIEMPRE deben mostrarse en la tableta PREPARADOR
+ * de las 15 sucursales (INCLUYENDO #7 Slauson y #8 Hollywood), porque van dirigidos directo
+ * a los cocineros y mostrador:
+ * - `pickup_time_change`: cambio de horario de recolección en orden Toast.
+ * - `wrong_store_stop` / `wrong_store_prepare`: alerta dual a las 2 sucursales por sucursal equivocada.
+ * - `fiesta_platter_custom`: desglose exacto de carnes/aguas/tortillas de Fiesta Platter para cocineros.
+ */
+export const KITCHEN_ALWAYS_ON_PREPARADOR_REQUEST_TYPES = new Set<DeliveryArmorNoteRequestType>([
+  'pickup_time_change',
+  'wrong_store_stop',
+  'wrong_store_prepare',
+  'fiesta_platter_custom'
+])
+
 export function shouldShowTemporaryDeliveryPhoneAlertForStore(storeId: number | null | undefined): boolean {
   if (typeof storeId !== 'number' || !Number.isInteger(storeId) || storeId <= 0) return false
+  return !STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET.has(storeId)
+}
+
+export function shouldShowDeliveryPhoneNoteOnPreparador(
+  storeId: number | null | undefined,
+  requestType: DeliveryArmorNoteRequestType | string | null | undefined,
+  orderStageAtAlert?: string | null
+): boolean {
+  if (typeof storeId !== 'number' || !Number.isInteger(storeId) || storeId <= 0) return false
+  const rt = String(requestType || 'condiments') as DeliveryArmorNoteRequestType
+  if (KITCHEN_ALWAYS_ON_PREPARADOR_REQUEST_TYPES.has(rt)) return true
+  // Si la orden delivery sigue en estatus PREPARACIÓN (`IN_KITCHEN`) y el cliente pidió quitar/modificar
+  // un ingrediente del platillo (ej. "sin frijol en el burrito"), mostrarlo en PREPARADOR en las 15 tiendas
+  // (incluyendo #7 Slauson y #8 Hollywood) para que los cocineros lo apliquen antes de terminar el platillo.
+  if (
+    (rt === 'item_modification' || rt === 'both') &&
+    String(orderStageAtAlert || '').toUpperCase() === 'IN_KITCHEN'
+  ) {
+    return true
+  }
   return !STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET.has(storeId)
 }
 
@@ -157,7 +192,7 @@ export default function DeliveryPhoneNotesAlertPanel({
     return STORE_ID_BY_CODE[normalizedCode] || resolveCustomerStoreMeta(normalizedCode)?.id || null
   }, [storeIdProp, storeCode])
 
-  const isStoreEligible = shouldShowTemporaryDeliveryPhoneAlertForStore(effectiveStoreId)
+  const hasValidStore = typeof effectiveStoreId === 'number' && Number.isInteger(effectiveStoreId) && effectiveStoreId > 0
   const supabase = useMemo(() => createClient(), [])
 
   const [pendingNotes, setPendingNotes] = useState<DeliveryArmorPhoneNote[]>([])
@@ -278,7 +313,7 @@ export default function DeliveryPhoneNotesAlertPanel({
     async (opts?: { force?: boolean }) => {
       const targetStoreId = effectiveStoreId
       const targetIncludeSim = includeSimulator
-      if (!ready || !targetStoreId || !shouldShowTemporaryDeliveryPhoneAlertForStore(targetStoreId)) return
+      if (!ready || !targetStoreId) return
       if (!opts?.force && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
       if (fetchAbortRef.current) {
@@ -309,7 +344,11 @@ export default function DeliveryPhoneNotesAlertPanel({
           return
         }
         const allNotes: DeliveryArmorPhoneNote[] = Array.isArray(data?.notes) ? data.notes : []
-        const active = allNotes.filter((n) => n.status === 'pending' || n.status === 'acknowledged')
+        const active = allNotes.filter(
+          (n) =>
+            (n.status === 'pending' || n.status === 'acknowledged') &&
+            shouldShowDeliveryPhoneNoteOnPreparador(targetStoreId, n.requestType, n.orderStageAtAlert)
+        )
 
         const wasInitialized = initializedStoreRef.current === targetStoreId
         let hasNewAlert = false
@@ -348,7 +387,7 @@ export default function DeliveryPhoneNotesAlertPanel({
 
   // Polling adaptativo + refresh instantáneo al volver visible o recuperar conexión
   useEffect(() => {
-    if (!ready || !effectiveStoreId || !isStoreEligible) return
+    if (!ready || !effectiveStoreId || !hasValidStore) return
     let disposed = false
     let pollTimer: number | null = null
 
@@ -376,17 +415,17 @@ export default function DeliveryPhoneNotesAlertPanel({
       window.removeEventListener('visibilitychange', onVisibilityOrOnline)
       window.removeEventListener('online', onVisibilityOrOnline)
     }
-  }, [ready, effectiveStoreId, isStoreEligible, fetchNotes])
+  }, [ready, effectiveStoreId, hasValidStore, fetchNotes])
 
-  // Suscripción Supabase Realtime Broadcast (< 500 ms) idéntica a la tableta Delivery Armor
+  // Suscripción Supabase Realtime Broadcast (< 500 ms) alineada con event: 'phone_note_updated'
   useEffect(() => {
-    if (!ready || !effectiveStoreId || !isStoreEligible) return
+    if (!ready || !effectiveStoreId || !hasValidStore) return
     let channelDisposed = false
     const channel = supabase
       .channel(`blindaje-delivery-phone-notes-${effectiveStoreId}`, {
         config: { broadcast: { self: false } }
       })
-      .on('broadcast', { event: 'phone_note_alert' }, () => {
+      .on('broadcast', { event: 'phone_note_updated' }, () => {
         if (channelDisposed) return
         void fetchNotes({ force: true })
       })
@@ -396,7 +435,7 @@ export default function DeliveryPhoneNotesAlertPanel({
       channelDisposed = true
       void supabase.removeChannel(channel)
     }
-  }, [ready, effectiveStoreId, isStoreEligible, supabase, fetchNotes])
+  }, [ready, effectiveStoreId, hasValidStore, supabase, fetchNotes])
 
   const showTransientToast = useCallback((msg: string) => {
     setToastMsg(msg)
@@ -455,8 +494,7 @@ export default function DeliveryPhoneNotesAlertPanel({
     [nowTick, t]
   )
 
-  // En sucursales que ya tienen tableta física de Delivery Armor (#7 Slauson, #8 Hollywood), no mostrar alerta temporal
-  if (!isStoreEligible) {
+  if (!hasValidStore) {
     return null
   }
 
@@ -547,16 +585,101 @@ export default function DeliveryPhoneNotesAlertPanel({
             const isReopenBag = note.orderStageAtAlert === 'PACKED_AND_SEALED'
             const isUnmatched = note.matchStatus === 'UNMATCHED'
             const isBusy = busyNoteId === note.id
+            const isPickupTimeChange = note.requestType === 'pickup_time_change'
+            const isWrongStoreStop = note.requestType === 'wrong_store_stop'
+            const isWrongStorePrepare = note.requestType === 'wrong_store_prepare'
+            const isFiestaPlatterCustom = note.requestType === 'fiesta_platter_custom'
+            const partnerStoreLabel = note.relatedStoreId
+              ? formatCustomerStoreName({ id: note.relatedStoreId }, language === 'en' ? 'en' : 'es')
+              : null
+            const confirmButtonLabel = isWrongStoreStop
+              ? t('blindaje_delivery.phone_note_stop_confirmed_btn')
+              : isWrongStorePrepare
+              ? t('blindaje_delivery.phone_note_prepare_confirmed_btn')
+              : isPickupTimeChange || isFiestaPlatterCustom
+              ? t('blindaje_delivery.phone_note_confirm_kitchen_btn')
+              : t('blindaje_delivery.phone_note_apply_btn')
 
             return (
               <div
                 key={note.id}
                 className={`relative rounded-2xl bg-white border-2 p-3 sm:p-4 shadow-md space-y-2.5 text-slate-950 ${
-                  isRedTabletTheme ? 'border-red-400 ring-2 ring-red-200/80' : 'border-amber-400'
+                  isWrongStorePrepare
+                    ? 'border-emerald-500 ring-2 ring-emerald-200'
+                    : isRedTabletTheme
+                    ? 'border-red-400 ring-2 ring-red-200/80'
+                    : 'border-amber-400'
                 }`}
               >
+                {/* Franja destacada por tipo operativo especial (Cambio Horario / Sucursal Equivocada / Fiesta Platter) */}
+                {isWrongStoreStop && (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-red-700 text-white text-sm sm:text-base font-black flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 shrink-0 animate-pulse" />
+                      <span>{t('blindaje_delivery.phone_note_type_wrong_store_stop')}</span>
+                    </div>
+                    {partnerStoreLabel && (
+                      <span className="px-2.5 py-0.5 rounded-lg bg-white text-red-900 text-xs sm:text-sm font-black">
+                        {t('blindaje_delivery.phone_note_wrong_store_moved_to')}: {partnerStoreLabel}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {isWrongStorePrepare && (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-700 text-white text-sm sm:text-base font-black flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <ArrowRightLeft className="w-5 h-5 shrink-0" />
+                      <span>{t('blindaje_delivery.phone_note_type_wrong_store_prepare')}</span>
+                    </div>
+                    {partnerStoreLabel && (
+                      <span className="px-2.5 py-0.5 rounded-lg bg-white text-emerald-950 text-xs sm:text-sm font-black">
+                        {t('blindaje_delivery.phone_note_wrong_store_paid_at')}: {partnerStoreLabel}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {isPickupTimeChange && (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-amber-400 text-slate-950 text-sm sm:text-base font-black flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-5 h-5 shrink-0" />
+                      <span>{t('blindaje_delivery.phone_note_type_pickup_time')}</span>
+                    </div>
+                    {note.requestedPickupTime && (
+                      <span className="px-3 py-1 rounded-lg bg-slate-950 text-amber-300 text-sm sm:text-lg font-black">
+                        {note.originalPickupTime
+                          ? `${t('blindaje_delivery.phone_note_pickup_old_time')}: ${note.originalPickupTime} → `
+                          : ''}
+                        {t('blindaje_delivery.phone_note_pickup_new_time')}: {note.requestedPickupTime}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {isFiestaPlatterCustom && (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-gradient-to-r from-red-700 to-orange-600 text-white text-sm sm:text-base font-black flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <ChefHat className="w-5 h-5 shrink-0" />
+                      <span>{t('blindaje_delivery.phone_note_type_fiesta_platter')}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {note.platterSpec?.packageSize && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-white text-red-900 text-xs sm:text-sm font-black">
+                          {note.platterSpec.packageSize} ({note.platterSpec.totalMeatLbs} lbs)
+                        </span>
+                      )}
+                      {note.requestedPickupTime && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-950 text-amber-300 text-xs sm:text-sm font-black">
+                          ⏰ {note.requestedPickupTime}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Alerta roja prioritaria si la bolsa ya estaba sellada */}
-                {isReopenBag && (
+                {isReopenBag && !isWrongStoreStop && !isWrongStorePrepare && (
                   <div className="p-2.5 sm:p-3 rounded-xl bg-red-700 text-white text-xs sm:text-sm font-black flex items-center gap-2 shadow-sm">
                     <AlertTriangle className="w-5 h-5 shrink-0 animate-pulse" />
                     <span>{t('blindaje_delivery.phone_note_detail_reopen_warn')}</span>
@@ -636,8 +759,58 @@ export default function DeliveryPhoneNotesAlertPanel({
                   {summaryText}
                 </p>
 
+                {/* Desglose gigante para cocineros cuando es personalización de Fiesta Platter */}
+                {isFiestaPlatterCustom && note.platterSpec && (
+                  <div className="rounded-xl bg-red-50 border-2 border-red-300 p-3 space-y-2.5">
+                    {note.platterSpec.meats.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-black uppercase tracking-wider text-red-800">
+                          🥩 {t('blindaje_delivery.phone_note_fiesta_meats_label')} ({note.platterSpec.totalMeatLbs} lbs)
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {note.platterSpec.meats.map((m, idx) => (
+                            <span
+                              key={idx}
+                              className="px-3.5 py-1.5 rounded-xl bg-red-700 text-white text-sm sm:text-lg font-black shadow-xs"
+                            >
+                              {m.lbs} lbs {m.meat}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {note.platterSpec.aguas.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-black uppercase tracking-wider text-sky-900">
+                          🥤 {t('blindaje_delivery.phone_note_fiesta_aguas_label')} ({note.platterSpec.totalAguaGallons} gal)
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {note.platterSpec.aguas.map((a, idx) => (
+                            <span
+                              key={idx}
+                              className="px-3 py-1 rounded-xl bg-sky-100 border-2 border-sky-400 text-sky-950 text-xs sm:text-base font-black"
+                            >
+                              {a.gallons} gal {a.flavor}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {note.platterSpec.tortillas && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-amber-900">
+                          🌮 {t('blindaje_delivery.phone_note_fiesta_tortillas_label')}:
+                        </span>
+                        <span className="px-3 py-1 rounded-xl bg-amber-100 border-2 border-amber-400 text-amber-950 text-xs sm:text-base font-black">
+                          {note.platterSpec.tortillas}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Chips de Condimentos Gratuitos y Modificaciones Sin Costo */}
-                {(note.requestedCondiments.length > 0 || note.itemModifications.length > 0) && (
+                {(note.requestedCondiments.length > 0 || (!isFiestaPlatterCustom && note.itemModifications.length > 0)) && (
                   <div className="flex flex-wrap gap-3 pt-0.5">
                     {note.requestedCondiments.length > 0 && (
                       <div className="space-y-1">
@@ -665,7 +838,7 @@ export default function DeliveryPhoneNotesAlertPanel({
                       </div>
                     )}
 
-                    {note.itemModifications.length > 0 && (
+                    {!isFiestaPlatterCustom && note.itemModifications.length > 0 && (
                       <div className="space-y-1">
                         <div className="text-[11px] font-black uppercase tracking-wider text-red-700">
                           {t('blindaje_delivery.phone_note_modifications_label')}
@@ -685,15 +858,27 @@ export default function DeliveryPhoneNotesAlertPanel({
                   </div>
                 )}
 
-                {/* Referencia rápida de platillos en la orden (cuando Toast emparejó la orden o el cliente los dictó) */}
+                {/* Referencia rápida de platillos en la orden (resaltado grande en PREPARAR AQUÍ por sucursal equivocada) */}
                 {note.orderedItemsHint && (
-                  <div className="pt-2 border-t border-slate-200 flex items-start gap-2 text-xs sm:text-sm text-slate-700">
-                    <Utensils className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                  <div
+                    className={`pt-2 border-t flex items-start gap-2 ${
+                      isWrongStorePrepare
+                        ? 'rounded-xl bg-emerald-50 border-2 border-emerald-400 p-3 text-sm sm:text-lg text-emerald-950'
+                        : 'border-slate-200 text-xs sm:text-sm text-slate-700'
+                    }`}
+                  >
+                    <Utensils className={`w-4 h-4 shrink-0 mt-0.5 ${isWrongStorePrepare ? 'text-emerald-700 w-5 h-5' : 'text-slate-500'}`} />
                     <div className="min-w-0">
-                      <span className="font-black uppercase text-[11px] tracking-wider text-slate-500 mr-1.5">
+                      <span
+                        className={`font-black uppercase tracking-wider mr-1.5 ${
+                          isWrongStorePrepare ? 'text-xs text-emerald-800' : 'text-[11px] text-slate-500'
+                        }`}
+                      >
                         {t('blindaje_delivery.phone_note_order_items_label')}:
                       </span>
-                      <span className="font-bold text-slate-900">{note.orderedItemsHint}</span>
+                      <span className={isWrongStorePrepare ? 'font-black text-slate-950' : 'font-bold text-slate-900'}>
+                        {note.orderedItemsHint}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -704,13 +889,15 @@ export default function DeliveryPhoneNotesAlertPanel({
                     type="button"
                     disabled={isBusy}
                     onClick={() => void handleNoteAction(note, 'apply')}
-                    className="w-full min-h-[48px] sm:min-h-[54px] px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-sm sm:text-lg font-black disabled:opacity-40 shadow-md transition-transform cursor-pointer select-none touch-manipulation flex items-center justify-center gap-2"
+                    className={`w-full min-h-[48px] sm:min-h-[54px] px-4 py-2.5 rounded-2xl active:scale-[0.98] text-white text-sm sm:text-lg font-black disabled:opacity-40 shadow-md transition-transform cursor-pointer select-none touch-manipulation flex items-center justify-center gap-2 ${
+                      isWrongStoreStop
+                        ? 'bg-red-700 hover:bg-red-800'
+                        : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
                   >
                     <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" />
                     <span>
-                      {isBusy
-                        ? t('blindaje_delivery.phone_note_applying_btn')
-                        : t('blindaje_delivery.phone_note_apply_btn')}
+                      {isBusy ? t('blindaje_delivery.phone_note_applying_btn') : confirmButtonLabel}
                     </span>
                   </button>
                 </div>

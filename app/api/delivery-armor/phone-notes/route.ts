@@ -38,6 +38,11 @@ import {
   listDeliveryArmorPhoneNotes,
   updateDeliveryArmorPhoneNoteStatus
 } from '@/lib/delivery-armor-phone-notes'
+import {
+  createFiestaPlatterCustomPrepAlert,
+  createToastPickupTimeChangeAlert,
+  createWrongStoreTransferAlerts
+} from '@/lib/phone-kitchen-alerts'
 import { verifyRonosPin } from '@/lib/delivery-armor'
 import { getJwtSecret, getServerUser, MAX_EXPIRED_GRACE_MS } from '@/lib/auth-server'
 import { canAccessStore, resolveOrderReadyAccess, type OrderReadyAccess } from '@/lib/order-ready-access'
@@ -306,9 +311,80 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: sigCheck.reason || 'unauthorized' }, { status: 401 })
     }
 
+    const source = body.source === 'simulator' ? 'simulator' : body.source === 'manual' ? 'manual' : 'twilio'
+    const mode = String(body.mode || 'phone_note').trim().toLowerCase()
+
+    if (mode === 'pickup_time_change') {
+      const result = await createToastPickupTimeChangeAlert({
+        storeId,
+        source,
+        callSid: callSid || null,
+        callId: body.callId ? String(body.callId) : null,
+        customerName,
+        orderCode: body.orderCode ? String(body.orderCode) : null,
+        requestedPickupTime: String(body.requestedPickupTime || ''),
+        requestedDate: body.requestedDate ? String(body.requestedDate) : null,
+        callerPhone: body.callerPhone ? String(body.callerPhone) : null,
+        orderedItemsHint: body.orderedItemsHint ? String(body.orderedItemsHint) : null,
+        extraNotes: body.extraNotes ? String(body.extraNotes) : null,
+        confirmSaveUnmatched: Boolean(body.confirmSaveUnmatched)
+      })
+      return NextResponse.json(result, { status: 200 })
+    }
+
+    if (mode === 'wrong_store_transfer') {
+      const paidStoreId = Number(body.paidStoreId || storeId)
+      const prepareStoreId = Number(body.prepareStoreId)
+      const result = await createWrongStoreTransferAlerts({
+        calledStoreId: Number(body.calledStoreId || storeId),
+        paidStoreId,
+        prepareStoreId,
+        source,
+        callSid: callSid || null,
+        callId: body.callId ? String(body.callId) : null,
+        platform: body.platform ? String(body.platform) : null,
+        customerName,
+        orderCode: body.orderCode ? String(body.orderCode) : null,
+        callerPhone: body.callerPhone ? String(body.callerPhone) : null,
+        orderedItemsHint: body.orderedItemsHint ? String(body.orderedItemsHint) : null,
+        requestedPickupTime: body.requestedPickupTime ? String(body.requestedPickupTime) : null,
+        extraNotes: body.extraNotes ? String(body.extraNotes) : null,
+        confirmSaveUnmatched: Boolean(body.confirmSaveUnmatched)
+      })
+      return NextResponse.json(result, { status: 200 })
+    }
+
+    if (mode === 'fiesta_platter_custom') {
+      const result = await createFiestaPlatterCustomPrepAlert({
+        storeId,
+        source,
+        callSid: callSid || null,
+        callId: body.callId ? String(body.callId) : null,
+        platform: body.platform ? String(body.platform) : null,
+        customerName,
+        orderCode: body.orderCode ? String(body.orderCode) : null,
+        callerPhone: body.callerPhone ? String(body.callerPhone) : null,
+        packageSize: body.packageSize ? String(body.packageSize) : null,
+        meatBreakdown: Array.isArray(body.meatBreakdown)
+          ? (body.meatBreakdown as Array<{ meat: string; lbs?: number | null }>)
+          : null,
+        aguasBreakdown: Array.isArray(body.aguasBreakdown)
+          ? (body.aguasBreakdown as Array<{ flavor: string; gallons?: number | null }>)
+          : null,
+        tortillasPreference: body.tortillasPreference ? String(body.tortillasPreference) : null,
+        requestedCondiments: Array.isArray(body.requestedCondiments)
+          ? body.requestedCondiments.map(String)
+          : null,
+        extraNotes: body.extraNotes ? String(body.extraNotes) : null,
+        requestedPickupTime: body.requestedPickupTime ? String(body.requestedPickupTime) : null,
+        confirmSaveUnmatched: Boolean(body.confirmSaveUnmatched)
+      })
+      return NextResponse.json(result, { status: 200 })
+    }
+
     const result = await createOrUpdateDeliveryArmorPhoneNote({
       storeId,
-      source: body.source === 'simulator' ? 'simulator' : body.source === 'manual' ? 'manual' : 'twilio',
+      source,
       callSid: callSid || null,
       callId: body.callId ? String(body.callId) : null,
       callbackId: body.callbackId ? String(body.callbackId) : null,
@@ -327,6 +403,7 @@ export async function POST(req: NextRequest) {
       itemModifications: Array.isArray(body.itemModifications)
         ? body.itemModifications.map(String)
         : [],
+      replaceCondiments: Boolean(body.replaceCondiments),
       confirmSaveUnmatched: Boolean(body.confirmSaveUnmatched)
     })
 

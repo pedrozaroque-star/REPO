@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
+import { getInternalStoreNameById } from '@/lib/store-display'
 import { KoreTokenError } from '@/lib/drive-thru-kore'
 import { createPhoneKoreLiveSimulatorSession } from '@/lib/phone-live-kore'
 import type { PhoneLang } from '@/lib/phone-agent'
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(storeId)) {
       return NextResponse.json(
-        { ok: false, error: `Acceso denegado: tu cuenta solo tiene autorización sobre la sucursal #${auth.user.assignedStoreId}.` },
+        { ok: false, error: `Acceso denegado: tu cuenta solo tiene autorización sobre la sucursal ${getInternalStoreNameById(auth.user.assignedStoreId) || 'asignada'}.` },
         { status: 403, headers: NO_STORE_HEADERS }
       )
     }

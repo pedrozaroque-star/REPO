@@ -24,6 +24,7 @@
 import { randomUUID } from 'node:crypto'
 import { after, NextRequest, NextResponse } from 'next/server'
 import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
+import { getInternalStoreNameById } from '@/lib/store-display'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCaliforniaBusinessDate, getCaliforniaShift } from '@/lib/business-date'
 import {
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest) {
 
     if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(storeId)) {
       return NextResponse.json(
-        { error: `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal #${auth.user.assignedStoreId}.` },
+        { error: `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal ${getInternalStoreNameById(auth.user.assignedStoreId) || 'asignada'}.` },
         { status: 403 }
       )
     }

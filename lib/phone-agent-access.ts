@@ -26,11 +26,17 @@
  * - Auditoría 2026-11-18: bloquea explícitamente JWTs de empleado (`user_type === 'employee'` o `role === 'employee'`) y exige paridad de `email` contra `public.users` para impedir escalación de privilegios por colisión de IDs entre `toast_employees` y `public.users`.
  * - Auditoría 2026-11-19: `decodeURIComponent` blindado contra cookies malformadas (`URIError`), expiración JWT estricta en rutas administrativas (`!allowLongLivedStoreTerminal`) y techo máximo de 5 min en fallback de caché stale ante fallos transitorios de DB.
  * - Optimización 2026-11-19 (Paquete 1B): `ACCESS_CACHE_TTL_MS` elevado de 30s a 180s (3 min) para reducir consultas repetitivas a `public.users` desde los pollers del banner de recados.
+ * - [2026-11-24] Catálogo cacheado `activeStores` ordenado alfabéticamente (A–Z) con nombres limpios sin prefijos `#` (`formatStoreDisplayName`).
  */
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import jwt from 'jsonwebtoken'
+import {
+  formatStoreDisplayName,
+  getInternalStoreNameById,
+  sortStoresAlphabetically
+} from '@/lib/store-display'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getJwtSecret } from '@/lib/auth-server'
 
@@ -217,9 +223,10 @@ export function validateNoForwardingLoop(
     const storeDigits = extractPhoneDigits(s.phone)
     const store10 = storeDigits.length === 11 && storeDigits.startsWith('1') ? storeDigits.slice(1) : storeDigits
     if (store10 && store10 === candidate10) {
+      const storeLabel = formatStoreDisplayName(s) || getInternalStoreNameById(s.id) || 'seleccionada'
       return {
         safe: false,
-        conflictDescription: `El número coincide con la línea principal de la sucursal ${s.name || `#${s.id}`}, lo que causaría un bucle infinito de llamadas (Call Forwarding Loop). Ingresa el celular directo del gerente.`
+        conflictDescription: `El número coincide con la línea principal de la sucursal ${storeLabel}, lo que causaría un bucle infinito de llamadas (Call Forwarding Loop). Ingresa el celular directo del gerente.`
       }
     }
   }
@@ -228,9 +235,12 @@ export function validateNoForwardingLoop(
     const twDigits = extractPhoneDigits(c.twilio_phone_number)
     const tw10 = twDigits.length === 11 && twDigits.startsWith('1') ? twDigits.slice(1) : twDigits
     if (tw10 && tw10 === candidate10) {
+      const matchedStore = stores.find((st) => Number(st.id) === Number(c.store_id))
+      const twStoreLabel =
+        formatStoreDisplayName(matchedStore) || getInternalStoreNameById(c.store_id) || 'asignada'
       return {
         safe: false,
-        conflictDescription: `El número coincide con el número Twilio de la sucursal #${c.store_id}, lo que causaría un bucle infinito de llamadas.`
+        conflictDescription: `El número coincide con el número Twilio de la sucursal ${twStoreLabel}, lo que causaría un bucle infinito de llamadas.`
       }
     }
   }
@@ -249,7 +259,7 @@ async function getCachedActiveStores() {
   const { data: storesData, error: storesErr } = await supabaseAdmin
     .from('stores')
     .select('id, code, name, is_active')
-    .order('id', { ascending: true })
+    .order('name', { ascending: true })
 
   if (storesErr) {
     if (activeStoresCache && activeStoresCache.stores.length > 0) {
@@ -258,13 +268,16 @@ async function getCachedActiveStores() {
     throw new Error(`Error consultando sucursales activas: ${storesErr.message}`)
   }
 
-  const activeStores = (storesData || [])
-    .filter((s: any) => s.is_active !== false)
-    .map((s: any) => ({
-      id: Number(s.id),
-      code: String(s.code || ''),
-      name: String(s.name || '')
-    }))
+  const activeStores = sortStoresAlphabetically(
+    (storesData || [])
+      .filter((s: { is_active?: boolean | null }) => s.is_active !== false)
+      .map((s: { id: number; code?: string | null; name?: string | null }) => ({
+        id: Number(s.id),
+        code: String(s.code || ''),
+        name: formatStoreDisplayName(s)
+      })),
+    (s) => s.name
+  )
   if (activeStores.length > 0) {
     activeStoresCache = { at: now, stores: activeStores }
   }
@@ -561,7 +574,11 @@ export async function authorizePhoneModuleRequest(
     !isGlobalAdmin &&
     !allowedStoreIds.includes(Number(options.targetStoreId))
   ) {
-    const error = `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal #${assignedStoreId}.`
+    const assignedStoreLabel =
+      formatStoreDisplayName(activeStores.find((s) => s.id === assignedStoreId)) ||
+      getInternalStoreNameById(assignedStoreId) ||
+      'asignada'
+    const error = `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal ${assignedStoreLabel}.`
     return {
       authorized: false,
       status: 403,

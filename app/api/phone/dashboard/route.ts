@@ -41,9 +41,16 @@
  * - Optimización 2026-11-19 (Paquete 1B): ruta rápida de 1 sola consulta (`{ count: 'exact' }.limit(51)`) en `callbacksOnly=true&status=pending`
  *   cuando existen `<= 50` recados pendientes en el alcance (ordenando por urgencia en JS con `mergeAndSortCallbacks` y cayendo al esquema
  *   completo de 6 consultas únicamente cuando `count > 50`).
+ * - [2026-11-24] Normalización de nombres de sucursal sin prefijos `#` (`formatStoreDisplayName`) y ordenamiento alfabético A–Z (`sortStoresAlphabetically`) en `stores` y referencias anidadas.
  */
 
 import { after, NextRequest, NextResponse } from 'next/server'
+import {
+  formatStoreDisplayName,
+  getInternalStoreNameById,
+  sortStoresAlphabetically,
+  stripStoreNumberTokensInText
+} from '@/lib/store-display'
 import { supabaseAdmin } from '@/lib/supabase'
 import { resolvePhoneFemaleVoice } from '@/lib/order-ready-tts'
 import { invalidateKoreKnowledgeCache } from '@/lib/drive-thru-kore'
@@ -82,16 +89,35 @@ export const preferredRegion = 'sfo1'
 
 function sanitizeNestedStore<T extends Record<string, any>>(row: T): T {
   if (!row || typeof row !== 'object') return row
-  if (row.stores && typeof row.stores === 'object' && row.stores.name) {
-    return {
-      ...row,
-      stores: {
-        ...row.stores,
-        name: cleanPhoneStoreName(row.stores.name)
+  const nextRow: Record<string, any> = { ...row }
+
+  if (typeof nextRow.reason_summary === 'string' && nextRow.reason_summary) {
+    nextRow.reason_summary = stripStoreNumberTokensInText(nextRow.reason_summary)
+  }
+  if (typeof nextRow.ai_summary === 'string' && nextRow.ai_summary) {
+    nextRow.ai_summary = stripStoreNumberTokensInText(nextRow.ai_summary)
+  }
+
+  if (nextRow.stores && typeof nextRow.stores === 'object') {
+    const cleanName =
+      formatStoreDisplayName(nextRow.stores) ||
+      getInternalStoreNameById(nextRow.stores.id ?? nextRow.store_id) ||
+      cleanPhoneStoreName(nextRow.stores.name)
+    nextRow.stores = {
+      ...nextRow.stores,
+      name: cleanName
+    }
+  } else if (nextRow.store_id !== null && nextRow.store_id !== undefined) {
+    const fallbackName = getInternalStoreNameById(nextRow.store_id)
+    if (fallbackName) {
+      nextRow.stores = {
+        id: Number(nextRow.store_id),
+        name: fallbackName
       }
     }
   }
-  return row
+
+  return nextRow as T
 }
 
 const TIME_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -485,7 +511,7 @@ export async function GET(request: NextRequest) {
         let q = supabaseAdmin
           .from('stores')
           .select('id, name, address, phone, has_drive_thru, weekly_hours, is_active')
-          .order('id', { ascending: true })
+          .order('name', { ascending: true })
         if (scopeStoreIds) {
           q = q.in('id', scopeStoreIds)
         }
@@ -691,52 +717,55 @@ export async function GET(request: NextRequest) {
       configByStore.set(c.store_id, c)
     }
 
-    const storeRows = stores.map((s: any) => {
-      const cleanName = cleanPhoneStoreName(s.name)
-      const cfg = configByStore.get(s.id) || {
-        store_id: s.id,
-        is_enabled: false,
-        routing_mode: 'conditional_forward',
-        carrier_type: [1, 8, 14, 16].includes(s.id) ? 'spectrum_landline' : 'att_wireless',
-        twilio_phone_number: null,
-        forwarding_status: 'pending',
-        ring_timeout_seconds: 20,
-        voice_id: 'Kore',
-        default_language: 'es',
-        custom_greeting_es: null,
-        custom_greeting_en: null,
-        manager_transfer_phone: null,
-        allow_live_transfer: false,
-        accepts_ebt: ![1, 9].includes(s.id),
-        parking_notes_es: null,
-        parking_notes_en: null
-      }
+    const storeRows = sortStoresAlphabetically(
+      stores.map((s: any) => {
+        const cleanName = formatStoreDisplayName(s) || cleanPhoneStoreName(s.name)
+        const cfg = configByStore.get(s.id) || {
+          store_id: s.id,
+          is_enabled: false,
+          routing_mode: 'conditional_forward',
+          carrier_type: [1, 8, 14, 16].includes(s.id) ? 'spectrum_landline' : 'att_wireless',
+          twilio_phone_number: null,
+          forwarding_status: 'pending',
+          ring_timeout_seconds: 20,
+          voice_id: 'Kore',
+          default_language: 'es',
+          custom_greeting_es: null,
+          custom_greeting_en: null,
+          manager_transfer_phone: null,
+          allow_live_transfer: false,
+          accepts_ebt: ![1, 9].includes(s.id),
+          parking_notes_es: null,
+          parking_notes_en: null
+        }
 
-      const scheduleEval = evaluateStoreSchedulePure({
-        storeId: s.id,
-        storeName: cleanName,
-        weeklyHours: s.weekly_hours,
-        specialHours
-      })
+        const scheduleEval = evaluateStoreSchedulePure({
+          storeId: s.id,
+          storeName: cleanName,
+          weeklyHours: s.weekly_hours,
+          specialHours
+        })
 
-      const forwardingGuide = getCarrierForwardingInstructions(
-        (cfg.carrier_type || 'att_wireless') as CarrierType,
-        cfg.twilio_phone_number,
-        Number(cfg.ring_timeout_seconds || 20),
-        { storePhones: stores.map((st: any) => st.phone).filter(Boolean) }
-      )
+        const forwardingGuide = getCarrierForwardingInstructions(
+          (cfg.carrier_type || 'att_wireless') as CarrierType,
+          cfg.twilio_phone_number,
+          Number(cfg.ring_timeout_seconds || 20),
+          { storePhones: stores.map((st: any) => st.phone).filter(Boolean) }
+        )
 
-      return {
-        ...s,
-        name: cleanName,
-        config: {
-          ...cfg,
-          voice_id: resolvePhoneFemaleVoice(cfg.voice_id)
-        },
-        scheduleEval,
-        forwardingGuide
-      }
-    })
+        return {
+          ...s,
+          name: cleanName,
+          config: {
+            ...cfg,
+            voice_id: resolvePhoneFemaleVoice(cfg.voice_id)
+          },
+          scheduleEval,
+          forwardingGuide
+        }
+      }),
+      (s) => s.name
+    )
 
     const calls = (callsRes.data || []).map(sanitizeNestedStore)
     const callbacks = mergeAndSortCallbacks([
@@ -781,7 +810,10 @@ export async function GET(request: NextRequest) {
       .map((c: any) => ({
         callId: c.id,
         storeId: c.store_id,
-        storeName: cleanPhoneStoreName((c.stores as any)?.name) || `#${c.store_id}`,
+        storeName:
+          formatStoreDisplayName((c.stores as { id?: number; name?: string } | null) || c.store_id) ||
+          getInternalStoreNameById(c.store_id) ||
+          'Sucursal',
         question: c.unanswered_question,
         callerNumber: c.caller_number,
         callerName: c.caller_name || null,
@@ -867,7 +899,7 @@ export async function POST(request: NextRequest) {
         return { ok: false, res: NextResponse.json({ error: `Error validando sucursal: ${stErr.message}` }, { status: 500 }) }
       }
       if (!st) {
-        return { ok: false, res: NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 }) }
+        return { ok: false, res: NextResponse.json({ error: 'La sucursal seleccionada no existe' }, { status: 404 }) }
       }
       return { ok: true, storeId: n }
     }
@@ -1078,8 +1110,9 @@ export async function PATCH(request: NextRequest) {
       }
 
       if (!auth.user.isGlobalAdmin && !auth.user.allowedStoreIds.includes(Number(existingCb.store_id))) {
+        const assignedStoreLabel = getInternalStoreNameById(auth.user.assignedStoreId) || 'asignada'
         return NextResponse.json(
-          { error: `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal #${auth.user.assignedStoreId}.` },
+          { error: `Acceso denegado: Tu cuenta solo tiene autorización sobre la sucursal ${assignedStoreLabel}.` },
           { status: 403 }
         )
       }
@@ -1146,7 +1179,7 @@ export async function PATCH(request: NextRequest) {
 
       const storeExists = (allStores || []).some((s: any) => Number(s.id) === storeId)
       if (!storeExists) {
-        return NextResponse.json({ error: `Sucursal #${storeId} no existe` }, { status: 404 })
+        return NextResponse.json({ error: 'La sucursal seleccionada no existe' }, { status: 404 })
       }
 
       const prevCfg = (allConfigs || []).find((c: any) => Number(c.store_id) === storeId) || null
@@ -1223,9 +1256,11 @@ export async function PATCH(request: NextRequest) {
             (s: any) => s.phone && extractPhoneDigits(s.phone).slice(-10) === parsedTw.tenDigits
           )
           if (storeConflict) {
+            const conflictStoreLabel =
+              formatStoreDisplayName(storeConflict) || getInternalStoreNameById(storeConflict.id) || 'seleccionada'
             return NextResponse.json(
               {
-                error: `El número Twilio no puede coincidir con la línea pública de la sucursal ${storeConflict.name || '#' + storeConflict.id}.`
+                error: `El número Twilio no puede coincidir con la línea pública de la sucursal ${conflictStoreLabel}.`
               },
               { status: 400 }
             )
@@ -1238,9 +1273,14 @@ export async function PATCH(request: NextRequest) {
               (effectiveRoutingMode === 'direct_twilio' || c.routing_mode === 'direct_twilio')
           )
           if (duplicateDirectCfg) {
+            const dupStoreRow = allStores.find((s: any) => Number(s.id) === Number(duplicateDirectCfg.store_id))
+            const dupStoreLabel =
+              formatStoreDisplayName(dupStoreRow) ||
+              getInternalStoreNameById(duplicateDirectCfg.store_id) ||
+              'otra sucursal'
             return NextResponse.json(
               {
-                error: `Ese número Twilio ya está asignado a la sucursal #${duplicateDirectCfg.store_id} y el modo directo (direct_twilio) exige un número exclusivo por tienda. Para compartir un número piloto usa Desvío Condicional (ForwardedFrom).`
+                error: `Ese número Twilio ya está asignado a la sucursal ${dupStoreLabel} y el modo directo (direct_twilio) exige un número exclusivo por tienda. Para compartir un número piloto usa Desvío Condicional (ForwardedFrom).`
               },
               { status: 409 }
             )
@@ -1315,7 +1355,7 @@ export async function PATCH(request: NextRequest) {
           const { data: stExists, error: stLookupErr } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
           if (stLookupErr) throw stLookupErr
           if (!stExists) {
-            return NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 })
+            return NextResponse.json({ error: 'La sucursal seleccionada no existe' }, { status: 404 })
           }
           updates.store_id = n
         }
@@ -1396,7 +1436,7 @@ export async function PATCH(request: NextRequest) {
           const { data: stExists, error: stLookupErr } = await supabaseAdmin.from('stores').select('id').eq('id', n).maybeSingle()
           if (stLookupErr) throw stLookupErr
           if (!stExists) {
-            return NextResponse.json({ error: `Sucursal #${n} no existe` }, { status: 404 })
+            return NextResponse.json({ error: 'La sucursal seleccionada no existe' }, { status: 404 })
           }
           updates.store_id = n
         }

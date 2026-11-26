@@ -44,13 +44,33 @@ import {
   type OffPremiseOrder
 } from '@/lib/delivery-armor'
 
-export type DeliveryArmorNoteRequestType = 'condiments' | 'item_modification' | 'both'
+export type DeliveryArmorNoteRequestType =
+  | 'condiments'
+  | 'item_modification'
+  | 'both'
+  | 'pickup_time_change'
+  | 'wrong_store_stop'
+  | 'wrong_store_prepare'
+  | 'fiesta_platter_custom'
 export type DeliveryArmorNoteStatus = 'pending' | 'acknowledged' | 'applied' | 'dismissed'
 export type DeliveryArmorNoteMatchStatus = 'MATCHED' | 'UNMATCHED' | 'ALREADY_DELIVERED'
+
+export interface FiestaPlatterCustomSpec {
+  packageSize: '15-20' | '20-25' | '25-30' | '30-40'
+  totalMeatLbs: number
+  totalAguaGallons: number
+  meats: Array<{ meat: string; lbs: number }>
+  aguas: Array<{ flavor: string; gallons: number }>
+  tortillas: string | null
+  extraNotes: string | null
+}
 
 export interface DeliveryArmorPhoneNote {
   id: string
   storeId: number
+  originStoreId: number | null
+  relatedStoreId: number | null
+  relatedNoteId: string | null
   businessDate: string
   source: 'twilio' | 'simulator' | 'manual'
   callId: string | null
@@ -71,6 +91,9 @@ export interface DeliveryArmorPhoneNote {
   requestedCondiments: string[]
   itemModifications: string[]
   orderedItemsHint: string | null
+  requestedPickupTime: string | null
+  originalPickupTime: string | null
+  platterSpec: FiestaPlatterCustomSpec | null
   status: DeliveryArmorNoteStatus
   acknowledgedByName: string | null
   acknowledgedAt: string | null
@@ -122,6 +145,8 @@ export interface CreateDeliveryArmorPhoneNoteParams {
   noteSummaryEn?: string | null
   requestedCondiments?: string[] | null
   itemModifications?: string[] | null
+  /** Si true, reemplaza la lista previa de condimentos al editar una nota activa en vez de solo anexar. */
+  replaceCondiments?: boolean
   confirmSaveUnmatched?: boolean
   /** Opcional: para pruebas unitarias o inyección de órdenes en memoria sin llamar a Toast. */
   ordersOverride?: OffPremiseOrder[]
@@ -132,7 +157,9 @@ export interface CreateDeliveryArmorPhoneNoteResult {
   outcome:
     | 'SENT_TO_TABLET'
     | 'SENT_TO_TABLET_REOPEN_BAG'
+    | 'SENT_CONDIMENTS_ONLY_ALREADY_PREPARED'
     | 'SENT_UNMATCHED_BANNER'
+    | 'ALREADY_PREPARED_NO_ITEM_MOD'
     | 'ALREADY_DELIVERED'
     | 'AMBIGUOUS'
     | 'NOT_FOUND'
@@ -570,10 +597,13 @@ export function matchDeliveryArmorOrderFromList(params: {
   }
 }
 
-function mapDbRowToPhoneNote(row: any): DeliveryArmorPhoneNote {
+export function mapDbRowToPhoneNote(row: any): DeliveryArmorPhoneNote {
   return {
     id: String(row.id),
     storeId: Number(row.store_id),
+    originStoreId: row.origin_store_id != null && Number.isFinite(Number(row.origin_store_id)) ? Number(row.origin_store_id) : null,
+    relatedStoreId: row.related_store_id != null && Number.isFinite(Number(row.related_store_id)) ? Number(row.related_store_id) : null,
+    relatedNoteId: row.related_note_id ? String(row.related_note_id) : null,
     businessDate: String(row.business_date || ''),
     source: (row.source === 'simulator' || row.source === 'manual' ? row.source : 'twilio') as DeliveryArmorPhoneNote['source'],
     callId: row.call_id ? String(row.call_id) : null,
@@ -594,6 +624,9 @@ function mapDbRowToPhoneNote(row: any): DeliveryArmorPhoneNote {
     requestedCondiments: Array.isArray(row.requested_condiments) ? row.requested_condiments.map(String) : [],
     itemModifications: Array.isArray(row.item_modifications) ? row.item_modifications.map(String) : [],
     orderedItemsHint: row.ordered_items_hint ? String(row.ordered_items_hint) : null,
+    requestedPickupTime: row.requested_pickup_time ? String(row.requested_pickup_time) : null,
+    originalPickupTime: row.original_pickup_time ? String(row.original_pickup_time) : null,
+    platterSpec: row.platter_spec && typeof row.platter_spec === 'object' ? (row.platter_spec as FiestaPlatterCustomSpec) : null,
     status: (row.status || 'pending') as DeliveryArmorNoteStatus,
     acknowledgedByName: row.acknowledged_by_name ? String(row.acknowledged_by_name) : null,
     acknowledgedAt: row.acknowledged_at ? String(row.acknowledged_at) : null,
@@ -636,6 +669,14 @@ function normalizeRequestType(
   modifications: string[]
 ): DeliveryArmorNoteRequestType {
   const r = String(raw || '').trim().toLowerCase()
+  if (
+    r === 'pickup_time_change' ||
+    r === 'wrong_store_stop' ||
+    r === 'wrong_store_prepare' ||
+    r === 'fiesta_platter_custom'
+  ) {
+    return r
+  }
   if (condiments.length > 0 && modifications.length > 0) return 'both'
   if (r === 'both') return 'both'
   if (r === 'item_modification' || r === 'modification' || modifications.length > 0) return 'item_modification'
@@ -831,6 +872,51 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
   const finalStage = matched ? resolveOrderStageLabel(matched) : 'UNMATCHED'
   const finalMatchStatus: DeliveryArmorNoteMatchStatus = matched ? 'MATCHED' : 'UNMATCHED'
 
+  // Regla operativa de estatus de preparación (2026-11-24):
+  // - En estatus PREPARACIÓN (`IN_KITCHEN`): SÍ se permite quitar/modificar ingredientes sin costo del platillo
+  //   (ej. "sin frijol en el burrito", "sin queso", "sin cebolla") Y agregar/editar condimentos gratis.
+  // - Cuando la orden YA salió de cocina (`READY` = EMPACANDO o `PACKED_AND_SEALED` = LISTA):
+  //   ya NO se pueden quitar ingredientes de un platillo ya cocinado, pero SÍ se pueden agregar/editar condimentos gratis.
+  const isPastPreparationStage = Boolean(matched && (finalStage === 'READY' || finalStage === 'PACKED_AND_SEALED'))
+  const askedForItemModification = modifications.length > 0 || requestType === 'item_modification'
+  let droppedItemModsDueToPrepared = false
+  let effectiveModifications = modifications
+  let effectiveRequestType = requestType
+  let effectiveSummaryEs = finalSummaryEs
+  let effectiveSummaryEn = noteSummaryEn
+
+  if (isPastPreparationStage && askedForItemModification && matched) {
+    const platName = formatPlatformLabel(matched.platform)
+    const orderRef = matched.shortOrderKey || `#${matched.displayNumber}`
+    const stageLabelEs = finalStage === 'PACKED_AND_SEALED' ? 'ya está empacada y sellada' : 'ya salió de cocina a empaque'
+    const stageLabelEn = finalStage === 'PACKED_AND_SEALED' ? 'is already packed and sealed' : 'has already left the kitchen for packing'
+
+    if (condiments.length === 0) {
+      return {
+        ok: false,
+        outcome: 'ALREADY_PREPARED_NO_ITEM_MOD',
+        matchedOrder: {
+          orderGuid: matched.orderGuid,
+          displayNumber: matched.displayNumber,
+          platform: matched.platform,
+          platformOrderKey: matched.platformOrderKey,
+          shortOrderKey: matched.shortOrderKey,
+          customerName: matched.customerName,
+          stage: finalStage
+        },
+        messageEs: `Localizamos la orden de ${platName} (${orderRef}, ${matched.customerName}), pero ${stageLabelEs}, por lo que ya no es posible quitar o modificar ingredientes dentro del platillo (como quitar frijol, queso o cebolla). Si deseas agregar o cambiar condimentos aparte gratis (salsas roja/verde, limones, chiles, servilletas), con gusto podemos enviarlos antes de que salga con el repartidor.`,
+        messageEn: `We located the ${platName} order (${orderRef}, ${matched.customerName}), however it ${stageLabelEn}, so we can no longer remove or change ingredients inside the dish. If you would like to add or edit free side condiments (red/green salsa, limes, jalapeños, napkins), we can still send those to packing before driver handoff.`
+      }
+    }
+
+    // Pidió ambos (quitar ingrediente + condimentos): enviar SOLO los condimentos gratis e informar con honestidad
+    droppedItemModsDueToPrepared = true
+    effectiveModifications = []
+    effectiveRequestType = 'condiments'
+    effectiveSummaryEs = `Condimentos gratis: ${condiments.join(', ')}`
+    effectiveSummaryEn = `Free condiments: ${condiments.join(', ')}`
+  }
+
   const matchedItemsSummary =
     matched && Array.isArray(matched.items) && matched.items.length > 0
       ? (() => {
@@ -849,13 +935,16 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
   const resolvedOrderedItemsHint =
     matchedItemsSummary || (params.orderedItemsHint ? String(params.orderedItemsHint).trim().slice(0, 240) : null)
 
-  // 4. Deduplicar si ya existe una nota activa en esta misma llamada o para esta misma orden reciente
+  // 4. Deduplicar si ya existe una nota activa de condimentos/modificación en esta misma llamada o para esta misma orden reciente
+  // (Nunca sobreescribir alertas especiales de cocina: pickup_time_change, wrong_store_*, fiesta_platter_custom)
+  const STANDARD_DELIVERY_NOTE_TYPES = ['condiments', 'item_modification', 'both'] as const
   let existingRow: any = null
   if (resolvedCallId) {
     const { data } = await supabaseAdmin
       .from('delivery_armor_phone_notes')
       .select('*')
       .eq('call_id', resolvedCallId)
+      .in('request_type', [...STANDARD_DELIVERY_NOTE_TYPES])
       .in('status', ['pending', 'acknowledged'])
       .order('created_at', { ascending: false })
       .limit(1)
@@ -869,6 +958,7 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
       .select('*')
       .eq('store_id', storeId)
       .eq('toast_order_guid', matched.orderGuid)
+      .in('request_type', [...STANDARD_DELIVERY_NOTE_TYPES])
       .in('status', ['pending', 'acknowledged'])
       .gte('created_at', tenMinAgo)
       .order('created_at', { ascending: false })
@@ -881,17 +971,37 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
   let updatedExisting = false
 
   if (existingRow) {
-    const mergedCondiments = dedupeStringArray([
-      ...(Array.isArray(existingRow.requested_condiments) ? existingRow.requested_condiments : []),
-      ...condiments
-    ])
+    const mergedCondiments = params.replaceCondiments
+      ? dedupeStringArray(condiments)
+      : dedupeStringArray([
+          ...(Array.isArray(existingRow.requested_condiments) ? existingRow.requested_condiments : []),
+          ...condiments
+        ])
     const mergedMods = dedupeStringArray([
       ...(Array.isArray(existingRow.item_modifications) ? existingRow.item_modifications : []),
-      ...modifications
+      ...effectiveModifications
     ])
-    const mergedSummaryEs = mergeNoteSummary(existingRow.note_summary_es, finalSummaryEs)
-    const mergedSummaryEn = noteSummaryEn ? mergeNoteSummary(existingRow.note_summary_en, noteSummaryEn) : existingRow.note_summary_en
-    const mergedType = normalizeRequestType(requestType, mergedCondiments, mergedMods)
+    const rebuiltSummaryEs = [
+      mergedCondiments.length > 0 ? `Condimentos gratis: ${mergedCondiments.join(', ')}` : '',
+      mergedMods.length > 0 ? `Modificación: ${mergedMods.join('; ')}` : ''
+    ]
+      .filter(Boolean)
+      .join(' | ')
+    const rebuiltSummaryEn = [
+      mergedCondiments.length > 0 ? `Free condiments: ${mergedCondiments.join(', ')}` : '',
+      mergedMods.length > 0 ? `Modification: ${mergedMods.join('; ')}` : ''
+    ]
+      .filter(Boolean)
+      .join(' | ')
+    const mergedSummaryEs = params.replaceCondiments
+      ? rebuiltSummaryEs || effectiveSummaryEs
+      : mergeNoteSummary(existingRow.note_summary_es, effectiveSummaryEs)
+    const mergedSummaryEn = params.replaceCondiments
+      ? rebuiltSummaryEn || effectiveSummaryEn || existingRow.note_summary_en
+      : effectiveSummaryEn
+        ? mergeNoteSummary(existingRow.note_summary_en, effectiveSummaryEn)
+        : existingRow.note_summary_en
+    const mergedType = normalizeRequestType(effectiveRequestType, mergedCondiments, mergedMods)
 
     const patchPayload: Record<string, unknown> = {
       match_status: matched ? 'MATCHED' : existingRow.match_status,
@@ -944,11 +1054,11 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
       order_stage_at_alert: finalStage,
       caller_name: callerName,
       caller_phone: params.callerPhone || null,
-      request_type: requestType,
-      note_summary_es: finalSummaryEs,
-      note_summary_en: noteSummaryEn,
+      request_type: effectiveRequestType,
+      note_summary_es: effectiveSummaryEs,
+      note_summary_en: effectiveSummaryEn,
       requested_condiments: condiments,
-      item_modifications: modifications,
+      item_modifications: effectiveModifications,
       ordered_items_hint: resolvedOrderedItemsHint,
       status: 'pending'
     }
@@ -978,6 +1088,28 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
   const platLabel = formatPlatformLabel(note.platform)
   const orderRef = note.shortOrderKey || (note.toastDisplayNumber ? `#${note.toastDisplayNumber}` : note.orderCustomerName || customerName)
 
+  if (droppedItemModsDueToPrepared && matched) {
+    const stageLabelEs = finalStage === 'PACKED_AND_SEALED' ? 'ya estaba empacada y sellada' : 'ya había salido de cocina a empaque'
+    const stageLabelEn = finalStage === 'PACKED_AND_SEALED' ? 'was already packed and sealed' : 'had already left the kitchen for packing'
+    return {
+      ok: true,
+      outcome: 'SENT_CONDIMENTS_ONLY_ALREADY_PREPARED',
+      updatedExisting,
+      note,
+      matchedOrder: {
+        orderGuid: matched.orderGuid,
+        displayNumber: matched.displayNumber,
+        platform: matched.platform,
+        platformOrderKey: matched.platformOrderKey,
+        shortOrderKey: matched.shortOrderKey,
+        customerName: matched.customerName,
+        stage: finalStage
+      },
+      messageEs: `Tu orden de ${platLabel} (${orderRef}, ${matched.customerName}) ${stageLabelEs}, así que ya no fue posible quitar o modificar ingredientes dentro del platillo; sin embargo, SÍ enviamos la alerta parpadeante a empaque para agregar tus condimentos gratis (${condiments.join(', ')}) antes de entregarla al repartidor.`,
+      messageEn: `Your ${platLabel} order (${orderRef}, ${matched.customerName}) ${stageLabelEn}, so we could no longer modify ingredients inside the dish; however, we DID send a flashing alert to packing to include your free condiments (${condiments.join(', ')}) before driver handoff.`
+    }
+  }
+
   if (match.outcome === 'MATCHED_PACKED_NOT_HANDED' && matched) {
     return {
       ok: true,
@@ -993,12 +1125,20 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
         customerName: matched.customerName,
         stage: 'PACKED_AND_SEALED'
       },
-      messageEs: `Orden ${platLabel} (${orderRef}, ${matched.customerName}) localizada ya empacada esperando al repartidor. Enviamos alerta parpadeante de alta prioridad a la tableta de Delivery Armor para que la cajera agregue los condimentos o revise el ajuste antes de entregarla si todavía no sale.`,
-      messageEn: `Found ${platLabel} order (${orderRef}, ${matched.customerName}) already packed waiting for the driver. Sent a high-priority flashing alert to the Delivery Armor packing tablet so the cashier can add the condiments or apply the tweak before handoff if it hasn't left yet.`
+      messageEs: `Orden ${platLabel} (${orderRef}, ${matched.customerName}) localizada ya empacada esperando al repartidor. Enviamos alerta parpadeante de alta prioridad a empaque para que la cajera agregue tus condimentos gratis antes de entregarla si todavía no sale.`,
+      messageEn: `Found ${platLabel} order (${orderRef}, ${matched.customerName}) already packed waiting for the driver. Sent a high-priority flashing alert to packing so the cashier can add your free condiments before handoff if it hasn't left yet.`
     }
   }
 
   if (matched) {
+    const prepTargetEs =
+      finalStage === 'IN_KITCHEN' && effectiveModifications.length > 0
+        ? 'la tableta de cocina (PREPARADOR) y empaque porque tu orden sigue en preparación'
+        : 'la tableta de empaque'
+    const prepTargetEn =
+      finalStage === 'IN_KITCHEN' && effectiveModifications.length > 0
+        ? 'the kitchen (PREPARADOR) and packing tablets since your order is still being prepared'
+        : 'our packing tablet'
     return {
       ok: true,
       outcome: 'SENT_TO_TABLET',
@@ -1013,8 +1153,8 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
         customerName: matched.customerName,
         stage: finalStage
       },
-      messageEs: `¡Orden ${platLabel} (${orderRef}, ${matched.customerName}) localizada en tiempo real! Ya está parpadeando en la tableta de Delivery Armor para la cajera que está empacando con tu nota: "${note.noteSummaryEs}".`,
-      messageEn: `Found your ${platLabel} order (${orderRef}, ${matched.customerName}) live! It is now flashing on our Delivery Armor packing tablet for the cashier packing your bag with your request.`
+      messageEs: `¡Orden ${platLabel} (${orderRef}, ${matched.customerName}) localizada en tiempo real! Ya está parpadeando en ${prepTargetEs} con tu solicitud: "${note.noteSummaryEs}".`,
+      messageEn: `Found your ${platLabel} order (${orderRef}, ${matched.customerName}) live! It is now flashing on ${prepTargetEn} with your request.`
     }
   }
 

@@ -45,6 +45,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { formatCustomerStoreName, resolveCustomerStoreMeta } from '@/lib/customer-store-names'
+import { formatStoreDisplayName, stripStoreNumberTokensInText } from '@/lib/store-display'
 import { PhoneCall, CheckCircle2, AlertTriangle, Copy, Check, ShoppingBag } from 'lucide-react'
 
 const STORE_ID_BY_CODE: Record<string, number> = {
@@ -600,8 +601,7 @@ export default function PhoneCallbackAlertBanner({
             </span>
             {isCrossStore && (
               <span className="px-1.5 py-0.5 rounded bg-white text-slate-900 text-[10px] font-black uppercase mr-2 shadow-sm">
-                ↪️ {t('phone_agent.banner_routed_from_prefix')} #{cb.origin_store_id}
-                {originLabel ? ` ${originLabel}` : ''}
+                ↪️ {t('phone_agent.banner_routed_from_prefix')} {originLabel || formatStoreDisplayName(cb.origin_store_id)}
               </span>
             )}
             {cb.source === 'simulator' && (
@@ -648,7 +648,7 @@ export default function PhoneCallbackAlertBanner({
               </span>
             )}
             <span className="mx-1.5 opacity-75">•</span>
-            <span className="font-medium">{cb.reason_summary}</span>
+            <span className="font-medium">{stripStoreNumberTokensInText(cb.reason_summary)}</span>
             {cb.ticket_or_order_number && (
               <span
                 className={`ml-2 px-2 py-0.5 rounded text-[11px] font-black ${
