@@ -53,6 +53,7 @@ import {
     Layers
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import {
     STORE_QB_MAPPINGS,
     VieleInvoiceCategory,
@@ -201,13 +202,14 @@ export default function VieleWholesailBillsTab({ onNotify }: VieleWholesailBills
         for (const s of storeStatuses) {
             connectedMap.set(s.storeId, s.connected);
         }
-        return Object.values(STORE_QB_MAPPINGS)
-            .map((m) => ({
+        return sortStoresAlphabetically(
+            Object.values(STORE_QB_MAPPINGS).map((m) => ({
                 id: m.storeId,
-                name: m.storeName,
+                name: formatStoreDisplayName(m.storeName),
                 connected: connectedMap.get(Number(m.storeId)) ?? m.storeId === '5'
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            })),
+            (s) => s.name
+        );
     }, [storeStatuses]);
 
     const connectedStoresCount = useMemo(() => {

@@ -25,6 +25,14 @@
  *   `PLANIFICADOR (EXCLUSIVO TOAST POS)`, diferenciándolos de la tarjeta oficial de nómina en RONOS (Cingular HR).
  */
 
+import { formatStoreDisplayName } from './store-display'
+import {
+    checkDeliverableExternalEmail,
+    isNonRoutableDomain,
+    VERIFIED_CORPORATE_MAILBOXES,
+    type BlockedExternalEmailInfo,
+} from './email-recipient-guard'
+
 export const AUTHORIZED_BREAK_MINUTES = 10
 export const AUTHORIZED_LUNCH_MINUTES = 30
 
@@ -35,21 +43,7 @@ export const INTERNAL_BREAK_MIN_VIOLATION_MINUTES = 12
 export const INTERNAL_LUNCH_MIN_VIOLATION_MINUTES = 33
 export const SEVERE_PUNCH_ANOMALY_MINUTES = 60
 
-export const KNOWN_OFFICIAL_CORPORATE_EMAILS = new Set([
-    'noreply@tacosgavilan.com',
-    'raquel@tacosgavilan.com',
-    'roberto@tacosgavilan.com',
-    'gonzalo@tacosgavilan.com',
-    'carlos@tacosgavilan.com',
-    'roque@tacosgavilan.com',
-    'ricardo@tacosgavilan.com',
-    'javier@tacosgavilan.com',
-    'willian@tacosgavilan.com',
-    'estefani@tacosgavilan.com',
-    'erick@tacosgavilan.com',
-    'eliseo@tacosgavilan.com',
-    'support@tacosgavilan.com',
-])
+export const KNOWN_OFFICIAL_CORPORATE_EMAILS = new Set<string>(VERIFIED_CORPORATE_MAILBOXES)
 
 const NON_ROUTABLE_DOMAINS = new Set([
     'example.com',
@@ -117,17 +111,26 @@ export function evaluatePunchBreakViolation(params: {
 export interface RecipientEmailValidation {
     deliverable: boolean
     cleanEmail: string | null
-    reason: 'ok' | 'missing' | 'placeholder_domain' | 'invalid_syntax' | 'unregistered_corporate'
+    reason:
+        | 'ok'
+        | 'missing'
+        | 'placeholder_domain'
+        | 'invalid_syntax'
+        | 'unregistered_corporate'
+        | 'bounced_nonexistent'
+        | 'inbox_full_overquota'
 }
 
 /**
  * Verifica que el correo del empleado en Toast POS sea entregable antes de despachar por Gmail API,
- * evitando rebotes (`Mail Delivery Subsystem`) hacia dominios ficticios de POS (`@toasttab.com`, `@example.com`)
- * o cuentas `@tacosgavilan.com` inexistentes.
+ * evitando rebotes (`Mail Delivery Subsystem`) hacia dominios ficticios de POS (`@toasttab.com`, `@example.com`),
+ * cuentas `@tacosgavilan.com` de solo login sin buzón real (ej. `isidro@`, `hugo@`), o correos externos
+ * confirmados como inexistentes (`550 5.1.1`) o con buzón lleno (`452 4.2.2`).
  */
 export function validateEmployeeViolationEmail(
     rawEmail?: string | null,
-    registeredCorporateEmails?: Set<string>
+    registeredCorporateEmails?: Set<string>,
+    blockedExternalEmails?: ReadonlyMap<string, BlockedExternalEmailInfo> | null
 ): RecipientEmailValidation {
     if (!rawEmail || typeof rawEmail !== 'string') {
         return { deliverable: false, cleanEmail: null, reason: 'missing' }
@@ -145,17 +148,38 @@ export function validateEmployeeViolationEmail(
     }
 
     const domain = match[1]
-    if (NON_ROUTABLE_DOMAINS.has(domain)) {
+    if (NON_ROUTABLE_DOMAINS.has(domain) || isNonRoutableDomain(domain)) {
         return { deliverable: false, cleanEmail: null, reason: 'placeholder_domain' }
     }
 
-    if (domain === 'tacosgavilan.com' && registeredCorporateEmails && registeredCorporateEmails.size > 0) {
-        if (!registeredCorporateEmails.has(clean) && !KNOWN_OFFICIAL_CORPORATE_EMAILS.has(clean)) {
+    if (domain === 'tacosgavilan.com') {
+        const hasVerifiedSet = Boolean(registeredCorporateEmails && registeredCorporateEmails.size > 0)
+        const isKnownReal =
+            (hasVerifiedSet && registeredCorporateEmails!.has(clean)) ||
+            KNOWN_OFFICIAL_CORPORATE_EMAILS.has(clean)
+        if (!isKnownReal) {
             return { deliverable: false, cleanEmail: null, reason: 'unregistered_corporate' }
+        }
+        return { deliverable: true, cleanEmail: clean, reason: 'ok' }
+    }
+
+    const extCheck = checkDeliverableExternalEmail(clean, blockedExternalEmails)
+    if (!extCheck.ok || !extCheck.cleanEmail) {
+        return {
+            deliverable: false,
+            cleanEmail: null,
+            reason:
+                extCheck.reason === 'inbox_full_overquota'
+                    ? 'inbox_full_overquota'
+                    : extCheck.reason === 'bounced_nonexistent'
+                      ? 'bounced_nonexistent'
+                      : extCheck.reason === 'placeholder_domain'
+                        ? 'placeholder_domain'
+                        : 'invalid_syntax',
         }
     }
 
-    return { deliverable: true, cleanEmail: clean, reason: 'ok' }
+    return { deliverable: true, cleanEmail: extCheck.cleanEmail, reason: 'ok' }
 }
 
 export function escapeHtmlSafe(value: unknown): string {
@@ -220,16 +244,17 @@ export function buildEmployeeBreakViolationEmailHtml(params: {
         managerContactEmail,
     } = params
 
+    const cleanStore = formatStoreDisplayName(storeName) || storeName
     const excessMinutes = Math.max(1, actualMinutes - allowedMinutes)
     const typeName = type === 'BRK' ? 'Break de 10 minutos' : 'Lunch de 30 minutos'
-    const subject = `⚠️ Planificador (Toast POS): Aviso de Tiempo Excedido en ${typeName} — ${storeName}`
+    const subject = `⚠️ Planificador (Toast POS): Aviso de Tiempo Excedido en ${typeName} — ${cleanStore}`
 
     const html = `
         <div style="font-family: Arial, Helvetica, sans-serif; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
             <div style="background-color: #b91c1c; color: #ffffff; padding: 22px 20px; text-align: center;">
                 <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.9; margin-bottom: 4px;">TACOS GAVILAN • PLANIFICADOR (EXCLUSIVO TOAST POS)</div>
                 <h2 style="margin: 0; font-size: 20px; font-weight: 800; text-transform: uppercase;">Aviso de Tiempo Excedido (Toast POS)</h2>
-                <p style="margin: 6px 0 0 0; opacity: 0.95; font-size: 13px;">Sucursal: <strong>${escapeHtmlSafe(storeName)}</strong></p>
+                <p style="margin: 6px 0 0 0; opacity: 0.95; font-size: 13px;">Sucursal: <strong>${escapeHtmlSafe(cleanStore)}</strong></p>
             </div>
             <div style="padding: 24px;">
                 <p style="font-size: 15px; margin-top: 0;">Hola <strong>${escapeHtmlSafe(employeeName)}</strong>,</p>
@@ -294,7 +319,8 @@ export function buildManagerDailyViolationReportHtml(params: {
     items: ManagerDailyViolationItem[]
     isManualDispatch?: boolean
 }): { subject: string; html: string } {
-    const { storeName, businessDate, items, isManualDispatch = false } = params
+    const { storeName: rawStoreName, businessDate, items, isManualDispatch = false } = params
+    const storeName = formatStoreDisplayName(rawStoreName) || rawStoreName
     const totalViolations = items.length
     const totalBreaks = items.filter((i) => i.type === 'BRK').length
     const totalLunches = items.filter((i) => i.type === 'LUN').length

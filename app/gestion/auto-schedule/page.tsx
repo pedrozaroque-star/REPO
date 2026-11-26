@@ -20,6 +20,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
 import { supabase } from '@/lib/supabase'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { startOfWeek, addWeeks, format, parseISO } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
 import { DemandMap } from '@/components/self-schedule/DemandMap'
@@ -173,7 +174,8 @@ export default function AdminAutoSchedulePage() {
                 .from('stores')
                 .select('external_id, name')
                 .eq('is_active', true)
-            setStores(storeData || [])
+                .order('name')
+            setStores(sortStoresAlphabetically(storeData || [], (s: any) => s.name))
 
         } catch (error) {
             console.error('Error:', error)
@@ -505,7 +507,7 @@ export default function AdminAutoSchedulePage() {
                                                         </option>
                                                         {stores.map(s => (
                                                             <option key={s.external_id} value={s.external_id}>
-                                                                📍 {s.name.replace('Tacos Gavilan - ', '')}
+                                                                📍 {formatStoreDisplayName(s.name)}
                                                             </option>
                                                         ))}
                                                     </select>

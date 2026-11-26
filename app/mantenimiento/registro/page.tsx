@@ -38,6 +38,7 @@ import {
 import imageCompression from 'browser-image-compression'
 import { useLanguage } from '@/lib/i18n'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import SignaturePad from '@/components/maintenance/SignaturePad'
 
 interface Store {
@@ -538,10 +539,13 @@ function MaintenanceFormContent() {
           .order('id')
 
         if (!error && data) {
-          const activeStores: Store[] = [
-            ...data.filter((s: any) => s.is_active !== false),
-            ...(data.some((s: any) => String(s.id).toUpperCase() === 'BODEGA') ? [] : [bodegaEntry])
-          ]
+          const activeStores: Store[] = sortStoresAlphabetically(
+            [
+              ...data.filter((s: any) => s.is_active !== false),
+              ...(data.some((s: any) => String(s.id).toUpperCase() === 'BODEGA') ? [] : [bodegaEntry])
+            ],
+            (s) => s.name
+          )
           setStores(activeStores)
 
           // 1. Preselección si viene ?store= en el código QR

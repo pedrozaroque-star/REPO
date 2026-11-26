@@ -39,6 +39,7 @@ import {
   resolveStoreCatalogActivitiesForDay,
 } from '@/lib/actividades-resolution'
 import { type StoreDayHours } from '@/lib/store-time-offset'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface StoreInfo {
@@ -214,7 +215,11 @@ export default function ReportesChecklistTab() {
         .eq('is_active', true)
         .order('name')
       if (data) {
-        setStores(data as StoreInfo[])
+        const sorted = sortStoresAlphabetically(
+          (data as StoreInfo[]).map((s) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+          (s) => s.name
+        )
+        setStores(sorted)
         if (userRole === 'manager' && user?.store_id) {
           const store = data.find(s => String(s.id) === String(user.store_id) || s.external_id === String(user.store_id))
           if (store) setSelectedStoreId(String(store.id))

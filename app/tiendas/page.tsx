@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit, RefreshCw } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -98,10 +99,11 @@ export default function TiendasPage() {
 
       if (error) throw error
 
-      setStores(storesData || [])
+      const sortedStoresData = sortStoresAlphabetically(storesData || [], (s) => s.name)
+      setStores(sortedStoresData)
 
       // Obtener estadísticas básicas (simuladas para carga rápida)
-      const storesWithStatsData = (storesData || []).map((store) => ({
+      const storesWithStatsData = sortedStoresData.map((store) => ({
         ...store,
         stats: {
           feedbackCount: 0,
@@ -250,6 +252,7 @@ export default function TiendasPage() {
   }
 
   const filteredStores = storesWithStats.filter(store =>
+    formatStoreName(store.name).toLowerCase().includes(searchTerm.toLowerCase()) ||
     store.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     store.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     store.city?.toLowerCase().includes(searchTerm.toLowerCase())

@@ -35,6 +35,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
 import { VIELE_PUBLIC_STORES, formatUsDate, formatCurrency, formatNumber } from '@/lib/viele-stores-public';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import {
   ArrowLeft, History, Package, DollarSign, Search, Eye, X, CheckCircle, XCircle,
@@ -317,12 +318,12 @@ function OrderHistoryContent() {
             </label>
             {isManager && userStoreId ? (
               <div className="w-full bg-amber-50 border border-amber-300 rounded-xl px-3.5 py-2.5 text-amber-900 font-semibold text-sm cursor-not-allowed">
-                🌮 {VIELE_PUBLIC_STORES[Number(userStoreId)]?.storeName || `Tienda #${userStoreId}`}
+                🌮 {formatStoreDisplayName(VIELE_PUBLIC_STORES[Number(userStoreId)]?.storeName || Number(userStoreId))}
               </div>
             ) : (
               <select value={storeId} onChange={e => setStoreId(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-sm">
                 <option value="all">🌟 {t('viele.historial.all_stores')}</option>
-                {Object.values(VIELE_PUBLIC_STORES).map(a => <option key={a.storeId} value={a.storeId}>🌮 {a.storeName} (#{a.storeId}) — {a.sageCustomerCode}</option>)}
+                {sortStoresAlphabetically(Object.values(VIELE_PUBLIC_STORES), a => a.storeName).map(a => <option key={a.storeId} value={a.storeId}>🌮 {formatStoreDisplayName(a.storeName)} — {a.sageCustomerCode}</option>)}
               </select>
             )}
           </div>
@@ -396,11 +397,11 @@ function OrderHistoryContent() {
                             {o.status === 'Complete' && <CheckCircle className="w-3 h-3" />}{o.status === 'Complete' ? t('viele.historial.status_complete') : t('viele.historial.status_open')}
                           </span>
                         </td>
-                        <td className="py-3 px-4"><strong className="text-slate-900 text-xs">🌮 {o.storeName || VIELE_PUBLIC_STORES[Number(storeId)]?.storeName || o.shipToName}</strong></td>
+                        <td className="py-3 px-4"><strong className="text-slate-900 text-xs">🌮 {formatStoreDisplayName(o.storeName || VIELE_PUBLIC_STORES[Number(storeId)]?.storeName || o.shipToName)}</strong></td>
                         <td className="py-3 px-4 text-slate-700 text-xs font-bold">{o.customerPo}</td>
                         <td className="py-3 px-4 text-right tabular-nums font-bold text-slate-900">{o.orderTotal}</td>
                         <td className="py-3 px-4 text-center">
-                          <button onClick={() => handleViewDetail('web', o.orderNo, { orderDate: o.orderDate, status: o.status, customerPo: o.customerPo, orderTotal: o.orderTotal, storeName: o.storeName || VIELE_PUBLIC_STORES[Number(storeId)]?.storeName || o.shipToName, storeId: String(o.storeId || storeId) })} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200 shadow-sm cursor-pointer">
+                          <button onClick={() => handleViewDetail('web', o.orderNo, { orderDate: o.orderDate, status: o.status, customerPo: o.customerPo, orderTotal: o.orderTotal, storeName: formatStoreDisplayName(o.storeName || VIELE_PUBLIC_STORES[Number(storeId)]?.storeName || o.shipToName), storeId: String(o.storeId || storeId) })} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200 shadow-sm cursor-pointer">
                             <Eye className="w-3.5 h-3.5 text-blue-600" />{t('viele.historial.btn_view')}
                           </button>
                         </td>
@@ -457,7 +458,7 @@ function OrderHistoryContent() {
                               : order.order_category === 'chemicals' ? <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">🧪 {t('viele.historial.badge_chemicals')}</span>
                               : <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">📦 {t('viele.historial.badge_general')}</span>}
                           </td>
-                          <td className="py-3 px-4"><strong className="text-slate-900 block text-xs">🌮 {sa?.storeName || `Tienda #${order.store_id}`}</strong><span className="text-[10px] text-slate-500 font-mono">Sage: {sa?.sageCustomerCode || '—'}</span></td>
+                          <td className="py-3 px-4"><strong className="text-slate-900 block text-xs">🌮 {formatStoreDisplayName(sa?.storeName || order.store_id)}</strong><span className="text-[10px] text-slate-500 font-mono">Sage: {sa?.sageCustomerCode || '—'}</span></td>
                           <td className="py-3 px-4 text-center tabular-nums text-slate-700 text-xs font-medium">{formatUsDate(order.order_date)}</td>
                           <td className="py-3 px-4 text-center tabular-nums text-emerald-700 font-semibold text-xs">{formatUsDate(order.ship_date)}</td>
                           <td className="py-3 px-4 text-slate-700 text-xs font-bold">{order.buyer_name}</td>
@@ -538,7 +539,7 @@ function OrderHistoryContent() {
                   </div>
                   {/* Meta */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                    <div><label style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>{t('viele.historial.detail_store')}</label><strong style={{ fontSize: '13px', color: '#0f172a' }}>{detailModal.storeName || '—'}</strong></div>
+                    <div><label style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>{t('viele.historial.detail_store')}</label><strong style={{ fontSize: '13px', color: '#0f172a' }}>{formatStoreDisplayName(detailModal.storeName) || '—'}</strong></div>
                     <div><label style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>{t('viele.historial.col_order_date')}</label><strong style={{ fontSize: '13px', color: '#0f172a' }}>{detailModal.orderDate || '—'}</strong></div>
                     <div><label style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>{t('viele.historial.col_po')}</label><strong style={{ fontSize: '13px', color: '#0f172a' }}>{detailModal.customerPo || detailModal.appOrder?.customer_po_no || '—'}</strong></div>
                     <div><label style={{ fontSize: '10px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>{t('viele.historial.detail_total')}</label><strong style={{ fontSize: '13px', color: '#0f172a' }}>{detailModal.orderTotal || '—'}</strong></div>

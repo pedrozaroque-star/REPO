@@ -1193,6 +1193,19 @@ export function getOSModuleGroups(t: (key: string) => string): OSModuleGroup[] {
           renderIcon: (size = 20) => <Shield size={size} />,
           roles: ['admin'],
         },
+        {
+          id: 'remote_control',
+          title: t('items.remote_control'),
+          shortTitle: compactShortTitle(t('items.remote_control')),
+          description: t('home_hub.desc.remote_control'),
+          path: '/admin/control-remoto',
+          groupId: 'gestion',
+          appTileBg: 'bg-gradient-to-br from-indigo-600 to-violet-700',
+          iconColorClass:
+            'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border-indigo-500/20',
+          renderIcon: (size = 20) => <Monitor size={size} />,
+          roles: ['admin'],
+        },
       ],
     },
   ]

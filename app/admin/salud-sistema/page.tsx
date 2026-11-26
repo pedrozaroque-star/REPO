@@ -28,6 +28,7 @@ import {
     CheckCircle2, HardDrive, Flame, Activity, AlertOctagon, Info
 } from 'lucide-react'
 import { HealthReport } from '@/lib/system-health-sentinel'
+import { stripStoreNumberTokensInText } from '@/lib/store-display'
 
 function SystemHealthContent() {
     const { t } = useLanguage()
@@ -206,7 +207,7 @@ function SystemHealthContent() {
                     </div>
                     <ul className="list-disc list-inside text-xs space-y-1">
                         {report.alerts.map((a, i) => (
-                            <li key={i}>{a}</li>
+                            <li key={i}>{stripStoreNumberTokensInText(a)}</li>
                         ))}
                     </ul>
                 </div>
@@ -363,7 +364,7 @@ function SystemHealthContent() {
                 </h3>
                 {report.recommendedAction ? (
                     <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg text-xs text-amber-900 dark:text-amber-300 font-medium">
-                        🛠️ {report.recommendedAction}
+                        🛠️ {stripStoreNumberTokensInText(report.recommendedAction)}
                     </div>
                 ) : (
                     <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-lg text-xs text-emerald-900 dark:text-emerald-300 font-medium">

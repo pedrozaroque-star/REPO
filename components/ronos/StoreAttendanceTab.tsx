@@ -51,6 +51,7 @@ import {
   X
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import {
   StoreAuditData,
   EmployeeTimecard,
@@ -200,7 +201,7 @@ export default function StoreAttendanceTab({
       return t('ronos.all_stores') || 'Todas las Tiendas (Cadena)'
     }
     const st = stores.find(s => s.ronosCompanyId === selectedCompanyId)
-    return st ? `${st.tegName} (#${st.tegStoreId})` : storeData?.storeName || 'Sucursal'
+    return st ? formatStoreDisplayName(st.tegName) : (formatStoreDisplayName(storeData?.storeName) || 'Sucursal')
   }, [selectedCompanyId, stores, storeData?.storeName, t])
 
   const runDailyNhpAudit = async (dryRun: boolean) => {
@@ -697,7 +698,7 @@ export default function StoreAttendanceTab({
             {t('ronos.attendance.select_store_prompt') || 'Selecciona una sucursal para checador completo:'}
           </span>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {stores.map(st => (
+            {sortStoresAlphabetically(stores, (st) => st.isBodega ? `Bodega ${st.tegName}` : st.tegName).map(st => (
               <button
                 key={st.ronosCompanyId}
                 type="button"
@@ -705,9 +706,8 @@ export default function StoreAttendanceTab({
                 className="min-h-[44px] p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-[#0288d1] dark:hover:border-sky-500 bg-slate-50 dark:bg-slate-800/60 hover:bg-sky-50/50 dark:hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-between text-left group"
               >
                 <div className="min-w-0 pr-2">
-                  <span className="text-[10px] font-mono text-slate-400 font-bold block">#{st.tegStoreId}</span>
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-[#0288d1] truncate block">
-                    {st.tegName}
+                    {formatStoreDisplayName(st.tegName)}
                   </span>
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#0288d1] shrink-0" />

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { ChainAuditData, StoreOption } from './types'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 interface RonosAdminTabProps {
   chainData: ChainAuditData | null
@@ -292,10 +293,10 @@ export default function RonosAdminTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {failedStores.map((f: any, idx: number) => (
+                {sortStoresAlphabetically(failedStores, (f: any) => f.storeName || '').map((f: any, idx: number) => (
                   <tr key={`fail-${f.companyId || idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                     <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                      {f.storeName || `${t('ronos.admin.store_fallback') || 'Sucursal #'}${f.companyId || idx}`}
+                      {formatStoreDisplayName(f.storeName) || (t('ronos.admin.store_fallback') || 'Sucursal')}
                     </td>
                     <td className="py-2.5 px-3 text-rose-600 font-medium">
                       {f.error || (t('ronos.admin.timeout_error') || 'Tiempo de espera agotado al conectar')}

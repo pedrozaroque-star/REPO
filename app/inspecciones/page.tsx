@@ -22,6 +22,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 import { getStatusColor, canEditChecklist } from '@/lib/checklistPermissions'
 import { MessageCircleMore, Edit } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { format } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
 
@@ -93,10 +94,11 @@ function InspeccionesContent() {
       const { data: usersList, error: usersListError } = await supabase.from('users').select('id, full_name, role')
       if (usersListError) console.error('❌ Error fetching users list:', usersListError);
 
+      const sortedStoresList = sortStoresAlphabetically(storesList || [], (s: any) => s.name)
       setStores(
         isSingleStoreManager
-          ? (storesList || []).filter(s => String(s.id) === String(user?.store_id))
-          : (storesList || [])
+          ? sortedStoresList.filter(s => String(s.id) === String(user?.store_id))
+          : sortedStoresList
       )
       setUsers(usersList || [])
 

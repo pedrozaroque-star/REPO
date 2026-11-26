@@ -77,6 +77,7 @@ import {
     findOverlappingShift
 } from '../lib/utils'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import Link from 'next/link'
 
 interface MobilePlannerViewProps {
@@ -679,7 +680,7 @@ export function MobilePlannerView({
                                 onChange={(e) => onStoreChange(e.target.value)}
                                 className="w-full max-w-[210px] bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-base font-black text-gray-900 dark:text-white truncate focus:outline-none focus:ring-2 focus:ring-indigo-500"
                             >
-                                {stores.map((s: any) => (
+                                {sortStoresAlphabetically(stores, (s: any) => formatStoreName(s.name)).map((s: any) => (
                                     <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                                 ))}
                             </select>

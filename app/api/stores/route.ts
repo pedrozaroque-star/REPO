@@ -10,11 +10,13 @@
  * - [2026-11-12] Agregados métodos POST y PUT autenticados para soportar `/tiendas` tras el cierre de `teg_rls_access_stores`.
  * - [2026-11-19] Invalidación inmediata de cachés RAM (`invalidateStoreLookupCache`, `clearOrderReadyStoresCache`) tras POST/PUT.
  * - [2026-11-21] Separación estricta de columnas públicas vs columnas internas según autenticación (`getServerUser(request)`) + `Vary: Authorization, Cookie`.
+ * - [2026-11-24] Sanitización de `name` sin prefijos `#` (`formatStoreDisplayName`) y ordenamiento alfabético A–Z (`sortStoresAlphabetically`).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerUser, invalidateStoreLookupCache } from '@/lib/auth-server'
 import { clearOrderReadyStoresCache } from '@/lib/order-ready-access'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { supabaseAdmin } from '@/lib/supabase'
 
 const STORE_MANAGE_ROLES = new Set(['admin', 'administrador', 'supervisor'])
@@ -22,9 +24,18 @@ const STORE_MANAGE_ROLES = new Set(['admin', 'administrador', 'supervisor'])
 const PUBLIC_STORE_SELECT_COLUMNS =
   'id, code, name, address, phone, external_id, has_drive_thru, opening_time, closing_time, is_active, latitude, longitude'
 
-function pickStorePayload(body: Record<string, any>) {
+function normalizeStoreResponseRow<T extends { id?: number | string | null; code?: string | null; name?: string | null }>(
+  row: T
+): T {
   return {
-    name: typeof body.name === 'string' ? body.name.trim() : '',
+    ...row,
+    name: formatStoreDisplayName(row),
+  }
+}
+
+function pickStorePayload(body: Record<string, unknown>) {
+  return {
+    name: typeof body.name === 'string' ? formatStoreDisplayName(body.name) : '',
     code: typeof body.code === 'string' ? body.code.trim() : null,
     city: typeof body.city === 'string' ? body.city.trim() : null,
     state: typeof body.state === 'string' ? body.state.trim() : null,
@@ -63,7 +74,12 @@ export async function GET(request: NextRequest) {
 
       if (error) throw error
 
-      return NextResponse.json(data, {
+      const sorted = sortStoresAlphabetically(
+        (data || []).map((row) => normalizeStoreResponseRow(row)),
+        (row) => row.name
+      )
+
+      return NextResponse.json(sorted, {
         headers: {
           'Cache-Control': 'private, no-store',
           Vary: 'Authorization, Cookie',
@@ -79,14 +95,20 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error
 
-    return NextResponse.json(data, {
+    const sorted = sortStoresAlphabetically(
+      (data || []).map((row) => normalizeStoreResponseRow(row)),
+      (row) => row.name
+    )
+
+    return NextResponse.json(sorted, {
       headers: {
         'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
         Vary: 'Authorization, Cookie',
       },
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Error consultando tiendas'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
@@ -115,9 +137,10 @@ export async function POST(req: NextRequest) {
     if (error) throw error
     invalidateStoreLookupCache()
     clearOrderReadyStoresCache()
-    return NextResponse.json({ success: true, store: data }, { status: 201 })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Error creando tienda' }, { status: 500 })
+    return NextResponse.json({ success: true, store: normalizeStoreResponseRow(data) }, { status: 201 })
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Error creando tienda'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
@@ -151,8 +174,9 @@ export async function PUT(req: NextRequest) {
     if (error) throw error
     invalidateStoreLookupCache()
     clearOrderReadyStoresCache()
-    return NextResponse.json({ success: true, store: data })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Error actualizando tienda' }, { status: 500 })
+    return NextResponse.json({ success: true, store: normalizeStoreResponseRow(data) })
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Error actualizando tienda'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

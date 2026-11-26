@@ -22,6 +22,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { FileText, Calendar, Store, Calculator, Clock, Download, Printer, AlertCircle } from 'lucide-react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { useSmartProjections } from '@/app/planificador/hooks/useSmartProjections'
 import { useLanguage } from '@/lib/i18n'
 import {
@@ -151,7 +152,7 @@ function ReportesPageContent() {
                 .select('id, name, external_id, is_active')
                 .eq('is_active', true)
                 .order('name')
-            if (!cancelled && data) setStores(data)
+            if (!cancelled && data) setStores(sortStoresAlphabetically(data, (s: any) => s.name))
         }
         loadStores()
         return () => { cancelled = true }

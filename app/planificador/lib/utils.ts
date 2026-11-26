@@ -10,6 +10,7 @@
  */
 
 import { Shift } from './types'
+import { formatStoreDisplayName } from '@/lib/store-display'
 
 function showDomToast(message: string, variant: 'success' | 'error' | 'info') {
     if (typeof document === 'undefined') {
@@ -236,7 +237,8 @@ export const formatDateNice = (input: string | Date, locale: string = 'es-US') =
 }
 
 export const formatStoreName = (name: string) => {
-    return name?.replace?.(/toast/i, '')?.trim() || name;
+    if (!name) return '';
+    return formatStoreDisplayName(name.replace(/toast/gi, ''));
 }
 
 export const getDayName = (d: Date) => {

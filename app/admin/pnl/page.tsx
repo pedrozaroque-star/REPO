@@ -30,6 +30,7 @@ import {
   Percent, ArrowUpDown, Shield, Building, Trash2, Plus, Info, Sparkles
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import {
   getBusinessDateLA,
@@ -182,7 +183,16 @@ export default function PnLPage() {
         throw new Error(`Error ${res.status}: ${res.statusText}`)
       }
       const json: ConsolidatedData = await res.json()
-      setData(json)
+      setData({
+        ...json,
+        stores: sortStoresAlphabetically(
+          (json.stores || []).map((s) => ({
+            ...s,
+            name: formatStoreDisplayName({ id: s.id, name: s.name }) || s.name,
+          })),
+          (s) => s.name
+        ),
+      })
     } catch (err: any) {
       console.error('Failed to load PnL:', err)
       setError(err.message || 'Error loading PnL statement')
@@ -197,7 +207,15 @@ export default function PnLPage() {
       const res = await fetch('/api/pnl/expenses')
       if (res.ok) {
         const json = await res.json()
-        setStoreExpensesList(json.storeExpenses || [])
+        setStoreExpensesList(
+          sortStoresAlphabetically(
+            (json.storeExpenses || []).map((se: any) => ({
+              ...se,
+              store_name: formatStoreDisplayName({ id: se.store_id, name: se.store_name }) || se.store_name,
+            })),
+            (se) => se.store_name
+          )
+        )
         setSharedExpensesList(json.sharedExpenses || [])
       }
     } catch (err) {
@@ -1149,7 +1167,7 @@ export default function PnLPage() {
 
                     return (
                       <tr key={se.id} className="border-b border-slate-100 dark:border-slate-800/40 hover:bg-slate-50/50">
-                        <td className="p-3 font-bold text-slate-900 dark:text-white">{se.store_name}</td>
+                        <td className="p-3 font-bold text-slate-900 dark:text-white">{formatStoreDisplayName(se.store_name)}</td>
                         <td className="p-3 text-right font-mono">{formatCurrency(se.rent_monthly)}</td>
                         <td className="p-3 text-right font-mono">{formatCurrency(se.cam_charges)}</td>
                         <td className="p-3 text-right font-mono">{formatCurrency(se.utilities_monthly)}</td>

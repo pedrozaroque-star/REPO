@@ -47,6 +47,7 @@ import {
   type SimplifyHrEmployeeRecord,
 } from './simplifyhr-api'
 import { sendSystemEmail } from './system-mailer'
+import { compareStoreNamesAlphabetically, formatStoreDisplayName, sortStoresAlphabetically } from './store-display'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 const TOAST_CLIENT_ID = process.env.TOAST_CLIENT_ID
@@ -1222,7 +1223,7 @@ export function buildStoreManagerWageAuditEmailHtml(
 
       const loanTag =
         d.isCrossStoreLoan && d.homeStoreName
-          ? `<div style="font-size:10px;color:#1d4ed8;font-weight:700;margin-top:2px;">Prestado de: ${escapeHtml(d.homeStoreName)}</div>`
+          ? `<div style="font-size:10px;color:#1d4ed8;font-weight:700;margin-top:2px;">Prestado de: ${escapeHtml(formatStoreDisplayName(d.homeStoreName) || d.homeStoreName)}</div>`
           : ''
 
       return `
@@ -1276,7 +1277,7 @@ export function buildStoreManagerWageAuditEmailHtml(
                 TACOS GAVILAN • AUDITORÍA SEMANAL DE SALARIOS (SIMPLIFY HR vs TOAST POS)
               </div>
               <h1 style="margin:0;font-size:20px;font-weight:800;color:#ffffff;">
-                💲 Acción Requerida: Actualizar Salarios en Toast POS — ${escapeHtml(storeSummary.storeName)}
+                💲 Acción Requerida: Actualizar Salarios en Toast POS — ${escapeHtml(formatStoreDisplayName({ id: storeSummary.storeId, code: storeSummary.storeCode, name: storeSummary.storeName }) || storeSummary.storeName)}
               </h1>
               <div style="margin-top:6px;font-size:12px;color:#cbd5e1;">
                 Fecha de Auditoría: <strong>${escapeHtml(dateLA)}</strong> • Gerente: <strong>${escapeHtml(storeSummary.managerName)}</strong> • CC Supervisor: <strong>${escapeHtml(storeSummary.supervisorName)}</strong>
@@ -1289,7 +1290,7 @@ export function buildStoreManagerWageAuditEmailHtml(
                 Hola <strong>${escapeHtml(storeSummary.managerName)}</strong>,
               </p>
               <p style="margin:0 0 16px 0;font-size:13.5px;color:#334155;line-height:1.6;">
-                En el cruce semanal en vivo entre <strong>Simplify HR (Cingular HR — Nómina Oficial)</strong> y <strong>Toast POS</strong> de <strong>${escapeHtml(storeSummary.storeName)}</strong>, se detectaron <strong>${storeSummary.discrepanciesCount} ${storeSummary.discrepanciesCount === 1 ? 'puesto con salario pendiente de actualizar' : 'puestos con salarios pendientes de actualizar'}</strong> (${storeSummary.affectedEmployeesCount} ${storeSummary.affectedEmployeesCount === 1 ? 'colaborador' : 'colaboradores'}). Mantener el salario por hora de Toast POS idéntico al de Simplify HR es indispensable para que el <strong>Planificador de Horarios (<code>/planificador</code>)</strong> calcule con exactitud el presupuesto y porcentaje de Labor (<em>Labor Cost %</em>) antes de publicar la semana.
+                En el cruce semanal en vivo entre <strong>Simplify HR (Cingular HR — Nómina Oficial)</strong> y <strong>Toast POS</strong> de <strong>${escapeHtml(formatStoreDisplayName({ id: storeSummary.storeId, code: storeSummary.storeCode, name: storeSummary.storeName }) || storeSummary.storeName)}</strong>, se detectaron <strong>${storeSummary.discrepanciesCount} ${storeSummary.discrepanciesCount === 1 ? 'puesto con salario pendiente de actualizar' : 'puestos con salarios pendientes de actualizar'}</strong> (${storeSummary.affectedEmployeesCount} ${storeSummary.affectedEmployeesCount === 1 ? 'colaborador' : 'colaboradores'}). Mantener el salario por hora de Toast POS idéntico al de Simplify HR es indispensable para que el <strong>Planificador de Horarios (<code>/planificador</code>)</strong> calcule con exactitud el presupuesto y porcentaje de Labor (<em>Labor Cost %</em>) antes de publicar la semana.
               </p>
 
               <table role="presentation" width="100%" cellspacing="6" cellpadding="0" style="margin:14px 0 18px 0;">
@@ -1364,8 +1365,14 @@ export function buildStoreManagerWageAuditEmailHtml(
 export function buildExecutiveWageAuditSummaryEmailHtml(report: EmployeeWageAuditReport): string {
   const allClean = report.totalDiscrepancies === 0
   const headerBg = allClean ? '#15803d' : '#0f172a'
+  const orderedStores = sortStoresAlphabetically(report.stores, (s) => s.storeName, { pinSpecialFirst: false })
+  const orderedCleanStores = sortStoresAlphabetically(
+    report.cleanStores.map((st) => formatStoreDisplayName(st) || st),
+    undefined,
+    { pinSpecialFirst: false }
+  )
 
-  const storeSummaryRowsHtml = report.stores
+  const storeSummaryRowsHtml = orderedStores
     .map((s) => {
       const badge =
         s.discrepanciesCount === 0
@@ -1374,7 +1381,7 @@ export function buildExecutiveWageAuditSummaryEmailHtml(report: EmployeeWageAudi
 
       return `
         <tr>
-          <td style="padding:7px 8px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;font-size:11.5px;">${escapeHtml(s.storeName)}</td>
+          <td style="padding:7px 8px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;font-size:11.5px;">${escapeHtml(formatStoreDisplayName({ id: s.storeId, code: s.storeCode, name: s.storeName }) || s.storeName)}</td>
           <td style="padding:7px 8px;border-bottom:1px solid #e2e8f0;color:#334155;font-size:11px;">${escapeHtml(s.managerName)}<div style="font-size:10px;color:#64748b;">CC: ${escapeHtml(s.supervisorName)}</div></td>
           <td align="center" style="padding:7px 8px;border-bottom:1px solid #e2e8f0;font-size:11.5px;color:#0f172a;font-weight:700;">${s.matchedHourlyEmployeesCount}</td>
           <td align="center" style="padding:7px 8px;border-bottom:1px solid #e2e8f0;font-size:11.5px;color:#15803d;font-weight:700;">${s.compliantEmployeesCount}</td>
@@ -1385,15 +1392,16 @@ export function buildExecutiveWageAuditSummaryEmailHtml(report: EmployeeWageAudi
     })
     .join('')
 
-  const detailRowsHtml = report.stores
-    .flatMap((s) =>
-      s.discrepancies.map((d) => {
+  const detailRowsHtml = orderedStores
+    .flatMap((s) => {
+      const cleanRowStore = formatStoreDisplayName({ id: s.storeId, code: s.storeCode, name: s.storeName }) || s.storeName
+      return s.discrepancies.map((d) => {
         const isMissing = d.discrepancyType === 'MISSING_TOAST_WAGE'
         const toastStr = isMissing ? '$0.00 (Sin tarifa)' : `${formatUsd(d.effectiveToastWage)}/hr`
         const toastColor = isMissing ? '#dc2626' : '#b45309'
         return `
           <tr>
-            <td style="padding:6px 7px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;font-size:11px;">${escapeHtml(s.storeName)}</td>
+            <td style="padding:6px 7px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;font-size:11px;">${escapeHtml(cleanRowStore)}</td>
             <td style="padding:6px 7px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:11px;"><strong>${escapeHtml(d.toastFullName)}</strong></td>
             <td style="padding:6px 7px;border-bottom:1px solid #e2e8f0;color:#334155;font-size:11px;">${escapeHtml(d.toastJobTitle)} (${d.punches30dInJob}p)</td>
             <td align="center" style="padding:6px 7px;border-bottom:1px solid #e2e8f0;color:${toastColor};font-weight:800;font-size:11px;">${escapeHtml(toastStr)}</td>
@@ -1401,7 +1409,7 @@ export function buildExecutiveWageAuditSummaryEmailHtml(report: EmployeeWageAudi
             <td style="padding:6px 7px;border-bottom:1px solid #e2e8f0;color:#334155;font-size:10.5px;">${escapeHtml(d.discrepancyLabel)}</td>
           </tr>`
       })
-    )
+    })
     .join('')
 
   return `<!DOCTYPE html>
@@ -1506,7 +1514,7 @@ export function buildExecutiveWageAuditSummaryEmailHtml(report: EmployeeWageAudi
               }
 
               <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11.5px;color:#64748b;">
-                <strong>Sucursales al 100% (${report.cleanStoresCount}):</strong> ${escapeHtml(report.cleanStores.join(', ') || 'Ninguna')}<br/>
+                <strong>Sucursales al 100% (${orderedCleanStores.length}):</strong> ${escapeHtml(orderedCleanStores.join(', ') || 'Ninguna')}<br/>
                 <strong>Exclusión de Asalariados:</strong> ${report.totalSimplifySalariedExcluded} Managers/Supervisores asalariados excluidos automáticamente del reporte.
               </div>
             </td>
@@ -1686,7 +1694,7 @@ export async function runEmployeeWageAudit(
       const simplifySiteId = ronosCompanyId ? RONOS_TO_SIMPLIFY_SITE_MAP[ronosCompanyId] : ''
       if (!simplifySiteId) {
         throw new Error(
-          `La sucursal ${store.name} (#${store.id}) no tiene siteId configurado en RONOS_TO_SIMPLIFY_SITE_MAP`
+          `La sucursal ${formatStoreDisplayName(store) || store.name} no tiene siteId configurado en RONOS_TO_SIMPLIFY_SITE_MAP`
         )
       }
 
@@ -1762,7 +1770,7 @@ export async function runEmployeeWageAudit(
   >()
 
   for (const b of liveBundles) {
-    const label = `${b.store.name} #${b.store.id}`
+    const label = formatStoreDisplayName(b.store) || b.store.name
     for (const se of b.simplifyHourlyEmployees) {
       for (const rawE of [se.notificationEmail, se.emailAddress]) {
         const cleanE = cleanMatchableEmail(rawE)
@@ -1799,7 +1807,7 @@ export async function runEmployeeWageAudit(
       toastActiveEmployees,
     } = bundle
 
-    const storeLabel = `${store.name} #${store.id}`
+    const storeLabel = formatStoreDisplayName(store) || store.name
     const storeExtId = String(store.external_id)
     const storePunchMap = punchesByStoreEmpJob.get(storeExtId) || new Map()
 
@@ -1921,7 +1929,7 @@ export async function runEmployeeWageAudit(
     storeSummaries.push(summary)
   }
 
-  storeSummaries.sort((a, b) => a.storeId - b.storeId)
+  storeSummaries.sort((a, b) => compareStoreNamesAlphabetically(a.storeName, b.storeName))
 
   const totalSimplifyActiveHourly = storeSummaries.reduce(
     (acc, s) => acc + s.simplifyActiveHourlyCount,

@@ -33,6 +33,7 @@ import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
 import { useLanguage } from '@/lib/i18n'
 import { useAuth } from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import StaffEvaluationForm, { STAFF_ROLES, STORE_ROLES, CORPORATE_ROLES } from '@/components/StaffEvaluationForm'
 import StaffEvaluationReviewModal from '@/components/StaffEvaluationReviewModal'
 import StaffEvaluationQRModal from '@/components/StaffEvaluationQRModal'
@@ -78,7 +79,7 @@ export default function StaffEvaluationsPage() {
         try {
             const supabase = await getSupabaseClient()
             const { data } = await supabase.from('stores').select('id, name').order('name')
-            const list = data || []
+            const list = sortStoresAlphabetically(data || [], (s: any) => s.name)
             setStores(list)
             const map: Record<number, string> = {}
             list.forEach(s => {
@@ -633,7 +634,7 @@ export default function StaffEvaluationsPage() {
                     }}
                     evaluation={selectedEvaluation}
                     currentUser={user}
-                    storeName={selectedEvaluation.location_name || storeMap[selectedEvaluation.store_id] || (selectedEvaluation.store_id ? formatStoreName(`Tienda ${selectedEvaluation.store_id}`) : (isEs ? 'Oficina Central / Corporativo' : 'Corporate / Central Office'))}
+                    storeName={formatStoreDisplayName(selectedEvaluation.location_name || storeMap[selectedEvaluation.store_id] || selectedEvaluation.store_id) || (isEs ? 'Oficina Central / Corporativo' : 'Corporate / Central Office')}
                     onUpdate={fetchEvaluations}
                 />
             )}

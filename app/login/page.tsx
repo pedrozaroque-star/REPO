@@ -41,6 +41,15 @@ interface LoggedUserInfo {
   store_name?: string
 }
 
+function sanitizeSafeInternalNextPath(raw: string | null): string | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('\\')) {
+    return null
+  }
+  return trimmed
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -133,6 +142,15 @@ export default function LoginPage() {
       // Guardar token en cookie para soporte de autenticación en SSR/Callbacks (e.g., Basecamp)
       const maxAge = data.user.user_type === 'employee' ? 15 * 60 : 7 * 24 * 60 * 60
       document.cookie = `teg_token=${data.token}; path=/; max-age=${maxAge}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
+
+      const urlParams =
+        typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+      const safeNextPath = sanitizeSafeInternalNextPath(urlParams?.get('next') ?? null)
+
+      if (safeNextPath) {
+        router.replace(safeNextPath)
+        return
+      }
 
       const userRole = data.user.role?.toLowerCase()
       const userType = data.user.user_type

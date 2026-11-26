@@ -29,6 +29,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { formatCustomerStoreName } from '@/lib/customer-store-names'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import CashierRegister, { type AppliedDiscount } from '@/components/gavilan-pos/CashierRegister'
 import {
     lineTotal,
@@ -599,7 +600,7 @@ export default function GavilanPosEcosystemPage() {
                     } catch {}
 
                     if (Array.isArray(data.stores) && data.stores.length > 0) {
-                        setStores(data.stores)
+                        setStores(sortStoresAlphabetically(data.stores, (s: StoreInfo) => s.name))
                         const lynwoodOrFirst = data.stores.find((s: StoreInfo) => s.storeNumber === 14) || data.stores[0]
                         if (lynwoodOrFirst) {
                             if (lynwoodOrFirst.quoteMinutes) setOnlineQuoteMins(Number(lynwoodOrFirst.quoteMinutes))
@@ -1549,9 +1550,9 @@ export default function GavilanPosEcosystemPage() {
                             className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
                         >
                             <option value="ALL">{t('gavilan_pos.all_stores')}</option>
-                            {stores.map(s => (
+                            {sortStoresAlphabetically(stores, (s) => s.name).map(s => (
                                 <option key={s.id} value={s.id}>
-                                    #{s.storeNumber} - Tacos Gavilan {s.name} (Tax {s.taxRate}%)
+                                    {formatStoreDisplayName(s.name)} (Tax {s.taxRate}%)
                                 </option>
                             ))}
                         </select>
@@ -1733,7 +1734,7 @@ export default function GavilanPosEcosystemPage() {
                                         <span>{isEs ? 'Centro de Comando Unificado — Reemplazo de Toast Home & Publishing' : 'Unified Command Center — Replaces Toast Home & Publishing'}</span>
                                     </div>
                                     <h2 className="text-xl font-black text-slate-900 mt-1">
-                                        {activeStore ? `Tacos Gavilan — Sucursal #${activeStore.storeNumber} ${activeStore.name}` : 'Tacos Gavilan — Ecosistema Corporativo (15 Sucursales)'}
+                                        {activeStore ? `Tacos Gavilan — ${formatStoreDisplayName(activeStore.name)}` : 'Tacos Gavilan — Ecosistema Corporativo (15 Sucursales)'}
                                     </h2>
                                     <p className="text-xs text-slate-500 mt-0.5">
                                         {isEs
@@ -2002,12 +2003,12 @@ export default function GavilanPosEcosystemPage() {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 text-xs">
-                                            {stores.map((st) => {
+                                            {sortStoresAlphabetically(stores, (st) => st.name).map((st) => {
                                                 const delivTotal = st.uberSales + st.doordashSales + st.grubhubSales
                                                 return (
                                                     <tr key={st.id} className="hover:bg-slate-50/80 transition-colors">
                                                         <td className="py-3 px-4 font-extrabold text-slate-900">
-                                                            #{st.storeNumber} {st.name}
+                                                            {formatStoreDisplayName(st.name)}
                                                         </td>
                                                         <td className="py-3 px-3">
                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -2041,7 +2042,7 @@ export default function GavilanPosEcosystemPage() {
                                                                 }}
                                                                 className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-red-50 hover:text-red-700 text-slate-700 font-bold text-[11px] border border-slate-200 cursor-pointer transition-colors"
                                                             >
-                                                                Abrir Caja #{st.storeNumber}
+                                                                Abrir Caja {formatStoreDisplayName(st.name)}
                                                             </button>
                                                         </td>
                                                     </tr>
@@ -4357,7 +4358,7 @@ export default function GavilanPosEcosystemPage() {
                                         {receiptConfig.showLogo && (
                                             <div className="text-center border-b border-dashed border-slate-300 pb-2">
                                                 <p className="text-sm font-black tracking-tight">🦅 TACOS GAVILAN</p>
-                                                <p className="text-[10px] text-slate-600">Sucursal #{activeStore?.storeNumber || 14} {formatCustomerStoreName({ id: activeStore?.storeNumber || 14, name: activeStore?.name || 'Lynwood' }, isEs ? 'es' : 'en')} • {CANONICAL_POS_STORE_PHONES[activeStore?.storeNumber || 14] || '(424) 785-5535'}</p>
+                                                <p className="text-[10px] text-slate-600">{formatCustomerStoreName({ id: activeStore?.storeNumber || 14, name: activeStore?.name || 'Lynwood' }, isEs ? 'es' : 'en')} • {CANONICAL_POS_STORE_PHONES[activeStore?.storeNumber || 14] || '(424) 785-5535'}</p>
                                             </div>
                                         )}
                                         {receiptConfig.giantOrderNumber && (
@@ -4907,7 +4908,7 @@ export default function GavilanPosEcosystemPage() {
                                         {
                                             phase: 'FASE 4 • PILOTO Y DESPLIEGUE',
                                             title: 'Paralelo en 1 Tienda + Reversión',
-                                            work: 'Operar en paralelo con Toast en 1 sucursal piloto (ej. Lynwood #14), conciliar ventas y cierres al centavo, entrenar cajeros/taqueros y tener lista reversión inmediata por switch LAN/HDMI.',
+                                            work: 'Operar en paralelo con Toast en 1 sucursal piloto (ej. Lynwood), conciliar ventas y cierres al centavo, entrenar cajeros/taqueros y tener lista reversión inmediata por switch LAN/HDMI.',
                                             criteria: '✓ Conciliación 100% exacta y continuidad operativa comprobada antes de expandir por grupos.',
                                             badge: 'bg-purple-100 text-purple-900 border-purple-300'
                                         }
@@ -4931,7 +4932,7 @@ export default function GavilanPosEcosystemPage() {
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs pt-1">
                                     <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200 space-y-1">
                                         <p className="font-extrabold text-rose-950">
-                                            🔒 Inventario Real Device Hub (`Lynwood #14` y `LA Central #9` • Renueva `15-Nov-2026`)
+                                            🔒 Inventario Real Device Hub (`Lynwood` y `LA Central` • Renueva `15-Nov-2026`)
                                         </p>
                                         <p className="text-[11px] text-rose-900 leading-relaxed">
                                             • <strong>LA Central (`ID: 614050`, `$1,004/mes`):</strong> 7x `14&quot; Toast Flex` (`C-1` a `C-7`, Android 12L, Firmware `3.0.55`, App `2.119.1`), 2x `KDS Flex`, 3x Kioscos `15&quot; Elo V4` (`$90/mes` c/u), 4x `TP200` + 2x `Epson L90`.<br />
@@ -5314,7 +5315,7 @@ export default function GavilanPosEcosystemPage() {
                                                         <div key={z.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
                                                             <div>
                                                                 <p className="font-extrabold text-slate-900">
-                                                                    Sucursal #{z.store_number || 14} • {z.closed_by || z.cashierName || 'Gerente'} ({z.business_date || latestBusinessDate})
+                                                                    {formatStoreDisplayName(z.store_number || 14) || 'Lynwood'} • {z.closed_by || z.cashierName || 'Gerente'} ({z.business_date || latestBusinessDate})
                                                                 </p>
                                                                 <p className="text-[10px] text-slate-600">
                                                                     Esperado: ${expVal.toFixed(2)} | Contado: ${cntVal.toFixed(2)} {z.created_offline ? '• [Creado Offline]' : ''}
@@ -5816,7 +5817,7 @@ export default function GavilanPosEcosystemPage() {
 
                         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
                             <span className="text-xs text-slate-500 font-medium">
-                                Destino: <strong>{activeStore ? `Sucursal #${activeStore.storeNumber} ${activeStore.name}` : '15 Sucursales Tacos Gavilan'}</strong>
+                                Destino: <strong>{activeStore ? formatStoreDisplayName(activeStore.name) : '15 Sucursales Tacos Gavilan'}</strong>
                             </span>
                             <div className="flex items-center gap-2">
                                 <button

@@ -177,6 +177,194 @@ export default async function TvViewerPage({
               alt="Menu TV"
               style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }}
           />
+
+          {/* Overlay y modo mantenimiento gobernado remotamente desde /admin/control-remoto */}
+          <div
+              id="tv-remote-blackout"
+              style={{
+                  display: 'none',
+                  position: 'fixed',
+                  inset: 0,
+                  backgroundColor: '#000000',
+                  color: '#ffffff',
+                  zIndex: 10050,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  padding: '3rem',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+              }}
+          >
+              <div id="tv-remote-blackout-text" style={{ fontSize: '3rem', fontWeight: 800, maxWidth: '80vw' }} />
+          </div>
+          <div
+              id="tv-remote-overlay"
+              style={{
+                  display: 'none',
+                  position: 'fixed',
+                  bottom: '2.5rem',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                  color: '#ffffff',
+                  padding: '1.25rem 2.5rem',
+                  borderRadius: '1.25rem',
+                  border: '2px solid rgba(251, 191, 36, 0.7)',
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.75)',
+                  zIndex: 10040,
+                  maxWidth: '88vw',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontSize: '2rem',
+                  fontWeight: 800,
+                  textAlign: 'center',
+              }}
+          />
+
+          <script
+              dangerouslySetInnerHTML={{
+                  __html: `(function(){
+                    if (window.__tegTvBridgeInit) return;
+                    window.__tegTvBridgeInit = true;
+                    var storeParam = ${JSON.stringify(storeParam)};
+                    var screenNum = ${screenParam};
+                    var safeStoreQuery = ${JSON.stringify(safeStoreQuery)};
+                    var doneIds = {};
+
+                    function applyRemoteState(state) {
+                      if (!state) return;
+                      var blackoutEl = document.getElementById('tv-remote-blackout');
+                      var blackoutTxt = document.getElementById('tv-remote-blackout-text');
+                      var overlayEl = document.getElementById('tv-remote-overlay');
+                      if (blackoutEl && blackoutTxt) {
+                        if (state.blackoutMode) {
+                          blackoutTxt.textContent = state.overlayMessage || '';
+                          blackoutEl.style.display = 'flex';
+                        } else {
+                          blackoutEl.style.display = 'none';
+                        }
+                      }
+                      if (overlayEl) {
+                        if (!state.blackoutMode && state.overlayMessage) {
+                          overlayEl.textContent = state.overlayMessage;
+                          overlayEl.style.display = 'block';
+                        } else {
+                          overlayEl.style.display = 'none';
+                        }
+                      }
+                    }
+
+                    function ackTv(cmdId, status, output, errorMessage) {
+                      try {
+                        fetch('/api/remote-control/tv-bridge', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          keepalive: true,
+                          body: JSON.stringify({
+                            action: 'ack',
+                            storeCode: storeParam,
+                            screenNumber: screenNum,
+                            commandId: cmdId,
+                            status: status,
+                            output: output || '',
+                            errorMessage: errorMessage || null
+                          })
+                        }).catch(function(){});
+                      } catch(e) {}
+                    }
+
+                    function runTvCommand(cmd) {
+                      if (!cmd || !cmd.id || doneIds[cmd.id]) return;
+                      doneIds[cmd.id] = true;
+                      var t = cmd.command_type;
+                      var p = cmd.payload || {};
+                      if (t === 'reload_page') {
+                        ackTv(cmd.id, 'succeeded', 'Recargando pantalla TV');
+                        setTimeout(function(){ window.location.reload(); }, 250);
+                        return;
+                      }
+                      if (t === 'refresh_menu') {
+                        fetch('/api/tv-update?screen=' + screenNum + '&store=' + safeStoreQuery + '&_t=' + Date.now(), { cache: 'no-store' })
+                          .then(function(r){ return r.json(); })
+                          .then(function(d){
+                            var img = document.getElementById('tv-image');
+                            if (d && d.url && img) {
+                              img.src = d.url + (d.url.indexOf('?') === -1 ? '?v=' : '&v=') + Date.now();
+                              ackTv(cmd.id, 'succeeded', 'Menú TV actualizado al instante');
+                            } else {
+                              ackTv(cmd.id, 'failed', '', 'No se encontró imagen asignada');
+                            }
+                          })
+                          .catch(function(err){ ackTv(cmd.id, 'failed', '', String(err)); });
+                        return;
+                      }
+                      if (t === 'switch_screen') {
+                        var nextSc = parseInt(p.screenNumber, 10);
+                        if (nextSc >= 1 && nextSc <= 20) {
+                          ackTv(cmd.id, 'succeeded', 'Cambiando TV a pantalla ' + nextSc);
+                          setTimeout(function(){
+                            window.location.assign('/tv?screen=' + nextSc + '&store=' + safeStoreQuery);
+                          }, 250);
+                        } else {
+                          ackTv(cmd.id, 'failed', '', 'Número de pantalla inválido');
+                        }
+                        return;
+                      }
+                      if (t === 'set_blackout') {
+                        applyRemoteState({ blackoutMode: !!p.blackout, overlayMessage: p.message || '' });
+                        ackTv(cmd.id, 'succeeded', p.blackout ? 'Modo pantalla negra activado' : 'Modo pantalla negra desactivado');
+                        return;
+                      }
+                      if (t === 'show_overlay') {
+                        applyRemoteState({ blackoutMode: false, overlayMessage: p.message || '' });
+                        ackTv(cmd.id, 'succeeded', 'Aviso mostrado en TV');
+                        return;
+                      }
+                      if (t === 'clear_overlay') {
+                        applyRemoteState({ blackoutMode: false, overlayMessage: null });
+                        ackTv(cmd.id, 'succeeded', 'Aviso limpiado en TV');
+                        return;
+                      }
+                    }
+
+                    function pollTvBridge() {
+                      try {
+                        var img = document.getElementById('tv-image');
+                        fetch('/api/remote-control/tv-bridge', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          cache: 'no-store',
+                          body: JSON.stringify({
+                            action: 'sync',
+                            storeCode: storeParam,
+                            screenNumber: screenNum,
+                            telemetry: {
+                              screenNumber: screenNum,
+                              activeImageUrl: img ? img.src : null,
+                              isFullscreen: !!(document.fullscreenElement || document.webkitFullscreenElement),
+                              screenResolution: (window.screen ? window.screen.width : window.innerWidth) + 'x' + (window.screen ? window.screen.height : window.innerHeight),
+                              userAgent: (navigator.userAgent || '').slice(0, 220)
+                            }
+                          })
+                        })
+                        .then(function(r){ return r.ok ? r.json() : null; })
+                        .then(function(data){
+                          if (!data || !data.success) return;
+                          if (data.state) applyRemoteState(data.state);
+                          if (Array.isArray(data.commands)) {
+                            for (var i = 0; i < data.commands.length; i++) {
+                              runTvCommand(data.commands[i]);
+                            }
+                          }
+                        })
+                        .catch(function(){});
+                      } catch(e) {}
+                    }
+
+                    setTimeout(pollTvBridge, 3500);
+                    setInterval(pollTvBridge, 60000);
+                  })();`
+              }}
+          />
         </>
       ) : (
         <div className="p-8 text-center" style={{zIndex: 9999}}>

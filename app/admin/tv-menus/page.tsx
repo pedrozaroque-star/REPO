@@ -1,9 +1,23 @@
+/**
+ * @module app/admin/tv-menus/page
+ * @description Panel administrativo para gestionar las pantallas de menú digital TV (Pantallas 1 a 6)
+ *              de las 15 sucursales de Tacos Gavilan.
+ * @businessRules
+ * - Permite subir imágenes universales (las 15 tiendas) o variaciones limitadas a sucursales específicas.
+ * - Las sucursales se presentan sin números `#` y en estricto orden alfabético (A–Z).
+ * @dataFlow
+ * - Client UI -> Server Actions (`actions.ts`) & Supabase (`tv_images`, Storage).
+ * @notes
+ * - Incluye enlaces directos `/t/<pantalla>/<código>` para despliegue en televisores de comedor.
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck, Monitor, FileImage, Trash2, MapPin, Save, Link as LinkIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { useLanguage } from '@/lib/i18n'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import ImageDropzone from '@/components/ui/ImageDropzone'
@@ -273,7 +287,7 @@ export default function TvMenusAdminPage() {
                             <div className="text-xs text-gray-600 dark:text-slate-400 font-medium">
                               {assignedStores.length > 0
                                 ? <div>
-                                  {t('tv_menus_page.visible_at')} <span className="font-bold text-gray-900 dark:text-white capitalize">{assignedStores.join(', ').toLowerCase()}</span>
+                                  {t('tv_menus_page.visible_at')} <span className="font-bold text-gray-900 dark:text-white capitalize">{sortStoresAlphabetically(assignedStores).join(', ').toLowerCase()}</span>
                                 </div>
                                 : <span className="text-red-500 font-bold flex items-center gap-1">{t('tv_menus_page.warning_no_stores')}</span>}
                             </div>

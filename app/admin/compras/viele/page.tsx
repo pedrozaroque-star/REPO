@@ -56,6 +56,7 @@ import Link from 'next/link';
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
 import { VIELE_PUBLIC_STORES, matchStoreIdWithScope, formatUsDate, formatUsFullDate, formatCurrency, formatNumber } from '@/lib/viele-stores-public';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import { isVieleSoda } from '@/lib/viele-catalog-data';
 import { 
   Printer, 
@@ -160,7 +161,7 @@ function VieleOrderContent() {
   const supervisorScope = user?.store_scope || [];
 
   const allowedStores = useMemo(() => {
-    const all = Object.values(VIELE_PUBLIC_STORES);
+    const all = sortStoresAlphabetically(Object.values(VIELE_PUBLIC_STORES), (s) => s.storeName);
     if (isAdmin) return all;
     if (isSupervisor) {
       return all.filter(s => matchStoreIdWithScope(s.storeId, supervisorScope));
@@ -821,7 +822,7 @@ function VieleOrderContent() {
             </label>
             {isManager && userStoreId ? (
               <div className="w-full bg-amber-50 border border-amber-300 rounded-xl px-3.5 py-2.5 text-amber-900 font-semibold text-sm cursor-not-allowed flex items-center justify-between shadow-xs">
-                <span>🌮 {currentStoreAccount?.storeName || `Tienda #${storeId}`} (#{storeId}) — Sage: {currentStoreAccount?.sageCustomerCode}</span>
+                <span>🌮 {formatStoreDisplayName(currentStoreAccount?.storeName || Number(storeId))} — Sage: {currentStoreAccount?.sageCustomerCode}</span>
                 <Lock className="w-4 h-4 text-amber-600" />
               </div>
             ) : (
@@ -835,7 +836,7 @@ function VieleOrderContent() {
               >
                 {allowedStores.map(acc => (
                   <option key={acc.storeId} value={acc.storeId}>
-                    🌮 {acc.storeName} (#{acc.storeId}) — Sage: {acc.sageCustomerCode}
+                    🌮 {formatStoreDisplayName(acc.storeName)} — Sage: {acc.sageCustomerCode}
                   </option>
                 ))}
               </select>
@@ -1431,7 +1432,7 @@ function VieleOrderContent() {
                     {t('viele.modal.confirm_title')}
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    {currentStoreAccount?.storeName} (#{storeId}) · Sage 100: {currentStoreAccount?.sageCustomerCode}
+                    {formatStoreDisplayName(currentStoreAccount?.storeName || Number(storeId))} · Sage 100: {currentStoreAccount?.sageCustomerCode}
                   </p>
                 </div>
               </div>
@@ -1459,7 +1460,7 @@ function VieleOrderContent() {
                       {t('viele.modal.store_label')}
                     </span>
                     <strong className="text-slate-900 font-bold text-sm">
-                      {currentStoreAccount?.storeName} (#{storeId})
+                      {formatStoreDisplayName(currentStoreAccount?.storeName || Number(storeId))}
                     </strong>
                   </div>
                   <div>

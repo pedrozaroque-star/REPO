@@ -20,14 +20,18 @@
  *      submitted the case/order/comment.
  *
  * @dataFlow
- * - `canonicalizeBasecampEmail(rawEmail)` -> maps SM TEG login aliases (`roque@`, `alejandro@`, `ap@`) to real Basecamp mailboxes (`carlos@`, `alex@`, `yasmin@`).
+ * - `canonicalizeBasecampEmail(rawEmail)` -> maps SM TEG login aliases (`roque@`, `alejandro@`, `yasmin@`) to real Google Workspace mailboxes (`carlos@`, `alex@`, `ap@`).
  * - `resolveOrCreateTegPerson(supabase, user)` -> `{ id: string, bc_id: number | null, name: string, email: string }`
  *
  * @notes
  * - `roque@tacosgavilan.com` (`name: "Roque"`, `users.id = 47`) is an admin login alias without a real mailbox;
  *   it always canonicalizes to `Carlos Roque Velazquez` (`bc_id = 43166202`, `carlos@tacosgavilan.com`) so Pass 4
  *   never creates a synthetic `"Roque"` duplicate and Basecamp 3 API never stamps fake `👤 Roque:` banners.
+ * - [2026-11-25] Fixed inverted alias for Yasmin Montanes: `yasmin@tacosgavilan.com` does NOT exist in Google Workspace
+ *   (`5.1.3 NoSuchUser`); her real Accounts Payable / Basecamp mailbox is `ap@tacosgavilan.com`.
  */
+
+import { CORPORATE_EMAIL_ALIAS_MAP } from '@/lib/email-recipient-guard'
 
 export interface ResolvedBcPerson {
   id: string
@@ -36,11 +40,7 @@ export interface ResolvedBcPerson {
   email: string
 }
 
-const BASECAMP_EMAIL_ALIAS_MAP: Record<string, string> = {
-  'roque@tacosgavilan.com': 'carlos@tacosgavilan.com',
-  'alejandro@tacosgavilan.com': 'alex@tacosgavilan.com',
-  'ap@tacosgavilan.com': 'yasmin@tacosgavilan.com',
-}
+const BASECAMP_EMAIL_ALIAS_MAP: Readonly<Record<string, string>> = CORPORATE_EMAIL_ALIAS_MAP
 
 /**
  * Canonicalizes SM TEG login alias emails to their real Basecamp / corporate mailbox.

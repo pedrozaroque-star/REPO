@@ -59,6 +59,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { calculateIngredientCost, type InventoryCostData } from '@/lib/inventory/recipe-calculations'
 import { readPmixDailyCacheChunked } from '@/lib/inventory/pmix-cache-reader'
+import { computeExecutiveTheoreticalVsPhysicalReport } from '@/lib/inventory/executive-theoretical-vs-physical'
 import { validateDateRangeWithinMaxDays } from '@/lib/inventory/food-cost-sales-resolver'
 import { generateSmartForecast } from '@/lib/intelligence'
 import {
@@ -539,6 +540,18 @@ export const TOOL_DECLARATIONS = [
     }
   },
   {
+    name: 'query_executive_theoretical_vs_physical',
+    description: 'Query the Executive Dishes Sold & Theoretical vs. Actual Physical Consumption report (/admin/food-cost/teorico-vs-fisico): reconciles all 10 Toast POS menu families sold (Tacos, Burritos, Quesadillas, Mulitas, Sopes, Tortas, Plates/Breakfast/Nachos, Party Trays/Lbs, Sides/Extras, Aguas/Drinks/Desserts) against recipe theoretical spend and real physical leftover usage (Opening Leftover + QBO Warehouse Deliveries ± Transfers − Post-Closing Leftover) in both Store USD and Bodega USD across all 8 meats and daily kitchen items.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_id: { type: 'STRING', description: 'Store ID (1..16), store name (e.g. "Lynwood", "Santa Ana"), or "all" for all 15 stores (default "all").' },
+        start_date: { type: 'STRING', description: 'Start business date YYYY-MM-DD (capped at <= 35 days for "all" stores or <= 65 days for a single store; defaults to 7 closed days).' },
+        end_date: { type: 'STRING', description: 'End business date YYYY-MM-DD (defaults to yesterday LA closed business date).' }
+      }
+    }
+  },
+  {
     name: 'query_upcoming_events',
     description: 'Query upcoming sports games (SoFi Stadium, Dodger Stadium, Crypto.com, BMO), concerts (Hollywood Bowl, The Forum), festivals, Hispanic cultural events, holidays, and their distance-adjusted sales impact for Tacos Gavilan stores from the event_intelligence database.',
     parameters: {
@@ -731,6 +744,7 @@ export async function executeTool(name: string, rawArgs: any, viewerUser?: any):
       case 'query_viele_orders': return await queryVieleOrders(args)
       case 'query_pnl_consolidated': return await queryPnlConsolidatedTool(args)
       case 'query_portion_control_alerts': return await queryPortionControlAlertsTool(args)
+      case 'query_executive_theoretical_vs_physical': return await queryExecutiveTheoreticalVsPhysicalTool(args, viewerUser)
       case 'check_system_health': return await checkSystemHealthTool(args)
       case 'calculate_cingular_payroll': return await calculateCingularPayrollTool(args)
       case 'query_ronos_labor_audit': return await queryRonosLaborAudit(args)
@@ -3783,6 +3797,94 @@ async function queryPortionControlAlertsTool(args: any): Promise<string> {
     return out
   } catch (err: any) {
     return `Error en query_portion_control_alerts: ${err.message}`
+  }
+}
+
+async function queryExecutiveTheoreticalVsPhysicalTool(args: any, viewerUser?: any): Promise<string> {
+  try {
+    const todayLA = getBusinessDateLA()
+    const rawClosedYesterday = addDaysIso(todayLA, -1)
+    const defaultEnd =
+      new Date(`${rawClosedYesterday}T12:00:00Z`).getUTCDay() === 6
+        ? addDaysIso(rawClosedYesterday, -1)
+        : rawClosedYesterday
+    const defaultStart = addDaysIso(defaultEnd, -6)
+
+    let rawStoreId = String(args?.store_id || args?.store_name || 'all').trim() || 'all'
+    let isGlobalViewer = true
+
+    if (viewerUser) {
+      const role = String(viewerUser.role || '').toLowerCase().trim()
+      isGlobalViewer = role === 'admin' || role === 'accounting' || role === 'supervisor'
+      if (!isGlobalViewer) {
+        const assignedStore = viewerUser.storeId ?? viewerUser.store_id ?? null
+        if (!assignedStore) {
+          return 'No autorizado: tu usuario no tiene una sucursal asignada para consultar este reporte.'
+        }
+        rawStoreId = String(assignedStore)
+      }
+    }
+
+    let endDate = String(args?.end_date || defaultEnd).trim()
+    let startDate = String(args?.start_date || addDaysIso(endDate, -6)).trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) endDate = defaultEnd
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) startDate = defaultStart
+    if (startDate > endDate) startDate = endDate
+
+    const isAllStores = rawStoreId.toLowerCase() === 'all'
+    const maxDays = isAllStores ? 35 : 65
+    const requestedDays = diffCalendarDays(startDate, endDate) + 1
+    if (requestedDays > maxDays) {
+      startDate = addDaysIso(endDate, -(maxDays - 1))
+    }
+
+    const rep = await computeExecutiveTheoreticalVsPhysicalReport({
+      rawStoreId,
+      startDate,
+      endDate,
+      reconcileQb: false,
+      includeChainBenchmark: isGlobalViewer,
+    })
+
+    const k = rep.kpis
+    const m = rep.meta
+    const measuredProducts = rep.productRows.filter((p) => p.hasMeasuredSpan)
+    let out = `### 📊 Reporte Ejecutivo: Platillos Vendidos y Teórico vs. Físico Real — ${m.storeName} (${m.startDate} → ${m.endDate}, ${m.windowDays}d)\n`
+    out += `- **Venta Neta POS**: **${fmt$(m.netSalesUsd)}** (${m.orderCount.toLocaleString('en-US')} órdenes · **${k.totalFoodUnitsSold.toLocaleString('en-US')}** uds comida servidas)\n`
+    out += `- **Cobertura Física Auditada**: **${m.measuredStoresCount}/${m.totalActiveStoresCount}** sucursales con conteos válidos · **${measuredProducts.length}/${rep.productRows.length}** insumos medidos\n`
+    out += `- **Gasto Teórico Recetas (Insumos Medidos)**: **${fmt$(k.theoCostStoreUsd)}** Store (${k.theoPctOfSales.toFixed(1)}% s/venta tramo medido) | **${fmt$(k.theoCostBodegaUsd)}** Bodega\n`
+    out += `- **Gasto Físico Real Cocina**: **${fmt$(k.physicalCostStoreUsd)}** Store (${k.physicalPctOfSales.toFixed(1)}% s/venta tramo medido) | **${fmt$(k.physicalCostBodegaUsd)}** Bodega\n`
+    out += `- **Diferencia Físico − Teórico**: **${k.varianceCostStoreUsd >= 0 ? '+' : '-'}${fmt$(Math.abs(k.varianceCostStoreUsd))}** Store (**${k.varianceCostBodegaUsd >= 0 ? '+' : '-'}${fmt$(Math.abs(k.varianceCostBodegaUsd))}** Bodega, ${k.variancePctOfSales >= 0 ? '+' : ''}${k.variancePctOfSales.toFixed(2)}% s/venta) · Eficiencia: **${k.overallEfficiencyPct !== null ? `${k.overallEfficiencyPct.toFixed(1)}%` : 'N/A'}**\n`
+    out += `- **Balance 8 Carnes**: Teórico **${k.meatsSummary.theoBags.toFixed(1)} bolsas** (${Math.round(k.meatsSummary.theoRawLbs).toLocaleString('en-US')} lb) vs Físico **${k.meatsSummary.physicalBags.toFixed(1)} bolsas** (${Math.round(k.meatsSummary.physicalRawLbs).toLocaleString('en-US')} lb) → Dif: **${k.meatsSummary.diffBags >= 0 ? '+' : ''}${k.meatsSummary.diffBags.toFixed(1)} bolsas** (${k.meatsSummary.diffCostStoreUsd >= 0 ? '+' : '-'}${fmt$(Math.abs(k.meatsSummary.diffCostStoreUsd))} Store · ${k.meatsSummary.equivTacos15Oz >= 0 ? '+' : ''}${Math.round(k.meatsSummary.equivTacos15Oz).toLocaleString('en-US')} tacos eq.)\n`
+
+    out += `\n#### 🌮 Platillos Vendidos por Familia POS\n`
+    for (const fam of rep.dishFamilies) {
+      if (fam.ordersSold <= 0 && fam.exactUnitsServed <= 0) continue
+      out += `- **${fam.familyKey}**: ${fam.ordersSold.toLocaleString('en-US')} órdenes / **${fam.exactUnitsServed.toLocaleString('en-US')} uds** · ${fmt$(fam.netSalesUsd)} (${fam.shareOfSalesPct.toFixed(1)}%)${fam.meatRawLbs > 0 ? ` · ${fam.meatRawLbs.toFixed(1)} lb carne cruda` : ''}\n`
+    }
+
+    const topExcess = [...measuredProducts]
+      .sort((a, b) => b.diffCostStoreUsd - a.diffCostStoreUsd)
+      .slice(0, 10)
+    if (topExcess.length > 0) {
+      out += `\n#### 🔍 Top Insumos por Variación en Dólares (Físico − Teórico)\n`
+      for (const p of topExcess) {
+        const sign = p.diffCostStoreUsd >= 0 ? '+' : '-'
+        out += `- **${p.name}** (${p.sku}, ${p.unitLabelEs}): Teórico **${p.theoUnits.toFixed(1)}** vs Físico **${p.physicalUnits.toFixed(1)}** (Ini ${p.openingUnits} + Bod ${p.arrivedUnits}${Math.abs(p.transferNetUnits) > 0.01 ? ` ${p.transferNetUnits > 0 ? '+' : ''}${p.transferNetUnits}` : ''} − Fin ${p.closingUnits}) → Dif **${p.diffUnits >= 0 ? '+' : ''}${p.diffUnits.toFixed(1)}** (**${sign}${fmt$(Math.abs(p.diffCostStoreUsd))}** Store / ${p.diffPct !== null ? `${p.diffPct >= 0 ? '+' : ''}${p.diffPct.toFixed(1)}%` : 'N/A'})${p.realAvgOzPerTaco !== null ? ` · Porción real Asada: ${p.realAvgOzPerTaco.toFixed(2)} oz/taco` : ''}\n`
+      }
+    }
+
+    if (rep.storeRows && rep.storeRows.length > 1) {
+      out += `\n#### 🏢 Ranking de Sucursales (Dif. Total Insumos Store USD)\n`
+      for (const st of rep.storeRows.slice(0, 15)) {
+        const stSign = st.allDiffCostStoreUsd >= 0 ? '+' : '-'
+        out += `- **${st.storeName}**: Ventas ${fmt$(st.netSalesUsd)} | Carnes Dif **${st.meatsDiffBags >= 0 ? '+' : ''}${st.meatsDiffBags.toFixed(1)} bolsas** (${st.meatsDiffCostStoreUsd >= 0 ? '+' : '-'}${fmt$(Math.abs(st.meatsDiffCostStoreUsd))}) | Total Dif **${stSign}${fmt$(Math.abs(st.allDiffCostStoreUsd))}** | Efic: ${st.allEfficiencyPct !== null ? `${st.allEfficiencyPct.toFixed(1)}%` : 'Sin conteo'}\n`
+      }
+    }
+
+    return out
+  } catch (err: any) {
+    return `Error en query_executive_theoretical_vs_physical: ${err?.message || String(err)}`
   }
 }
 

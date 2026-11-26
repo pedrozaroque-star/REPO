@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { ChevronLeft, MessageSquare, Star, Info, AlertCircle } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import '@/app/checklists/checklists.css'
@@ -48,7 +49,7 @@ function NuevoFeedbackContent() {
     try {
       const supabase = await getSupabaseClient()
       const { data } = await supabase.from('stores').select('id, name').order('name')
-      setStores(data || [])
+      setStores(sortStoresAlphabetically(data || [], (s: any) => s.name))
     } catch (err) {
       console.error('Error fetching stores:', err)
     }

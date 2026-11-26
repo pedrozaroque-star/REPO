@@ -16,6 +16,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { fetchWithAuth, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 export default function BuscarPage() {
   const searchParams = useSearchParams()
@@ -81,7 +82,7 @@ export default function BuscarPage() {
       const checklists = await checklistsRes.json()
 
       setResults({
-        stores: Array.isArray(stores) ? stores : [],
+        stores: sortStoresAlphabetically(Array.isArray(stores) ? stores : []),
         users: Array.isArray(users) ? users : [],
         inspections: Array.isArray(inspections) ? inspections : [],
         feedbacks: Array.isArray(feedbacks) ? feedbacks : [],

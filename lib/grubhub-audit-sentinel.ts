@@ -20,6 +20,7 @@
 import { getAuthToken } from '@/lib/toast-api'
 import { getSupabaseClient } from '@/lib/supabase'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
@@ -107,7 +108,8 @@ export async function executeGrubhubAudit(targetDateYMD: string): Promise<Grubhu
     const storeSummaries: StoreAuditSummary[] = []
     const samplePromos: any[] = []
 
-    for (const store of stores || []) {
+    const orderedStores = sortStoresAlphabetically(stores || [], (s: any) => s.name)
+    for (const store of orderedStores) {
         const storeExtId = store.external_id
         if (!storeExtId) continue
         const diningMap = await getDiningOptionsMap(token, storeExtId)
@@ -218,7 +220,7 @@ export async function executeGrubhubAudit(targetDateYMD: string): Promise<Grubhu
                     ordersWithDiscountsCount++
                     if (samplePromos.length < 4) {
                         samplePromos.push({
-                            store: store.name,
+                            store: formatStoreDisplayName(store),
                             displayNumber: order.displayNumber,
                             orderId: order.guid,
                             discounts: check.appliedDiscounts,
@@ -267,7 +269,7 @@ export async function executeGrubhubAudit(targetDateYMD: string): Promise<Grubhu
             totalGrubhubPayments += storePay
 
             storeSummaries.push({
-                storeName: store.name,
+                storeName: formatStoreDisplayName(store),
                 ordersCount: storeGhOrders.length,
                 netSales: Math.round(storeNet * 100) / 100,
                 discounts: Math.round(storeDisc * 100) / 100,
@@ -331,9 +333,10 @@ export async function sendGrubhubAuditEmail(report: GrubhubAuditReport): Promise
     const subjectPrefix = report.isBalanced ? '✅ [AUDITORÍA EXITOSA]' : '⚠️ [ALERTA DE DESCUADRE]'
     const subject = `${subjectPrefix} Integración Grubhub & Toast POS - Tacos Gavilan (${report.targetDateYMD})`
 
-    const rowsHtml = report.storeSummaries.map(s => `
+    const sortedSummaries = sortStoresAlphabetically(report.storeSummaries, (s) => s.storeName, { pinSpecialFirst: false })
+    const rowsHtml = sortedSummaries.map(s => `
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
-            <td style="padding: 10px 12px; font-weight: 600; color: #1e293b;">${s.storeName}</td>
+            <td style="padding: 10px 12px; font-weight: 600; color: #1e293b;">${formatStoreDisplayName(s.storeName) || s.storeName}</td>
             <td style="padding: 10px 12px; text-align: center;">${s.ordersCount}</td>
             <td style="padding: 10px 12px; text-align: right; font-weight: 600;">$${s.netSales.toFixed(2)}</td>
             <td style="padding: 10px 12px; text-align: right; color: ${s.discounts > 0 ? '#b91c1c' : '#64748b'};">$${s.discounts.toFixed(2)}</td>

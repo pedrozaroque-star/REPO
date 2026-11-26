@@ -53,6 +53,8 @@
  *   (`syncedDtItemId`), respuesta rápida de voz opcional (`<= 220` car., `~80 ms`) y sincronización espejo con `phone_knowledge_base`
  *   y `dt_kore_learning_items`.
  * - Optimización 2026-11-19 (Paquete 1B): polling silencioso del dashboard elevado de 12s a 60s con guardia `visibilityState === 'visible'`.
+ * - Estandarización 2026-11-24: todas las listas, selectores, tarjetas y badges de sucursales muestran nombres limpios sin `#<número>`
+ *   y se ordenan estrictamente A–Z (`formatStoreDisplayName` + `sortStoresAlphabetically`), preservando `formatCustomerStoreName` en vistas de cliente.
  */
 
 'use client'
@@ -66,6 +68,11 @@ import {
   formatCustomerGreetingTarget,
   formatCustomerStoreName
 } from '@/lib/customer-store-names'
+import {
+  formatStoreDisplayName,
+  sortStoresAlphabetically,
+  stripStoreNumberTokensInText
+} from '@/lib/store-display'
 import {
   Phone,
   PhoneCall,
@@ -388,9 +395,9 @@ function buildPhoneBilingualLines(
   isEn: boolean,
   fallbackText?: string | null
 ): Array<{ flag: string; code: 'ES' | 'EN'; text: string }> {
-  const cleanEs = String(textEs ?? '').trim()
-  const cleanEn = String(textEn ?? '').trim()
-  const cleanFallback = String(fallbackText ?? '').trim()
+  const cleanEs = stripStoreNumberTokensInText(String(textEs ?? '').trim())
+  const cleanEn = stripStoreNumberTokensInText(String(textEn ?? '').trim())
+  const cleanFallback = stripStoreNumberTokensInText(String(fallbackText ?? '').trim())
   const esEntry = cleanEs ? { flag: '🇲🇽', code: 'ES' as const, text: cleanEs } : null
   const enEntry = cleanEn ? { flag: '🇺🇸', code: 'EN' as const, text: cleanEn } : null
   const ordered = isEn ? [enEntry, esEntry] : [esEntry, enEntry]
@@ -1351,7 +1358,13 @@ export default function ContestadoraIaPage() {
         }
         const data = await res.json()
         if (!mountedRef.current || seq !== fetchSeqRef.current) return
-        const loadedStores: StoreRow[] = data.stores || []
+        const loadedStores: StoreRow[] = sortStoresAlphabetically(
+          (data.stores || []).map((st: StoreRow) => ({
+            ...st,
+            name: formatStoreDisplayName({ id: st.id, name: st.name }) || st.name
+          })),
+          (st) => st.name
+        )
         setStores((prev) => {
           if (dirtyStoreFieldsRef.current.size === 0 || prev.length === 0) return loadedStores
           const prevById = new Map(prev.map((s) => [s.id, s]))
@@ -2962,7 +2975,7 @@ export default function ContestadoraIaPage() {
     setSimTranscript((prev) => {
       if (startingNewCallSession) {
         const storeObj = storesRef.current.find((s) => s.id === simStoreId)
-        const greetingTarget = formatCustomerGreetingTarget({ id: simStoreId, name: storeObj?.name || `#${simStoreId}` }, simLang)
+        const greetingTarget = formatCustomerGreetingTarget({ id: simStoreId, name: storeObj?.name || formatStoreDisplayName(simStoreId) }, simLang)
         const syntheticGreeting =
           simLang === 'en'
             ? `Thanks for calling Tacos Gavilan ${greetingTarget}! How can I help you today?`
@@ -3788,7 +3801,7 @@ export default function ContestadoraIaPage() {
       )
       showFeedback(
         'ok',
-        `#${storeRow.id} ${storeRow.name}: ${
+        `${formatStoreDisplayName({ id: storeRow.id, name: storeRow.name })}: ${
           preservedDraftOnStore ? t('phone_agent.stores_toggle_preserved_draft') : t('phone_agent.stores_saved_ok')
         }`
       )
@@ -4026,6 +4039,18 @@ export default function ContestadoraIaPage() {
     return knownReasons.has(norm) ? t(`phone_agent.reason_${norm}`) : ''
   }
 
+  const resolveCleanStoreLabel = (storeId: number | null | undefined, rawName?: string | null): string => {
+    const fromRaw = formatStoreDisplayName({ id: storeId ?? undefined, name: rawName })
+    if (fromRaw) return fromRaw
+    if (storeId !== null && storeId !== undefined) {
+      const fromLoaded = stores.find((s) => s.id === Number(storeId))
+      if (fromLoaded?.name) return formatStoreDisplayName({ id: fromLoaded.id, name: fromLoaded.name })
+      const fromCanonical = CANONICAL_CUSTOMER_STORES_BY_ID[Number(storeId)]?.internalName
+      if (fromCanonical) return formatStoreDisplayName(fromCanonical)
+    }
+    return ''
+  }
+
   const currentSimStore = stores.find((s) => s.id === simStoreId) || stores[0]
   const currentSimStoreDisplayName = currentSimStore
     ? formatCustomerStoreName({ id: currentSimStore.id, name: currentSimStore.name }, isEn ? 'en' : 'es')
@@ -4140,7 +4165,7 @@ export default function ContestadoraIaPage() {
             <ShieldCheck size={17} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
             <span className="font-black uppercase">
               {t('phone_agent.rbac_store_scope_badge')}{' '}
-              {stores.map((s) => `#${s.id} ${s.name}`).join(', ')}
+              {stores.map((s) => formatStoreDisplayName({ id: s.id, name: s.name })).join(', ')}
             </span>
             <span className="opacity-70">•</span>
             <span className="font-medium">{t('phone_agent.rbac_readonly_notice')}</span>
@@ -4429,7 +4454,7 @@ export default function ContestadoraIaPage() {
                     >
                       {stores.map((s) => (
                         <option key={s.id} value={s.id}>
-                          #{s.id} - {s.name} ({s.phone})
+                          {formatStoreDisplayName({ id: s.id, name: s.name })} ({s.phone})
                         </option>
                       ))}
                     </select>
@@ -4779,7 +4804,7 @@ export default function ContestadoraIaPage() {
                             {msg.role === 'user'
                               ? t('phone_agent.sim_caller_label')
                               : currentSimStore?.name
-                                ? `${t('phone_agent.sim_assistant_label')} (${currentSimStore.name})`
+                                ? `${t('phone_agent.sim_assistant_label')} (${formatStoreDisplayName({ id: currentSimStore.id, name: currentSimStore.name })})`
                                 : t('phone_agent.sim_assistant_label')}
                           </span>
                           <div className="flex items-center gap-2">
@@ -4912,7 +4937,7 @@ export default function ContestadoraIaPage() {
                     >
                       <div className="min-w-0">
                         <div className="text-xs font-bold text-slate-500 flex items-center gap-2 flex-wrap">
-                          <span>{uq.storeName} • {formatStoreDateTime(uq.startedAt, isEn)}</span>
+                          <span>{formatStoreDisplayName(uq.storeName)} • {formatStoreDateTime(uq.startedAt, isEn)}</span>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
                               uq.source === 'simulator'
@@ -5038,7 +5063,7 @@ export default function ContestadoraIaPage() {
                         <option value="">{t('phone_agent.kb_scope_global')}</option>
                         {stores.map((s) => (
                           <option key={s.id} value={s.id}>
-                            #{s.id} - {s.name}
+                            {formatStoreDisplayName({ id: s.id, name: s.name })}
                           </option>
                         ))}
                       </select>
@@ -5194,7 +5219,7 @@ export default function ContestadoraIaPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                               {rule.store_id
-                                ? `${rule.stores?.name || `#${rule.store_id}`}`
+                                ? resolveCleanStoreLabel(rule.store_id, rule.stores?.name)
                                 : t('phone_agent.kb_scope_global')}
                             </span>
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
@@ -5205,11 +5230,13 @@ export default function ContestadoraIaPage() {
                             </span>
                           </div>
                           <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                            {isEn ? rule.title_en || rule.title : rule.title}
+                            {stripStoreNumberTokensInText(isEn ? rule.title_en || rule.title : rule.title)}
                           </h4>
                           {rule.title_en && rule.title_en !== rule.title && (
                             <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                              {isEn ? `🇲🇽 ${rule.title}` : `🇺🇸 ${rule.title_en}`}
+                              {isEn
+                                ? `🇲🇽 ${stripStoreNumberTokensInText(rule.title)}`
+                                : `🇺🇸 ${stripStoreNumberTokensInText(rule.title_en)}`}
                             </p>
                           )}
                         </div>
@@ -5293,7 +5320,7 @@ export default function ContestadoraIaPage() {
                     <option value="">{t('phone_agent.kb_scope_global')}</option>
                     {stores.map((s) => (
                       <option key={s.id} value={s.id}>
-                        #{s.id} - {s.name}
+                        {formatStoreDisplayName({ id: s.id, name: s.name })}
                       </option>
                     ))}
                   </select>
@@ -5419,7 +5446,7 @@ export default function ContestadoraIaPage() {
                 <div className="flex flex-wrap gap-2 pt-2">
                   {specialHours.map((sh) => {
                     const scopeLabel = sh.store_id
-                      ? sh.stores?.name || `#${sh.store_id}`
+                      ? resolveCleanStoreLabel(sh.store_id, sh.stores?.name)
                       : t('phone_agent.holidays_all_stores_badge')
                     const scheduleLabel = sh.is_closed
                       ? t('phone_agent.holidays_closed_badge')
@@ -5495,10 +5522,7 @@ export default function ContestadoraIaPage() {
                 </span>
               )
             }
-            const storeObj = stores.find((s) => s.id === storeId)
-            const label = storeObj
-              ? `#${storeObj.id} ${storeObj.name}`
-              : t('phone_agent.learning_scope_store', { id: storeId })
+            const label = resolveCleanStoreLabel(storeId)
             return (
               <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                 {label}
@@ -5595,7 +5619,7 @@ export default function ContestadoraIaPage() {
                       )}
                       {stores.map((s) => (
                         <option key={s.id} value={String(s.id)}>
-                          #{s.id} - {s.name}
+                          {formatStoreDisplayName({ id: s.id, name: s.name })}
                         </option>
                       ))}
                     </select>
@@ -5735,15 +5759,21 @@ export default function ContestadoraIaPage() {
                       <div className="space-y-3.5 max-h-[720px] overflow-y-auto pr-1">
                         {learningDoubts.map((item) => {
                           const isBusy = learningBusyId === item.id
-                          const proposedDraft = isEn
-                            ? item.proposedRuleEn || item.proposedRuleEs
-                            : item.proposedRuleEs || item.proposedRuleEn
-                          const primaryDoubtTitle = isEn
-                            ? item.questionOrTriggerEn || item.questionOrTrigger
-                            : item.questionOrTrigger
-                          const primaryDoubtText = isEn
-                            ? item.doubtForOwnerEn || item.doubtForOwner
-                            : item.doubtForOwner || item.doubtForOwnerEn
+                          const proposedDraft = stripStoreNumberTokensInText(
+                            (isEn
+                              ? item.proposedRuleEn || item.proposedRuleEs
+                              : item.proposedRuleEs || item.proposedRuleEn) || ''
+                          )
+                          const primaryDoubtTitle = stripStoreNumberTokensInText(
+                            (isEn
+                              ? item.questionOrTriggerEn || item.questionOrTrigger
+                              : item.questionOrTrigger) || ''
+                          )
+                          const primaryDoubtText = stripStoreNumberTokensInText(
+                            (isEn
+                              ? item.doubtForOwnerEn || item.doubtForOwner
+                              : item.doubtForOwner || item.doubtForOwnerEn) || ''
+                          )
                           const proposedRuleLines = buildPhoneBilingualLines(
                             item.proposedRuleEs,
                             item.proposedRuleEn,
@@ -5798,7 +5828,7 @@ export default function ContestadoraIaPage() {
                                       <strong className="font-bold">
                                         {t('phone_agent.learning_customer_quote')}
                                       </strong>{' '}
-                                      “{item.customerQuote}”
+                                      “{stripStoreNumberTokensInText(item.customerQuote)}”
                                     </p>
                                   )}
                                   {item.koreQuote && (
@@ -5806,7 +5836,7 @@ export default function ContestadoraIaPage() {
                                       <strong className="font-bold">
                                         {t('phone_agent.learning_kore_quote')}
                                       </strong>{' '}
-                                      “{item.koreQuote}”
+                                      “{stripStoreNumberTokensInText(item.koreQuote)}”
                                     </p>
                                   )}
                                 </div>
@@ -6181,9 +6211,11 @@ export default function ContestadoraIaPage() {
                       <div className="space-y-2.5 max-h-[720px] overflow-y-auto pr-1">
                         {learningActive.map((rule) => {
                           const isBusy = learningBusyId === rule.id
-                          const primaryRuleTitle = isEn
-                            ? rule.questionOrTriggerEn || rule.questionOrTrigger
-                            : rule.questionOrTrigger
+                          const primaryRuleTitle = stripStoreNumberTokensInText(
+                            (isEn
+                              ? rule.questionOrTriggerEn || rule.questionOrTrigger
+                              : rule.questionOrTrigger) || ''
+                          )
                           const activeRuleLines = buildPhoneBilingualLines(
                             rule.proposedRuleEs,
                             rule.proposedRuleEn,
@@ -6380,7 +6412,7 @@ export default function ContestadoraIaPage() {
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-base font-black text-slate-900 dark:text-white">
-                            #{s.id} {s.name}
+                            {formatStoreDisplayName({ id: s.id, name: s.name })}
                           </span>
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
@@ -6709,7 +6741,7 @@ export default function ContestadoraIaPage() {
                         )}
                       </div>
                       <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1">
-                        #{selectedStoreForForwarding.id} {selectedStoreForForwarding.name} —{' '}
+                        {formatStoreDisplayName({ id: selectedStoreForForwarding.id, name: selectedStoreForForwarding.name })} —{' '}
                         {t('phone_agent.stores_modal_title')}
                       </h3>
                     </div>
@@ -6990,7 +7022,7 @@ export default function ContestadoraIaPage() {
                     )}
                     {stores.map((s) => (
                       <option key={s.id} value={String(s.id)}>
-                        #{s.id} - {s.name}
+                        {formatStoreDisplayName({ id: s.id, name: s.name })}
                       </option>
                     ))}
                   </select>
@@ -7093,12 +7125,12 @@ export default function ContestadoraIaPage() {
                                 }`}
                               >
                                 {isCondimentNote
-                                  ? `🌶️ ${cb.stores?.name || `#${cb.store_id}`} • ${reasonLabel || getCallerTypeLabel(cb.caller_type)}`
-                                  : `${cb.stores?.name || `#${cb.store_id}`} • ${getCallerTypeLabel(cb.caller_type)} • ${getUrgencyLabel(cb.urgency)}${reasonLabel ? ` • ${reasonLabel}` : ''}`}
+                                  ? `🌶️ ${resolveCleanStoreLabel(cb.store_id, cb.stores?.name)} • ${reasonLabel || getCallerTypeLabel(cb.caller_type)}`
+                                  : `${resolveCleanStoreLabel(cb.store_id, cb.stores?.name)} • ${getCallerTypeLabel(cb.caller_type)} • ${getUrgencyLabel(cb.urgency)}${reasonLabel ? ` • ${reasonLabel}` : ''}`}
                               </span>
                               {isCrossStore && (
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100">
-                                  ↪️ {t('phone_agent.banner_routed_from_prefix')} #{cb.origin_store_id}
+                                  ↪️ {t('phone_agent.banner_routed_from_prefix')}
                                   {originLabel ? ` ${originLabel}` : ''}
                                 </span>
                               )}
@@ -7158,7 +7190,7 @@ export default function ContestadoraIaPage() {
                         </div>
 
                         <p className="text-xs text-slate-700 dark:text-slate-300 font-medium break-words">
-                          {cb.reason_summary}
+                          {stripStoreNumberTokensInText(cb.reason_summary || '')}
                         </p>
 
                         <div className="flex items-center flex-wrap gap-2 text-[11px] text-slate-500">
@@ -7357,7 +7389,7 @@ export default function ContestadoraIaPage() {
                               {formatStoreDateTime(c.started_at, isEn)}
                             </td>
                             <td className="py-2.5 px-3 font-bold whitespace-nowrap">
-                              {c.stores?.name || `#${c.store_id}`}
+                              {resolveCleanStoreLabel(c.store_id, c.stores?.name)}
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
                               {c.caller_name && (
@@ -7405,10 +7437,10 @@ export default function ContestadoraIaPage() {
                               {getIntentLabel(c.primary_intent)}
                             </td>
                             <td
-                              title={c.summary || undefined}
+                              title={c.summary ? stripStoreNumberTokensInText(c.summary) : undefined}
                               className="py-2.5 px-3 max-w-xs truncate text-slate-600 dark:text-slate-400"
                             >
-                              {c.summary || '—'}
+                              {c.summary ? stripStoreNumberTokensInText(c.summary) : '—'}
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
                               {renderOutcomeBadge()}
@@ -7451,7 +7483,7 @@ export default function ContestadoraIaPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h4 className="text-base font-black text-slate-900 dark:text-white">
-                        {selectedCallDetail.stores?.name || `#${selectedCallDetail.store_id}`} —{' '}
+                        {resolveCleanStoreLabel(selectedCallDetail.store_id, selectedCallDetail.stores?.name)} —{' '}
                         {formatStoreDateTime(selectedCallDetail.started_at, isEn)}
                       </h4>
                       <p className="text-xs text-slate-500 mt-0.5 break-all">

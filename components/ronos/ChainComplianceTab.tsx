@@ -36,6 +36,7 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import { ChainAuditData, WorkWeekOption } from './types'
 import { formatCurrency, formatUsaDate } from './helpers'
+import { compareStoreNamesAlphabetically, formatStoreDisplayName } from '@/lib/store-display'
 
 interface ChainComplianceTabProps {
   chainData: ChainAuditData | null
@@ -76,8 +77,8 @@ export default function ChainComplianceTab({
         valB = b.complianceScore || 0
       } else if (sortField === 'store') {
         return sortAsc
-          ? a.storeName.localeCompare(b.storeName)
-          : b.storeName.localeCompare(a.storeName)
+          ? compareStoreNamesAlphabetically(a.storeName, b.storeName)
+          : compareStoreNamesAlphabetically(b.storeName, a.storeName)
       }
 
       return sortAsc ? valA - valB : valB - valA
@@ -275,7 +276,7 @@ export default function ChainComplianceTab({
                       <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
                         <div className="flex items-center gap-2">
                           <Building2 className="w-4 h-4 text-[#0288d1]" />
-                          <span>{st.storeName}</span>
+                          <span>{formatStoreDisplayName(st.storeName)}</span>
                           {st.isBodega && (
                             <span className="px-2 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                               BODEGA

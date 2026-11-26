@@ -22,6 +22,7 @@ import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { getSafeLADateISO, getCurrentShift } from '@/lib/checklistPermissions'
 import { getNumericValue } from '@/lib/scoreCalculator'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 interface Store {
   id: string
@@ -809,7 +810,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg cursor-pointer"
               >
                 <option value="">{t('inspections.form.fields.select_placeholder')}</option>
-                {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
+                {sortStoresAlphabetically(stores, (s: any) => s.name).map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
               </select>
             </div>
 

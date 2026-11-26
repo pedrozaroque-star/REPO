@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import MaintenanceQRModal from '@/components/maintenance/MaintenanceQRModal'
 
 interface Store {
@@ -234,7 +235,14 @@ export default function AdminMaintenanceDashboardPage() {
 
       if (json.success) {
         setLogs(json.data || [])
-        if (json.stores) setStores(json.stores)
+        if (json.stores) {
+          setStores(
+            sortStoresAlphabetically(
+              json.stores.map((s: Store) => ({ ...s, name: formatStoreName(s.name) || s.name })),
+              (s) => s.name
+            )
+          )
+        }
         if (json.kpis) setGlobalKpis(json.kpis)
       }
     } catch (err) {

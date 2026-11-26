@@ -31,6 +31,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
 import { VIELE_PUBLIC_STORES, formatUsDate, formatUsFullDate } from '@/lib/viele-stores-public';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 
 interface CatalogItem {
   item_code: string;
@@ -63,7 +64,7 @@ function PrintSheetContent() {
   const [storeId, setStoreId] = useState<string>(targetStoreId);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [pars, setPars] = useState<Record<string, number>>({});
-  const [storeName, setStoreName] = useState<string>('Lynwood #14');
+  const [storeName, setStoreName] = useState<string>('Lynwood');
   const [loading, setLoading] = useState<boolean>(true);
 
   // Auto-sincronizar storeId cuando el usuario carga asincronamente
@@ -95,11 +96,7 @@ function PrintSheetContent() {
         }
 
         const account = VIELE_PUBLIC_STORES[parseInt(storeId)];
-        if (account) {
-          setStoreName(`${account.storeName} #${account.storeId}`);
-        } else {
-          setStoreName(`Tienda #${storeId}`);
-        }
+        setStoreName(formatStoreDisplayName(account?.storeName || Number(storeId)) || 'Lynwood');
       } catch (err) {
         console.error('Error cargando datos de impresion:', err);
       } finally {
@@ -440,9 +437,9 @@ function PrintSheetContent() {
               background: '#0f172a', color: '#f8fafc', border: '1px solid #475569',
               padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: '700', cursor: 'pointer'
             }}>
-            {Object.values(VIELE_PUBLIC_STORES).map(acc => (
+            {sortStoresAlphabetically(Object.values(VIELE_PUBLIC_STORES), acc => acc.storeName).map(acc => (
               <option key={acc.storeId} value={acc.storeId}>
-                {acc.storeName} (#{acc.storeId})
+                {formatStoreDisplayName(acc.storeName)}
               </option>
             ))}
           </select>

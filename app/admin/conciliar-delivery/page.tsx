@@ -45,6 +45,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import DeliveryPeriodFilter, {
   classifyDeliveryPeriod,
   getPresetBounds,
@@ -675,7 +676,15 @@ export default function ConciliarDeliveryPage() {
         if (!res.ok || !data.success) {
           throw new Error(data.error || `HTTP ${res.status}`)
         }
-        setMappings(data.mappings || [])
+        setMappings(
+          sortStoresAlphabetically(
+            (data.mappings || []).map((m: StoreMapping) => ({
+              ...m,
+              store_name: formatStoreDisplayName({ id: m.store_id, name: m.store_name, code: m.store_code }) || m.store_name,
+            })),
+            (m) => m.store_name
+          )
+        )
         if (data.userScope) {
           setUserScope(data.userScope)
           if (!data.userScope.isGlobalScope && data.userScope.assignedStoreId) {
@@ -683,8 +692,18 @@ export default function ConciliarDeliveryPage() {
             setSelectedStore((prev) => (prev === scopedIdStr ? prev : scopedIdStr))
           }
         }
-        setOrders(data.orders || [])
-        setPayouts(data.payouts || [])
+        setOrders(
+          (data.orders || []).map((o: ReconciledOrder) => ({
+            ...o,
+            store_name: formatStoreDisplayName({ id: o.store_id, name: o.store_name }) || o.store_name,
+          }))
+        )
+        setPayouts(
+          (data.payouts || []).map((p: PlatformPayout) => ({
+            ...p,
+            store_name: formatStoreDisplayName({ id: p.store_id, name: p.store_name }) || p.store_name,
+          }))
+        )
         setSummary(data.summary || null)
         setSyncStatus(data.syncStatus || null)
         setCoverageReport(data.coverageReport || null)
@@ -742,7 +761,12 @@ export default function ConciliarDeliveryPage() {
         if (!res.ok || !data.success) {
           throw new Error(data.error || `HTTP ${res.status}`)
         }
-        setQbRecords(data.records || [])
+        setQbRecords(
+          (data.records || []).map((r: any) => ({
+            ...r,
+            store_name: formatStoreDisplayName({ id: r.store_id, name: r.store_name }) || r.store_name,
+          }))
+        )
         setQbSummary(data.summary || null)
         setQbAuthError(Boolean(data.isAuthError))
         if (data.reauthUrl) setQbReauthUrl(data.reauthUrl)
@@ -1143,8 +1167,8 @@ export default function ConciliarDeliveryPage() {
 
     const storesList =
       Array.isArray(targetStoreIds) && targetStoreIds.length > 0
-        ? mappings.filter((m) => targetStoreIds.includes(Number(m.store_id)))
-        : [...mappings].sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
+        ? sortStoresAlphabetically(mappings.filter((m) => targetStoreIds.includes(Number(m.store_id))), (m) => m.store_name)
+        : sortStoresAlphabetically(mappings, (m) => m.store_name)
 
     if (storesList.length === 0) {
       return handleLiveSyncForStore()
@@ -2363,7 +2387,9 @@ export default function ConciliarDeliveryPage() {
     if (selectedStore === 'ALL') return t('deliveryReconciliation.all_stores')
     if (selectedStore === '0') return t('deliveryReconciliation.unassigned_store_option')
     const found = mappings.find((m) => String(m.store_id) === String(selectedStore))
-    return found ? `${found.store_name} (${found.store_code})` : `#${selectedStore}`
+    return found
+      ? `${formatStoreDisplayName(found.store_name)} (${found.store_code})`
+      : formatStoreDisplayName(Number(selectedStore)) || String(selectedStore)
   }, [selectedStore, mappings, t])
 
   const getStorePlatformCoverageEntry = useCallback(
@@ -2639,7 +2665,7 @@ export default function ConciliarDeliveryPage() {
                   ? t('deliveryReconciliation.all_stores')
                   : selectedStore === '0'
                   ? t('deliveryReconciliation.unassigned_store_option')
-                  : mappings.find((m) => String(m.store_id) === String(selectedStore))?.store_name || `#${selectedStore}`}
+                  : formatStoreDisplayName(mappings.find((m) => String(m.store_id) === String(selectedStore))?.store_name || Number(selectedStore)) || String(selectedStore)}
               </span>
             </span>
             <span>•</span>
@@ -2747,11 +2773,10 @@ export default function ConciliarDeliveryPage() {
                   )}
                 </>
               )}
-              {[...mappings]
-                .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
+              {sortStoresAlphabetically(mappings, (m) => m.store_name)
                 .map((m) => (
                   <option key={m.store_id} value={String(m.store_id)}>
-                    {m.store_name}
+                    {formatStoreDisplayName(m.store_name)}
                   </option>
                 ))}
             </select>
@@ -5141,7 +5166,7 @@ export default function ConciliarDeliveryPage() {
                       ? String(m.store_id) === String(selectedStore)
                       : true
                   )
-                  .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
+                  .sort((a, b) => formatStoreDisplayName(a.store_name).localeCompare(formatStoreDisplayName(b.store_name), 'es', { sensitivity: 'base', numeric: true }))
                   .map((m) => {
                     const stSync = syncStatus?.byStore?.[m.store_id]
                     const renderPlatCell = (plat: 'DOORDASH' | 'GRUBHUB' | 'UBER_EATS', techId: string) => {
@@ -6920,11 +6945,10 @@ export default function ConciliarDeliveryPage() {
                     className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold"
                   >
                     <option value="">{t('deliveryReconciliation.unassigned_select_store_placeholder')}</option>
-                    {[...mappings]
-                      .sort((a, b) => a.store_name.localeCompare(b.store_name, 'es'))
+                    {sortStoresAlphabetically(mappings, (m) => m.store_name)
                       .map((m) => (
                         <option key={m.store_id} value={String(m.store_id)}>
-                          {m.store_name} ({m.store_code})
+                          {formatStoreDisplayName(m.store_name)} ({m.store_code})
                         </option>
                       ))}
                   </select>

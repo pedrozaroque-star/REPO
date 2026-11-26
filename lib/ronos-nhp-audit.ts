@@ -26,6 +26,7 @@
  */
 
 import { supabaseAdmin } from './supabase'
+import { buildVerifiedCorporateEmailSet } from './email-recipient-guard'
 import {
   getPacificBusinessDate,
   RONOS_STORES_MAP,
@@ -105,6 +106,8 @@ export interface EnrichedRonosStoreAuditSummary extends RonosStoreAuditSummary {
   nhpAuditSummary?: StoreNhpAuditSummary
   employees: EnrichedRonosEmployeeTimecard[]
 }
+
+import { formatStoreDisplayName } from './store-display'
 
 export interface StoreIdentityRow {
   id: number
@@ -365,7 +368,7 @@ async function loadCrossRefContext(params: {
     const row: StoreIdentityRow = {
       id: Number(s.id),
       code: s.code || null,
-      name: s.name || 'Tacos Gavilan',
+      name: formatStoreDisplayName(s) || 'Tacos Gavilan',
       external_id: s.external_id || null,
       is_active: Boolean(s.is_active),
       supervisor_id: s.supervisor_id != null ? Number(s.supervisor_id) : null,
@@ -483,14 +486,10 @@ async function loadCrossRefContext(params: {
 
   const allUsers = usersData
   const usersById = new Map<number, any>()
-  const registeredCorporateEmails = new Set<string>()
   for (const u of allUsers) {
     if (u.id != null) usersById.set(Number(u.id), u)
-    if (u.email) registeredCorporateEmails.add(String(u.email).trim().toLowerCase())
-    if (u.google_email_connected) {
-      registeredCorporateEmails.add(String(u.google_email_connected).trim().toLowerCase())
-    }
   }
+  const registeredCorporateEmails = buildVerifiedCorporateEmailSet(allUsers)
 
   const toastById = new Map<string, any>()
   const toastByGuid = new Map<string, any>()

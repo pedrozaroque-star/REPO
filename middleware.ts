@@ -1,21 +1,22 @@
 /**
  * @module middleware
  * @description Edge Middleware de Next.js para protección criptográfica de rutas API (`/api/viele/*`), bloqueo en borde
- * del laboratorio `/app` (`/app`, `/app/v1`, `/app/v2`, `/ordenar`) y bloqueo 404 en profundidad de directorios estáticos heredados (`/tacosgavilan-web/*`).
+ * del laboratorio interno `/app` (`/app`, `/app/v1`, `/app/v2`) y bloqueo 404 en profundidad de directorios estáticos heredados (`/tacosgavilan-web/*`).
  *
  * @businessRules
  * - Bloquea con `HTTP 404` cualquier intento de acceso a `/tacosgavilan-web/api/*`, `/tacosgavilan-web/vercel.json`,
  *   `/tacosgavilan-web/wp-content/*` y `/tacosgavilan-web/wp-includes/*`.
  * - Protege `/api/viele/*` verificando criptográficamente la firma HS256 de `teg_token` (`verifyTegJwtEdge`) o `CRON_SECRET` en tiempo constante (impidiendo bypasses por tokens falsos o `"Bearer undefined"`).
  * - Redirige en el borde (`HTTP 307` -> `/login`) cualquier petición sin cookie/Bearer JWT HS256 válido hacia
- *   `/app`, `/app/v1`, `/app/v2` y `/ordenar`, manteniendo públicas `/app/privacy`, `/app/terms`,
- *   `/app/support`, `/app/delete-account`, `/app/index.html` y `/clientes` (`HTTP 200`).
+ *   `/app`, `/app/v1` y `/app/v2` (laboratorio interno), manteniendo públicas `/ordenar` (hub público de pedidos),
+ *   `/app/privacy`, `/app/terms`, `/app/support`, `/app/delete-account`, `/app/index.html` y `/clientes` (`HTTP 200`).
  *
  * @dataFlow
- * - `NextRequest` -> defensa 404 `/tacosgavilan-web/*` -> verificación criptográfica `/api/viele` -> rutas públicas -> verificación HS256 en `/app*` & `/ordenar` -> `x-require-auth`.
+ * - `NextRequest` -> defensa 404 `/tacosgavilan-web/*` -> verificación criptográfica `/api/viele` -> rutas públicas -> verificación HS256 en `/app*` -> `x-require-auth`.
  *
  * @notes
  * - Hardened 2026-11-21: Verificación criptográfica completa en `/api/viele/*`, comparación segura de `CRON_SECRET` y bloqueo 404 de rutas heredadas `/tacosgavilan-web/*`.
+ * - 2026-11-24: Separación de `/ordenar` como portal público oficial para clientes (sin login TEG) manteniendo `/app`, `/app/v1` y `/app/v2` protegidos como laboratorio interno.
  */
 
 import { NextResponse } from 'next/server'
@@ -27,6 +28,7 @@ const MAX_EXPIRED_GRACE_MS = 14 * 24 * 60 * 60 * 1000 // 14 días máx de gracia
 const PUBLIC_ROUTES = [
   '/login',
   '/auth',
+  '/ordenar',
   '/app/privacy',
   '/app/terms',
   '/app/support',
@@ -56,7 +58,7 @@ function isBlockedLegacyWebAsset(pathname: string): boolean {
   )
 }
 
-// Rutas del laboratorio de App Clientes que exigen sesión TEG válida incluso en Edge
+// Rutas del laboratorio interno de App Clientes que exigen sesión TEG válida incluso en Edge
 function isProtectedCustomerAppLabRoute(pathname: string): boolean {
   return (
     pathname === '/app' ||
@@ -64,9 +66,7 @@ function isProtectedCustomerAppLabRoute(pathname: string): boolean {
     pathname === '/app/v1' ||
     pathname.startsWith('/app/v1/') ||
     pathname === '/app/v2' ||
-    pathname.startsWith('/app/v2/') ||
-    pathname === '/ordenar' ||
-    pathname.startsWith('/ordenar/')
+    pathname.startsWith('/app/v2/')
   )
 }
 
@@ -154,8 +154,7 @@ const PROTECTED_ROUTES = [
   '/configuracion',
   '/buscar',
   '/feedback',
-  '/app',
-  '/ordenar'
+  '/app'
 ]
 
 export async function middleware(request: NextRequest) {
@@ -214,6 +213,10 @@ export async function middleware(request: NextRequest) {
 
     if (!hasValidSession) {
       const loginUrl = new URL('/login', request.url)
+      const targetPath = `${pathname}${request.nextUrl.search || ''}`
+      if (targetPath.startsWith('/') && !targetPath.startsWith('//')) {
+        loginUrl.searchParams.set('next', targetPath)
+      }
       return NextResponse.redirect(loginUrl, 307)
     }
 
@@ -242,8 +245,6 @@ export const config = {
     '/app/v1/:path*',
     '/app/v2',
     '/app/v2/:path*',
-    '/ordenar',
-    '/ordenar/:path*',
     '/tacosgavilan-web/api/:path*',
     '/tacosgavilan-web/vercel.json',
     '/tacosgavilan-web/wp-content/:path*',

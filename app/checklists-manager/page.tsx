@@ -19,6 +19,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA, isOverdue } from '@/lib/checklistPermissions'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 
@@ -101,7 +102,7 @@ function ManagerChecklistsContent() {
       const isSingleStoreManager = (roleLower === 'manager' || roleLower === 'gerente') && Boolean(user?.store_id)
 
       const { data: storesList } = await supabaseClient.from('stores').select('*')
-      const allStores = Array.isArray(storesList) ? storesList : []
+      const allStores = sortStoresAlphabetically(Array.isArray(storesList) ? storesList : [], (s: any) => s.name)
       setStores(
         isSingleStoreManager
           ? allStores.filter(s => String(s.id) === String(user?.store_id))

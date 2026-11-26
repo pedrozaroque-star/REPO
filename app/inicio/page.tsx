@@ -784,6 +784,15 @@ function InicioHubContent() {
                     iconColorClass: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 border-rose-500/20',
                     roles: ['admin'],
                 },
+                {
+                    id: 'remote_control',
+                    title: t('items.remote_control'),
+                    description: t('home_hub.desc.remote_control'),
+                    path: '/admin/control-remoto',
+                    icon: <Monitor size={20} />,
+                    iconColorClass: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 border-indigo-500/20',
+                    roles: ['admin'],
+                },
             ],
         },
     ], [t])

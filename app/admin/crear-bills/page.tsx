@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { WarehouseInvoiceRecord, STORE_QB_MAPPINGS } from '@/types/quickbooks-bills';
+import { compareStoreNamesAlphabetically, formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import VieleWholesailBillsTab from '@/components/quickbooks/VieleWholesailBillsTab';
 
 export type SortKey = 'docNumber' | 'txnDate' | 'dueDate' | 'storeName' | 'totalAmount' | 'hasBill';
@@ -328,7 +329,7 @@ export default function CrearBillsPage() {
             const dir = sortConfig.direction === 'asc' ? 1 : -1;
 
             if (sortConfig.key === 'storeName') {
-                const storeCmp = (a.storeName || '').localeCompare(b.storeName || '');
+                const storeCmp = compareStoreNamesAlphabetically(a.storeName, b.storeName);
                 if (storeCmp !== 0) return storeCmp * dir;
                 // Secondary sort by txnDate (chronological within store)
                 const dateCmp = (a.txnDate || '').localeCompare(b.txnDate || '');
@@ -343,7 +344,7 @@ export default function CrearBillsPage() {
                 const dateCmp = (a.txnDate || '').localeCompare(b.txnDate || '');
                 if (dateCmp !== 0) return dateCmp * dir;
                 // Secondary: storeName
-                const storeCmp = (a.storeName || '').localeCompare(b.storeName || '');
+                const storeCmp = compareStoreNamesAlphabetically(a.storeName, b.storeName);
                 if (storeCmp !== 0) return storeCmp;
                 const numA = parseInt((a.docNumber || '').replace(/\D/g, ''), 10) || 0;
                 const numB = parseInt((b.docNumber || '').replace(/\D/g, ''), 10) || 0;
@@ -353,7 +354,7 @@ export default function CrearBillsPage() {
             if (sortConfig.key === 'dueDate') {
                 const dueCmp = (a.dueDate || '').localeCompare(b.dueDate || '');
                 if (dueCmp !== 0) return dueCmp * dir;
-                return (a.storeName || '').localeCompare(b.storeName || '');
+                return compareStoreNamesAlphabetically(a.storeName, b.storeName);
             }
 
             if (sortConfig.key === 'docNumber') {
@@ -366,14 +367,14 @@ export default function CrearBillsPage() {
             if (sortConfig.key === 'totalAmount') {
                 const diff = (Number(a.totalAmount) || 0) - (Number(b.totalAmount) || 0);
                 if (diff !== 0) return diff * dir;
-                return (a.storeName || '').localeCompare(b.storeName || '');
+                return compareStoreNamesAlphabetically(a.storeName, b.storeName);
             }
 
             if (sortConfig.key === 'hasBill') {
                 const valA = a.hasBill ? 1 : 0;
                 const valB = b.hasBill ? 1 : 0;
                 if (valA !== valB) return (valA - valB) * dir;
-                const storeCmp = (a.storeName || '').localeCompare(b.storeName || '');
+                const storeCmp = compareStoreNamesAlphabetically(a.storeName, b.storeName);
                 if (storeCmp !== 0) return storeCmp;
                 return (a.txnDate || '').localeCompare(b.txnDate || '');
             }
@@ -395,10 +396,13 @@ export default function CrearBillsPage() {
 
     // List of unique stores from mapping
     const storeOptions = useMemo(() => {
-        return Object.values(STORE_QB_MAPPINGS).map((m) => ({
-            id: m.storeId,
-            name: m.storeName
-        })).sort((a, b) => a.name.localeCompare(b.name));
+        return sortStoresAlphabetically(
+            Object.values(STORE_QB_MAPPINGS).map((m) => ({
+                id: m.storeId,
+                name: formatStoreDisplayName(m.storeName)
+            })),
+            (s) => s.name
+        );
     }, []);
 
     // Handle single bill creation
@@ -1177,7 +1181,7 @@ export default function CrearBillsPage() {
                                             <td className="p-4">
                                                 <div className="flex flex-col">
                                                     <span className="font-bold text-slate-900 dark:text-white">
-                                                        {inv.storeName}
+                                                        {formatStoreDisplayName(inv.storeName)}
                                                     </span>
                                                     <span className="text-xs text-slate-400 font-mono">
                                                         {inv.customerName}
@@ -1445,7 +1449,7 @@ export default function CrearBillsPage() {
                                     return (
                                         <div key={doc} className="py-2 flex items-center justify-between text-xs">
                                             <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                                                #{doc} ({inv?.storeName})
+                                                #{doc} ({formatStoreDisplayName(inv?.storeName)})
                                             </span>
                                             <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                                                 {inv ? formatCurrency(inv.totalAmount) : ''}

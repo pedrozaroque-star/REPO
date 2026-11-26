@@ -47,6 +47,20 @@ import {
   EmailModalState
 } from '@/components/ronos/types'
 import { computeCingularBiWeeklyPeriods, getPacificDateString, isActiveRonosViolation } from '@/components/ronos/helpers'
+import { compareStoreNamesAlphabetically, formatStoreDisplayName } from '@/lib/store-display'
+
+function normalizeAndSortRonosStores(rawStores: StoreOption[]): StoreOption[] {
+  const cleaned = rawStores.map((s) => ({
+    ...s,
+    tegName: formatStoreDisplayName({ id: s.tegStoreId, code: s.tegCode, name: s.tegName || s.ronosName }) || s.tegName,
+  }))
+  return [...cleaned].sort((a, b) => {
+    if (Boolean(a.isBodega) !== Boolean(b.isBodega)) {
+      return a.isBodega ? -1 : 1
+    }
+    return compareStoreNamesAlphabetically(a.tegName, b.tegName)
+  })
+}
 
 // Componentes modulares de las 5 Pestañas
 import RonosHeader, { RonosTabId } from '@/components/ronos/RonosHeader'
@@ -194,7 +208,7 @@ function RonosLaborAuditContent() {
         if (!isMounted) return
 
         if (json?.success) {
-          if (Array.isArray(json.stores)) setStores(json.stores)
+          if (Array.isArray(json.stores)) setStores(normalizeAndSortRonosStores(json.stores))
           if (Array.isArray(json.weeks) && json.weeks.length > 0) {
             setWeeks(json.weeks)
             const todayBiz = getPacificDateString(new Date(), true)
@@ -417,7 +431,7 @@ function RonosLaborAuditContent() {
       const json = await res.json()
       if (json?.success) {
         setChainData(json.data)
-        if (Array.isArray(json.stores)) setStores(json.stores)
+        if (Array.isArray(json.stores)) setStores(normalizeAndSortRonosStores(json.stores))
         if (selectedCompanyId === 0 && Array.isArray(json.weeks) && json.weeks.length > 0) {
           setWeeks(prevWeeks => {
             const newIds = json.weeks.map((w: any) => w.weekId).join(',')

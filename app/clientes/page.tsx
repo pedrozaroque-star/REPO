@@ -21,6 +21,7 @@ import { motion } from 'framer-motion'
 import { useSearchParams } from 'next/navigation'
 
 import { formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 type Language = 'es' | 'en'
 
@@ -481,7 +482,7 @@ function ClientesFeedbackContent() {
               required
             >
               <option value="">{t.storePlaceholder}</option>
-              {stores.map(s => (
+              {sortStoresAlphabetically(stores, (s) => formatCustomerStoreName(s, lang) || formatStoreName(s.name)).map(s => (
                 <option key={s.id} value={s.id}>{formatCustomerStoreName(s, lang) || formatStoreName(s.name)}</option>
               ))}
             </select>

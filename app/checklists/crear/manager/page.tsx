@@ -21,6 +21,7 @@ import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
 
 interface Store {
@@ -67,7 +68,7 @@ function ManagerChecklistContent() {
         .order('name', { ascending: true })
 
       if (error) throw error
-      const loadedStores = (data as any[]) || []
+      const loadedStores = sortStoresAlphabetically((data as any[]) || [], (s: any) => s.name)
 
       const userScope = (user as any)?.store_scope
       if (user?.role === 'asistente' && Array.isArray(userScope) && userScope.length > 0) {

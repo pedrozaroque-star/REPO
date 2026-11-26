@@ -18,6 +18,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import '@/app/checklists/checklists.css'
 import { getSupabaseClient } from '@/lib/supabase'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
@@ -66,7 +67,7 @@ function RecorridoContent() {
         .order('name', { ascending: true })
 
       if (error) throw error
-      const loadedStores = (data as any[]) || []
+      const loadedStores = sortStoresAlphabetically((data as any[]) || [], (s: any) => s.name)
 
       const userScope = (user as any)?.store_scope
       if (user?.role === 'asistente' && Array.isArray(userScope) && userScope.length > 0) {
@@ -232,7 +233,7 @@ function RecorridoContent() {
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
                 className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-green-100 dark:focus:ring-green-900/20 transition-all">
                 <option value="">Selecciona...</option>
-                {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+                {stores.map(store => <option key={store.id} value={store.id}>{formatStoreDisplayName(store.name)}</option>)}
               </select>
             </div>
             <div className="space-y-2">

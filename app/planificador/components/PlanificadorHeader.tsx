@@ -18,6 +18,7 @@ import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee, Copy, Mai
 import { motion, AnimatePresence } from 'framer-motion'
 import { WeekSelector } from './WeekSelector'
 import { formatStoreName } from '../lib/utils'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { useLanguage } from '@/lib/i18n'
 import Link from 'next/link'
 
@@ -58,7 +59,7 @@ export function PlanificadorHeader({
                             onChange={(e) => setSelectedStoreId(e.target.value)}
                             className="w-full bg-gray-100 dark:bg-slate-800 border-0 rounded-lg px-2 sm:px-4 py-2 text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                         >
-                            {stores.map((s: any) => (
+                            {sortStoresAlphabetically(stores, (s: any) => formatStoreName(s.name)).map((s: any) => (
                                 <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                             ))}
                         </select>

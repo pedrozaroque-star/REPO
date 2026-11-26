@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import InspectionForm from '@/components/inspections/InspectionForm'
 import { supabase } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 function NuevaInspeccionContent() {
@@ -15,7 +16,7 @@ function NuevaInspeccionContent() {
   useEffect(() => {
     const fetchStores = async () => {
       const { data } = await supabase.from('stores').select('*').order('name')
-      setStores(data || [])
+      setStores(sortStoresAlphabetically(data || [], (s: any) => s.name))
       setLoading(false)
     }
     fetchStores()

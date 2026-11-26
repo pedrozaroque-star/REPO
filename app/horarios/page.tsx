@@ -44,6 +44,7 @@ import {
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { format } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
 
@@ -1094,8 +1095,9 @@ function ScheduleManager() {
             const supabase = await getSupabase()
             const { data } = await supabase.from('stores').select('*').order('name')
             if (data && data.length > 0) {
-                setStores(data)
-                setSelectedStoreId(String(data[0].id))
+                const sorted = sortStoresAlphabetically(data, (s: any) => s.name)
+                setStores(sorted)
+                setSelectedStoreId(String(sorted[0].id))
             }
         }
         init()

@@ -25,6 +25,7 @@ import {
     Printer, Save, ChevronDown, ChevronUp, Image as ImageIcon, Mail
 } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
 import { useLanguage } from '@/lib/i18n'
 
@@ -324,7 +325,7 @@ export default function StaffEvaluationReviewModal({
                             </span>
                             <span className="flex items-center gap-1">
                                 <MapPin size={15} className="text-white/80" />
-                                {evaluation.location_name || storeName || (evaluation.store_id ? formatStoreName(`Tienda ${evaluation.store_id}`) : (isEs ? 'Oficina Central / Corporativo' : 'Corporate / Central Office'))}
+                                {formatStoreDisplayName(evaluation.location_name || storeName || evaluation.store_id) || (isEs ? 'Oficina Central / Corporativo' : 'Corporate / Central Office')}
                             </span>
                             <span className="flex items-center gap-1">
                                 <Calendar size={15} className="text-white/80" />

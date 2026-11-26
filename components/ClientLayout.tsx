@@ -26,6 +26,7 @@ import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
 import SupportChatWidget from './SupportChatWidget'
 import SupervisorAutoTracker from './miles/SupervisorAutoTracker'
+import RemoteDeviceBridge from './RemoteDeviceBridge'
 import SurpriseLoader from './SurpriseLoader'
 import ProtectedRoute, { useAuth } from './ProtectedRoute'
 import { useState, useEffect, useRef } from 'react'
@@ -142,6 +143,7 @@ export default function ClientLayout({
         '/login', 
         '/', 
         '/auth/login', 
+        '/ordenar',
         '/app/privacy',
         '/app/terms',
         '/app/support',
@@ -190,7 +192,7 @@ export default function ClientLayout({
         ) {
             return true
         }
-        if (typeof window !== 'undefined' && (currentPath === '/app' || currentPath === '/ordenar')) {
+        if (typeof window !== 'undefined' && currentPath === '/app') {
             const params = new URLSearchParams(window.location.search)
             return (
                 params.get('tv') === '1' ||
@@ -266,12 +268,13 @@ export default function ClientLayout({
     const isDedicatedWorkspace = dedicatedWorkspaceRoutes.some(r => pathname === r || pathname.startsWith(r + '/'))
 
     // Full-width routes (large tables, schedules, etc.)
-    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training', '/admin/contabilidad-externa', '/admin/conciliar-delivery']
+    const fullWidthRoutes = ['/horarios', '/admin/plantillas', '/order-ready-board', '/admin/blindaje-delivery/empaque', '/app', '/training', '/admin/contabilidad-externa', '/admin/conciliar-delivery', '/admin/control-remoto']
 
     const isFullWidth = fullWidthRoutes.some(route => pathname.startsWith(route))
 
     return (
         <LanguageProvider>
+            <RemoteDeviceBridge />
             {pathname === '/order-ready-board' && !clientReady ? (
                 <SurpriseLoader />
             ) : isPublicPage ? (

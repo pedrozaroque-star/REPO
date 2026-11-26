@@ -19,6 +19,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA, isOverdue } from '@/lib/checklistPermissions'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
 
@@ -137,7 +138,7 @@ function ChecklistsContent() {
         loadedStores = loadedStores.filter(s => userScope.includes(s.code) || userScope.includes(s.name))
       }
 
-      setStores(loadedStores)
+      setStores(sortStoresAlphabetically(loadedStores, (s: any) => s.name))
     } catch (err) {
       console.error('Error tiendas:', err)
     }

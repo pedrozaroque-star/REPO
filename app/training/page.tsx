@@ -37,6 +37,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/components/ProtectedRoute';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import type {
   TrainingSopModuleSpec,
   TrainingVideoStep,
@@ -515,7 +516,10 @@ export default function TrainingAcademyPage() {
       }
       setVideos(catJson.modules || []);
       setPositions(catJson.positions || []);
-      const realStores: RealStoreInfo[] = catJson.stores || [];
+      const realStores: RealStoreInfo[] = sortStoresAlphabetically(
+        (catJson.stores || []).map((s: RealStoreInfo) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+        (s) => s.name
+      );
       setStores(realStores);
       setAllEmployees(catJson.employees || []);
       setRecipeProducts(catJson.recipeProducts || []);

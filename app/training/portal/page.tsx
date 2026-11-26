@@ -28,6 +28,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n';
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 import type {
   TrainingSopModuleSpec,
   TrainingVideoStep,
@@ -215,7 +216,10 @@ function TraineePortalInner() {
       if (data.ok) {
         setVideos(data.modules || []);
         setPositions(data.positions || []);
-        const realStores: RealStoreInfo[] = data.stores || [];
+        const realStores: RealStoreInfo[] = sortStoresAlphabetically(
+          (data.stores || []).map((s: RealStoreInfo) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+          (s) => s.name
+        );
         setStores(realStores);
         const emps: RealPlanificadorEmployee[] = data.employees || [];
         setAllEmployees(emps);

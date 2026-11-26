@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 interface Store {
     id: number
@@ -124,7 +125,7 @@ export default function StaffEvaluationQRModal({
                                     ⭐ {t('evaluaciones_staff.qr_dest_generic')}
                                 </option>
                                 <optgroup label={isEs ? 'Fijar para Sucursal Específica' : 'Lock to Specific Store'}>
-                                    {stores.map(s => (
+                                    {sortStoresAlphabetically(stores, (s) => s.name).map(s => (
                                         <option key={s.id} value={s.id}>
                                             📍 {formatStoreName(s.name)}
                                         </option>

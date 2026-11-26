@@ -32,6 +32,7 @@ import QuickDriveModal from '@/components/miles/QuickDriveModal'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { getCaliforniaBusinessDate, getCaliforniaDate, getCaliforniaTime } from '@/lib/business-date'
 import { CANONICAL_STORE_COORDINATES, haversineDistanceMiles, normalizeStoreName } from '@/lib/store-coordinates'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 interface TripRecord {
   id: string
@@ -347,15 +348,18 @@ function MilesIQContent() {
         const resStores = await fetch('/api/stores')
         const jsonStores = await resStores.json()
         if (Array.isArray(jsonStores)) {
-          const formattedStores = jsonStores.map((s: any) => ({
-            id: String(s.id),
-            name: s.name.startsWith('Tacos Gavilan') ? s.name : `Tacos Gavilan ${s.name}`
-          }))
+          const formattedStores = jsonStores.map((s: any) => {
+            const clean = formatStoreDisplayName(s.name)
+            return {
+              id: String(s.id),
+              name: clean.startsWith('Tacos Gavilan') ? clean : `Tacos Gavilan ${clean}`
+            }
+          })
           formattedStores.push({
             id: 'warehouse',
             name: 'Bodega Central (Warehouse - 5182 Malabar St, Vernon)'
           })
-          setStoresList(formattedStores)
+          setStoresList(sortStoresAlphabetically(formattedStores, (s) => s.name))
         }
       } catch (errStore) {
         console.warn('Error fetching stores:', errStore)

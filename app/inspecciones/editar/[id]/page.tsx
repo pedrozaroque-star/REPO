@@ -17,6 +17,7 @@ import { useParams, useRouter } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import InspectionForm from '@/components/inspections/InspectionForm'
 import { supabase } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { canEditChecklist } from '@/lib/checklistPermissions'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
@@ -41,7 +42,7 @@ function EditarInspeccionContent() {
       if (!user) return
       // 1. Cargar Tiendas
       const { data: storesData } = await supabase.from('stores').select('*').order('name')
-      setStores(storesData || [])
+      setStores(sortStoresAlphabetically(storesData || [], (s: any) => s.name))
 
       // 2. Cargar Inspección
       const { data: item, error: dbError } = await supabase

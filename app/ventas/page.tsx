@@ -23,6 +23,7 @@ import { formatStoreName } from '@/lib/supabase'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import {
     FOOD_COST_HEALTHY_MAX,
     FOOD_COST_WARNING_MAX,
@@ -726,7 +727,7 @@ function SalesPageContent() {
                 const processed = processData(json.data, effectiveGroupBy, startIso)
                 setData({ ...processed, rawRows: json.data, groupByMode: effectiveGroupBy })
                 const uniqueStores = [...new Set(json.data.map((r: any) => r.storeName || t('sales.unknown_store')))] as string[]
-                const sortedStores = uniqueStores.sort()
+                const sortedStores = sortStoresAlphabetically(uniqueStores)
                 setStoreList(sortedStores)
                 setSelectedStore(prev => {
                     if (prev === 'all' || sortedStores.includes(prev)) return prev

@@ -15,6 +15,7 @@
 
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { stripStoreNumberTokensInText } from './store-display'
 
 export interface TripRecordForPdf {
   id: string
@@ -266,12 +267,12 @@ export function generateSupervisorMileagePdf(options: SupervisorPdfOptions): Sup
     const mileageVal = miles * rate
     const total = Number(t.total_reimbursement) || (mileageVal + extras)
 
-    const cleanOrig = (t.origin_name || '')
-      .replace('Tacos Gavilan ', '')
+    const cleanOrig = stripStoreNumberTokensInText(t.origin_name || '')
+      .replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-–—:]?\s*/i, '')
       .replace('(Warehouse - 5182 Malabar St, Vernon)', '(Warehouse)')
       .trim()
-    const cleanDest = (t.destination_name || '')
-      .replace('Tacos Gavilan ', '')
+    const cleanDest = stripStoreNumberTokensInText(t.destination_name || '')
+      .replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-–—:]?\s*/i, '')
       .replace('(Warehouse - 5182 Malabar St, Vernon)', '(Warehouse)')
       .trim()
     const routeText = `${cleanOrig} -> ${cleanDest}`

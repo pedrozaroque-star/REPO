@@ -31,6 +31,7 @@ import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { EVALUATION_SECTIONS } from './StaffEvaluationReviewModal'
 
 export const STORE_ROLES = [
@@ -151,7 +152,7 @@ export default function StaffEvaluationForm({
                 latitude: store.latitude ? parseFloat(store.latitude) : null,
                 longitude: store.longitude ? parseFloat(store.longitude) : null
             }))
-            setStores(mapped)
+            setStores(sortStoresAlphabetically(mapped, (s) => s.name))
         } catch (err) {
             console.error('Error fetching stores:', err)
         }
@@ -281,7 +282,7 @@ export default function StaffEvaluationForm({
             const storeId = isCorporate ? null : parseInt(selectedStore, 10)
             const locationName = isCorporate
                 ? (isEs ? 'Oficina Central / Corporativo' : 'Corporate / Central Office')
-                : (currentStore ? formatStoreName(currentStore.name) : `Tienda ${selectedStore}`)
+                : (currentStore ? formatStoreName(currentStore.name) : (formatStoreDisplayName(selectedStore) || 'Sucursal'))
 
             const finalRole = selectedRole === 'Otro' ? (customRole.trim() || 'Otro') : selectedRole
 

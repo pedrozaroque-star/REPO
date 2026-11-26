@@ -39,6 +39,7 @@ import { useLanguage } from '@/lib/i18n'
 import { ChainAuditData, PayrollReportData, StoreAuditData, StoreOption } from './types'
 import { RonosTabId } from './RonosHeader'
 import { detectTodayAnomalies } from './helpers'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 interface RonosHomeTabProps {
   chainData: ChainAuditData | null
@@ -88,7 +89,11 @@ export default function RonosHomeTab({
       }
     }
 
-    return { withIssues, inOrder, insufficient }
+    return {
+      withIssues: sortStoresAlphabetically(withIssues, (s) => s.isBodega ? `Bodega ${s.storeName}` : s.storeName),
+      inOrder: sortStoresAlphabetically(inOrder, (s) => s.isBodega ? `Bodega ${s.storeName}` : s.storeName),
+      insufficient: sortStoresAlphabetically(insufficient, (s) => s.isBodega ? `Bodega ${s.storeName}` : s.storeName),
+    }
   }, [chainData?.stores, (chainData as any)?.failedStores])
 
   // 2. INCIDENCIAS DE CHECADOR Y TARJETAS
@@ -411,7 +416,7 @@ export default function RonosHomeTab({
                     className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]"
                   >
                     <span className="font-bold text-slate-700 dark:text-slate-200 truncate">
-                      #{st.tegStoreId} · {st.storeName}
+                      {formatStoreDisplayName(st.storeName)}
                     </span>
                     <span className="text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
                       ✓ {t('ronos.summary.in_order') || 'En regla'}
@@ -490,7 +495,7 @@ export default function RonosHomeTab({
                         className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px]"
                       >
                         <span className="font-bold text-slate-800 dark:text-slate-200">
-                          #{st.tegStoreId} · {st.storeName}
+                          {formatStoreDisplayName(st.storeName)}
                         </span>
                         <span className="text-slate-400 italic">{t('ronos.summary.no_data_label') || 'Sin datos'}</span>
                       </div>
@@ -597,7 +602,7 @@ export default function RonosHomeTab({
                 {storesAnalysis.withIssues.map((st) => (
                   <tr key={st.ronosCompanyId} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50">
                     <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
-                      #{st.tegStoreId} · {st.storeName}
+                      {formatStoreDisplayName(st.storeName)}
                     </td>
                     <td className="py-3 px-3 text-center font-mono">
                       {st.totalEmployees}
@@ -633,7 +638,7 @@ export default function RonosHomeTab({
               <div key={st.ronosCompanyId} className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-black text-sm text-slate-900 dark:text-white">
-                    #{st.tegStoreId} · {st.storeName}
+                    {formatStoreDisplayName(st.storeName)}
                   </span>
                   <span className="text-xs font-mono text-slate-400">
                     {st.totalEmployees} {t('ronos.payroll.employees_count') || 'colabs'}

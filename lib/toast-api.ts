@@ -250,7 +250,7 @@ export async function getToastRestaurants(token: string) {
 }
 
 // --- HELPER: GET DINING OPTIONS MAP ---
-async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
+export async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
     try {
         const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
         const res = await fetch(url.toString(), {

@@ -64,6 +64,7 @@ import { useWeather } from './hooks/useWeather'
 import { useActualStats } from './hooks/useActualStats' // NEW
 import { WeatherIcon } from './components/WeatherIcon'
 import { User as UserIcon } from 'lucide-react'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 function getPlannerAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -510,7 +511,8 @@ export default function SchedulePlanner() {
             const { data: storesData } = await storeQuery
 
             if (storesData) {
-                setStores(storesData)
+                const sortedStores = sortStoresAlphabetically(storesData, (s: any) => s.name)
+                setStores(sortedStores)
                 if (storesData.length > 0) {
                     // PERSISTENCE LOGIC: Prefer URL -> LocalStorage -> Default
                     const savedStore = searchParams?.get('store') || localStorage.getItem('planner_store')
@@ -522,8 +524,8 @@ export default function SchedulePlanner() {
                         setSelectedStoreId(String(matchedStore.id))
                     } else {
                         // Default to Lynwood or first
-                        const lynwood = storesData.find((s: any) => s.name.toLowerCase().includes('lynwood'));
-                        setSelectedStoreId(String(lynwood ? lynwood.id : storesData[0].id));
+                        const lynwood = sortedStores.find((s: any) => s.name.toLowerCase().includes('lynwood'));
+                        setSelectedStoreId(String(lynwood ? lynwood.id : sortedStores[0].id));
                     }
                 }
             }

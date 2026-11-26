@@ -6,7 +6,7 @@
  *
  * @businessRules
  * - Marca oficial: Tacos Gavilan (estrictamente).
- * - 15 sucursales activas numeradas del 1 al 16 (la tienda #2 no está activa en Viele).
+ * - 15 sucursales activas con nombres limpios sin prefijos `#` y exportación canónica en orden alfabético (`VIELE_PUBLIC_STORES_SORTED`).
  * - NO incluye contraseñas, correos electrónicos ni secretos.
  *
  * @dataFlow
@@ -16,7 +16,10 @@
  * @notes
  * - [2026-09-21] Creado para aislar completamente las credenciales privadas (que residen en lib/viele-credentials-server.ts)
  *   y evitar que Next.js incluya secretos en los bundles de JavaScript del cliente.
+ * - [2026-11-24] Añadido `VIELE_PUBLIC_STORES_SORTED` y `getVieleStoresSorted()` para garantizar orden alfabético A–Z independiente del orden de llaves numéricas de ECMAScript.
  */
+
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display';
 
 export interface VielePublicStore {
   storeId: number;
@@ -25,22 +28,31 @@ export interface VielePublicStore {
 }
 
 export const VIELE_PUBLIC_STORES: Record<number, VielePublicStore> = {
-  1: { storeId: 1, storeName: 'Rialto', sageCustomerCode: '00ELG1' },
-  3: { storeId: 3, storeName: 'West Covina', sageCustomerCode: '00ELGA10' },
   4: { storeId: 4, storeName: 'Azusa', sageCustomerCode: '00ELG8' },
+  13: { storeId: 13, storeName: 'Bell', sageCustomerCode: '00ELGA4' },
+  16: { storeId: 16, storeName: 'Downey', sageCustomerCode: '00ELGA7' },
+  8: { storeId: 8, storeName: 'Hollywood', sageCustomerCode: '00ELGA70' },
+  11: { storeId: 11, storeName: 'Huntington Park', sageCustomerCode: '00ELG24' },
   5: { storeId: 5, storeName: 'LA Broadway', sageCustomerCode: '00ELG4' },
   6: { storeId: 6, storeName: 'LA Central', sageCustomerCode: '00ELG' },
-  7: { storeId: 7, storeName: 'Slauson', sageCustomerCode: '00ELG306' },
-  8: { storeId: 8, storeName: 'Hollywood', sageCustomerCode: '00ELGA70' },
-  9: { storeId: 9, storeName: 'Santa Ana', sageCustomerCode: '00ELGA1' },
   10: { storeId: 10, storeName: 'La Puente', sageCustomerCode: '00ELGA13' },
-  11: { storeId: 11, storeName: 'Huntington Park', sageCustomerCode: '00ELG24' },
-  12: { storeId: 12, storeName: 'Norwalk', sageCustomerCode: '00ELGA109' },
-  13: { storeId: 13, storeName: 'Bell', sageCustomerCode: '00ELGA4' },
   14: { storeId: 14, storeName: 'Lynwood', sageCustomerCode: '00ELG3' },
+  12: { storeId: 12, storeName: 'Norwalk', sageCustomerCode: '00ELGA109' },
+  1: { storeId: 1, storeName: 'Rialto', sageCustomerCode: '00ELG1' },
+  9: { storeId: 9, storeName: 'Santa Ana', sageCustomerCode: '00ELGA1' },
+  7: { storeId: 7, storeName: 'Slauson', sageCustomerCode: '00ELG306' },
   15: { storeId: 15, storeName: 'South Gate', sageCustomerCode: '00ELGA5' },
-  16: { storeId: 16, storeName: 'Downey', sageCustomerCode: '00ELGA7' }
+  3: { storeId: 3, storeName: 'West Covina', sageCustomerCode: '00ELGA10' }
 };
+
+export const VIELE_PUBLIC_STORES_SORTED: ReadonlyArray<VielePublicStore> = sortStoresAlphabetically(
+  Object.values(VIELE_PUBLIC_STORES),
+  (s) => s.storeName
+);
+
+export function getVieleStoresSorted(): VielePublicStore[] {
+  return [...VIELE_PUBLIC_STORES_SORTED];
+}
 
 /**
  * Formatea fecha YYYY-MM-DD al formato MM/DD/YYYY requerido por ClearNine
@@ -114,32 +126,30 @@ export function formatNumber(val: number | null | undefined): string {
 /**
  * Valida si un storeId coincide con el scope de un usuario (id, array de ids, o nombres de tienda)
  */
-export function matchStoreIdWithScope(storeId: number, scope: any): boolean {
+export function matchStoreIdWithScope(storeId: number, scope: unknown): boolean {
   if (!scope) return false;
   const store = VIELE_PUBLIC_STORES[storeId];
   if (!store) return false;
+  const cleanName = store.storeName.toUpperCase();
+
+  const matchesSingle = (entry: unknown): boolean => {
+    if (typeof entry === 'number') return entry === storeId;
+    if (typeof entry === 'string') {
+      const s = entry.trim().toUpperCase();
+      if (!s) return false;
+      if (s === String(storeId)) return true;
+      const entryDisplay = formatStoreDisplayName(entry).toUpperCase();
+      if (entryDisplay && (entryDisplay === cleanName || entryDisplay.includes(cleanName) || cleanName.includes(entryDisplay))) {
+        return true;
+      }
+      return s.includes(cleanName) || cleanName.includes(s);
+    }
+    return false;
+  };
 
   if (Array.isArray(scope)) {
-    return scope.some(entry => {
-      if (typeof entry === 'number') return entry === storeId;
-      if (typeof entry === 'string') {
-        const s = entry.trim().toUpperCase();
-        if (s === String(storeId)) return true;
-        const cleanName = store.storeName.toUpperCase();
-        if (s.includes(cleanName) || cleanName.includes(s)) return true;
-      }
-      return false;
-    });
+    return scope.some(matchesSingle);
   }
-  if (typeof scope === 'string') {
-    const s = scope.trim().toUpperCase();
-    if (s === String(storeId)) return true;
-    const cleanName = store.storeName.toUpperCase();
-    return s.includes(cleanName) || cleanName.includes(s);
-  }
-  if (typeof scope === 'number') {
-    return scope === storeId;
-  }
-  return false;
+  return matchesSingle(scope);
 }
 

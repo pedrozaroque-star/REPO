@@ -25,6 +25,7 @@ import { Heart, Send, CheckCircle2, MapPin, Globe } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { formatCustomerStoreName } from '@/lib/customer-store-names'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
@@ -249,7 +250,7 @@ export default function FeedbackPublicoPage() {
                 <select required value={selectedStore} onChange={e => setSelectedStore(e.target.value)}
                   className="w-full p-6 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-[2rem] font-black text-xl text-gray-700 dark:text-white outline-none focus:ring-4 focus:ring-red-50 dark:focus:ring-red-900/20 transition-all appearance-none">
                   <option value="" className="dark:bg-slate-900">{t.storePlaceholder}</option>
-                  {stores.map(s => <option key={s.id} value={s.id} className="dark:bg-slate-900">{formatCustomerStoreName(s, lang) || formatStoreName(s.name)}</option>)}
+                  {sortStoresAlphabetically(stores, (s) => formatCustomerStoreName(s, lang) || formatStoreName(s.name)).map(s => <option key={s.id} value={s.id} className="dark:bg-slate-900">{formatCustomerStoreName(s, lang) || formatStoreName(s.name)}</option>)}
                 </select>
                 <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300 dark:text-slate-600">▼</div>
               </div>

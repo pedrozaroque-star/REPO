@@ -35,6 +35,7 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import { StoreOption, WorkWeekOption, BiWeeklyPeriod } from './types'
 import { formatUsaDate } from './helpers'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 export type RonosTabId = 'summary' | 'attendance' | 'payroll' | 'team' | 'admin'
 
@@ -85,8 +86,9 @@ export default function RonosHeader({
       return t('ronos.all_stores') || 'Todas las Tiendas (Cadena)'
     }
     const store = stores.find(s => s.ronosCompanyId === selectedCompanyId)
-    if (!store) return `Tienda #${selectedCompanyId}`
-    return `${store.tegName} (#${store.tegStoreId})${store.isBodega ? ' - Bodega' : ''}`
+    if (!store) return t('ronos.select_store') || 'Sucursal'
+    const cleanName = formatStoreDisplayName(store.tegName)
+    return `${cleanName}${store.isBodega && !/bodega/i.test(cleanName) ? ' - Bodega' : ''}`
   }, [selectedCompanyId, stores, t])
 
   // Etiqueta del período exacto
@@ -208,11 +210,14 @@ export default function RonosHeader({
               <option value={0}>
                 {t('ronos.all_stores') || 'Todas las Tiendas (Cadena)'}
               </option>
-              {stores.map(st => (
-                <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
-                  #{st.tegStoreId} · {st.tegName} {st.isBodega ? '(Bodega)' : ''}
-                </option>
-              ))}
+              {sortStoresAlphabetically(stores, (st) => st.isBodega ? `Bodega ${st.tegName}` : st.tegName).map(st => {
+                const cleanName = formatStoreDisplayName(st.tegName)
+                return (
+                  <option key={st.ronosCompanyId} value={st.ronosCompanyId}>
+                    {cleanName}{st.isBodega && !/bodega/i.test(cleanName) ? ' (Bodega)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </div>
 

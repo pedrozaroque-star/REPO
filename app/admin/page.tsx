@@ -21,6 +21,7 @@ import { ShieldCheck, Trophy, ClipboardList, LogOut, Store as StoreIcon, Star, H
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { formatDateLA } from '@/lib/checklistPermissions'
 import { fetchWithAuth } from '@/lib/supabase'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 interface Feedback {
@@ -79,7 +80,14 @@ function AdminPanelContent() {
 
       const res = await fetchWithAuth(`${url}/rest/v1/stores?select=id,name&order=name.asc`)
       const data = await res.json()
-      setStores(Array.isArray(data) ? data : [])
+      setStores(
+        Array.isArray(data)
+          ? sortStoresAlphabetically(
+              data.map((s: any) => ({ ...s, name: formatStoreDisplayName({ id: s.id, name: s.name }) || s.name })),
+              (s) => s.name
+            )
+          : []
+      )
     } catch (err) {
       console.error('Error:', err)
     }
@@ -100,7 +108,7 @@ function AdminPanelContent() {
       const rawStores = await storesRes.json()
       const storesData = Array.isArray(rawStores) ? rawStores : []
       const storeMap = new Map<string, string>(
-        storesData.map((s: any) => [String(s.id), String(s.name)])
+        storesData.map((s: any) => [String(s.id), formatStoreDisplayName({ id: s.id, name: s.name }) || String(s.name)])
       )
 
       const feedbacksWithNames: Feedback[] = data.map((f: any) => ({
@@ -392,7 +400,7 @@ function AdminPanelContent() {
                     >
                       <option value="all" className="dark:bg-slate-900">Todas las tiendas</option>
                       {stores.map(store => (
-                        <option key={store.id} value={String(store.id)} className="dark:bg-slate-900">{store.name}</option>
+                        <option key={store.id} value={String(store.id)} className="dark:bg-slate-900">{formatStoreDisplayName({ id: store.id, name: store.name })}</option>
                       ))}
                     </select>
                   </div>

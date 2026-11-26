@@ -7,7 +7,7 @@
  * - Estatus Automático (+2h): Si una orden cumple 2 horas o más desde su apertura sin ser recogida por ningún chofer, cambia automáticamente a UNCLAIMED_2H.
  * - Sin Evidencia Fotográfica: Se eliminaron completamente los botones de Expediente y captura de fotografías operativas.
  * @dataFlow Supabase `delivery_packing_audits` & `stores` -> API `/api/delivery-armor/disputes` -> BovedaDisputas UI
- * @notes Piloto inicial en Slauson (#7) y LA Central (#6). Estilo adaptado al diseño claro oficial de Tacos Gavilan con soporte de modo oscuro.
+ * @notes Habilitado para las 15 sucursales de Tacos Gavilan ordenadas alfabéticamente y sin número `#`. Estilo adaptado al diseño claro oficial de Tacos Gavilan con soporte de modo oscuro.
  */
 
 'use client'
@@ -15,6 +15,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import {
   ShieldCheck,
   CheckCircle2,
@@ -114,8 +115,21 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
   const pilotStores = useMemo(
     () => [
       { id: 0, name: t('blindaje_delivery.all_stores') },
-      { id: 7, name: 'Slauson (#7)' },
-      { id: 6, name: 'LA Central (#6)' }
+      { id: 4, name: 'Azusa' },
+      { id: 13, name: 'Bell' },
+      { id: 16, name: 'Downey' },
+      { id: 8, name: 'Hollywood' },
+      { id: 11, name: 'Huntington Park' },
+      { id: 5, name: 'LA Broadway' },
+      { id: 6, name: 'LA Central' },
+      { id: 10, name: 'La Puente' },
+      { id: 14, name: 'Lynwood' },
+      { id: 12, name: 'Norwalk' },
+      { id: 1, name: 'Rialto' },
+      { id: 9, name: 'Santa Ana' },
+      { id: 7, name: 'Slauson' },
+      { id: 15, name: 'South Gate' },
+      { id: 3, name: 'West Covina' }
     ],
     [t]
   )
@@ -199,7 +213,9 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
       const normalizedAudits: DeliveryAuditRow[] = rawAudits.map((a: any) => ({
         id: a.id,
         store_id: a.store_id,
-        store_name: a.stores?.name || a.store_name || `${t('blindaje_delivery.store_fallback')} #${a.store_id}`,
+        store_name:
+          formatStoreDisplayName({ id: a.store_id, name: a.stores?.name || a.store_name }) ||
+          t('blindaje_delivery.store_fallback'),
         order_guid: a.toast_order_guid || a.order_guid,
         toast_order_id: a.toast_order_guid || a.toast_order_id,
         ticket_number: a.toast_display_number || a.ticket_number || 'S/N',
@@ -347,7 +363,11 @@ export default function BovedaDisputasBlindajeDeliveryPage() {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/admin/blindaje-delivery/empaque"
+              href={
+                selectedStoreId > 0
+                  ? `/admin/blindaje-delivery/empaque?storeId=${selectedStoreId}`
+                  : '/admin/blindaje-delivery/empaque'
+              }
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md shadow-red-500/20 transition-all active:scale-95"
             >
               <ShoppingBag className="w-4 h-4" />

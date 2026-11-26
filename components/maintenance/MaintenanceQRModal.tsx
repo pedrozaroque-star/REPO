@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 interface Store {
   id: string
@@ -344,7 +345,7 @@ export default function MaintenanceQRModal({
                 <option value="generic">
                   🌐 {t('maintenance.qr_generic_option')}
                 </option>
-                {stores.map((s) => (
+                {sortStoresAlphabetically(stores, (s) => s.name).map((s) => (
                   <option key={s.id} value={s.id}>
                     📍 {formatStoreName(s.name)}{s.address ? ` — ${s.address}` : ''}
                   </option>

@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { fetchToastData } from '@/lib/toast-api'
+import { formatStoreDisplayName, getInternalStoreNameById, sortStoresAlphabetically } from '@/lib/store-display'
 import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 import {
   FOOD_COST_HEALTHY_MAX_PCT,
@@ -217,7 +218,7 @@ export async function GET(req: NextRequest) {
 
     // Build store numeric ID → name map
     const storeNameMap: Record<number, string> = {}
-    stores.forEach(s => { storeNameMap[s.id] = (s.name || '').replace(/^Tacos Gavilan\s+/i, '').trim() })
+    stores.forEach(s => { storeNameMap[s.id] = formatStoreDisplayName(s) || (s.name || '').trim() })
 
     // ══════════════════════════════════════════════════
     // Build OWNERSHIP map: supervisor_id → store_ids[]
@@ -236,7 +237,7 @@ export async function GET(req: NextRequest) {
     // ══════════════════════════════════════════════════
     const laborByStore: Record<string, { sales: number; labor: number; storeId: string }> = {}
     sales.forEach(r => {
-      const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
+      const name = formatStoreDisplayName(r.store_name) || (r.store_name || '').trim()
       if (!laborByStore[name]) laborByStore[name] = { sales: 0, labor: 0, storeId: r.store_id }
       laborByStore[name].sales += Number(r.net_sales) || 0
       laborByStore[name].labor += Number(r.labor_cost) || 0
@@ -262,7 +263,7 @@ export async function GET(req: NextRequest) {
       const rowCost = resolveCachedFoodCostDollars(r)
       const rowSales = Number(r.net_sales) || 0
       if (isInvalidFoodCostCacheRow(rowCost, rowSales)) return
-      const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
+      const name = formatStoreDisplayName(r.store_name) || (r.store_name || '').trim()
       if (!name) return
       if (!fcByStore[name]) fcByStore[name] = { cost: 0, sales: 0, storeId: r.store_id }
       fcByStore[name].cost += rowCost
@@ -318,7 +319,7 @@ export async function GET(req: NextRequest) {
     // Build previous period total per store (pro-rating the lookback day corresponding to Today if Today is still in progress)
     const prevByStore: Record<string, { totalSales: number; storeId: string }> = {}
     histSales.forEach(r => {
-      const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
+      const name = formatStoreDisplayName(r.store_name) || (r.store_name || '').trim()
       if (!prevByStore[name]) prevByStore[name] = { totalSales: 0, storeId: r.store_id }
       let dayNetSales = Number(r.net_sales) || 0
       if (includesTodayInProgress && r.business_date === lbEndStr) {
@@ -421,7 +422,11 @@ export async function GET(req: NextRequest) {
 
     const inspectionCompliance = supervisors.map(sup => {
       const ownedStoreIds = supOwnedStores[sup.id] || []
-      const ownedStoreNames = ownedStoreIds.map(id => storeNameMap[id] || `Store #${id}`)
+      const ownedStoreNames = sortStoresAlphabetically(
+        ownedStoreIds.map(id => storeNameMap[id] || getInternalStoreNameById(id) || 'Sucursal'),
+        undefined,
+        { pinSpecialFirst: false }
+      )
 
       // Per-date detail
       const dailyDetail: {
@@ -452,7 +457,11 @@ export async function GET(req: NextRequest) {
         const schedule = supScheduleByDate[sup.id]?.[date]
         const wasScheduled = !!schedule
         const inspectedOnDate = supInspByDate[sup.id]?.[date] || new Set<number>()
-        const inspectedNames = [...inspectedOnDate].map(id => storeNameMap[id] || `Store #${id}`)
+        const inspectedNames = sortStoresAlphabetically(
+          [...inspectedOnDate].map(id => storeNameMap[id] || getInternalStoreNameById(id) || 'Sucursal'),
+          undefined,
+          { pinSpecialFirst: false }
+        )
 
         // Mark all inspected stores
         inspectedNames.forEach(n => allInspectedStores.add(n))
@@ -468,18 +477,26 @@ export async function GET(req: NextRequest) {
           return
         }
 
-        const scheduledStoreName = storeNameMap[schedule.store_id] || `Store #${schedule.store_id}`
+        const scheduledStoreName = storeNameMap[schedule.store_id] || getInternalStoreNameById(schedule.store_id) || 'Sucursal'
         const startShort = schedule.start_time ? schedule.start_time.slice(0, 5) : null
         const endShort = schedule.end_time ? schedule.end_time.slice(0, 5) : null
         const shift = startShort && endShort ? `${startShort} - ${endShort}` : null
 
         // Check: did the supervisor inspect at least one of their OWNED stores this day?
-        const ownedInspected = ownedStoreIds
-          .filter(id => inspectedOnDate.has(id))
-          .map(id => storeNameMap[id] || `Store #${id}`)
-        const ownedMissing = ownedStoreIds
-          .filter(id => !inspectedOnDate.has(id))
-          .map(id => storeNameMap[id] || `Store #${id}`)
+        const ownedInspected = sortStoresAlphabetically(
+          ownedStoreIds
+            .filter(id => inspectedOnDate.has(id))
+            .map(id => storeNameMap[id] || getInternalStoreNameById(id) || 'Sucursal'),
+          undefined,
+          { pinSpecialFirst: false }
+        )
+        const ownedMissing = sortStoresAlphabetically(
+          ownedStoreIds
+            .filter(id => !inspectedOnDate.has(id))
+            .map(id => storeNameMap[id] || getInternalStoreNameById(id) || 'Sucursal'),
+          undefined,
+          { pinSpecialFirst: false }
+        )
 
         const dayCompliant = ownedInspected.length > 0
 
@@ -515,7 +532,11 @@ export async function GET(req: NextRequest) {
 
       // Extra stores (inspected but not owned)
       const ownedNames = new Set(ownedStoreNames)
-      const extraStores = [...allInspectedStores].filter(n => !ownedNames.has(n))
+      const extraStores = sortStoresAlphabetically(
+        [...allInspectedStores].filter(n => !ownedNames.has(n)),
+        undefined,
+        { pinSpecialFirst: false }
+      )
 
       // If supervisor had 0 scheduled days due in this period (e.g. vacation, day off, or shift still in progress today), they are 100% compliant (never trigger alert)
       const compliancePct = totalScheduledDays > 0
@@ -535,9 +556,9 @@ export async function GET(req: NextRequest) {
         supervisorId: sup.id,
         ownedStores: ownedStoreNames,
         scheduledStores: ownedStoreNames, // Legacy compat: these are their owned stores
-        inspectedStores: [...allInspectedStores],
+        inspectedStores: sortStoresAlphabetically([...allInspectedStores], undefined, { pinSpecialFirst: false }),
         extraStores,
-        missingStores: [...allMissingStores],
+        missingStores: sortStoresAlphabetically([...allMissingStores], undefined, { pinSpecialFirst: false }),
         totalScheduled: totalScheduledDays,
         totalInspected: totalCompliantDays,
         totalInspections: allInspectedStores.size,
@@ -596,7 +617,7 @@ export async function GET(req: NextRequest) {
         portionControlAlerts = pcRows.map((r: any) => ({
           id: String(r.id),
           storeId: String(r.store_id),
-          store: (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim(),
+          store: formatStoreDisplayName(r.store_name) || getInternalStoreNameById(r.store_id) || (r.store_name || '').trim(),
           meatKey: String(r.meat_key || 'asada'),
           meatName: String(r.meat_name || 'Carne Asada'),
           severity: r.severity === 'critical' ? 'critical' : 'warning',

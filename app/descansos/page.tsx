@@ -62,6 +62,7 @@ import {
 } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 const START_HOUR = 6 // 6 AM
 const END_HOUR = 30  // 6 AM Next Day (cubre turnos hasta 5:59 AM, fin de día laboral)
@@ -1123,7 +1124,7 @@ export default function DescansosPage() {
             const { data: storesData } = await storeQuery
 
             if (storesData) {
-                setStores(storesData)
+                setStores(sortStoresAlphabetically(storesData, (s: any) => s.name))
                 if (storesData.length > 0) {
                     const storeParam = searchParams?.get('store') || localStorage.getItem('planner_store')
                     const matchedStore = storeParam ? storesData.find((s: any) => String(s.id) === storeParam || String(s.external_id) === storeParam) : null

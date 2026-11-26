@@ -32,6 +32,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import {
   SafeCount, SafeCountFormData, SafeCountWithDiff,
   BILL_VALUES, ROLL_VALUES, DEFAULT_DRAWER_STOCK,
@@ -366,7 +367,7 @@ function CajaFuerteContent() {
         })
         const data = await res.json()
         if (Array.isArray(data)) {
-          setStores(data.map((s: any) => ({ id: s.id, name: s.name })))
+          setStores(sortStoresAlphabetically(data.map((s: any) => ({ id: s.id, name: formatStoreName(s.name) })), (s) => s.name))
         }
       } catch (err) {
         console.error('[CajaFuerte] Error fetching stores:', err)

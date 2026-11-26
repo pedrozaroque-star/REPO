@@ -27,6 +27,7 @@ import Link from 'next/link'
 import { ChevronLeft, ChevronRight, CheckCircle2, CheckCircle, Circle, AlertCircle, PlayCircle, Loader2, Settings, Sparkles, AlertTriangle, Clock, XCircle, Send } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 interface Store {
   id: string
@@ -126,11 +127,14 @@ export default function AccountingPage() {
 
       if (storesError) throw new Error(storesError.message)
 
-      // Strip 'Tacos Gavilan' prefix for display
-      const formattedStores = (storesData || []).map(s => ({
-        ...s,
-        name: s.name.replace(/^Tacos Gavilan\s*-\s*/i, '').replace(/^Tacos Gavilan\s*/i, '')
-      }))
+      // Strip 'Tacos Gavilan' & '#' prefixes and sort A-Z for display
+      const formattedStores = sortStoresAlphabetically(
+        (storesData || []).map(s => ({
+          ...s,
+          name: formatStoreDisplayName(s.name)
+        })),
+        (s) => s.name
+      )
       setStores(formattedStores)
 
       // Fetch packets

@@ -42,6 +42,7 @@ import {
 import { useLanguage } from '@/lib/i18n'
 import { PayrollReportData, CingularEmployeeItem } from './types'
 import { formatCurrency } from './helpers'
+import { compareStoreNamesAlphabetically, formatStoreDisplayName } from '@/lib/store-display'
 
 interface PayrollReconciliationTabProps {
   payrollData: PayrollReportData | null
@@ -106,7 +107,7 @@ export default function PayrollReconciliationTab({
       counts.set(site, (counts.get(site) || 0) + 1)
     }
     return [...counts.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+      .sort((a, b) => compareStoreNamesAlphabetically(a[0].replace(/^TEG\s*-\s*/i, ''), b[0].replace(/^TEG\s*-\s*/i, '')))
       .map(([siteName, count]) => ({ siteName, count }))
   }, [selectedCompanyId, payrollData?.employees])
 
@@ -466,7 +467,7 @@ export default function PayrollReconciliationTab({
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
                 }`}
               >
-                {siteName.replace(/^TEG\s*-\s*/i, '')} ({count})
+                {formatStoreDisplayName(siteName.replace(/^TEG\s*-\s*/i, ''))} ({count})
               </button>
             ))}
           </div>

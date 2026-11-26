@@ -11,6 +11,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
 import FeedbackLeaderboardModal from '@/components/FeedbackLeaderboardModal'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 function FeedbackContent() {
   const router = useRouter()
@@ -130,7 +131,7 @@ function FeedbackContent() {
 
       // Obtener tiendas
       const { data: storesData } = await supabase.from('stores').select('*')
-      setStores(storesData || [])
+      setStores(sortStoresAlphabetically(storesData || [], (s: any) => s.name))
 
       // Resolver storeFilter si viene por nombre en vez de ID
       let effectiveStoreFilter = storeFilter

@@ -17,6 +17,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
 import { supabase, formatStoreName } from '@/lib/supabase'
+import { compareStoreNamesAlphabetically, sortStoresAlphabetically } from '@/lib/store-display'
 import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight, ShieldAlert, Target, Info, X } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts'
@@ -80,7 +81,7 @@ export default function AuditoriaDescuentos() {
                         'LA Broadway', 'LA Central', 'La Puente', 'Lynwood', 
                         'Norwalk', 'Rialto', 'Santa Ana', 'Slauson', 'South Gate', 'West Covina'
                     ]
-                setUniqueStores(names)
+                setUniqueStores(sortStoresAlphabetically(names))
                 const urlStore = urlParams.get('store')
                 if (urlStore && urlStore !== 'all') {
                     const exactMatch = names.find(n =>
@@ -335,8 +336,8 @@ export default function AuditoriaDescuentos() {
                 valA = new Date(a.opened_date || a.business_date).getTime();
                 valB = new Date(b.opened_date || b.business_date).getTime();
             } else if (modalSort.column === 'sucursal') {
-                valA = (a.store_name || '').toLowerCase();
-                valB = (b.store_name || '').toLowerCase();
+                const cmp = compareStoreNamesAlphabetically(a.store_name, b.store_name);
+                return modalSort.direction === 'asc' ? cmp : -cmp;
             } else if (modalSort.column === 'descuento') {
                 valA = (a.discount_name || '').toLowerCase();
                 valB = (b.discount_name || '').toLowerCase();
@@ -553,7 +554,7 @@ export default function AuditoriaDescuentos() {
                             >
                                 <option value="all">{t('descuentos.all_stores')}</option>
                                 {uniqueStores.map(s => (
-                                    <option key={s} value={s}>{s}</option>
+                                    <option key={s} value={s}>{formatStoreName(s)}</option>
                                 ))}
                             </select>
                         </div>
@@ -715,7 +716,7 @@ export default function AuditoriaDescuentos() {
                                                     <span className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">${Number(s.discount_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center mt-2">
-                                                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">{s.store_name}</span>
+                                                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">{formatStoreName(s.store_name)}</span>
                                                     <div className="flex items-center gap-1.5">
                                                         <span className="text-[10px] italic text-slate-400 hidden sm:inline-block">({realNameUsed})</span>
                                                         <span className="bg-slate-100 dark:bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded font-mono text-[10px] text-right flex flex-col justify-center leading-tight">
@@ -1004,7 +1005,7 @@ export default function AuditoriaDescuentos() {
                                                         </button>
                                                     </td>
                                                     <td className="px-5 py-3">
-                                                        <div className="font-bold text-slate-800 dark:text-slate-200 text-xs">{ticket.store_name}</div>
+                                                        <div className="font-bold text-slate-800 dark:text-slate-200 text-xs">{formatStoreName(ticket.store_name)}</div>
                                                         <div className="text-[10px] font-mono text-slate-400">{ticket.business_date}</div>
                                                     </td>
                                                     <td className="px-5 py-3 text-slate-700 dark:text-slate-300 text-xs font-semibold">{ticket.cashier}</td>
@@ -1078,7 +1079,7 @@ export default function AuditoriaDescuentos() {
                                                 )}
                                                 <div>{row.opened_date ? new Date(row.opened_date.endsWith('Z') || row.opened_date.includes('+') ? row.opened_date : row.opened_date + 'Z').toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12:true, timeZone: 'America/Los_Angeles'}) : '--:--'}</div>
                                             </td>
-                                            <td className="px-4 py-2.5 text-[11px] font-bold tracking-wide uppercase text-slate-700 dark:text-slate-300">{row.store_name}</td>
+                                            <td className="px-4 py-2.5 text-[11px] font-bold tracking-wide uppercase text-slate-700 dark:text-slate-300">{formatStoreName(row.store_name)}</td>
                                             <td className="px-4 py-2.5 font-bold text-sky-600 dark:text-sky-400 group-hover:text-amber-500 transition-colors">{row.discount_name}</td>
                                             <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">{row.approver_name || row.server_name || 'Autoservicio'}</td>
                                             <td className="px-4 py-2.5 text-[11px] font-mono font-bold text-slate-500 dark:text-slate-400">
@@ -1133,7 +1134,7 @@ export default function AuditoriaDescuentos() {
                             {orderDetailData.data && (
                                 <div className="space-y-4 text-slate-800 dark:text-slate-200">
                                     <div className="text-xs text-center border-b border-slate-200 dark:border-slate-800 pb-3">
-                                        <div className="font-bold text-[14px] uppercase tracking-wider mb-1">SUCURSAL {orderDetailData.storeName || orderDetailData.data.restaurantService?.name || 'TACOS GAVILAN'}</div>
+                                        <div className="font-bold text-[14px] uppercase tracking-wider mb-1">SUCURSAL {formatStoreName(orderDetailData.storeName || orderDetailData.data.restaurantService?.name || '') || 'TACOS GAVILAN'}</div>
                                         <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
                                         <div>{new Date(orderDetailData.data.openedDate).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}</div>
                                         <div className="mt-1">Cajero/a: <span className="font-bold">{orderDetailData.cajeraName || orderDetailData.data.server?.name || 'Automático'}</span></div>

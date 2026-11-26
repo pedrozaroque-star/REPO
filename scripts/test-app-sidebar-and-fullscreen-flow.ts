@@ -71,8 +71,10 @@ async function runTests() {
     'Rutas legales públicas separadas de /app, /app/v1 y /app/v2 protegidos con <ProtectedRoute>'
   )
   assert(
-    middlewareContent.includes("pathname === '/app'") && middlewareContent.includes("'/login'"),
-    'middleware.ts protege /app, /app/v1, /app/v2 y /ordenar redirigiendo a /login sin sesión TEG'
+    middlewareContent.includes("pathname === '/app'") &&
+      middlewareContent.includes("'/login'") &&
+      middlewareContent.includes("'/ordenar'"),
+    'middleware.ts protege /app, /app/v1 y /app/v2 redirigiendo a /login sin sesión TEG y expone /ordenar públicamente'
   )
 
   // 3. Validar app/app/page.tsx
@@ -140,13 +142,21 @@ async function runTests() {
         })
     })
 
-  for (const protectedRoute of ['/app', '/app/v1', '/app/v2', '/ordenar']) {
+  for (const protectedRoute of ['/app', '/app/v1', '/app/v2']) {
     const res = await httpCheck(protectedRoute)
     assert(
       res.status === 307 && res.location.includes('/login'),
       `HTTP GET ${protectedRoute} sin sesión responde 307 -> /login (Recibido: ${res.status} -> ${res.location})`
     )
   }
+
+  const ordenarRes = await httpCheck('/ordenar')
+  assert(
+    ordenarRes.status === 200 &&
+      ordenarRes.body.includes('Tacos Gavilan') &&
+      !ordenarRes.body.includes('__next_error__'),
+    `HTTP GET /ordenar sin sesión responde 200 OK público con hub oficial Tacos Gavilan (Recibido: ${ordenarRes.status})`
+  )
 
   for (const publicRoute of ['/app/index.html', '/app/privacy']) {
     const res = await httpCheck(publicRoute)

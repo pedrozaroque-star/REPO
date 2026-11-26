@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { verifyAuthToken, getCronSecret } from '@/lib/auth-server'
 import { sendMaintenanceServiceEmail } from '@/lib/maintenance-email'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 export const dynamic = 'force-dynamic'
 
@@ -901,16 +902,24 @@ export async function GET(request: NextRequest) {
       .select('id, name, code, city, address, is_active')
       .order('name')
 
+    const normalizedStoresList = (storesList || []).map((s: any) => ({
+      ...s,
+      name: formatStoreDisplayName(s) || s.name,
+    }))
+
     const storesMap = new Map<string, any>()
-    ;(storesList || []).forEach(s => {
+    normalizedStoresList.forEach(s => {
       storesMap.set(String(s.id), s)
     })
     storesMap.set('BODEGA', BODEGA_LOCATION)
 
-    const allStoresWithBodega = [
-      ...(storesList || []),
-      ...((storesList || []).some((s: any) => String(s.id).toUpperCase() === 'BODEGA') ? [] : [BODEGA_LOCATION])
-    ]
+    const allStoresWithBodega = sortStoresAlphabetically(
+      [
+        ...normalizedStoresList,
+        ...(normalizedStoresList.some((s: any) => String(s.id).toUpperCase() === 'BODEGA') ? [] : [BODEGA_LOCATION]),
+      ],
+      (s: any) => s.name
+    )
 
     // 2. Calcular KPIs globales en zona horaria oficial 'America/Los_Angeles' (6:00 AM)
     const todayPST = getBusinessDatePST()
@@ -995,7 +1004,7 @@ export async function GET(request: NextRequest) {
       return {
         ...log,
         has_repeat_within_30d: hasRecentRepeat,
-        store: storeInfo || { id: log.store_id, name: `Sucursal ${log.store_id}`, code: '' }
+        store: storeInfo ? { ...storeInfo, name: formatStoreDisplayName(storeInfo) || storeInfo.name } : { id: log.store_id, name: formatStoreDisplayName(log.store_id) || `Sucursal ${log.store_id}`, code: '' }
       }
     })
 
@@ -1213,7 +1222,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: insertError.message }, { status: 500 })
     }
 
-    const storeDisplayName = matchedStore.name || `Sucursal #${matchedStore.id}`
+    const storeDisplayName = formatStoreDisplayName(matchedStore) || 'Sucursal'
     const storeAddressFormatted = [matchedStore.address, matchedStore.city].filter(Boolean).join(', ') || null
 
     // 1. Generar notificación del sistema para supervisores y administradores

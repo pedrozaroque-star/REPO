@@ -22,6 +22,7 @@ import { getSupabaseClient } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { getBusinessDateISO, getCurrentShift } from '@/lib/checklistPermissions'
 
 interface Store {
@@ -77,7 +78,7 @@ function DailyChecklistContent() {
         loadedStores = loadedStores.filter(s => userScope.includes(s.code) || userScope.includes(s.name))
       }
 
-      setStores(loadedStores)
+      setStores(sortStoresAlphabetically(loadedStores, (s: any) => s.name))
 
       if (user?.role === 'asistente' && Array.isArray(userScope) && userScope.length > 0 && loadedStores.length > 0) {
         const myStoreId = loadedStores[0].id.toString()
@@ -242,7 +243,7 @@ function DailyChecklistContent() {
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
                 className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/20 transition-all">
                 <option value="">{t('checklists.form.select')}</option>
-                {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+                {stores.map(store => <option key={store.id} value={store.id}>{formatStoreDisplayName(store.name)}</option>)}
               </select>
             </div>
             <div className="space-y-2">

@@ -17,6 +17,7 @@ import { useLanguage } from '@/lib/i18n'
 import { ShiftPool } from '@/components/self-schedule/ShiftPool'
 import { ClaimModal } from '@/components/self-schedule/ClaimModal'
 import { supabase } from '@/lib/supabase'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { startOfWeek, addWeeks, addDays, format } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
 import { generateScheduleICS, CalendarShiftItem } from '@/lib/calendar-helper'
@@ -208,15 +209,20 @@ export default function MisHorariosPage() {
                 .order('name')
 
             if (allStores && allStores.length > 0) {
-                // Create store list for dropdown
-                setStoreList(allStores.map(s => ({
-                    id: s.external_id,
-                    name: s.name?.replace(/^Tacos Gavilan\s+/i, '') || 'Unknown'
-                })))
+                // Create store list for dropdown sorted A-Z
+                setStoreList(
+                    sortStoresAlphabetically(
+                        allStores.map(s => ({
+                            id: s.external_id,
+                            name: formatStoreDisplayName(s.name) || 'Unknown'
+                        })),
+                        (s) => s.name
+                    )
+                )
 
                 // Create store map for display names
                 const storeMap = new Map<string, string>()
-                allStores.forEach(s => storeMap.set(s.external_id, s.name?.replace(/^Tacos Gavilan\s+/i, '') || 'Unknown'))
+                allStores.forEach(s => storeMap.set(s.external_id, formatStoreDisplayName(s.name) || 'Unknown'))
                 setStores(storeMap)
             }
 

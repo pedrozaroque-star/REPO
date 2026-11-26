@@ -158,7 +158,16 @@ interface PhoneNoteUI {
   orderStageAtAlert: string | null
   callerName: string
   callerPhone: string | null
-  requestType: 'condiments' | 'item_modification' | 'both'
+  requestType:
+    | 'condiments'
+    | 'item_modification'
+    | 'both'
+    | 'pickup_time_change'
+    | 'wrong_store_stop'
+    | 'wrong_store_prepare'
+    | 'fiesta_platter_custom'
+  requestedPickupTime?: string | null
+  originalPickupTime?: string | null
   noteSummaryEs: string
   noteSummaryEn: string | null
   requestedCondiments: string[]

@@ -15,11 +15,13 @@
  * @notes
  * - [2026-10-26] Removido fallback `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY` para impedir cualquier exposición accidental de la llave maestra en el bundle cliente.
  * - [2026-11-21] Añadido `browserAuthFetch` con validación de `exp` sin excepciones, auto-renovación silenciosa para tabletas y sincronización Realtime.
+ * - [2026-11-24] `formatStoreName` delega a `formatStoreDisplayName` (`@/lib/store-display`) para eliminar prefijos/sufijos numéricos `#` en nombres de sucursales.
  */
 
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import path from 'path'
+import { formatStoreDisplayName, type StoreDisplayInput } from '@/lib/store-display'
 import { ensureFreshTabletAuth } from '@/lib/tablet-cache-cleaner'
 
 // Cargar variables si no existen (para scripts de backend)
@@ -197,9 +199,8 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 // ============================================================================
 // FORMATTERS
 // ============================================================================
-export const formatStoreName = (name: string | null | undefined): string => {
-  if (!name) return ''
-  return name.replace(/^Tacos Gavilan\s+/i, '').trim()
+export const formatStoreName = (name: StoreDisplayInput): string => {
+  return formatStoreDisplayName(name)
 }
 
 // ============================================================================

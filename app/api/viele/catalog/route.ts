@@ -84,7 +84,7 @@ export async function GET(req: Request) {
       if (sortError) {
         return NextResponse.json({
           success: false,
-          error: `Error al consultar membresía de la sucursal #${numericStoreId}: ${sortError.message}`
+          error: `Error al consultar membresía de la sucursal ${numericStoreId}: ${sortError.message}`
         }, { status: 500 });
       }
 

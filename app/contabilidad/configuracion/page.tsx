@@ -38,6 +38,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { formatStoreName } from '@/lib/supabase'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 import { getQBStoreRefs, QBStoreRefs } from '@/lib/qb-classes-locations'
 
 interface SiteMapping {
@@ -191,7 +192,10 @@ export default function AccountingConfigPage() {
 
       if (mappingsRes.ok) {
         const data = await mappingsRes.json()
-        const fetchedMappings: SiteMapping[] = data.mappings || []
+        const fetchedMappings: SiteMapping[] = sortStoresAlphabetically(
+          data.mappings || [],
+          (m: SiteMapping) => m.stores?.name || ''
+        )
         setMappings(fetchedMappings)
         
         // Select first store by default if none selected

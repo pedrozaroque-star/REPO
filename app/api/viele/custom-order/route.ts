@@ -29,6 +29,7 @@ import { loginViele, fetchVieleOrderGuide } from '@/lib/viele-api';
 import { getVieleStoreAccount } from '@/lib/viele-credentials-server';
 import { verifyVieleAuth } from '@/lib/viele-auth';
 import { parseVieleStoreId } from '@/lib/viele-catalog-validation';
+import { formatStoreDisplayName } from '@/lib/store-display';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -143,7 +144,7 @@ export async function PUT(req: Request) {
       success: true,
       storeId: numericStoreId,
       updatedCount: updates.length,
-      message: `Orden personalizado guardado exitosamente para la sucursal #${numericStoreId}`
+      message: `Orden personalizado guardado exitosamente para la sucursal ${formatStoreDisplayName(numericStoreId) || numericStoreId}`
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
@@ -205,7 +206,7 @@ export async function DELETE(req: Request) {
             success: true,
             storeId: numericStoreId,
             syncedItems: sortUpserts.length,
-            message: `Orden de la sucursal #${numericStoreId} restablecido al orden oficial de Viele & Sons (${sortUpserts.length} items)`
+            message: `Orden de la sucursal ${formatStoreDisplayName(numericStoreId) || numericStoreId} restablecido al orden oficial de Viele & Sons (${sortUpserts.length} items)`
           });
         }
       }

@@ -36,6 +36,7 @@ import {
   haversineDistanceMiles
 } from '@/lib/store-coordinates'
 import { getCaliforniaBusinessDate } from '@/lib/business-date'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 interface QuickDriveModalProps {
   isOpen: boolean
@@ -244,9 +245,9 @@ export default function QuickDriveModal({
                   onChange={e => setOriginStore(e.target.value)}
                   className="text-xs font-black text-slate-800 dark:text-slate-100 bg-transparent border-0 p-0 focus:ring-0 cursor-pointer truncate max-w-[200px]"
                 >
-                  {Object.keys(CANONICAL_STORE_COORDINATES).map(s => (
+                  {sortStoresAlphabetically(Object.keys(CANONICAL_STORE_COORDINATES)).map(s => (
                     <option key={s} value={s} className="dark:bg-slate-900">
-                      {s}
+                      {formatStoreDisplayName(s)}
                     </option>
                   ))}
                 </select>
@@ -317,7 +318,7 @@ export default function QuickDriveModal({
                   >
                     <div className="min-w-0 pr-2">
                       <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 truncate">
-                        {dest.name.replace('Tacos Gavilan ', '')}
+                        {formatStoreDisplayName(dest.name)}
                       </h4>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                         {dest.dist > 0 ? `${dest.dist} mi • ~$${(dest.dist * 0.76).toFixed(2)}` : 'Distancia estándar'}

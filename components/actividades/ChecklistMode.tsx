@@ -36,6 +36,7 @@ import { useLanguage } from '@/lib/i18n'
 import { useWakeLock } from '@/lib/use-wake-lock'
 import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
 import { calculateStoreOffsetsForDate, type StoreOffsets } from '@/lib/store-time-offset'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import {
   resolveStoreCatalogActivitiesForDay,
   resolveChecklistActivityResponsibility,
@@ -348,7 +349,11 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
         return
       }
       if (data) {
-        setStores(data as StoreInfo[])
+        const sorted = sortStoresAlphabetically(
+          (data as StoreInfo[]).map((s) => ({ ...s, name: formatStoreDisplayName(s.name) })),
+          (s) => s.name
+        )
+        setStores(sorted)
         const userStoreId = user?.store_id
         const savedStoreId = typeof window !== 'undefined' ? (localStorage.getItem('actividades_store_id') || localStorage.getItem('planner_store')) : null
         const matchedUserStore = userStoreId
@@ -364,8 +369,8 @@ export default function ChecklistMode({ onClose }: ChecklistModeProps) {
           setSelectedStoreId(String(matchedSavedStore.id))
         } else if (matchedUserStore) {
           setSelectedStoreId(String(matchedUserStore.id))
-        } else if (data.length > 0) {
-          setSelectedStoreId(String(data[0].id))
+        } else if (sorted.length > 0) {
+          setSelectedStoreId(String(sorted[0].id))
         }
       }
     }

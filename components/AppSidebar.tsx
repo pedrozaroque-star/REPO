@@ -832,6 +832,16 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         ? 'Real-time infrastructure health, Supabase disk vs 8GB spend cap, and automated email alerts (Guardián del Sistema)'
                         : 'Monitoreo en tiempo real de infraestructura, almacenamiento vs Spend Cap y alertas automáticas por correo'
                 },
+                {
+                    name: t('items.remote_control'),
+                    plainName: 'Control Remoto PCs',
+                    path: '/admin/control-remoto',
+                    icon: <Monitor size={20} />,
+                    roles: ['admin'],
+                    tooltip: language === 'en'
+                        ? 'Remote control of Windows PCs, Android tablets, and Menu TVs across all 15 stores (Action1 + TEG Watchdog)'
+                        : 'Control remoto de PCs Windows, tabletas Android y TVs de las 15 sucursales (Action1 + TEG Watchdog)'
+                },
             ]
         }
     ]
