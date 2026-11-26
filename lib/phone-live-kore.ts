@@ -97,7 +97,9 @@ import {
 import {
   buildCompactWeeklyHours,
   buildCrossStoreHoursComparison,
+  buildEffectiveNext7DaysForStore,
   buildEffectiveUpcomingHolidaysForStore,
+  resolveRequestedDateForStore,
   buildInitialGreeting,
   buildLiveMenuCatalogText,
   cleanPhoneStoreName,
@@ -178,10 +180,15 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'get_store_hours_and_status',
     behavior: 'BLOCKING',
     description:
-      'Consulta en vivo el estado abierto/cerrado, horario semanal y próximos días festivos de esta sucursal.',
+      'Consulta en vivo el estado abierto/cerrado, el calendario real de los próximos 7 días (HOY, MAÑANA, PASADO MAÑANA con festivos ya aplicados), próximos festivos con fechas exactas y horario semanal regular de esta sucursal.',
     parameters: {
       type: 'OBJECT',
-      properties: {}
+      properties: {
+        requested_date: {
+          type: 'STRING',
+          description: "Opcional: 'today', 'tomorrow', 'day_after_tomorrow', día ('jueves'/'viernes'), festivo ('thanksgiving'/'black friday') o 'YYYY-MM-DD'."
+        }
+      }
     }
   },
   {
@@ -477,12 +484,18 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
   const { store, config, scheduleEval, knowledgeBase } = ctx
   const ptNow = getPacificDateParts()
   const breakfastWin = isKoreBreakfastOpen()
+  const next7Days = buildEffectiveNext7DaysForStore({
+    storeId: Number(store.id),
+    weeklyHours: store.weekly_hours,
+    specialHours: ctx.specialHours || [],
+    fromDateStr: ptNow.dateStr
+  })
   const upcomingHolidays = buildEffectiveUpcomingHolidaysForStore({
     storeId: store.id,
     weeklyHours: store.weekly_hours,
     specialHours: ctx.specialHours || [],
     fromDateStr: ptNow.dateStr,
-    daysAhead: 60
+    daysAhead: 150
   })
 
   const customerBranchDisplay = formatCustomerStoreName(store, lang, { style: 'display' })
@@ -570,16 +583,52 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     })
     .join('\n')
 
+  const fmtLive12h = (hhmm: string) => {
+    const [hS, mS] = String(hhmm || '00:00').split(':')
+    const h = Number(hS) || 0
+    const m = Number(mS) || 0
+    const period = h >= 12 && h < 24 ? 'PM' : 'AM'
+    const h12 = h % 12 === 0 ? 12 : h % 12
+    return `${h12}:${String(m).padStart(2, '0')} ${period}`
+  }
+  const tomorrowDateStr = next7Days[1]?.dateStr || ''
+  const dayAfterDateStr = next7Days[2]?.dateStr || ''
+  const next7PrimaryLines = next7Days
+    .slice(0, 3)
+    .map((d) => `     * ${d.isSpecial ? '⚠️ ' : ''}${lang === 'en' ? d.summaryEn : d.summaryEs}`)
+    .join('\n')
+  const next7RestCompact = next7Days
+    .slice(3)
+    .map((d) =>
+      d.isSpecial
+        ? `⚠️ ${lang === 'en' ? d.summaryEn : d.summaryEs}`
+        : `${lang === 'en' ? d.dayEn : d.dayEs} ${d.dateStr}: ${d.isClosedAllDay ? (lang === 'en' ? 'CLOSED' : 'CERRADO') : `${lang === 'en' ? d.openFmtEn : d.openFmtEs}-${lang === 'en' ? d.closeFmtEn : d.closeFmtEs}`}`
+    )
+    .join(' | ')
   const holidaysSummary = upcomingHolidays
     .slice(0, 7)
     .map((h) => {
       const label = lang === 'en' ? h.holiday_name_en || h.holiday_name : h.holiday_name_es || h.holiday_name
+      const relTag =
+        h.event_date === ptNow.dateStr
+          ? lang === 'en'
+            ? ' [TODAY]'
+            : ' [HOY]'
+          : h.event_date === tomorrowDateStr
+            ? lang === 'en'
+              ? ' [TOMORROW]'
+              : ' [MAÑANA]'
+            : h.event_date === dayAfterDateStr
+              ? lang === 'en'
+                ? ' [DAY AFTER TOMORROW]'
+                : ' [PASADO MAÑANA]'
+              : ''
       const hoursLabel = h.is_closed
         ? lang === 'en'
-          ? 'CLOSED'
-          : 'CERRADO'
-        : `${h.effective_open} - ${h.effective_close}`
-      return `${h.event_date} (${label}): ${hoursLabel}`
+          ? 'CLOSED ALL DAY'
+          : 'CERRADO TODO EL DÍA'
+        : `${fmtLive12h(h.effective_open)} - ${fmtLive12h(h.effective_close)}`
+      return `${h.event_date}${relTag} (${label}): ${hoursLabel}`
     })
     .join(' | ')
 
@@ -618,11 +667,13 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo "Broadway", "Central", "Slauson", "LA Broadway" o "LA Central". SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway, en Los Ángeles); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, en Los Ángeles, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway, en Los Ángeles).${isLosAngelesCrossStore ? ` Al dar la dirección de esta sucursal di siempre "${spokenStoreAddress}, en Los Ángeles, en la esquina de ${customerBranchCrossStreets}".` : ''} Pronuncia las calles completas sin abreviaturas ("South", "East", "Avenue", "Boulevard", "Road", "Highway").`,
     `4. HORARIOS Y DESAYUNOS EN VIVO (Hoy ${['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'][ptNow.dayOfWeek]} ${ptNow.dateStr}, ${breakfastWin.localTimeLabel} PT${ptNow.hour < 6 ? ' — ES MADRUGADA: si reabrimos esta misma mañana, di SIEMPRE "hoy" / "today", JAMÁS "mañana" / "tomorrow"' : ''}):`,
     `   - Estado actual de esta sucursal: ${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}`,
+    `   - **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS (FESTIVOS YA APLICADOS — PRIORIDAD ABSOLUTA SOBRE HORARIO SEMANAL REGULAR)**:\n${next7PrimaryLines}\n     * Resto de la semana: ${next7RestCompact}`,
+    `   - **REGLA CRÍTICA DE HORARIOS POR DÍA**: Si preguntan por "mañana", "pasado mañana", "el jueves", "el viernes" o cualquier día de esta semana (AUNQUE NO MENCIONEN el nombre del festivo), responde SIEMPRE usando el **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS** de arriba (JAMÁS el horario semanal regular para una fecha con ⚠️ FESTIVO ESPECIAL).`,
     !scheduleEval.isOpenNow
       ? `   - **ALERTA ROJA — SUCURSAL CERRADA EN ESTE MOMENTO (CRÍTICO PARA UBER EATS / DOORDASH / SISTEMAS AUTOMÁTICOS)**: Esta sucursal está **CERRADA AHORA MISMO** (${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}). Si alguien o un sistema automático pregunta "are you open right now?", "just double checking you're actually open" o "¿están abiertos ahorita?", **ESTÁ ESTRICTAMENTE PROHIBIDO** comenzar con "Yes" / "Sí" o decir "we are definitely open for business". Empieza SIEMPRE de forma rotunda con **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** y luego indica la hora de apertura.`
       : '',
-    `   - Horario semanal: ${scheduleEval.weeklySummaryEs}`,
-    `   - Próximos festivos oficiales: ${holidaysSummary || 'Viernes Santo y Navidad cerrado; Thanksgiving, 24 dic y 31 dic cierra 4:00 PM; 1 ene y Black Friday abre 11:00 AM.'}`,
+    `   - Próximos festivos oficiales con fecha exacta: ${holidaysSummary || 'Viernes Santo y Navidad cerrado; Thanksgiving, 24 dic y 31 dic cierra 4:00 PM; 1 ene y Black Friday abre 11:00 AM.'}`,
+    `   - Horario semanal regular (SOLO días SIN festivo): ${scheduleEval.weeklySummaryEs}`,
     `   - **Desayunos (15 sucursales)**: Disponibles todos los días desde que abrimos hasta las **${KORE_BREAKFAST_CUTOFF_LABEL}** (${breakfastWin.open && scheduleEval.isOpenNow ? 'AHORA DISPONIBLES' : 'YA TERMINARON POR HOY — ofrecer menú regular'}). **Tanto Café de Olla tradicional como Café Regular (16 oz) y Champurrado (16 oz y Caja 96 oz) SÍ están disponibles TODO EL DÍA**.`,
     `5. DRIVE-THRU Y PAGOS / EBT CALFRESH:`,
     `   - Drive-Thru aquí: ${store.has_drive_thru ? 'SÍ contamos con Drive-Thru.' : 'NO tenemos Drive-Thru aquí (solo comedor y para llevar).'} Las únicas 6 sucursales con Drive-Thru son West Covina, Los Ángeles (Central y Washington), La Puente, Norwalk, Lynwood y South Gate.`,
@@ -999,12 +1050,26 @@ async function executePhoneKoreLiveToolCore(params: {
 
   if (toolName === 'get_store_hours_and_status') {
     const ptNow = getPacificDateParts()
+    const next7Days = buildEffectiveNext7DaysForStore({
+      storeId: Number(store.id),
+      weeklyHours: store.weekly_hours,
+      specialHours: ctx.specialHours || [],
+      fromDateStr: ptNow.dateStr
+    })
+    const requestedDateSchedule = resolveRequestedDateForStore({
+      requestedDate: toolArgs?.requested_date ? String(toolArgs.requested_date) : null,
+      storeId: Number(store.id),
+      weeklyHours: store.weekly_hours,
+      specialHours: ctx.specialHours || [],
+      fromDateStr: ptNow.dateStr,
+      next7Days
+    })
     const upcomingHolidays = buildEffectiveUpcomingHolidaysForStore({
       storeId: store.id,
       weeklyHours: store.weekly_hours,
       specialHours: ctx.specialHours || [],
       fromDateStr: ptNow.dateStr,
-      daysAhead: 60
+      daysAhead: 150
     })
     const breakfast = isKoreBreakfastOpen()
     return {
@@ -1017,6 +1082,13 @@ async function executePhoneKoreLiveToolCore(params: {
         acceptsEbtInDiningRoomOnly: Boolean(config.accepts_ebt),
         breakfastAvailableUntil: KORE_BREAKFAST_CUTOFF_LABEL,
         isBreakfastOpenRightNow: breakfast.open && scheduleEval.isOpenNow,
+        todayDate: ptNow.dateStr,
+        tomorrowDate: next7Days[1]?.dateStr || null,
+        todaySchedule: next7Days[0] || null,
+        tomorrowSchedule: next7Days[1] || null,
+        dayAfterTomorrowSchedule: next7Days[2] || null,
+        requestedDateSchedule,
+        next7Days,
         ...scheduleEval,
         upcomingHolidays: upcomingHolidays.slice(0, 7)
       },
@@ -1134,7 +1206,19 @@ async function executePhoneKoreLiveToolCore(params: {
             hasDriveThru: s.has_drive_thru,
             acceptsEbtInDiningRoom: ![1, 9].includes(Number(s.id)),
             isOpenNow: ev.isOpenNow,
-            weeklyHours: lang === 'en' ? buildCompactWeeklyHours(s.weekly_hours, 'en') : buildCompactWeeklyHours(s.weekly_hours, 'es'),
+            ...(() => {
+              const sNext3 = buildEffectiveNext7DaysForStore({
+                storeId: Number(s.id),
+                weeklyHours: s.weekly_hours,
+                specialHours: allSpecialHours || []
+              }).slice(0, 3)
+              return {
+                todayHours: lang === 'en' ? sNext3[0]?.summaryEn : sNext3[0]?.summaryEs,
+                tomorrowHours: lang === 'en' ? sNext3[1]?.summaryEn : sNext3[1]?.summaryEs,
+                dayAfterTomorrowHours: lang === 'en' ? sNext3[2]?.summaryEn : sNext3[2]?.summaryEs
+              }
+            })(),
+            regularWeeklyHours: lang === 'en' ? buildCompactWeeklyHours(s.weekly_hours, 'en') : buildCompactWeeklyHours(s.weekly_hours, 'es'),
             statusMessage: lang === 'en' ? ev.statusMessageEn : ev.statusMessageEs
           }
         })

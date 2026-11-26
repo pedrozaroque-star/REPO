@@ -791,6 +791,245 @@ export function buildEffectiveUpcomingHolidaysForStore(params: {
   })
 }
 
+export interface EffectiveDayCalendarEntry {
+  offset: number
+  dateStr: string
+  dow: number
+  dayEs: string
+  dayEn: string
+  relTagEs: string
+  relTagEn: string
+  isClosedAllDay: boolean
+  isSpecial: boolean
+  holidayNameEs: string | null
+  holidayNameEn: string | null
+  holidayKey: ReturnType<typeof getOfficialStoreHolidaySchedule> extends infer T ? (T extends { holiday_key: infer K } ? K | null : null) : null
+  openFmtEs: string
+  closeFmtEs: string
+  openFmtEn: string
+  closeFmtEn: string
+  diningRoomCloseFmtEs: string
+  driveThruCloseFmtEs: string
+  diningRoomCloseFmtEn: string
+  driveThruCloseFmtEn: string
+  sameCloseAllServices: boolean
+  summaryEs: string
+  summaryEn: string
+}
+
+function subtractOneHourHhMm(hhmm: string): string {
+  const m = parseTimeToMinutes(hhmm)
+  const prev = (m - 60 + 1440) % 1440
+  return `${String(Math.floor(prev / 60)).padStart(2, '0')}:${String(prev % 60).padStart(2, '0')}`
+}
+
+function buildEffectiveCalendarEntryForDate(params: {
+  storeIdNum: number
+  wh: Record<string, StoreScheduleDay>
+  dateStr: string
+  offset: number
+  specialHours: any[]
+}): EffectiveDayCalendarEntry {
+  const { storeIdNum, wh, dateStr, offset, specialHours } = params
+  const dt = new Date(`${dateStr}T12:00:00Z`)
+  const dow = Number.isNaN(dt.getTime()) ? 0 : dt.getUTCDay()
+  const dayNamesEs = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+  const dayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const dayEs = dayNamesEs[dow] || 'día'
+  const dayEn = dayNamesEn[dow] || 'day'
+  const relTagEs = offset === 0 ? 'HOY' : offset === 1 ? 'MAÑANA' : offset === 2 ? 'PASADO MAÑANA' : ''
+  const relTagEn = offset === 0 ? 'TODAY' : offset === 1 ? 'TOMORROW' : offset === 2 ? 'DAY AFTER TOMORROW' : ''
+
+  const sched = resolveEffectiveDaySchedule({
+    storeIdNum,
+    regular: wh[String(dow)],
+    dateStr,
+    specialHours
+  })
+  const official = getOfficialStoreHolidaySchedule(dateStr)
+  const holidayKey = official?.holiday_key || null
+  const isStore6 = storeIdNum === 6
+  const isJointEarlyCloseHoliday =
+    holidayKey === 'thanksgiving' ||
+    holidayKey === 'christmas_eve' ||
+    holidayKey === 'new_years_eve' ||
+    (sched.isSpecial && sched.close === '16:00')
+
+  const openFmtEs = sched.isClosedAllDay ? 'CERRADO' : formatTime12h(sched.open, 'es')
+  const closeFmtEs = sched.isClosedAllDay ? 'CERRADO' : formatTime12h(sched.close, 'es')
+  const openFmtEn = sched.isClosedAllDay ? 'CLOSED' : formatTime12h(sched.open, 'en')
+  const closeFmtEn = sched.isClosedAllDay ? 'CLOSED' : formatTime12h(sched.close, 'en')
+  const sameCloseAllServices = !isStore6 || isJointEarlyCloseHoliday || sched.isClosedAllDay
+  const drCloseHhMm = sameCloseAllServices ? sched.close : subtractOneHourHhMm(sched.close)
+  const diningRoomCloseFmtEs = sched.isClosedAllDay ? 'CERRADO' : formatTime12h(drCloseHhMm, 'es')
+  const driveThruCloseFmtEs = closeFmtEs
+  const diningRoomCloseFmtEn = sched.isClosedAllDay ? 'CLOSED' : formatTime12h(drCloseHhMm, 'en')
+  const driveThruCloseFmtEn = closeFmtEn
+
+  const prefixEs = relTagEs ? `${relTagEs} ${dayEs} ${dateStr}` : `${dayEs} ${dateStr}`
+  const prefixEn = relTagEn ? `${relTagEn} ${dayEn} ${dateStr}` : `${dayEn} ${dateStr}`
+
+  let summaryEs = ''
+  let summaryEn = ''
+  if (sched.isClosedAllDay) {
+    summaryEs = `${prefixEs}${sched.holidayName ? ` [FESTIVO: ${sched.holidayName}]` : ''}: CERRADO TODO EL DÍA`
+    summaryEn = `${prefixEn}${sched.holidayNameEn ? ` [HOLIDAY: ${sched.holidayNameEn}]` : ''}: CLOSED ALL DAY`
+  } else {
+    const isEarlyClose = sched.isSpecial && sched.close === '16:00'
+    const isLateOpen = sched.isSpecial && sched.open === '11:00' && sched.close !== '16:00'
+    const notesEs: string[] = []
+    const notesEn: string[] = []
+    if (isEarlyClose) {
+      notesEs.push(`CIERRE TEMPRANO ${closeFmtEs} — NO aplica horario regular`)
+      notesEn.push(`EARLY CLOSE ${closeFmtEn} — regular hours do NOT apply`)
+    }
+    if (isLateOpen) {
+      notesEs.push(`APERTURA TARDE ${openFmtEs} — NO abren a hora regular`)
+      notesEn.push(`LATE OPEN ${openFmtEn} — NOT regular morning opening`)
+    }
+    if (isStore6) {
+      if (isJointEarlyCloseHoliday) {
+        notesEs.push(`Comedor y Drive-Thru cierran JUNTOS a las ${closeFmtEs}`)
+        notesEn.push(`Dining Room & Drive-Thru BOTH close together at ${closeFmtEn}`)
+      } else {
+        notesEs.push(`Comedor cierra ${diningRoomCloseFmtEs}; Drive-Thru cierra ${driveThruCloseFmtEs}`)
+        notesEn.push(`Dining Room closes ${diningRoomCloseFmtEn}; Drive-Thru closes ${driveThruCloseFmtEn}`)
+      }
+    }
+    const hTagEs = sched.isSpecial && sched.holidayName ? ` [FESTIVO ESPECIAL: ${sched.holidayName}]` : ''
+    const hTagEn = sched.isSpecial && sched.holidayNameEn ? ` [SPECIAL HOLIDAY: ${sched.holidayNameEn}]` : ''
+    summaryEs = `${prefixEs}${hTagEs}: ${openFmtEs} a ${closeFmtEs}${notesEs.length > 0 ? ` (${notesEs.join('; ')})` : ''}`
+    summaryEn = `${prefixEn}${hTagEn}: ${openFmtEn} to ${closeFmtEn}${notesEn.length > 0 ? ` (${notesEn.join('; ')})` : ''}`
+  }
+
+  return {
+    offset,
+    dateStr,
+    dow,
+    dayEs,
+    dayEn,
+    relTagEs,
+    relTagEn,
+    isClosedAllDay: sched.isClosedAllDay,
+    isSpecial: sched.isSpecial,
+    holidayNameEs: sched.holidayName,
+    holidayNameEn: sched.holidayNameEn,
+    holidayKey,
+    openFmtEs,
+    closeFmtEs,
+    openFmtEn,
+    closeFmtEn,
+    diningRoomCloseFmtEs,
+    driveThruCloseFmtEs,
+    diningRoomCloseFmtEn,
+    driveThruCloseFmtEn,
+    sameCloseAllServices,
+    summaryEs,
+    summaryEn
+  }
+}
+
+export function buildEffectiveNext7DaysForStore(params: {
+  storeId: number
+  weeklyHours: unknown
+  specialHours?: any[]
+  fromDateStr?: string
+}): EffectiveDayCalendarEntry[] {
+  const fromDateStr = params.fromDateStr || getPacificDateParts().dateStr
+  const wh = normalizeWeeklyHours(params.weeklyHours)
+  const storeIdNum = Number(params.storeId)
+  const specialHours = params.specialHours || []
+  const baseUtc = new Date(`${fromDateStr}T12:00:00Z`)
+  if (Number.isNaN(baseUtc.getTime())) return []
+  const out: EffectiveDayCalendarEntry[] = []
+  for (let offset = 0; offset < 7; offset++) {
+    const d = new Date(baseUtc.getTime())
+    d.setUTCDate(d.getUTCDate() + offset)
+    const dStr = d.toISOString().slice(0, 10)
+    out.push(buildEffectiveCalendarEntryForDate({ storeIdNum, wh, dateStr: dStr, offset, specialHours }))
+  }
+  return out
+}
+
+export function resolveRequestedDateForStore(params: {
+  requestedDate?: string | null
+  storeId: number
+  weeklyHours: unknown
+  specialHours?: any[]
+  fromDateStr?: string
+  next7Days?: EffectiveDayCalendarEntry[]
+}): EffectiveDayCalendarEntry | null {
+  const raw = String(params.requestedDate || '').trim()
+  if (!raw) return null
+  const fromDateStr = params.fromDateStr || getPacificDateParts().dateStr
+  const next7 =
+    params.next7Days ||
+    buildEffectiveNext7DaysForStore({
+      storeId: params.storeId,
+      weeklyHours: params.weeklyHours,
+      specialHours: params.specialHours,
+      fromDateStr
+    })
+  const wh = normalizeWeeklyHours(params.weeklyHours)
+  const storeIdNum = Number(params.storeId)
+  const specialHours = params.specialHours || []
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const hit = next7.find((d) => d.dateStr === raw)
+    if (hit) return hit
+    const dt = new Date(`${raw}T12:00:00Z`)
+    if (Number.isNaN(dt.getTime())) return null
+    const offset = Math.round((dt.getTime() - new Date(`${fromDateStr}T12:00:00Z`).getTime()) / 86400000)
+    return buildEffectiveCalendarEntryForDate({ storeIdNum, wh, dateStr: raw, offset, specialHours })
+  }
+  const norm = normalizeSearchText(raw)
+  if (/^(today|hoy)$/.test(norm)) return next7[0] || null
+  if (/^(tomorrow|manana)$/.test(norm)) return next7[1] || null
+  if (/^(day after tomorrow|pasado manana)$/.test(norm)) return next7[2] || null
+
+  const weekdayAliases: Array<{ re: RegExp; dow: number }> = [
+    { re: /\b(domingo|sunday|sun)\b/, dow: 0 },
+    { re: /\b(lunes|monday|mon)\b/, dow: 1 },
+    { re: /\b(martes|tuesday|tue)\b/, dow: 2 },
+    { re: /\b(miercoles|wednesday|wed)\b/, dow: 3 },
+    { re: /\b(jueves|thursday|thu)\b/, dow: 4 },
+    { re: /\b(viernes|friday|fri)\b/, dow: 5 },
+    { re: /\b(sabado|saturday|sat)\b/, dow: 6 }
+  ]
+  for (const w of weekdayAliases) {
+    if (w.re.test(norm)) {
+      return next7.find((d) => d.offset >= 1 && d.dow === w.dow) || next7.find((d) => d.dow === w.dow) || null
+    }
+  }
+  const upcoming = buildEffectiveUpcomingHolidaysForStore({
+    storeId: storeIdNum,
+    weeklyHours: params.weeklyHours,
+    specialHours,
+    fromDateStr,
+    daysAhead: 365
+  })
+  const holAliases: Array<{ re: RegExp; match: (h: any) => boolean }> = [
+    { re: /\b(black friday|day after thanksgiving|despues de thanksgiving|despues de accion de gracias)\b/, match: (h) => /black friday|despu[eé]s de thanksgiving|day after thanksgiving/i.test(`${h.holiday_name} ${h.holiday_name_en}`) },
+    { re: /\b(thanksgiving|accion de gracias)\b/, match: (h) => /thanksgiving|acci[oó]n de gracias/i.test(`${h.holiday_name} ${h.holiday_name_en}`) && !/black friday|day after|despu[eé]s/i.test(`${h.holiday_name} ${h.holiday_name_en}`) },
+    { re: /\b(christmas eve|nochebuena|24 de dic|dec 24)\b/, match: (h) => h.event_date.endsWith('-12-24') },
+    { re: /\b(christmas|navidad|25 de dic|dec 25)\b/, match: (h) => h.event_date.endsWith('-12-25') },
+    { re: /\b(new year'?s? eve|fin de ano|31 de dic|dec 31)\b/, match: (h) => h.event_date.endsWith('-12-31') },
+    { re: /\b(new year|ano nuevo|1 de ene|jan 1)\b/, match: (h) => h.event_date.endsWith('-01-01') },
+    { re: /\b(good friday|viernes santo)\b/, match: (h) => /good friday|viernes santo/i.test(`${h.holiday_name} ${h.holiday_name_en}`) }
+  ]
+  for (const ha of holAliases) {
+    if (ha.re.test(norm)) {
+      const found = upcoming.find(ha.match)
+      if (found) {
+        const dt = new Date(`${found.event_date}T12:00:00Z`)
+        const offset = Math.round((dt.getTime() - new Date(`${fromDateStr}T12:00:00Z`).getTime()) / 86400000)
+        return buildEffectiveCalendarEntryForDate({ storeIdNum, wh, dateStr: found.event_date, offset, specialHours })
+      }
+    }
+  }
+  return null
+}
+
 /**
  * Evalúa con precisión si una sucursal está abierta o cerrada en un instante dado (`now`),
  * contemplando los cierres de madrugada después de medianoche (00:00 a 05:59 AM) del día anterior,
@@ -4668,10 +4907,15 @@ const PHONE_AGENT_TOOLS = [
       {
         name: 'get_store_hours_and_status',
         description:
-          'Respaldo: los DATOS EN VIVO de tu contexto ya incluyen estado abierto/cerrado, horario y dirección de esta sucursal. Úsala solo si falta algún dato festivo.',
+          'Consulta en vivo el estado abierto/cerrado, calendario real de los próximos 7 días (HOY, MAÑANA, PASADO MAÑANA con festivos aplicados), próximos festivos con fechas exactas y horario semanal regular.',
         parameters: {
           type: 'OBJECT',
-          properties: {}
+          properties: {
+            requested_date: {
+              type: 'STRING',
+              description: "Opcional: 'today', 'tomorrow', 'day_after_tomorrow', nombre de día ('jueves'/'viernes'), festivo ('thanksgiving'/'black friday') o 'YYYY-MM-DD'."
+            }
+          }
         }
       },
       {
@@ -9308,12 +9552,33 @@ ${postOrderRulesBlock}
           }
     }
     if (toolName === 'get_store_hours_and_status') {
+      const next7Days = buildEffectiveNext7DaysForStore({
+        storeId: Number(store.id),
+        weeklyHours: store.weekly_hours,
+        specialHours: ctx.specialHours || [],
+        fromDateStr: ptNow.dateStr
+      })
+      const requestedDateSchedule = resolveRequestedDateForStore({
+        requestedDate: toolArgs?.requested_date ? String(toolArgs.requested_date) : null,
+        storeId: Number(store.id),
+        weeklyHours: store.weekly_hours,
+        specialHours: ctx.specialHours || [],
+        fromDateStr: ptNow.dateStr,
+        next7Days
+      })
       return {
         address: formatStoreAddressForAgent(store.address, turnLangGuess, { includeZip: false }),
         zip_code: extractZipCodeFromAddress(store.address),
         phone: store.phone,
         hasDriveThru: store.has_drive_thru,
         acceptsEbt: config.accepts_ebt,
+        todayDate: ptNow.dateStr,
+        tomorrowDate: next7Days[1]?.dateStr || null,
+        todaySchedule: next7Days[0] || null,
+        tomorrowSchedule: next7Days[1] || null,
+        dayAfterTomorrowSchedule: next7Days[2] || null,
+        requestedDateSchedule,
+        next7Days,
         diningRoomVsDriveThruNoteEs:
           Number(store.id) === 6
             ? 'Únicamente en #6 Los Ángeles (Central y Washington) el comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre (EXCEPCIÓN: en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic, Comedor y Drive-Thru cierran juntos a las 4:00 PM).'
@@ -9385,6 +9650,20 @@ ${postOrderRulesBlock}
           activeDayEn: ev.activeDayLabelEn,
           todayHoursEs: ev.todayOpen === 'CLOSED' ? 'Cerrado hoy' : `${ev.todayOpenFormattedEs} - ${ev.todayCloseFormattedEs}`,
           todayHoursEn: ev.todayOpen === 'CLOSED' ? 'Closed today' : `${ev.todayOpenFormattedEn} - ${ev.todayCloseFormattedEn}`,
+          ...(() => {
+            const sNext3 = buildEffectiveNext7DaysForStore({
+              storeId: Number(s.id),
+              weeklyHours: s.weekly_hours,
+              specialHours: allSpecialHours || [],
+              fromDateStr: ptNow.dateStr
+            }).slice(0, 3)
+            return {
+              tomorrowHoursEs: sNext3[1]?.summaryEs || null,
+              tomorrowHoursEn: sNext3[1]?.summaryEn || null,
+              dayAfterTomorrowHoursEs: sNext3[2]?.summaryEs || null,
+              dayAfterTomorrowHoursEn: sNext3[2]?.summaryEn || null
+            }
+          })(),
           weeklyHoursCompactEs: buildCompactWeeklyHours(s.weekly_hours, 'es'),
           weeklyHoursCompactEn: buildCompactWeeklyHours(s.weekly_hours, 'en'),
           weeklySummaryEs: ev.weeklySummaryEs,

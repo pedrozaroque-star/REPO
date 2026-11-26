@@ -66,6 +66,10 @@
  * - v21 (2026-11-25): soporte oficial de Café de Olla + Café Regular (16 oz todo el día bajo SKU `Coffee`), Burritos mitad y mitad (50%/50% de
  *   2 carnes a `$0.00` extra en Regular, Super, Meat Only y Meat Only Super), opciones sin costo en caja (`Carne Dorada`, `Tortilla Dorada`,
  *   `Partido en Dos`), normalización STT `"fe de la hoya"` -> `"café de olla"`, y `find_other_stores` completo con horarios en fallback.
+ * - v22 (2026-11-25): calendario efectivo de los próximos 7 días (`HOY`, `MAÑANA`, `PASADO MAÑANA` + 4 días) y próximos festivos con fechas
+ *   exactas y horas 12h AM/PM inyectados en el prompt y en `get_store_hours_and_status` / `find_other_stores` (incluyendo cierre conjunto 4:00 PM
+ *   de Comedor y Drive-Thru en #6 en Thanksgiving/24 dic/31 dic y apertura tarde 11:00 AM en Black Friday/1 ene) para que jamás dé horario regular
+ *   cuando un cliente pregunta por "mañana" o un día de la semana sin decir el nombre del festivo.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -873,6 +877,216 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
       ? canonicalAfter.promptEn
       : `We are currently closed for the night (closed at ${closeFmt}).${nextOpenAfter ? ` We reopen tomorrow at ${nextOpenAfter.openFmt}.` : ""} How can I help you today?`
   }
+}
+
+function subtractOneHourBridge(hhmm: string): string {
+  const m = parseMinBridge(hhmm)
+  const prev = (m - 60 + 1440) % 1440
+  const hh = Math.floor(prev / 60)
+  const mm = prev % 60
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
+}
+
+type BridgeResolvedDayInfo = {
+  offset: number
+  dateStr: string
+  dow: number
+  dayEs: string
+  dayEn: string
+  relTagEs: string
+  relTagEn: string
+  isClosedAllDay: boolean
+  isSpecial: boolean
+  holidayName: string | null
+  holidayKey: BridgeOfficialHolidayKey | null
+  openFmt: string
+  closeFmt: string
+  diningRoomCloseFmt: string
+  driveThruCloseFmt: string
+  sameCloseAllServices: boolean
+  summaryEs: string
+  summaryEn: string
+}
+
+function buildBridgeResolvedDayInfo(
+  storeIdNum: number,
+  byDay: Record<number, { open: string; close: string }>,
+  dateStr: string,
+  dow: number,
+  offset: number,
+  specialHours: any[]
+): BridgeResolvedDayInfo {
+  const sched = resolveBridgeDaySchedule(storeIdNum, byDay[dow], dateStr, specialHours)
+  const dayEs = BRIDGE_DAY_NAMES_ES[dow]
+  const dayEn = BRIDGE_DAY_NAMES_EN[dow]
+  const relTagEs = offset === 0 ? "HOY" : offset === 1 ? "MAÑANA" : offset === 2 ? "PASADO MAÑANA" : ""
+  const relTagEn = offset === 0 ? "TODAY" : offset === 1 ? "TOMORROW" : offset === 2 ? "DAY AFTER TOMORROW" : ""
+  const openFmt = sched.isClosedAllDay ? "CERRADO" : fmt12h(sched.open)
+  const closeFmt = sched.isClosedAllDay ? "CERRADO" : fmt12h(sched.close)
+  const isStore6 = storeIdNum === 6
+  const isJointEarlyCloseHoliday =
+    sched.holidayKey === "thanksgiving" ||
+    sched.holidayKey === "christmas_eve" ||
+    sched.holidayKey === "new_years_eve" ||
+    (sched.isSpecial && sched.close === "16:00")
+  const sameCloseAllServices = !isStore6 || isJointEarlyCloseHoliday || sched.isClosedAllDay
+  const diningRoomCloseFmt = sched.isClosedAllDay
+    ? "CERRADO"
+    : sameCloseAllServices
+      ? closeFmt
+      : fmt12h(subtractOneHourBridge(sched.close))
+  const driveThruCloseFmt = closeFmt
+
+  let summaryEs = ""
+  let summaryEn = ""
+  const prefixEs = relTagEs ? `${relTagEs} ${dayEs} ${dateStr}` : `${dayEs} ${dateStr}`
+  const prefixEn = relTagEn ? `${relTagEn} ${dayEn} ${dateStr}` : `${dayEn} ${dateStr}`
+
+  if (sched.isClosedAllDay) {
+    const hTagEs = sched.holidayName ? ` [FESTIVO: ${sched.holidayName}]` : ""
+    const hTagEn = sched.holidayName ? ` [HOLIDAY: ${sched.holidayName}]` : ""
+    summaryEs = `${prefixEs}${hTagEs}: CERRADO TODO EL DÍA`
+    summaryEn = `${prefixEn}${hTagEn}: CLOSED ALL DAY`
+  } else {
+    const isEarlyClose = sched.isSpecial && sched.close === "16:00"
+    const isLateOpen = sched.isSpecial && sched.open === "11:00" && sched.close !== "16:00"
+    const hTagEs = sched.isSpecial && sched.holidayName ? ` [FESTIVO ESPECIAL: ${sched.holidayName}]` : ""
+    const hTagEn = sched.isSpecial && sched.holidayName ? ` [SPECIAL HOLIDAY: ${sched.holidayName}]` : ""
+    const extraNotesEs: string[] = []
+    const extraNotesEn: string[] = []
+    if (isEarlyClose) {
+      extraNotesEs.push(`CIERRE TEMPRANO ${closeFmt} — NO aplica horario regular`)
+      extraNotesEn.push(`EARLY CLOSE ${closeFmt} — regular hours do NOT apply`)
+    }
+    if (isLateOpen) {
+      extraNotesEs.push(`APERTURA TARDE ${openFmt} — NO abren a hora regular`)
+      extraNotesEn.push(`LATE OPEN ${openFmt} — NOT regular morning opening`)
+    }
+    if (isStore6) {
+      if (isJointEarlyCloseHoliday) {
+        extraNotesEs.push(`Comedor y Drive-Thru cierran JUNTOS a las ${closeFmt}`)
+        extraNotesEn.push(`Dining Room & Drive-Thru BOTH close together at ${closeFmt}`)
+      } else {
+        extraNotesEs.push(`Comedor cierra ${diningRoomCloseFmt}; Drive-Thru cierra ${driveThruCloseFmt}`)
+        extraNotesEn.push(`Dining Room closes ${diningRoomCloseFmt}; Drive-Thru closes ${driveThruCloseFmt}`)
+      }
+    }
+    const tailEs = extraNotesEs.length > 0 ? ` (${extraNotesEs.join("; ")})` : ""
+    const tailEn = extraNotesEn.length > 0 ? ` (${extraNotesEn.join("; ")})` : ""
+    summaryEs = `${prefixEs}${hTagEs}: ${openFmt} a ${closeFmt}${tailEs}`
+    summaryEn = `${prefixEn}${hTagEn}: ${openFmt} to ${closeFmt}${tailEn}`
+  }
+
+  return {
+    offset,
+    dateStr,
+    dow,
+    dayEs,
+    dayEn,
+    relTagEs,
+    relTagEn,
+    isClosedAllDay: sched.isClosedAllDay,
+    isSpecial: sched.isSpecial,
+    holidayName: sched.holidayName,
+    holidayKey: sched.holidayKey,
+    openFmt,
+    closeFmt,
+    diningRoomCloseFmt,
+    driveThruCloseFmt,
+    sameCloseAllServices,
+    summaryEs,
+    summaryEn
+  }
+}
+
+function buildBridgeEffectiveNext7Days(store: any, specialHours: any[], pt = getPacificNow()): BridgeResolvedDayInfo[] {
+  const byDay = normalizeBridgeWeeklyMap(store?.weekly_hours)
+  const storeIdNum = Number(store?.id)
+  const out: BridgeResolvedDayInfo[] = []
+  for (let offset = 0; offset < 7; offset++) {
+    const dateStr = addBridgeUtcDays(pt.dateStr, offset)
+    const dow = (pt.dayOfWeek + offset) % 7
+    out.push(buildBridgeResolvedDayInfo(storeIdNum, byDay, dateStr, dow, offset, specialHours))
+  }
+  return out
+}
+
+function buildBridgeUpcomingHolidays(
+  store: any,
+  specialHours: any[],
+  pt = getPacificNow(),
+  daysAhead = 150
+): BridgeResolvedDayInfo[] {
+  const byDay = normalizeBridgeWeeklyMap(store?.weekly_hours)
+  const storeIdNum = Number(store?.id)
+  const out: BridgeResolvedDayInfo[] = []
+  const maxDays = Math.max(7, Math.min(365, Math.trunc(daysAhead)))
+  for (let offset = 0; offset <= maxDays; offset++) {
+    const dateStr = addBridgeUtcDays(pt.dateStr, offset)
+    const dow = (pt.dayOfWeek + offset) % 7
+    const info = buildBridgeResolvedDayInfo(storeIdNum, byDay, dateStr, dow, offset, specialHours)
+    if (info.isSpecial) {
+      out.push(info)
+    }
+  }
+  return out
+}
+
+function resolveBridgeRequestedDateInfo(
+  rawDate: string | null | undefined,
+  store: any,
+  specialHours: any[],
+  pt: ReturnType<typeof getPacificNow>,
+  next7Days: BridgeResolvedDayInfo[],
+  upcomingHolidays: BridgeResolvedDayInfo[]
+): BridgeResolvedDayInfo | null {
+  const raw = String(rawDate || "").trim()
+  if (!raw) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const existing = next7Days.find((d) => d.dateStr === raw)
+    if (existing) return existing
+    const byDay = normalizeBridgeWeeklyMap(store?.weekly_hours)
+    const dt = new Date(`${raw}T12:00:00Z`)
+    if (Number.isNaN(dt.getTime())) return null
+    const dow = dt.getUTCDay()
+    const offset = Math.round((dt.getTime() - new Date(`${pt.dateStr}T12:00:00Z`).getTime()) / 86400000)
+    return buildBridgeResolvedDayInfo(Number(store?.id), byDay, raw, dow, offset, specialHours)
+  }
+  const norm = normalizeSearch(raw)
+  if (/^(today|hoy)$/.test(norm)) return next7Days[0] || null
+  if (/^(tomorrow|manana)$/.test(norm)) return next7Days[1] || null
+  if (/^(day after tomorrow|pasado manana)$/.test(norm)) return next7Days[2] || null
+
+  const weekdayAliases: Array<{ re: RegExp; dow: number }> = [
+    { re: /\b(domingo|sunday|sun)\b/, dow: 0 },
+    { re: /\b(lunes|monday|mon)\b/, dow: 1 },
+    { re: /\b(martes|tuesday|tue)\b/, dow: 2 },
+    { re: /\b(miercoles|wednesday|wed)\b/, dow: 3 },
+    { re: /\b(jueves|thursday|thu)\b/, dow: 4 },
+    { re: /\b(viernes|friday|fri)\b/, dow: 5 },
+    { re: /\b(sabado|saturday|sat)\b/, dow: 6 }
+  ]
+  for (const w of weekdayAliases) {
+    if (w.re.test(norm)) {
+      return next7Days.find((d) => d.offset >= 1 && d.dow === w.dow) || next7Days.find((d) => d.dow === w.dow) || null
+    }
+  }
+
+  const holidayKeyAliases: Array<{ re: RegExp; key: BridgeOfficialHolidayKey }> = [
+    { re: /\b(black friday|day after thanksgiving|despues de thanksgiving|despues de accion de gracias)\b/, key: "day_after_thanksgiving" },
+    { re: /\b(thanksgiving|accion de gracias)\b/, key: "thanksgiving" },
+    { re: /\b(christmas eve|nochebuena|24 de dic|dec 24)\b/, key: "christmas_eve" },
+    { re: /\b(christmas|navidad|25 de dic|dec 25)\b/, key: "christmas_day" },
+    { re: /\b(new year'?s? eve|fin de ano|31 de dic|dec 31)\b/, key: "new_years_eve" },
+    { re: /\b(new year|ano nuevo|1 de ene|jan 1)\b/, key: "new_years_day" },
+    { re: /\b(good friday|viernes santo)\b/, key: "good_friday" }
+  ]
+  for (const h of holidayKeyAliases) {
+    if (h.re.test(norm)) {
+      return upcomingHolidays.find((u) => u.holidayKey === h.key) || null
+    }
+  }
+  return null
 }
 
 function compactWeeklySummary(weeklyHours: any[]): string {
@@ -2095,8 +2309,18 @@ const LIVE_TOOL_DECLARATIONS = [
   {
     name: "get_store_hours_and_status",
     behavior: "BLOCKING",
-    description: "Consulta en vivo el estado abierto/cerrado, horario semanal y próximos días festivos de esta sucursal.",
-    parameters: { type: "OBJECT", properties: {} }
+    description:
+      "Consulta en vivo el estado abierto/cerrado, el calendario real de los próximos 7 días (HOY, MAÑANA, PASADO MAÑANA y días de esta semana con festivos ya aplicados), próximos festivos con fechas exactas y horario semanal regular de esta sucursal.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        requested_date: {
+          type: "STRING",
+          description:
+            "Opcional: 'today', 'tomorrow', 'day_after_tomorrow', nombre de día ('jueves'/'thursday'/'viernes'/'friday'), nombre de festivo ('thanksgiving'/'black friday'/'navidad') o fecha 'YYYY-MM-DD'."
+        }
+      }
+    }
   },
   {
     name: "search_menu_item_price",
@@ -2428,6 +2652,24 @@ async function buildBridgeSystemPromptAndData(
   const pt = getPacificNow()
   const schedEval = evaluateStoreSchedule(store, specialHours, pt)
   const greetings = buildInitialGreetingTexts(store, lang, schedEval, true)
+  const next7Days = buildBridgeEffectiveNext7Days(store, specialHours, pt)
+  const upcomingHolidays = buildBridgeUpcomingHolidays(store, specialHours, pt, 150)
+  const next7PrimaryLines = next7Days
+    .slice(0, 3)
+    .map((d) => `     * ${d.isSpecial ? "⚠️ " : ""}${lang === "en" ? d.summaryEn : d.summaryEs}`)
+    .join("\n")
+  const next7RestCompact = next7Days
+    .slice(3)
+    .map((d) => (d.isSpecial ? `⚠️ ${lang === "en" ? d.summaryEn : d.summaryEs}` : `${lang === "en" ? d.dayEn : d.dayEs} ${d.dateStr}: ${d.isClosedAllDay ? (lang === "en" ? "CLOSED" : "CERRADO") : `${d.openFmt}-${d.closeFmt}`}`))
+    .join(" | ")
+  const upcomingHolidaysExactLine = upcomingHolidays
+    .slice(0, 7)
+    .map((h) => {
+      const rel = h.relTagEs ? ` [${lang === "en" ? h.relTagEn : h.relTagEs}]` : ""
+      const hrs = h.isClosedAllDay ? (lang === "en" ? "CLOSED ALL DAY" : "CERRADO TODO EL DÍA") : `${h.openFmt}-${h.closeFmt}`
+      return `${h.dateStr}${rel} (${h.holidayName || "Festivo"}): ${hrs}`
+    })
+    .join(" | ")
 
   const dispName = customerStoreDisplay(store, lang)
   const spokenName = customerStoreSpoken(store, lang)
@@ -2529,11 +2771,14 @@ async function buildBridgeSystemPromptAndData(
     `2. VOZ EN VIVO: Cálida, directa, 1-2 oraciones (8-20 palabras; hasta 55 al cotizar varios ítems o Fiesta Platters). CERO muletillas iniciales ('¡Sí!', '¡Claro que sí!', '¡Por supuesto!', '¡Hola!'). Ya saludaste: NO re-saludes. Si preguntan si grabamos su voz: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto al momento para atenderte.'`,
     `3. LOS ÁNGELES (#5, #6 y #7): PROHIBIDO decir solo 'Broadway', 'Central' o 'Slauson'. Di SIEMPRE **Los Ángeles** + esquina oficial sin abreviar calles: #5 **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, Drive-Thru; salón comedor cierra 1h antes que Drive-Thru en días regulares, EXCEPTO Thanksgiving, 24 dic y 31 dic donde Comedor y Drive-Thru cierran juntos a las 4:00 PM); #7 **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway).`,
     `4. HORARIOS Y DESAYUNOS AQUÍ (Hoy ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]} ${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT${pt.hour < 6 ? " — MADRUGADA: si reabrimos esta mañana di 'hoy'/'today', JAMÁS 'mañana'/'tomorrow'" : ""}):`,
-    `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn} | Semanal: ${compactWeeklySummary(store.weekly_hours)}`,
+    `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn}`,
+    `   - **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS (FESTIVOS YA APLICADOS — PRIORIDAD ABSOLUTA SOBRE HORARIO SEMANAL REGULAR)**:\n${next7PrimaryLines}\n     * Resto de la semana: ${next7RestCompact}`,
+    `   - **REGLA CRÍTICA DE HORARIOS POR DÍA**: Si preguntan por "mañana", "pasado mañana", "el jueves", "el viernes" o cualquier día de esta semana (AUNQUE NO MENCIONEN el nombre del festivo), responde SIEMPRE con el horario del **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS** de arriba (JAMÁS uses el horario semanal regular para una fecha marcada con ⚠️ FESTIVO ESPECIAL).`,
     !schedEval.isOpenNow
       ? `   - **ALERTA ROJA — CERRADO AHORA**: Si preguntan 'are you open right now?' o '¿están abiertos?', PROHIBIDO iniciar con 'Yes'/'Sí'. Inicia rotundo: **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** e indica apertura.`
       : "",
-    `   - Festivos: Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM Thanksgiving, 24 dic y 31 dic; abre 11:00 AM 1 ene y Black Friday. Desayunos en las 15 tiendas: apertura a **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON HOY"}). **Café de Olla tradicional, Café Regular (16 oz) y Champurrado (16 oz y Caja 96 oz) TODO EL DÍA**.`,
+    `   - Próximos festivos con fecha exacta: ${upcomingHolidaysExactLine || "Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM Thanksgiving, 24 dic y 31 dic; abre 11:00 AM 1 ene y Black Friday."}`,
+    `   - Horario semanal regular (SOLO días SIN festivo): ${compactWeeklySummary(store.weekly_hours)}. Desayunos en las 15 tiendas: apertura a **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON HOY"}). **Café de Olla tradicional, Café Regular (16 oz) y Champurrado (16 oz y Caja 96 oz) TODO EL DÍA**.`,
     `5. DRIVE-THRU, EBT Y OTRAS SUCURSALES:`,
     `   - Aquí: ${store.has_drive_thru ? "SÍ tenemos Drive-Thru." : "NO tenemos Drive-Thru (solo comedor y mostrador)."} Las 6 con Drive-Thru: West Covina (#3), Los Ángeles Central y Washington (#6), La Puente (#10), Norwalk (#12), Lynwood (#14) y South Gate (#15).`,
     `   - EBT CalFresh aquí: ${config.accepts_ebt ? "SÍ aceptamos EBT ÚNICAMENTE adentro en mostrador del comedor; JAMÁS por Drive-Thru." : "NO aceptamos EBT aquí (#1 Rialto y #9 Santa Ana no aceptan EBT); sí efectivo, tarjetas y Apple/Google Pay."}`,
@@ -4289,6 +4534,16 @@ async function executeLiveTool(params: {
   }
 
   if (toolName === "get_store_hours_and_status") {
+    const next7Days = buildBridgeEffectiveNext7Days(store, specialHours, pt)
+    const upcomingHolidays = buildBridgeUpcomingHolidays(store, specialHours, pt, 150)
+    const requestedDateSchedule = resolveBridgeRequestedDateInfo(
+      toolArgs?.requested_date ? String(toolArgs.requested_date) : null,
+      store,
+      specialHours,
+      pt,
+      next7Days,
+      upcomingHolidays
+    )
     return {
       response: {
         storeName: dispName,
@@ -4299,8 +4554,41 @@ async function executeLiveTool(params: {
         breakfastAvailableUntil: "2:00 PM",
         isBreakfastOpenNow: pt.isBreakfastOpen && schedEval.isOpenNow,
         isOpenNow: schedEval.isOpenNow,
+        todayDate: pt.dateStr,
+        tomorrowDate: next7Days[1]?.dateStr || null,
         statusEs: schedEval.statusEs,
         statusEn: schedEval.statusEn,
+        todaySchedule: next7Days[0] || null,
+        tomorrowSchedule: next7Days[1] || null,
+        dayAfterTomorrowSchedule: next7Days[2] || null,
+        requestedDateSchedule,
+        next7Days: next7Days.map((d) => ({
+          date: d.dateStr,
+          dayEs: d.dayEs,
+          dayEn: d.dayEn,
+          relTag: lang === "en" ? d.relTagEn : d.relTagEs,
+          isSpecialHoliday: d.isSpecial,
+          holidayName: d.holidayName,
+          isClosedAllDay: d.isClosedAllDay,
+          open: d.openFmt,
+          close: d.closeFmt,
+          diningRoomClose: d.diningRoomCloseFmt,
+          driveThruClose: d.driveThruCloseFmt,
+          summary: lang === "en" ? d.summaryEn : d.summaryEs
+        })),
+        upcomingHolidays: upcomingHolidays.slice(0, 7).map((h) => ({
+          date: h.dateStr,
+          dayEs: h.dayEs,
+          dayEn: h.dayEn,
+          relTag: lang === "en" ? h.relTagEn : h.relTagEs,
+          holidayName: h.holidayName,
+          isClosedAllDay: h.isClosedAllDay,
+          open: h.openFmt,
+          close: h.closeFmt,
+          diningRoomClose: h.diningRoomCloseFmt,
+          driveThruClose: h.driveThruCloseFmt,
+          summary: lang === "en" ? h.summaryEn : h.summaryEs
+        })),
         diningRoomClosingNoteEs:
           Number(store.id) === 6
             ? "ÚNICAMENTE aquí en Los Ángeles (Central y Washington) el salón comedor cierra 1 hora antes del horario publicado y el Drive-Thru permanece abierto 1 hora más hasta el cierre (EXCEPCIÓN: en Thanksgiving, Nochebuena 24 dic y Fin de Año 31 dic, Comedor y Drive-Thru cierran juntos a las 4:00 PM)."
@@ -4309,6 +4597,8 @@ async function executeLiveTool(params: {
           Number(store.id) === 6
             ? "ONLY here at Los Angeles (Central & Washington) does the dining room close 1 hour before the published closing time while the Drive-Thru stays open 1 additional hour until close (EXCEPTION: on Thanksgiving, Christmas Eve Dec 24, and New Year's Eve Dec 31, both Dining Room and Drive-Thru close together at 4:00 PM)."
             : "The dining room closes at the published closing time.",
+        regularWeeklyHoursNote:
+          "SOLO para días SIN festivo. Para hoy, mañana, pasado mañana o cualquier día de esta semana USA SIEMPRE tomorrowSchedule / next7Days.",
         weeklyHours: compactWeeklySummary(store.weekly_hours)
       },
       shouldEndCall: false,
@@ -4515,6 +4805,7 @@ async function executeLiveTool(params: {
     const fNorm = normalizeSearch(String(toolArgs?.search_city_or_filter || ""))
     const mapStoreWithHours = (s: any) => {
       const ev = evaluateStoreSchedule(s, specialHours, pt)
+      const sNext3 = buildBridgeEffectiveNext7Days(s, specialHours, pt).slice(0, 3)
       return {
         id: s.id,
         name: customerStoreDisplay(s, lang),
@@ -4524,7 +4815,10 @@ async function executeLiveTool(params: {
         hasDriveThru: Boolean(s.has_drive_thru),
         acceptsEbtInDiningRoom: ![1, 9].includes(Number(s.id)),
         isOpenNow: ev.isOpenNow,
-        hours: compactWeeklySummary(s.weekly_hours),
+        todayHours: lang === "en" ? sNext3[0]?.summaryEn : sNext3[0]?.summaryEs,
+        tomorrowHours: lang === "en" ? sNext3[1]?.summaryEn : sNext3[1]?.summaryEs,
+        dayAfterTomorrowHours: lang === "en" ? sNext3[2]?.summaryEn : sNext3[2]?.summaryEs,
+        regularWeeklyHours: compactWeeklySummary(s.weekly_hours),
         status: lang === "en" ? ev.statusEn : ev.statusEs
       }
     }
@@ -6188,7 +6482,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v21",
+      version: "v22",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"
