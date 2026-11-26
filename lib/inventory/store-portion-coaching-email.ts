@@ -29,6 +29,7 @@ import { getSupabaseAdminClient } from '@/lib/supabase'
 import { sendSystemEmail } from '@/lib/system-mailer'
 import { resolveAppBaseUrl } from '@/lib/basecamp-todo-email'
 import { formatStoreDisplayName } from '@/lib/store-display'
+import { addDaysIso } from '@/lib/inventory/food-cost-sales-resolver'
 import {
   ACTIVE_PROTEIN_IDS,
   MEAT_DEFAULT_BAG_LBS,
@@ -45,6 +46,7 @@ import {
   normalizeCorporateEmail,
   scanPortionControlAlerts,
 } from '@/lib/inventory/portion-control-alerts'
+import { loadEmailDeliverabilityContext } from '@/lib/email-recipient-guard'
 
 export interface StoreCoachingMeatRow {
   proteinKey: ActiveProteinKey
@@ -66,6 +68,7 @@ export interface StorePortionCoachingEmailParams {
   startDate: string
   endDate: string
   mode?: 'preview' | 'live'
+  dryRun?: boolean
   previewRecipients?: string[]
   extraCc?: string[]
   extraNotesItems?: string[]
@@ -127,21 +130,23 @@ export async function buildAndSendStorePortionCoachingEmail(
     startDate,
     endDate,
     mode = 'preview',
+    dryRun = false,
     previewRecipients = ['carlos@tacosgavilan.com', 'gonzalo@tacosgavilan.com'],
     extraCc = [],
   } = params
 
   const supabase = await getSupabaseAdminClient()
 
-  const [{ data: storeRows, error: sErr }, { data: userRows, error: uErr }] = await Promise.all([
+  const [{ data: storeRows, error: sErr }, { data: userRows, error: uErr }, deliverabilityCtx] = await Promise.all([
     supabase
       .from('stores')
       .select('id, name, code, external_id, supervisor_id, supervisor_name, is_active')
       .eq('id', storeId),
     supabase
       .from('users')
-      .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active')
+      .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active, toast_guid')
       .eq('is_active', true),
+    loadEmailDeliverabilityContext(supabase),
   ])
 
   if (sErr) throw new Error(sErr.message)
@@ -149,16 +154,16 @@ export async function buildAndSendStorePortionCoachingEmail(
   const storeRow = (storeRows || [])[0]
   if (!storeRow) throw new Error(`Sucursal #${storeId} no encontrada`)
 
-  const escaleraMap = buildEscaleraByStore([storeRow], userRows || [])
+  const escaleraMap = buildEscaleraByStore([storeRow], userRows || [], { deliverabilityCtx })
   const escalera = escaleraMap.get(Number(storeId))
   if (!escalera) throw new Error(`No se pudo resolver Escalera de Mando para sucursal #${storeId}`)
 
   const cleanStoreName = formatStoreDisplayName({ id: storeRow.id, name: storeRow.name }) || storeRow.name
 
-  // Evaluar las 8 proteínas en el rango solicitado (para Asada mirar desde 1 día antes si startDate es martes tras puente)
+  // Evaluar las 8 proteínas en el rango solicitado con lookback general canónico [startDate - 3, endDate]
   const sharedCtx = await loadToastMeatContext({
     storeNumericIds: [storeId],
-    minDate: startDate <= '2026-11-17' ? '2026-11-15' : startDate,
+    minDate: addDaysIso(startDate, -3),
     maxDate: endDate,
     reconcileQbInvoices: true,
   })
@@ -168,11 +173,10 @@ export async function buildAndSendStorePortionCoachingEmail(
 
   for (const [pKey, itemId] of Object.entries(ACTIVE_PROTEIN_IDS) as Array<[ActiveProteinKey, string]>) {
     const meta = MEAT_PACK_LABELS[pKey]
-    const effectiveStart = pKey === 'asada' && startDate === '2026-11-17' ? '2026-11-16' : startDate
     const meter = await computeToastVsFridgeForIngredient({
       inventoryItemId: itemId,
       proteinKey: pKey,
-      startDate: effectiveStart,
+      startDate,
       endDate,
       storeNumericIds: [storeId],
       ctx: sharedCtx,
@@ -193,10 +197,11 @@ export async function buildAndSendStorePortionCoachingEmail(
 
     if (dropNote) singleDayDropNotes.push(dropNote)
 
-    // Mostrar únicamente carnes con sobre-uso operativo real y material (sin exagerar variaciones menores)
+    // Mostrar únicamente carnes con sobre-uso operativo real y material (Asada >= 3 bolsas = $180+; demás >= 5 unidades)
+    const minUnits = pKey === 'asada' ? 3 : 5
     const isMaterial =
-      rawExcess >= 5 &&
-      (dollarImpact >= 60 || (pKey === 'asada' && rawExcess >= 3) || Boolean(dropNote)) &&
+      rawExcess >= minUnits &&
+      (dollarImpact >= 60 || Boolean(dropNote)) &&
       dailyAvgLbs >= 3.0
 
     if (isMaterial) {
@@ -426,7 +431,7 @@ export async function buildAndSendStorePortionCoachingEmail(
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;background:#F9FAFB;">
             <td style="padding:11px 14px;font-weight:800;color:#111827;">🍳 Desayunos con Chorizo<div style="font-size:11px;color:#6B7280;font-weight:500;">(Burrito, Plato o Torta Huevos c/ Chorizo)</div></td>
-            <td style="padding:11px 14px;color:#991B1B;font-weight:900;">Media bolsita cruda (4.0 oz crudas = 3.0 oz cocidas)<div style="font-size:11px;color:#B45309;font-weight:700;">¡Nunca echar el paquetito entero de 8 oz en un solo desayuno!</div></td>
+            <td style="padding:11px 14px;color:#991B1B;font-weight:900;">Media bolsita cruda (4.0 oz crudas = ~2.7 oz cocidas)<div style="font-size:11px;color:#B45309;font-weight:700;">¡Nunca echar el paquetito entero de 8 oz en un solo desayuno!</div></td>
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:11px 14px;font-weight:800;color:#111827;">🥩 Carnitas y Buche (bolsita 6 oz)</td>
@@ -485,13 +490,15 @@ export async function buildAndSendStorePortionCoachingEmail(
   const finalCc = isLive ? liveCc : undefined
   const finalSubject = isLive ? liveSubject : previewSubject
 
-  const mailRes = await sendSystemEmail({
-    fromName: 'Tacos Gavilan · Operaciones y Cocina',
-    to: finalTo,
-    cc: finalCc,
-    subject: finalSubject,
-    html,
-  })
+  const mailRes = dryRun
+    ? { ok: true, skipped: true }
+    : await sendSystemEmail({
+        fromName: 'Tacos Gavilan · Operaciones y Cocina',
+        to: finalTo,
+        cc: finalCc,
+        subject: finalSubject,
+        html,
+      })
 
   return {
     mode: isLive ? 'LIVE' : 'PREVIEW',
@@ -505,6 +512,7 @@ export async function buildAndSendStorePortionCoachingEmail(
     supervisorName: escalera.supervisorName,
     subject: finalSubject,
     meatRows,
+    html,
     mailRes,
   }
 }

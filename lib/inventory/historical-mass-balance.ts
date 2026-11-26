@@ -50,6 +50,13 @@
  *     (`liveActiveOrders === 0` verificado en Toast POS) y guarda `fail-closed` para fechas futuras (`businessDate > todayLa`).
  *   - Todas las consultas a Supabase usan paginación explícita `.range(from, to)` para evitar el
  *     truncamiento silencioso de 1,000 filas de PostgREST.
+ *   - [2026-11-25] Incluidas entregas de `order_type IN ('daily', 'liquids')` para capturar los pedidos semanales
+ *     de insumos duales (`Viva Lard`, `Agua Gavilan`, `Agua Para Los Clientes`, `Gavilan Catering box`, `Cover Para Taco`)
+ *     y registrado `039W Cafe Descafeinado` en `MASS_BALANCE_CANONICAL_IDS`.
+ *   - [2026-11-25] Restaurado `029W Queso Tortas/platos/Desayuno` (`34720160...`) en `MASS_BALANCE_CANONICAL_IDS` y
+ *     `SALSABAR_AND_BULK_PATTERNS` (`salsabar_benchmark`): auditoría QBO confirmó que el 95.5% del Queso Fresco sigue
+ *     facturado/incluido 1:1 dentro de `271W Papelito Para Torta` (aunque físicamente se empaque aparte), por lo que
+ *     `029W` opera solo como SKU de refuerzos extra (~4.5%) hasta que La Bodega desacople el cobro en QBO.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -135,7 +142,7 @@ export const MASS_BALANCE_CANONICAL_IDS = new Set<string>([
   '202c48b0-f9f9-4304-87a5-07d5e970f0cf', // Salsa Huevos Rancheros (2.3 lb bag)
   '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb', // 1 oz Bolsa de Mixta (190 ct)
   'ea165e4e-d939-49a8-af9a-7bc186f50e2e', // Onion/ Cil. Mix 1/4 (5 lb)
-  '34720160-015c-4623-bb1e-98da0e7b4e51', // Queso Tortas/platos/Desayuno (20 pza)
+  '34720160-015c-4623-bb1e-98da0e7b4e51', // Queso Tortas/platos/Desayuno (20 pza — top-up ~4.5%; 95.5% incluido en 271W en QBO)
   'd56d8df8-d30c-4964-a425-9aa25d962364', // Rajas y Zanahorias (6.56 lb salsabar)
   'b4e7349c-669a-42e6-9810-ec3a7673b3f2', // 2 oz Bolsas de Rajas con Zanahoria (165 pza)
   'c6b172dc-7455-403a-a61f-c1079ff036fc', // Onion Pepper Mix (5 lb)
@@ -147,6 +154,7 @@ export const MASS_BALANCE_CANONICAL_IDS = new Set<string>([
   'd66c2fbf-4e83-45f1-b0c0-e9de57c6dbac', // Agua Gavilan
   'cb91a193-87fd-402b-88ca-f9cec8d15a25', // Cover Para Taco
   'b8572de9-d11a-4a3c-84eb-49ae0cb732bd', // Gavilan Catering box 231880
+  '81b6c41f-8f00-4992-945d-271d861a57cf', // Cafe Descafeinado (039W)
 ])
 
 const SEASONAL_BEVERAGE_CANONICAL_IDS = new Set<string>([
@@ -183,6 +191,7 @@ const SALSABAR_AND_BULK_PATTERNS: RegExp[] = [
   /^agua\s+gavilan$/,
   /^gavilan\s+catering\s+box(?:\s+\d+)?$/,
   /^cover\s+para\s+taco$/,
+  /^cafe\s+descafeinado$/,
 ]
 
 export function isSeasonalBeverageMassBalanceItem(item: MassBalanceCatalogItem): boolean {
@@ -704,7 +713,7 @@ export async function getHistoricalMassBalanceUsage(
               db.from('inventory_order_lines')
                 .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, par_value, id, inventory_orders!inner(order_date, store_id, order_type, status)')
                 .eq('inventory_orders.store_id', storeId)
-                .eq('inventory_orders.order_type', 'daily')
+                .in('inventory_orders.order_type', ['daily', 'liquids'])
                 .in('inventory_orders.status', ['sent', 'received'])
                 .in('inventory_item_id', targetIds)
                 .gte('inventory_orders.order_date', lookbackStart)

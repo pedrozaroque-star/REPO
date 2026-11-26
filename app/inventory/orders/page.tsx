@@ -3741,7 +3741,7 @@ export default function InventoryOrdersPage() {
                                                             <td className="p-2 text-center text-slate-600 border-b border-indigo-100 font-medium text-xs font-mono">{line.unit_description || '-'}</td>
                                                             {/* Costo (QB) */}
                                                             <td className="p-2 text-center text-slate-700 border-b border-indigo-100 font-bold text-xs">
-                                                                {line.purchase_unit_cost ? `$${Number(line.purchase_unit_cost).toFixed(2)}` : '-'}
+                                                                {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? `$${resolveEffectiveOrderUnitCost(line).toFixed(2)}` : '-'}
                                                             </td>
                                                             {/* PAR Ideal — dash */}
                                                             {showParIdealCol && (
@@ -3856,7 +3856,7 @@ export default function InventoryOrdersPage() {
                                                             <td className="p-2 text-center text-slate-600 border-b border-slate-100 font-medium text-xs">{line.unit_description || '-'}</td>
                                                             {/* Costo (QB) */}
                                                             <td className="p-2 text-center text-slate-700 border-b border-slate-100 font-bold text-xs">
-                                                                {line.purchase_unit_cost ? `$${Number(line.purchase_unit_cost).toFixed(2)}` : '-'}
+                                                                {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? `$${resolveEffectiveOrderUnitCost(line).toFixed(2)}` : '-'}
                                                             </td>
                                                             {/* PAR Ideal */}
                                                             {showParIdealCol && (

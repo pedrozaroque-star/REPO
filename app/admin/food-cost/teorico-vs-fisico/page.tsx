@@ -112,7 +112,15 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
   const { t, language } = useLanguage()
   const isEn = language === 'en'
 
-  const defaultEnd = useMemo(() => computeClosedBusinessDateLA(1), [])
+  const rawClosedYesterday = useMemo(() => computeClosedBusinessDateLA(1), [])
+  const isYesterdaySaturday = useMemo(
+    () => new Date(`${rawClosedYesterday}T12:00:00Z`).getUTCDay() === 6,
+    [rawClosedYesterday]
+  )
+  const defaultEnd = useMemo(
+    () => (isYesterdaySaturday ? shiftIsoDate(rawClosedYesterday, -1) : rawClosedYesterday),
+    [rawClosedYesterday, isYesterdaySaturday]
+  )
   const defaultStart = useMemo(() => shiftIsoDate(defaultEnd, -6), [defaultEnd])
 
   const [storeId, setStoreId] = useState<string>('all')
@@ -143,9 +151,14 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
     const urlEnd = sp.get('endDate')
     if (urlStore) setStoreId(urlStore)
     if (urlStart && /^\d{4}-\d{2}-\d{2}$/.test(urlStart) && urlEnd && /^\d{4}-\d{2}-\d{2}$/.test(urlEnd) && urlStart <= urlEnd) {
-      setStartDate(urlStart)
+      const sMs = new Date(`${urlStart}T12:00:00Z`).getTime()
+      const eMs = new Date(`${urlEnd}T12:00:00Z`).getTime()
+      const spanDays = Math.round((eMs - sMs) / 86_400_000) + 1
+      const maxDays = (urlStore || 'all').toLowerCase() === 'all' ? 35 : 65
+      const safeStart = spanDays > maxDays ? shiftIsoDate(urlEnd, -(maxDays - 1)) : urlStart
+      setStartDate(safeStart)
       setEndDate(urlEnd)
-      setDraftStartDate(urlStart)
+      setDraftStartDate(safeStart)
       setDraftEndDate(urlEnd)
       setActivePreset('custom')
     }
@@ -191,7 +204,9 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
   }, [storeId, startDate, endDate, loadReport])
 
   const applyPreset = (preset: '1d' | '7d' | '14d' | '30d') => {
-    const end = computeClosedBusinessDateLA(1)
+    const rawEnd = computeClosedBusinessDateLA(1)
+    const end =
+      new Date(`${rawEnd}T12:00:00Z`).getUTCDay() === 6 ? shiftIsoDate(rawEnd, -1) : rawEnd
     const delta = preset === '1d' ? 0 : preset === '7d' ? -6 : preset === '14d' ? -13 : -29
     const start = shiftIsoDate(end, delta)
     setActivePreset(preset)
@@ -201,8 +216,31 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
     setEndDate(end)
   }
 
+  const handleStoreChange = (nextStoreId: string) => {
+    setStoreId(nextStoreId)
+    if (nextStoreId.toLowerCase() === 'all') {
+      const sMs = new Date(`${startDate}T12:00:00Z`).getTime()
+      const eMs = new Date(`${endDate}T12:00:00Z`).getTime()
+      const spanDays = Math.round((eMs - sMs) / 86_400_000) + 1
+      if (spanDays > 35) {
+        const clampedStart = shiftIsoDate(endDate, -34)
+        setStartDate(clampedStart)
+        setDraftStartDate(clampedStart)
+      }
+    }
+  }
+
   const handleApplyCustomDates = () => {
     if (!draftStartDate || !draftEndDate || draftStartDate > draftEndDate) return
+    const sMs = new Date(`${draftStartDate}T12:00:00Z`).getTime()
+    const eMs = new Date(`${draftEndDate}T12:00:00Z`).getTime()
+    const spanDays = Math.round((eMs - sMs) / 86_400_000) + 1
+    const maxDays = storeId.toLowerCase() === 'all' ? 35 : 65
+    if (spanDays > maxDays) {
+      setErrorMsg(t('food_cost.max_range_exceeded').replace('{max}', String(maxDays)))
+      return
+    }
+    setErrorMsg(null)
     setActivePreset('custom')
     setStartDate(draftStartDate)
     setEndDate(draftEndDate)
@@ -325,13 +363,17 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
 
     const lines = [headers.map(escapeCsvCell).join(',')]
     for (const r of filteredProducts) {
+      const translatedCategory = t(`tvf.cat_${r.category}`)
+        .replace(/^[^\p{L}\p{N}]+/u, '')
+        .trim()
+      const translatedStatus = t(`tvf.status_${r.status}`)
       const row = [
         report.meta.storeName,
         report.meta.startDate,
         report.meta.endDate,
         r.sku,
         r.name,
-        r.category,
+        translatedCategory,
         isEn ? r.unitLabelEn : r.unitLabelEs,
         isEn ? r.relatedDishesEn : r.relatedDishesEs,
         r.hasMeasuredSpan ? r.openingUnits : '',
@@ -352,7 +394,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
         r.hasMeasuredSpan ? r.diffCostBodegaUsd : '',
         r.realAvgOzPerTaco !== null ? r.realAvgOzPerTaco : '',
         r.equivTacos15Oz !== null ? r.equivTacos15Oz : '',
-        r.status,
+        translatedStatus,
       ]
       lines.push(row.map(escapeCsvCell).join(','))
     }
@@ -471,7 +513,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
               <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <select
                 value={storeId}
-                onChange={(e) => setStoreId(e.target.value)}
+                onChange={(e) => handleStoreChange(e.target.value)}
                 className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-900/90 border border-slate-700 text-white text-xs font-extrabold focus:outline-none focus:ring-2 focus:ring-amber-400"
               >
                 <option value="all">{t('tvf.all_15_stores')}</option>
@@ -519,6 +561,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
               <input
                 type="date"
                 value={draftStartDate}
+                max={rawClosedYesterday}
                 onChange={(e) => setDraftStartDate(e.target.value)}
                 className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white text-xs font-bold"
               />
@@ -530,6 +573,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
               <input
                 type="date"
                 value={draftEndDate}
+                max={rawClosedYesterday}
                 onChange={(e) => setDraftEndDate(e.target.value)}
                 className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white text-xs font-bold"
               />
@@ -548,9 +592,17 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
       </header>
 
       {/* AVISO REGLA OFICIAL DE CONTEO DESPUÉS DEL CIERRE */}
-      <div className="mb-5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 px-4 py-2.5 text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-2">
-        <Info className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" />
-        <span>{t('tvf.post_closing_rule_note')}</span>
+      <div className="mb-5 space-y-2">
+        <div className="rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 px-4 py-2.5 text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-2">
+          <Info className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" />
+          <span>{t('tvf.post_closing_rule_note')}</span>
+        </div>
+        {(isYesterdaySaturday || new Date(`${endDate}T12:00:00Z`).getUTCDay() === 6) && (
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 px-4 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
+            <Info className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>{t('tvf.saturday_consolidation_note')}</span>
+          </div>
+        )}
       </div>
 
       {/* ESTADO DE CARGA O ERROR */}
@@ -592,7 +644,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
                 {fmtUsd(report.meta.netSalesUsd, 0)}
               </div>
               <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mt-1">
-                {report.meta.orderCount.toLocaleString('en-US')} ·{' '}
+                {report.meta.orderCount.toLocaleString('en-US')} {t('tvf.orders_count_fmt')} ·{' '}
                 <strong>{kpis.totalFoodUnitsSold.toLocaleString('en-US')}</strong> {t('tvf.units_served_word')}
               </div>
               <div className="text-[10px] text-slate-500 mt-1">
@@ -795,7 +847,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
                               {r.name}
                             </div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                              {unitLabel} · {fmtUsd(r.unitCostStoreUsd, 2)}
+                              {unitLabel} · {fmtUsd(costMode === 'store' ? r.unitCostStoreUsd : r.unitCostBodegaUsd, 2)}
                               {r.isMeat ? ` · Yield ${r.yieldPct}%` : ''}
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5 print:hidden">
@@ -818,12 +870,23 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
                                 {isExpanded ? (
                                   <>
                                     <ChevronUp className="w-3.5 h-3.5" />
-                                    <span>{t('tvf.hide_15_stores_btn')}</span>
+                                    <span>
+                                      {r.perStoreBreakdown.length === 1
+                                        ? t('tvf.hide_single_store_btn')
+                                        : t('tvf.hide_15_stores_btn')}
+                                    </span>
                                   </>
                                 ) : (
                                   <>
                                     <ChevronDown className="w-3.5 h-3.5" />
-                                    <span>{t('tvf.view_15_stores_btn')}</span>
+                                    <span>
+                                      {r.perStoreBreakdown.length === 1
+                                        ? t('tvf.view_single_store_btn')
+                                        : t('tvf.view_n_stores_btn').replace(
+                                            '{n}',
+                                            String(r.perStoreBreakdown.length)
+                                          )}
+                                    </span>
                                   </>
                                 )}
                               </button>
@@ -937,44 +1000,63 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
                           <tr className="bg-slate-50/90 dark:bg-slate-950/70 print:hidden">
                             <td colSpan={10} className="p-4">
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
-                                {r.perStoreBreakdown.map((cell) => (
-                                  <div
-                                    key={cell.storeId}
-                                    onClick={() => setStoreId(String(cell.storeId))}
-                                    className="cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 hover:border-red-400 transition-colors"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-black text-xs text-slate-900 dark:text-white">
-                                        {cell.storeName}
-                                      </span>
-                                      <StatusPill status={cell.status} />
+                                {r.perStoreBreakdown.map((cell) => {
+                                  const cellDiffUnits = cell.diffUnits || 0
+                                  const cellDiffUsd =
+                                    (costMode === 'store' ? cell.diffCostStoreUsd : cell.diffCostBodegaUsd) || 0
+                                  const cellDiffColor =
+                                    cellDiffUnits > 0.5 || cellDiffUsd > 25
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : cellDiffUnits < -0.5 || cellDiffUsd < -25
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : 'text-slate-700 dark:text-slate-300'
+                                  return (
+                                    <div
+                                      key={cell.storeId}
+                                      onClick={() => {
+                                        handleStoreChange(String(cell.storeId))
+                                        if (typeof window !== 'undefined') {
+                                          window.scrollTo({ top: 0, behavior: 'smooth' })
+                                        }
+                                      }}
+                                      className="cursor-pointer rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 hover:border-red-400 transition-colors"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-black text-xs text-slate-900 dark:text-white">
+                                          {cell.storeName}
+                                        </span>
+                                        <StatusPill status={cell.status} />
+                                      </div>
+                                      {cell.hasMeasuredSpan ? (
+                                        <div className="mt-2 text-[11px] space-y-0.5 text-slate-600 dark:text-slate-300">
+                                          <div>
+                                            {t('tvf.card_pos_short')} <strong>{cell.theoUnits.toFixed(1)}</strong>{' '}
+                                            {t('tvf.card_actual_short')}{' '}
+                                            <strong>{cell.physicalUnits?.toFixed(1)}</strong>
+                                          </div>
+                                          <div className="text-[10px] text-slate-500">
+                                            ({cell.openingUnits} + {cell.arrivedUnits}
+                                            {Math.abs(cell.transferNetUnits || 0) > 0.01
+                                              ? ` ${(cell.transferNetUnits || 0) > 0 ? '+' : ''}${Math.round(
+                                                  cell.transferNetUnits || 0
+                                                )}`
+                                              : ''}{' '}
+                                            − {cell.closingUnits})
+                                          </div>
+                                          <div className={`font-extrabold ${cellDiffColor}`}>
+                                            {t('tvf.card_diff_short')} {fmtSignedNum(cellDiffUnits, 1)} (
+                                            {fmtSignedUsd(cellDiffUsd, 0)})
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="mt-2 text-[11px] text-slate-400">
+                                          {t('tvf.card_pos_short')} {cell.theoUnits.toFixed(1)} ·{' '}
+                                          {t('tvf.status_unmeasured')}
+                                        </div>
+                                      )}
                                     </div>
-                                    {cell.hasMeasuredSpan ? (
-                                      <div className="mt-2 text-[11px] space-y-0.5 text-slate-600 dark:text-slate-300">
-                                        <div>
-                                          POS: <strong>{cell.theoUnits.toFixed(1)}</strong> vs Real:{' '}
-                                          <strong>{cell.physicalUnits?.toFixed(1)}</strong>
-                                        </div>
-                                        <div className="text-[10px] text-slate-500">
-                                          ({cell.openingUnits} + {cell.arrivedUnits} − {cell.closingUnits})
-                                        </div>
-                                        <div className="font-extrabold text-rose-600 dark:text-rose-400">
-                                          Dif: {fmtSignedNum(cell.diffUnits || 0, 1)} (
-                                          {fmtSignedUsd(
-                                            (costMode === 'store' ? cell.diffCostStoreUsd : cell.diffCostBodegaUsd) ||
-                                              0,
-                                            0
-                                          )}
-                                          )
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="mt-2 text-[11px] text-slate-400">
-                                        POS: {cell.theoUnits.toFixed(1)} · {t('tvf.status_unmeasured')}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
+                                  )
+                                })}
                               </div>
                             </td>
                           </tr>
@@ -1016,7 +1098,7 @@ export default function ExecutiveTheoreticalVsPhysicalPage() {
             costMode={costMode}
             selectedStoreId={storeId}
             onSelectStore={(id) => {
-              setStoreId(id)
+              handleStoreChange(id)
               if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
             }}
           />

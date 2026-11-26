@@ -34,9 +34,30 @@
  *   `pmix_daily_cache` + `sales_daily_cache` + `inventory_counts` + `inventory_orders`/`inventory_order_lines`
  *   + `inventory_store_transfers` + `recipes` + `inventory_items`
  *   -> `computeExecutiveTheoreticalVsPhysicalReport()` -> `GET /api/food-cost/teorico-vs-fisico`.
+ *
+ * @notes
+ *   - [2026-11-25] Blindaje de 5 Capas para Supabase `ci_small` (2 GB RAM):
+ *     1) Lectura streaming de `pmix_daily_cache` vía `readPmixDailyCacheChunked` (`<= 15` filas/petición HTTP = ~3.2 MB JSONB,
+ *        cero `OFFSET` y cero acumulación del arreglo `pmixRows` en RAM).
+ *     2) Reconciliación QBO unificada en 1 sola llamada (cero fan-out paralelo de 15× y omitida si `endDate < todayLA - 45d`).
+ *     3) Filtrado SQL de dos niveles en `inventory_counts` e `inventory_order_lines`: ventana corta `[startDate - 4d, endDate]`
+ *        acotada a `eligibleItemIds` (~45 SKUs) sin `AUTO_CYCLE_V2`, y lookback histórico `[startDate - 28d, startDate - 5d]`
+ *        restringido exclusivamente a `massBalanceItemIds` (~9 SKUs salsabar), reduciendo ~70% las filas transferidas.
+ *     4) Aislamiento automático a 1 sucursal cuando `singleStore` consulta ventanas largas (`> 35` días) o rol `manager` local.
+ *   - [2026-11-25] Ronda 2 Calibración Forense Multimensual:
+ *     1) Ancla canónica `resolveCanonicalTelescopingAnchor` (cubre viernes `-3d` en inicios de lunes), filtro de plantilla
+ *        acotado a `order_type = 'daily'` (sin bolsas plásticas externas) e inclusión de llegadas `['daily', 'liquids']`.
+ *     2) Síntesis exacta de tickets PMIX con partición por intervalos para modificadores `"No ..."` / `"Sin ..."` desde
+ *        `modifier_guids` usando su conteo exacto de ocurrencias, `unit_price` unitario y soporte multi-paréntesis en Party Trays.
+ *     3) Validación `isPmixCacheRowFinalized` + fallback vivo acotado (`maxLiveFallbackCalls = 15`), pesos históricos pre-`2026-07-24`,
+ *        `inventory_price_history` a `endDate`, `bodegaRatio = 0.90` en alimentos de Bodega y denominador `% ventas` emparejado al tramo medido.
+ *   - [2026-11-25] Calibraciones confirmadas por Carlos: `251W Cheesecake` y `253W Whole Cheese Cake` marcados como
+ *     proveedor externo directo (`bodegaRatio = 1.0`, sin descuento `0.90x` de Bodega); `029W Queso Fresco` promovido
+ *     de `mass_balance` a `pos_recipe` tras calibrar `1 pza` en todas las Tortas.
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { getProductMix } from '@/lib/toast-pmix'
 import { calculateDailyOrderConsumption } from '@/lib/inventory/daily-order-consumption-engine'
 import {
   ACTIVE_PROTEIN_IDS,
@@ -57,6 +78,7 @@ import {
 } from '@/lib/inventory/meat-dish-equivalence'
 import { isPartyTrayMenuItem } from '@/lib/inventory/party-tray-guidelines'
 import {
+  computeRobustMedian,
   isAutoCycleCountRecord,
   isHistoricalMassBalanceItem,
 } from '@/lib/inventory/historical-mass-balance'
@@ -64,16 +86,34 @@ import {
   buildStoreItemDateNetTransferMap,
   fetchConfirmedStoreTransfers,
 } from '@/lib/inventory/store-transfers'
+import {
+  isPmixCacheRowFinalized,
+  PMIX_SAFE_CHUNK_ROWS,
+  readPmixDailyCacheChunked,
+} from '@/lib/inventory/pmix-cache-reader'
 import { reconcileStoreOrdersWithQbInvoices } from '@/lib/inventory/qb-shipped-reconciliation'
 import {
   addDaysIso,
+  buildLAInstant,
   diffCalendarDays,
   getBusinessDateLA,
+  resolveCanonicalTelescopingAnchor,
 } from '@/lib/inventory/food-cost-sales-resolver'
 import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { EXTERNAL_TRACK_ONLY_ITEM_IDS } from '@/app/inventory/orders/utils'
 
 const PAPELITO_ITEM_ID = 'fb83420e-8c32-4e85-a29d-e74de2055807'
+// Confirmado por Carlos: Cheesecake (251W) y Whole Cheese Cake (253W) son proveedor externo directo (0% markup Bodega -> bodegaRatio = 1.0)
+const EXTERNAL_DIRECT_SUPPLIER_ITEM_IDS = new Set<string>([
+  '8ba55664-5ca9-4886-8ac8-acf1fd070713', // 251W Cheesecake
+  'df79c42c-7219-4563-8501-6acc1116238f', // 251W Cheese cake
+  '2e53d7a5-67ff-4247-83cf-1d976650a9bf', // 253W Whole Cheese Cake
+])
+const NON_FOOD_PLASTIC_BAG_SKUS = new Set(['316W', '317W', '150I05'])
+const NON_FOOD_POS_GUIDS = new Set([
+  'd8f4d7cc-e98c-4953-babc-cbb05e96a33d', // Policia (descuento/cortesía sin comida propia)
+  '0c592b57-dc09-4e81-8822-79ee02e9ef24', // Nota abierta / instrucción libre Toast
+])
 
 const PROTEIN_ID_TO_KEY = new Map<string, ActiveProteinKey>(
   (Object.entries(ACTIVE_PROTEIN_IDS) as Array<[ActiveProteinKey, string]>).map(([k, id]) => [id, k])
@@ -301,6 +341,8 @@ let cachedStaticCatalog: {
   recipes: any[]
   menuItems: any[]
   templateItemIds: Set<string>
+  externalSupplierItemIds: Set<string>
+  priceHistoryByItemId: Map<string, Array<{ effectiveMs: number; cost: number; qpu: number }>>
 } | null = null
 
 function round2(n: number): number {
@@ -347,11 +389,18 @@ async function fetchAllPaginated<T>(
   return out
 }
 
-function isNonFoodUniformOrJanitorialItem(item: { id: string; name: string; is_bodega?: boolean | null }): boolean {
+function isNonFoodUniformOrJanitorialItem(item: {
+  id: string
+  sku?: string | null
+  name: string
+  is_bodega?: boolean | null
+}): boolean {
   if (EXTERNAL_TRACK_ONLY_ITEM_IDS.has(String(item.id))) return true
+  const skuUpper = String(item.sku || '').trim().toUpperCase()
+  if (skuUpper && NON_FOOD_PLASTIC_BAG_SKUS.has(skuUpper)) return true
   const n = normalize(item.name)
   if (
-    /\b(?:camisa|chamarra|polo|shift\s*leader|team\s*members|gorras?|apron|hairnets?|face\s*mask|wetmop|mop\s*head|glass\s*cleaner|grill\s*bright|pink\s*filter|lemon\s*oil|dermaclean|graffiti|scotch\s*brite|pads\s*mco|hand\s*sanitizer|printer\s*paper|papel\s*termico|thermal\s*label|trash\s*bag)\b/.test(
+    /\b(?:camisa|chamarra|polo|shift\s*leader|team\s*members|gorras?|apron|hairnets?|face\s*mask|wetmop|mop\s*head|glass\s*cleaner|grill\s*bright|pink\s*filter|lemon\s*oil|dermaclean|graffiti|scotch\s*brite|pads\s*mco|hand\s*sanitizer|printer\s*paper|papel\s*termico|thermal\s*label|trash\s*bag|mil\s*bag|bolsa\s*agua\s*uber)\b/.test(
       n
     )
   ) {
@@ -378,15 +427,32 @@ function classifyAllMenuDishFamily(rawItemName: string, guid?: string | null): {
   subUnitsMultiplier: number
   isFoodOrDrink: boolean
 } {
-  const baseNorm = normalize(extractBaseMenuItemName(rawItemName))
-  if (!baseNorm || /^(?:empleado|test\s*item|separator|separador|add\s*value|bolsa\s*apa[rd]te)$/.test(baseNorm)) {
+  const cleanGuid = String(guid || '').trim().toLowerCase()
+  if (cleanGuid && NON_FOOD_POS_GUIDS.has(cleanGuid)) {
     return { familyKey: 'sides_extras', subUnitsMultiplier: 0, isFoodOrDrink: false }
+  }
+  const fullNorm = normalize(rawItemName)
+  const baseNorm = normalize(extractBaseMenuItemName(rawItemName))
+  if (
+    !baseNorm ||
+    /^(?:empleado|policia|borrar|pu|p\s+u|test\s*item|separator|separador|add\s*value|bolsa\s*apa[rd]te|coffee\s*mate|splenda|sugar|azucar|creamer)$/.test(
+      baseNorm
+    )
+  ) {
+    return { familyKey: 'sides_extras', subUnitsMultiplier: 0, isFoodOrDrink: false }
+  }
+
+  // Charolas de puro arroz/frijol (0 lb carne) van a acompañamientos/extras
+  if (/^(?:half|full)\s*tray\s*(?:beans?|rice|frijol(?:es)?|arroz)\b/.test(baseNorm)) {
+    return { familyKey: 'sides_extras', subUnitsMultiplier: 1, isFoodOrDrink: true }
   }
 
   if (
     isPartyTrayMenuItem(rawItemName, guid) ||
     /\b\d+(?:\.\d+)?\s*lbs?\s*(?:meat|carne|asada|pastor|pollo|chicken|cabeza|lengua|carnitas|chorizo|buche)\b/.test(baseNorm) ||
-    /\b(?:party\s*trays?|fiesta\s*platters?|charolas?|half\s*tray|full\s*tray)\b/.test(baseNorm)
+    /\b\d+(?:\.\d+)?\s*lbs?\s*meat\b/.test(fullNorm) ||
+    /\b(?:party\s*trays?|fiesta\s*platters?|charolas?|catering\s*meat|carne\s*por\s*libra|half\s*tray|full\s*tray)\b/.test(baseNorm) ||
+    /^(?:asada|pastor|pollo|chicken|cabeza|lengua|carnitas|chorizo|buche)$/.test(baseNorm)
   ) {
     return { familyKey: 'party_trays_lbs', subUnitsMultiplier: 1, isFoodOrDrink: true }
   }
@@ -414,16 +480,18 @@ function classifyAllMenuDishFamily(rawItemName: string, guid?: string | null): {
     return { familyKey: 'tortas', subUnitsMultiplier: 1, isFoodOrDrink: true }
   }
   if (
-    /\b(?:horchata|jamaica|pina|tamarindo|champurrado|coke|sprite|fanta|diet|lemonade|limonada|iced?\s*tea|coffee|cafe|water|agua|bottle|jarrito|sidral|sangria|mexican\s*coke|flan|cheesecake)\b/.test(
+    /\b(?:horchata|jamaica|pina|tamarindo|champurrado|coke|coca|pepsi|sprite|fanta|diet|dr\s*pepper|root\s*beer|squirt|manzanita|soda|refresco|fountain|agua\s*fresca|lemonade|limonada|iced?\s*tea|coffee|cafe|water|agua|jugo|juice|milk|leche|bottle|jarrito|sidral|sangria|mexican\s*coke|flan|cheesecake)\b/.test(
       baseNorm
     )
   ) {
     return { familyKey: 'aguas_drinks_desserts', subUnitsMultiplier: 1, isFoodOrDrink: true }
   }
+  const isNachoDish =
+    (/\bnachos?\b/.test(baseNorm) || /\bsuper\s*nachos\b/.test(fullNorm)) &&
+    !/\bnacho\s*cheese\b/.test(baseNorm)
   if (
-    /\b(?:plato|plate|super\s*nachos|nachos\s*(?:asada|pastor|pollo|cabeza|lengua|carnitas|chorizo|buche)|huevos?|chilaquiles|side\s*(?:order\s*)?carne)\b/.test(
-      baseNorm
-    )
+    isNachoDish ||
+    /\b(?:plato|plate|huevos?|chilaquiles?|machaca|omelet(?:te)?|side\s*(?:order\s*)?carne)\b/.test(baseNorm)
   ) {
     return { familyKey: 'plates_breakfast_nachos', subUnitsMultiplier: 1, isFoodOrDrink: true }
   }
@@ -527,12 +595,52 @@ async function getStaticCatalog() {
   const menuItems = await fetchAllPaginated<any>((f, t) =>
     supabase.from('toast_menu_items').select('guid, name').order('guid').range(f, t)
   )
-  const templateRows = await fetchAllPaginated<any>((f, t) =>
-    supabase.from('store_order_template').select('inventory_item_id').order('id').range(f, t)
-  )
+  const [templateRows, supplierMappings, priceHistoryRows] = await Promise.all([
+    fetchAllPaginated<any>((f, t) =>
+      supabase
+        .from('store_order_template')
+        .select('inventory_item_id')
+        .eq('order_type', 'daily')
+        .order('id')
+        .range(f, t)
+    ),
+    fetchAllPaginated<any>((f, t) =>
+      supabase
+        .from('supplier_item_mappings')
+        .select('master_item_id')
+        .not('master_item_id', 'is', null)
+        .order('master_item_id')
+        .range(f, t)
+    ),
+    fetchAllPaginated<any>((f, t) =>
+      supabase
+        .from('inventory_price_history')
+        .select('id, inventory_item_id, purchase_unit_cost, quantity_per_unit, effective_date')
+        .order('effective_date', { ascending: true })
+        .order('id', { ascending: true })
+        .range(f, t)
+    ),
+  ])
 
   const templateItemIds = new Set<string>(templateRows.map((r: any) => String(r.inventory_item_id)))
   for (const id of Object.values(ACTIVE_PROTEIN_IDS)) templateItemIds.add(id)
+
+  const externalSupplierItemIds = new Set<string>([
+    ...supplierMappings.map((sm: any) => String(sm.master_item_id || '').trim()).filter(Boolean),
+    ...EXTERNAL_DIRECT_SUPPLIER_ITEM_IDS,
+  ])
+
+  const priceHistoryByItemId = new Map<string, Array<{ effectiveMs: number; cost: number; qpu: number }>>()
+  for (const ph of priceHistoryRows) {
+    const iid = String(ph.inventory_item_id || '')
+    const effMs = Date.parse(String(ph.effective_date || ''))
+    const cost = Number(ph.purchase_unit_cost || 0)
+    const qpu = Number(ph.quantity_per_unit || 0)
+    if (!iid || !Number.isFinite(effMs) || cost <= 0) continue
+    const arr = priceHistoryByItemId.get(iid) || []
+    arr.push({ effectiveMs: effMs, cost, qpu })
+    priceHistoryByItemId.set(iid, arr)
+  }
 
   cachedStaticCatalog = {
     expiresAt: Date.now() + 5 * 60 * 1000,
@@ -541,6 +649,8 @@ async function getStaticCatalog() {
     recipes,
     menuItems,
     templateItemIds,
+    externalSupplierItemIds,
+    priceHistoryByItemId,
   }
   return cachedStaticCatalog
 }
@@ -550,6 +660,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
   startDate: string
   endDate: string
   reconcileQb?: boolean
+  includeChainBenchmark?: boolean
 }): Promise<ExecutiveTheoreticalVsPhysicalReport> {
   const supabase = await getSupabaseAdminClient()
   const todayLA = getBusinessDateLA()
@@ -586,73 +697,110 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     selectedStores = [found]
   }
 
-  // Reconciliar facturas QBO con su propio cooldown interno de 3 min (sin bloquear si falla red QBO)
-  if (params.reconcileQb !== false) {
-    await Promise.allSettled(
-      allStoresSorted.map((s) =>
-        reconcileStoreOrdersWithQbInvoices({
-          storeId: s.id,
-          lookbackDays: Math.min(35, Math.max(10, diffCalendarDays(params.startDate, todayLA) + 5)),
-        })
-      )
-    )
-  }
-
   const startDate = params.startDate
   const endDate = params.endDate
   const windowDays = Math.max(1, diffCalendarDays(startDate, endDate) + 1)
 
-  // Para calcular medianas históricas de salsabar y anclas t0 pre-ventana cargamos 28 días previos en conteos/ventas/órdenes
+  // Cuando se consulta una sola tienda por más de 35 días (hasta 65 días) o sin benchmark corporativo,
+  // acotar la consulta exclusivamente a esa tienda para reducir 15× el volumen leído en PostgreSQL.
+  const queriedStores =
+    singleStore && (windowDays > 35 || params.includeChainBenchmark === false)
+      ? [singleStore]
+      : allStoresSorted
+
+  // Reconciliar facturas QBO con UNA sola llamada global/por-tienda (cero fan-out de 15× en paralelo)
+  if (params.reconcileQb !== false && queriedStores.length > 0 && endDate >= addDaysIso(todayLA, -45)) {
+    try {
+      await reconcileStoreOrdersWithQbInvoices({
+        storeId: queriedStores.length === 1 ? queriedStores[0].id : undefined,
+        lookbackDays: Math.min(35, Math.max(7, diffCalendarDays(startDate, todayLA) + 5)),
+        forceResync: false,
+      })
+    } catch (qbErr) {
+      console.warn('[ExecutiveTVF] Reconciliación QBO omitida por error transitorio:', qbErr)
+    }
+  }
+
+  // Ventana corta (-4d) para anclas t0 de recetas/carnes; ventana larga (-28d) solo para los ~9 insumos de salsabar
   const histLookbackStart = addDaysIso(startDate, -28)
-  const pmixLookbackStart = addDaysIso(startDate, -4)
+  const anchorLookbackStart = addDaysIso(startDate, -4)
+  const pmixLookbackStart = anchorLookbackStart
+  const histMassOnlyEnd = addDaysIso(anchorLookbackStart, -1)
 
-  const allStoreNumericIds = allStoresSorted.map((s) => s.id)
-  const allStoreExternalIds = allStoresSorted.map((s) => s.external_id)
-  const storeByExternalId = new Map(allStoresSorted.map((s) => [s.external_id, s]))
-
-  // 1. Cargar PMIX en lotes pequeños (50 filas) para evitar timeouts JSONB
-  const pmixRows = await fetchAllPaginated<any>(
-    (f, t) =>
-      supabase
-        .from('pmix_daily_cache')
-        .select('store_id, business_date, items')
-        .in('store_id', allStoreExternalIds)
-        .gte('business_date', pmixLookbackStart)
-        .lte('business_date', endDate)
-        .order('business_date', { ascending: true })
-        .order('store_id', { ascending: true })
-        .range(f, t),
-    120
+  const queriedStoreNumericIds = queriedStores.map((s) => s.id)
+  const queriedStoreExternalIds = queriedStores.map((s) => s.external_id)
+  const queriedStoreTextIds = Array.from(
+    new Set([...queriedStoreNumericIds.map(String), ...queriedStoreExternalIds])
   )
+  const storeByExternalId = new Map(queriedStores.map((s) => [s.external_id, s]))
 
+  // 1. Preparar catálogo elegible (~45 insumos alimenticios) y subconjunto salsabar (~9 insumos) ANTES de consultar DB
+  const invById = new Map<string, any>(catalog.invItems.map((i: any) => [String(i.id), i]))
+  const eligibleItemIds = Array.from(catalog.templateItemIds).filter((itemId) => {
+    const inv = invById.get(itemId)
+    if (!inv) return false
+    return !isNonFoodUniformOrJanitorialItem(inv)
+  })
+  const massBalanceItemIds = eligibleItemIds.filter((itemId) => {
+    if (PROTEIN_ID_TO_KEY.has(itemId)) return false
+    const inv = invById.get(itemId)
+    return Boolean(inv && isHistoricalMassBalanceItem({ id: itemId, name: inv.name }))
+  })
+
+  // 2. Consultas escalares indexadas y filtradas en PostgreSQL (sin JSONB pesados y excluyendo AUTO_CYCLE_V2 en SQL)
   const salesRows = await fetchAllPaginated<any>((f, t) =>
     supabase
       .from('sales_daily_cache')
       .select('store_id, business_date, net_sales, order_count')
-      .in('store_id', allStoreExternalIds)
+      .in('store_id', queriedStoreExternalIds)
       .gte('business_date', histLookbackStart)
       .lte('business_date', endDate)
       .order('business_date', { ascending: true })
       .range(f, t)
   )
 
-  const rawCounts = await fetchAllPaginated<any>((f, t) =>
-    supabase
-      .from('inventory_counts')
-      .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes, created_at')
-      .gte('count_date', histLookbackStart)
-      .lte('count_date', endDate)
-      .order('count_date', { ascending: true })
-      .order('id', { ascending: true })
-      .range(f, t)
-  )
+  const recentCounts =
+    eligibleItemIds.length > 0
+      ? await fetchAllPaginated<any>((f, t) =>
+          supabase
+            .from('inventory_counts')
+            .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes, created_at')
+            .in('inventory_item_id', eligibleItemIds)
+            .in('store_id', queriedStoreTextIds)
+            .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
+            .gte('count_date', anchorLookbackStart)
+            .lte('count_date', endDate)
+            .order('count_date', { ascending: true })
+            .order('id', { ascending: true })
+            .range(f, t)
+        )
+      : []
+
+  const histMassCounts =
+    massBalanceItemIds.length > 0 && histLookbackStart <= histMassOnlyEnd
+      ? await fetchAllPaginated<any>((f, t) =>
+          supabase
+            .from('inventory_counts')
+            .select('id, store_id, inventory_item_id, count_date, quantity_on_hand, counted_by, notes, created_at')
+            .in('inventory_item_id', massBalanceItemIds)
+            .in('store_id', queriedStoreTextIds)
+            .or('counted_by.is.null,counted_by.neq.AUTO_CYCLE_V2')
+            .gte('count_date', histLookbackStart)
+            .lte('count_date', histMassOnlyEnd)
+            .order('count_date', { ascending: true })
+            .order('id', { ascending: true })
+            .range(f, t)
+        )
+      : []
+
+  const rawCounts = [...histMassCounts, ...recentCounts]
 
   const rawOrders = await fetchAllPaginated<any>((f, t) =>
     supabase
       .from('inventory_orders')
       .select('id, store_id, order_date, status, qb_invoice_number')
-      .in('store_id', allStoreNumericIds)
-      .eq('order_type', 'daily')
+      .in('store_id', queriedStoreNumericIds)
+      .in('order_type', ['daily', 'liquids'])
       .in('status', ['sent', 'received'])
       .gte('order_date', histLookbackStart)
       .lte('order_date', endDate)
@@ -661,31 +809,53 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
   )
 
   const orderById = new Map<string, any>(rawOrders.map((o: any) => [String(o.id), o]))
-  const orderIds = Array.from(orderById.keys())
+  const recentOrderIds: string[] = []
+  const histMassOrderIds: string[] = []
+  for (const o of rawOrders) {
+    const oDate = String(o.order_date || '')
+    if (oDate >= anchorLookbackStart) recentOrderIds.push(String(o.id))
+    else histMassOrderIds.push(String(o.id))
+  }
+
   const rawOrderLines: any[] = []
-  for (let i = 0; i < orderIds.length; i += 200) {
-    const batch = orderIds.slice(i, i + 200)
-    const lines = await fetchAllPaginated<any>((f, t) =>
-      supabase
-        .from('inventory_order_lines')
-        .select('id, order_id, inventory_item_id, calculated_qty, adjusted_qty, final_qty')
-        .in('order_id', batch)
-        .order('id', { ascending: true })
-        .range(f, t)
-    )
-    rawOrderLines.push(...lines)
+  if (eligibleItemIds.length > 0) {
+    for (let i = 0; i < recentOrderIds.length; i += 200) {
+      const batch = recentOrderIds.slice(i, i + 200)
+      const lines = await fetchAllPaginated<any>((f, t) =>
+        supabase
+          .from('inventory_order_lines')
+          .select('id, order_id, inventory_item_id, calculated_qty, adjusted_qty, final_qty')
+          .in('order_id', batch)
+          .in('inventory_item_id', eligibleItemIds)
+          .order('id', { ascending: true })
+          .range(f, t)
+      )
+      rawOrderLines.push(...lines)
+    }
+  }
+  if (massBalanceItemIds.length > 0) {
+    for (let i = 0; i < histMassOrderIds.length; i += 200) {
+      const batch = histMassOrderIds.slice(i, i + 200)
+      const lines = await fetchAllPaginated<any>((f, t) =>
+        supabase
+          .from('inventory_order_lines')
+          .select('id, order_id, inventory_item_id, calculated_qty, adjusted_qty, final_qty')
+          .in('order_id', batch)
+          .in('inventory_item_id', massBalanceItemIds)
+          .order('id', { ascending: true })
+          .range(f, t)
+      )
+      rawOrderLines.push(...lines)
+    }
   }
 
   const transfers = await fetchConfirmedStoreTransfers({
     supabase,
-    storeIds: allStoreNumericIds,
-    minDate: histLookbackStart,
+    storeIds: queriedStoreNumericIds,
+    minDate: anchorLookbackStart,
     maxDate: endDate,
   })
-  const transferNetMap = buildStoreItemDateNetTransferMap(transfers, new Set(allStoreNumericIds))
-
-  // 2. Preparar estructuras de catálogo y contexto de carnes
-  const invById = new Map<string, any>(catalog.invItems.map((i: any) => [String(i.id), i]))
+  const transferNetMap = buildStoreItemDateNetTransferMap(transfers, new Set(queriedStoreNumericIds))
   const toastNameByGuid = new Map<string, string>(
     catalog.menuItems.map((m: any) => [String(m.guid), String(m.name)])
   )
@@ -760,7 +930,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       platesNachosTrays: number
     }
   >()
-  for (const st of allStoresSorted) {
+  for (const st of queriedStores) {
     storeDishCounters.set(st.id, {
       tacos: 0,
       burritos: 0,
@@ -816,9 +986,9 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     proteinDishTotals.set(pk, { tacos: 0, burritos: 0, tortas: 0, quesadillas: 0, mulitas: 0, plates: 0 })
   }
 
-  for (const pRow of pmixRows) {
+  const processSinglePmixRow = (pRow: { store_id: string; business_date: string; items: any }) => {
     const store = storeByExternalId.get(String(pRow.store_id))
-    if (!store) continue
+    if (!store) return
     const storeId = store.id
     const bDate = String(pRow.business_date)
     const pmixItems: any[] = Array.isArray(pRow.items) ? pRow.items : []
@@ -868,25 +1038,126 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
         }
       }
 
-      const openIdx = rawName.indexOf('(')
-      const baseName = openIdx >= 0 ? rawName.slice(0, openIdx).trim() : rawName.trim()
-      const modStr = openIdx >= 0 && rawName.endsWith(')') ? rawName.slice(openIdx + 1, -1) : ''
-      const modNames = modStr ? modStr.split(',').map((s) => s.trim()).filter(Boolean) : []
-      const modGuids: string[] = Array.isArray(pm.modifier_guids) ? pm.modifier_guids : []
-      const mods = modNames.map((mn, idx) => ({
-        name: mn,
-        quantity: qty,
-        guid: modGuids[idx] || null,
-      }))
+      const pmGuid = String(pm.guid || '').trim()
+      if (pmGuid && NON_FOOD_POS_GUIDS.has(pmGuid.toLowerCase())) continue
+
+      const catalogBaseName = pmGuid ? toastNameByGuid.get(pmGuid) : undefined
+      let resolvedSelName = catalogBaseName || extractBaseMenuItemName(rawName) || rawName
+      // Preservar rango explícito (15-20 / 20-25 / 25-30 / 30-40 People) en Party Trays cuando Toast no lo incluye en el nombre base
+      const sizeMatch = rawName.match(/\b(?:15\s*-\s*20|20\s*-\s*25|25\s*-\s*30|30\s*-\s*40)\s*(?:people|personas)\b/i)
+      if (sizeMatch && !/\d+\s*-\s*\d+\s*(?:people|personas)/i.test(resolvedSelName)) {
+        resolvedSelName = `${resolvedSelName} (${sizeMatch[0]})`
+      }
+      const baseMenuNorm = normalize(catalogBaseName || '')
+
+      const unitPrice =
+        Number(pm.unit_price) > 0
+          ? Number(pm.unit_price)
+          : qty > 0
+            ? Number(pm.gross_sales ?? pm.net_sales ?? 0) / qty
+            : 0
+
+      // 1) Extraer todos los grupos parentéticos de rawName (sin romper "(In Store)" ni múltiples paréntesis)
+      const parenTokenCounts = new Map<string, { raw: string; count: number }>()
+      const cleanForParen = rawName.replace(/\(\s*in\s+store\s*\)/gi, '')
+      for (const m of cleanForParen.matchAll(/\(([^)]+)\)/g)) {
+        const groupContent = m[1].trim()
+        if (!groupContent) continue
+        if (baseMenuNorm && baseMenuNorm.includes(normalize(`(${groupContent})`))) continue
+        for (const rawTok of groupContent.split(',')) {
+          const tok = rawTok.trim()
+          const tokNorm = normalize(tok)
+          if (!tok || !tokNorm || tokNorm === 'in store' || /^\d+\s*-\s*\d+\s*(?:people|personas)$/.test(tokNorm)) {
+            continue
+          }
+          const prev = parenTokenCounts.get(tokNorm) || { raw: tok, count: 0 }
+          prev.count += 1
+          parenTokenCounts.set(tokNorm, prev)
+        }
+      }
+
+      const basePerOrderMods = Array.from(parenTokenCounts.values())
+      const resolvedNormSet = new Set<string>(parenTokenCounts.keys())
+      const hasJackInParens = Array.from(resolvedNormSet).some((k) => /^jack\s+cheese\b/.test(k))
+
+      // 2) Contar ocurrencias exactas en modifier_guids para modificadores omitidos de pm.name (ej. "No Crema", "No Cheese", "No Mayo")
+      const modGuidCounts = new Map<string, number>()
+      if (Array.isArray(pm.modifier_guids)) {
+        for (const mg of pm.modifier_guids) {
+          const gStr = String(mg || '').trim()
+          if (gStr) modGuidCounts.set(gStr, (modGuidCounts.get(gStr) || 0) + 1)
+        }
+      }
+
+      const partialGuidMods: Array<{ guid: string; name: string; effCount: number }> = []
+      for (const [mg, rawCnt] of modGuidCounts.entries()) {
+        const rawModName = toastNameByGuid.get(mg)
+        if (!rawModName) continue
+        const cleanModName = rawModName.replace(/\s*\(\s*in\s+store\s*\)\s*$/i, '').trim()
+        const normMod = normalize(cleanModName)
+        if (!normMod || resolvedNormSet.has(normMod) || resolvedNormSet.has(normalize(rawModName))) continue
+
+        const isRemovalMod = /^(?:no|sin)\s+/.test(normMod) || /^(?:solo\s+(?:frijol(?:es)?|arroz)|meat\s*only)\b/.test(normMod)
+        // Si no había paréntesis en pm.name, permitir también modificadores funcionales de tortilla/queso; de lo contrario, solo exclusiones "No/Sin"
+        if (!isRemovalMod && parenTokenCounts.size > 0) continue
+        if (hasJackInParens && /^(?:no|sin)\s+(?:jack|cheese|queso)\b/.test(normMod) && rawCnt < qty) continue
+
+        const effCount = Math.min(qty, Math.max(0, Math.round(rawCnt)))
+        if (effCount <= 0) continue
+        resolvedNormSet.add(normMod)
+        partialGuidMods.push({ guid: mg, name: cleanModName, effCount })
+      }
+
       const ch = String(pm.group_name || 'In Store')
       const list = byChannel.get(ch) || []
-      list.push({
-        guid: String(pm.guid || ''),
-        name: baseName || rawName,
-        price: Number(pm.gross_sales ?? pm.net_sales ?? 0),
-        quantity: qty,
-        modifiers: mods,
-      })
+
+      // Particionar [0, qty) en intervalos exactos para que cada modificador parcial tenga mod.quantity === sliceQty
+      // y descuente exactamente effCount porciones (nunca effCount * qty ni 0 por exclusión parcial).
+      if (partialGuidMods.length === 0) {
+        list.push({
+          guid: pmGuid,
+          name: resolvedSelName,
+          price: unitPrice,
+          quantity: qty,
+          modifiers: basePerOrderMods.map((bm) => ({
+            name: bm.raw,
+            quantity: bm.count * qty,
+          })),
+        })
+      } else {
+        const breakpoints = Array.from(
+          new Set<number>([0, qty, ...partialGuidMods.map((m) => m.effCount).filter((c) => c > 0 && c < qty)])
+        ).sort((a, b) => a - b)
+
+        for (let bi = 0; bi < breakpoints.length - 1; bi++) {
+          const sliceStart = breakpoints[bi]
+          const sliceEnd = breakpoints[bi + 1]
+          const sliceQty = sliceEnd - sliceStart
+          if (sliceQty <= 0) continue
+          const sliceMods: Array<{ guid?: string | null; name: string; quantity: number }> = basePerOrderMods.map(
+            (bm) => ({
+              name: bm.raw,
+              quantity: bm.count * sliceQty,
+            })
+          )
+          for (const pmMod of partialGuidMods) {
+            if (pmMod.effCount >= sliceEnd) {
+              sliceMods.push({
+                guid: pmMod.guid,
+                name: pmMod.name,
+                quantity: sliceQty,
+              })
+            }
+          }
+          list.push({
+            guid: pmGuid,
+            name: resolvedSelName,
+            price: unitPrice,
+            quantity: sliceQty,
+            modifiers: sliceMods,
+          })
+        }
+      }
       byChannel.set(ch, list)
     }
 
@@ -894,6 +1165,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       orderGuid: `pmix-${storeId}-${bDate}-${idx}`,
       businessDate: bDate,
       diningOptionName: ch,
+      deliveryService: /uber|doordash|grubhub|postmates/i.test(ch) ? ch : undefined,
       selections: sels,
     }))
 
@@ -972,6 +1244,63 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     dailyTheoUnitsByStoreDate.set(`${storeId}::${bDate}`, dayMap)
   }
 
+  // Leer pmix_daily_cache en modo streaming estricto (<= 15 filas por petición HTTP = ~3.2 MB JSONB, cero OFFSET, cero acumulación en RAM),
+  // validando isPmixCacheRowFinalized en fechas cerradas (< todayLA) y aplicando fallback vivo acotado (<= 15 llamadas) para días faltantes/abiertos.
+  const effectivePmixEnd = endDate <= todayLA ? endDate : todayLA
+  const closedPmixEnd = effectivePmixEnd < todayLA ? effectivePmixEnd : addDaysIso(todayLA, -1)
+  const finalizedPmixStoreDates = new Set<string>()
+
+  if (queriedStoreExternalIds.length > 0 && pmixLookbackStart <= closedPmixEnd) {
+    await readPmixDailyCacheChunked(supabase, {
+      storeGuids: queriedStoreExternalIds,
+      startDate: pmixLookbackStart,
+      endDate: closedPmixEnd,
+      includeUpdatedAt: true,
+      chunkRows: PMIX_SAFE_CHUNK_ROWS,
+      maxRows: 900,
+      onChunk: (chunk) => {
+        for (const pRow of chunk) {
+          const guid = String(pRow.store_id || '')
+          const bDate = String(pRow.business_date || '')
+          if (!guid || !bDate || bDate >= todayLA) continue
+          if (!Array.isArray(pRow.items) || pRow.items.length === 0) continue
+          if (!isPmixCacheRowFinalized(bDate, pRow.updated_at, todayLA)) continue
+          finalizedPmixStoreDates.add(`${guid}::${bDate}`)
+          processSinglePmixRow(pRow)
+        }
+      },
+    })
+  }
+
+  const MAX_LIVE_PMIX_FALLBACK_CALLS = 15
+  let liveFallbackCount = 0
+  if (queriedStores.length > 0 && pmixLookbackStart <= effectivePmixEnd) {
+    for (const st of queriedStores) {
+      for (let d = pmixLookbackStart; d <= effectivePmixEnd; d = addDaysIso(d, 1)) {
+        const key = `${st.external_id}::${d}`
+        if (finalizedPmixStoreDates.has(key)) continue
+        if (diffCalendarDays(d, todayLA) > 120) continue
+        if (liveFallbackCount >= MAX_LIVE_PMIX_FALLBACK_CALLS) break
+        liveFallbackCount++
+        try {
+          const liveItems = await getProductMix({
+            storeId: st.external_id,
+            startDate: d,
+            endDate: d,
+            bundleModifiers: true,
+            skipCache: d < todayLA,
+          })
+          if (Array.isArray(liveItems) && liveItems.length > 0) {
+            processSinglePmixRow({ store_id: st.external_id, business_date: d, items: liveItems })
+          }
+        } catch (liveErr) {
+          console.warn(`[ExecutiveTVF] Live PMIX fallback omitido en ${st.name} (${d}):`, liveErr)
+        }
+      }
+      if (liveFallbackCount >= MAX_LIVE_PMIX_FALLBACK_CALLS) break
+    }
+  }
+
   // 4. Indexar Ventas Netas, Conteos Físicos Humanos y Entregas de Bodega (QBO)
   // `${storeId}::${date}` -> { netSales, orderCount }
   const salesByStoreDate = new Map<string, { netSales: number; orderCount: number }>()
@@ -986,7 +1315,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
 
   // `${storeId}::${itemId}` -> Map<date, { qty, by, createdAt }>
   const humanCountsByStoreItem = new Map<string, Map<string, { qty: number; by: string | null; createdAt: string }>>()
-  const numericStoreSet = new Set(allStoreNumericIds.map(String))
+  const numericStoreSet = new Set(queriedStoreNumericIds.map(String))
   for (const c of rawCounts) {
     if (!isHumanPhysicalCountRow(c) || isAutoCycleCountRecord({ countedBy: c.counted_by, notes: c.notes })) {
       continue
@@ -1037,33 +1366,14 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     arrivalsByStoreItemDate.set(key, cur)
   }
 
-  // 5. Resolver ancla telescópica `[t0, t1]` para cualquier `(storeId, itemId)` en `[startDate, endDate]`
-  const resolveAnchor = (sortedDates: string[]): { t0: string; t1: string; spanDays: number } | null => {
-    const inWin = sortedDates.filter((d) => d >= startDate && d <= endDate)
-    if (inWin.length === 0) return null
-    const t1 = inWin[inWin.length - 1]
-    const isSingle = startDate === endDate
-    const startDow = new Date(`${startDate}T12:00:00Z`).getUTCDay()
-    const idealMinPre = isSingle
-      ? addDaysIso(startDate, -3)
-      : startDow === 0
-        ? addDaysIso(startDate, -2)
-        : addDaysIso(startDate, -2)
-    const pre = sortedDates.filter((d) => d >= idealMinPre && d < startDate)
-    const t0 = pre.length > 0 ? pre[pre.length - 1] : inWin.length >= 2 ? inWin[0] : null
-    if (!t0 || t0 >= t1) return null
-    const spanDays = diffCalendarDays(t0, t1)
-    return spanDays >= 1 ? { t0, t1, spanDays } : null
-  }
+  // 5. Resolver ancla telescópica canónica `[t0, t1]` para cualquier `(storeId, itemId)` en `[startDate, endDate]`
+  const resolveAnchor = (sortedDates: string[]) =>
+    resolveCanonicalTelescopingAnchor(sortedDates, startDate, endDate)
 
-  // 6. Construir lista elegible de productos alimenticios / cocina de Orden Diaria
-  const eligibleItemIds = Array.from(catalog.templateItemIds).filter((itemId) => {
-    const inv = invById.get(itemId)
-    if (!inv) return false
-    return !isNonFoodUniformOrJanitorialItem(inv)
-  })
+  const endWindowInstantMs = buildLAInstant(addDaysIso(endDate, 1), 5, 59).getTime()
+  const storePrimaryMeatSpan = new Map<number, { t0: string; t1: string; spanDays: number; isAsada: boolean }>()
 
-  // Acumuladores por tienda para `storeRows` (todas las 15 sucursales siempre disponibles para benchmark)
+  // 6. Acumuladores por tienda para `storeRows`
   const storeMetricsMap = new Map<
     number,
     {
@@ -1088,7 +1398,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     }
   >()
 
-  for (const st of allStoresSorted) {
+  for (const st of queriedStores) {
     let sSales = 0
     let sOrders = 0
     for (let d = startDate; d <= endDate; d = addDaysIso(d, 1)) {
@@ -1241,19 +1551,41 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     const isPapelito = itemId === PAPELITO_ITEM_ID
     const isMassBalance = !isMeat && isHistoricalMassBalanceItem({ id: itemId, name: inv.name })
     const category = classifyProductCategory(inv, isMeat)
+    const refBagLbs = proteinKey
+      ? getHistoricalMeatBagLbs(proteinKey, endDate, MEAT_DEFAULT_BAG_LBS[proteinKey])
+      : 0
     const uMeta = buildUnitLabels(inv, isPapelito, proteinKey)
+    if (proteinKey && refBagLbs > 0 && refBagLbs !== uMeta.packSizeQty) {
+      uMeta.packSizeQty = refBagLbs
+      uMeta.es = refBagLbs < 1 ? `bolsitas (${Math.round(refBagLbs * 16)} oz)` : `bolsas (${refBagLbs} lb)`
+      uMeta.en = refBagLbs < 1 ? `pouches (${Math.round(refBagLbs * 16)} oz)` : `bags (${refBagLbs} lb)`
+    }
     const yieldPct = isMeat
       ? Number(inv.yield_percent || MEAT_COOKING_YIELDS[proteinKey] * 100)
       : Number(inv.yield_percent || 100)
     const yieldRatio = yieldPct > 0 ? yieldPct / 100 : 1
 
-    const rawPurchaseCost = Number(inv.purchase_unit_cost || 0)
-    const unitCostStoreUsd = isPapelito
-      ? round2(rawPurchaseCost / Math.max(1, Number(inv.quantity_per_unit || 60)))
-      : rawPurchaseCost
+    let effectivePurchaseCost = Number(inv.purchase_unit_cost || 0)
+    let effectiveQpu = Number(inv.quantity_per_unit || 0)
+    const phList = catalog.priceHistoryByItemId.get(itemId)
+    if (phList && phList.length > 0) {
+      for (const ph of phList) {
+        if (ph.effectiveMs <= endWindowInstantMs && ph.cost > 0) {
+          effectivePurchaseCost = ph.cost
+          if (ph.qpu > 0) effectiveQpu = ph.qpu
+        }
+      }
+    }
+    const papelitoDivisor = effectiveQpu >= 10 ? effectiveQpu : Math.max(1, Number(inv.quantity_per_unit || 60))
+    const unitCostStoreUsd = isPapelito ? round2(effectivePurchaseCost / papelitoDivisor) : effectivePurchaseCost
+    const isExternalDirectSupplier =
+      catalog.externalSupplierItemIds.has(itemId) ||
+      EXTERNAL_DIRECT_SUPPLIER_ITEM_IDS.has(itemId) ||
+      inv.sku === '251W' ||
+      inv.sku === '253W'
     const bodegaRatio = proteinKey
       ? BODEGA_COST_RATIO_BY_PROTEIN[proteinKey] ?? 0.85
-      : inv.is_bodega
+      : isExternalDirectSupplier
         ? 1.0
         : 0.9
     const unitCostBodegaUsd = round2(unitCostStoreUsd * bodegaRatio)
@@ -1275,7 +1607,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     let selPhysSpanUnits = 0
     let selTheoSpanCookedLbs = 0
 
-    for (const st of allStoresSorted) {
+    for (const st of queriedStores) {
       const isSelectedSt = selectedStoreIdSet.has(st.id)
       const countMap = humanCountsByStoreItem.get(`${st.id}::${itemId}`)
       const sortedDates = countMap ? Array.from(countMap.keys()).sort() : []
@@ -1324,22 +1656,39 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       const closeQty = countMap.get(t1)!.qty
 
       let arrivedQty = 0
+      let arrivedMeatLbs = 0
       const stInvs: string[] = []
       for (let d = t0; d < t1; d = addDaysIso(d, 1)) {
         const arrRec = arrivalsByStoreItemDate.get(`${st.id}::${itemId}::${d}`)
         if (arrRec) {
           arrivedQty += arrRec.qty
+          if (proteinKey) {
+            arrivedMeatLbs += arrRec.qty * getHistoricalMeatBagLbs(proteinKey, d, refBagLbs)
+          }
           for (const invTag of arrRec.invoices) {
             if (!stInvs.includes(invTag)) stInvs.push(invTag)
           }
         }
       }
       let transNetQty = 0
+      let transMeatLbs = 0
       for (let d = addDaysIso(t0, 1); d <= t1; d = addDaysIso(d, 1)) {
-        transNetQty += transferNetMap.get(`${st.id}::${itemId}::${d}`)?.netQty || 0
+        const trQty = transferNetMap.get(`${st.id}::${itemId}::${d}`)?.netQty || 0
+        transNetQty += trQty
+        if (proteinKey && trQty !== 0) {
+          transMeatLbs += trQty * getHistoricalMeatBagLbs(proteinKey, d, refBagLbs)
+        }
       }
 
-      const rawPhysUsed = openQty + arrivedQty + transNetQty - closeQty
+      const rawPhysUsed = proteinKey
+        ? refBagLbs > 0
+          ? (openQty * getHistoricalMeatBagLbs(proteinKey, t0, refBagLbs) +
+              arrivedMeatLbs +
+              transMeatLbs -
+              closeQty * getHistoricalMeatBagLbs(proteinKey, t1, refBagLbs)) /
+            refBagLbs
+          : 0
+        : openQty + arrivedQty + transNetQty - closeQty
       if (rawPhysUsed < -0.01) {
         // Anomalía de captura negativa: reportar como no medido honestamente para no distorsionar totales
         perStoreBreakdown.push({
@@ -1375,16 +1724,24 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       // Calcular esperado teórico o mediana histórica en exactamente `(t0, t1]`
       let stSpanTheoUnits = 0
       let stSpanCookedLbs = 0
+      let stSpanRawLbs = 0
       if (!isMassBalance) {
         for (let d = addDaysIso(t0, 1); d <= t1; d = addDaysIso(d, 1)) {
-          stSpanTheoUnits += dailyTheoUnitsByStoreDate.get(`${st.id}::${d}`)?.get(itemId) || 0
           if (proteinKey) {
-            stSpanCookedLbs += dailyMeatDetailByStoreDate.get(`${st.id}::${d}::${proteinKey}`)?.cookedLbs || 0
+            const md = dailyMeatDetailByStoreDate.get(`${st.id}::${d}::${proteinKey}`)
+            stSpanRawLbs += md?.rawLbs || 0
+            stSpanCookedLbs += md?.cookedLbs || 0
+          } else {
+            stSpanTheoUnits += dailyTheoUnitsByStoreDate.get(`${st.id}::${d}`)?.get(itemId) || 0
           }
+        }
+        if (proteinKey) {
+          stSpanTheoUnits = refBagLbs > 0 ? stSpanRawLbs / refBagLbs : 0
         }
       } else {
         const preDates = sortedDates.filter((d) => d <= t0)
-        const histRates: number[] = []
+        const histRatesAll: number[] = []
+        let nonZeroSpans = 0
         for (let k = 1; k < preDates.length; k++) {
           const p0 = preDates[k - 1]
           const p1 = preDates[k]
@@ -1393,24 +1750,55 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
           for (let d = p0; d < p1; d = addDaysIso(d, 1)) {
             pArr += arrivalsByStoreItemDate.get(`${st.id}::${itemId}::${d}`)?.qty || 0
           }
+          for (let d = addDaysIso(p0, 1); d <= p1; d = addDaysIso(d, 1)) {
+            pArr += transferNetMap.get(`${st.id}::${itemId}::${d}`)?.netQty || 0
+          }
           const pUsed = countMap.get(p0)!.qty + pArr - countMap.get(p1)!.qty
           let pSales = 0
           for (let d = addDaysIso(p0, 1); d <= p1; d = addDaysIso(d, 1)) {
             pSales += salesByStoreDate.get(`${st.id}::${d}`)?.netSales || 0
           }
           if (pUsed >= 0 && pSales > 1000) {
-            histRates.push(pUsed / (pSales / 1000))
+            histRatesAll.push(pUsed / (pSales / 1000))
+            if (pUsed > 0) nonZeroSpans++
           }
         }
-        histRates.sort((a, b) => a - b)
+        // Tasa telescópica sin sesgo sobre toda la ventana histórica previa [preFirst, preLast]
+        // para insumos de baja rotación por caja (ej. Viva Lard 48 lb, Agua Clientes, Agua Gavilan)
+        // donde la mediana diaria da 0 y filtrar solo días >0 inflaría la tasa 4x–10x.
+        let telescopicPreRate = 0
+        if (preDates.length >= 2) {
+          const preFirst = preDates[0]
+          const preLast = preDates[preDates.length - 1]
+          if (diffCalendarDays(preFirst, preLast) >= 5) {
+            let totPreArr = 0
+            for (let d = preFirst; d < preLast; d = addDaysIso(d, 1)) {
+              totPreArr += arrivalsByStoreItemDate.get(`${st.id}::${itemId}::${d}`)?.qty || 0
+            }
+            for (let d = addDaysIso(preFirst, 1); d <= preLast; d = addDaysIso(d, 1)) {
+              totPreArr += transferNetMap.get(`${st.id}::${itemId}::${d}`)?.netQty || 0
+            }
+            const totPreUsed = countMap.get(preFirst)!.qty + totPreArr - countMap.get(preLast)!.qty
+            let totPreSales = 0
+            for (let d = addDaysIso(preFirst, 1); d <= preLast; d = addDaysIso(d, 1)) {
+              totPreSales += salesByStoreDate.get(`${st.id}::${d}`)?.netSales || 0
+            }
+            if (totPreUsed > 0 && totPreSales > 3000) {
+              telescopicPreRate = totPreUsed / (totPreSales / 1000)
+            }
+          }
+        }
         let spanSales = 0
         for (let d = addDaysIso(t0, 1); d <= t1; d = addDaysIso(d, 1)) {
           spanSales += salesByStoreDate.get(`${st.id}::${d}`)?.netSales || 0
         }
-        if (histRates.length > 0 && spanSales > 0) {
-          stSpanTheoUnits = histRates[Math.floor(histRates.length / 2)] * (spanSales / 1000)
+        const medianAll = computeRobustMedian(histRatesAll)
+        const isFrequentDailyItem = histRatesAll.length >= 3 && nonZeroSpans / histRatesAll.length >= 0.6 && medianAll > 0
+        const effectiveRatePer1k = isFrequentDailyItem ? medianAll : telescopicPreRate > 0 ? telescopicPreRate : medianAll
+        if (effectiveRatePer1k > 0 && spanSales > 0) {
+          stSpanTheoUnits = effectiveRatePer1k * (spanSales / 1000)
         } else {
-          // Si no hay mediana previa suficiente, caer al motor POS si reporta >0 o igualar a físico para no inventar pérdida
+          // Si no hay tasa histórica positiva previa suficiente, caer al motor POS si reporta >0 o igualar a físico para no inventar pérdida
           let posFallback = 0
           for (let d = addDaysIso(t0, 1); d <= t1; d = addDaysIso(d, 1)) {
             posFallback += dailyTheoUnitsByStoreDate.get(`${st.id}::${d}`)?.get(itemId) || 0
@@ -1429,7 +1817,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       let stRealOzPerTaco: number | null = null
       let stEquivTacosDiff: number | null = null
       if (proteinKey) {
-        const bagLbs = MEAT_DEFAULT_BAG_LBS[proteinKey]
+        const bagLbs = refBagLbs
         const physCookedOz = physUsed * bagLbs * yieldRatio * 16
         const theoCookedOz = stSpanCookedLbs * 16
         stEquivTacosDiff = Math.round((physCookedOz - theoCookedOz) / 1.5)
@@ -1482,7 +1870,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       stMet.allDiffCostBodegaUsd += stDiffCostBodega
 
       if (proteinKey) {
-        const bagLbs = MEAT_DEFAULT_BAG_LBS[proteinKey]
+        const bagLbs = refBagLbs
         stMet.meatsMeasuredCount += 1
         stMet.meatsTheoBags += stSpanTheoUnits
         stMet.meatsPhysicalBags += physUsed
@@ -1495,6 +1883,14 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
         stMet.meatsEquivTacosDiff += stEquivTacosDiff || 0
         if (proteinKey === 'asada') {
           stMet.asadaRealOzPerTaco = stRealOzPerTaco
+        }
+        const prevPrimary = storePrimaryMeatSpan.get(st.id)
+        if (
+          !prevPrimary ||
+          (proteinKey === 'asada' && !prevPrimary.isAsada) ||
+          (!prevPrimary.isAsada && spanDays > prevPrimary.spanDays)
+        ) {
+          storePrimaryMeatSpan.set(st.id, { t0, t1, spanDays, isAsada: proteinKey === 'asada' })
         }
       }
 
@@ -1541,7 +1937,7 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     let physCookedLbsEquiv: number | null = null
 
     if (proteinKey && hasMeasured) {
-      const bagLbs = MEAT_DEFAULT_BAG_LBS[proteinKey]
+      const bagLbs = refBagLbs
       physCookedLbsEquiv = round2(selPhysSpanUnits * bagLbs * yieldRatio)
       const physCookedOz = physCookedLbsEquiv * 16
       const theoCookedOz = selTheoSpanCookedLbs * 16
@@ -1691,8 +2087,8 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
     }
   })
 
-  // 9. Construir tabla comparativa de las 15 sucursales (`storeRows`)
-  const storeRows: ExecutiveStoreComparisonRow[] = allStoresSorted.map((st) => {
+  // 9. Construir tabla comparativa de sucursales (`storeRows`)
+  const storeRows: ExecutiveStoreComparisonRow[] = queriedStores.map((st) => {
     const m = storeMetricsMap.get(st.id)!
     const d = storeDishCounters.get(st.id)!
     const hasMeas = m.allMeasuredItemsCount > 0
@@ -1744,8 +2140,25 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
   })
 
   const measuredStoresCount = selectedStores.filter(
-    (s) => (storeMetricsMap.get(s.id)?.allMeasuredItemsCount || 0) > 0
+    (s) => (storeMetricsMap.get(s.id)?.meatsMeasuredCount || 0) > 0
   ).length
+
+  // Emparejar denominador y numerador de % sobre ventas únicamente sobre sucursales con carnes medidas
+  // y exactamente en los días cubiertos por su tramo principal (t0, t1] para evitar distorsiones de 6d/8d vs 7d o tiendas sin conteo.
+  let matchedSpanSalesUsd = 0
+  let matchedTheoCostStoreUsd = 0
+  let matchedPhysCostStoreUsd = 0
+  for (const s of selectedStores) {
+    const sm = storeMetricsMap.get(s.id)
+    const pSpan = storePrimaryMeatSpan.get(s.id)
+    if (!sm || sm.meatsMeasuredCount <= 0 || !pSpan) continue
+    for (let d = addDaysIso(pSpan.t0, 1); d <= pSpan.t1; d = addDaysIso(d, 1)) {
+      matchedSpanSalesUsd += salesByStoreDate.get(`${s.id}::${d}`)?.netSales || 0
+    }
+    matchedTheoCostStoreUsd += sm.allTheoCostStoreUsd
+    matchedPhysCostStoreUsd += sm.allPhysicalCostStoreUsd
+  }
+  const matchedVarCostStoreUsd = matchedPhysCostStoreUsd - matchedTheoCostStoreUsd
 
   const famGetUnits = (fk: ExecutiveDishFamilyKey) =>
     Math.round(familyAcc.get(fk)?.exactUnitsServed || 0)
@@ -1804,13 +2217,16 @@ export async function computeExecutiveTheoreticalVsPhysicalReport(params: {
       aguasDrinksDessertsSold: famGetUnits('aguas_drinks_desserts'),
       theoCostStoreUsd: totalTheoCostStore,
       theoCostBodegaUsd: totalTheoCostBodega,
-      theoPctOfSales: selSalesUsd > 0 ? round2((totalTheoCostStore / selSalesUsd) * 100) : 0,
+      theoPctOfSales:
+        matchedSpanSalesUsd > 0 ? round2((matchedTheoCostStoreUsd / matchedSpanSalesUsd) * 100) : 0,
       physicalCostStoreUsd: totalPhysCostStore,
       physicalCostBodegaUsd: totalPhysCostBodega,
-      physicalPctOfSales: selSalesUsd > 0 ? round2((totalPhysCostStore / selSalesUsd) * 100) : 0,
+      physicalPctOfSales:
+        matchedSpanSalesUsd > 0 ? round2((matchedPhysCostStoreUsd / matchedSpanSalesUsd) * 100) : 0,
       varianceCostStoreUsd: totalVarCostStore,
       varianceCostBodegaUsd: totalVarCostBodega,
-      variancePctOfSales: selSalesUsd > 0 ? round2((totalVarCostStore / selSalesUsd) * 100) : 0,
+      variancePctOfSales:
+        matchedSpanSalesUsd > 0 ? round2((matchedVarCostStoreUsd / matchedSpanSalesUsd) * 100) : 0,
       overallEfficiencyPct:
         totalPhysCostStore > 1 ? round1((totalTheoCostStore / totalPhysCostStore) * 100) : null,
       meatsSummary: {

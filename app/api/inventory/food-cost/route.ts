@@ -40,6 +40,16 @@
  *     y exponiendo `total_cogs = food_cost + packaging_cost`, `meat_cost`, `asada_raw_lbs` y `asada_cost`.
  *   - [2026-11-23] Paginación determinista `fetchAllRows` (`.range()`) en `recipes`, `inventory_items`,
  *     `inventory_price_history`, `toast_menu_items` y `sales_daily_cache` para eliminar truncamientos silenciosos de 1,000 filas.
+ *   - [2026-11-25] Soporte de los 9 GUIDs alternos de sub-tacos en `Taco Plate`, resolución parcial exacta en paso `3b`
+ *     cuando `< 3` sub-tacos vienen por GUID o incluyen `Taco Vegetariano` (sin doble conteo), y normalización NFD
+ *     sin acentos en `nameToRecipeMap`.
+ *   - [2026-11-25] Calibraciones confirmadas por Carlos:
+ *     1) Aguas Frescas genéricas self-serve (`Medium/Large Horchata` en `For Here`/`To Go`) y `Gallon Agua` sin sabor
+ *        asignan el volumen líquido neto sin hielo (`14 oz` / `20 oz` / `128 oz`) con la mezcla empírica real de 116 días
+ *        (`001W Horchata 51.6%`, `003W Jamaica 23.3%`, `004W Piña 15.4%`, `002W Tamarindo 9.7%`), manteniendo sabores
+ *        específicos (`Jamaica`/`Piña`/`Tamarindo` o `Drive Thru`/`Delivery`) 1:1 en su sabor exacto.
+ *     2) `Taco Plate` con `Double Meat` (`+1.5 oz` × 3 = `+4.5 oz`) y/o `Carne Dorada` (`+0.4 oz` × 3 = `+1.2 oz`).
+ *     3) Modificador `No Queso Fresco` (`88c87efd...`) descuenta `-1 pza` de `029W` en platillos con `029W`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
@@ -66,6 +76,36 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 const ASADA_ITEM_ID = ACTIVE_PROTEIN_IDS.asada
+const QUESO_FRESCO_ITEM_ID = '34720160-015c-4623-bb1e-98da0e7b4e51' // 029W Queso Tortas/platos/Desayuno
+const NO_QUESO_FRESCO_MOD_GUID = '88c87efd-953c-417b-9c04-b3bc18849be2' // No Queso Fresco (In Store)
+const AGUA_FRESCA_EMPIRICAL_MIX: ReadonlyArray<{ id: string; share: number }> = [
+    { id: '085ecb0d-c711-4134-ae1a-f7630a22759c', share: 0.516 }, // 001W Horchata (51.6%)
+    { id: '6051e960-7564-41f6-9a52-ff79ed7c6353', share: 0.233 }, // 003W Jamaica (23.3%)
+    { id: '9851a32c-dc35-4653-a1e4-b2cf7bac9009', share: 0.154 }, // 004W Piña (15.4%)
+    { id: 'b6f3f5de-c554-4650-b0df-09dd5d3ca053', share: 0.097 }, // 002W Tamarindo (9.7%)
+]
+const AGUA_FRESCA_ITEM_IDS = new Set<string>(AGUA_FRESCA_EMPIRICAL_MIX.map((a) => a.id))
+const GENERIC_HORCHATA_SELF_SERVE_GUIDS = new Set<string>([
+    '9b752302-33fb-4994-b592-92775203d772', // Medium Horchata
+    '04c3493c-4f2c-4e95-b3ba-6872acaf2846', // Large Horchata (primary)
+    '717ae4d3-04a7-4a24-83f7-e89111102a1e', // Large Horchata (alt)
+])
+const GALLON_AGUA_GUIDS = new Set<string>([
+    '213d3816-21f2-4297-9d79-82c9a79069d9', // Gallon Agua
+    '439d0ba1-cbca-4f78-a1db-122e26ee26ee', // Gallon Agua Fresca
+])
+const DOUBLE_MEAT_MOD_GUIDS = new Set<string>([
+    '3a2da1bd-2591-4913-988c-42c5f6f4ae21', // Double Meat ([Mod] Taco Plate Add Ons)
+    '367f25a8-17bf-4415-adf7-2120240513b1', // Double Meat ([Mod] Plato Add Ons)
+    '24f6b2aa-eaa4-4257-8097-4665254c1f3f', // Double Meat ([Mod] S.Nachos Extras)
+    '1bffc1f3-86d4-4bf2-8121-ae628c2ac8cf', // Double Meat ([Mod] Super Nachos Add Ons)
+    '413eecd5-aa63-40b0-b9d5-f5aa7d9288f7', // Double Meat ([Mod] Sope Add Ons)
+    'f7200b40-6106-4310-8028-6b182973dd9c', // Double Carne 1.5 oz ([Mod] Taco Extras)
+])
+const CARNE_DORADA_MOD_GUIDS = new Set<string>([
+    '809b7c8d-f750-497f-81d6-c702c9ccc869', // Carne Dorada ([Mod] Taco Extras)
+    'fca71922-7566-4944-bad9-390ffa9d54c4', // Carne Dorada ([Mod] S.Nachos Extras)
+])
 
 interface FoodCostStaticCatalog {
     expiresAt: number
@@ -438,6 +478,8 @@ async function computeFoodCostReport(params: {
         })
 
         // 3b. Build NAME-based fallback map & prebuilt InventoryItem Map (evita reconstruir 15,000 Maps en calculateRecipeCost)
+        const normalizeMenuLookupKey = (value: string) =>
+            value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
         const nameToRecipeMap = new Map<string, Recipe>()
         const inventoryItemMap = new Map<string, InventoryItem>(
             (inventoryData as InventoryItem[]).map((item) => [item.id, item])
@@ -449,7 +491,7 @@ async function computeFoodCostReport(params: {
         if (allMenuItems.length > 0) {
             allMenuItems.forEach((mi) => {
                 if (!mi.name || !recipeMap.has(mi.guid)) return
-                const normalizedName = mi.name.trim().toLowerCase()
+                const normalizedName = normalizeMenuLookupKey(mi.name)
                 if (!nameToRecipeMap.has(normalizedName)) {
                     const recipe = recipeMap.get(mi.guid)
                     if (recipe) {
@@ -468,9 +510,9 @@ async function computeFoodCostReport(params: {
             let recipe = recipeMap.get(item.guid)
             let matchedByName = false
 
-            // Fallback: match by product name (strip modifier suffixes like "(Asada)")
+            // Fallback: match by product name (strip modifier suffixes like "(Asada)" and NFD accents)
             if (!recipe) {
-                const baseName = item.name.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase()
+                const baseName = normalizeMenuLookupKey(item.name.replace(/\s*\(.*\)\s*$/, ''))
                 recipe = nameToRecipeMap.get(baseName)
                 if (recipe) {
                     matchedByName = true
@@ -552,18 +594,94 @@ async function computeFoodCostReport(params: {
                             ? [{ inventory_item_id: '5a962d06-d162-425e-a942-c7ad6dab663d', quantity: 4.2, unit: 'oz', type: 'food' }]
                             : []
             const primaryProteinIngredient = recipe?.ingredients.find(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
-            const recipeForCost = proteinAllocation && recipe
+            let recipeForCost: Recipe | undefined = (proteinAllocation && recipe
                 ? {
                     ...recipe,
                     ingredients: [
                         ...recipe.ingredients.filter(ingredient => !activeProteinIds.has(ingredient.inventory_item_id)),
                         ...Array.from(proteinAllocation.portionsOz.entries()).map(([inventory_item_id, quantity]) => ({
-                            inventory_item_id, quantity, unit: 'oz', type: primaryProteinIngredient?.type || 'cooked'
+                            inventory_item_id, quantity, unit: 'oz' as const, type: primaryProteinIngredient?.type || 'cooked'
                         })),
                         ...nonGrillSideExtraIngredients,
                     ]
                 }
-                : recipe as Recipe | undefined
+                : recipe) as Recipe | undefined
+
+            // Aguas Frescas:
+            // 1) Botón genérico de vaso autoservicio ("Medium Horchata" / "Large Horchata" en For Here / To Go):
+            //    prorratear volumen líquido neto sin hielo (14 oz / 20 oz) con la mezcla real de 116 días (51.6/23.3/15.4/9.7%).
+            // 2) "Gallon Agua" / "Gallon Agua Fresca" sin modificador de sabor:
+            //    si trae sabor explícito en el nombre asignar 128 oz de ese sabor; si no, asignar 128 oz con la mezcla empírica.
+            if (!isPartyTray && recipeForCost) {
+                const normItemNameForAgua = normalizeMenuLookupKey(item.name)
+                const chLower = String(channelName || '').toLowerCase()
+                const isSelfServeCupChannel =
+                    !chLower.includes('drive') &&
+                    !chLower.includes('uber') &&
+                    !chLower.includes('door') &&
+                    !chLower.includes('grub') &&
+                    !chLower.includes('delivery') &&
+                    !chLower.includes('3rd party') &&
+                    !chLower.includes('online') &&
+                    !chLower.includes('takeout')
+                const isGenericHorchataCup =
+                    isSelfServeCupChannel &&
+                    (GENERIC_HORCHATA_SELF_SERVE_GUIDS.has(item.guid) || /^(?:medium|large)\s+horchata\b/.test(normItemNameForAgua))
+
+                if (isGenericHorchataCup) {
+                    const existingAguaIng = recipeForCost.ingredients.find((ing) => AGUA_FRESCA_ITEM_IDS.has(ing.inventory_item_id))
+                    const netLiquidOz =
+                        existingAguaIng && Number(existingAguaIng.quantity) > 0
+                            ? Number(existingAguaIng.quantity)
+                            : /^medium\b/.test(normItemNameForAgua)
+                                ? 14
+                                : 20
+                    recipeForCost = {
+                        ...recipeForCost,
+                        ingredients: [
+                            ...recipeForCost.ingredients.filter((ing) => !AGUA_FRESCA_ITEM_IDS.has(ing.inventory_item_id)),
+                            ...AGUA_FRESCA_EMPIRICAL_MIX.map((m) => ({
+                                inventory_item_id: m.id,
+                                quantity: Number((netLiquidOz * m.share).toFixed(4)),
+                                unit: 'oz' as const,
+                                type: 'food' as const,
+                            })),
+                        ],
+                    }
+                } else if (GALLON_AGUA_GUIDS.has(item.guid) || /^gallon\s+agua\b/.test(normItemNameForAgua)) {
+                    const hasFlavorModRecipe =
+                        Array.isArray(item.modifier_guids) &&
+                        item.modifier_guids.some((mg: string) => {
+                            const mr = recipeMap.get(mg)
+                            return Boolean(mr && mr.ingredients.some((ing) => AGUA_FRESCA_ITEM_IDS.has(ing.inventory_item_id)))
+                        })
+                    const hasBaseAguaIng = recipeForCost.ingredients.some((ing) => AGUA_FRESCA_ITEM_IDS.has(ing.inventory_item_id))
+                    if (!hasFlavorModRecipe && !hasBaseAguaIng) {
+                        const explicitFlavorId =
+                            /\bhorchata\b/.test(normItemNameForAgua)
+                                ? '085ecb0d-c711-4134-ae1a-f7630a22759c'
+                                : /\bjamaica\b/.test(normItemNameForAgua)
+                                    ? '6051e960-7564-41f6-9a52-ff79ed7c6353'
+                                    : /\bpina\b/.test(normItemNameForAgua)
+                                        ? '9851a32c-dc35-4653-a1e4-b2cf7bac9009'
+                                        : /\btamarindo\b/.test(normItemNameForAgua)
+                                            ? 'b6f3f5de-c554-4650-b0df-09dd5d3ca053'
+                                            : null
+                        const gallonFoodIngs = explicitFlavorId
+                            ? [{ inventory_item_id: explicitFlavorId, quantity: 128, unit: 'oz' as const, type: 'food' as const }]
+                            : AGUA_FRESCA_EMPIRICAL_MIX.map((m) => ({
+                                inventory_item_id: m.id,
+                                quantity: Number((128 * m.share).toFixed(4)),
+                                unit: 'oz' as const,
+                                type: 'food' as const,
+                            }))
+                        recipeForCost = {
+                            ...recipeForCost,
+                            ingredients: [...recipeForCost.ingredients, ...gallonFoodIngs],
+                        }
+                    }
+                }
+            }
 
             // 1. Calculate base recipe unit cost (both foodCost and channel-filtered packagingCost)
             if (recipeForCost) {
@@ -653,6 +771,52 @@ async function computeFoodCostReport(params: {
             }
 
             // 3. Calculate Modifiers Cost (capturing BOTH foodCost and channel-filtered packagingCost)
+            const canonicalizeSubTacoKey = (raw: string) =>
+                normalizeMenuLookupKey(raw)
+                    .replace(/\s*\(in\s+store\)\s*/g, '')
+                    .replace(/\bchicken\b/g, 'pollo')
+                    .replace(/\b(?:vegetar\w*|veggie|vegie)\b/g, 'vegetariano')
+                    .trim()
+            let resolvedSubTacoUnits = 0
+            const resolvedSubTacoByNormName = new Map<string, number>()
+
+            // Taco Plate + Double Meat (+1.5 oz en los 3 sub-tacos = +4.5 oz) y Carne Dorada (+0.4 oz en los 3 sub-tacos = +1.2 oz)
+            const isTacoPlateRow = /^\s*taco\s*plate\b/i.test(item.name)
+            const normItemNameForMods = normalizeMenuLookupKey(item.name)
+            let tacoPlateExtraOzPerSubTaco = 0
+            if (!skipModCostCalculation && isTacoPlateRow && item.quantity > 0) {
+                const rawModGuids: string[] = Array.isArray(item.modifier_guids) ? item.modifier_guids : []
+                const hasDoubleInName = /\b(?:double|doble|extra)\s*(?:meat|carne)\b/.test(normItemNameForMods)
+                const doubleModCount = rawModGuids.reduce((acc, g) => {
+                    if (DOUBLE_MEAT_MOD_GUIDS.has(g)) return acc + 1
+                    const mn = normalizeMenuLookupKey(menuItemNameByGuid.get(g) || '')
+                    return /^(?:double|doble|extra)\s*(?:meat|carne)\b/.test(mn) ? acc + 1 : acc
+                }, 0)
+                const doubleShare = hasDoubleInName ? 1 : Math.min(item.quantity, doubleModCount) / item.quantity
+
+                const hasDoradaInName = /\bcarne\s*dorada\b/.test(normItemNameForMods)
+                const doradaModCount = rawModGuids.reduce((acc, g) => {
+                    if (CARNE_DORADA_MOD_GUIDS.has(g)) return acc + 1
+                    const mn = normalizeMenuLookupKey(menuItemNameByGuid.get(g) || '')
+                    return /\bcarne\s*dorada\b/.test(mn) ? acc + 1 : acc
+                }, 0)
+                const doradaShare = hasDoradaInName ? 1 : Math.min(item.quantity, doradaModCount) / item.quantity
+
+                tacoPlateExtraOzPerSubTaco = 1.5 * doubleShare + 0.4 * doradaShare
+            }
+            const applyTacoPlateSubTacoMeatAddons = (subRecipe: Recipe): Recipe => {
+                if (tacoPlateExtraOzPerSubTaco <= 1e-6) return subRecipe
+                return {
+                    ...subRecipe,
+                    ingredients: subRecipe.ingredients.map((ing) => {
+                        if (!activeProteinIds.has(ing.inventory_item_id)) return ing
+                        const isLb = String(ing.unit || '').trim().toLowerCase() === 'lb'
+                        const delta = isLb ? tacoPlateExtraOzPerSubTaco / 16 : tacoPlateExtraOzPerSubTaco
+                        return { ...ing, quantity: Number(ing.quantity || 0) + delta }
+                    }),
+                }
+            }
+
             if (!skipModCostCalculation && item.modifier_guids && item.modifier_guids.length > 0) {
                 const halfGuids = new Set([
                     'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
@@ -663,6 +827,7 @@ async function computeFoodCostReport(params: {
 
                 const isTacoPlateItem = /^\s*taco\s*plate\b/i.test(item.name)
                 const subTacoGuids = new Set([
+                    // GUIDs canónicos de Tacos individuales / sub-tacos
                     '6141b8b8-8707-4632-a837-81cfccffc0e6', // Taco Asada
                     'a29735c2-48a6-4f65-86c1-e2f27614f718', // Taco Pastor
                     '87bbf158-caf5-4d15-b747-d8af3185c802', // Taco Pollo
@@ -672,6 +837,16 @@ async function computeFoodCostReport(params: {
                     '51886888-6e37-477b-8147-9741c7145d0b', // Taco Carnitas
                     'f97a828f-18d0-48aa-ad0d-2b26d0ff59a1', // Taco Buche
                     '7b591175-fa2c-455a-83cf-2627cd11fcad', // Taco Vegetariano
+                    // GUIDs alternos de elecciones de Taco Plate en grupos de modificadores Toast
+                    '805f478f-ccde-4f29-9382-cf2fbd52fb81', // Taco Asada
+                    'b269208e-224e-4d32-b6b6-b5348a4e60e6', // Taco Pastor
+                    'cf155144-c32d-4e59-a8de-2df89174e5af', // Taco Pollo
+                    '7a6f5b1f-0ae1-4f32-b12b-db59a4f7ae2b', // Taco Cabeza
+                    'd2cc407f-0e92-4fd3-8dcd-2b9f80e95ef9', // Taco Lengua
+                    '8d294851-8467-4f2f-8516-3a257a8dc303', // Taco Chorizo
+                    '1bf17785-6d16-453f-b456-4ba6db53ad32', // Taco Carnitas
+                    '51e161dc-41cb-4c5c-a3a4-4b16f936bbad', // Taco Buche
+                    '5bcb26d6-53ee-4c9c-9f72-bf66faba53bd', // Taco Vegetariano
                 ])
 
                 const modCounts = new Map<string, number>()
@@ -706,7 +881,15 @@ async function computeFoodCostReport(params: {
                     if (modRecipe) {
                         const isProteinModifier = !!proteinAllocation && modRecipe.ingredients.some(ingredient => activeProteinIds.has(ingredient.inventory_item_id))
                         if (!halfGuids.has(modGuid) && !isProteinModifier) {
-                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], channelName, inventoryItemMap)
+                            if (isSubTaco) {
+                                resolvedSubTacoUnits += weight
+                                const subKey = canonicalizeSubTacoKey(menuItemNameByGuid.get(modGuid) || '')
+                                if (subKey) {
+                                    resolvedSubTacoByNormName.set(subKey, (resolvedSubTacoByNormName.get(subKey) || 0) + weight)
+                                }
+                            }
+                            const effectiveModRecipe = isSubTaco ? applyTacoPlateSubTacoMeatAddons(modRecipe) : modRecipe
+                            const modRes = calculateRecipeCost(effectiveModRecipe, inventoryData as InventoryItem[], channelName, inventoryItemMap)
                             totalModFoodCost += modRes.foodCost * weight
                             if (!isSubTaco) {
                                 totalModPackagingCost += modRes.packagingCost * weight
@@ -729,18 +912,37 @@ async function computeFoodCostReport(params: {
                 })
             }
 
-            // 3b. Taco Plate sub-taco fallback when Toast modifier GUIDs for sub-tacos are not in `recipes`
-            if (!skipModCostCalculation && /^\s*taco\s*plate\b/i.test(item.name) && totalModMeatLbs === 0 && item.quantity > 0) {
+            // 3b. Taco Plate sub-taco fallback when < 3 sub-tacos per plate were resolved via modifier GUIDs
+            //     (protects Taco Vegetariano from double-counting when all 3 sub-tacos already resolved,
+            //      and fills strictly the missing sub-taco slots when 1-2 GUIDs are unmapped)
+            const expectedSubTacoUnits = item.quantity * 3
+            if (
+                !skipModCostCalculation &&
+                /^\s*taco\s*plate\b/i.test(item.name) &&
+                item.quantity > 0 &&
+                resolvedSubTacoUnits < expectedSubTacoUnits - 1e-6
+            ) {
                 const parenTokens: string[] = []
                 for (const m of item.name.matchAll(/\(([^)]+)\)/g)) {
-                    m[1].split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean).forEach((tok: string) => parenTokens.push(tok))
+                    m[1].split(',').map((s: string) => s.trim()).filter(Boolean).forEach((tok: string) => parenTokens.push(tok))
                 }
-                const tacoTokens = parenTokens.filter(tok => /^taco\s+(asada|pastor|pollo|chicken|cabeza|lengua|chorizo|carnitas|buche|vegetar\w*|veggie|vegie)$/i.test(tok))
+                const tacoTokens = parenTokens
+                    .map(canonicalizeSubTacoKey)
+                    .filter(tok => /^taco\s+(asada|pastor|pollo|cabeza|lengua|chorizo|carnitas|buche|vegetariano)$/.test(tok))
                 const slotMultiplier = tacoTokens.length > 0 && tacoTokens.length < 3 ? (3 / tacoTokens.length) : 1
+                const expectedByTok = new Map<string, number>()
                 tacoTokens.forEach(tok => {
-                    const normalizedTok = tok.replace(/\bchicken\b/i, 'pollo')
+                    expectedByTok.set(tok, (expectedByTok.get(tok) || 0) + item.quantity * slotMultiplier)
+                })
+                let remainingUnresolved = Math.max(0, expectedSubTacoUnits - resolvedSubTacoUnits)
+                expectedByTok.forEach((expectedUnits, normalizedTok) => {
+                    if (remainingUnresolved <= 1e-6) return
+                    const alreadyResolved = resolvedSubTacoByNormName.get(normalizedTok) || 0
+                    const effectiveTacoQty = Math.min(remainingUnresolved, Math.max(0, expectedUnits - alreadyResolved))
+                    if (effectiveTacoQty <= 1e-6) return
                     const subTacoRecipe = nameToRecipeMap.get(normalizedTok)
                     if (subTacoRecipe) {
+                        remainingUnresolved -= effectiveTacoQty
                         const foodOnlySubRecipe: Recipe = {
                             ...subTacoRecipe,
                             ingredients: subTacoRecipe.ingredients.filter(ing => {
@@ -748,8 +950,7 @@ async function computeFoodCostReport(params: {
                                 return t === 'food' || t === 'raw' || t === 'cooked'
                             })
                         }
-                        const subRes = calculateRecipeCost(foodOnlySubRecipe, inventoryData as InventoryItem[], channelName, inventoryItemMap)
-                        const effectiveTacoQty = item.quantity * slotMultiplier
+                        const subRes = calculateRecipeCost(applyTacoPlateSubTacoMeatAddons(foodOnlySubRecipe), inventoryData as InventoryItem[], channelName, inventoryItemMap)
                         totalModFoodCost += subRes.foodCost * effectiveTacoQty
                         missingPrices += subRes.missingPrices
                         subRes.breakdown.forEach(b => {
@@ -767,7 +968,39 @@ async function computeFoodCostReport(params: {
                 })
             }
 
-            const foodCost = Number((totalBaseFoodCost + totalModFoodCost).toFixed(4))
+            // 3c. Soporte "No Queso Fresco" (-1 pza de 029W) en Tortas y platillos que incluyen 029W en su receta base
+            if (
+                !skipModCostCalculation &&
+                recipeForCost &&
+                item.quantity > 0 &&
+                recipeForCost.ingredients.some((ing) => ing.inventory_item_id === QUESO_FRESCO_ITEM_ID)
+            ) {
+                const rawModGuids: string[] = Array.isArray(item.modifier_guids) ? item.modifier_guids : []
+                let noQfCount = rawModGuids.reduce((acc, g) => {
+                    if (g === NO_QUESO_FRESCO_MOD_GUID) return acc + 1
+                    const mn = normalizeMenuLookupKey(menuItemNameByGuid.get(g) || '')
+                    return /^(?:no|sin)\s+queso\s+fresco\b/.test(mn) ? acc + 1 : acc
+                }, 0)
+                if (noQfCount === 0 && /\b(?:no|sin)\s+queso\s+fresco\b/.test(normItemNameForMods)) {
+                    noQfCount = item.quantity
+                }
+                const cappedNoQf = Math.min(item.quantity, noQfCount)
+                if (cappedNoQf > 0) {
+                    const qfUnitRes = calculateRecipeCost(
+                        {
+                            id: 'no-queso-fresco-deduction',
+                            toast_menu_item_guid: item.guid,
+                            ingredients: [{ inventory_item_id: QUESO_FRESCO_ITEM_ID, quantity: 1, unit: 'pza', type: 'food' }],
+                        },
+                        inventoryData as InventoryItem[],
+                        channelName,
+                        inventoryItemMap
+                    )
+                    totalModFoodCost -= qfUnitRes.foodCost * cappedNoQf
+                }
+            }
+
+            const foodCost = Number(Math.max(0, totalBaseFoodCost + totalModFoodCost).toFixed(4))
             const packagingCost = Number((totalBasePackagingCost + totalModPackagingCost).toFixed(4))
             const totalCost = foodCost // Preserves pure Food Cost semantics on total_cost & food_cost_percent
             const totalCogs = Number((foodCost + packagingCost).toFixed(4))

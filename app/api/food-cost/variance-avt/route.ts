@@ -34,6 +34,8 @@
  * @notes
  * - [2026-11-23] Reconstrucción integral: eliminada consulta rota a `food_cost_daily_cache.details` y erradicados benchmarks `theoPer1k`;
  *   implementada Ley Telescópica `[t0, t1)` por tienda, normalización `MEAT_DEFAULT_BAG_LBS` + corte `2026-07-24` y paginación anti-1,000 filas.
+ * - [2026-11-25] Calibraciones confirmadas por Carlos: `251W Cheesecake` y `253W Whole Cheese Cake` marcados como
+ *   proveedor externo directo (`bodegaRatio = 1.0`, sin descuento `0.90x` de Bodega) y `029W Queso Fresco` habilitado como `pos_recipe`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -60,6 +62,24 @@ import {
   evaluatePmixItemsForProtein,
   loadToastMeatContext,
 } from '@/lib/inventory/toast-meat-sold-resolver'
+import {
+  buildStoreItemDateNetTransferMap,
+  fetchConfirmedStoreTransfers,
+} from '@/lib/inventory/store-transfers'
+import {
+  PMIX_SAFE_CHUNK_ROWS,
+  isPmixCacheRowFinalized,
+  readPmixDailyCacheChunked,
+} from '@/lib/inventory/pmix-cache-reader'
+import {
+  calculateDailyOrderConsumption,
+  type RawToastTicket,
+} from '@/lib/inventory/daily-order-consumption-engine'
+import {
+  calculateInventoryUsage,
+  calculateRawUsage,
+} from '@/lib/inventory/conversions'
+import type { ProductMixItem } from '@/lib/toast-pmix'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -78,6 +98,12 @@ function setVarianceAvtCacheBounded(key: string, body: any) {
 }
 
 const PAPELITO_ITEM_ID = 'fb83420e-8c32-4e85-a29d-e74de2055807'
+// Confirmado por Carlos: Cheesecake (251W) y Whole Cheese Cake (253W) son proveedor externo directo (bodegaRatio = 1.0)
+const EXTERNAL_DIRECT_SUPPLIER_ITEM_IDS = new Set<string>([
+  '8ba55664-5ca9-4886-8ac8-acf1fd070713', // 251W Cheesecake
+  'df79c42c-7219-4563-8501-6acc1116238f', // 251W Cheese cake
+  '2e53d7a5-67ff-4247-83cf-1d976650a9bf', // 253W Whole Cheese Cake
+])
 const BAG_CUTOVER_DATE = '2026-07-24'
 
 const PROTEIN_ID_TO_KEY = new Map<string, ActiveProteinKey>(
@@ -289,9 +315,9 @@ function resolveTelescopingAnchorPair(
   const startDow = new Date(`${startDate}T12:00:00Z`).getUTCDay()
   const idealMinPreDate = isSingleDayRequest
     ? addDaysIso(startDate, -3)
-    : startDow === 0
-      ? addDaysIso(startDate, -2) // Domingo consolida Sáb+Dom desde el cierre del Viernes
-      : addDaysIso(startDate, -1)
+    : startDow === 1
+      ? addDaysIso(startDate, -3) // Lunes permite anclar contra Viernes si no hubo conteo dominical
+      : addDaysIso(startDate, -2) // Domingo consolida Sáb+Dom desde Viernes; entre semana cubre puentes de 1 día
 
   const preCandidates = sortedDates.filter((d) => d >= idealMinPreDate && d < startDate)
   let t0: string | null = null
@@ -309,14 +335,45 @@ function resolveTelescopingAnchorPair(
 }
 
 export async function GET(request: NextRequest) {
-  const auth = verifyStaffAuth(request)
+  const auth = verifyStaffAuth(request, {
+    allowedRoles: ['admin', 'accounting', 'supervisor', 'manager', 'asistente', 'assistant', 'shift_leader'],
+  })
   if (!auth.authorized) {
     return auth.response!
   }
 
   try {
     const { searchParams } = new URL(request.url)
-    const storeId = (searchParams.get('storeId') || 'all').trim()
+    let storeId = (searchParams.get('storeId') || 'all').trim()
+    let allowedStoreTokens: string[] | null = null
+
+    if (auth.user) {
+      const role = String(auth.user.role || '').toLowerCase().trim()
+      const isGlobalRole = role === 'admin' || role === 'accounting' || role === 'supervisor'
+      if (!isGlobalRole) {
+        const assignedStoreId = (auth.user as any).storeId ?? (auth.user as any).store_id ?? null
+        const scopeRaw = (auth.user as any).storeScope ?? (auth.user as any).store_scope ?? null
+        const tokens = new Set<string>()
+        if (assignedStoreId !== null && assignedStoreId !== undefined && String(assignedStoreId).trim() !== '') {
+          tokens.add(String(assignedStoreId).trim().toLowerCase())
+        }
+        if (Array.isArray(scopeRaw)) {
+          for (const s of scopeRaw) {
+            if (s !== null && s !== undefined && String(s).trim() !== '') {
+              tokens.add(String(s).trim().toLowerCase())
+            }
+          }
+        }
+        if (tokens.size === 0) {
+          return NextResponse.json({ error: 'No autorizado: sin sucursal asignada.' }, { status: 403 })
+        }
+        allowedStoreTokens = Array.from(tokens)
+        if (storeId.toLowerCase() === 'all') {
+          storeId = allowedStoreTokens[0]
+        }
+      }
+    }
+
     const todayLA = getBusinessDateLA()
     const defaultEnd = addDaysIso(todayLA, -1)
     const defaultStart = addDaysIso(defaultEnd, -6)
@@ -326,14 +383,15 @@ export async function GET(request: NextRequest) {
     const categoryFilter = (searchParams.get('category') || 'all').trim()
 
     const maxAllowedDays =
-      storeId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
+      storeId.toLowerCase() === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
     const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
     if (!rangeCheck.ok) {
       return NextResponse.json({ error: rangeCheck.error }, { status: 400 })
     }
 
+    const scopeTag = allowedStoreTokens ? allowedStoreTokens.sort().join(',') : 'global'
     const isClosedWindow = endDate < todayLA
-    const cacheKey = `${storeId}|${startDate}|${endDate}|${categoryFilter}`
+    const cacheKey = `${storeId.toLowerCase()}|${startDate}|${endDate}|${categoryFilter}|${scopeTag}`
     if (isClosedWindow) {
       const hit = varianceAvtClosedCache.get(cacheKey)
       if (hit && hit.expiresAt > Date.now()) {
@@ -351,7 +409,14 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const workPromise = computeVarianceAvtPayload({ storeId, startDate, endDate, categoryFilter, todayLA })
+    const workPromise = computeVarianceAvtPayload({
+      storeId,
+      startDate,
+      endDate,
+      categoryFilter,
+      todayLA,
+      allowedStoreTokens,
+    })
     varianceAvtInFlight.set(cacheKey, workPromise)
     let result: { status: number; body: any }
     try {
@@ -383,8 +448,9 @@ async function computeVarianceAvtPayload(params: {
   endDate: string
   categoryFilter: string
   todayLA: string
+  allowedStoreTokens?: string[] | null
 }): Promise<{ status: number; body: any }> {
-    const { storeId, startDate, endDate, categoryFilter, todayLA } = params
+    const { storeId, startDate, endDate, categoryFilter, todayLA, allowedStoreTokens } = params
     const supabase = await getSupabaseAdminClient()
 
     // 1. Resolver sucursales activas (ID numérico + external_id GUID de Toast)
@@ -407,12 +473,24 @@ async function computeVarianceAvtPayload(params: {
     }
 
     let targetStores = Array.from(storeByNumericId.values())
-    if (storeId !== 'all') {
+    if (storeId.toLowerCase() !== 'all') {
       const single = /^\d+$/.test(storeId)
         ? storeByNumericId.get(Number(storeId))
-        : storeByGuid.get(storeId)
+        : storeByGuid.get(storeId) ||
+          Array.from(storeByNumericId.values()).find(
+            (x) => Boolean(x.external_id) && x.external_id!.toLowerCase() === storeId.toLowerCase()
+          )
       if (!single) {
         return { status: 404, body: { error: 'Sucursal no encontrada.' } }
+      }
+      if (allowedStoreTokens && allowedStoreTokens.length > 0) {
+        const numMatch = allowedStoreTokens.includes(String(single.id).toLowerCase())
+        const guidMatch =
+          Boolean(single.external_id) &&
+          allowedStoreTokens.includes(String(single.external_id).toLowerCase())
+        if (!numMatch && !guidMatch) {
+          return { status: 403, body: { error: 'No autorizado para consultar otra sucursal.' } }
+        }
       }
       targetStores = [single]
     }
@@ -421,8 +499,8 @@ async function computeVarianceAvtPayload(params: {
     const targetNumericIdSet = new Set<number>(targetNumericIds)
     const targetGuids = targetStores.map((s) => s.external_id).filter((g): g is string => Boolean(g))
 
-    // 2. Catálogo de inventario completo (paginado) + ventas netas del periodo
-    const [rawItems, salesRows] = await Promise.all([
+    // 2. Catálogo de inventario completo (paginado) + mapeo de proveedores externos + ventas netas del periodo
+    const [rawItems, supplierMappingRows, salesRows] = await Promise.all([
       fetchAllRows<any>((from, to) =>
         supabase
           .from('inventory_items')
@@ -430,6 +508,14 @@ async function computeVarianceAvtPayload(params: {
           .order('id', { ascending: true })
           .range(from, to)
       ),
+      fetchAllRows<any>((from, to) =>
+        supabase
+          .from('supplier_item_mappings')
+          .select('master_item_id')
+          .not('master_item_id', 'is', null)
+          .order('master_item_id', { ascending: true })
+          .range(from, to)
+      ).catch(() => []),
       fetchAllRows<any>((from, to) => {
         let q = supabase
           .from('sales_daily_cache')
@@ -438,19 +524,26 @@ async function computeVarianceAvtPayload(params: {
           .lte('business_date', endDate)
           .order('id', { ascending: true })
           .range(from, to)
-        if (storeId !== 'all' && targetGuids.length > 0) {
+        if (storeId.toLowerCase() !== 'all' && targetGuids.length > 0) {
           q = q.in('store_id', targetGuids)
         }
         return q
       }),
     ])
 
+    const externalSupplierIds = new Set<string>([
+      ...(supplierMappingRows || [])
+        .map((r: any) => String(r?.master_item_id || ''))
+        .filter(Boolean),
+      ...EXTERNAL_DIRECT_SUPPLIER_ITEM_IDS,
+    ])
+
     const totalNetSales = round2(
       salesRows.reduce((sum, r) => sum + Math.max(0, Number(r.net_sales || 0)), 0)
     )
 
-    // 3. Conteos físicos humanos con ventana de anclaje previo [startDate - 3, endDate]
-    const anchorLookbackStart = addDaysIso(startDate, -3)
+    // 3. Conteos físicos humanos con ventana de anclaje previo [startDate - 4, endDate]
+    const anchorLookbackStart = addDaysIso(startDate, -4)
     const possibleCountStoreTokens = Array.from(
       new Set([
         ...targetNumericIds.map(String),
@@ -550,7 +643,7 @@ async function computeVarianceAvtPayload(params: {
         })
       : null
 
-    const [orderLineRows, usageLogRows, sobranteRows] = await Promise.all([
+    const [orderLineRows, usageLogRows, sobranteRows, confirmedTransfers] = await Promise.all([
       fetchAllRows<any>((from, to) => {
         let q = supabase
           .from('inventory_order_lines')
@@ -558,11 +651,12 @@ async function computeVarianceAvtPayload(params: {
             'id, inventory_item_id, final_qty, adjusted_qty, calculated_qty, inventory_orders!inner(id, store_id, order_date, status, order_type)'
           )
           .in('inventory_orders.status', ['sent', 'received'])
+          .in('inventory_orders.order_type', ['daily', 'liquids'])
           .gte('inventory_orders.order_date', globalMinT0)
           .lt('inventory_orders.order_date', globalMaxT1)
           .order('id', { ascending: true })
           .range(from, to)
-        if (storeId !== 'all') {
+        if (storeId.toLowerCase() !== 'all') {
           q = q.in('inventory_orders.store_id', targetNumericIds)
         }
         return q
@@ -576,7 +670,7 @@ async function computeVarianceAvtPayload(params: {
               .lte('business_date', endDate)
               .order('id', { ascending: true })
               .range(from, to)
-            if (storeId !== 'all') {
+            if (storeId.toLowerCase() !== 'all') {
               q = q.in('store_id', targetNumericIds.map(String))
             }
             return q
@@ -593,13 +687,23 @@ async function computeVarianceAvtPayload(params: {
               .order('checklist_date', { ascending: true })
               .order('id', { ascending: true })
               .range(from, to)
-            if (storeId !== 'all') {
+            if (storeId.toLowerCase() !== 'all') {
               q = q.in('store_id', targetNumericIds)
             }
             return q
           })
         : Promise.resolve([]),
+      fetchConfirmedStoreTransfers({
+        supabase,
+        storeIds: targetNumericIds,
+        minDate: addDaysIso(globalMinT0, 1),
+        maxDate: globalMaxT1,
+      }).catch((err) => {
+        console.warn('[VarianceAvT] Error leyendo inventory_store_transfers:', err)
+        return []
+      }),
     ])
+    const transferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, targetNumericIdSet)
 
     // Indexar llegadas por (storeId, itemId, orderDate)
     const arrivalsByStoreItemDate = new Map<string, Map<string, number>>()
@@ -657,6 +761,7 @@ async function computeVarianceAvtPayload(params: {
 
     // Indexar consumo teórico POS no cárnico por (storeId, itemId, businessDate)
     const usageTheoByStoreItemDate = new Map<string, Map<string, number>>()
+    const loggedNonMeatStoreDates = new Set<string>()
     for (const u of usageLogRows) {
       const rawS = String(u.store_id || '').trim()
       const sId = /^\d+$/.test(rawS) ? Number(rawS) : storeByGuid.get(rawS)?.id ?? null
@@ -665,7 +770,9 @@ async function computeVarianceAvtPayload(params: {
       if (!itemId || PROTEIN_ID_TO_KEY.has(itemId)) continue
       const bDate = String(u.business_date || '')
       const theo = Number(u.theoretical_usage || 0)
-      if (!bDate || !Number.isFinite(theo) || theo <= 0) continue
+      if (!bDate) continue
+      loggedNonMeatStoreDates.add(`${sId}::${bDate}`)
+      if (!Number.isFinite(theo) || theo <= 0) continue
 
       const key = `${sId}::${itemId}`
       let dMap = usageTheoByStoreItemDate.get(key)
@@ -674,6 +781,255 @@ async function computeVarianceAvtPayload(params: {
         usageTheoByStoreItemDate.set(key, dMap)
       }
       dMap.set(bDate, (dMap.get(bDate) || 0) + theo)
+    }
+
+    // Respaldo exacto desde `pmix_daily_cache` (`readPmixDailyCacheChunked` chunkRows: 15 + `calculateDailyOrderConsumption`)
+    // para cualquier fecha cerrada en `[minTheoDate, endDate]` ausente en `inventory_usage_log`
+    if (needsNonMeatUsage) {
+      const missingPairs: Array<{ storeId: number; externalId: string; date: string }> = []
+      const closedTheoMax = endDate < todayLA ? endDate : addDaysIso(todayLA, -1)
+      for (const s of targetStores) {
+        if (!s.external_id) continue
+        for (let d = minTheoDate; d <= closedTheoMax; d = addDaysIso(d, 1)) {
+          if (!loggedNonMeatStoreDates.has(`${s.id}::${d}`)) {
+            missingPairs.push({ storeId: s.id, externalId: s.external_id, date: d })
+          }
+        }
+      }
+
+      if (missingPairs.length > 0) {
+        let pmixSourceMap: Map<string, ProductMixItem[]>
+        let recipesList: any[]
+        let menuNameByGuid: Map<string, string>
+
+        if (toastMeatCtx) {
+          pmixSourceMap = toastMeatCtx.pmixByStoreDate
+          recipesList = toastMeatCtx.recipesData
+          menuNameByGuid = toastMeatCtx.toastNameByGuid
+        } else {
+          pmixSourceMap = new Map<string, ProductMixItem[]>()
+          const uniqueMissingGuids = Array.from(new Set(missingPairs.map((p) => p.externalId)))
+          let minMissDate = missingPairs[0].date
+          let maxMissDate = missingPairs[0].date
+          for (const mp of missingPairs) {
+            if (mp.date < minMissDate) minMissDate = mp.date
+            if (mp.date > maxMissDate) maxMissDate = mp.date
+          }
+          const [fetchedRecipes, fetchedMenuItems] = await Promise.all([
+            fetchAllRows<any>((from, to) =>
+              supabase
+                .from('recipes')
+                .select('id, toast_menu_item_guid, inventory_item_id, quantity, unit, type')
+                .order('id', { ascending: true })
+                .range(from, to)
+            ),
+            fetchAllRows<any>((from, to) =>
+              supabase
+                .from('toast_menu_items')
+                .select('guid, name')
+                .order('guid', { ascending: true })
+                .range(from, to)
+            ),
+          ])
+          recipesList = fetchedRecipes
+          menuNameByGuid = new Map<string, string>()
+          for (const m of fetchedMenuItems) {
+            if (m.guid) menuNameByGuid.set(String(m.guid), String(m.name || ''))
+          }
+          await readPmixDailyCacheChunked(supabase, {
+            storeGuids: uniqueMissingGuids,
+            startDate: minMissDate,
+            endDate: maxMissDate,
+            includeUpdatedAt: true,
+            chunkRows: PMIX_SAFE_CHUNK_ROWS,
+            onChunk: (chunk) => {
+              for (const row of chunk) {
+                const guid = String(row.store_id || '')
+                const bDate = String(row.business_date || '')
+                if (!guid || !bDate || bDate >= todayLA) continue
+                if (!Array.isArray(row.items) || row.items.length === 0) continue
+                if (!isPmixCacheRowFinalized(bDate, row.updated_at, todayLA)) continue
+                pmixSourceMap.set(`${guid}::${bDate}`, row.items as ProductMixItem[])
+              }
+            },
+          })
+        }
+
+        const itemsByIdMap = new Map<string, any>(rawItems.map((it: any) => [String(it.id), it]))
+        const recipesByMenuGuid = new Map<string, any[]>()
+        for (const r of recipesList) {
+          if (!r.toast_menu_item_guid) continue
+          const arr = recipesByMenuGuid.get(String(r.toast_menu_item_guid)) || []
+          arr.push(r)
+          recipesByMenuGuid.set(String(r.toast_menu_item_guid), arr)
+        }
+        const normMod = (txt: string) =>
+          String(txt || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/\s+/g, ' ')
+            .trim()
+
+        for (const mp of missingPairs) {
+          const pmixItems = pmixSourceMap.get(`${mp.externalId}::${mp.date}`) || []
+          if (pmixItems.length === 0) continue
+
+          const channelGroups = new Map<string, ProductMixItem[]>()
+          for (const p of pmixItems) {
+            if ((Number(p.quantity) || 0) <= 0) continue
+            const ch = p.group_name && p.group_name !== 'Uncategorized' ? p.group_name : 'To Go'
+            const list = channelGroups.get(ch) || []
+            list.push(p)
+            channelGroups.set(ch, list)
+          }
+
+          const synthesizedTickets: RawToastTicket[] = []
+          let channelIdx = 0
+          for (const [diningOptionName, channelItems] of channelGroups.entries()) {
+            channelIdx++
+            synthesizedTickets.push({
+              orderGuid: `pmix-avt-${mp.date}-${channelIdx}`,
+              businessDate: mp.date,
+              diningOptionName,
+              deliveryService: /uber|doordash|grubhub|postmates/i.test(diningOptionName)
+                ? diningOptionName
+                : undefined,
+              selections: channelItems.map((p) => {
+                const sQty = Number(p.quantity) || 1
+                const modGuidCounts = new Map<string, number>()
+                for (const g of p.modifier_guids || []) {
+                  if (g) modGuidCounts.set(g, (modGuidCounts.get(g) || 0) + 1)
+                }
+                const resolvedMods: { guid?: string; name: string; quantity: number }[] = []
+                const resolvedNormSet = new Set<string>()
+                const baseMenuName = menuNameByGuid.get(p.guid)
+                const baseNorm = baseMenuName ? normMod(baseMenuName) : ''
+
+                const parenTokenCounts = new Map<string, { raw: string; count: number }>()
+                const cleanForParen = String(p.name || '').replace(/\(\s*in\s+store\s*\)/gi, '')
+                for (const m of cleanForParen.matchAll(/\(([^)]+)\)/g)) {
+                  const groupContent = m[1].trim()
+                  if (baseNorm && baseNorm.includes(normMod(`(${groupContent})`))) continue
+                  for (const rawTok of groupContent.split(',')) {
+                    const tok = rawTok.trim()
+                    const tokNorm = normMod(tok)
+                    if (!tok || !tokNorm || tokNorm === 'in store' || /^\d+\s*-\s*\d+\s*people$/.test(tokNorm)) {
+                      continue
+                    }
+                    const prev = parenTokenCounts.get(tokNorm) || { raw: tok, count: 0 }
+                    prev.count += 1
+                    parenTokenCounts.set(tokNorm, prev)
+                  }
+                }
+
+                for (const [tokNorm, { raw, count }] of parenTokenCounts.entries()) {
+                  resolvedMods.push({ name: raw, quantity: count * sQty })
+                  resolvedNormSet.add(tokNorm)
+                }
+
+                for (const [guid, count] of modGuidCounts.entries()) {
+                  const modName = menuNameByGuid.get(guid)
+                  if (modName) {
+                    const cleanMod = normMod(modName.replace(/\(\s*in\s+store\s*\)/gi, ''))
+                    if (resolvedNormSet.has(cleanMod) || resolvedNormSet.has(normMod(modName))) continue
+                    resolvedMods.push({ guid, name: modName, quantity: count })
+                    resolvedNormSet.add(cleanMod)
+                  }
+                }
+
+                const unitPrice =
+                  Number(p.unit_price) > 0
+                    ? Number(p.unit_price)
+                    : sQty > 0
+                      ? Number(p.gross_sales ?? p.net_sales ?? 0) / sQty
+                      : 0
+
+                return {
+                  guid: p.guid,
+                  name: baseMenuName || p.name,
+                  price: unitPrice,
+                  quantity: sQty,
+                  modifiers: resolvedMods,
+                }
+              }),
+            })
+          }
+
+          const dayUsageMap = new Map<string, number>()
+          const codexHandledIds = new Set<string>()
+          try {
+            const codexRes = calculateDailyOrderConsumption(
+              mp.storeId,
+              mp.date,
+              synthesizedTickets,
+              recipesList as any,
+              rawItems as any
+            )
+            for (const [, res] of codexRes.itemConsumption.entries()) {
+              if (res.totalCalculatedUsage > 0) {
+                dayUsageMap.set(res.inventoryItemId, res.totalCalculatedUsage)
+                codexHandledIds.add(res.inventoryItemId)
+              }
+            }
+          } catch (codexErr) {
+            console.warn(`[VarianceAvT] Error en CODEX fallback (${mp.storeId} ${mp.date}):`, codexErr)
+          }
+
+          for (const pmixItem of pmixItems) {
+            const qtySold = Number(pmixItem.quantity) || 0
+            if (qtySold <= 0) continue
+            const dbIngs = recipesByMenuGuid.get(pmixItem.guid) || []
+            for (const ing of dbIngs) {
+              if (codexHandledIds.has(ing.inventory_item_id)) continue
+              const rType = String(ing.type || 'food')
+              if (rType.startsWith('cogs_')) {
+                const doLower = (
+                  pmixItem.group_name && pmixItem.group_name !== 'Uncategorized' ? pmixItem.group_name : 'To Go'
+                ).toLowerCase()
+                const isDineIn = doLower.includes('here') || doLower.includes('dine')
+                const isDelivery =
+                  doLower.includes('uber') ||
+                  doLower.includes('door') ||
+                  doLower.includes('grub') ||
+                  doLower.includes('delivery')
+                const isTakeout = !isDineIn && !isDelivery
+                if (rType === 'cogs_dine_in' && !isDineIn) continue
+                if (rType === 'cogs_delivery' && !isDelivery) continue
+                if (rType === 'cogs_takeout' && !isTakeout) continue
+              }
+              const catItem = itemsByIdMap.get(String(ing.inventory_item_id))
+              if (!catItem) continue
+              const rawU = calculateRawUsage(
+                Number(ing.quantity) || 0,
+                ing.unit || 'oz',
+                catItem.yield_percent || 100,
+                rType
+              )
+              const invU = calculateInventoryUsage(
+                rawU.quantity * qtySold,
+                rawU.unit,
+                catItem.unit_type || 'pza',
+                catItem.quantity_per_unit
+              )
+              if (invU > 0) {
+                dayUsageMap.set(String(catItem.id), (dayUsageMap.get(String(catItem.id)) || 0) + invU)
+              }
+            }
+          }
+
+          for (const [itId, theoVal] of dayUsageMap.entries()) {
+            if (PROTEIN_ID_TO_KEY.has(itId) || !Number.isFinite(theoVal) || theoVal <= 0) continue
+            const key = `${mp.storeId}::${itId}`
+            let dMap = usageTheoByStoreItemDate.get(key)
+            if (!dMap) {
+              dMap = new Map<string, number>()
+              usageTheoByStoreItemDate.set(key, dMap)
+            }
+            dMap.set(mp.date, (dMap.get(mp.date) || 0) + theoVal)
+          }
+        }
+      }
     }
 
     // Indexar último sobrante cocido al cierre por sucursal -> sumar última captura de cada tienda activa en el cierre del rango
@@ -752,59 +1108,74 @@ async function computeVarianceAvtPayload(params: {
         const yieldPct = Number(item.yield_percent || MEAT_COOKING_YIELDS[proteinKey] * 100 || 100)
         const yieldRatio = yieldPct > 0 ? yieldPct / 100 : 1
 
-        if (itemSpans.length > 0) {
-          let totalActualRawLbs = 0
-          let totalActualBagsEquiv = 0
-          let totalTheoRawLbs = 0
-          let totalOpeningBags = 0
-          let totalArrivedBags = 0
-          let totalEndingBags = 0
-          let totalSpanDaysWeighted = 0
-          let minAnchorT0 = itemSpans[0].t0
-          let maxAnchorT1 = itemSpans[0].t1
-          const measuredStoreIds: number[] = []
+        let totalActualRawLbs = 0
+        let totalActualBagsEquiv = 0
+        let totalTheoRawLbs = 0
+        let totalOpeningBags = 0
+        let totalArrivedBags = 0
+        let totalEndingBags = 0
+        let totalSpanDaysWeighted = 0
+        let minAnchorT0 = ''
+        let maxAnchorT1 = ''
+        const measuredStoreIds: number[] = []
 
-          for (const sp of itemSpans) {
-            measuredStoreIds.push(sp.storeId)
-            if (sp.t0 < minAnchorT0) minAnchorT0 = sp.t0
-            if (sp.t1 > maxAnchorT1) maxAnchorT1 = sp.t1
-            totalSpanDaysWeighted += sp.spanDays
+        for (const sp of itemSpans) {
+          const w0 = getHistoricalMeatBagLbs(proteinKey, sp.t0)
+          const w1 = getHistoricalMeatBagLbs(proteinKey, sp.t1)
 
-            const w0 = getHistoricalMeatBagLbs(proteinKey, sp.t0)
-            const w1 = getHistoricalMeatBagLbs(proteinKey, sp.t1)
-
-            const arrivalMap = arrivalsByStoreItemDate.get(`${sp.storeId}::${itemId}`)
-            let storeArrivedBags = 0
-            let storeArrivedLbs = 0
-            for (let step = 0; step < sp.spanDays; step++) {
-              const dOrd = addDaysIso(sp.t0, step) // [t0, t1)
-              const bagsOnDay = arrivalMap?.get(dOrd) || 0
-              if (bagsOnDay > 0) {
-                storeArrivedBags += bagsOnDay
-                storeArrivedLbs += bagsOnDay * getHistoricalMeatBagLbs(proteinKey, dOrd)
-              }
+          const arrivalMap = arrivalsByStoreItemDate.get(`${sp.storeId}::${itemId}`)
+          let storeArrivedBags = 0
+          let storeArrivedLbs = 0
+          for (let step = 0; step < sp.spanDays; step++) {
+            const dOrd = addDaysIso(sp.t0, step) // [t0, t1)
+            const bagsOnDay = arrivalMap?.get(dOrd) || 0
+            if (bagsOnDay > 0) {
+              storeArrivedBags += bagsOnDay
+              storeArrivedLbs += bagsOnDay * getHistoricalMeatBagLbs(proteinKey, dOrd)
             }
-
-            const storeActualLbs = sp.countT0 * w0 + storeArrivedLbs - sp.countT1 * w1
-            const storeActualBags = currentBagLbs > 0 ? storeActualLbs / currentBagLbs : 0
-
-            // Consumo teórico POS estrictamente sobre los mismos días (t0, t1] de esa tienda
-            const theoMap = meatTheoByStoreKeyDate.get(`${sp.storeId}::${proteinKey}`)
-            let storeTheoLbs = 0
-            for (let step = 1; step <= sp.spanDays; step++) {
-              const dBiz = addDaysIso(sp.t0, step) // (t0, t1]
-              storeTheoLbs += theoMap?.get(dBiz) || 0
-            }
-
-            totalOpeningBags += sp.countT0
-            totalArrivedBags += storeArrivedBags
-            totalEndingBags += sp.countT1
-            totalActualRawLbs += storeActualLbs
-            totalActualBagsEquiv += storeActualBags
-            totalTheoRawLbs += storeTheoLbs
           }
 
-          const avgSpanDays = round2(totalSpanDaysWeighted / itemSpans.length)
+          let storeTransferBags = 0
+          let storeTransferLbs = 0
+          for (let step = 1; step <= sp.spanDays; step++) {
+            const dBiz = addDaysIso(sp.t0, step) // (t0, t1]
+            const netTrans = transferNetMap.get(`${sp.storeId}::${itemId}::${dBiz}`)?.netQty || 0
+            if (netTrans !== 0) {
+              storeTransferBags += netTrans
+              storeTransferLbs += netTrans * getHistoricalMeatBagLbs(proteinKey, dBiz)
+            }
+          }
+
+          const storeActualLbs = sp.countT0 * w0 + storeArrivedLbs + storeTransferLbs - sp.countT1 * w1
+          if (storeActualLbs < -0.01) {
+            continue
+          }
+          const clampedActualLbs = Math.max(0, storeActualLbs)
+          const storeActualBags = currentBagLbs > 0 ? clampedActualLbs / currentBagLbs : 0
+
+          measuredStoreIds.push(sp.storeId)
+          if (!minAnchorT0 || sp.t0 < minAnchorT0) minAnchorT0 = sp.t0
+          if (!maxAnchorT1 || sp.t1 > maxAnchorT1) maxAnchorT1 = sp.t1
+          totalSpanDaysWeighted += sp.spanDays
+
+          // Consumo teórico POS estrictamente sobre los mismos días (t0, t1] de esa tienda
+          const theoMap = meatTheoByStoreKeyDate.get(`${sp.storeId}::${proteinKey}`)
+          let storeTheoLbs = 0
+          for (let step = 1; step <= sp.spanDays; step++) {
+            const dBiz = addDaysIso(sp.t0, step) // (t0, t1]
+            storeTheoLbs += theoMap?.get(dBiz) || 0
+          }
+
+          totalOpeningBags += sp.countT0
+          totalArrivedBags += storeArrivedBags + storeTransferBags
+          totalEndingBags += sp.countT1
+          totalActualRawLbs += clampedActualLbs
+          totalActualBagsEquiv += storeActualBags
+          totalTheoRawLbs += storeTheoLbs
+        }
+
+        if (measuredStoreIds.length > 0) {
+          const avgSpanDays = round2(totalSpanDaysWeighted / measuredStoreIds.length)
           const actualQty = round2(totalActualRawLbs)
           const theoreticalQty = round2(totalTheoRawLbs)
           const varianceLbs = round2(actualQty - theoreticalQty)
@@ -869,7 +1240,7 @@ async function computeVarianceAvtPayload(params: {
             excess_tacos_equiv: excessTacosEquiv,
             yield_pct: yieldPct,
             span_days: avgSpanDays,
-            measured_stores_count: itemSpans.length,
+            measured_stores_count: measuredStoreIds.length,
             wip_cooler_note: wipCoolerNote,
             period_anchor_start: minAnchorT0,
             period_anchor_end: maxAnchorT1,
@@ -946,48 +1317,62 @@ async function computeVarianceAvtPayload(params: {
       const purchaseUnitDivisor = isPapelito ? qpu : 1
       const unitLabel = isPapelito ? `Case (${qpu} pza)` : String(item.unit_type || item.unit_measure || 'unit')
       const unitCost = rawPurchaseCost
-      const bodegaUnitCost = item.is_bodega !== false ? rawPurchaseCost / 1.2 : rawPurchaseCost
+      const isExternalDirectSupplier =
+        externalSupplierIds.has(itemId) ||
+        EXTERNAL_DIRECT_SUPPLIER_ITEM_IDS.has(itemId) ||
+        item.sku === '251W' ||
+        item.sku === '253W'
+      const bodegaUnitCost = isExternalDirectSupplier ? rawPurchaseCost : rawPurchaseCost * 0.9
 
-      if (itemSpans.length > 0) {
-        let totalActualPurchaseUnits = 0
-        let totalTheoPurchaseUnits = 0
-        let totalOpeningUnits = 0
-        let totalArrivedUnits = 0
-        let totalEndingUnits = 0
-        let totalSpanDaysWeighted = 0
-        let minAnchorT0 = itemSpans[0].t0
-        let maxAnchorT1 = itemSpans[0].t1
-        const measuredStoreIds: number[] = []
+      let totalActualPurchaseUnits = 0
+      let totalTheoPurchaseUnits = 0
+      let totalOpeningUnits = 0
+      let totalArrivedUnits = 0
+      let totalEndingUnits = 0
+      let totalSpanDaysWeighted = 0
+      let minAnchorT0 = ''
+      let maxAnchorT1 = ''
+      const measuredStoreIds: number[] = []
 
-        for (const sp of itemSpans) {
-          measuredStoreIds.push(sp.storeId)
-          if (sp.t0 < minAnchorT0) minAnchorT0 = sp.t0
-          if (sp.t1 > maxAnchorT1) maxAnchorT1 = sp.t1
-          totalSpanDaysWeighted += sp.spanDays
-
-          const arrivalMap = arrivalsByStoreItemDate.get(`${sp.storeId}::${itemId}`)
-          let storeArrived = 0
-          for (let step = 0; step < sp.spanDays; step++) {
-            storeArrived += arrivalMap?.get(addDaysIso(sp.t0, step)) || 0
-          }
-
-          const rawStoreActual = Math.max(0, sp.countT0 + storeArrived - sp.countT1)
-          const storeActualNorm = rawStoreActual / purchaseUnitDivisor
-
-          const theoMap = usageTheoByStoreItemDate.get(`${sp.storeId}::${itemId}`)
-          let rawStoreTheo = 0
-          for (let step = 1; step <= sp.spanDays; step++) {
-            rawStoreTheo += theoMap?.get(addDaysIso(sp.t0, step)) || 0
-          }
-          const storeTheoNorm = rawStoreTheo / purchaseUnitDivisor
-
-          totalOpeningUnits += sp.countT0 / purchaseUnitDivisor
-          totalArrivedUnits += storeArrived / purchaseUnitDivisor
-          totalEndingUnits += sp.countT1 / purchaseUnitDivisor
-          totalActualPurchaseUnits += storeActualNorm
-          totalTheoPurchaseUnits += storeTheoNorm
+      for (const sp of itemSpans) {
+        const arrivalMap = arrivalsByStoreItemDate.get(`${sp.storeId}::${itemId}`)
+        let storeArrived = 0
+        for (let step = 0; step < sp.spanDays; step++) {
+          storeArrived += arrivalMap?.get(addDaysIso(sp.t0, step)) || 0
         }
 
+        let storeTransfer = 0
+        for (let step = 1; step <= sp.spanDays; step++) {
+          storeTransfer += transferNetMap.get(`${sp.storeId}::${itemId}::${addDaysIso(sp.t0, step)}`)?.netQty || 0
+        }
+
+        const rawStoreActual = sp.countT0 + storeArrived + storeTransfer - sp.countT1
+        if (rawStoreActual < -0.01) {
+          continue
+        }
+        const clampedStoreActual = Math.max(0, rawStoreActual)
+        const storeActualNorm = clampedStoreActual / purchaseUnitDivisor
+
+        measuredStoreIds.push(sp.storeId)
+        if (!minAnchorT0 || sp.t0 < minAnchorT0) minAnchorT0 = sp.t0
+        if (!maxAnchorT1 || sp.t1 > maxAnchorT1) maxAnchorT1 = sp.t1
+        totalSpanDaysWeighted += sp.spanDays
+
+        const theoMap = usageTheoByStoreItemDate.get(`${sp.storeId}::${itemId}`)
+        let rawStoreTheo = 0
+        for (let step = 1; step <= sp.spanDays; step++) {
+          rawStoreTheo += theoMap?.get(addDaysIso(sp.t0, step)) || 0
+        }
+        const storeTheoNorm = rawStoreTheo / purchaseUnitDivisor
+
+        totalOpeningUnits += sp.countT0 / purchaseUnitDivisor
+        totalArrivedUnits += (storeArrived + storeTransfer) / purchaseUnitDivisor
+        totalEndingUnits += sp.countT1 / purchaseUnitDivisor
+        totalActualPurchaseUnits += storeActualNorm
+        totalTheoPurchaseUnits += storeTheoNorm
+      }
+
+      if (measuredStoreIds.length > 0) {
         // Solo emitir insumos que tengan actividad POS teórica o consumo físico real
         if (totalTheoPurchaseUnits <= 0 && totalActualPurchaseUnits <= 0) continue
         // Si no existe ningún registro teórico en POS para este ítem (ej. insumo sin receta POS), no fabricar pérdida falsa
@@ -1002,7 +1387,7 @@ async function computeVarianceAvtPayload(params: {
         const theoreticalDollar = round2(theoreticalQty * unitCost)
         const dollarLoss = round2(varianceQty * unitCost)
         const bodegaDollarLoss = round2(varianceQty * bodegaUnitCost)
-        const avgSpanDays = round2(totalSpanDaysWeighted / itemSpans.length)
+        const avgSpanDays = round2(totalSpanDaysWeighted / measuredStoreIds.length)
 
         const sobranteKey =
           itemId === 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562'
@@ -1044,7 +1429,7 @@ async function computeVarianceAvtPayload(params: {
           hasRealInventoryData: true,
           is_meat: false,
           span_days: avgSpanDays,
-          measured_stores_count: itemSpans.length,
+          measured_stores_count: measuredStoreIds.length,
           wip_cooler_note: false,
           period_anchor_start: minAnchorT0,
           period_anchor_end: maxAnchorT1,

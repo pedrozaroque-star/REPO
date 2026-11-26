@@ -65,6 +65,10 @@ import {
   loadToastMeatContext,
   type FridgeLedgerIntervalEntry,
 } from '@/lib/inventory/toast-meat-sold-resolver'
+import {
+  buildStoreItemDateNetTransferMap,
+  fetchConfirmedStoreTransfers,
+} from '@/lib/inventory/store-transfers'
 
 export const maxDuration = 120
 
@@ -192,9 +196,9 @@ function resolveTelescopingAnchorPair(
   const startDow = new Date(`${startDate}T12:00:00Z`).getUTCDay()
   const idealMinPre = isSingleDay
     ? addDaysIso(startDate, -3)
-    : startDow === 0
-      ? addDaysIso(startDate, -2)
-      : addDaysIso(startDate, -1)
+    : startDow === 1
+      ? addDaysIso(startDate, -3)
+      : addDaysIso(startDate, -2)
 
   const preCandidates = sortedDates.filter((d) => d >= idealMinPre && d < startDate)
   const t0 = preCandidates.length > 0 ? preCandidates[preCandidates.length - 1] : inWindow.length >= 2 ? inWindow[0] : null
@@ -250,13 +254,44 @@ function inferProteinKey(itemId: string, itemName: string): ActiveProteinKey | u
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = verifyStaffAuth(request)
+    const auth = verifyStaffAuth(request, {
+      allowedRoles: ['admin', 'accounting', 'supervisor', 'manager', 'asistente', 'assistant', 'shift_leader'],
+    })
     if (!auth.authorized) {
       return auth.response || NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 })
     }
 
     const searchParams = request.nextUrl.searchParams
-    const rawStoreId = (searchParams.get('storeId') || 'all').trim()
+    let rawStoreId = (searchParams.get('storeId') || 'all').trim()
+    let allowedStoreTokens: string[] | null = null
+
+    if (auth.user) {
+      const role = String(auth.user.role || '').toLowerCase().trim()
+      const isGlobalRole = role === 'admin' || role === 'accounting' || role === 'supervisor'
+      if (!isGlobalRole) {
+        const assignedStoreId = (auth.user as any).storeId ?? (auth.user as any).store_id ?? null
+        const scopeRaw = (auth.user as any).storeScope ?? (auth.user as any).store_scope ?? null
+        const tokens = new Set<string>()
+        if (assignedStoreId !== null && assignedStoreId !== undefined && String(assignedStoreId).trim() !== '') {
+          tokens.add(String(assignedStoreId).trim().toLowerCase())
+        }
+        if (Array.isArray(scopeRaw)) {
+          for (const s of scopeRaw) {
+            if (s !== null && s !== undefined && String(s).trim() !== '') {
+              tokens.add(String(s).trim().toLowerCase())
+            }
+          }
+        }
+        if (tokens.size === 0) {
+          return NextResponse.json({ error: 'No autorizado: sin sucursal asignada' }, { status: 403 })
+        }
+        allowedStoreTokens = Array.from(tokens)
+        if (rawStoreId.toLowerCase() === 'all') {
+          rawStoreId = allowedStoreTokens[0]
+        }
+      }
+    }
+
     const todayLA = getBusinessDateLA()
     const defaultEnd = addDaysIso(todayLA, -1)
     const defaultStart = addDaysIso(defaultEnd, -6)
@@ -266,14 +301,15 @@ export async function GET(request: NextRequest) {
     const requestedIngredientId = (searchParams.get('ingredientId') || ACTIVE_PROTEIN_IDS.asada).trim()
 
     const maxAllowedDays =
-      rawStoreId === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
+      rawStoreId.toLowerCase() === 'all' ? FOOD_COST_MAX_RANGE_ALL_STORES_DAYS : FOOD_COST_MAX_RANGE_SINGLE_STORE_DAYS
     const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, maxAllowedDays)
     if (!rangeCheck.ok) {
       return NextResponse.json({ error: rangeCheck.error }, { status: 400 })
     }
 
+    const scopeTag = allowedStoreTokens ? allowedStoreTokens.sort().join(',') : 'global'
     const isClosedWindow = endDate < todayLA
-    const reqCacheKey = `${rawStoreId}|${startDate}|${endDate}|${requestedIngredientId}`
+    const reqCacheKey = `${rawStoreId.toLowerCase()}|${startDate}|${endDate}|${requestedIngredientId}|${scopeTag}`
     if (isClosedWindow) {
       const cached = meatAnalysisClosedCache.get(reqCacheKey)
       if (cached && cached.expiresAt > Date.now()) {
@@ -297,6 +333,7 @@ export async function GET(request: NextRequest) {
       startDate,
       endDate,
       requestedIngredientId,
+      allowedStoreTokens,
     })
     meatAnalysisInFlight.set(reqCacheKey, runPromise)
     let result: { status: number; body: any }
@@ -329,8 +366,9 @@ async function computeMeatAnalysisPayload(params: {
   startDate: string
   endDate: string
   requestedIngredientId: string
+  allowedStoreTokens?: string[] | null
 }): Promise<{ status: number; body: any }> {
-    const { rawStoreId, todayLA, startDate, endDate, requestedIngredientId } = params
+    const { rawStoreId, todayLA, startDate, endDate, requestedIngredientId, allowedStoreTokens } = params
     const supabase = await getSupabaseAdminClient()
 
     // 1. Resolver sucursales activas
@@ -348,12 +386,21 @@ async function computeMeatAnalysisPayload(params: {
     let selectedStores = storesRows.filter((s: any) => Boolean(s.external_id))
     let singleStore: any = null
 
-    if (rawStoreId !== 'all') {
+    if (rawStoreId.toLowerCase() !== 'all') {
       singleStore = /^\d+$/.test(rawStoreId)
         ? storesRows.find((s: any) => Number(s.id) === Number(rawStoreId))
-        : storesRows.find((s: any) => String(s.external_id) === rawStoreId)
+        : storesRows.find((s: any) => String(s.external_id || '').toLowerCase() === rawStoreId.toLowerCase())
       if (!singleStore) {
         return { status: 404, body: { error: 'Store not found' } }
+      }
+      if (allowedStoreTokens && allowedStoreTokens.length > 0) {
+        const numMatch = allowedStoreTokens.includes(String(singleStore.id).toLowerCase())
+        const guidMatch =
+          Boolean(singleStore.external_id) &&
+          allowedStoreTokens.includes(String(singleStore.external_id).toLowerCase())
+        if (!numMatch && !guidMatch) {
+          return { status: 403, body: { error: 'No autorizado para consultar otra sucursal.' } }
+        }
       }
       selectedStores = [singleStore]
     }
@@ -362,16 +409,16 @@ async function computeMeatAnalysisPayload(params: {
     const targetNumericStoreSet = new Set<number>(targetNumericStoreIds)
     const targetGuids = selectedStores.map((s: any) => String(s.external_id)).filter(Boolean)
 
-    // 2. UNA SOLA carga unificada y fragmentada (<= 15 filas/lote) para las 15 sucursales + catálogos estáticos (cacheados 5 min)
+    // 2. UNA SOLA carga unificada y fragmentada (<= 15 filas/lote) para las sucursales permitidas + catálogos estáticos (cacheados 5 min)
     //    Elimina por completo el fan-out paralelo de 15× getProductMix y la doble descarga en Fase 4.
-    const allActiveStoreIds = storesRows
-      .filter((s: any) => Boolean(s.external_id))
-      .map((s: any) => Number(s.id))
+    const allActiveStoreIds = allowedStoreTokens
+      ? targetNumericStoreIds
+      : storesRows.filter((s: any) => Boolean(s.external_id)).map((s: any) => Number(s.id))
 
     const [sharedToastMeatCtx, priceHistoryRows] = await Promise.all([
       loadToastMeatContext({
         storeNumericIds: allActiveStoreIds,
-        minDate: addDaysIso(startDate, -3),
+        minDate: addDaysIso(startDate, -4),
         maxDate: endDate,
         reconcileQbInvoices: true,
       }),
@@ -760,12 +807,12 @@ async function computeMeatAnalysisPayload(params: {
       .sort((a, b) => b.rawLbs - a.rawLbs)
 
     // 4. Desglose AM (06:00–16:59) vs PM (17:00–05:59) + Conciliación Física Telescópica + Personal en Turno
-    const anchorLookbackStart = addDaysIso(startDate, -3)
+    const anchorLookbackStart = addDaysIso(startDate, -4)
     const possibleCountStoreTokens = Array.from(new Set([...targetNumericStoreIds.map(String), ...targetGuids]))
     const historyMeatType = proteinKey ? PROTEIN_KEY_TO_HISTORY_TYPE[proteinKey] : null
 
     // Omitir consultas de conteos/órdenes/handover cuando rawStoreId === 'all' (solo se consumen en modo singleStore)
-    const [rawCounts, rawOrderLines, meatHistoryAmPmRows, sobranteRows, handoverResult] = await Promise.all([
+    const [rawCounts, rawOrderLines, meatHistoryAmPmRows, sobranteRows, handoverResult, confirmedTransfers] = await Promise.all([
       singleStore && possibleCountStoreTokens.length > 0
         ? fetchAllRows<any>((from, to) =>
             supabase
@@ -875,7 +922,17 @@ async function computeMeatAnalysisPayload(params: {
           return []
         }
       })(),
+      singleStore
+        ? fetchConfirmedStoreTransfers({
+            supabase,
+            storeIds: targetNumericStoreIds,
+            itemIds: [inventoryItemId],
+            minDate: anchorLookbackStart,
+            maxDate: endDate,
+          }).catch(() => [])
+        : Promise.resolve([]),
     ])
+    const handoverTransferNetMap = buildStoreItemDateNetTransferMap(confirmedTransfers, targetNumericStoreSet)
 
     // Desglose AM (06:00–16:59) vs PM (17:00–05:59) en [startDate, endDate] desde RPC SQL
     let amHistoryRawLbs = 0
@@ -987,12 +1044,15 @@ async function computeMeatAnalysisPayload(params: {
 
     for (const sSum of scopedSummaries) {
       if (!sSum.hasMeasuredSpan || !sSum.t0 || !sSum.t1) continue
+      if (sSum.hasNegativeCountAnomaly) {
+        hasNegativeCountAnomaly = true
+        continue
+      }
 
       measuredStoresCount++
       totalSpanDays += sSum.spanDays
       if (!minT0 || sSum.t0 < minT0) minT0 = sSum.t0
       if (!maxT1 || sSum.t1 > maxT1) maxT1 = sSum.t1
-      if (sSum.hasNegativeCountAnomaly) hasNegativeCountAnomaly = true
 
       for (const inv of sSum.invoiceNumbers) {
         if (!allScopedInvoices.includes(inv)) allScopedInvoices.push(inv)
@@ -1026,7 +1086,7 @@ async function computeMeatAnalysisPayload(params: {
       const byEndDate = new Map<string, FridgeLedgerIntervalEntry>()
       for (const sSum of scopedSummaries) {
         for (const entry of sSum.dailyLedger) {
-          if (entry.status === 'pending_count') continue
+          if (entry.status === 'pending_count' || entry.status === 'count_anomaly') continue
           const prev = byEndDate.get(entry.endDate)
           if (!prev) {
             byEndDate.set(entry.endDate, {
@@ -1165,7 +1225,16 @@ async function computeMeatAnalysisPayload(params: {
       const openAnchor = storeCounts?.get(prevDate)?.qty
       const closeAnchor = storeCounts?.get(hDate)?.qty
       const morningArr = arrivalsByStoreDate.get(`${Number(singleStore.id)}::${prevDate}`) || 0
+      const dayTransferNet =
+        handoverTransferNetMap.get(`${Number(singleStore.id)}::${inventoryItemId}::${hDate}`)?.netQty || 0
       const dayHist = historyByStoreAndDate.get(`${Number(singleStore.id)}::${hDate}`)
+      const exactDayPmixRawLbs =
+        unifiedMeter.toastByStoreAndDate.get(`${Number(singleStore.id)}::${hDate}`)?.rawLbs || 0
+      const dayHistTotalLbs = dayHist ? dayHist.am + dayHist.pm : 0
+      const dayAmRatio = dayHistTotalLbs > 0 ? dayHist!.am / dayHistTotalLbs : 0.45
+      const dayEffectiveTheoLbs = exactDayPmixRawLbs > 0 ? exactDayPmixRawLbs : dayHistTotalLbs
+      const dayScaledAmLbs = dayEffectiveTheoLbs * dayAmRatio
+      const dayScaledPmLbs = Math.max(0, dayEffectiveTheoLbs - dayScaledAmLbs)
 
       let amActBags: number | null = null
       let pmActBags: number | null = null
@@ -1175,16 +1244,16 @@ async function computeMeatAnalysisPayload(params: {
       let pmLoss: number | null = null
 
       if (openAnchor !== undefined) {
-        amActBags = round2(Math.max(0, openAnchor + morningArr - equivBags5Pm))
-        if (dayHist && bagWeightLbs > 0) {
-          amVarBags = round2(amActBags - dayHist.am / bagWeightLbs)
+        amActBags = round2(Math.max(0, openAnchor + morningArr + dayTransferNet - equivBags5Pm))
+        if (dayEffectiveTheoLbs > 0 && bagWeightLbs > 0) {
+          amVarBags = round2(amActBags - dayScaledAmLbs / bagWeightLbs)
           amLoss = round2(amVarBags * bagWeightLbs * costPerRawLbStore)
         }
       }
       if (closeAnchor !== undefined) {
         pmActBags = round2(Math.max(0, equivBags5Pm - closeAnchor))
-        if (dayHist && bagWeightLbs > 0) {
-          pmVarBags = round2(pmActBags - dayHist.pm / bagWeightLbs)
+        if (dayEffectiveTheoLbs > 0 && bagWeightLbs > 0) {
+          pmVarBags = round2(pmActBags - dayScaledPmLbs / bagWeightLbs)
           pmLoss = round2(pmVarBags * bagWeightLbs * costPerRawLbStore)
         }
       }

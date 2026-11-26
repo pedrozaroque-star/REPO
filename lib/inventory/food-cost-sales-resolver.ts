@@ -18,6 +18,7 @@
  * @notes
  * - [2026-11-23] Creado tras auditoría forense de `LA Central = 0.0%` y picos artificiales (`Downey = 41.8%`), y expandido tras auditoría integral de 5 subagentes sobre el módulo Ventas y sus subpáginas.
  * - [2026-11-23] Estandarizados los umbrales canónicos únicos de Food Cost (`FOOD_COST_TARGET_PCT = 30`, `FOOD_COST_HEALTHY_MAX_PCT = 32`, `FOOD_COST_WARNING_MAX_PCT = 35`), `getFoodCostStatus()` (`> 35%` crítico rojo en todo el sistema) y `calculateSafePackagingCostPct()` para separar empaque de materia prima.
+ * - [2026-11-25] Exportado `resolveCanonicalTelescopingAnchor()` para unificar la selección determinista del ancla `t0` (incluyendo lookback `-3d` en lunes cuando se omitió el domingo, dado que sábado no tiene cierre independiente) en todos los motores de conciliación física vs. teórica.
  */
 
 export const FOOD_COST_TARGET_PCT = 30
@@ -411,4 +412,36 @@ export function validateDateRangeWithinMaxDays(
         }
     }
     return { ok: true, days: inclusiveDays }
+}
+
+/**
+ * Resuelve de manera canónica y determinista el par telescópico `[t0, t1]` entre fechas ordenadas
+ * de conteos físicos humanos (`YYYY-MM-DD`, excluyendo capturas aisladas de sábado y `AUTO_CYCLE_V2`)
+ * para cualquier ventana `[startDate, endDate]`:
+ * - `t1`: último conteo dentro de `[startDate, endDate]`.
+ * - `idealMinPre`: `startDate - 3` cuando es consulta de 1 solo día (`startDate === endDate`) o cuando
+ *   `startDate` es lunes (`startDow === 1`, permitiendo anclar al viernes si faltó el domingo);
+ *   `startDate - 2` para el resto de los días.
+ * - `t0`: último conteo en `[idealMinPre, startDate)`, o `inWin[0]` si `inWin.length >= 2`.
+ */
+export function resolveCanonicalTelescopingAnchor(
+    sortedDates: string[],
+    startDate: string,
+    endDate: string
+): { t0: string; t1: string; spanDays: number } | null {
+    const inWin = sortedDates.filter((d) => d >= startDate && d <= endDate)
+    if (inWin.length === 0) return null
+    const t1 = inWin[inWin.length - 1]
+    const isSingle = startDate === endDate
+    const startDow = new Date(`${startDate}T12:00:00Z`).getUTCDay()
+    const idealMinPre = isSingle
+        ? addDaysIso(startDate, -3)
+        : startDow === 1
+            ? addDaysIso(startDate, -3)
+            : addDaysIso(startDate, -2)
+    const pre = sortedDates.filter((d) => d >= idealMinPre && d < startDate)
+    const t0 = pre.length > 0 ? pre[pre.length - 1] : inWin.length >= 2 ? inWin[0] : null
+    if (!t0 || t0 >= t1) return null
+    const spanDays = diffCalendarDays(t0, t1)
+    return spanDays >= 1 ? { t0, t1, spanDays } : null
 }

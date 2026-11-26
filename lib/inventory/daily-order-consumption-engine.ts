@@ -169,6 +169,17 @@
  *     según el orden de lectura o paginación de PostgreSQL.
  *   - [2026-11-23] Alineada combinación aditiva `Carne Dorada + Extra/Doble/Double Meat` en tacos
  *     (`(isExtra ? 3.0 : 1.5) + (isDorada ? 0.4 : 0) = 3.4 oz`) para paridad 1:1 con `meat-allocation.ts`.
+ *   - [2026-11-25] Excluidos marcadores no alimentarios (`Policia` `d8f4d7cc...`, notas abiertas Toast
+ *     `0c592b57...`, `Borrar`, `Pu`, `P U`); soporte de unidades `fl oz`, `1 Gallon`/`gal` y `unit` sin `NaN`;
+ *     alias `chicken -> pollo`, aditivos `Extra <Proteína>` y `Extra Nacho Cheese`; soporte de modificadores
+ *     de carne/queso/aguacate/crema/exclusiones en desayunos `/huevos?/`; y descuento exacto por cantidad de
+ *     ocurrencias en modificadores `No ...` tanto en `ordersBulk` como en `PMIX` agregado sin doble multiplicación.
+ *   - [2026-11-25] Calibraciones confirmadas por Carlos: `Burrito Beans & Cheese` (sin arroz/carne) = `8.0 oz` Frijol Molido;
+ *     `Super Nachos` = `5.0 oz` Amarillo Cheese (`0 oz` Frijol); `029W Queso Fresco` NO se descuenta en Tortas regulares
+ *     porque su costo/facturación QBO (95.5%) va incluido 1:1 dentro de `271W Papelito Para Torta` (evita doble conteo);
+ *     solo aplica vía receta DB en `Torta Queso`, `Sope Queso`, `Side Order Queso Fresco` y modificador `Extra Queso Fresco` (`+1 pza`);
+ *     `026W Queso Rayado` = `0 oz` base en Mulitas y Platos, `0.6 oz` en modificadores de Taco/Mulita/Sope y `2.1 oz`
+ *     en Burritos (regular, huevo o extra sobre Super Burrito), Platos, Quesadillas y Nachos.
  */
 
 import { PARTY_TRAY_GUIDELINES, resolvePartyTraySize } from './party-tray-guidelines'
@@ -260,6 +271,46 @@ export interface DailyOrderCalculationOutput {
 const normalize = (val: string | null | undefined): string =>
   String(val || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
+const canonicalizeUnitToken = (raw: string | null | undefined, fallbackUnitType?: string | null): string => {
+  const u = normalize(raw)
+  if (u === '1 gallon' || u === 'gallon' || u === 'gal' || u === 'galon' || u === 'galones') return 'gal'
+  if (u === 'unit' || u === 'each' || u === 'ea' || u === 'pieza' || u === 'piezas' || u === 'pcs' || u === 'pza') return 'pza'
+  if (u === '1 dz' || u === 'dz' || u === 'docena' || u === 'dozen') return 'dz'
+  if (u === 'fl oz' || u === 'floz' || u === 'fluid oz') return 'fl oz'
+  if (u === 'oz' || u === 'onza' || u === 'onzas') return 'oz'
+  if (u === 'lb' || u === 'lbs' || u === 'libra' || u === 'libras') return 'lb'
+  if (!u && fallbackUnitType && /gallon|\bgal\b/i.test(fallbackUnitType)) return 'gal'
+  return u
+}
+
+const convertRecipeAmountToCatalogMeasure = (
+  amount: number,
+  rawRecipeUnit: string | null | undefined,
+  item: InventoryItemCatalogEntry | undefined
+): number => {
+  const rUnit = canonicalizeUnitToken(rawRecipeUnit)
+  const iMeasure = canonicalizeUnitToken(item?.unit_measure, item?.unit_type)
+  const hasGallonUnitType = /gallon|\bgal\b/i.test(String(item?.unit_type || ''))
+  if (rUnit === iMeasure) return amount
+  if (rUnit === 'dz' && iMeasure === 'pza') return amount * 12
+  if (rUnit === 'pza' && iMeasure === 'dz') return amount / 12
+  if ((rUnit === 'oz' || rUnit === 'fl oz') && (iMeasure === 'oz' || iMeasure === 'fl oz')) return amount
+  if ((rUnit === 'oz' || rUnit === 'fl oz') && iMeasure === 'lb') return amount / 16
+  if (rUnit === 'lb' && (iMeasure === 'oz' || iMeasure === 'fl oz')) return amount * 16
+  if ((rUnit === 'oz' || rUnit === 'fl oz') && (iMeasure === 'gal' || hasGallonUnitType)) return amount / 128
+  if (rUnit === 'gal' && (iMeasure === 'oz' || iMeasure === 'fl oz')) return amount * 128
+  if (rUnit === 'gal' && hasGallonUnitType) return amount
+  return NaN
+}
+
+const isNonFoodPosMarker = (guid: string | null | undefined, normalizedName: string): boolean => {
+  if (guid === 'd8f4d7cc-e98c-4953-babc-cbb05e96a33d') return true // Policia (marcador de descuento/cortesía)
+  if (guid === '0c592b57-dc09-4e81-8822-79ee02e9ef24') return true // Toast Open Note / Special Request libre
+  if (/separator|separador|add\s*value|test\s*item|^test$/.test(normalizedName)) return true
+  if (/^(?:policia|pu|p\s+u|borrar(?:\s*[^\w\s]+)*|bolsa\s+apa(?:rte|dte))$/.test(normalizedName)) return true
+  return false
+}
+
 /**
  * Factores de merma operativa comprobados empíricamente en Lynwood #14:
  * - Maíz 1100 (60ct): +6.5% por merma de comal (pegado/quemado), limpieza y tortillas extra en platos.
@@ -291,6 +342,7 @@ export const ACTIVE_DAILY_ORDER_ITEM_IDS = {
   salsaRanchera: '202c48b0-f9f9-4304-87a5-07d5e970f0cf',
   quesadillaBodega: '0ae260b8-ec71-4b4f-a38f-e3b81f84f720',
   quesoRayado: '525a859d-9f16-477b-9a30-a56abeb4ec14',
+  quesoFresco: '34720160-015c-4623-bb1e-98da0e7b4e51',
   quesoCotija: '6549dc7d-7657-4bbd-851e-153707b4556b',
   crema: '0166aec7-160a-4c9c-82d4-9ecbb251cb9d',
   mayonesa: '3ab4f8a4-97dc-4949-903c-82102cffbb03',
@@ -365,6 +417,7 @@ export function calculateDailyOrderConsumption(
   const itemSalsaRanchera = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.salsaRanchera, [/^salsa\s*huevos?\s*rancheros?$/i])
   const itemQuesadillaBodega = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.quesadillaBodega, [/^quesadilla\s*bodega$/i])
   const itemQuesoRayado = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.quesoRayado, [/^queso\s*rayado/i])
+  const itemQuesoFresco = resolveCanonicalItem(ACTIVE_DAILY_ORDER_ITEM_IDS.quesoFresco, [/^queso\s+tortas\/platos\/desayuno$/i, /queso\s*fresco/i])
   // Orden Diaria usa Cotija 021 de 12 oz; el Cotija 002df de 5 lb es otro SKU.
   const itemQuesoCotija = invMap.get(ACTIVE_DAILY_ORDER_ITEM_IDS.quesoCotija) || inventoryItems.find(i =>
     /^queso\s*cotija\s*021/i.test(normalize(i.name)) &&
@@ -432,6 +485,7 @@ export function calculateDailyOrderConsumption(
   let frijolEnteroOz = 0
   let salsaRancheraOz = 0
   let quesoRayadoOz = 0
+  let quesoFrescoCount = 0
   let quesoCotijaOz = 0
   let quesoAmarilloOz = 0
   let cremaOz = 0
@@ -460,7 +514,7 @@ export function calculateDailyOrderConsumption(
   for (const ticket of tickets) {
     const employeeHasCompanion = (ticket.selections || []).some(selection => {
       const name = normalize(selection.name)
-      return name !== 'empleado' && !/separator|separador|add\s*value|test\s*item/.test(name)
+      return name !== 'empleado' && !isNonFoodPosMarker(selection.guid, name)
     })
     const metadata = ticket.channel_metadata
     const channelContext = {
@@ -489,27 +543,58 @@ export function calculateDailyOrderConsumption(
         norm: normalize(m.name || ''),
         qty: m.quantity === null || m.quantity === undefined ? 1 : Number(m.quantity)
       }))
-      const hasFullRemoval = (pattern: RegExp) => {
+      // En Toast `ordersBulk` (`selQty=3, modQty=3` o `selQty=1, modQty=1`) y en `pmix_daily_cache`
+      // (`selQty=60, modQty=3`), `mod.qty` expresa el conteo exacto de instancias del modificador
+      // sobre la línea: jamás volver a multiplicarlo por `sQty`.
+      const sumModUnits = (predicate: (m: (typeof mods)[number]) => boolean): number => {
+        let total = 0
+        for (const m of mods) {
+          if (!predicate(m)) continue
+          if (Number.isFinite(m.qty) && m.qty > 0) total += m.qty
+        }
+        return Math.min(sQty, total)
+      }
+      const countRemovedUnits = (pattern: RegExp): number => {
         const matching = mods.filter(m => pattern.test(m.norm))
-        for (const mod of matching.filter(m => !Number.isFinite(m.qty) || m.qty !== sQty)) {
+        for (const mod of matching.filter(m => !Number.isFinite(m.qty) || m.qty <= 0 || m.qty > sQty)) {
           const key = `ambiguous_removal:${selectionKey}:${mod.norm}`
           if (!uncoveredMap.has(key)) uncoveredMap.set(key, { guid: sel.guid || 'NO_GUID',
             name: `${sName} (exclusión parcial/ambigua: ${mod.name})`, qty: sQty })
         }
-        return matching.some(m => m.qty === sQty)
+        return sumModUnits(m => pattern.test(m.norm))
       }
-      const noAvocado = hasFullRemoval(/^(?:no|sin)\s+(?:guacamole|aguacate|avocado)\b/)
-      const noCrema = hasFullRemoval(/^(?:no|sin)\s+(?:sour\s*cream|crema)\b/)
-      const noMayo = hasFullRemoval(/^(?:no|sin)\s+(?:mayo|mayonesa)\b/)
-      const noCotija = hasFullRemoval(/^(?:no|sin)\s+(?:cotija|queso)\b/)
-      const noJack = hasFullRemoval(/^(?:no|sin)\s+(?:jack|cheese|queso)\b/)
-      const noRice = hasFullRemoval(/^(?:no|sin)\s+(?:rice|arroz)\b|^solo\s+frijol(?:es)?\b|^meat\s*only\b/)
-      const noBeans = hasFullRemoval(/^(?:no|sin)\s+(?:beans?|frijol(?:es)?)\b|^solo\s+arroz\b|^meat\s*only\b/)
-      if (noJack && mods.some(m => /^jack\s+cheese\b/.test(m.norm))) {
+      const removedAvocado = countRemovedUnits(/^(?:no|sin)\s+(?:guacamole|aguacate|avocado)\b/)
+      const removedCrema = countRemovedUnits(/^(?:no|sin)\s+(?:sour\s*cream|crema)\b/)
+      const removedMayo = countRemovedUnits(/^(?:no|sin)\s+(?:mayo|mayonesa)\b/)
+      const removedQuesoFresco = countRemovedUnits(/^(?:no|sin)\s+queso\s+fresco\b/)
+      const removedCotija = countRemovedUnits(/^(?:no|sin)\s+(?:cotija|queso(?!\s+fresco))\b/)
+      const removedJack = countRemovedUnits(/^(?:no|sin)\s+(?:jack(?:\s+cheese)?|cheese|queso(?!\s+fresco))\b/)
+      const removedRice = /^(?:solo\s+frijol(?:es)?|meat\s*only)\b/.test(normName)
+        ? sQty
+        : countRemovedUnits(/^(?:no|sin)\s+(?:rice|arroz)\b|^solo\s+frijol(?:es)?\b|^meat\s*only\b/)
+      const removedBeans = /^(?:solo\s+arroz|meat\s*only)\b/.test(normName)
+        ? sQty
+        : countRemovedUnits(/^(?:no|sin)\s+(?:beans?|frijol(?:es)?)\b|^solo\s+arroz\b|^meat\s*only\b/)
+
+      const keptAvocadoQty = Math.max(0, sQty - removedAvocado)
+      const keptCremaQty = Math.max(0, sQty - removedCrema)
+      const keptMayoQty = Math.max(0, sQty - removedMayo)
+      const keptCotijaQty = Math.max(0, sQty - removedCotija)
+      const keptJackQty = Math.max(0, sQty - removedJack)
+      const keptRiceQty = Math.max(0, sQty - removedRice)
+      const keptBeansQty = Math.max(0, sQty - removedBeans)
+      const noAvocado = keptAvocadoQty === 0
+      const noJack = keptJackQty === 0
+
+      const isJackCheeseAddMod = (m: (typeof mods)[number]) =>
+        !/nacho|fresco|cotija/.test(m.norm) &&
+        /^(?:(?:extra\s+)?jack\s+cheese|extra\s+(?:cheese|queso)|queso\s+jack)\b/.test(m.norm)
+      const addedJackUnitsForCheck = sumModUnits(m => /^jack\s+cheese\b/.test(m.norm))
+      if (removedJack > 0 && addedJackUnitsForCheck > 0 && removedJack + addedJackUnitsForCheck > sQty) {
         const key = `contradictory_cheese:${selectionKey}`
         const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID',
           name: `${sName} (No Cheese y Jack Cheese simultáneos; queso pendiente)`, qty: 0 }
-        prior.qty += sQty
+        prior.qty += Math.min(sQty, removedJack + addedJackUnitsForCheck - sQty)
         uncoveredMap.set(key, prior)
       }
       const isTorta = /\btorta\b/.test(normName)
@@ -551,14 +636,71 @@ export function calculateDailyOrderConsumption(
         return fallbackOz
       }
       const fullText = [normName, ...mods.map(m => m.norm)].join(' ')
-      const applyNamedMeatPortion = (ounces: number): boolean => {
-        const proteins = Object.keys(MEAT_COOKING_YIELDS)
-        const base = proteins.find(p => new RegExp(`\\b${p}\\b`).test(normName))
+      const proteinPatterns: Array<[ActiveProteinKey, RegExp]> = [
+        ['asada', /\basada\b/],
+        ['pastor', /\bpastor\b/],
+        ['pollo', /\b(?:pollo|chicken)\b/],
+        ['cabeza', /\bcabeza\b/],
+        ['lengua', /\blengua\b/],
+        ['chorizo', /\bchorizo\b/],
+        ['carnitas', /\bcarnitas\b/],
+        ['buche', /\bbuche\b/],
+      ]
+      const resolveProteinToken = (txt: string): ActiveProteinKey | undefined =>
+        proteinPatterns.find(([, rx]) => rx.test(txt))?.[0]
+      const explicitExtraProteinModRx =
+        /^(?:extra|doble|double)(?:\s+(?:meat|carne))?(?:[\s:/-]+(?:de\s+)?)?(asada|pastor|pollo|chicken|cabeza|lengua|chorizo|carnitas|buche)(?:\s+\d+(?:\.\d+)?\s*oz)?(?:\s*\(in store\))?$/
+      const halfProteinModRx =
+        /^(?:half|mitad)\s+(asada|pastor|pollo|chicken|cabeza|lengua|chorizo|carnitas|buche)(?:\s*\(in store\))?$/
+      const genericExtraMeatModRx =
+        /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+\d+(?:\.\d+)?\s*oz)?(?:\s*\(in store\))?$/
+
+      const applyExplicitExtraProteinModifiers = (unitExtraOz: number) => {
+        for (const mod of mods) {
+          if (!explicitExtraProteinModRx.test(mod.norm)) continue
+          const extraProt = resolveProteinToken(mod.norm)
+          if (!extraProt) continue
+          const mUnits = Math.min(sQty, Number.isFinite(mod.qty) && mod.qty > 0 ? mod.qty : sQty)
+          cookedMeatOz[extraProt] += unitExtraOz * mUnits
+        }
+      }
+
+      const applyExtraNachoCheeseModifiers = () => {
+        for (const mod of mods) {
+          const isNachoCheeseGuid =
+            mod.guid === '46f9c375-236d-4dc7-a9e0-5f4c71478a93' ||
+            mod.guid === '39ccd866-87b9-4462-b8d1-3764e95eee85' ||
+            mod.guid === 'e6d885a5-5b79-484c-bf79-7f8651bc8a25' ||
+            (isNachos && mod.guid === '490ec13b-980b-44b3-8baf-205ef27ab085')
+          const isNachoCheeseText =
+            /^(?:extra\s+)?nacho\s+cheese\b/.test(mod.norm) ||
+            (isNachos && /^(?:extra\s+)?queso(?:\s+amarillo)?(?:\s*\(in store\))?$/.test(mod.norm))
+          if (!isNachoCheeseGuid && !isNachoCheeseText) continue
+          const mUnits = Math.min(sQty, Number.isFinite(mod.qty) && mod.qty > 0 ? mod.qty : 1)
+          const modRecRows = mod.guid ? recipesByGuid.get(mod.guid) || [] : []
+          const amarilloRow = modRecRows.find(r => r.inventory_item_id === itemAmarilloCheese?.id && ['food', 'raw', 'cooked'].includes(r.type))
+          const ozPerUnit = amarilloRow
+            ? (normalize(amarilloRow.unit) === 'lb' ? Number(amarilloRow.quantity) * 16 : Number(amarilloRow.quantity))
+            : /1\.5\s*oz/.test(mod.norm) ? 1.5 : 4.0
+          if (Number.isFinite(ozPerUnit) && ozPerUnit > 0) {
+            quesoAmarilloOz += ozPerUnit * mUnits
+          }
+        }
+      }
+
+      const applyNamedMeatPortion = (baseUnitOz: number, unitExtraOzOverride?: number): boolean => {
+        const base = resolveProteinToken(normName)
         if (!base) return false
+        const genericExtraUnits = sumModUnits(m => genericExtraMeatModRx.test(m.norm))
+        const unitExtraOz = unitExtraOzOverride ?? (baseUnitOz <= 1.95 ? 1.5 : 6.0)
         const halfModifiers = mods.filter(m => /^(?:half|mitad)\s+/.test(m.norm))
-        const halves = halfModifiers.map(m => proteins.find(p => new RegExp(`^(?:half|mitad)\\s+${p}(?:\\s*\\(in store\\))?$`).test(m.norm)))
-        const choices = [...new Set([base, ...halves.filter((p): p is string => !!p)])]
-        const invalidHalf = halfModifiers.some((m, i) => !halves[i] || m.qty !== sQty) || choices.length > 2
+        const halves = halfModifiers.map(m => (halfProteinModRx.test(m.norm) ? resolveProteinToken(m.norm) : undefined))
+        const distinctHalves = [...new Set(halves.filter((p): p is ActiveProteinKey => !!p && p !== base))]
+        const totalHalfUnits = halfModifiers.reduce((acc, m, idx) => (halves[idx] && halves[idx] !== base && Number.isFinite(m.qty) && m.qty > 0 ? acc + m.qty : acc), 0)
+        const invalidHalf =
+          halfModifiers.some((m, i) => !halves[i] || !Number.isFinite(m.qty) || m.qty <= 0 || m.qty > sQty) ||
+          distinctHalves.length > 1 ||
+          totalHalfUnits > sQty
         if (invalidHalf) {
           const key = `half_meat:${selectionKey}`
           const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID', name: `${sName} (mezcla de carnes ambigua)`, qty: 0 }
@@ -567,26 +709,43 @@ export function calculateDailyOrderConsumption(
         }
         // Una proteína suelta puede ser sustitución: conservar base provisional
         // y advertir, nunca reemplazar por orden alfabético o por una nota libre.
-        for (const mod of mods.filter(m =>
-          (proteins.includes(m.norm) && m.norm !== base) ||
-          (/\b(?:no|sin|con|cambiar)\b/.test(m.norm) &&
-            (proteins.some(p => new RegExp(`\\b${p}\\b`).test(m.norm)) || /\bcarne\b/.test(m.norm)) &&
-            !/^poner este taco con el de\s/.test(m.norm)))) {
+        for (const mod of mods.filter(m => {
+          if (explicitExtraProteinModRx.test(m.norm) || halfProteinModRx.test(m.norm) || genericExtraMeatModRx.test(m.norm)) return false
+          const exactProt = proteinPatterns.find(([pk]) => m.norm === pk || (pk === 'pollo' && m.norm === 'chicken'))?.[0]
+          if (exactProt && exactProt !== base) return true
+          return (
+            /\b(?:no|sin|con|cambiar)\b/.test(m.norm) &&
+            (Boolean(resolveProteinToken(m.norm)) || /\bcarne\b/.test(m.norm)) &&
+            !/^poner este taco con el de\s/.test(m.norm)
+          )
+        })) {
           const key = `protein_substitution:${selectionKey}:${mod.norm}`
           const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID', name: `${sName} (sustitución pendiente: ${mod.name})`, qty: 0 }
           prior.qty += sQty
           uncoveredMap.set(key, prior)
         }
-        const allocation = invalidHalf ? [base] : choices
-        for (const protein of allocation) cookedMeatOz[protein] += ounces * sQty / allocation.length
+
+        if (!invalidHalf && distinctHalves.length === 1 && totalHalfUnits > 0) {
+          const secondProt = distinctHalves[0]
+          const halfShare = totalHalfUnits / sQty
+          const totalBaseAndGenericOz = baseUnitOz * sQty + unitExtraOz * genericExtraUnits
+          const splitPoolOz = totalBaseAndGenericOz * halfShare
+          const unsplitOz = totalBaseAndGenericOz * (1 - halfShare)
+          cookedMeatOz[base] += unsplitOz + splitPoolOz / 2
+          cookedMeatOz[secondProt] += splitPoolOz / 2
+        } else {
+          cookedMeatOz[base] += baseUnitOz * sQty + unitExtraOz * genericExtraUnits
+        }
+
+        applyExplicitExtraProteinModifiers(unitExtraOz)
         return true
       }
 
       if (normName === 'empleado' && employeeHasCompanion) continue
 
-      // Los separadores son instrucciones de emplatado, incluso cuando contienen
-      // palabras como "Sope" o "Mulita"; deben salir antes de cualquier receta.
-      if (/separator|separador|add\s*value|test\s*item/.test(normName) || /^bolsa\s+apa(?:rte|dte)$/.test(normName)) continue
+      // Los separadores, notas abiertas y marcadores de descuento no son comida;
+      // deben salir antes de cualquier receta para no contaminar uncoveredProducts.
+      if (isNonFoodPosMarker(sel.guid, normName)) continue
 
       // El papelito es un preparado por platillo, NO el papel wax de envolver.
       // La tienda lo cuenta por piezas incluso cuando la caja de 60 está abierta.
@@ -602,20 +761,33 @@ export function calculateDailyOrderConsumption(
       }
       // Toppings medidos para TODAS las tortas, incluidos los productos con
       // receta específica que continúan abajo. Evitar doble conteo de sus líneas DB.
-      if (isTorta) {
-        if (!noMayo) mayonesaOz += fixedRecipeOz(itemMayonesa, 0.6) * sQty
+      if (isTorta && keptMayoQty > 0) {
+        mayonesaOz += fixedRecipeOz(itemMayonesa, 0.6) * keptMayoQty
       }
-      if ((isTorta || isSuperBurrito || isSuperQuesadilla || isNachos) && !noAvocado) {
-        aguacateOz += fixedRecipeOz(itemAguacate, 2.3) * sQty
+      // Auditoría QBO (Francisco Foods -> Kitchen-TEG -> Cocina -> 15 tiendas): el 95.5% de Queso Fresco
+      // sigue facturado/incluido 1:1 dentro de 271W Papelito Para Torta aunque físicamente se empaque aparte.
+      // NO descontar 1 pza de 029W en Tortas regulares (evita doble cobro); Torta Queso, Sope Queso y
+      // Side Order Queso Fresco usan su receta DB y el modificador Extra Queso Fresco suma +1 pza sin duplicar.
+      const extraQuesoFrescoUnits = sumModUnits(m =>
+        m.guid === '819876d8-aaa8-4848-83f3-54d079bbb90d' ||
+        /^extra\s+queso\s+fresco\b/.test(m.norm)
+      )
+      if (extraQuesoFrescoUnits > 0) {
+        quesoFrescoCount += 1 * extraQuesoFrescoUnits
+      }
+      if ((isTorta || isSuperBurrito || isSuperQuesadilla || isNachos) && keptAvocadoQty > 0) {
+        aguacateOz += fixedRecipeOz(itemAguacate, 2.3) * keptAvocadoQty
       }
       // Corrección de Carlos: las tortas NO llevan crema.
-      if ((isSuperBurrito || isSuperQuesadilla || isNachos) && !noCrema) {
-        cremaOz += fixedRecipeOz(itemCrema, 1.5) * sQty
+      if ((isSuperBurrito || isSuperQuesadilla || isNachos) && keptCremaQty > 0) {
+        cremaOz += fixedRecipeOz(itemCrema, 1.5) * keptCremaQty
       }
-      if ((isPlate || isBreakfast) && !noCotija) quesoCotijaOz += fixedRecipeOz(itemQuesoCotija, 0.15) * sQty
+      if ((isPlate || isBreakfast) && keptCotijaQty > 0) {
+        quesoCotijaOz += fixedRecipeOz(itemQuesoCotija, 0.15) * keptCotijaQty
+      }
       if (isSope) {
-        if (!noCrema) cremaOz += fixedRecipeOz(itemCrema, 0.75) * sQty
-        if (!noCotija) quesoCotijaOz += fixedRecipeOz(itemQuesoCotija, 0.35) * sQty
+        if (keptCremaQty > 0) cremaOz += fixedRecipeOz(itemCrema, 0.75) * keptCremaQty
+        if (keptCotijaQty > 0) quesoCotijaOz += fixedRecipeOz(itemQuesoCotija, 0.35) * keptCotijaQty
       }
 
       // Recetas específicas: antes estos productos caían en ramas genéricas que
@@ -634,32 +806,60 @@ export function calculateDailyOrderConsumption(
         const lines = (recipesByGuid.get(sel.guid || '') || []).filter(r => ['food', 'raw', 'cooked'].includes(r.type))
         if (!lines.length) flag('sin receta alimentaria')
         if (/^huevos?\s+con\s+(?:jamon|salchicha)$/.test(normName)) flag('porción de cotija en revisión')
-        const removed = new Set<string>()
-        if (noAvocado && itemAguacate) removed.add(itemAguacate.id)
-        if (noCrema && itemCrema) removed.add(itemCrema.id)
-        if (noMayo && itemMayonesa) removed.add(itemMayonesa.id)
-        if (noJack && itemQuesoRayado) removed.add(itemQuesoRayado.id)
-        const removalRules: [RegExp, InventoryItemCatalogEntry | undefined][] = [
-          [/^(?:no|sin)\s+(?:rice|arroz)$/, itemArroz],
-          [/^(?:no|sin)\s+(?:beans?|frijol(?:es)?)$/, itemFrijolMolido],
-          [/^(?:no|sin)\s+(?:sour\s*cream|crema)(?:\s*\(in store\))?$/, itemCrema],
-          [/^(?:no|sin)\s+(?:cheese|queso)$/, itemQuesoRayado],
-          [/^(?:no|sin)\s+(?:guacamole|aguacate|avocado)(?:\s*\(in store\))?$/, itemAguacate],
-          [/^(?:no|sin)\s+(?:mayo|mayonesa)(?:\s*\(in store\))?$/, itemMayonesa],
+
+        const removedUnitsByItemId = new Map<string, number>()
+        if (itemAguacate && removedAvocado > 0) removedUnitsByItemId.set(itemAguacate.id, removedAvocado)
+        if (itemCrema && removedCrema > 0) removedUnitsByItemId.set(itemCrema.id, removedCrema)
+        if (itemMayonesa && removedMayo > 0) removedUnitsByItemId.set(itemMayonesa.id, removedMayo)
+        if (itemQuesoRayado && removedJack > 0) removedUnitsByItemId.set(itemQuesoRayado.id, removedJack)
+        if (itemQuesoFresco && removedQuesoFresco > 0) removedUnitsByItemId.set(itemQuesoFresco.id, removedQuesoFresco)
+        if (itemArroz && removedRice > 0) removedUnitsByItemId.set(itemArroz.id, removedRice)
+        if (itemFrijolMolido && removedBeans > 0) removedUnitsByItemId.set(itemFrijolMolido.id, removedBeans)
+        if (itemQuesoCotija && removedCotija > 0) removedUnitsByItemId.set(itemQuesoCotija.id, removedCotija)
+
+        const handledSpecificModRxs: RegExp[] = [
+          /^(?:no|sin)\s+(?:rice|arroz|beans?|frijol(?:es)?|sour\s*cream|crema|jack|cheese|queso(?:\s+fresco)?|cotija(?:\s+cheese)?|guacamole|aguacate|avocado|mayo|mayonesa|tortillas?|tomato|tomate|lettuce|lechuga|verdura|cebolla|cilantro|yolk|partir)(?:\s*\(in store\))?$/,
+          /^poco\s+(?:arroz|frijol)$/,
+          /^(?:1\s*tortilla(?:\s*\(in store\))?|(?:half|mitad)\s+(?:flour\/corn|corn\/flour)|(?:corn|flour)(?:\s+tortillas?)?|maiz|harina|tortillas?\s+(?:maiz|harina))$/,
+          /^(?:empleado|policia|bolsa\s+apa(?:rte|dte)|well done|over easy|medium well|sunny side up|scrambled|medium|easy|hard|partido en dos|poner en el grill|tortilla dorada|tortilla no grasa(?:\s*\(in store\))?)$/,
+          /^(?:salsa\s+(?:verde|roja|aparte)|onions?\s*&\s*cilantro|limes?|pickled\s+jalapenos?|con\s+(?:cebolla|cilantro|roja|verde|lechuga)(?:\s*\(in store\))?|preparados|(?:aguacate|crema)\s+aparte(?:\s*\(in store\))?)$/,
+          /^(?:(?:extra\s+)?jack\s+cheese\b.*|(?:extra\s+)?(?:cheese|queso)\b.*|(?:extra\s+)?guacamole\b.*|(?:extra\s+)?(?:aguacate|avocado)\b.*|(?:extra\s+)?(?:sour\s*cream|crema)\b.*|(?:extra\s+)?nacho\s+cheese\b.*)$/,
         ]
         for (const mod of mods) {
-          const removal = removalRules.find(([pattern]) => pattern.test(mod.norm))
-          if (removal?.[1] && lines.some(r => r.inventory_item_id === removal[1]!.id)) {
-            if (Number.isFinite(mod.qty) && mod.qty === sQty) removed.add(removal[1].id)
-            else flag(`cantidad de exclusión ambigua: ${mod.name}`)
-          } else if (!/^(?:1\s*tortilla|(?:corn|flour)(?:\s+tortillas?)?|maiz|harina|tortillas?\s+(?:maiz|harina)|empleado|bolsa\s+apa(?:rte|dte)|well done|over easy|medium well|scrambled|partido en dos|poner en el grill)$/.test(mod.norm)) {
-            // Extras, instrucciones libres y condimentos no se certifican como
-            // receta base. No inventar cantidades ni ignorar cambios silenciosos.
-            flag(`modificador pendiente: ${mod.name}`)
+          if (
+            handledSpecificModRxs.some(rx => rx.test(mod.norm)) ||
+            genericExtraMeatModRx.test(mod.norm) ||
+            explicitExtraProteinModRx.test(mod.norm) ||
+            halfProteinModRx.test(mod.norm)
+          ) {
+            continue
           }
+          flag(`modificador pendiente: ${mod.name}`)
         }
+
+        const isTacoSpecific = /^taco\s/.test(normName)
+        const isSmallPortionSpecific = isTacoSpecific || isSope
+        const specificExtraMeatUnits = sumModUnits(m => genericExtraMeatModRx.test(m.norm))
+        const specificExtraUnitOz = isSmallPortionSpecific ? 1.5 : 6.0
+        const specificHalfMods = mods.filter(m => /^(?:half|mitad)\s+/.test(m.norm))
+        const specificHalfProts = specificHalfMods
+          .map(m => (halfProteinModRx.test(m.norm) ? resolveProteinToken(m.norm) : undefined))
+          .filter((p): p is ActiveProteinKey => !!p)
+        const specificTotalHalfUnits = specificHalfMods.reduce(
+          (acc, m) => (halfProteinModRx.test(m.norm) && Number.isFinite(m.qty) && m.qty > 0 ? acc + m.qty : acc),
+          0
+        )
+
+        let hadBaseAvocadoInRecipe = isTorta || isSuperBurrito || isSuperQuesadilla || isNachos
+        let hadBaseCremaInRecipe = isSuperBurrito || isSuperQuesadilla || isNachos || isSope
+        let hadBaseJackInRecipe = isSuperBurrito
+
         for (const row of lines) {
-          if (row.inventory_item_id === itemPapelitoTorta?.id || removed.has(row.inventory_item_id)) continue
+          if (row.inventory_item_id === itemPapelitoTorta?.id) continue
+          if (row.inventory_item_id === itemAguacate?.id) hadBaseAvocadoInRecipe = true
+          if (row.inventory_item_id === itemCrema?.id) hadBaseCremaInRecipe = true
+          if (row.inventory_item_id === itemQuesoRayado?.id) hadBaseJackInRecipe = true
+
           if (isTorta && row.inventory_item_id === itemMayonesa?.id) continue
           if ((isTorta || isSuperBurrito || isSuperQuesadilla || isNachos) &&
             row.inventory_item_id === itemAguacate?.id) continue
@@ -668,6 +868,7 @@ export function calculateDailyOrderConsumption(
           if ((isPlate || isBreakfast) && row.inventory_item_id === itemQuesoCotija?.id) continue
           if (isSope && [itemCrema?.id, itemQuesoCotija?.id].includes(row.inventory_item_id)) continue
           if (isSuperBurrito && row.inventory_item_id === itemQuesoRayado?.id) continue
+
           const item = invMap.get(row.inventory_item_id)
           const amount = Number(row.quantity)
           const unit = normalize(row.unit)
@@ -677,32 +878,95 @@ export function calculateDailyOrderConsumption(
             flag(`catálogo/cantidad inválida: ${row.inventory_item_id}`)
             continue
           }
-          const protein = Object.keys(itemMeats).find(p => itemMeats[p]?.id === item.id)
+          const effectiveUnits = Math.max(0, sQty - (removedUnitsByItemId.get(item.id) || 0))
+          if (effectiveUnits <= 0) continue
+
+          const protein = Object.keys(itemMeats).find(p => itemMeats[p]?.id === item.id) as ActiveProteinKey | undefined
           if (protein) {
             const ounces = unit === 'oz' ? amount : unit === 'lb' ? amount * 16 : NaN
             if (!Number.isFinite(ounces)) { flag(`unidad de carne incompatible: ${item.name}`); continue }
-            const yieldFactor = MEAT_COOKING_YIELDS[protein as keyof typeof MEAT_COOKING_YIELDS]
-            cookedMeatOz[protein] += ounces * sQty * (row.type === 'raw' ? yieldFactor : 1)
+            const yieldFactor = MEAT_COOKING_YIELDS[protein]
+            const cookedPerUnit = ounces * (row.type === 'raw' ? yieldFactor : 1)
+            const totalCookedPool = cookedPerUnit * effectiveUnits + specificExtraUnitOz * specificExtraMeatUnits
+            const secondProt = specificHalfProts.find(p => p !== protein)
+            if (secondProt && specificHalfProts.length === 1 && specificTotalHalfUnits > 0 && specificTotalHalfUnits <= effectiveUnits) {
+              const halfShare = specificTotalHalfUnits / effectiveUnits
+              const splitPool = totalCookedPool * halfShare
+              const unsplitPool = totalCookedPool * (1 - halfShare)
+              cookedMeatOz[protein] += unsplitPool + splitPool / 2
+              cookedMeatOz[secondProt] += splitPool / 2
+            } else {
+              cookedMeatOz[protein] += totalCookedPool
+            }
             continue
           }
-          let base = unit === measure ? amount : unit === 'oz' && measure === 'lb' ? amount / 16 :
-            unit === 'lb' && measure === 'oz' ? amount * 16 : NaN
-          if (/^taco\s/.test(normName) && item.id === itemCornTortillas?.id && mods.some(m => /^1\s*tortilla$/.test(m.norm))) base = 1
-          if (/^huevos?\s*rancheros?$/.test(normName) && item.id === itemSalsaRanchera?.id) base = measure === 'lb' ? 4 / 16 : measure === 'oz' ? 4 : NaN
+
+          if (isTacoSpecific && item.id === itemCornTortillas?.id) {
+            const oneTortUnits = sumModUnits(m => /^1\s*tortilla\b/.test(m.norm))
+            const totalTortillas = 2 * Math.max(0, effectiveUnits - oneTortUnits) + 1 * oneTortUnits
+            generalItemUsage.set(item.id, (generalItemUsage.get(item.id) || 0) + totalTortillas)
+            continue
+          }
+
+          let base = convertRecipeAmountToCatalogMeasure(amount, row.unit, item)
+          if (/^huevos?\s*rancheros?$/.test(normName) && item.id === itemSalsaRanchera?.id) {
+            base = measure === 'lb' ? 4 / 16 : measure === 'oz' ? 4 : base
+          }
           if (!Number.isFinite(base)) { flag(`unidad incompatible: ${item.name}`); continue }
-          generalItemUsage.set(item.id, (generalItemUsage.get(item.id) || 0) + base * sQty)
+          generalItemUsage.set(item.id, (generalItemUsage.get(item.id) || 0) + base * effectiveUnits)
         }
-        if (isSuperBurrito && !noJack) quesoRayadoOz += fixedRecipeOz(itemQuesoRayado, 2.1) * sQty
-        if (/^taco\s/.test(normName) && !noJack && mods.some(m => /^jack\s+cheese\b/.test(m.norm))) {
-          quesoRayadoOz += 0.6 * sQty
+
+        // Modificadores aditivos de proteína ("Extra <Proteína>"), queso, aguacate, crema y nacho cheese en recetas específicas / desayunos
+        applyExplicitExtraProteinModifiers(specificExtraUnitOz)
+        applyExtraNachoCheeseModifiers()
+
+        if (isSuperBurrito && keptJackQty > 0) {
+          quesoRayadoOz += fixedRecipeOz(itemQuesoRayado, 2.1) * keptJackQty
         }
+        if (!noJack) {
+          const jackAddUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackAddUnits > 0) {
+            quesoRayadoOz += (isSmallPortionSpecific ? 0.6 : 2.1) * jackAddUnits
+          }
+        }
+        if (!noAvocado) {
+          const guacAddUnits = sumModUnits(m =>
+            !/\baparte\b|^no\b|^sin\b/.test(m.norm) &&
+            (hadBaseAvocadoInRecipe
+              ? /^extra\s+(?:guacamole|aguacate|avocado)\b/.test(m.norm)
+              : /^(?:extra\s+)?(?:guacamole|aguacate|avocado)\b/.test(m.norm))
+          )
+          if (guacAddUnits > 0) {
+            aguacateOz += (isSmallPortionSpecific ? 1.0 : hadBaseAvocadoInRecipe ? 2.0 : 2.3) * guacAddUnits
+          }
+        }
+        if (keptCremaQty > 0) {
+          const cremaAddUnits = sumModUnits(m =>
+            !/\baparte\b|^no\b|^sin\b/.test(m.norm) &&
+            (hadBaseCremaInRecipe
+              ? /^extra\s+(?:sour\s*cream|crema)\b/.test(m.norm)
+              : /^(?:extra\s+)?(?:sour\s*cream|crema)\b/.test(m.norm))
+          )
+          if (cremaAddUnits > 0) {
+            cremaOz += (isSmallPortionSpecific ? 0.45 : 1.5) * cremaAddUnits
+          }
+        }
+
         if (/^huevos?\b/.test(normName) || normName === 'plato jamon') {
-          const corn = mods.some(m => /corn|maiz/.test(m.norm))
-          const flour = mods.some(m => /harina|flour/.test(m.norm))
-          if (corn && flour) flag('elección de tortilla contradictoria')
-          else if (corn) cornTortillaCount += 8 * sQty
-          else if (flour) regular8TortillaCount += 2 * sQty
-          else flag('tortilla de desayuno no registrada')
+          const halfCornFlour = sumModUnits(m => /^(?:half|mitad)\b/.test(m.norm) && /corn|maiz/.test(m.norm) && /harina|flour/.test(m.norm))
+          const noTortillasUnits = sumModUnits(m => /^(?:no|sin)\s+tortillas?\b/.test(m.norm))
+          const cornUnits = sumModUnits(m => !/^(?:half|mitad|no|sin)\b/.test(m.norm) && /corn|maiz/.test(m.norm))
+          const flourUnits = sumModUnits(m => !/^(?:half|mitad|no|sin)\b/.test(m.norm) && /harina|flour/.test(m.norm))
+          if (halfCornFlour + noTortillasUnits + cornUnits + flourUnits > sQty && cornUnits > 0 && flourUnits > 0 && sQty === 1) {
+            flag('elección de tortilla contradictoria')
+          } else if (halfCornFlour > 0 || cornUnits > 0 || flourUnits > 0 || noTortillasUnits > 0) {
+            cornTortillaCount += 4 * halfCornFlour + 8 * cornUnits
+            regular8TortillaCount += 1 * halfCornFlour + 2 * flourUnits
+            const unaccounted = sQty - (halfCornFlour + noTortillasUnits + cornUnits + flourUnits)
+            if (unaccounted > 0) flag('tortilla de desayuno no registrada')
+          } else {
+            flag('tortilla de desayuno no registrada')
+          }
         }
         continue
       }
@@ -810,8 +1074,9 @@ export function calculateDailyOrderConsumption(
       // 2. TACO PLATE (Exactamente 3 tacos + 4 oz arroz + 4 oz frijol)
       if (/taco\s*plate/.test(normName)) {
         cornTortillaCount += 3 * 2 * sQty
-        if (!noRice) arrozOz += 4 * sQty
-        if (!noBeans) frijolMolidoOz += 4 * sQty
+        if (keptRiceQty > 0) arrozOz += 4 * keptRiceQty
+        if (keptBeansQty > 0) frijolMolidoOz += 4 * keptBeansQty
+        applyExtraNachoCheeseModifiers()
         // El modificador Jack Cheese corresponde a tacos concretos del plato;
         // Toast registra su cantidad, no implica queso para los tres tacos.
         if (!noJack) {
@@ -854,14 +1119,13 @@ export function calculateDailyOrderConsumption(
 
       // 3. TACOS INDIVIDUALES
       if (/^taco\s+/.test(normName) && !/separator|separador/.test(normName)) {
-        const isOneTortilla = mods.some(m => /1\s*tortilla/.test(m.norm))
-        cornTortillaCount += (isOneTortilla ? 1 : 2) * sQty
+        const oneTortUnits = sumModUnits(m => /1\s*tortilla/.test(m.norm))
+        cornTortillaCount += 2 * Math.max(0, sQty - oneTortUnits) + 1 * oneTortUnits
 
-        const isExtra = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        const isDorada = mods.some(m => /\bcarne\s*dorada\b/.test(m.norm))
-        const tacoMeatOz = (isExtra ? 3.0 : 1.5) + (isDorada ? 0.4 : 0)
+        const doradaUnits = sumModUnits(m => /\bcarne\s*dorada\b/.test(m.norm))
+        const tacoBaseOz = 1.5 + (doradaUnits > 0 ? 0.4 * (doradaUnits / sQty) : 0)
 
-        const meatFound = applyNamedMeatPortion(tacoMeatOz)
+        const meatFound = applyNamedMeatPortion(tacoBaseOz, 1.5)
         if (!meatFound && !/vegetar|veggie|vegie/.test(normName)) {
           const key = selectionKey
           const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID', name: sName, qty: 0 }
@@ -874,7 +1138,11 @@ export function calculateDailyOrderConsumption(
           prior.qty += sQty
           uncoveredMap.set(key, prior)
         }
-        if (!noJack && mods.some(m => /^jack\s+cheese\b/.test(m.norm))) quesoRayadoOz += 0.6 * sQty
+        if (!noJack) {
+          const jackUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackUnits > 0) quesoRayadoOz += 0.6 * jackUnits
+        }
+        applyExtraNachoCheeseModifiers()
         continue
       }
 
@@ -907,31 +1175,37 @@ export function calculateDailyOrderConsumption(
           if (row.inventory_item_id === itemQuesoCotija?.id) continue
           if (row.inventory_item_id === itemAguacate?.id) {
             matchedPlateAvocado = true
-            if (!noAvocado) aguacateOz += ounces * sQty
+            if (keptAvocadoQty > 0) aguacateOz += ounces * keptAvocadoQty
           }
         }
         // Confirmado por Carlos: todos los Platos regulares llevan 2.0 oz de Bolsa Aguacate aun si la tienda tiene GUID local distinto
-        if (!matchedPlateAvocado && /^plato\s+/.test(normName) && !noAvocado) {
-          aguacateOz += 2.0 * sQty
+        if (!matchedPlateAvocado && /^plato\s+/.test(normName) && keptAvocadoQty > 0) {
+          aguacateOz += 2.0 * keptAvocadoQty
         }
-        const choseCorn = mods.some(m => /corn|maiz/.test(m.norm))
-        const choseFlour = mods.some(m => /harina|flour/.test(m.norm))
-        const halfCornFlour = mods.some(m => /^(?:half|mitad)\b/.test(m.norm) &&
+        const halfCornFlourUnits = sumModUnits(m => /^(?:half|mitad)\b/.test(m.norm) &&
           /corn|maiz/.test(m.norm) && /harina|flour/.test(m.norm))
-        if (halfCornFlour) {
-          cornTortillaCount += 4 * sQty
-          regular8TortillaCount += 1 * sQty
-        } else if (choseCorn) cornTortillaCount += 8 * sQty
-        else if (choseFlour) regular8TortillaCount += 2 * sQty
+        const cornUnits = sumModUnits(m => !/^(?:half|mitad|no|sin)\b/.test(m.norm) && /corn|maiz/.test(m.norm))
+        const flourUnits = sumModUnits(m => !/^(?:half|mitad|no|sin)\b/.test(m.norm) && /harina|flour/.test(m.norm))
+        if (halfCornFlourUnits > 0 || cornUnits > 0 || flourUnits > 0) {
+          cornTortillaCount += 4 * halfCornFlourUnits + 8 * cornUnits
+          regular8TortillaCount += 1 * halfCornFlourUnits + 2 * flourUnits
+        }
 
         if (/huevos?/.test(normName)) huevoCount += 2 * sQty
         if (/huevos?\s*rancheros?/.test(normName)) salsaRancheraOz += 4 * sQty
         if (/milanesa|milaneza/.test(normName)) milanesaPieceCount += 3 * sQty
 
-        if (!noRice) arrozOz += 4 * sQty
-        if (!noBeans) frijolMolidoOz += 4 * sQty
+        if (keptRiceQty > 0) arrozOz += 4 * keptRiceQty
+        if (keptBeansQty > 0) frijolMolidoOz += 4 * keptBeansQty
+        if (!noJack) {
+          const jackUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackUnits > 0) quesoRayadoOz += 2.1 * jackUnits
+        }
+        applyExtraNachoCheeseModifiers()
 
-        applyNamedMeatPortion(mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm)) ? 12 : 6)
+        if (!applyNamedMeatPortion(6, 6)) {
+          applyExplicitExtraProteinModifiers(6)
+        }
         continue
       }
 
@@ -939,30 +1213,39 @@ export function calculateDailyOrderConsumption(
       if (/burrito/.test(normName)) {
         burritoTortillaCount += 1 * sQty
         const isMeatOnly = /^meat\s*only\b/.test(normName)
-        const isExtra = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        const meatOz = isMeatOnly ? (isExtra ? 18.0 : 12.0) : (isExtra ? 12.0 : 6.0)
+        const baseBurritoMeatOz = isMeatOnly ? 12.0 : 6.0
 
         // Un solo Half es la forma habitual de Toast: mitad carne del nombre,
         // mitad proteína elegida. La función también valida cantidades y mezclas.
-        const found = applyNamedMeatPortion(meatOz)
-        if (!found && !/bean|cheese|veggie|vegie|vegetar/.test(normName)) {
-          const key = `burrito_meat:${selectionKey}`
-          const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID', name: `${sName} (carne no registrada)`, qty: 0 }
-          prior.qty += sQty
-          uncoveredMap.set(key, prior)
+        const found = applyNamedMeatPortion(baseBurritoMeatOz, 6.0)
+        if (!found) {
+          applyExplicitExtraProteinModifiers(6.0)
+          if (!/bean|cheese|veggie|vegie|vegetar/.test(normName)) {
+            const key = `burrito_meat:${selectionKey}`
+            const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID', name: `${sName} (carne no registrada)`, qty: 0 }
+            prior.qty += sQty
+            uncoveredMap.set(key, prior)
+          }
         }
 
-        // Unificado con public.recipes confirmado por Carlos: 4.0 oz arroz en peso (cuchara 6 fl oz) y 4.0 oz frijol
-        const isBeansCheeseOnly = normName === 'burrito beans/cheese'
-        const isBeansCheeseRice = normName === 'burrito beans/cheese/rice'
+        // Unificado con public.recipes confirmado por Carlos:
+        // Burrito Beans & Cheese (sin arroz ni carne) lleva doble porción de frijol (8.0 oz);
+        // el resto de burritos con frijol (incl. Beans/Cheese/Rice y regulares) llevan 4.0 oz arroz y 4.0 oz frijol.
+        const isBeansCheeseOnly =
+          /^burrito\s+beans?\s*(?:\/|&|and|y)\s*cheese$/.test(normName) ||
+          normName === 'burrito beans/cheese'
+        const isBeansCheeseRice =
+          /^burrito\s+(?:beans?\s*(?:\/|&)\s*cheese\s*(?:\/|&)\s*rice|beans?\s*(?:\/|&)\s*rice\s*(?:\/|&)\s*cheese)$/.test(normName) ||
+          normName === 'burrito beans/cheese/rice'
         if (!isMeatOnly) {
-          if (!isBeansCheeseOnly && !noRice) arrozOz += 4 * sQty
-          if (!noBeans) frijolMolidoOz += 4 * sQty
+          if (!isBeansCheeseOnly && keptRiceQty > 0) arrozOz += 4 * keptRiceQty
+          if (keptBeansQty > 0) frijolMolidoOz += (isBeansCheeseOnly ? 8 : 4) * keptBeansQty
         }
 
-        // Jack pesado: 5.0 oz en Burrito Beans/Cheese, 4.0 oz en Burrito Beans/Cheese/Rice, 2.1 oz en Super Burrito o extra queso
-        const hasCheese = /super|cheese|queso/.test(normName) || mods.some(m => /cheese|queso/.test(m.norm))
-        if (hasCheese && !noJack) {
+        // Jack pesado: 5.0 oz en Burrito Beans/Cheese, 4.0 oz en Burrito Beans/Cheese/Rice, 2.1 oz en Super Burrito;
+        // más +2.1 oz cuando piden modificador Jack Cheese / Extra Cheese (en burrito regular o como extra sobre Super Burrito).
+        const isInherentJackBurrito = /super|cheese|queso/.test(normName)
+        if (isInherentJackBurrito && keptJackQty > 0) {
           const cheesePerBurrito = isBeansCheeseOnly
             ? 5.0
             : isBeansCheeseRice
@@ -970,14 +1253,25 @@ export function calculateDailyOrderConsumption(
               : isSuperBurrito
                 ? fixedRecipeOz(itemQuesoRayado, 2.1)
                 : 2.1
-          quesoRayadoOz += cheesePerBurrito * sQty
+          quesoRayadoOz += cheesePerBurrito * keptJackQty
         }
-        // Dos disparos de aguacate y tres de crema, medidos por peso.
-        const isSuper = /super/.test(normName)
-        const hasAvocado = isSuper || mods.some(m => /aguacate|avocado|guac/.test(m.norm))
-        const hasCrema = isSuper || mods.some(m => /crema|sour\s*cream/.test(m.norm))
-        if (hasAvocado && !isSuperBurrito && !noAvocado) aguacateOz += 2.3 * sQty
-        if (hasCrema && !isSuperBurrito && !noCrema) cremaOz += 1.5 * sQty
+        if (!noJack) {
+          const jackModUnits = isInherentJackBurrito
+            ? sumModUnits(isJackCheeseAddMod)
+            : sumModUnits(m => !/nacho|fresco|cotija|aparte|on\s+the\s+side|on\s+the\s+chips|poco/.test(m.norm) && !/^(?:no|sin)\b/.test(m.norm) && /cheese|queso/.test(m.norm))
+          if (jackModUnits > 0) quesoRayadoOz += 2.1 * jackModUnits
+        }
+        applyExtraNachoCheeseModifiers()
+
+        // Dos disparos de aguacate y tres de crema, medidos por peso (cuando se agregan como modificador a burrito regular).
+        if (!isSuperBurrito && !noAvocado) {
+          const avoModUnits = sumModUnits(m => !/\baparte\b|^no\b|^sin\b/.test(m.norm) && /aguacate|avocado|guac/.test(m.norm))
+          if (avoModUnits > 0) aguacateOz += 2.3 * avoModUnits
+        }
+        if (!isSuperBurrito && keptCremaQty > 0) {
+          const cremaModUnits = sumModUnits(m => !/\baparte\b|^no\b|^sin\b/.test(m.norm) && /crema|sour\s*cream/.test(m.norm))
+          if (cremaModUnits > 0) cremaOz += 1.5 * cremaModUnits
+        }
         continue
       }
 
@@ -985,12 +1279,18 @@ export function calculateDailyOrderConsumption(
       if (/mulita/.test(normName)) {
         mulitasPairCount += 1 * sQty
         if (/super/.test(normName)) {
-          if (!noAvocado) aguacateOz += fixedRecipeOz(itemAguacate, 1.15) * sQty
-          if (!noCrema) cremaOz += fixedRecipeOz(itemCrema, 0.75) * sQty
+          if (keptAvocadoQty > 0) aguacateOz += fixedRecipeOz(itemAguacate, 1.15) * keptAvocadoQty
+          if (keptCremaQty > 0) cremaOz += fixedRecipeOz(itemCrema, 0.75) * keptCremaQty
         }
         if (/\bjamon\b/.test(normName)) jamonOz += 1.4 * sQty
-        const isExtraMulita = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        applyNamedMeatPortion(isExtraMulita ? 3.0 : 1.5)
+        if (!applyNamedMeatPortion(1.5, 1.5)) {
+          applyExplicitExtraProteinModifiers(1.5)
+        }
+        if (!noJack) {
+          const jackModUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackModUnits > 0) quesoRayadoOz += 0.6 * jackModUnits
+        }
+        applyExtraNachoCheeseModifiers()
         continue
       }
 
@@ -1000,47 +1300,63 @@ export function calculateDailyOrderConsumption(
         if (/milanesa|milaneza/.test(normName)) milanesaPieceCount += 2 * sQty
         if (/^torta\s+jamon$/.test(normName)) jamonOz += 3 * 1.4 * sQty
         if (/^torta\s+cubana$/.test(normName)) {
-          milanesaPieceCount += sQty
-          jamonOz += 1.4 * sQty
-          salchichaOz += 0.8 * sQty
+          const keptMilanesaQty = Math.max(0, sQty - countRemovedUnits(/^(?:no|sin)\s+milane[sz]a\b/))
+          const keptJamonQty = Math.max(0, sQty - countRemovedUnits(/^(?:no|sin)\s+jamon\b/))
+          const keptSalchichaQty = Math.max(0, sQty - countRemovedUnits(/^(?:no|sin)\s+salchicha\b/))
+          milanesaPieceCount += keptMilanesaQty
+          jamonOz += 1.4 * keptJamonQty
+          salchichaOz += 0.8 * keptSalchichaQty
         }
-        const isExtraTorta = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        applyNamedMeatPortion(isExtraTorta ? 12.0 : 6.0)
-        if (!noBeans) frijolMolidoOz += 1.5 * sQty
+        if (!applyNamedMeatPortion(6.0, 6.0)) {
+          applyExplicitExtraProteinModifiers(6.0)
+        }
+        if (keptBeansQty > 0) frijolMolidoOz += 1.5 * keptBeansQty
+        applyExtraNachoCheeseModifiers()
         continue
       }
 
       // 9. SOPES (un disparo de crema y una cucharada de cotija)
       if (/sope/.test(normName)) {
         sopeCount += 1 * sQty
-        const isExtraSope = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        applyNamedMeatPortion(isExtraSope ? 3.0 : 1.5)
-        if (!noBeans) frijolMolidoOz += 1.5 * sQty
-        const cotijaRemovals = mods.filter(m => /^(?:no|sin)\s+(?:cotija|queso)\b/.test(m.norm))
-        if (cotijaRemovals.some(m => m.qty !== sQty)) {
-          const key = `sope_cotija_removal:${selectionKey}`
-          const prior = uncoveredMap.get(key) || { guid: sel.guid || 'NO_GUID', name: `${sName} (No Cotija parcial ambiguo)`, qty: 0 }
-          prior.qty += sQty
-          uncoveredMap.set(key, prior)
+        if (!applyNamedMeatPortion(1.5, 1.5)) {
+          applyExplicitExtraProteinModifiers(1.5)
         }
+        if (keptBeansQty > 0) frijolMolidoOz += 1.5 * keptBeansQty
+        if (!noJack) {
+          const jackModUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackModUnits > 0) quesoRayadoOz += 0.6 * jackModUnits
+        }
+        applyExtraNachoCheeseModifiers()
         continue
       }
 
       // 10. QUESADILLAS (Quesadilla Bodega es un paquete preformado de 12 ct que ya incluye queso)
       if (/quesadilla/.test(normName)) {
         quesadillaBodegaCount += 1 * sQty
-        const isExtraQuesadilla = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        applyNamedMeatPortion(isExtraQuesadilla ? 12.0 : 6.0)
+        if (!applyNamedMeatPortion(6.0, 6.0)) {
+          applyExplicitExtraProteinModifiers(6.0)
+        }
+        if (!noJack) {
+          const jackModUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackModUnits > 0) quesoRayadoOz += 2.1 * jackModUnits
+        }
+        applyExtraNachoCheeseModifiers()
         // Los toppings de la Super Quesadilla ya se agregaron antes de las recetas específicas.
         continue
       }
 
-      // 11. NACHOS (Super Nachos lleva Queso Amarillo líquido, Aguacate y Crema)
+      // 11. NACHOS (Confirmado por Carlos: Super Nachos lleva 5.0 oz Queso Amarillo líquido, 0 oz Frijol Molido, Aguacate y Crema + extras opcionales)
       if (isNachos) {
         nachoChipBags += 1 * sQty
-        quesoAmarilloOz += 4 * sQty
-        const isExtraNachos = mods.some(m => /^(?:extra|doble|double)\s+(?:carne|meat)(?:\s+1\.5\s*oz)?(?:\s*\(in store\))?$/.test(m.norm))
-        applyNamedMeatPortion(isExtraNachos ? 12.0 : 6.0)
+        quesoAmarilloOz += 5 * sQty
+        if (!noJack) {
+          const jackModUnits = sumModUnits(isJackCheeseAddMod)
+          if (jackModUnits > 0) quesoRayadoOz += 2.1 * jackModUnits
+        }
+        applyExtraNachoCheeseModifiers()
+        if (!applyNamedMeatPortion(6.0, 6.0)) {
+          applyExplicitExtraProteinModifiers(6.0)
+        }
         continue
       }
 
@@ -1190,19 +1506,10 @@ export function calculateDailyOrderConsumption(
           if (r.type === 'cogs_takeout' && pkgChannel !== 'to_go' && pkgChannel !== 'drive_thru') continue
           if (r.type === 'cogs_delivery' && pkgChannel !== 'delivery') continue
 
-          let totalUnits = (Number(r.quantity) || 0) * sQty
+          const rawAmount = (Number(r.quantity) || 0) * sQty
           const targetItem = invMap.get(r.inventory_item_id)
-          const recipeUnit = normalize(r.unit)
-          const itemMeasure = normalize(targetItem?.unit_measure)
-          // quantity_per_unit expresa la medida de catálogo, no necesariamente
-          // la unidad de la receta. Convertir ANTES de normalizar a bolsas/cajas.
-          if (recipeUnit === 'oz' && itemMeasure === 'lb') totalUnits /= 16
-          else if (recipeUnit === 'lb' && itemMeasure === 'oz') totalUnits *= 16
-          else if ((recipeUnit === '1 dz' || recipeUnit === 'dz') && itemMeasure === 'pza') totalUnits *= 12
-          else if ((recipeUnit === 'oz' || recipeUnit === 'fl oz') &&
-            (itemMeasure === 'gal' || targetItem?.unit_type?.toLowerCase().includes('gallon'))) {
-            totalUnits /= 128
-          }
+          const converted = convertRecipeAmountToCatalogMeasure(rawAmount, r.unit, targetItem)
+          const totalUnits = Number.isFinite(converted) ? converted : rawAmount
           generalItemUsage.set(r.inventory_item_id, (generalItemUsage.get(r.inventory_item_id) || 0) + totalUnits)
         }
       } else {
@@ -1292,6 +1599,9 @@ export function calculateDailyOrderConsumption(
   // Salsa Huevos Rancheros es físicamente bolsa de 2.30 lb (quantity_per_unit legado en DB = 0.5).
   registerUsage(itemSalsaRanchera, (salsaRancheraOz / 16) / 2.3, 'bolsas_salsa_ranchera_2_3_lb')
   registerUsage(itemQuesoRayado, (quesoRayadoOz / 16) / 2, 'bolsas_2_lb')
+  if (quesoFrescoCount > 0) {
+    registerUsage(itemQuesoFresco, quesoFrescoCount / Number(itemQuesoFresco?.quantity_per_unit || 20), 'paquetes_queso_fresco_20_pza')
+  }
   registerUsage(itemQuesoCotija, quesoCotijaOz / 12, 'bolsas_cotija_12_oz')
   registerUsage(itemAmarilloCheese, (quesoAmarilloOz / 440), 'cajas_440_oz')
   registerUsage(itemCrema, (cremaOz / 16) / 1.5, 'bolsas_1.5_lb')

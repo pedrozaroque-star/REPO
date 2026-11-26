@@ -852,9 +852,9 @@ function resolveTelescopingAnchorPair(
   const startDow = new Date(`${startDate}T12:00:00Z`).getUTCDay()
   const idealMinPre = isSingleDay
     ? addDaysIso(startDate, -3)
-    : startDow === 0
-      ? addDaysIso(startDate, -2)
-      : addDaysIso(startDate, -1)
+    : startDow === 1
+      ? addDaysIso(startDate, -3)
+      : addDaysIso(startDate, -2)
 
   const preCandidates = sortedDates.filter((d) => d >= idealMinPre && d < startDate)
   const t0 = preCandidates.length > 0 ? preCandidates[preCandidates.length - 1] : inWindow.length >= 2 ? inWindow[0] : null

@@ -15,6 +15,10 @@
   - `teamId`: `team_gizPjG5JHpw8Bd580QMnSELN`
 - **Horario Laboral (`America/Los_Angeles`)**: Día laboral de `06:00 AM` a `05:59 AM` del día siguiente; turno PM inicia `05:00 PM`.
 
+## 🛡️ Protección de Servidores (Supabase `2 GB RAM` + Vercel)
+- **Regla Permanente**: Cumplir estrictamente [`.agents/rules/server-db-protection.md`](./rules/server-db-protection.md) y [`.agents/rules/api-cron-db-guardrails.md`](./rules/api-cron-db-guardrails.md) en **todo** módulo, API, cron, chat tool o script (`scratch/`).
+- Prohibido `SELECT *` en tablas pesadas/JSONB, lecturas `> 15` filas de `pmix_daily_cache`, `Promise.all` sin tope (`<= 2–3`), rangos sin `maxDays`, reintentos en cascada sobre `522/524/57014`, escrituras en `GET`, `fetch()` sin `AbortSignal.timeout` o colisiones de crons.
+
 ## 🛠️ Comandos de Verificación en la Nube
 - **Chequeo completo pre-despliegue**: `npm run preflight:cloud` (valida tamaño de `AGENTS.md`, crons en `vercel.json`, ejecuta `next typegen` y `tsc --noEmit` sin requerir `.env`).
 - **Solo TypeScript**: `npm run typecheck`.

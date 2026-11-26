@@ -72,6 +72,15 @@ import {
   buildStoreItemDateNetTransferMap,
   fetchConfirmedStoreTransfers,
 } from '@/lib/inventory/store-transfers'
+import {
+  buildAssistantPersonalEmailIndex,
+  buildVerifiedCorporateEmailSet,
+  canonicalizeCorporateEmail,
+  loadEmailDeliverabilityContext,
+  resolveDeliverableUserEmail,
+  type EmailDeliverabilityContext,
+  type GuardToastEmployeeRow,
+} from '@/lib/email-recipient-guard'
 
 export const CORPORATE_EMAIL_GUARD_REGEX = /^[a-z0-9._%+-]+@tacosgavilan\.com$/i
 const BAG_CUTOVER_DATE_ISO = '2026-07-24'
@@ -115,7 +124,7 @@ export const MEAT_BENCHMARKS: readonly MeatCatalogBenchmark[] = [
     preCutoverBagLbs: 5,
     defaultStoreBagCost: 19.92,
     defaultBodegaBagCost: 16.6,
-    defaultYieldFactor: MEAT_COOKING_YIELDS.cabeza, // 0.87
+    defaultYieldFactor: MEAT_COOKING_YIELDS.cabeza, // 0.785
     priorityRank: 2,
   },
   {
@@ -128,7 +137,7 @@ export const MEAT_BENCHMARKS: readonly MeatCatalogBenchmark[] = [
     preCutoverBagLbs: 10,
     defaultStoreBagCost: 10.68,
     defaultBodegaBagCost: 8.9,
-    defaultYieldFactor: MEAT_COOKING_YIELDS.pastor, // 0.615
+    defaultYieldFactor: MEAT_COOKING_YIELDS.pastor, // 0.53
     priorityRank: 3,
   },
   {
@@ -141,7 +150,7 @@ export const MEAT_BENCHMARKS: readonly MeatCatalogBenchmark[] = [
     preCutoverBagLbs: 5,
     defaultStoreBagCost: 21.0,
     defaultBodegaBagCost: 17.5,
-    defaultYieldFactor: MEAT_COOKING_YIELDS.lengua, // 1.0
+    defaultYieldFactor: MEAT_COOKING_YIELDS.lengua, // 0.925
     priorityRank: 4,
   },
   {
@@ -154,7 +163,7 @@ export const MEAT_BENCHMARKS: readonly MeatCatalogBenchmark[] = [
     preCutoverBagLbs: 10,
     defaultStoreBagCost: 7.5,
     defaultBodegaBagCost: 6.5,
-    defaultYieldFactor: MEAT_COOKING_YIELDS.pollo, // 0.65
+    defaultYieldFactor: MEAT_COOKING_YIELDS.pollo, // 0.575
     priorityRank: 5,
   },
   {
@@ -167,7 +176,7 @@ export const MEAT_BENCHMARKS: readonly MeatCatalogBenchmark[] = [
     preCutoverBagLbs: 0.5,
     defaultStoreBagCost: 1.554,
     defaultBodegaBagCost: 1.295,
-    defaultYieldFactor: MEAT_COOKING_YIELDS.chorizo, // 0.75
+    defaultYieldFactor: MEAT_COOKING_YIELDS.chorizo, // 0.67
     priorityRank: 6,
   },
   {
@@ -352,9 +361,8 @@ export function escapeHtml(raw: unknown): string {
 
 export function normalizeCorporateEmail(raw?: string | null): string | null {
   if (!raw) return null
-  const clean = String(raw).trim().toLowerCase()
+  const clean = canonicalizeCorporateEmail(raw)
   if (!clean || !clean.includes('@')) return null
-  if (clean === 'roque@tacosgavilan.com') return 'carlos@tacosgavilan.com'
   return clean
 }
 
@@ -440,6 +448,9 @@ function matchesStoreScopeFallback(
 
 /**
  * Resuelve la Escalera de Mando completa (Manager, Asistentes, Supervisor Regional) para las sucursales activas.
+ * - Para `asistente`, NUNCA emite correos `@tacosgavilan.com` de solo login sin buzón real;
+ *   resuelve automáticamente su correo personal verificado desde `toast_employees` (o lo omite del correo
+ *   manteniendo su nombre visible y su notificación en campana `bellUserIds`).
  */
 export function buildEscaleraByStore(
   stores: Array<{
@@ -459,13 +470,27 @@ export function buildEscaleraByStore(
     store_id?: number | null
     store_scope?: unknown
     is_active?: boolean | null
-  }>
+    toast_guid?: string | null
+  }>,
+  options?: {
+    deliverabilityCtx?: EmailDeliverabilityContext | null
+    toastEmployees?: GuardToastEmployeeRow[] | null
+  }
 ): Map<number, StoreEscaleraRecipients> {
   const activeUsers = (users || []).filter((u) => Boolean(u.is_active))
   const userById = new Map<number, (typeof activeUsers)[number]>()
   for (const u of activeUsers) {
     userById.set(Number(u.id), u)
   }
+
+  const verifiedCorp =
+    options?.deliverabilityCtx?.verifiedCorporateEmails || buildVerifiedCorporateEmailSet(activeUsers)
+  const blockedExt = options?.deliverabilityCtx?.blockedExternalEmails || null
+  const assistantIndex =
+    options?.deliverabilityCtx?.assistantIndex ||
+    (options?.toastEmployees
+      ? buildAssistantPersonalEmailIndex(activeUsers, options.toastEmployees, stores, verifiedCorp, blockedExt)
+      : null)
 
   const map = new Map<number, StoreEscaleraRecipients>()
 
@@ -498,7 +523,7 @@ export function buildEscaleraByStore(
     if (store.supervisor_id) {
       const supUser = userById.get(Number(store.supervisor_id))
       if (supUser) {
-        supervisorEmail = normalizeCorporateEmail(supUser.google_email_connected || supUser.email)
+        supervisorEmail = resolveDeliverableUserEmail(supUser, verifiedCorp, assistantIndex, blockedExt)
         supervisorName = supUser.full_name || supervisorName
         supervisorUserId = String(supUser.id)
       }
@@ -507,7 +532,7 @@ export function buildEscaleraByStore(
     const managerEmails = Array.from(
       new Set(
         managers
-          .map((m) => normalizeCorporateEmail(m.google_email_connected || m.email))
+          .map((m) => resolveDeliverableUserEmail(m, verifiedCorp, assistantIndex, blockedExt))
           .filter((e): e is string => Boolean(e) && e !== 'carlos@tacosgavilan.com')
       )
     )
@@ -515,7 +540,7 @@ export function buildEscaleraByStore(
     const assistantEmails = Array.from(
       new Set(
         assistants
-          .map((a) => normalizeCorporateEmail(a.google_email_connected || a.email))
+          .map((a) => resolveDeliverableUserEmail(a, verifiedCorp, assistantIndex, blockedExt))
           .filter((e): e is string => Boolean(e) && e !== 'carlos@tacosgavilan.com')
       )
     )
@@ -832,9 +857,9 @@ export async function scanPortionControlAlerts(
   const minAllowedStartDate = addDaysIso(resolvedEndDate, -34)
   const resolvedStartDate = rawStartDate < minAllowedStartDate ? minAllowedStartDate : rawStartDate
 
-  // El conteo de apertura t0 que alimenta `resolvedStartDate` ocurre al cierre de `resolvedStartDate - 1`
-  // (con margen de -2 días por si `resolvedStartDate - 1` cayó en sábado sin conteo aislado).
-  const anchorLookbackStart = addDaysIso(resolvedStartDate, -3)
+  // El conteo de apertura t0 que alimenta `resolvedStartDate` ocurre al cierre previo canónico
+  // (con margen de -4 días para cubrir cierres de viernes previos a inicios en lunes o feriados).
+  const anchorLookbackStart = addDaysIso(resolvedStartDate, -4)
 
   const meatFilterKey = options.meatKey ? String(options.meatKey).trim().toLowerCase() : null
   const activeBenchmarks = meatFilterKey
@@ -928,7 +953,8 @@ export async function scanPortionControlAlerts(
   const storeGuids = stores.map((s) => s.external_id).filter((g): g is string => Boolean(g))
   const countStoreTokens = Array.from(new Set([...storeIdsText, ...storeGuids]))
   const fcCacheStoreTokens = Array.from(new Set([...storeGuids, ...storeIdsText]))
-  const escaleraMap = buildEscaleraByStore(stores, usersData || [])
+  const deliverabilityCtx = await loadEmailDeliverabilityContext(supabase)
+  const escaleraMap = buildEscaleraByStore(stores, usersData || [], { deliverabilityCtx })
 
   const itemLiveCostMap = new Map<string, { purchaseCost: number; yieldFactor: number }>()
   for (const row of itemsData || []) {
@@ -1454,25 +1480,26 @@ export async function scanPortionControlAlerts(
       if (!dateMap || dateMap.size < 2) continue
 
       const sortedDates = Array.from(dateMap.keys()).sort()
-      // Seleccionar t1 = último conteo humano <= resolvedEndDate (dentro del rango objetivo)
-      const t1Candidates = sortedDates.filter((d) => d >= resolvedStartDate && d <= resolvedEndDate)
-      if (t1Candidates.length === 0) continue
-      const t1 = t1Candidates[t1Candidates.length - 1]
+      // Seleccionar par canónico telescópico [t0, t1] idéntico a TVF / Meats / Varianza
+      const inWindow = sortedDates.filter((d) => d >= resolvedStartDate && d <= resolvedEndDate)
+      if (inWindow.length === 0) continue
+      const t1 = inWindow[inWindow.length - 1]
 
-      // Seleccionar t0 = conteo humano más cercano a `resolvedStartDate - 1` (o el primero disponible < t1)
-      const targetT0 = addDaysIso(resolvedStartDate, -1)
-      const t0Candidates = sortedDates.filter((d) => d < t1)
-      if (t0Candidates.length === 0) continue
-
-      let t0 = t0Candidates[0]
-      let bestDiff = Math.abs(diffCalendarDays(targetT0, t0))
-      for (const cand of t0Candidates) {
-        const diff = Math.abs(diffCalendarDays(targetT0, cand))
-        if (diff < bestDiff) {
-          bestDiff = diff
-          t0 = cand
-        }
-      }
+      const isSingle = resolvedStartDate === resolvedEndDate
+      const startDow = new Date(`${resolvedStartDate}T12:00:00Z`).getUTCDay()
+      const idealMinPre = isSingle
+        ? addDaysIso(resolvedStartDate, -3)
+        : startDow === 1
+          ? addDaysIso(resolvedStartDate, -3)
+          : addDaysIso(resolvedStartDate, -2)
+      const preCandidates = sortedDates.filter((d) => d >= idealMinPre && d < resolvedStartDate)
+      const t0 =
+        preCandidates.length > 0
+          ? preCandidates[preCandidates.length - 1]
+          : inWindow.length >= 2
+            ? inWindow[0]
+            : null
+      if (!t0 || t0 >= t1) continue
 
       const spanDays = diffCalendarDays(t0, t1)
       if (spanDays < 2) continue
@@ -1537,8 +1564,9 @@ export async function scanPortionControlAlerts(
         const closeDayCount = dateMap.get(d)
         if (ho && openDayCount && closeDayCount) {
           const morningArrivedBags = arrivedByStoreItemDate.get(`${storeId}|${bench.inventoryItemId}|${prevDate}`) || 0
+          const dayTransferNetBags = transferNetMap.get(`${storeId}::${bench.inventoryItemId}::${d}`)?.netQty || 0
           const handover5pmRawLbs = ho.sealedBags * bagWeightLbs + (yieldFactor > 0 ? ho.openCookedLbs / yieldFactor : ho.openCookedLbs)
-          const dayAmActual = Math.max(0, (openDayCount.bags + morningArrivedBags) * bagWeightLbs - handover5pmRawLbs)
+          const dayAmActual = Math.max(0, (openDayCount.bags + morningArrivedBags + dayTransferNetBags) * bagWeightLbs - handover5pmRawLbs)
           const dayPmActual = Math.max(0, handover5pmRawLbs - closeDayCount.bags * bagWeightLbs)
           measuredAmActualLbs += dayAmActual
           measuredPmActualLbs += dayPmActual
@@ -1934,7 +1962,7 @@ export async function sendExistingPortionAlertById(params: {
     throw new Error('Alerta de control de porciones no encontrada')
   }
 
-  const [{ data: storeRow }, { data: usersData }] = await Promise.all([
+  const [{ data: storeRow }, { data: usersData }, deliverabilityCtx] = await Promise.all([
     supabase
       .from('stores')
       .select('id, name, code, external_id, supervisor_id, supervisor_name, is_active')
@@ -1942,15 +1970,16 @@ export async function sendExistingPortionAlertById(params: {
       .single(),
     supabase
       .from('users')
-      .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active')
+      .select('id, full_name, email, google_email_connected, role, store_id, store_scope, is_active, toast_guid')
       .limit(2000),
+    loadEmailDeliverabilityContext(supabase),
   ])
 
   if (!storeRow) {
     throw new Error(`Sucursal ${formatStoreDisplayName(row.store_id) || row.store_id} no encontrada`)
   }
 
-  const escaleraMap = buildEscaleraByStore([storeRow as any], usersData || [])
+  const escaleraMap = buildEscaleraByStore([storeRow as any], usersData || [], { deliverabilityCtx })
   const escalera = escaleraMap.get(Number(row.store_id))!
   const bench = MEAT_BENCHMARKS.find((b) => b.key === row.meat_key) || MEAT_BENCHMARKS[0]
   const bagWeight = resolveHistoricalBagWeightLbs(bench, String(row.period_end))

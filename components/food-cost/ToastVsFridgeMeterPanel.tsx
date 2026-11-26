@@ -144,6 +144,8 @@ interface ToastVsFridgeMeterPanelProps {
   onBackToAllStores?: () => void
   defaultIngredientId?: string | null
   onTransfersUpdated?: () => void
+  startDate?: string
+  endDate?: string
 }
 
 export default function ToastVsFridgeMeterPanel({
@@ -158,6 +160,8 @@ export default function ToastVsFridgeMeterPanel({
   onBackToAllStores,
   defaultIngredientId = null,
   onTransfersUpdated,
+  startDate,
+  endDate,
 }: ToastVsFridgeMeterPanelProps) {
   const { t } = useLanguage()
   const [showTransferModal, setShowTransferModal] = useState(false)
@@ -179,7 +183,16 @@ export default function ToastVsFridgeMeterPanel({
     shortageStores.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceDollarStore || 0), 0)
   )
 
-  const isMultiDayWindow = storesComparison.some((s) => s.hasMeasuredSpan && s.spanDays > 2)
+  const isMultiDayWindow =
+    startDate && endDate
+      ? startDate !== endDate
+      : new Set(dailyFridgeLedger.map((e) => e.endDate).filter(Boolean)).size > 1 ||
+        storesComparison.some(
+          (s) =>
+            s.hasMeasuredSpan &&
+            (s.spanDays > 2 ||
+              (s.spanDays === 2 && Boolean(s.t1) && new Date(`${s.t1}T12:00:00Z`).getUTCDay() !== 0))
+        )
 
   const selectedStoreSummary =
     selectedStoreNumericId !== null

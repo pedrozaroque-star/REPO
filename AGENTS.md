@@ -210,6 +210,12 @@ Cron sync-food-cost → pre-calcula cache mensual
 - Agregar TODAS las claves en ambos diccionarios (`es` y `en`) ANTES de usar `t('modulo.clave')`; prohibido dejar strings visibles hardcodeados en JSX.
 - Mantener intactos los valores persistidos en DB (ej. `'Apertura'`, `'Diario'`, `'REGULAR'`) y traducir únicamente el *label* (etiqueta visual) con `t()`.
 
+## 🛡️ PROTECCIÓN DE SERVIDORES (SUPABASE `ci_small` 2 GB RAM + VERCEL)
+- **Reglas Completas Obligatorias**: Ver `.agents/rules/server-db-protection.md` (`always_on`) y `.agents/rules/api-cron-db-guardrails.md` (`glob`).
+- **Leyes Inquebrantables** (lección de caída total `2026-11-24`, `18:30–18:44 PST` por lectura `limit=1000` de `pmix_daily_cache` ~202.5 MB JSONB + reintentos sobre `service_role`):
+  - Cero `SELECT *` en tablas grandes/JSONB; `pmix_daily_cache` solo vía `readPmixDailyCacheChunked` (`<= 15` filas).
+  - Cero `Promise.all` sin tope (`concurrency <= 2–3`), cero escrituras masivas en `GET`, obligatorio `maxDays`, `AbortSignal.timeout`, `maxDuration`, `dynamic='force-dynamic'`, cero retry-piling en `522/524/57014`, y crons escalonados (`>= 3–5 min`).
+
 ## ☁️ OPERACIÓN EN NUBE / REMOTE AGENTS (SIN PC)
 - **Supabase MCP Exclusivo**: Ejecutar operaciones de base de datos vía MCP de Supabase apuntando **ÚNICAMENTE** al proyecto **`teg-tacos-gavilan` (`project_id: ywwwdcvgfculqmcfkihq`, `us-west-1`)**. Queda terminantemente prohibido tocar otros proyectos de la cuenta (`MotoCruz` `cjuaolbneuyzvhdtqtiw` o `candy` `zwevlqbnqdynfkryewcq`).
 - **Vercel & GitHub**: Proyecto Vercel `tacosgavilan` (`prj_ZqezfSQCqko7rz64nQOsJS7Oqavp`, `teamId: team_gizPjG5JHpw8Bd580QMnSELN`) enlazado a `pedrozaroque-star/REPO` (`main`). Seguir siempre el *runbook* `.agents/skills/remote-cloud-ops/SKILL.md` y validar con `npm run preflight:cloud` antes de cualquier commit autorizado.
