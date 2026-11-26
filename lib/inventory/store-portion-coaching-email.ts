@@ -13,7 +13,8 @@
  *   - En modo `live` envía a toda la Escalera de Mando de la sucursal:
  *     * `to`: Gerente(s) + Asistentes AM/PM (`buildEscaleraByStore`).
  *     * `cc`: Supervisor Regional (`stores.supervisor_id -> users.email`, ej. `ricardo@tacosgavilan.com`)
- *             + `gonzalo@tacosgavilan.com` + `carlos@tacosgavilan.com` (+ `extraCc` opcionales).
+ *             + `gonzalo@tacosgavilan.com` (+ `extraCc` opcionales, excluyendo buzones ejecutivos en BCC).
+ *     * `bcc`: `carlos@tacosgavilan.com` (copia oculta institucional, sin exposición en `From:` ni `CC:`).
  *   - En modo `preview` (por defecto) envía únicamente a `previewRecipients` con banner informativo.
  *
  * @dataFlow
@@ -247,19 +248,22 @@ export async function buildAndSendStorePortionCoachingEmail(
     ...escalera.assistantNames.map((n) => n.split(' ')[0]),
   ].filter((v): v is string => Boolean(v))
 
-  // Construir destinatarios oficiales de Escalera de Mando + Supervisor + Gonzalo + Carlos
+  // Construir destinatarios oficiales de Escalera de Mando + Supervisor + Gonzalo (Carlos siempre en BCC oculto)
   const liveTo = Array.from(new Set(escalera.toEmails))
   const liveCcSet = new Set<string>()
   if (escalera.supervisorEmail) liveCcSet.add(escalera.supervisorEmail)
   liveCcSet.add('gonzalo@tacosgavilan.com')
-  liveCcSet.add('carlos@tacosgavilan.com')
   for (const extra of extraCc) {
     const clean = normalizeCorporateEmail(extra)
-    if (clean) liveCcSet.add(clean)
+    if (clean && clean !== 'carlos@tacosgavilan.com' && clean !== 'roque@tacosgavilan.com') {
+      liveCcSet.add(clean)
+    }
   }
   for (const tEmail of liveTo) {
     liveCcSet.delete(tEmail)
   }
+  liveCcSet.delete('carlos@tacosgavilan.com')
+  liveCcSet.delete('roque@tacosgavilan.com')
   const liveCc = Array.from(liveCcSet)
 
   const baseUrl = resolveAppBaseUrl()
@@ -276,7 +280,8 @@ export async function buildAndSendStorePortionCoachingEmail(
         <strong style="color:#93C5FD;font-size:13px;">🔎 VISTA PREVIA CORREGIDA PARA CARLOS Y GONZALO (AÚN NO ENVIADO A ${escapeHtml(cleanStoreName.toUpperCase())})</strong><br>
         Se calibraron las mermas reales de marinado/cocción, se eliminó la columna engañosa <em>"Debían Quedar"</em> semanal (mostrando consumo real vs. ventas y promedio diario) y se destacó que <strong>el conteo es estrictamente después del cierre</strong>.<br>
         <strong>Al confirmar saldrá Para:</strong> ${liveTo.map((e) => `<code>${escapeHtml(e)}</code>`).join(', ')}<br>
-        <strong>Con Copia (CC):</strong> ${liveCc.map((e) => `<code>${escapeHtml(e)}</code>`).join(', ')}
+        <strong>Con Copia (CC):</strong> ${liveCc.map((e) => `<code>${escapeHtml(e)}</code>`).join(', ')}<br>
+        <strong>Copia Oculta (BCC):</strong> <code>carlos@tacosgavilan.com</code>
       </div>`
 
   const meatTableRowsHtml =
@@ -493,9 +498,10 @@ export async function buildAndSendStorePortionCoachingEmail(
   const mailRes = dryRun
     ? { ok: true, skipped: true }
     : await sendSystemEmail({
-        fromName: 'Tacos Gavilan · Operaciones y Cocina',
+        fromName: 'Sistema de Monitoreo',
         to: finalTo,
-        cc: finalCc,
+        cc: finalCc && finalCc.length > 0 ? finalCc : undefined,
+        bcc: isLive && !finalTo.includes('carlos@tacosgavilan.com') ? 'carlos@tacosgavilan.com' : undefined,
         subject: finalSubject,
         html,
       })

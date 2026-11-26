@@ -1,10 +1,11 @@
 /**
  * @module app/api/cron/check-missing-meat-modifiers/route
- * @description Cron diario automatizado (`20 18 * * *` UTC — 10:20 AM PST / 11:20 AM PDT, justo después de
+ * @description Cron diario automatizado (`33 17 * * *` UTC — 09:33 AM PST / 10:33 AM PDT, justo después de
  *   `/api/cron/sync-pmix` y `/api/cron/sync-labor`) que audita todas las órdenes cerradas del día laboral anterior
  *   (`06:00 AM` a `05:59 AM` LA) donde se cobró `Side Order Carne` o `2 / 6 / 12 lb Meat` SIN especificar el tipo
- *   de carne en Toast POS, y notifica obligatoriamente al General Manager con copia al Supervisor, al Asistente del
- *   turno exacto (`AM` o `PM`) y a la Cajera involucrada.
+ *   de carne en Toast POS, y notifica obligatoriamente desde `noreply@tacosgavilan.com` (`Sistema de Monitoreo`)
+ *   al General Manager con copia al Supervisor, al Asistente del turno exacto (`AM` o `PM`) y a la Cajera involucrada
+ *   (con copia ejecutiva estrictamente en `BCC` oculto).
  *
  * @businessRules
  *   - En ejecución automática de Vercel Cron corre por defecto en `mode=live_escalera` (con idempotencia estricta en
@@ -13,7 +14,7 @@
  *     `?dry_run=true`, `?date=YYYY-MM-DD`, `?store_id=...` y `?force_resend=true`.
  *
  * @dataFlow
- *   Vercel Cron (`20 18 * * *`) o invocación manual admin → `scanAndNotifyMissingMeatModifiers()` → `sendSystemEmail()`.
+ *   Vercel Cron (`33 17 * * *`) o invocación manual admin → `scanAndNotifyMissingMeatModifiers()` → `sendSystemEmail()` (`noreply@tacosgavilan.com`).
  *
  * @notes
  *   - Protegido con `verifyStaffAuth(..., { allowedRoles: ['admin', 'supervisor'], allowCron: true })`.

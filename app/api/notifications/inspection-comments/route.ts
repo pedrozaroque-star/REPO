@@ -205,7 +205,6 @@ export async function POST(req: Request) {
                     to: toEmail,
                     subject: `📝 Comentarios de Inspección: ${storeName} (${inspectionDate})`,
                     html: fullHtml,
-                    preferredUserId: inspection.inspector_id,
                 })
                 successCount++
             } catch (err: any) {

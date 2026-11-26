@@ -8,11 +8,11 @@
  * - Emite códigos numéricos reales de 6 dígitos con vigencia de 10 minutos en `public.app_mobile_otp_challenges`.
  * - No crea cuentas en `auth.users` ni `public.app_users` hasta que el código OTP es verificado exitosamente (cero cuentas fantasma).
  * - Exige secreto criptográfico real (`MOBILE_OTP_SECRET` o `SUPABASE_SERVICE_ROLE_KEY`), búsqueda O(1) vía `get_auth_user_id_by_email` y bloqueo tras 5 intentos fallidos.
- * - Envía un correo HTML bilingüe (Inglés / Español) mediante la cuenta SMTP oficial (`SMTP_EMAIL` / `SMTP_PASSWORD`).
+ * - Envía un correo HTML bilingüe (Inglés / Español) desde la cuenta institucional `noreply@tacosgavilan.com` vía `sendSystemEmail()`.
  * - Soporta cuentas de revisión y pruebas automatizadas (`@tacosgavilan.test`, `reviewer@tacosgavilan.com`, `apple@tacosgavilan.com`, `google@tacosgavilan.com`) con código `123456`.
  *
  * @dataFlow
- * - `POST /api/mobile/auth/send-otp` -> `checkEmailOtpRateLimit` + `issueEmailOtpChallenge` -> `sendMobileOtpEmail` (Nodemailer Gmail SMTP).
+ * - `POST /api/mobile/auth/send-otp` -> `checkEmailOtpRateLimit` + `issueEmailOtpChallenge` -> `sendMobileOtpEmail` (`sendSystemEmail` -> `noreply@tacosgavilan.com`).
  * - `POST /api/mobile/auth/verify-otp` -> Verificación constante (`crypto.timingSafeEqual`) + bloqueo -> `findOrCreateEmailAuthUser` -> Emisión de JWT real de Supabase Auth.
  *
  * @notes

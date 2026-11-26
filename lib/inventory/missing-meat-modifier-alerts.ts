@@ -13,7 +13,9 @@
  *   - Destinatarios obligatorios por `(store_id, shift)` en modo `'live_escalera'`:
  *     • `Para (To)`: General Manager de la sucursal (respaldo: Supervisor si no hay Manager asignado).
  *     • `Con Copia Obligatoria (CC)`: Supervisor Regional + Asistente(s) del turno exacto (`AM` o `PM`) donde sucedió
- *       + Cajera(s) involucrada(s) (correo en `users` o `toast_employees`) + `carlos@tacosgavilan.com`.
+ *       + Cajera(s) involucrada(s) (correo en `users` o `toast_employees`).
+ *     • `Copia Oculta (BCC)`: `carlos@tacosgavilan.com` (sin exponer jamás su buzón en `From:` ni en `CC:`).
+ *     • `Remitente (From)`: estrictamente `noreply@tacosgavilan.com` (`Sistema de Monitoreo`) vía `sendSystemEmail()`.
  *   - Modo `'preview_carlos'`: envía un resumen consolidado exclusivamente a `carlos@tacosgavilan.com` mostrando las
  *     órdenes reales detectadas y la lista exacta de destinatarios (`Para` y `CC`) antes de ejecutar el envío en vivo.
  *   - Idempotencia estricta en `public.missing_meat_modifier_alerts` (`UNIQUE (business_date, store_id, shift)` + `live_email_sent_at`).
@@ -123,6 +125,7 @@ export interface DispatchedMissingMeatEmail {
   sent: boolean
   skippedDuplicate?: boolean
   messageId?: string
+  fromEmail?: string
   providerUsed?: string
   error?: string
 }
@@ -430,7 +433,7 @@ export function buildPreviewDigestForCarlosHtml(
                 <div style="font-size:12px;color:#7F1D1D;margin-top:4px;line-height:1.5;">
                   <strong>Para (Manager):</strong> ${escapeHtml(g.managerName || '—')} (${escapeHtml(g.liveTo.join(', ') || 'Sin correo')})<br>
                   <strong>CC Obligatorio:</strong> Supervisor ${escapeHtml(g.supervisorName || '—')} · Asistente ${g.shift}: ${escapeHtml(g.shiftAssistantNames.join(', ') || '—')} · Cajera(s): ${escapeHtml(g.cashierNames.join(', '))}<br>
-                  <strong>Correos en CC al activar:</strong> ${escapeHtml(g.liveCc.join(', '))}
+                  <strong>Correos en CC al activar:</strong> ${escapeHtml(g.liveCc.join(', ') || '—')} · <strong>BCC:</strong> ${escapeHtml(EXEC_COPY_EMAIL)}
                 </div>
               </div>
               <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#FFFFFF;">
@@ -905,8 +908,13 @@ export async function scanAndNotifyMissingMeatModifiers(
             supervisorEmail,
             ...shiftAsst.emails,
             ...cashierEmails,
-            EXEC_COPY_EMAIL,
-          ].filter((e): e is string => typeof e === 'string' && e.length > 0 && !liveTo.includes(e))
+          ].filter(
+            (e): e is string =>
+              typeof e === 'string' &&
+              e.length > 0 &&
+              e.toLowerCase() !== EXEC_COPY_EMAIL &&
+              !liveTo.includes(e)
+          )
         )
       )
 
@@ -989,7 +997,7 @@ export async function scanAndNotifyMissingMeatModifiers(
       const allPreviewRecipients = [...finalPreviewTo, ...finalPreviewCc]
       const preview = buildPreviewDigestForCarlosHtml(businessDate, groupsDetected, allPreviewRecipients)
       const mailRes = await sendSystemEmail({
-        fromName: 'Tacos Gavilan · Control de Consumos',
+        fromName: 'Sistema de Monitoreo',
         to: finalPreviewTo,
         cc: finalPreviewCc.length > 0 ? finalPreviewCc : undefined,
         subject: preview.subject,
@@ -1020,6 +1028,7 @@ export async function scanAndNotifyMissingMeatModifiers(
         subject: preview.subject,
         sent: true,
         messageId: mailRes.messageId,
+        fromEmail: mailRes.fromEmail,
         providerUsed: mailRes.providerUsed,
       })
     } else if (deliveryMode === 'sample_single_to_carlos') {
@@ -1034,7 +1043,8 @@ export async function scanAndNotifyMissingMeatModifiers(
           <strong style="color:#93C5FD;">🔎 MUESTRA INDIVIDUAL DE VISTA PREVIA (${escapeHtml(sampleTarget)} · AÚN NO ENVIADO A LA TIENDA)</strong><br>
           Así se ve exactamente el correo individual que recibe cada sucursal en vivo.<br>
           <strong>Al activar saldrá Para:</strong> ${escapeHtml(sampleGrp.liveTo.join(', '))}<br>
-          <strong>Con Copia (CC):</strong> ${escapeHtml(sampleGrp.liveCc.join(', '))}
+          <strong>Con Copia (CC):</strong> ${escapeHtml(sampleGrp.liveCc.join(', ') || '—')}<br>
+          <strong>Copia Oculta (BCC):</strong> ${escapeHtml(EXEC_COPY_EMAIL)}
         </div>`
         const sampleHtml = built.html.replace(
           '<table width="620"',
@@ -1042,7 +1052,7 @@ export async function scanAndNotifyMissingMeatModifiers(
         )
         const sampleSubject = `[MUESTRA TIENDA] ${built.subject}`
         const mailRes = await sendSystemEmail({
-          fromName: 'Tacos Gavilan · Disciplina Operativa',
+          fromName: 'Sistema de Monitoreo',
           to: [sampleTarget],
           subject: sampleSubject,
           html: sampleHtml,
@@ -1057,6 +1067,7 @@ export async function scanAndNotifyMissingMeatModifiers(
           subject: sampleSubject,
           sent: true,
           messageId: mailRes.messageId,
+          fromEmail: mailRes.fromEmail,
           providerUsed: mailRes.providerUsed,
         })
       }
@@ -1081,9 +1092,10 @@ export async function scanAndNotifyMissingMeatModifiers(
         const built = buildLiveShiftAlertEmailHtml(grp)
         try {
           const mailRes = await sendSystemEmail({
-            fromName: 'Tacos Gavilan · Disciplina Operativa',
+            fromName: 'Sistema de Monitoreo',
             to: grp.liveTo,
-            cc: grp.liveCc,
+            cc: grp.liveCc.length > 0 ? grp.liveCc : undefined,
+            bcc: grp.liveTo.includes(EXEC_COPY_EMAIL) ? undefined : EXEC_COPY_EMAIL,
             subject: built.subject,
             html: built.html,
           })
@@ -1110,6 +1122,7 @@ export async function scanAndNotifyMissingMeatModifiers(
             subject: built.subject,
             sent: true,
             messageId: mailRes.messageId,
+            fromEmail: mailRes.fromEmail,
             providerUsed: mailRes.providerUsed,
           })
         } catch (err: any) {

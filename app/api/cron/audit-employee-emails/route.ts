@@ -18,7 +18,7 @@
  * @dataFlow
  * - `GET` / `POST` `/api/cron/audit-employee-emails` -> Auth (`CRON_SECRET` | `getServerUser`) ->
  *   `runEmployeeEmailAudit()` (`lib/employee-email-auditor.ts`) -> Toast Sync + Verificación Multicapa +
- *   Envío Gmail OAuth (`carlos@tacosgavilan.com`) -> JSON Response.
+ *   Envío institucional (`noreply@tacosgavilan.com` vía `sendSystemEmail`) -> JSON Response.
  *
  * @notes
  * - Soporta parámetros autenticados `?dry_run=true`, `?force=true`, `?skip_toast_sync=true` y `?test_to=...`.

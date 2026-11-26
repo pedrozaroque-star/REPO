@@ -27,14 +27,14 @@
  *      las Capas 1 y 2 en vivo con el `smtpCache` persistido en Supabase para conservar detección de cuentas
  *      inexistentes sin cambios y buzones llenos recientes.
  * 4. Despacho Automático Anti-Duplicados (Sábados por la tarde, `America/Los_Angeles`):
- *    - Envía desde la cuenta Google OAuth de `carlos@tacosgavilan.com` un correo personalizado a cada Store Manager
+ *    - Envía desde la cuenta institucional `noreply@tacosgavilan.com` (`sendSystemEmail`) un correo personalizado a cada Store Manager
  *      cuya tienda tenga 1+ empleados con correo inválido/inexistente/lleno (`CC` Supervisor de Zona), más un
  *      Resumen Ejecutivo Semanal a `carlos@tacosgavilan.com`.
  *    - Registra `lastDispatchedDateLA` en Supabase para garantizar idempotencia (cero envíos duplicados el mismo día).
  *
  * @dataFlow
  * - Cron / Runner -> `syncToastEmployees` (15 tiendas) -> Paginación Supabase (`stores`, `users`, `toast_employees`,
- *   `shifts`, `punches`, `integrations`) -> Verificación Multicapa + Sugerencias -> Gmail API (`carlos@tacosgavilan.com`) ->
+ *   `shifts`, `punches`, `integrations`) -> Verificación Multicapa + Sugerencias -> `sendSystemEmail` (`noreply@tacosgavilan.com`) ->
  *   Persistencia de estado y caché en `integrations` (`employee_email_audit_state`).
  *
  * @notes
@@ -44,7 +44,6 @@
 
 import net from 'net'
 import { promises as dns } from 'dns'
-import nodemailer from 'nodemailer'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncToastEmployees } from '@/lib/toast-labor'
 import { sendSystemEmail } from '@/lib/system-mailer'

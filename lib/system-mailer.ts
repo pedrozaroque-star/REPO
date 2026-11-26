@@ -1,26 +1,31 @@
 /**
  * @module lib/system-mailer
  * @description Servicio centralizado e indestructible de despacho de correos automáticos de sistema
- * para Tacos Gavilan, priorizando la cuenta oficial `noreply@tacosgavilan.com` vía Google OAuth2 (Gmail API)
- * con cascada automática de respaldo (failover) para garantizar 0% de correos perdidos.
+ * para Tacos Gavilan, utilizando estrictamente la cuenta oficial `noreply@tacosgavilan.com` vía Google OAuth2
+ * (Gmail API) y bloqueando de forma absoluta cualquier envío desde buzones ejecutivos personales
+ * (`carlos@tacosgavilan.com`, `roque@tacosgavilan.com`).
  *
  * @businessRules
- * - Remitente institucional primario: `noreply@tacosgavilan.com` (normaliza automáticamente variantes como `noreplay@`).
+ * - Remitente institucional único y obligatorio: `noreply@tacosgavilan.com` (normaliza automáticamente variantes como `noreplay@`).
+ * - **PROHIBICIÓN ABSOLUTA DE REMITENTES EJECUTIVOS**: Ningún nivel (`NIVEL 0..3`, `sendViaGmailApi`, `sendViaSmtp` ni
+ *   `saveSystemGmailOAuthToken`) puede enviar ni registrar correos desde `carlos@tacosgavilan.com` o `roque@tacosgavilan.com`.
  * - Orden estricto de cascada en `sendSystemEmail`:
- *   0) `preferredUserId` OAuth2 en `public.users` (solo si el módulo lo solicita explícitamente, ej. inspector).
- *   1) `noreply@tacosgavilan.com` vía Gmail REST API OAuth2 (`public.integrations` `service_name = 'system_gmail_oauth'` o `public.users`).
+ *   0) `preferredUserId` OAuth2 en `public.users` (solo si el módulo lo solicita explícitamente y NO es un buzón ejecutivo protegido).
+ *   1) `noreply@tacosgavilan.com` vía Gmail REST API OAuth2 (`SYSTEM_GOOGLE_REFRESH_TOKEN`, `public.integrations` `service_name = 'system_gmail_oauth'` o `public.users`).
  *   2) `noreply@tacosgavilan.com` vía Nodemailer Gmail SMTP (`SYSTEM_SMTP_PASSWORD` o `SMTP_EMAIL` == `noreply@`).
- *   3) Respaldo automático activo (`carlos@tacosgavilan.com` vía Gmail REST API OAuth2 en `public.users`) mientras
- *      `noreply@tacosgavilan.com` concluye su vinculación OAuth de 1 clic o ante cualquier contingencia.
- *   4) Respaldo secundario SMTP (`SMTP_EMAIL` + `SMTP_PASSWORD`).
+ *   3) Respaldo secundario SMTP (`SMTP_EMAIL` + `SMTP_PASSWORD`) estrictamente excluyendo `carlos@tacosgavilan.com` y `roque@tacosgavilan.com`.
  * - Compila MIME RFC 2822 completo (`nodemailer` `streamTransport`) soportando HTML, texto plano, `cc`, `bcc`,
  *   `replyTo`, adjuntos binarios (`Buffer` PDF / `.ics`) e imágenes inline (`cid`).
+ * - Todas las llamadas externas a Google OAuth/Gmail API usan `AbortSignal.timeout(20_000)` por protección de servidores.
  *
  * @dataFlow
  * - Lee/actualiza credenciales OAuth de sistema en `public.integrations` (`service_name = 'system_gmail_oauth'`)
- *   y consulta `public.users` como respaldo.
+ *   y consulta `public.users` cuando aplica.
  * - Despacha por HTTPS (`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`).
  * @notes
+ * - [2026-11-26] Candado Absoluto Anti-Remitente Ejecutivo (`PROTECTED_EXECUTIVE_SENDER_EMAILS`): bloquea `carlos@tacosgavilan.com`
+ *   y `roque@tacosgavilan.com` en TODOS los niveles, elimina por completo el respaldo hacia cuentas personales de dirección,
+ *   agrega `AbortSignal.timeout(20_000)` y registra en logs el remitente y proveedor real utilizado.
  * - [2026-11-25] Blindaje Centralizado Anti-Rebotes (`lib/email-recipient-guard.ts`): antes de compilar MIME,
  *   `sendSystemEmail` canoniza alias administrativos (`yasmin@` -> `ap@`, `roque@` -> `carlos@`, `alejandro@` -> `alex@`),
  *   traduce cuentas login-only `@tacosgavilan.com` de `asistente` a su correo personal real verificado en `toast_employees`,
@@ -39,12 +44,47 @@ import {
 } from '@/lib/email-recipient-guard'
 
 export const OFFICIAL_NOREPLY_EMAIL = 'noreply@tacosgavilan.com'
-export const FALLBACK_SYSTEM_EMAIL = 'carlos@tacosgavilan.com'
+export const FALLBACK_SYSTEM_EMAIL = OFFICIAL_NOREPLY_EMAIL
 export const SYSTEM_OAUTH_INTEGRATION_NAME = 'system_gmail_oauth'
 
+/**
+ * Buzones ejecutivos estrictamente prohibidos como remitentes (`From:`) de cualquier correo automatizado.
+ */
+export const PROTECTED_EXECUTIVE_SENDER_EMAILS: ReadonlySet<string> = new Set([
+    'carlos@tacosgavilan.com',
+    'roque@tacosgavilan.com',
+])
+
+const GOOGLE_FETCH_TIMEOUT_MS = 20_000
+
+function extractNormalizedAddress(raw?: string | null): string {
+    const str = String(raw || '').trim()
+    if (!str) return ''
+    const angle = str.match(/<([^>]+)>/)
+    return (angle?.[1] || str).trim().toLowerCase()
+}
+
+export function isProtectedExecutiveSender(email?: string | null): boolean {
+    const clean = extractNormalizedAddress(email)
+    return Boolean(clean && PROTECTED_EXECUTIVE_SENDER_EMAILS.has(clean))
+}
+
+function assertAllowedSenderEmail(email: string, context: string): string {
+    const clean = extractNormalizedAddress(email)
+    if (!clean) {
+        throw new Error(`[SystemMailer] Remitente vacío rechazado en ${context}.`)
+    }
+    if (isProtectedExecutiveSender(clean)) {
+        throw new Error(
+            `[SystemMailer] Remitente bloqueado por política ejecutiva (${context}): ${clean} tiene prohibido enviar correos de sistema; usa ${OFFICIAL_NOREPLY_EMAIL}.`
+        )
+    }
+    return clean
+}
+
 function resolveCanonicalPrimaryEmail(): string {
-    const raw = (process.env.SYSTEM_SENDER_EMAIL || OFFICIAL_NOREPLY_EMAIL).trim().toLowerCase()
-    if (!raw || raw === 'noreplay@tacosgavilan.com') {
+    const raw = extractNormalizedAddress(process.env.SYSTEM_SENDER_EMAIL || OFFICIAL_NOREPLY_EMAIL)
+    if (!raw || raw === 'noreplay@tacosgavilan.com' || isProtectedExecutiveSender(raw)) {
         return OFFICIAL_NOREPLY_EMAIL
     }
     return raw
@@ -89,7 +129,6 @@ export interface SystemMailResult {
         | 'preferred_user_oauth'
         | 'noreply_oauth'
         | 'noreply_smtp'
-        | 'fallback_carlos_oauth'
         | 'fallback_smtp'
     isFallback: boolean
 }
@@ -131,6 +170,7 @@ async function exchangeRefreshTokenForAccessToken(
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params,
+        signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
     })
 
     if (!refreshRes.ok) {
@@ -151,6 +191,7 @@ async function exchangeRefreshTokenForAccessToken(
     try {
         const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
             headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
         })
         if (profileRes.ok) {
             const profile = await profileRes.json()
@@ -206,9 +247,10 @@ async function sendViaGmailApi(
     fromEmail: string,
     options: SystemMailOptions
 ): Promise<{ messageId: string }> {
+    const safeFromEmail = assertAllowedSenderEmail(fromEmail, 'sendViaGmailApi')
     const displayName = sanitizeDisplayName(options.fromName)
     const raw = await compileMimeToBase64Url({
-        from: `"${displayName}" <${fromEmail}>`,
+        from: `"${displayName}" <${safeFromEmail}>`,
         to: options.to,
         cc: options.cc,
         bcc: options.bcc,
@@ -226,6 +268,7 @@ async function sendViaGmailApi(
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({ raw }),
+        signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
     })
 
     if (!sendRes.ok) {
@@ -242,17 +285,18 @@ async function sendViaSmtp(
     smtpPass: string,
     options: SystemMailOptions
 ): Promise<{ messageId: string }> {
+    const safeSmtpUser = assertAllowedSenderEmail(smtpUser, 'sendViaSmtp')
     const displayName = sanitizeDisplayName(options.fromName)
     const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
-            user: smtpUser,
+            user: safeSmtpUser,
             pass: smtpPass,
         },
     })
 
     const info = await transporter.sendMail({
-        from: `"${displayName}" <${smtpUser}>`,
+        from: `"${displayName}" <${safeSmtpUser}>`,
         to: options.to,
         cc: options.cc,
         bcc: options.bcc,
@@ -277,7 +321,12 @@ export async function saveSystemGmailOAuthToken(params: {
     expiresInSec?: number
 }): Promise<void> {
     const supabase = getSupabaseAdmin()
-    const cleanEmail = params.email.trim().toLowerCase()
+    const cleanEmail = assertAllowedSenderEmail(params.email, 'saveSystemGmailOAuthToken')
+    if (cleanEmail !== OFFICIAL_NOREPLY_EMAIL) {
+        throw new Error(
+            `[SystemMailer] Solo se permite vincular ${OFFICIAL_NOREPLY_EMAIL} como cuenta oficial del sistema (recibido: ${cleanEmail}).`
+        )
+    }
     const nowIso = new Date().toISOString()
     const expiresAtIso = new Date(Date.now() + (params.expiresInSec || 3500) * 1000).toISOString()
 
@@ -358,12 +407,14 @@ export async function getSystemMailerStatus(): Promise<{
                 integ.refresh_token,
                 integ.realm_id || primaryEmail
             )
-            return {
-                primaryEmail,
-                noreplyConnected: refreshed.email.toLowerCase() === primaryEmail,
-                activeSenderEmail: refreshed.email,
-                provider: 'noreply_oauth',
-                updatedAt: integ.updated_at,
+            if (!isProtectedExecutiveSender(refreshed.email)) {
+                return {
+                    primaryEmail,
+                    noreplyConnected: refreshed.email.toLowerCase() === primaryEmail,
+                    activeSenderEmail: refreshed.email,
+                    provider: 'noreply_oauth',
+                    updatedAt: integ.updated_at,
+                }
             }
         } catch {
             // Fall through to secondary checks
@@ -385,12 +436,14 @@ export async function getSystemMailerStatus(): Promise<{
                 noreplyUser.google_refresh_token,
                 primaryEmail
             )
-            return {
-                primaryEmail,
-                noreplyConnected: true,
-                activeSenderEmail: refreshed.email,
-                provider: 'noreply_user_oauth',
-                updatedAt: noreplyUser.updated_at,
+            if (!isProtectedExecutiveSender(refreshed.email)) {
+                return {
+                    primaryEmail,
+                    noreplyConnected: refreshed.email.toLowerCase() === primaryEmail,
+                    activeSenderEmail: refreshed.email,
+                    provider: 'noreply_user_oauth',
+                    updatedAt: noreplyUser.updated_at,
+                }
             }
         } catch {
             // Fall through
@@ -400,8 +453,8 @@ export async function getSystemMailerStatus(): Promise<{
     return {
         primaryEmail,
         noreplyConnected: false,
-        activeSenderEmail: FALLBACK_SYSTEM_EMAIL,
-        provider: 'fallback_carlos_oauth_pending_noreply_click',
+        activeSenderEmail: OFFICIAL_NOREPLY_EMAIL,
+        provider: 'noreply_oauth_disconnected',
         updatedAt: null,
     }
 }
@@ -472,7 +525,7 @@ export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<Sy
     const primaryEmail = resolveCanonicalPrimaryEmail()
     const errors: string[] = []
 
-    // NIVEL 0 (Opcional): Usuario preferido explícito (ej. Inspector en comentarios de inspección)
+    // NIVEL 0 (Opcional): Usuario preferido explícito — SIEMPRE bloquea buzones ejecutivos protegidos (carlos@/roque@)
     if (options.preferredUserId !== undefined && options.preferredUserId !== null && String(options.preferredUserId).trim() !== '') {
         try {
             const { data: prefUser } = await supabase
@@ -481,17 +534,32 @@ export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<Sy
                 .eq('id', options.preferredUserId)
                 .maybeSingle()
 
-            if (prefUser?.google_refresh_token) {
+            const prefBlocked =
+                isProtectedExecutiveSender(prefUser?.email) ||
+                isProtectedExecutiveSender(prefUser?.google_email_connected)
+
+            if (prefBlocked) {
+                console.warn(
+                    `🛡️ [SystemMailer] Nivel 0 (preferredUserId=${options.preferredUserId}) omitido por política anti-remitente ejecutivo; enviando desde ${primaryEmail}.`
+                )
+            } else if (prefUser?.google_refresh_token) {
                 const { accessToken, email } = await exchangeRefreshTokenForAccessToken(
                     prefUser.google_refresh_token,
                     prefUser.google_email_connected || prefUser.email
                 )
-                const sent = await sendViaGmailApi(accessToken, email, options)
-                return {
-                    messageId: sent.messageId,
-                    fromEmail: email,
-                    providerUsed: 'preferred_user_oauth',
-                    isFallback: false,
+                if (isProtectedExecutiveSender(email)) {
+                    console.warn(
+                        `🛡️ [SystemMailer] Nivel 0 resolvió buzón ejecutivo protegido (${email}); redirigiendo envío a ${primaryEmail}.`
+                    )
+                } else {
+                    const sent = await sendViaGmailApi(accessToken, email, options)
+                    console.log(`📧 [SystemMailer] Sent via preferred_user_oauth from=${email} msgId=${sent.messageId}`)
+                    return {
+                        messageId: sent.messageId,
+                        fromEmail: email,
+                        providerUsed: 'preferred_user_oauth',
+                        isFallback: false,
+                    }
                 }
             }
         } catch (err: any) {
@@ -499,7 +567,7 @@ export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<Sy
         }
     }
 
-    // NIVEL 1 (Prioridad Oficial): `noreply@tacosgavilan.com` vía Gmail REST API OAuth2
+    // NIVEL 1 (Prioridad Oficial Única): `noreply@tacosgavilan.com` vía Gmail REST API OAuth2
     try {
         let noreplyRefreshToken = process.env.SYSTEM_GOOGLE_REFRESH_TOKEN?.trim() || ''
         let noreplyHint = primaryEmail
@@ -539,10 +607,12 @@ export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<Sy
                 noreplyRefreshToken,
                 noreplyHint
             )
-            const sent = await sendViaGmailApi(accessToken, email, options)
+            const verifiedSender = assertAllowedSenderEmail(email, 'nivel1_noreply_oauth')
+            const sent = await sendViaGmailApi(accessToken, verifiedSender, options)
+            console.log(`📧 [SystemMailer] Sent via noreply_oauth from=${verifiedSender} msgId=${sent.messageId}`)
             return {
                 messageId: sent.messageId,
-                fromEmail: email,
+                fromEmail: verifiedSender,
                 providerUsed: 'noreply_oauth',
                 isFallback: false,
             }
@@ -557,10 +627,11 @@ export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<Sy
     const envSmtpEmail = process.env.SMTP_EMAIL?.trim().toLowerCase()
     const envSmtpPass = process.env.SMTP_PASSWORD?.trim()
 
-    if (systemSmtpPass || (envSmtpEmail === primaryEmail && envSmtpPass)) {
+    if ((systemSmtpPass || (envSmtpEmail === primaryEmail && envSmtpPass)) && !isProtectedExecutiveSender(primaryEmail)) {
         try {
             const passToUse = (systemSmtpPass || envSmtpPass)!
             const sent = await sendViaSmtp(primaryEmail, passToUse, options)
+            console.log(`📧 [SystemMailer] Sent via noreply_smtp from=${primaryEmail} msgId=${sent.messageId}`)
             return {
                 messageId: sent.messageId,
                 fromEmail: primaryEmail,
@@ -569,20 +640,20 @@ export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<Sy
             }
         } catch (err: any) {
             errors.push(`noreply_smtp: ${err?.message || err}`)
-            console.warn('⚠️ [SystemMailer] Nivel 2 (noreply SMTP) falló, pasando a respaldo OAuth:', err?.message)
+            console.warn('⚠️ [SystemMailer] Nivel 2 (noreply SMTP) falló:', err?.message)
         }
     }
 
-    // NIVEL 3 (Último Respaldo): `SMTP_EMAIL` + `SMTP_PASSWORD` (excluyendo buzones ejecutivos protegidos)
+    // NIVEL 3 (Último Respaldo): `SMTP_EMAIL` + `SMTP_PASSWORD` (estrictamente excluyendo buzones ejecutivos protegidos)
     if (
         envSmtpEmail &&
         envSmtpPass &&
         envSmtpEmail !== primaryEmail &&
-        envSmtpEmail.toLowerCase() !== 'carlos@tacosgavilan.com' &&
-        envSmtpEmail.toLowerCase() !== 'roque@tacosgavilan.com'
+        !isProtectedExecutiveSender(envSmtpEmail)
     ) {
         try {
             const sent = await sendViaSmtp(envSmtpEmail, envSmtpPass, options)
+            console.log(`📧 [SystemMailer] Sent via fallback_smtp from=${envSmtpEmail} msgId=${sent.messageId}`)
             return {
                 messageId: sent.messageId,
                 fromEmail: envSmtpEmail,

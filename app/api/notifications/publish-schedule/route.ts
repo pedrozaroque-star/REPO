@@ -242,6 +242,7 @@ async function refreshGoogleOAuthToken(refreshToken: string, fallbackEmail?: str
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params,
+        signal: AbortSignal.timeout(20_000),
     })
 
     if (!refreshRes.ok) {
@@ -253,6 +254,7 @@ async function refreshGoogleOAuthToken(refreshToken: string, fallbackEmail?: str
     const accessToken = tokens.access_token as string
     const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(20_000),
     })
     const profile = await profileRes.json().catch(() => ({}))
     const realEmail = String(profile.email || fallbackEmail || '').trim()
@@ -340,10 +342,14 @@ async function getTransporter(authenticatedUserId: string, storeNumericId?: numb
     if (sysRow?.refresh_token) {
         try {
             const creds = await refreshGoogleOAuthToken(sysRow.refresh_token, 'noreply@tacosgavilan.com')
+            const resolvedFrom = creds.fromEmail || 'noreply@tacosgavilan.com'
+            if (isProtectedExecutiveMailbox(resolvedFrom)) {
+                throw new Error(`PROTECTED_EXECUTIVE_SENDER_BLOCKED: ${resolvedFrom}`)
+            }
             return {
                 accessToken: creds.accessToken,
-                fromEmail: creds.fromEmail || 'noreply@tacosgavilan.com',
-                managerEmail: String(storeManager?.email || creds.fromEmail || 'noreply@tacosgavilan.com').trim(),
+                fromEmail: resolvedFrom,
+                managerEmail: String(storeManager?.email || resolvedFrom).trim(),
             }
         } catch (e) {
             console.error('❌ [API] System OAuth refresh failed in publish-schedule:', e)
@@ -1330,6 +1336,9 @@ export async function POST(req: Request) {
                         .replace(/\//g, '_')
                         .replace(/=+$/, '')
 
+                    if (isProtectedExecutiveMailbox(fromEmail)) {
+                        throw new Error(`GMAIL_AUTH_FAILED: PROTECTED_EXECUTIVE_SENDER_BLOCKED (${fromEmail})`)
+                    }
                     const sendRes = await fetch(
                         'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
                         {
@@ -1339,6 +1348,7 @@ export async function POST(req: Request) {
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify({ raw }),
+                            signal: AbortSignal.timeout(20_000),
                         }
                     )
 
@@ -1808,6 +1818,9 @@ export async function POST(req: Request) {
                     .replace(/\//g, '_')
                     .replace(/=+$/, '')
 
+                if (isProtectedExecutiveMailbox(fromEmail)) {
+                    throw new Error(`GMAIL_AUTH_FAILED: PROTECTED_EXECUTIVE_SENDER_BLOCKED (${fromEmail})`)
+                }
                 await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
                     method: 'POST',
                     headers: {
@@ -1815,6 +1828,7 @@ export async function POST(req: Request) {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ raw }),
+                    signal: AbortSignal.timeout(20_000),
                 })
             } catch (me) {
                 console.error('❌ Failed to send Manager Report:', me)
