@@ -2141,7 +2141,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const lastCompletedCustomerTurnTextRef = useRef('')
     const customerTurnFreshRef = useRef(true)
     const confirmedOrderInCurrentTurnRef = useRef(false)
+    const mutatedOrderInCurrentTurnRef = useRef(false)
+    const hadPriorConfirmInSessionRef = useRef(false)
     const koreSpokenTotalForVersionRef = useRef<number | null>(null)
+    const lastSpokenOrConfirmedTotalCentsRef = useRef<number | null>(null)
     const lastTranscriptTvCutMsRef = useRef(0)
     const lastCustomerSpeechTimestampMsRef = useRef(0)
     const recentRawMicRmsRef = useRef(0)
@@ -2514,8 +2517,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                         new RegExp(`\\b${dollarsPart}\\s*(?:d[oó]lares?\\s+)?(?:con|and|punto|point)\\s*${centsPart}\\b`, 'i').test(
                             spokenTxt
                         ))
-                if (mentionsExactTotal) {
+                const mentionsUnchangedConfirmedTotal =
+                    lastSpokenOrConfirmedTotalCentsRef.current !== null &&
+                    curTotals.totalCents > 0 &&
+                    curTotals.totalCents === lastSpokenOrConfirmedTotalCentsRef.current &&
+                    /\b(?:el\s+total\s+(?:se\s+mantiene|queda|sigue)\s+igual|mismo\s+total|sin\s+cargo\s+extra|(?:the\s+)?total\s+(?:stays|remains)\s+the\s+same|same\s+total)\b/i.test(
+                        spokenTxt
+                    )
+                if (mentionsExactTotal || mentionsUnchangedConfirmedTotal) {
                     koreSpokenTotalForVersionRef.current = orderRef.current.version ?? 0
+                    if (curTotals.totalCents > 0) {
+                        lastSpokenOrConfirmedTotalCentsRef.current = curTotals.totalCents
+                    }
                 }
             }
         }
@@ -2985,7 +2998,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         customerBargeInActiveRef.current = false
         pendingLiveBargeInUntilMsRef.current = 0
         confirmedOrderInCurrentTurnRef.current = false
+        mutatedOrderInCurrentTurnRef.current = false
+        hadPriorConfirmInSessionRef.current = false
         koreSpokenTotalForVersionRef.current = null
+        lastSpokenOrConfirmedTotalCentsRef.current = null
         lastCustomerSpeechTimestampMsRef.current = 0
         autoEndCancelConsecRef.current = 0
         clearAutoEnd(true, { force: true })
@@ -3466,6 +3482,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }
                 if (!isPureTvTurn) {
                     confirmedOrderInCurrentTurnRef.current = false
+                    mutatedOrderInCurrentTurnRef.current = false
                     if (autoEndModeRef.current !== 'none' && isKoreSocketOpenForAutoEndCancel(wsRef.current)) {
                         clearAutoEnd(true)
                     }
@@ -3959,14 +3976,25 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     }
                 } else {
                     const preCallUnfulfilled = findUnfulfilledSessionOrderCategories(sessionCustomerTurns, before.lines)
+                    const beforeTotals = computeKoreTotals(before, sessionRef.current?.store.taxRatePct ?? 0)
+                    const unchangedConfirmedZeroDollarEdit =
+                        before.lines.length > 0 &&
+                        !before.lines.some(l => l.needsSalsaChoice === true) &&
+                        mutatedOrderInCurrentTurnRef.current === false &&
+                        lastSpokenOrConfirmedTotalCentsRef.current !== null &&
+                        beforeTotals.totalCents > 0 &&
+                        beforeTotals.totalCents === lastSpokenOrConfirmedTotalCentsRef.current
                     const allowImplicitConfirm =
-                        koreSpokenTotalForVersionRef.current !== null &&
-                        koreSpokenTotalForVersionRef.current === (before.version ?? 0)
+                        (koreSpokenTotalForVersionRef.current !== null &&
+                            koreSpokenTotalForVersionRef.current === (before.version ?? 0)) ||
+                        unchangedConfirmedZeroDollarEdit
                     const toolOpts: Parameters<typeof applyKoreTool>[4] = {
                         taxRatePct: sessionRef.current?.store.taxRatePct ?? null,
                         lang: activeLang,
                         thirdLanguage: activeThirdLangRef.current,
                         confirmedInCurrentTurn: confirmedOrderInCurrentTurnRef.current,
+                        mutatedInCurrentTurn: mutatedOrderInCurrentTurnRef.current,
+                        hadPriorConfirmInSession: hadPriorConfirmInSessionRef.current,
                         allowImplicitConfirmOnEndSession: allowImplicitConfirm,
                         sessionCustomerTurns,
                         unfulfilledSessionCategories: preCallUnfulfilled,
@@ -3983,6 +4011,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }
                 if (name === 'confirm_order' && response.ok === true) {
                     confirmedOrderInCurrentTurnRef.current = true
+                    hadPriorConfirmInSessionRef.current = true
+                    const confirmedTotals = computeKoreTotals(orderRef.current, sessionRef.current?.store.taxRatePct ?? 0)
+                    if (confirmedTotals.totalCents > 0) {
+                        lastSpokenOrConfirmedTotalCentsRef.current = confirmedTotals.totalCents
+                    }
+                }
+                if (name === 'cancel_order' && response.ok === true) {
+                    confirmedOrderInCurrentTurnRef.current = false
+                    mutatedOrderInCurrentTurnRef.current = false
+                    hadPriorConfirmInSessionRef.current = false
+                    koreSpokenTotalForVersionRef.current = null
+                    lastSpokenOrConfirmedTotalCentsRef.current = null
                 }
                 if (name === 'end_session' && response.ok === true && response.should_end_session === true) {
                     clearAutoEnd(false, { force: true })
@@ -3992,7 +4032,15 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     response.ok === true
                 ) {
                     confirmedOrderInCurrentTurnRef.current = false
+                    mutatedOrderInCurrentTurnRef.current = true
                     koreSpokenTotalForVersionRef.current = null
+                    const afterMutTotals = computeKoreTotals(orderRef.current, sessionRef.current?.store.taxRatePct ?? 0)
+                    if (
+                        orderRef.current.lines.length === 0 ||
+                        afterMutTotals.totalCents !== lastSpokenOrConfirmedTotalCentsRef.current
+                    ) {
+                        lastSpokenOrConfirmedTotalCentsRef.current = null
+                    }
                     clearAutoEnd(true)
                 }
                 // Contrato del motor: éxito {ok:true,…}; falla {ok:false, error_code, message,…}
@@ -4285,7 +4333,10 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         customerBargeInActiveRef.current = false
         pendingLiveBargeInUntilMsRef.current = 0
         confirmedOrderInCurrentTurnRef.current = false
+        mutatedOrderInCurrentTurnRef.current = false
+        hadPriorConfirmInSessionRef.current = false
         koreSpokenTotalForVersionRef.current = null
+        lastSpokenOrConfirmedTotalCentsRef.current = null
         lastTranscriptTvCutMsRef.current = 0
         lastCustomerSpeechTimestampMsRef.current = 0
         recentRawMicRmsRef.current = 0

@@ -1099,6 +1099,25 @@ function hasOnlyFreeModifiers(line: KoreOrderLine): boolean {
   return line.modifiers.every((m) => (Number(m.priceCents) || 0) === 0 && (Number(m.price) || 0) === 0)
 }
 
+/**
+ * Devuelve `true` si la línea trae condimentos, salsas, cortesías, exclusiones ("No/Sin ...") o notas
+ * solicitadas explícitamente por el cliente, de modo que `add_item`/`add_items` NO use un clip genérico
+ * sin modificadores (permitiendo que Kore confirme el platillo junto con sus condimentos solicitados).
+ */
+function hasExplicitCondimentOrExclusionModifiers(line: KoreOrderLine): boolean {
+  if (line.notes && line.notes.trim()) return true
+  if (!Array.isArray(line.modifiers) || line.modifiers.length === 0) return false
+  return line.modifiers.some((m) => {
+    const grp = normPlain(m.groupName)
+    const nm = normPlain(m.name)
+    if (grp === 'side condiments' || grp === 'side condiments (cortesia)' || grp === 'prep options' || grp === 'half meat 50 50') {
+      return true
+    }
+    if (/^(?:no|sin|without)\b/.test(nm)) return true
+    return false
+  })
+}
+
 function hasSpecialPrepOrHalfMeatOrCafeNote(line: KoreOrderLine): boolean {
   const noteNorm = normPlain(line.notes)
   if (/\bcafe\s+de\s+(?:la\s+)?olla\b|\bmitad\b|\bhalf\b/.test(noteNorm)) {
@@ -1258,11 +1277,30 @@ function matchUpdateItemFastClip(
     }) ||
     afterLines[afterLines.length - 1]
 
-  if (!updatedLine || !hasOnlyFreeModifiers(updatedLine) || hasSpecialPrepOrHalfMeatOrCafeNote(updatedLine)) return null
+  if (
+    !updatedLine ||
+    updatedLine.needsSalsaChoice === true ||
+    !hasOnlyFreeModifiers(updatedLine) ||
+    hasSpecialPrepOrHalfMeatOrCafeNote(updatedLine)
+  ) {
+    return null
+  }
 
-  const rawMods = Array.isArray(args.modifiers) ? args.modifiers.map((m) => normPlain(m)).join(' ') : ''
+  const modEntries = [
+    ...(Array.isArray(args.modifiers) ? args.modifiers : []),
+    ...(Array.isArray(args.add_modifiers) ? args.add_modifiers : [])
+  ]
+    .map((m) => normPlain(m))
+    .filter(Boolean)
+  const remEntries = (Array.isArray(args.remove_modifiers) ? args.remove_modifiers : [])
+    .map((m) => normPlain(m))
+    .filter(Boolean)
+  // Si hubo remociones combinadas o múltiples modificadores a la vez, dejar que Kore confirme exactamente cómo quedaron los condimentos/modificadores:
+  if (remEntries.length > 0 || modEntries.length > 1) {
+    return null
+  }
   const rawNotes = normPlain(args.notes)
-  const combined = `${rawMods} ${rawNotes}`.trim()
+  const combined = `${modEntries.join(' ')} ${rawNotes}`.trim()
 
   if (/\b(?:con\s+todo|with\s+everything|everything\s+on\s+it)\b/.test(combined)) {
     return buildMatch('mod_con_todo', lang)
@@ -1285,7 +1323,8 @@ function matchUpdateItemFastClip(
   if (/\b(?:salsa\s+roja|con\s+roja|red\s+salsa|red\s+sauce)\b/.test(combined)) {
     return buildMatch('mod_salsa_roja', lang)
   }
-  return buildMatch('mod_updated_generic', lang)
+  // Evitar "mod_updated_generic" ("¡Listo, actualizado!") cuando agregó un condimento específico como "Con Cebolla" o "Sin Crema" para que Kore lo mencione explícitamente:
+  return null
 }
 
 export interface MatchKoreFastClipParams {
@@ -1423,6 +1462,7 @@ export function matchKoreFastClipForToolOutcome(
 
   // 5) Actualizar modificadores o cantidad (`update_item`) limpio y sin cargos extra
   if (tool === 'update_item') {
+    if (Array.isArray(res.pending_salsa_choice) && res.pending_salsa_choice.length > 0) return null
     const warnings = Array.isArray(res.warnings) ? res.warnings : []
     if (res.ok === true && warnings.length === 0) {
       return matchUpdateItemFastClip(args, params.stateBefore, params.stateAfter, lang)
@@ -1488,7 +1528,13 @@ export function matchKoreFastClipForToolOutcome(
       if (Array.isArray(res.unfulfilled_session_items) && res.unfulfilled_session_items.length > 0) {
         return null
       }
-      if (newlyAdded.some((l) => hasSpecialPrepOrHalfMeatOrCafeNote(l))) {
+      if (
+        (Array.isArray(res.pending_salsa_choice) && res.pending_salsa_choice.length > 0) ||
+        newlyAdded.some((l) => l.needsSalsaChoice === true)
+      ) {
+        return null
+      }
+      if (newlyAdded.some((l) => hasSpecialPrepOrHalfMeatOrCafeNote(l) || hasExplicitCondimentOrExclusionModifiers(l))) {
         return null
       }
       if (

@@ -14,10 +14,18 @@
  * - **Modificadores validados contra `modifierGroups` de Toast**: mínimo/máximo/requerido por grupo (ej. Taco Plate exige
  *   EXACTAMENTE 3 tacos en "Taco Choice"; Super Nachos exige "Queso Modifiers"; Platos exigen "Tortillas"). Se permiten
  *   repeticiones en grupos multi-selección (ej. Taco Plate con 3 Taco Asada; Agua Choice 3 de 4 sabores).
- * - **Tacos "Served Plain" y Condimentos Gratis ($0.00)**: los condimentos gratis viven en "Side Condiments" (Salsa Roja,
- *   Salsa Verde, Onions & Cilantro, Limes, Pickled Jalapeños) más las cortesías universales sin cargo **Cebolla Asada**
- *   (`Cebolla Asada (Cortesía)`) y **Frijol de la Olla** (`Frijol de la Olla (Cortesía)`), ambos `$0.00` (jamás cobrar
- *   `Beans $2.49`). Kore NUNCA pregunta condimentos de oficio; si el cliente dice `"con todo"`, se acepta directo a `$0.00`.
+ * - **Tacos "Served Plain", Condimentos Gratis ($0.00), "Con Todo", "Con Chile" y "Con Cebolla" (Fase 29)**:
+ *   * Los condimentos gratis viven en "Side Condiments" (Salsa Roja, Salsa Verde, Onions & Cilantro, Limes, Pickled Jalapeños),
+ *     en `Prep Options` (`Con Cebolla` GUID real Toast `7042d2b1-ee6f-4d78-997d-aa15e9114728` solo cebolla sin cilantro, y
+ *     `Con Cilantro` solo cilantro), más las cortesías universales **Cebolla Asada** y **Frijol de la Olla** (`$0.00`).
+ *   * Kore NUNCA pregunta condimentos de oficio cuando el cliente pide tacos/burritos sencillos, PERO:
+ *     (a) Si el cliente pide `"con todo"`, el motor agrega el modificador real `Onions & Cilantro` (`$0.00`) y marca
+ *         `needsSalsaChoice: true` para preguntar obligatoriamente `"¿Con salsa verde o salsa roja?"` antes de confirmar.
+ *     (b) Si el cliente dice `"con chile"` / `"con salsa"` / `"con picante"` sin color, JAMÁS mapea a `Pickled Jalapeños`
+ *         (solo `"jalapeños"` / `"chiles en vinagre"` / `"chiles curtidos"` mapean a `Pickled Jalapeños`); marca `needsSalsaChoice: true`
+ *         para preguntar `"¿Con salsa verde o salsa roja?"`.
+ *     (c) Candado determinista `Regular`: si el turno del cliente dice explícitamente `"regular"` sin `"super"`, bloquea cualquier
+ *         alucinación de SKU `Super` y bloquea `confirm_order` prematuro antes de que el cliente indique `"es todo"`.
  * - **Cantidades**: enteros de 1 a 50 por línea (`KORE_MAX_LINE_QUANTITY`) y máximo 200 piezas por orden; 0, negativos,
  *   decimales, NaN o texto inválido se rechazan sin tocar el ticket.
  * - **Dinero en centavos enteros**: `computeKoreTotals` calcula subtotal/impuesto/total con enteros (tasa en puntos base,
@@ -186,6 +194,8 @@ export interface KoreOrderLine {
   unitPriceCents: number
   modifiers: KoreOrderModifier[]
   notes?: string
+  /** `true` cuando el cliente pidió "con todo" o "con chile/salsa" sin elegir aún Salsa Verde, Salsa Roja o Sin Salsa. */
+  needsSalsaChoice?: boolean
   /** unitPrice × quantity, dólares. */
   lineTotal: number
   lineTotalCents: number
@@ -236,14 +246,16 @@ export const KORE_PREP_OPTIONS: ReadonlyArray<KoreModifierOption> = Object.freez
   { guid: '68379ca0-ae68-4009-9988-e2aee734aa9c', name: 'Pan Dorado', price: 0 },
   { guid: 'f1fbc8dc-b7c1-4ea7-b3cd-199b27b6148d', name: 'Sope Dorado', price: 0 },
   { guid: 'fda015b4-3d96-4ac9-ade8-a411eb4e747b', name: 'Partido en Dos', price: 0 },
-  { guid: 'e579b7d9-3af5-4ee6-85ed-08ad8b741c1f', name: 'Partido 4', price: 0 }
+  { guid: 'e579b7d9-3af5-4ee6-85ed-08ad8b741c1f', name: 'Partido 4', price: 0 },
+  { guid: '7042d2b1-ee6f-4d78-997d-aa15e9114728', name: 'Con Cebolla', price: 0 },
+  { guid: 'instore:mod:con_cilantro', name: 'Con Cilantro', price: 0 }
 ])
 
 export const KORE_COURTESY_GROUP_GUID = 'courtesy:free_condiments'
 export const KORE_COURTESY_GROUP_NAME = 'Side Condiments (Cortesía)'
 
 export const KORE_COURTESY_MODIFIERS: Readonly<
-  Record<'cebolla_asada' | 'frijol_olla' | 'con_todo' | 'no_onion' | 'no_cilantro', Omit<KoreOrderModifier, 'quantity'>>
+  Record<'cebolla_asada' | 'frijol_olla' | 'con_todo' | 'no_onion' | 'no_cilantro' | 'no_salsa', Omit<KoreOrderModifier, 'quantity'>>
 > = Object.freeze({
   cebolla_asada: {
     guid: 'courtesy:mod:cebolla_asada',
@@ -280,6 +292,14 @@ export const KORE_COURTESY_MODIFIERS: Readonly<
   no_cilantro: {
     guid: 'courtesy:mod:no_cilantro',
     name: 'No Cilantro',
+    price: 0,
+    priceCents: 0,
+    groupName: KORE_COURTESY_GROUP_NAME,
+    groupGuid: KORE_COURTESY_GROUP_GUID
+  },
+  no_salsa: {
+    guid: 'courtesy:mod:no_salsa',
+    name: 'Sin Salsa',
     price: 0,
     priceCents: 0,
     groupName: KORE_COURTESY_GROUP_NAME,
@@ -363,8 +383,12 @@ export interface KoreToolOptions {
   lang?: 'es' | 'en'
   /** `true` cuando `confirm_order` se ejecutó en este mismo turno del modelo sin respuesta verbal posterior del cliente; bloquea `end_session` prematuro para obligar a leer el total en USD primero. */
   confirmedInCurrentTurn?: boolean
-  /** `true` cuando Kore ya leyó verbalmente en un turno previo el nuevo total exacto tras una edición post-confirmación y el cliente ya aceptó; permite auto-confirmar al cerrar sesión sin doble rechazo. */
+  /** `true` cuando Kore ya leyó verbalmente en un turno previo el nuevo total exacto tras una edición post-confirmación (o el total en centavos no cambió tras un ajuste de $0.00) y el cliente ya aceptó; permite auto-confirmar al cerrar sesión sin doble rechazo. */
   allowImplicitConfirmOnEndSession?: boolean
+  /** `true` cuando en este mismo turno del cliente ya se ejecutó `add_item`, `add_items`, `update_item` o `remove_item`; evita que Kore llame `confirm_order` prematuramente antes de que el cliente diga "es todo". */
+  mutatedInCurrentTurn?: boolean
+  /** `true` cuando la orden ya había sido confirmada al menos una vez antes en esta sesión (permite re-confirmar tras ediciones post-confirmación). */
+  hadPriorConfirmInSession?: boolean
   /** Menú activo opcional para adjuntar `cheaper_regular_alternative` en resúmenes (`get_order` / `confirm_order`). */
   menu?: KoreMenuItem[]
   /** Si `true`, `orderSummary` adjunta `cheaper_regular_alternative` a nivel de ticket completo (`get_order` / `confirm_order`). */
@@ -696,6 +720,9 @@ const CON_TODO_TOKEN = 'zzcontodo'
 const COURTESY_CEBOLLA_ASADA_TOKEN = 'zzcebollaasada'
 const COURTESY_FRIJOL_OLLA_TOKEN = 'zzfrijoldelaolla'
 const CAFE_DE_OLLA_TOKEN = 'zzcafedeolla'
+const BOTH_SALSAS_TOKEN = 'zzbothsalsapair'
+const NO_SALSA_TOKEN = 'zznosalsa'
+const NEEDS_SALSA_CHOICE_TOKEN = 'zzneedssalsachoice'
 const COURTESY_CONTAINER_TOKENS = new Set([
   'side', 'vasito', 'vasitos', 'vaso', 'vasos', 'porcion', 'porciones', 'porcione', 'bolsita', 'bolsitas',
   'cortesia', 'cortesias', 'gratis', 'grati', 'free', 'cup', 'cups', 'orden', 'ordenes', 'ordene',
@@ -750,6 +777,22 @@ const PHRASE_REWRITES: Array<[RegExp, string]> = [
   [/(?<!super )\bnachos?\b/g, 'super nachos'],
   [/\bmuletas?\b/g, 'mulita'],
   [/\bcrema(?: agria)?\b/g, 'sour cream'],
+  [/\b(?:chiles?\s+(?:jalapenos?|en\s+vinagre|curtidos?|en\s+escabeche|toreados?)|jalapenos?\s+(?:en\s+vinagre|curtidos?|en\s+escabeche|pickled))\b/g, 'pickled jalapenos'],
+  [/\b(?:chiles?\s+verdes?|picante\s+verde)\b/g, 'salsa verde'],
+  [/\b(?:chiles?\s+roj[oa]s?|picante\s+roj[oa])\b/g, 'salsa roja'],
+  [
+    /\b(?:(?:salsas?|chiles?)\s+(?:verde\s+y\s+roj[oa]|roj[oa]\s+y\s+verde)|(?:ambas|las\s+dos|de\s+las\s+dos)\s+(?:salsas?|chiles?)|(?:both|red\s+and\s+green|green\s+and\s+red)\s+(?:salsas?|sauces?))\b/g,
+    ` ${BOTH_SALSAS_TOKEN} `
+  ],
+  [/\b(?:sin|no|without|nada\s+de|cero)\s+(?:salsas?|chiles?|picante|hot\s+sauce)\b/g, ` ${NO_SALSA_TOKEN} `],
+  [
+    /\b(?:(?:con|echale|ponle|pongale|agregale)\s+(?:chile|chiles|chilito|salsa|salsita|picante))\b(?!\s+(?:verde|roj[oa]|jalapeno|en\s+vinagre|curtid|rellen))/g,
+    ` ${NEEDS_SALSA_CHOICE_TOKEN} `
+  ],
+  [/\b(?:solo|solamente|pura|nomas|nada\s+mas|only|just)\s+(?:cebollas?|onions?)\b/g, 'con cebolla'],
+  [/\b(?:cebollas?|onions?)\s+(?:solamente|nomas|only)\b/g, 'con cebolla'],
+  [/\b(?:solo|solamente|puro|nomas|nada\s+mas|only|just)\s+cilantro\b/g, 'con cilantro'],
+  [/\bcilantro\s+(?:solamente|nomas|only)\b/g, 'con cilantro'],
   [/\b(?:sin|without|hold the|hold)\b/g, 'no'],
   [/\btortillas? de harina\b/g, 'flour tortilla'],
   [/\btortillas? de maiz\b/g, 'corn tortilla'],
@@ -772,8 +815,8 @@ const PHRASE_REWRITES: Array<[RegExp, string]> = [
   [/\bcheese on the side\b/g, 'queso on the side'],
   [/\bqueso (?:encima|arriba|sobre los chips|en los chips|sobre los totopos)\b/g, 'queso on the chips'],
   [/\bcheese on (?:top|the chips)\b/g, 'queso on the chips'],
-  [/\b(?:cebollas?|onions?) (?:y|con|and|with) cilantro\b/g, 'onions and cilantro'],
-  [/\bcilantro (?:y|con|and|with) (?:cebollas?|onions?)\b/g, 'onions and cilantro'],
+  [/\b(?:cebollas?|onions?)\s+(?:y|con|and|with)(?:\s+(?:con|with))?\s+cilantro\b/g, 'onions and cilantro'],
+  [/\bcilantro\s+(?:y|con|and|with)(?:\s+(?:con|with))?\s+(?:cebollas?|onions?)\b/g, 'onions and cilantro'],
   [/\bsalsa (?:rojo|roja|red)\b/g, 'salsa roja'],
   [/\b(?:red salsa|red sauce)\b/g, 'salsa roja'],
   [/\bsalsa (?:green|verde)\b/g, 'salsa verde'],
@@ -810,7 +853,7 @@ const TOKEN_CANON: Record<string, string> = {
   small: 'small', chica: 'small', chico: 'small', pequena: 'small', pequeno: 'small', chiquita: 'small',
   cebolla: 'onion', cebollas: 'onion', onion: 'onion', onions: 'onion', cebollita: 'onion',
   limon: 'lime', limones: 'lime', lime: 'lime', limes: 'lime',
-  jalapeno: 'jalapeno', jalapenos: 'jalapeno', chile: 'jalapeno', chiles: 'jalapeno',
+  jalapeno: 'jalapeno', jalapenos: 'jalapeno',
   pickled: 'pickled', vinagre: 'pickled', escabeche: 'pickled', curtido: 'pickled', curtidos: 'pickled',
   roja: 'roja', rojo: 'roja', red: 'roja',
   verde: 'verde', green: 'verde',
@@ -1122,7 +1165,7 @@ export function mapAppMenuRowsToKoreMenu(
         name: KORE_PREP_OPTIONS_GROUP_NAME,
         required: false,
         minSelections: 0,
-        maxSelections: 3,
+        maxSelections: 6,
         multiSelect: true,
         options: KORE_PREP_OPTIONS.map((o) => ({ ...o }))
       })
@@ -1207,7 +1250,10 @@ export function resolveKoreMenuItem(menu: KoreMenuItem[], rawName: unknown): Kor
       t !== CON_TODO_TOKEN &&
       t !== COURTESY_CEBOLLA_ASADA_TOKEN &&
       t !== COURTESY_FRIJOL_OLLA_TOKEN &&
-      t !== CAFE_DE_OLLA_TOKEN
+      t !== CAFE_DE_OLLA_TOKEN &&
+      t !== BOTH_SALSAS_TOKEN &&
+      t !== NO_SALSA_TOKEN &&
+      t !== NEEDS_SALSA_CHOICE_TOKEN
   )
   const askedSmallSize = tokens.includes('small')
 
@@ -1327,7 +1373,16 @@ interface ModifierResolution {
   errors: string[]
   warnings: string[]
   conTodo: boolean
+  needsSalsaChoice?: boolean
   cafeDeOlla?: boolean
+}
+
+function lineHasResolvedSalsaChoice(modifiers: ReadonlyArray<Pick<KoreOrderModifier, 'guid' | 'name'>>): boolean {
+  return modifiers.some((m) => {
+    if (m.guid === KORE_COURTESY_MODIFIERS.no_salsa.guid) return true
+    const norm = normalizeKoreText(m.name)
+    return /\b(?:salsa\s+verde|salsa\s+roja|sin\s+salsa|no\s+salsa)\b/.test(norm)
+  })
 }
 
 function describeOption(o: KoreModifierOption): string {
@@ -1369,6 +1424,7 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
   const errors: string[] = []
   const warnings: string[] = []
   let conTodo = false
+  let needsSalsaChoice = false
   let cafeDeOlla = false
   const isCoffeeItem = normalizeKoreText(item.name) === 'coffee'
   const hasTortillasGroup = item.modifierGroups.some((g) => normalizeKoreText(g.name) === 'tortillas')
@@ -1423,19 +1479,37 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
       errors.push(`Invalid repeat count in modifier "${raw}".`)
       continue
     }
+    const normRestPlain = normalizeKoreText(rest)
+    if (
+      !hasTortillasGroup &&
+      /^(?:de\s+las\s+dos|las\s+dos|ambas|both|verde\s+y\s+roj[oa]|roj[oa]\s+y\s+verde|green\s+and\s+red|red\s+and\s+green)$/i.test(
+        normRestPlain
+      )
+    ) {
+      rest = BOTH_SALSAS_TOKEN
+    }
     const quickCourtesyTokens = koreCanonicalTokens(rest)
     const isPureCourtesyOverride =
       !quickCourtesyTokens.includes('no') &&
       (quickCourtesyTokens.includes(COURTESY_FRIJOL_OLLA_TOKEN) ||
         quickCourtesyTokens.includes(COURTESY_CEBOLLA_ASADA_TOKEN) ||
-        quickCourtesyTokens.includes(CON_TODO_TOKEN))
-    const exactRef = scopedRefs.filter((r) => normalizeKoreText(r.option.name) === rest)
+        quickCourtesyTokens.includes(CON_TODO_TOKEN) ||
+        quickCourtesyTokens.includes(BOTH_SALSAS_TOKEN) ||
+        quickCourtesyTokens.includes(NO_SALSA_TOKEN) ||
+        quickCourtesyTokens.includes(NEEDS_SALSA_CHOICE_TOKEN))
+    const exactRef = scopedRefs.filter((r) => normalizeKoreText(r.option.name) === normRestPlain)
     let ref: OptionRef | null =
       !isPureCourtesyOverride && exactRef.length === 1 ? exactRef[0] : null
     if (!ref) {
       const rawTokens = koreCanonicalTokens(rest)
       const isNegated = rawTokens.includes('no')
       let matchedCourtesy = false
+      const addRefDirect = (targetRef: OptionRef) => {
+        const key = `${targetRef.group.guid}|${targetRef.option.guid}`
+        const prev = counts.get(key)
+        counts.set(key, { ref: targetRef, qty: (prev?.qty || 0) + times })
+        matchedCourtesy = true
+      }
       const addCourtesy = (cMod: Omit<KoreOrderModifier, 'quantity'>) => {
         const cRef: OptionRef = {
           group: {
@@ -1449,10 +1523,7 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
           },
           option: { guid: cMod.guid, name: cMod.name, price: 0 }
         }
-        const key = `${cRef.group.guid}|${cRef.option.guid}`
-        const prev = counts.get(key)
-        counts.set(key, { ref: cRef, qty: (prev?.qty || 0) + times })
-        matchedCourtesy = true
+        addRefDirect(cRef)
       }
       if (!isNegated && rawTokens.includes(COURTESY_CEBOLLA_ASADA_TOKEN)) {
         addCourtesy(KORE_COURTESY_MODIFIERS.cebolla_asada)
@@ -1460,9 +1531,55 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
       if (!isNegated && rawTokens.includes(COURTESY_FRIJOL_OLLA_TOKEN)) {
         addCourtesy(KORE_COURTESY_MODIFIERS.frijol_olla)
       }
+      if (rawTokens.includes(NO_SALSA_TOKEN)) {
+        addCourtesy(KORE_COURTESY_MODIFIERS.no_salsa)
+      }
+      if (!isNegated && rawTokens.includes(BOTH_SALSAS_TOKEN)) {
+        const verdeRef = refs.find((r) => normalizeKoreText(r.option.name) === 'salsa verde')
+        const rojaRef = refs.find((r) => normalizeKoreText(r.option.name) === 'salsa roja')
+        if (verdeRef) addRefDirect(verdeRef)
+        if (rojaRef) addRefDirect(rojaRef)
+      }
       if (!isNegated && rawTokens.includes(CON_TODO_TOKEN)) {
         conTodo = true
-        addCourtesy(KORE_COURTESY_MODIFIERS.con_todo)
+        needsSalsaChoice = true
+        const onionsAndCilantroRef = refs.find((r) => normalizeKoreText(r.option.name) === 'onions and cilantro')
+        const conCebollaRef = refs.find((r) => normalizeKoreText(r.option.name) === 'con cebolla')
+        const conCilantroRef = refs.find((r) => normalizeKoreText(r.option.name) === 'con cilantro')
+        if (isNegated && rawTokens.includes('cilantro') && conCebollaRef) {
+          addRefDirect(conCebollaRef)
+        } else if (isNegated && rawTokens.includes('onion') && conCilantroRef) {
+          addRefDirect(conCilantroRef)
+        } else if (onionsAndCilantroRef) {
+          addRefDirect(onionsAndCilantroRef)
+        } else {
+          addCourtesy(KORE_COURTESY_MODIFIERS.con_todo)
+        }
+      }
+      const hasSpecificSalsaOrPepper =
+        rawTokens.includes('verde') ||
+        rawTokens.includes('roja') ||
+        rawTokens.includes('jalapeno') ||
+        rawTokens.includes('pickled') ||
+        rawTokens.includes(BOTH_SALSAS_TOKEN) ||
+        rawTokens.includes(NO_SALSA_TOKEN)
+      const hasGenericChileOrSalsa =
+        !hasSpecificSalsaOrPepper &&
+        (rawTokens.includes(NEEDS_SALSA_CHOICE_TOKEN) ||
+          rawTokens.includes('chile') ||
+          rawTokens.includes('chilito') ||
+          rawTokens.includes('salsa') ||
+          rawTokens.includes('salsita') ||
+          rawTokens.includes('picante') ||
+          rawTokens.includes('spicy') ||
+          (rawTokens.includes('hot') && rawTokens.includes('sauce')))
+      if (hasGenericChileOrSalsa) {
+        if (isNegated) {
+          addCourtesy(KORE_COURTESY_MODIFIERS.no_salsa)
+        } else {
+          needsSalsaChoice = true
+          matchedCourtesy = true
+        }
       }
       const hasNativeNoOnion = scopedCands.some((c) => c.tokens.includes('no') && c.tokens.includes('onion'))
       const hasNativeNoCilantro = scopedCands.some((c) => c.tokens.includes('no') && c.tokens.includes('cilantro'))
@@ -1480,11 +1597,15 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
           t !== CON_TODO_TOKEN &&
           t !== COURTESY_CEBOLLA_ASADA_TOKEN &&
           t !== COURTESY_FRIJOL_OLLA_TOKEN &&
+          t !== BOTH_SALSAS_TOKEN &&
+          t !== NO_SALSA_TOKEN &&
+          t !== NEEDS_SALSA_CHOICE_TOKEN &&
+          (!hasGenericChileOrSalsa || !['chile', 'chilito', 'salsa', 'salsita', 'picante', 'spicy', 'hot', 'sauce'].includes(t)) &&
           (!handledNegatedHerb || (t !== 'onion' && t !== 'cilantro')) &&
           (!matchedCourtesy || !COURTESY_CONTAINER_TOKENS.has(t))
       )
       const tokens =
-        handledNegatedHerb && remainingAfterHerb.every((t) => t === 'no' || t === 'and')
+        (handledNegatedHerb || (hasGenericChileOrSalsa && isNegated)) && remainingAfterHerb.every((t) => t === 'no' || t === 'and')
           ? []
           : remainingAfterHerb
       if (tokens.length === 0 || (matchedCourtesy && isNegated && tokens.length === 1 && tokens[0] === 'no')) continue
@@ -1507,7 +1628,7 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
     const prev = counts.get(key)
     counts.set(key, { ref, qty: (prev?.qty || 0) + times })
   }
-  const modifiers: KoreOrderModifier[] = []
+  let modifiers: KoreOrderModifier[] = []
   for (const { ref, qty } of counts.values()) {
     const priceCents = toKoreCents(ref.option.price)
     modifiers.push({
@@ -1520,7 +1641,32 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
       quantity: qty
     })
   }
-  return { modifiers, errors, warnings, conTodo, cafeDeOlla }
+  // Si pidió "Con Cebolla" + "Con Cilantro" por separado y el platillo tiene "Onions & Cilantro" nativo en Side Condiments, unificar al GUID oficial de Toast POS:
+  const hasConCebollaOnly = modifiers.some((m) => normalizeKoreText(m.name) === 'con cebolla')
+  const hasConCilantroOnly = modifiers.some((m) => normalizeKoreText(m.name) === 'con cilantro')
+  const nativeOnionsCilantroRef = refs.find((r) => normalizeKoreText(r.option.name) === 'onions and cilantro')
+  if (hasConCebollaOnly && hasConCilantroOnly && nativeOnionsCilantroRef) {
+    modifiers = modifiers.filter((m) => {
+      const n = normalizeKoreText(m.name)
+      return n !== 'con cebolla' && n !== 'con cilantro'
+    })
+    if (!modifiers.some((m) => m.guid === nativeOnionsCilantroRef.option.guid)) {
+      const ocCents = toKoreCents(nativeOnionsCilantroRef.option.price)
+      modifiers.push({
+        guid: nativeOnionsCilantroRef.option.guid,
+        name: nativeOnionsCilantroRef.option.name,
+        price: centsToDollars(ocCents),
+        priceCents: ocCents,
+        groupName: nativeOnionsCilantroRef.group.name,
+        groupGuid: nativeOnionsCilantroRef.group.guid,
+        quantity: 1
+      })
+    }
+  }
+  if (lineHasResolvedSalsaChoice(modifiers)) {
+    needsSalsaChoice = false
+  }
+  return { modifiers, errors, warnings, conTodo, needsSalsaChoice, cafeDeOlla }
 }
 
 /** Valida min/max/requerido por grupo. Devuelve errores legibles para el modelo. */
@@ -1617,6 +1763,435 @@ export function formatKoreTicketLine(line: KoreOrderLine): string {
   return `${l.lineId}: ${l.quantity} x ${l.name}${mods}${note} - ${formatKoreUsd(l.lineTotalCents)}`
 }
 
+function joinNaturalList(items: string[], lang: 'es' | 'en', conjOverride?: string): string {
+  const clean = items.map((s) => s.trim()).filter(Boolean)
+  if (clean.length === 0) return ''
+  if (clean.length === 1) return clean[0]
+  if (lang === 'en') {
+    const conj = conjOverride || 'and'
+    if (clean.length === 2) return `${clean[0]} ${conj} ${clean[1]}`
+    return `${clean.slice(0, -1).join(', ')}, ${conj} ${clean[clean.length - 1]}`
+  }
+  const last = clean[clean.length - 1]
+  const defaultEsConj = /^(?:i|hi(?![aeo]))/i.test(last) ? 'e' : 'y'
+  const conj = conjOverride || defaultEsConj
+  return `${clean.slice(0, -1).join(', ')} ${conj} ${last}`
+}
+
+function localizeMeatPhraseEs(rawMeat: string): string {
+  const norm = normalizeKoreText(rawMeat)
+  if (norm === 'pastor') return 'al pastor'
+  if (norm === 'asada') return 'de asada'
+  if (norm === 'pollo') return 'de pollo'
+  if (norm === 'cabeza') return 'de cabeza'
+  if (norm === 'lengua') return 'de lengua'
+  if (norm === 'buche') return 'de buche'
+  if (norm === 'chorizo') return 'de chorizo'
+  if (norm === 'carnitas') return 'de carnitas'
+  if (norm === 'milanesa') return 'de milanesa'
+  if (norm === 'cubana') return 'cubana'
+  if (norm === 'queso' || norm === 'cheese') return 'de queso'
+  if (norm === 'vegetarian' || norm === 'vegetariano') return 'vegetariano'
+  if (/beans.*cheese.*rice/i.test(rawMeat)) return 'de frijol, queso y arroz'
+  if (/beans.*cheese/i.test(rawMeat)) return 'de frijol con queso'
+  return `de ${rawMeat.toLowerCase()}`
+}
+
+function localizeMeatWordEn(rawMeat: string): string {
+  const norm = normalizeKoreText(rawMeat)
+  if (norm === 'pollo') return 'chicken'
+  if (norm === 'pastor') return 'al pastor'
+  if (norm === 'queso') return 'cheese'
+  if (norm === 'vegetariano') return 'veggie'
+  return rawMeat.toLowerCase()
+}
+
+function buildSpokenBaseItemName(line: KoreOrderLine, lang: 'es' | 'en'): string {
+  const qty = Math.max(1, Math.trunc(Number(line.quantity) || 1))
+  const plural = qty > 1
+  const rawName = line.name.trim()
+  const normName = normalizeKoreText(rawName)
+  const noteStr = String(line.notes || '')
+
+  // Mitad y mitad en burritos:
+  const halfNoteMatch = /\bMITAD\s+([A-ZÁÉÍÓÚÑ]+)\s*\/\s*MITAD\s+([A-ZÁÉÍÓÚÑ]+)\b/i.exec(noteStr)
+  if (halfNoteMatch && /burrito/i.test(rawName)) {
+    const m1 = halfNoteMatch[1].toLowerCase()
+    const m2 = halfNoteMatch[2].toLowerCase()
+    const isSuper = /^super\b|\bsuper\s+burrito\b/i.test(rawName)
+    const isMeatOnly = /^meat\s+only\b/i.test(rawName)
+    if (lang === 'en') {
+      const tier = isSuper ? 'super' : 'regular'
+      const mo = isMeatOnly ? ' meat-only' : ''
+      return `${qty} ${tier}${mo} half ${localizeMeatWordEn(m1)} and half ${localizeMeatWordEn(m2)} ${plural ? 'burritos' : 'burrito'}`
+    }
+    const noun = isSuper ? (plural ? 'super burritos' : 'super burrito') : plural ? 'burritos regulares' : 'burrito regular'
+    const moEs = isMeatOnly ? ' de pura carne' : ''
+    return `${qty} ${noun}${moEs} mitad ${m1} y mitad ${m2}`
+  }
+
+  if (normName === 'coffee') {
+    const isOlla = /\bcaf[eé]\s+de\s+(?:la\s+)?olla\b/i.test(noteStr)
+    if (lang === 'en') {
+      return isOlla
+        ? `${qty} ${plural ? 'cups of café de olla' : 'café de olla'}`
+        : `${qty} regular ${plural ? 'coffees' : 'coffee'}`
+    }
+    return isOlla ? `${qty} ${plural ? 'cafés de olla' : 'café de olla'}` : `${qty} ${plural ? 'cafés regulares' : 'café regular'}`
+  }
+
+  if (normName === 'champurrado') {
+    return lang === 'en'
+      ? `${qty} 16 oz ${plural ? 'champurrados' : 'champurrado'}`
+      : `${qty} ${plural ? 'champurrados' : 'champurrado'} de 16 onzas`
+  }
+  if (/champurrado/i.test(rawName) && /box|96/i.test(rawName)) {
+    return lang === 'en'
+      ? `${qty} 96 oz champurrado ${plural ? 'boxes' : 'to-go box'}`
+      : `${qty} ${plural ? 'cajas' : 'caja'} de champurrado de 96 onzas`
+  }
+
+  if (normName === 'taco plate') {
+    const tacoMods = (line.modifiers || []).filter((m) => /\btaco\b/i.test(m.groupName) && /^taco\s+/i.test(m.name))
+    if (tacoMods.length === 1 && tacoMods[0].quantity === 3) {
+      const meatRaw = tacoMods[0].name.replace(/^taco\s+/i, '').trim()
+      return lang === 'en'
+        ? `${qty} 3-taco ${plural ? 'plates' : 'plate'} (${localizeMeatWordEn(meatRaw)})`
+        : `${qty} ${plural ? 'platos' : 'plato'} de 3 tacos ${localizeMeatPhraseEs(meatRaw)}`
+    }
+    if (tacoMods.length > 0) {
+      const subParts = tacoMods.map((tm) => {
+        const meatRaw = tm.name.replace(/^taco\s+/i, '').trim()
+        return lang === 'en' ? `${tm.quantity} ${localizeMeatWordEn(meatRaw)}` : `${tm.quantity} ${localizeMeatPhraseEs(meatRaw)}`
+      })
+      return lang === 'en'
+        ? `${qty} 3-taco ${plural ? 'plates' : 'plate'} (${joinNaturalList(subParts, 'en')})`
+        : `${qty} ${plural ? 'platos' : 'plato'} de 3 tacos (${joinNaturalList(subParts, 'es')})`
+    }
+    return lang === 'en' ? `${qty} 3-taco ${plural ? 'plates' : 'plate'}` : `${qty} ${plural ? 'platos' : 'plato'} de 3 tacos`
+  }
+
+  const tacoMatch = /^taco\s+(.+)$/i.exec(rawName)
+  if (tacoMatch) {
+    const meat = tacoMatch[1].trim()
+    return lang === 'en'
+      ? `${qty} ${localizeMeatWordEn(meat)} ${plural ? 'tacos' : 'taco'}`
+      : `${qty} ${plural ? 'tacos' : 'taco'} ${localizeMeatPhraseEs(meat)}`
+  }
+
+  const meatOnlySuperMatch = /^meat\s+only\s+super\s+burrito\s+(.+)$/i.exec(rawName)
+  if (meatOnlySuperMatch) {
+    const meat = meatOnlySuperMatch[1].trim()
+    return lang === 'en'
+      ? `${qty} super meat-only ${localizeMeatWordEn(meat)} ${plural ? 'burritos' : 'burrito'}`
+      : `${qty} ${plural ? 'super burritos' : 'super burrito'} de pura carne ${localizeMeatPhraseEs(meat).replace(/^de\s+/i, '')}`
+  }
+
+  const meatOnlyRegMatch = /^meat\s+only\s+burrito\s+(.+)$/i.exec(rawName)
+  if (meatOnlyRegMatch) {
+    const meat = meatOnlyRegMatch[1].trim()
+    return lang === 'en'
+      ? `${qty} regular meat-only ${localizeMeatWordEn(meat)} ${plural ? 'burritos' : 'burrito'}`
+      : `${qty} ${plural ? 'burritos regulares' : 'burrito regular'} de pura carne ${localizeMeatPhraseEs(meat).replace(/^de\s+/i, '')}`
+  }
+
+  const superFamilyMatch = /^super\s+(burrito|quesadilla|mulita)\s+(.+)$/i.exec(rawName)
+  if (superFamilyMatch) {
+    const fam = superFamilyMatch[1].toLowerCase()
+    const meat = superFamilyMatch[2].trim()
+    if (lang === 'en') {
+      return `${qty} super ${localizeMeatWordEn(meat)} ${plural ? `${fam}s` : fam}`
+    }
+    const famEs = plural ? `super ${fam}s` : `super ${fam}`
+    return `${qty} ${famEs} ${localizeMeatPhraseEs(meat)}`
+  }
+
+  const regFamilyMatch = /^(burrito|quesadilla|mulita)\s+(.+)$/i.exec(rawName)
+  if (regFamilyMatch) {
+    const fam = regFamilyMatch[1].toLowerCase()
+    const meat = regFamilyMatch[2].trim()
+    const isCheeseOnly = /^(?:queso|cheese)$/i.test(meat)
+    if (lang === 'en') {
+      return isCheeseOnly
+        ? `${qty} cheese ${plural ? `${fam}s` : fam}`
+        : `${qty} regular ${localizeMeatWordEn(meat)} ${plural ? `${fam}s` : fam}`
+    }
+    if (isCheeseOnly) {
+      return `${qty} ${plural ? `${fam}s` : fam} de queso`
+    }
+    const regAdj = fam === 'burrito' ? (plural ? 'regulares' : 'regular') : plural ? 'regulares' : 'regular'
+    return `${qty} ${plural ? `${fam}s` : fam} ${regAdj} ${localizeMeatPhraseEs(meat)}`
+  }
+
+  const tortaSopePlatoMatch = /^(torta|sope|plato)\s+(.+)$/i.exec(rawName)
+  if (tortaSopePlatoMatch) {
+    const fam = tortaSopePlatoMatch[1].toLowerCase()
+    const meat = tortaSopePlatoMatch[2].trim()
+    if (lang === 'en') {
+      if (/^cubana$/i.test(meat) && fam === 'torta') return `${qty} ${plural ? 'Tortas Cubanas' : 'Torta Cubana'}`
+      const famEn = fam === 'plato' ? (plural ? 'plates' : 'plate') : plural ? `${fam}s` : fam
+      return `${qty} ${localizeMeatWordEn(meat)} ${famEn}`
+    }
+    const meatEs = fam === 'torta' && /^vegetarian/i.test(meat) ? 'vegetariana' : localizeMeatPhraseEs(meat)
+    return `${qty} ${plural ? `${fam}s` : fam} ${meatEs}`
+  }
+
+  const superNachosMatch = /^super\s+nachos\s+(.+)$/i.exec(rawName)
+  if (superNachosMatch) {
+    const meat = superNachosMatch[1].trim()
+    return lang === 'en'
+      ? `${qty} ${localizeMeatWordEn(meat)} super nachos`
+      : `${qty} super nachos ${localizeMeatPhraseEs(meat)}`
+  }
+
+  const medLargeDrinkMatch = /^(medium|large)\s+(.+)$/i.exec(rawName)
+  if (medLargeDrinkMatch) {
+    const sz = medLargeDrinkMatch[1].toLowerCase()
+    const drink = medLargeDrinkMatch[2].trim()
+    if (lang === 'en') {
+      return `${qty} ${sz} ${drink}`
+    }
+    const drinkEs = /^pina$/i.test(normalizeKoreText(drink)) ? 'agua de piña' : drink
+    const isFem = /horchata|jamaica|pina|piña|limonada|lemonade|coca|coke|fanta|sangria|soda/i.test(drinkEs)
+    const szEs = sz === 'medium' ? (isFem ? (plural ? 'medianas' : 'mediana') : plural ? 'medianos' : 'mediano') : plural ? 'grandes' : 'grande'
+    return `${qty} ${drinkEs} ${szEs}`
+  }
+
+  return `${qty} ${rawName}`
+}
+
+/**
+ * Construye la lectura hablada natural de una línea incluyendo TODOS sus modificadores, condimentos,
+ * salsas, exclusiones y preparación solicitados por el cliente en español o inglés.
+ */
+export function formatKoreSpokenLineReadback(line: KoreOrderLine, lang: 'es' | 'en' = 'es'): string {
+  const baseText = buildSpokenBaseItemName(line, lang)
+  const qty = Math.max(1, Math.trunc(Number(line.quantity) || 1))
+  const plural = qty > 1
+  const withParts: string[] = []
+  const prepTrailingParts: string[] = []
+  const withoutParts: string[] = []
+
+  const noteStr = String(line.notes || '')
+  const hasExactNoteCounts = /\b\d+x\s+(?:Liquid Creamer|Coffee Mate|Sugar in the Raw|Splenda)\b/i.test(noteStr)
+  const halfNoteMatch = /\bMITAD\s+[A-ZÁÉÍÓÚÑ]+\s*\/\s*MITAD\s+[A-ZÁÉÍÓÚÑ]+\b/i.test(noteStr)
+
+  const pushUnique = (arr: string[], val: string) => {
+    if (val && !arr.includes(val)) arr.push(val)
+  }
+
+  for (const m of line.modifiers || []) {
+    const mNorm = normalizeKoreText(m.name)
+    const gNorm = normalizeKoreText(m.groupName)
+    const mQty = Math.max(1, Math.trunc(Number(m.quantity) || 1))
+    const qtyPrefix = mQty > 1 ? `${mQty} ` : ''
+
+    // Ya incluidos en el nombre base hablado:
+    if (/\btaco\b/.test(gNorm) && /^taco\s+/.test(mNorm)) continue
+    if ((gNorm === 'half meat 50 50' || /^half\s+(?:asada|pastor|pollo|chorizo|cabeza|lengua|buche|carnitas)$/.test(mNorm)) && halfNoteMatch) {
+      continue
+    }
+    if (hasExactNoteCounts && /liquid creamer|coffee mate|sugar in the raw|splenda/.test(mNorm)) {
+      continue
+    }
+
+    // Exclusiones negativas ("sin ..." / "without ...")
+    if (m.guid === KORE_COURTESY_MODIFIERS.no_salsa.guid || mNorm === 'sin salsa' || mNorm === 'no salsa') {
+      pushUnique(withoutParts, lang === 'en' ? 'salsa' : 'salsa')
+      continue
+    }
+    if (/^(?:no|sin|without)\s+/.test(mNorm)) {
+      if (/onion|cebolla/.test(mNorm)) pushUnique(withoutParts, lang === 'en' ? 'onion' : 'cebolla')
+      else if (/cilantro/.test(mNorm)) pushUnique(withoutParts, 'cilantro')
+      else if (/sour cream|crema/.test(mNorm)) pushUnique(withoutParts, lang === 'en' ? 'sour cream' : 'crema')
+      else if (/guacamole|aguacate/.test(mNorm)) pushUnique(withoutParts, 'guacamole')
+      else if (/cheese|queso/.test(mNorm)) pushUnique(withoutParts, lang === 'en' ? 'cheese' : 'queso')
+      else if (/beans|frijol/.test(mNorm)) pushUnique(withoutParts, lang === 'en' ? 'beans' : 'frijoles')
+      else if (/rice|arroz/.test(mNorm)) pushUnique(withoutParts, lang === 'en' ? 'rice' : 'arroz')
+      else pushUnique(withoutParts, m.name.replace(/^(?:no|sin|without)\s+/i, '').toLowerCase())
+      continue
+    }
+
+    // Opciones de corte / dorado al final de la frase
+    if (mNorm === 'partido en dos') {
+      pushUnique(prepTrailingParts, lang === 'en' ? 'cut in half' : plural ? 'partidos en dos' : 'partido en dos')
+      continue
+    }
+    if (mNorm === 'partido 4') {
+      pushUnique(prepTrailingParts, lang === 'en' ? 'cut in four' : plural ? 'partidos en cuatro' : 'partido en cuatro')
+      continue
+    }
+    if (mNorm === 'sope dorado') {
+      pushUnique(prepTrailingParts, lang === 'en' ? 'crispy' : plural ? 'bien dorados' : 'bien dorado')
+      continue
+    }
+
+    // Condimentos, salsas, cortesías y extras con "con ..." / "with ..."
+    if (mNorm === 'onions and cilantro') {
+      pushUnique(withParts, lang === 'en' ? 'onions' : 'cebolla')
+      pushUnique(withParts, 'cilantro')
+      continue
+    }
+    if (mNorm === 'con cebolla') {
+      pushUnique(withParts, lang === 'en' ? 'onion' : 'cebolla')
+      continue
+    }
+    if (mNorm === 'con cilantro') {
+      pushUnique(withParts, 'cilantro')
+      continue
+    }
+    if (mNorm === 'salsa verde') {
+      pushUnique(withParts, lang === 'en' ? 'green salsa' : 'salsa verde')
+      continue
+    }
+    if (mNorm === 'salsa roja') {
+      pushUnique(withParts, lang === 'en' ? 'red salsa' : 'salsa roja')
+      continue
+    }
+    if (mNorm === 'limes' || mNorm === 'lime') {
+      pushUnique(withParts, lang === 'en' ? 'limes' : 'limones')
+      continue
+    }
+    if (mNorm === 'pickled jalapenos') {
+      pushUnique(withParts, lang === 'en' ? 'pickled jalapeños' : 'jalapeños en vinagre')
+      continue
+    }
+    if (m.guid === KORE_COURTESY_MODIFIERS.cebolla_asada.guid || /cebolla asada/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'grilled onions' : 'cebolla asada')
+      continue
+    }
+    if (m.guid === KORE_COURTESY_MODIFIERS.frijol_olla.guid || /frijol de la olla/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'whole pot beans' : 'frijol de la olla')
+      continue
+    }
+    if (m.guid === KORE_COURTESY_MODIFIERS.con_todo.guid || mNorm === 'con todo') {
+      pushUnique(withParts, lang === 'en' ? 'everything' : 'todo')
+      continue
+    }
+    if (mNorm === 'carne dorada') {
+      pushUnique(withParts, lang === 'en' ? 'crispy meat' : 'carne dorada')
+      continue
+    }
+    if (mNorm === 'tortilla dorada') {
+      pushUnique(withParts, lang === 'en' ? 'crispy tortilla' : 'tortilla dorada')
+      continue
+    }
+    if (mNorm === 'pan dorado') {
+      pushUnique(withParts, lang === 'en' ? 'toasted bread' : 'pan dorado')
+      continue
+    }
+    if (/^queso on the side$/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'cheese on the side' : 'el queso aparte')
+      continue
+    }
+    if (/^queso on the chips$/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'cheese on the chips' : 'el queso arriba')
+      continue
+    }
+    if (/^corn tortillas?$/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'corn tortillas' : 'tortillas de maíz')
+      continue
+    }
+    if (/^flour tortillas?$/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'flour tortillas' : 'tortillas de harina')
+      continue
+    }
+    if (/half flour.*corn|half corn.*flour/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? 'half flour and half corn tortillas' : 'tortillas mitad harina y mitad maíz')
+      continue
+    }
+    if (/double carne|double meat|extra meat/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? `${qtyPrefix}double meat` : `${qtyPrefix}doble carne`)
+      continue
+    }
+    if (/sour cream/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? `${qtyPrefix}sour cream` : `${qtyPrefix}crema`)
+      continue
+    }
+    if (/guacamole/.test(mNorm)) {
+      pushUnique(withParts, `${qtyPrefix}guacamole`)
+      continue
+    }
+    if (/jack cheese|^cheese$/.test(mNorm)) {
+      pushUnique(withParts, lang === 'en' ? `${qtyPrefix}Jack cheese` : `${qtyPrefix}queso Jack`)
+      continue
+    }
+    if (mNorm === 'scrambled') {
+      pushUnique(withParts, lang === 'en' ? 'scrambled eggs' : 'huevos revueltos')
+      continue
+    }
+    if (mNorm === 'sunny side up') {
+      pushUnique(withParts, lang === 'en' ? 'sunny-side-up eggs' : 'huevos estrellados')
+      continue
+    }
+    if (mNorm === 'over easy') {
+      pushUnique(withParts, lang === 'en' ? 'over-easy eggs' : 'huevos volteados')
+      continue
+    }
+    pushUnique(withParts, `${qtyPrefix}${m.name}`)
+  }
+
+  // Notas exactas de cremas/azúcares o notas adicionales libres del cliente:
+  if (noteStr.trim()) {
+    const cleanedCustomNote = noteStr
+      .replace(/\bMITAD\s+[A-ZÁÉÍÓÚÑ]+\s*\/\s*MITAD\s+[A-ZÁÉÍÓÚÑ]+\b/gi, '')
+      .replace(/\bCaf[eé]\s+de\s+(?:la\s+)?olla\b/gi, '')
+      .replace(/^[\s—;,-]+|[\s—;,-]+$/g, '')
+      .trim()
+    if (cleanedCustomNote) {
+      const noteSegments = cleanedCustomNote.split(/\s*[;—]\s*/).filter(Boolean)
+      for (const seg of noteSegments) {
+        pushUnique(withParts, seg)
+      }
+    }
+  }
+
+  const clauses: string[] = [baseText]
+  if (withParts.length > 0) {
+    clauses.push(lang === 'en' ? `with ${joinNaturalList(withParts, 'en')}` : `con ${joinNaturalList(withParts, 'es')}`)
+  }
+  if (withoutParts.length > 0) {
+    clauses.push(
+      lang === 'en'
+        ? `without ${joinNaturalList(withoutParts, 'en', 'or')}`
+        : `sin ${joinNaturalList(withoutParts, 'es', 'ni')}`
+    )
+  }
+  if (prepTrailingParts.length > 0) {
+    clauses.push(joinNaturalList(prepTrailingParts, lang))
+  }
+  return clauses.join(' ')
+}
+
+/**
+ * Construye el resumen hablado completo de la orden con el 100% de los modificadores y condimentos solicitados.
+ */
+export function formatKoreSpokenOrderReadback(
+  state: KoreOrderState,
+  opts?: { lang?: 'es' | 'en'; taxRatePct?: number | null }
+): { lineReadbacks: string[]; itemsReadback: string; fullConfirmScript: string } {
+  const lang: 'es' | 'en' = opts?.lang === 'en' ? 'en' : 'es'
+  const lineReadbacks = (state.lines || []).map((l) => formatKoreSpokenLineReadback(l, lang))
+  const itemsReadback =
+    lineReadbacks.length === 0
+      ? ''
+      : lineReadbacks.length === 1
+        ? lineReadbacks[0]
+        : lang === 'en'
+          ? `${lineReadbacks.slice(0, -1).join('; ')}; and ${lineReadbacks[lineReadbacks.length - 1]}`
+          : `${lineReadbacks.slice(0, -1).join('; ')}; ${/^(?:i|hi(?![aeo]))/i.test(lineReadbacks[lineReadbacks.length - 1]) ? 'e' : 'y'} ${lineReadbacks[lineReadbacks.length - 1]}`
+  const hasTax = opts?.taxRatePct !== undefined && opts?.taxRatePct !== null
+  const totals = computeKoreTotals(state, hasTax ? Number(opts!.taxRatePct) : 0)
+  const amountLabel = formatKoreUsd(hasTax ? totals.totalCents : totals.subtotalCents)
+  const fullConfirmScript =
+    lineReadbacks.length === 0
+      ? ''
+      : lang === 'en'
+        ? `Your order is: ${itemsReadback}. Your total is ${amountLabel}. Does everything look right?`
+        : `Su orden es: ${itemsReadback}. Su total es ${amountLabel} dólares. ¿Está correcta su orden?`
+  return { lineReadbacks, itemsReadback, fullConfirmScript }
+}
+
 function orderSummary(state: KoreOrderState, opts?: KoreToolOptions): Record<string, unknown> {
   const hasTax = opts?.taxRatePct !== undefined && opts?.taxRatePct !== null
   const totals = computeKoreTotals(state, hasTax ? Number(opts!.taxRatePct) : 0)
@@ -1627,6 +2202,11 @@ function orderSummary(state: KoreOrderState, opts?: KoreToolOptions): Record<str
     ticket: state.lines.map(formatKoreTicketLine),
     item_count: totals.itemCount,
     subtotal: formatKoreUsd(totals.subtotalCents)
+  }
+  if (sessionKind === 'customer_order' && state.lines.length > 0 && state.status !== 'cancelled') {
+    const readback = formatKoreSpokenOrderReadback(state, { lang: opts?.lang, taxRatePct: opts?.taxRatePct })
+    summary.spoken_line_readbacks = readback.lineReadbacks
+    summary.spoken_items_summary = readback.itemsReadback
   }
   if (sessionKind === 'driver_pickup' && state.driverPickup) {
     summary.driver_pickup = {
@@ -1641,6 +2221,11 @@ function orderSummary(state: KoreOrderState, opts?: KoreToolOptions): Record<str
     summary.total = formatKoreUsd(totals.totalCents)
   } else {
     summary.total_before_tax = formatKoreUsd(totals.subtotalCents)
+  }
+  if (state.status !== 'cancelled' && state.lines.some((l) => l.needsSalsaChoice === true)) {
+    summary.pending_salsa_choice = state.lines
+      .filter((l) => l.needsSalsaChoice === true)
+      .map((l) => ({ line_id: l.lineId, item: l.name, quantity: l.quantity }))
   }
   if (opts?.includeTicketCheaperAlternatives && opts?.menu?.length && state.status !== 'cancelled' && state.lines.length > 0) {
     const alts = collectTicketCheaperRegularAlternatives(state.lines, opts.menu, opts.lang)
@@ -1746,7 +2331,9 @@ function bump(state: KoreOrderState, lines: KoreOrderLine[], extra?: Partial<Kor
 }
 
 function reopenWarning(state: KoreOrderState): string | null {
-  return state.status === 'confirmed' ? 'The order was confirmed before; it is now re-opened. Read back the new total and confirm again.' : null
+  return state.status === 'confirmed'
+    ? 'The order was confirmed before; it is now re-opened. State clearly the updated modifiers/condiments requested by the customer (see spoken_items_summary) and confirm whether the order looks right.'
+    : null
 }
 
 function findLine(state: KoreOrderState, lineId: unknown): KoreOrderLine | undefined {
@@ -1772,12 +2359,23 @@ function findSuperCounterpartInMenu(regularItem: KoreMenuItem, menu: KoreMenuIte
   return menu.find((m) => normalizeKoreText(m.name) === targetNorm) || null
 }
 
+function findRegularCounterpartInMenu(superItem: KoreMenuItem, menu: KoreMenuItem[]): KoreMenuItem | null {
+  if (/^meat\s+only\s+super\s+burrito\b/i.test(superItem.name)) {
+    const targetMeatOnlyNorm = normalizeKoreText(superItem.name.replace(/^meat\s+only\s+super\s+burrito\b/i, 'Meat Only Burrito'))
+    return menu.find((m) => normalizeKoreText(m.name) === targetMeatOnlyNorm) || null
+  }
+  if (!/^super\s+(?:burrito|quesadilla|mulita)\b/i.test(superItem.name)) return null
+  const targetNorm = normalizeKoreText(superItem.name.replace(/^super\s+/i, '').trim())
+  return menu.find((m) => normalizeKoreText(m.name) === targetNorm) || null
+}
+
 function modifierToResolvableRawName(m: KoreOrderModifier): string {
   if (m.guid === KORE_COURTESY_MODIFIERS.cebolla_asada.guid) return 'Cebolla Asada'
   if (m.guid === KORE_COURTESY_MODIFIERS.frijol_olla.guid) return 'Frijol de la Olla'
   if (m.guid === KORE_COURTESY_MODIFIERS.con_todo.guid) return 'Con Todo'
   if (m.guid === KORE_COURTESY_MODIFIERS.no_onion.guid) return 'No Onion'
   if (m.guid === KORE_COURTESY_MODIFIERS.no_cilantro.guid) return 'No Cilantro'
+  if (m.guid === KORE_COURTESY_MODIFIERS.no_salsa.guid) return 'Sin Salsa'
   return m.name
 }
 
@@ -2138,9 +2736,14 @@ function upsertCafeDeOllaNote(existingNotes: string | undefined): string | undef
   return sanitizeNotes(base ? `Café de Olla — ${base}` : 'Café de Olla')
 }
 
-function extractInlinePrepModifiersFromItemName(rawItemQuery: string): { cleanedQuery: string; prepModifiers: string[] } {
+function extractInlinePrepModifiersFromItemName(rawItemQuery: string): {
+  cleanedQuery: string
+  prepModifiers: string[]
+  needsSalsaChoice: boolean
+} {
   let q = String(rawItemQuery ?? '')
   const prepModifiers: string[] = []
+  let needsSalsaChoice = false
   const addPrep = (label: string) => {
     if (!prepModifiers.includes(label)) prepModifiers.push(label)
   }
@@ -2155,7 +2758,16 @@ function extractInlinePrepModifiersFromItemName(rawItemQuery: string): { cleaned
     [/\s+(?:partid[oa]s?|cortad[oa]s?)\s+(?:en\s+(?:dos|2)|a\s+la\s+mitad)\b/gi, 'Partido en Dos'],
     [/\s+(?:cut|split)\s+in\s+(?:half|two|2)\b/gi, 'Partido en Dos'],
     [/\s+(?:partid[oa]s?|cortad[oa]s?)\s+en\s+(?:cuatro|4)\b/gi, 'Partido 4'],
-    [/\s+cut\s+in\s+(?:four|4|quarters)\b/gi, 'Partido 4']
+    [/\s+cut\s+in\s+(?:four|4|quarters)\b/gi, 'Partido 4'],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:cebollas?|onions?)\s+(?:y|and)(?:\s+(?:con|with))?\s+cilantro\b/gi, 'Onions & Cilantro'],
+    [/\s+(?:y\s+)?(?:con|with)\s+cilantro\s+(?:y|and)(?:\s+(?:con|with))?\s+(?:cebollas?|onions?)\b/gi, 'Onions & Cilantro'],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:solo\s+|pura\s+)?(?:cebollas?|onions?)\b(?!\s+(?:asad|toread|cambray|y\s+cilantro|and\s+cilantro))/gi, 'Con Cebolla'],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:solo\s+|puro\s+)?cilantro\b(?!\s+(?:y\s+cebolla|and\s+onion))/gi, 'Con Cilantro'],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:chiles?\s+(?:jalapenos?|en\s+vinagre|curtidos?|en\s+escabeche)|jalapenos?(?:\s+en\s+vinagre)?)\b/gi, 'Pickled Jalapeños'],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:ambas\s+salsas|(?:las\s+)?dos\s+salsas|salsa\s+verde\s+y\s+roj[oa]|salsa\s+roj[oa]\s+y\s+verde)\b/gi, BOTH_SALSAS_TOKEN],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:salsa|chile|picante)\s+verde\b/gi, 'Salsa Verde'],
+    [/\s+(?:y\s+)?(?:con|with)\s+(?:salsa|chile|picante)\s+roj[oa]\b/gi, 'Salsa Roja'],
+    [/\s+(?:y\s+)?(?:sin|no|without)\s+(?:salsas?|chiles?|picante|hot\s+sauce)\b/gi, 'Sin Salsa']
   ]
 
   for (const [re, label] of rules) {
@@ -2163,6 +2775,13 @@ function extractInlinePrepModifiersFromItemName(rawItemQuery: string): { cleaned
       addPrep(label)
       q = q.replace(re, ' ')
     }
+  }
+
+  const genericChileInlineRe =
+    /\s+(?:y\s+)?(?:con|with)\s+(?:chile|chiles|chilito|salsa|salsita|picante|hot\s+sauce)\b(?!\s+(?:verde|roj[oa]|jalapeno|en\s+vinagre|curtid|rellen))/gi
+  if (genericChileInlineRe.test(q)) {
+    needsSalsaChoice = true
+    q = q.replace(genericChileInlineRe, ' ')
   }
 
   // Ej. "sope de carnitas bien dorado" / "torta de asada bien dorada" / "tacos de pastor bien doraditos"
@@ -2179,7 +2798,68 @@ function extractInlinePrepModifiersFromItemName(rawItemQuery: string): { cleaned
     }
   }
 
-  return { cleanedQuery: q.replace(/\s+/g, ' ').trim(), prepModifiers }
+  const cleanedQuery = q.replace(/\s+(?:y|and)\s*$/i, ' ').replace(/\s+/g, ' ').trim()
+  return { cleanedQuery, prepModifiers, needsSalsaChoice }
+}
+
+function extractPromotableCondimentsFromNotes(rawNotes: string | undefined): {
+  cleanedNotes: string | undefined
+  extractedModifiers: string[]
+  needsSalsaChoice: boolean
+} {
+  if (!rawNotes || !rawNotes.trim()) {
+    return { cleanedNotes: undefined, extractedModifiers: [], needsSalsaChoice: false }
+  }
+  // Preservar notas estructuradas del motor (MITAD X / MITAD Y, Café de Olla, conteos exactos 8x Liquid Creamer)
+  if (/\bMITAD\s+[A-ZÁÉÍÓÚÑ]+\s*\/\s*MITAD\b/i.test(rawNotes) || /^Caf[eé]\s+de\s+Olla$/i.test(rawNotes.trim())) {
+    return { cleanedNotes: sanitizeNotes(rawNotes), extractedModifiers: [], needsSalsaChoice: false }
+  }
+  let working = ' ' + rawNotes + ' '
+  const extractedModifiers: string[] = []
+  let needsSalsaChoice = false
+  const pushMod = (m: string) => {
+    if (!extractedModifiers.includes(m)) extractedModifiers.push(m)
+  }
+  const noteRules: Array<[RegExp, string]> = [
+    [/\b(?:con\s+todo|with\s+everything|everything\s+on\s+it|all\s+the\s+way)\b/gi, 'Con Todo'],
+    [/\b(?:con\s+)?(?:cebollas?|onions?)\s+(?:y|and)(?:\s+con)?\s+cilantro\b/gi, 'Onions & Cilantro'],
+    [/\b(?:con\s+)?cilantro\s+(?:y|and)(?:\s+con)?\s+(?:cebollas?|onions?)\b/gi, 'Onions & Cilantro'],
+    [/\b(?:partid[oa]s?|cortad[oa]s?)\s+(?:en\s+(?:dos|2)|a\s+la\s+mitad)\b/gi, 'Partido en Dos'],
+    [/\b(?:cut|split)\s+in\s+(?:half|two|2)\b/gi, 'Partido en Dos'],
+    [/\b(?:partid[oa]s?|cortad[oa]s?)\s+en\s+(?:cuatro|4)\b/gi, 'Partido 4'],
+    [/\bcarne\s+(?:bien\s+)?dorad[oa]s?\b/gi, 'Carne Dorada'],
+    [/\btortillas?\s+(?:bien\s+)?dorad[oa]s?\b/gi, 'Tortilla Dorada'],
+    [/\b(?:pan|telera)\s+(?:bien\s+)?dorad[oa]s?\b/gi, 'Pan Dorado'],
+    [/\b(?:chiles?\s+(?:jalapenos?|en\s+vinagre|curtidos?|en\s+escabeche)|pickled\s+jalapenos?)\b/gi, 'Pickled Jalapeños'],
+    [/\b(?:ambas\s+salsas|(?:las\s+|de\s+las\s+)?dos\s+salsas|salsa\s+verde\s+y\s+roj[oa]|salsa\s+roj[oa]\s+y\s+verde)\b/gi, BOTH_SALSAS_TOKEN],
+    [/\b(?:salsa|chile|picante)\s+verde\b/gi, 'Salsa Verde'],
+    [/\b(?:salsa|chile|picante)\s+roj[oa]\b/gi, 'Salsa Roja'],
+    [/\b(?:sin|no|without)\s+(?:salsas?|chiles?|picante|hot\s+sauce)\b/gi, 'Sin Salsa'],
+    [/(?<!\b(?:sin|no|without)\s+)\b(?:con\s+|solo\s+|pura\s+)?(?:cebollas?|onions?)\b(?!\s+(?:asad|toread|cambray|y\s+cilantro|and\s+cilantro))/gi, 'Con Cebolla'],
+    [/(?<!\b(?:sin|no|without)\s+)\b(?:con\s+|solo\s+|puro\s+)?cilantro\b(?!\s+(?:y\s+cebolla|and\s+onion))/gi, 'Con Cilantro']
+  ]
+  for (const [re, modName] of noteRules) {
+    if (re.test(working)) {
+      pushMod(modName)
+      working = working.replace(re, ' ')
+    }
+  }
+  const genericNoteChileRe =
+    /(?<!\b(?:sin|no|without)\s+)\b(?:con\s+)?(?:chile|chiles|chilito|salsa|salsita|picante|hot\s+sauce)\b(?!\s+(?:verde|roj[oa]|jalapeno|en\s+vinagre|curtid|rellen))/gi
+  if (genericNoteChileRe.test(working)) {
+    needsSalsaChoice = true
+    working = working.replace(genericNoteChileRe, ' ')
+  }
+  const leftover = working
+    .replace(/\b(?:y|e|con|with|and)\b/gi, ' ')
+    .replace(/[.,;—\-+/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return {
+    cleanedNotes: leftover ? sanitizeNotes(leftover) : undefined,
+    extractedModifiers,
+    needsSalsaChoice
+  }
 }
 
 type BurritoHalfResolution =
@@ -2458,6 +3138,35 @@ function isPreviousSkuOrMeatRemovalToken(rawRem: string, baseItem: KoreMenuItem)
   return Boolean(baseMeat && remNorm === baseMeat)
 }
 
+const EXPLICIT_ORDER_COMPLETION_OR_TOTAL_RE =
+  /\b(?:ya\s+es\s+todo|es\s+todo|eso\s+es\s+todo|seria\s+todo|eso\s+seria\s+todo|nada\s+mas|no\s+mas|solo\s+eso|nomas\s+eso|asi\s+esta\s+bien|con\s+eso\s+(?:es\s+todo|esta\s+bien|basta)|cuanto\s+(?:va\s+a\s+ser|es|seria|sale)|cual\s+es\s+(?:el|mi)\s+total|thats\s+all|that\s+is\s+all|thats\s+it|that\s+is\s+it|nothing\s+else|no\s+more|just\s+that|how\s+much\s+is\s+(?:it|that|my\s+total)|whats\s+(?:the|my)\s+total)\b/i
+
+function hasExplicitOrderCompletionOrTotalCue(turnText: string | undefined): boolean {
+  if (!turnText) return false
+  const norm = normalizeKoreText(normalizeKoreCustomerSpeech(turnText, { mode: 'drive_thru' }))
+  return EXPLICIT_ORDER_COMPLETION_OR_TOTAL_RE.test(norm)
+}
+
+function computePendingSalsaChoiceExtra(
+  lines: KoreOrderLine[],
+  opts?: KoreToolOptions
+): Record<string, unknown> {
+  const pending = lines.filter((l) => l.needsSalsaChoice === true)
+  if (pending.length === 0) return {}
+  const desc = pending.map((l) => `${l.lineId} (${l.quantity}x ${l.name})`).join(', ')
+  const thirdLang = opts?.thirdLanguage || null
+  const isEn = opts?.lang === 'en'
+  const salsaInstruction = thirdLang
+    ? `MANDATORY SALSA QUESTION: On ${desc}, the customer asked for "con todo" or "con chile/salsa" without specifying green or red salsa. Ask concisely 100% in ${thirdLang.nameEn} whether they want green salsa or red salsa, and call update_item once they answer. Do NOT call confirm_order yet!`
+    : isEn
+      ? `MANDATORY SALSA QUESTION: On ${desc}, the customer asked for "with everything" or "with salsa/chile" without specifying green or red salsa. Ask concisely right now: "Would you like green salsa or red salsa?" and call update_item once they answer. Do NOT call confirm_order yet!`
+      : `PREGUNTA OBLIGATORIA DE SALSA: En ${desc} el cliente pidió "con todo" o "con chile/salsa" sin indicar cuál salsa. Pregunta brevemente en ESPAÑOL ahora mismo: "¿Con salsa verde o salsa roja?" (y al responder llama update_item con Salsa Verde, Salsa Roja o ambas). ¡PROHIBIDO llamar confirm_order todavía!`
+  return {
+    pending_salsa_choice: pending.map((l) => ({ line_id: l.lineId, item: l.name, quantity: l.quantity })),
+    salsa_choice_instruction: salsaInstruction
+  }
+}
+
 function computeUnfulfilledSessionExtra(
   lines: KoreOrderLine[],
   opts?: KoreToolOptions
@@ -2628,7 +3337,23 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       suggestions: suggestionList(suggestionOptions)
     })
   }
-  const item = res.item
+  let item = res.item
+  let lockedToRegularByCustomerTurn = false
+  // Candado determinista "Regular": si Gemini alucinó un SKU "Super" pero el último turno del cliente dijo explícitamente "regular/sencillo/normal" sin decir "super", forzar contraparte Regular:
+  const regCounterpart = findRegularCounterpartInMenu(item, menu)
+  if (regCounterpart && opts?.sessionCustomerTurns?.length) {
+    const latestTurnRaw = String(opts.sessionCustomerTurns[opts.sessionCustomerTurns.length - 1] || '')
+    const latestTurnNoCoffee = normalizeKoreText(
+      normalizeKoreCustomerSpeech(latestTurnRaw, { mode: 'drive_thru' })
+    ).replace(/\b(?:cafe|coffee)\s+regular\b|\bregular\s+coffee\b/g, ' ')
+    const customerExplicitlySaidRegular =
+      /\b(?:regular|regulares|sencill[oa]s?|normal|normales)\b/.test(latestTurnNoCoffee) &&
+      !CONTAINS_POSITIVE_SUPER_WORD_RE.test(latestTurnRaw)
+    if (customerExplicitlySaidRegular) {
+      item = regCounterpart
+      lockedToRegularByCustomerTurn = true
+    }
+  }
   // Si pidió ambas cortesías sueltas en una sola frase (ej. "cebolla asada y frijol de la olla") sin platillo pagado:
   if (
     item.guid === 'courtesy:item:cebolla_asada' &&
@@ -2709,6 +3434,13 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       )
     }
   }
+  const notesExtract = extractPromotableCondimentsFromNotes(sanitizeNotes(args.notes))
+  for (const noteMod of notesExtract.extractedModifiers) {
+    if (!effectiveRawModifiers.some((em) => normalizeKoreText(em) === normalizeKoreText(noteMod))) {
+      effectiveRawModifiers.push(noteMod)
+    }
+  }
+  let recoveredConTodoFromTurn = false
   const isStandaloneCourtesyItem = Boolean(KORE_COURTESY_STANDALONE_ITEMS[item.guid])
   if (!isStandaloneCourtesyItem) {
     const existingModTokens = new Set(effectiveRawModifiers.flatMap((m) => koreCanonicalTokens(m)))
@@ -2720,6 +3452,45 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     }
     if (res.wantsConTodo && !existingModTokens.has(CON_TODO_TOKEN)) {
       effectiveRawModifiers.push('Con Todo')
+    } else if (
+      !/^(?:medium\s+drinks|large\s+drinks|misc\.?\s+drinks|desserts|sides)$/i.test(item.category.trim()) &&
+      !existingModTokens.has(CON_TODO_TOKEN) &&
+      !(existingModTokens.has('onion') && existingModTokens.has('cilantro')) &&
+      opts?.sessionCustomerTurns?.length
+    ) {
+      const hasPriorSameCategoryLine = state.lines.some(
+        (l) => normalizeKoreText(l.category) === normalizeKoreText(item.category)
+      )
+      const turnsToInspect = hasPriorSameCategoryLine
+        ? [opts.sessionCustomerTurns[opts.sessionCustomerTurns.length - 1]]
+        : opts.sessionCustomerTurns
+      const famWord = /^tacos?$/i.test(item.category)
+        ? 'tacos?'
+        : /burritos?$/i.test(item.category)
+          ? 'burritos?'
+          : /mulitas?$/i.test(item.category)
+            ? 'mulitas?'
+            : /quesadillas?$/i.test(item.category)
+              ? 'quesadillas?'
+              : /tortas?$/i.test(item.category)
+                ? 'tortas?'
+                : /sopes?$/i.test(item.category)
+                  ? 'sopes?'
+                  : ''
+      if (famWord) {
+        const famConTodoRe = new RegExp(
+          `\\b${famWord}(?:\\s+(?:regulares?|regular|sencill[oa]s?|super))?(?:\\s+de)?(?:\\s+[a-z]+){0,2}\\s+(?:con\\s+todo|with\\s+everything)\\b`,
+          'i'
+        )
+        const matchedTurn = turnsToInspect.find((t) => {
+          const nt = normalizeKoreText(normalizeKoreCustomerSpeech(String(t || ''), { mode: 'drive_thru' }))
+          return famConTodoRe.test(nt) && !/\b(?:sin\s+todo|plain|solo\s+carne)\b/.test(nt)
+        })
+        if (matchedTurn) {
+          effectiveRawModifiers.push('Con Todo')
+          recoveredConTodoFromTurn = true
+        }
+      }
     }
   }
   const modRes = resolveModifiers(item, effectiveRawModifiers)
@@ -2735,7 +3506,7 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       available_modifier_groups: item.modifierGroups.map((g) => describeGroup(g))
     })
   }
-  let initialRawNotes = sanitizeNotes(args.notes)
+  let initialRawNotes = notesExtract.cleanedNotes
   if (normalizeKoreText(item.name) === 'coffee') {
     const latestTurnText = opts?.sessionCustomerTurns?.length
       ? String(opts.sessionCustomerTurns[opts.sessionCustomerTurns.length - 1] || '')
@@ -2790,10 +3561,11 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   if (res.droppedTokens.some((t) => SIZE_TOKENS.has(t))) warnings.push(`Size does not apply to ${item.name}; added without size.`)
   const rawNotes = clampedFreeAdd.notes
   const addExplicitSuper =
-    parsedModifiersSplit.hadSuperToken ||
-    CONTAINS_POSITIVE_SUPER_WORD_RE.test(rawName) ||
-    Boolean(rawNotes && STANDALONE_SUPER_HINT_RE.test(rawNotes)) ||
-    Boolean(args.variant && CONTAINS_POSITIVE_SUPER_WORD_RE.test(String(args.variant)))
+    !lockedToRegularByCustomerTurn &&
+    (parsedModifiersSplit.hadSuperToken ||
+      CONTAINS_POSITIVE_SUPER_WORD_RE.test(rawName) ||
+      Boolean(rawNotes && STANDALONE_SUPER_HINT_RE.test(rawNotes)) ||
+      Boolean(args.variant && CONTAINS_POSITIVE_SUPER_WORD_RE.test(String(args.variant))))
   const promotedAdd = tryPromoteRegularLineToSuper({
     item: itemAfterHalf,
     modifiers: clampedFreeAdd.modifiers,
@@ -2802,6 +3574,15 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     notes: rawNotes
   })
   const finalItem = promotedAdd.item
+  const requestedSalsaDecision = Boolean(
+    res.wantsConTodo ||
+      recoveredConTodoFromTurn ||
+      modRes.conTodo ||
+      modRes.needsSalsaChoice ||
+      inlinePrep.needsSalsaChoice ||
+      notesExtract.needsSalsaChoice
+  )
+  const lineNeedsSalsa = requestedSalsaDecision && !lineHasResolvedSalsaChoice(promotedAdd.modifiers)
   const lineNumber = base.nextLineNumber || 1
   const line = recomputeLine({
     lineId: `L${lineNumber}`,
@@ -2815,6 +3596,7 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     unitPriceCents: 0,
     modifiers: promotedAdd.modifiers,
     notes: promotedAdd.notes,
+    ...(lineNeedsSalsa ? { needsSalsaChoice: true } : {}),
     lineTotal: 0,
     lineTotalCents: 0
   })
@@ -2826,15 +3608,19 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   })
   const cheaperAlt = findCheaperRegularAlternativeForSuperLine(finalItem, line.modifiers, line.quantity, menu, opts?.lang)
   const pendingExtra = computeUnfulfilledSessionExtra(next.lines, opts)
+  const salsaExtra = Object.keys(pendingExtra).length === 0 ? computePendingSalsaChoiceExtra(next.lines, opts) : {}
+  const salsaMsgTail =
+    typeof salsaExtra.salsa_choice_instruction === 'string' ? ` ${salsaExtra.salsa_choice_instruction}` : ''
   const exactNoteHint = clampedFreeAdd.exactFreeSidesNote
     ? ` (exact requested quantities recorded in notes: ${clampedFreeAdd.exactFreeSidesNote} — confirm the customer's exact requested numbers warmly, NEVER mention any 7-item system limit!)`
     : ''
-  return ok(next, 'added', `Added ${formatKoreTicketLine(line)}${exactNoteHint}`, opts, {
+  return ok(next, 'added', `Added ${formatKoreTicketLine(line)}${exactNoteHint}${salsaMsgTail}`, opts, {
     line_id: line.lineId,
     ...(promotedAdd.promoted ? { promoted_to_super: true } : {}),
     ...(clampedFreeAdd.exactFreeSidesNote ? { exact_free_sides_note: clampedFreeAdd.exactFreeSidesNote } : {}),
     ...(cheaperAlt ? { cheaper_regular_alternative: { line_id: line.lineId, ...cheaperAlt } } : {}),
     ...pendingExtra,
+    ...salsaExtra,
     ...(warnings.length ? { warnings } : {})
   })
 }
@@ -2891,7 +3677,13 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
       opts?.lang
     )
     const pendingBatchExtra = computeUnfulfilledSessionExtra(working.lines, opts)
-    return ok(working, 'added_batch', batchMsg, opts, {
+    const salsaBatchExtra =
+      Object.keys(pendingBatchExtra).length === 0 ? computePendingSalsaChoiceExtra(working.lines, opts) : {}
+    const batchMsgWithSalsa =
+      typeof salsaBatchExtra.salsa_choice_instruction === 'string'
+        ? `${batchMsg} ${salsaBatchExtra.salsa_choice_instruction}`
+        : batchMsg
+    return ok(working, 'added_batch', batchMsgWithSalsa, opts, {
       added_count: addedLines.length,
       line_ids: lineIds,
       ...(batchAlts.length > 0
@@ -2900,7 +3692,8 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
             ...(batchAlts.length > 1 ? { cheaper_regular_alternatives: batchAlts } : {})
           }
         : {}),
-      ...pendingBatchExtra
+      ...pendingBatchExtra,
+      ...salsaBatchExtra
     })
   }
   const msg = opts?.thirdLanguage
@@ -2991,6 +3784,18 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
       })()
     : line.modifiers.map((m) => ({ ...m }))
 
+  const notesUpdExtract =
+    args.notes !== undefined && sanitizeNotes(args.notes) !== line.notes
+      ? extractPromotableCondimentsFromNotes(sanitizeNotes(args.notes))
+      : { cleanedNotes: args.notes === undefined ? line.notes : sanitizeNotes(args.notes), extractedModifiers: [], needsSalsaChoice: false }
+  for (const nm of notesUpdExtract.extractedModifiers) {
+    if (!effectiveAddCleaned.some((ea) => normalizeKoreText(ea) === normalizeKoreText(nm))) {
+      effectiveAddCleaned.push(nm)
+    }
+  }
+
+  let updRequestedSalsaChoice = Boolean(notesUpdExtract.needsSalsaChoice)
+  let removedPendingSalsaFlag = false
   const errors: string[] = []
   if (modSplit !== null && effectiveModCleaned !== null) {
     if (effectiveModCleaned.length === 0 && (modSplit.hadSuperToken || swappedViaModList)) {
@@ -2999,11 +3804,13 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
       const r = resolveModifiers(activeItem, effectiveModCleaned)
       errors.push(...r.errors)
       modifiers = r.modifiers
+      if (r.conTodo || r.needsSalsaChoice) updRequestedSalsaChoice = true
     }
   }
   if (effectiveAddCleaned.length) {
     const r = resolveModifiers(activeItem, effectiveAddCleaned)
     errors.push(...r.errors)
+    if (r.conTodo || r.needsSalsaChoice) updRequestedSalsaChoice = true
     for (const m of r.modifiers) {
       const existing = modifiers.find((x) => x.guid === m.guid && x.groupGuid === m.groupGuid)
       const grp = activeItem.modifierGroups.find((g) => g.guid === m.groupGuid)
@@ -3020,6 +3827,15 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   if (toRemove.length) {
     for (const rawRem of toRemove) {
       if (switchedSkuManually && isPreviousSkuOrMeatRemovalToken(rawRem, baseItem)) {
+        continue
+      }
+      const remNorm = normalizeKoreText(rawRem)
+      if (/^(?:chile|chiles|salsa|salsas|picante|hot\s+sauce)$/.test(remNorm)) {
+        const hadSalsaMods = modifiers.some((m) => /\bsalsa\s+(?:verde|roja)\b/i.test(m.name))
+        if (hadSalsaMods) {
+          modifiers = modifiers.filter((m) => !/\bsalsa\s+(?:verde|roja)\b/i.test(m.name))
+        }
+        removedPendingSalsaFlag = true
         continue
       }
       const rSingle = resolveModifiers(activeItem, [rawRem])
@@ -3061,7 +3877,7 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   if (errors.length) {
     return fail(state, 'invalid_modifiers', errors.join(' '), opts, { available_modifier_groups: activeItem.modifierGroups.map((g) => describeGroup(g)) })
   }
-  let initialUpdNotes = args.notes === undefined ? line.notes : sanitizeNotes(args.notes)
+  let initialUpdNotes = notesUpdExtract.cleanedNotes
   if (normalizeKoreText(activeItem.name) === 'coffee') {
     const updCombinedMods = [...(effectiveModCleaned || []), ...effectiveAddCleaned].join(' ')
     if (koreCanonicalTokens(updCombinedMods).includes(CAFE_DE_OLLA_TOKEN) || koreCanonicalTokens(rawRequestedName).includes(CAFE_DE_OLLA_TOKEN)) {
@@ -3112,8 +3928,15 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
     notes: rawNotes
   })
   const finalItem = promotedUpd.item
+  const prevNeedsSalsa = Boolean(line.needsSalsaChoice) && !(modSplit !== null && effectiveModCleaned !== null && !updRequestedSalsaChoice)
+  const updatedNeedsSalsa =
+    !removedPendingSalsaFlag &&
+    (prevNeedsSalsa || updRequestedSalsaChoice) &&
+    !lineHasResolvedSalsaChoice(promotedUpd.modifiers)
+  const baseLineClean: KoreOrderLine = { ...line }
+  delete baseLineClean.needsSalsaChoice
   const updated = recomputeLine({
-    ...line,
+    ...baseLineClean,
     itemGuid: finalItem.guid,
     name: finalItem.name,
     category: finalItem.category,
@@ -3121,19 +3944,26 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
     basePriceCents: toKoreCents(finalItem.price),
     quantity: newQty,
     modifiers: promotedUpd.modifiers,
-    notes: promotedUpd.notes
+    notes: promotedUpd.notes,
+    ...(updatedNeedsSalsa ? { needsSalsaChoice: true } : {})
   })
   const lines = state.lines.map((l) => (l.lineId === line.lineId ? updated : l))
   const reopen = reopenWarning(state)
   const next = bump(state, lines, { status: 'building' })
   const cheaperAlt = findCheaperRegularAlternativeForSuperLine(finalItem, updated.modifiers, updated.quantity, menu, opts?.lang)
+  const pendingUpdExtra = computeUnfulfilledSessionExtra(next.lines, opts)
+  const salsaUpdExtra = Object.keys(pendingUpdExtra).length === 0 ? computePendingSalsaChoiceExtra(next.lines, opts) : {}
+  const salsaUpdTail =
+    typeof salsaUpdExtra.salsa_choice_instruction === 'string' ? ` ${salsaUpdExtra.salsa_choice_instruction}` : ''
   const exactNoteHint = clampedFreeUpd.exactFreeSidesNote
     ? ` (exact requested quantities recorded in notes: ${clampedFreeUpd.exactFreeSidesNote} — confirm the customer's exact requested numbers warmly, NEVER mention any 7-item system limit!)`
     : ''
-  return ok(next, 'updated', `Updated ${formatKoreTicketLine(updated)}${exactNoteHint}`, opts, {
+  return ok(next, 'updated', `Updated ${formatKoreTicketLine(updated)}${exactNoteHint}${salsaUpdTail}`, opts, {
     ...(promotedUpd.promoted || switchedSkuManually ? { promoted_to_super: /^super\b/i.test(finalItem.name) } : {}),
     ...(clampedFreeUpd.exactFreeSidesNote ? { exact_free_sides_note: clampedFreeUpd.exactFreeSidesNote } : {}),
     ...(cheaperAlt ? { cheaper_regular_alternative: { line_id: updated.lineId, ...cheaperAlt } } : {}),
+    ...pendingUpdExtra,
+    ...salsaUpdExtra,
     ...(reopen ? { warnings: [reopen] } : {})
   })
 }
@@ -3425,24 +4255,88 @@ function toolConfirm(state: KoreOrderState, opts?: KoreToolOptions): KoreToolOut
       opts
     )
   }
+  const latestTurnText = opts?.sessionCustomerTurns?.length
+    ? String(opts.sessionCustomerTurns[opts.sessionCustomerTurns.length - 1] || '')
+    : ''
+  const customerSaidThatsAll = hasExplicitOrderCompletionOrTotalCue(latestTurnText)
+
+  // 1) Bloquear confirm_order si aún faltan categorías pedidas en la sesión (y el cliente no dijo explícitamente "es todo"):
+  const unfulfilledAtConfirm = computeUnfulfilledSessionExtra(state.lines, opts)
+  if (Array.isArray(unfulfilledAtConfirm.unfulfilled_session_items) && unfulfilledAtConfirm.unfulfilled_session_items.length > 0 && !customerSaidThatsAll) {
+    return fail(
+      state,
+      'incomplete_order_items',
+      String(unfulfilledAtConfirm.pending_items_reminder || 'Finish adding all requested items before calling confirm_order.'),
+      opts,
+      unfulfilledAtConfirm
+    )
+  }
+
+  // 2) Bloquear confirm_order si alguna línea con "con todo" o "con chile/salsa" sigue sin definir salsa verde o roja:
+  let effectiveLinesForConfirm = state.lines
+  const pendingSalsaLines = state.lines.filter((l) => l.needsSalsaChoice === true)
+  if (pendingSalsaLines.length > 0) {
+    const normLatest = normalizeKoreText(normalizeKoreCustomerSpeech(latestTurnText, { mode: 'drive_thru' }))
+    const customerExplicitlyDeclinedSalsa =
+      new RegExp(`\\b(?:${NO_SALSA_TOKEN}|asi\\s+sin\\s+salsa|sin\\s+salsa|no\\s+salsa)\\b`, 'i').test(normLatest)
+    if (customerExplicitlyDeclinedSalsa) {
+      effectiveLinesForConfirm = state.lines.map((l) => {
+        if (!l.needsSalsaChoice) return l
+        const copy = { ...l }
+        delete copy.needsSalsaChoice
+        return copy
+      })
+    } else {
+      const salsaPendingExtra = computePendingSalsaChoiceExtra(state.lines, opts)
+      return fail(
+        state,
+        'missing_salsa_color_choice',
+        String(
+          salsaPendingExtra.salsa_choice_instruction ||
+            'Ask the customer whether they want green salsa or red salsa before confirming the order.'
+        ),
+        opts,
+        salsaPendingExtra
+      )
+    }
+  }
+
+  // 3) Bloquear confirm_order prematuro cuando Kore acaba de agregar/modificar un ítem inicial y el cliente aún NO ha dicho "es todo":
+  if (opts?.mutatedInCurrentTurn === true && !opts?.hadPriorConfirmInSession && !customerSaidThatsAll) {
+    return fail(
+      state,
+      'ask_anything_else_before_confirm',
+      thirdLang
+        ? `Do NOT call confirm_order yet: the customer just added/clarified an item and has not said that is all. Briefly confirm what was added and ask in ${thirdLang.nameEn} if they would like anything else.`
+        : isEn
+          ? 'Do NOT call confirm_order yet: the customer just added/clarified an item and has not said "that\'s all". Briefly acknowledge the item and ask: "Anything else?" first.'
+          : 'Aún NO llames confirm_order: el cliente apenas acaba de agregar o aclarar un platillo y todavía NO ha dicho "es todo" / "sería todo". Confirma brevemente lo agregado en ESPAÑOL y pregunta: "¿Desea algo más?" antes de cerrar el total.',
+      opts
+    )
+  }
+
   const warnings = state.status === 'cancelled' ? ['The order had been cancelled; it is now restored and confirmed.'] : []
   const nextConfirmedVersion = (state.version || 0) + 1
-  const next = bump(state, state.lines, { status: 'confirmed', confirmedAtVersion: nextConfirmedVersion })
+  const next = bump(state, effectiveLinesForConfirm, { status: 'confirmed', confirmedAtVersion: nextConfirmedVersion })
+  const readbackEs = formatKoreSpokenOrderReadback(next, { lang: 'es', taxRatePct: opts?.taxRatePct })
+  const readbackEn = formatKoreSpokenOrderReadback(next, { lang: 'en', taxRatePct: opts?.taxRatePct })
+  const activeReadback = isEn ? readbackEn : readbackEs
   return ok(
     next,
     'confirmed',
     thirdLang
-      ? `Order confirmed (SIMULATION, not sent to the kitchen). In 100% natural ${thirdLang.nameEn}, read back the items + exact USD ($) total and briefly ask if everything looks right; once the customer confirms and there is nothing else, call end_session.`
+      ? `Order confirmed (SIMULATION). MANDATORY FULL READBACK: In 100% natural ${thirdLang.nameEn}, read back EVERY item TOGETHER WITH ALL its requested modifiers, condiments, salsas, exclusions, and prep details (${readbackEn.itemsReadback}) + exact USD ($) total, and ask if everything looks right; once confirmed, call end_session.`
       : isEn
-        ? 'Order confirmed (SIMULATION, not sent to the kitchen). In 100% English ONLY, read back the items + exact total and briefly ask "Does everything look right?"; once the customer confirms and there is nothing else, call end_session to send them to the window and close the car session.'
-        : 'Orden confirmada (SIMULACIÓN). Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés; cuando confirme que no falta nada, llama end_session).',
+        ? `Order confirmed (SIMULATION). MANDATORY FULL READBACK WITH MODIFIERS: In 100% English ONLY, read back EVERY item TOGETHER WITH ALL its requested modifiers, condiments, salsas, exclusions, and prep instructions: "${readbackEn.fullConfirmScript}" (NEVER omit requested condiments/modifiers or merge items that have different modifiers; once the customer confirms, call end_session).`
+        : `Orden confirmada (SIMULACIÓN). LECTURA COMPLETA OBLIGATORIA CON MODIFICADORES Y CONDIMENTOS: Lee en ESPAÑOL cada platillo JUNTO CON TODOS sus modificadores, condimentos, salsas, exclusiones y preparación solicitados: "${readbackEs.fullConfirmScript}" (PROHIBIDO omitir los condimentos/modificadores solicitados o agrupar platillos que llevan distinta preparación; cuando el cliente confirme que está bien, llama end_session).`,
     opts,
     {
+      spoken_readback_script: activeReadback.fullConfirmScript,
       instruction: thirdLang
-        ? `Read back the items + exact USD ($) total 100% in natural ${thirdLang.nameEn} and briefly ask if everything looks right.`
+        ? `Translate and read back EVERY item WITH ALL its requested modifiers and condiments (${readbackEn.itemsReadback}) + exact USD ($) total 100% in natural ${thirdLang.nameEn}, then ask if everything looks right.`
         : isEn
-          ? 'Read back the items + exact total in 100% English ONLY and ask "Does everything look right?".'
-          : 'Lee en ESPAÑOL los artículos y el total exacto en dólares y pregunta brevemente: "¿Está correcta su orden?" (PROHIBIDO hablar en inglés).',
+          ? `Read back EVERY item WITH ALL its requested modifiers and condiments in 100% English ONLY: "${readbackEn.fullConfirmScript}"`
+          : `Lee en ESPAÑOL cada artículo CON TODOS sus modificadores y condimentos solicitados: "${readbackEs.fullConfirmScript}" (PROHIBIDO omitir condimentos/modificadores o hablar en inglés).`,
       ...(warnings.length ? { warnings } : {})
     }
   )
@@ -3546,6 +4440,19 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
     }
   }
   if (state.lines.length > 0) {
+    if (state.lines.some((l) => l.needsSalsaChoice === true)) {
+      const salsaPendingExtra = computePendingSalsaChoiceExtra(state.lines, opts)
+      return fail(
+        state,
+        'missing_salsa_color_choice',
+        String(
+          salsaPendingExtra.salsa_choice_instruction ||
+            'Ask the customer whether they want green salsa or red salsa before ending the session.'
+        ),
+        opts,
+        { should_end_session: false, ...salsaPendingExtra }
+      )
+    }
     const versionMismatch =
       state.confirmedAtVersion !== undefined &&
       state.confirmedAtVersion !== null &&
@@ -3855,7 +4762,9 @@ export function applyKoreTool(
             current.sessionKind === 'driver_pickup' && current.driverPickup?.orders.length
               ? `Driver pickup (${current.driverPickup.platform}, ${current.driverPickup.orders.length} order(s)).`
               : current.lines.length
-                ? 'Current order.'
+                ? opts?.lang === 'en'
+                  ? `Current order (when repeating the order to the customer, ALWAYS include ALL requested modifiers, condiments, salsas, and prep details on each item: ${formatKoreSpokenOrderReadback(current, { lang: 'en', taxRatePct: opts?.taxRatePct }).itemsReadback}).`
+                  : `Orden actual (al repetirle la orden al cliente, menciona SIEMPRE cada platillo CON TODOS sus modificadores, condimentos, salsas y preparación solicitados: ${formatKoreSpokenOrderReadback(current, { lang: 'es', taxRatePct: opts?.taxRatePct }).itemsReadback}).`
                 : 'The order is empty.',
             { ...opts, menu: safeMenu, includeTicketCheaperAlternatives: true }
           )
@@ -4006,6 +4915,7 @@ export function rebuildKoreOrderFromMenu(raw: unknown, menu: KoreMenuItem[]): { 
       unitPriceCents: 0,
       modifiers: mods,
       notes: sanitizeNotes(rl?.notes),
+      ...(rl?.needsSalsaChoice === true && !lineHasResolvedSalsaChoice(mods) ? { needsSalsaChoice: true } : {}),
       lineTotal: 0,
       lineTotalCents: 0
     })
