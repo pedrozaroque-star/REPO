@@ -525,6 +525,8 @@ export class KoreNoiseGate {
     private closedStreakChunks = 0
     private continuousOpenWithoutNearPeakChunks = 0
     private recentOpenAvgRms = 0
+    private postSpeechSilenceChunks = 0
+    private idleKeepaliveCounter = 0
     private silenceCache = new Map<number, ArrayBuffer>()
 
     constructor(opts?: {
@@ -622,6 +624,8 @@ export class KoreNoiseGate {
         this.closedStreakChunks = 0
         this.continuousOpenWithoutNearPeakChunks = 0
         this.recentOpenAvgRms = 0
+        this.postSpeechSilenceChunks = 0
+        this.idleKeepaliveCounter = 0
     }
 
     /**
@@ -667,6 +671,8 @@ export class KoreNoiseGate {
         this.closedStreakChunks = 0
         this.continuousOpenWithoutNearPeakChunks = 0
         this.recentOpenAvgRms = 0
+        this.postSpeechSilenceChunks = 0
+        this.idleKeepaliveCounter = 0
     }
 
     private getSilence(byteLength: number): ArrayBuffer {
@@ -804,6 +810,8 @@ export class KoreNoiseGate {
             const chunksToSend = !this.open && this.preRollQueue.length > 0 ? [...this.preRollQueue, pcm] : [pcm]
             this.preRollQueue = []
             this.open = true
+            this.postSpeechSilenceChunks = 0
+            this.idleKeepaliveCounter = 0
             this.holdRemaining = this.holdChunks
             return {
                 chunksToSend,
@@ -849,8 +857,24 @@ export class KoreNoiseGate {
             }
         }
         this.pushPreRoll(pcm)
+        if (speechJustEnded) {
+            // 40 chunks * 32 ms = 1,280 ms de cola silenciosa exacta para cerrar VAD servidor (1,150 ms) y luego 0 chunks en reposo
+            this.postSpeechSilenceChunks = 40
+            this.idleKeepaliveCounter = 0
+        }
+        let idleChunksToSend: ArrayBuffer[] = []
+        if (this.postSpeechSilenceChunks > 0) {
+            this.postSpeechSilenceChunks -= 1
+            idleChunksToSend = [this.getSilence(pcm.byteLength)]
+        } else {
+            this.idleKeepaliveCounter += 1
+            if (this.idleKeepaliveCounter >= 450) {
+                this.idleKeepaliveCounter = 0
+                idleChunksToSend = [this.getSilence(pcm.byteLength)]
+            }
+        }
         return {
-            chunksToSend: [this.getSilence(pcm.byteLength)],
+            chunksToSend: idleChunksToSend,
             effectiveRms: 0,
             effectiveThresholdRms: this.effectiveThresholdRms,
             ambientFloorRms: this.ambientFloorRms,

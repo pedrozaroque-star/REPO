@@ -38,6 +38,14 @@
  *   `detectKoreCashierVerbalTakeoverCue(text)` para instalaciones de un solo cable en `J7` (`Ceiling Speaker A channel`) y
  *   señales silenciosas `KORE_HUMAN_TAKEOVER_OBSERVER_CUE` / `buildKoreHumanTakeoverReleaseCue` para silenciar la voz y tools
  *   de Kore mientras continúa la transcripción pasiva de la situación anómala.
+ * - **Café de Olla + Café Regular (`Coffee` 16 oz = $2.59) y Modificadores In-Store Toast POS (Fase 28)**:
+ *   * `Coffee` abarca tanto **Café de Olla tradicional** (con nota automática `Café de Olla`) como **Café Regular** todo el día;
+ *     `Champurrado` distingue vaso individual de `16 oz` (`$4.09`) vs Caja para Llevar `96 oz` (`$27.89`) cuando piden `"champurrado grande"`.
+ *   * Los 32 SKUs de Burrito con carne (`Burritos`, `Super Burritos`, `Meat Only Burritos`, `Meat Only Super Burritos`) soportan
+ *     **mitad y mitad (50%/50%)** sin cargo extra (`$0.00`) usando los GUIDs oficiales de caja Toast (`Half Asada..Carnitas`),
+ *     eligiendo siempre el SKU base de mayor precio si difieren y registrando `MITAD <CARNE 1> / MITAD <CARNE 2>` en notas.
+ *   * Opciones de preparación en caja (`Carne Dorada`, `Tortilla Dorada`, `Pan Dorado`, `Sope Dorado`, `Partido en Dos`, `Partido 4`)
+ *     soportadas a `$0.00` con GUIDs reales de Toast POS.
  * - Simulación pura: NADA se envía a Toast (la llave no tiene `orders:write`).
  *
  * @dataFlow
@@ -207,6 +215,30 @@ export interface KoreDriverPickupOrder {
   packedAndSealed?: boolean
 }
 
+export const KORE_BURRITO_HALF_MEAT_GROUP_GUID = 'instore:group:burrito_half_meat'
+export const KORE_BURRITO_HALF_MEAT_GROUP_NAME = 'Half Meat (50/50)'
+export const KORE_BURRITO_HALF_MEAT_OPTIONS: ReadonlyArray<KoreModifierOption> = Object.freeze([
+  { guid: 'ed889228-98e7-4c49-bc46-8e0718ec1fcf', name: 'Half Asada', price: 0 },
+  { guid: '8717b04b-62c0-4276-96e9-d86430b32b64', name: 'Half Pastor', price: 0 },
+  { guid: '37c0cb59-fa76-4b81-b327-cd96784d9f78', name: 'Half Pollo', price: 0 },
+  { guid: '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', name: 'Half Chorizo', price: 0 },
+  { guid: 'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', name: 'Half Cabeza', price: 0 },
+  { guid: 'fbe42d67-a0f8-481f-bb28-e1717075c290', name: 'Half Lengua', price: 0 },
+  { guid: 'b52ffce5-cc66-4930-bb96-70891c41643e', name: 'Half Buche', price: 0 },
+  { guid: '443938bb-ec20-4a64-9fa3-91d4f89de0a5', name: 'Half Carnitas', price: 0 }
+])
+
+export const KORE_PREP_OPTIONS_GROUP_GUID = 'instore:group:prep_options'
+export const KORE_PREP_OPTIONS_GROUP_NAME = 'Prep Options'
+export const KORE_PREP_OPTIONS: ReadonlyArray<KoreModifierOption> = Object.freeze([
+  { guid: 'fca71922-7566-4944-bad9-390ffa9d54c4', name: 'Carne Dorada', price: 0 },
+  { guid: 'a6bf49fa-0b7d-4866-8b18-8bce11039135', name: 'Tortilla Dorada', price: 0 },
+  { guid: '68379ca0-ae68-4009-9988-e2aee734aa9c', name: 'Pan Dorado', price: 0 },
+  { guid: 'f1fbc8dc-b7c1-4ea7-b3cd-199b27b6148d', name: 'Sope Dorado', price: 0 },
+  { guid: 'fda015b4-3d96-4ac9-ade8-a411eb4e747b', name: 'Partido en Dos', price: 0 },
+  { guid: 'e579b7d9-3af5-4ee6-85ed-08ad8b741c1f', name: 'Partido 4', price: 0 }
+])
+
 export const KORE_COURTESY_GROUP_GUID = 'courtesy:free_condiments'
 export const KORE_COURTESY_GROUP_NAME = 'Side Condiments (Cortesía)'
 
@@ -331,6 +363,8 @@ export interface KoreToolOptions {
   lang?: 'es' | 'en'
   /** `true` cuando `confirm_order` se ejecutó en este mismo turno del modelo sin respuesta verbal posterior del cliente; bloquea `end_session` prematuro para obligar a leer el total en USD primero. */
   confirmedInCurrentTurn?: boolean
+  /** `true` cuando Kore ya leyó verbalmente en un turno previo el nuevo total exacto tras una edición post-confirmación y el cliente ya aceptó; permite auto-confirmar al cerrar sesión sin doble rechazo. */
+  allowImplicitConfirmOnEndSession?: boolean
   /** Menú activo opcional para adjuntar `cheaper_regular_alternative` en resúmenes (`get_order` / `confirm_order`). */
   menu?: KoreMenuItem[]
   /** Si `true`, `orderSummary` adjunta `cheaper_regular_alternative` a nivel de ticket completo (`get_order` / `confirm_order`). */
@@ -341,6 +375,14 @@ export interface KoreToolOptions {
   unfulfilledSessionCategories?: string[]
   /** Historial opcional de turnos del cliente en la sesión para calcular automáticamente ítems pendientes. */
   sessionCustomerTurns?: string[]
+  /** Base de conocimiento en RAM opcional para resolver dudas de horarios/catering/políticas/empleo en <1 ms dentro de search_menu. */
+  knowledge?: ReadonlyArray<{
+    category?: string
+    title?: string
+    titleEn?: string
+    answerEs?: string
+    answerEn?: string
+  }>
 }
 
 /** Platillos exclusivos de desayuno: categoría Toast `Breakfast` (bebidas como Coffee/Champurrado viven en `Misc. Drinks`). */
@@ -380,7 +422,7 @@ const MAX_TAX_RATE_PCT = 20
 export const KORE_TOOL_DECLARATIONS = [
   {
     name: 'add_item',
-    behavior: 'BLOCKING',
+    behavior: 'NON_BLOCKING',
     description:
       'Add a menu item to the drive-thru order. Use the exact menu item name when possible (e.g. "Taco Asada", "Super Burrito Pollo", "Medium Horchata", "Large Piña"). Always call this instead of adding items from memory. Returns the updated ticket and totals, or an error with real menu suggestions/options that you must ask the customer about.',
     parameters: {
@@ -401,7 +443,7 @@ export const KORE_TOOL_DECLARATIONS = [
   },
   {
     name: 'add_items',
-    behavior: 'BLOCKING',
+    behavior: 'NON_BLOCKING',
     description:
       'Add MULTIPLE menu items in ONE single round-trip whenever the customer orders 2 or more items at once (faster than calling add_item repeatedly). Valid items are added immediately and any ambiguous/missing item is reported back for clarification.',
     parameters: {
@@ -427,7 +469,7 @@ export const KORE_TOOL_DECLARATIONS = [
   },
   {
     name: 'update_item',
-    behavior: 'BLOCKING',
+    behavior: 'NON_BLOCKING',
     description:
       'Change an existing ticket line (quantity, modifiers or notes) using its line_id (e.g. "L2"). "modifiers" REPLACES all modifiers; use add_modifiers/remove_modifiers for partial changes.',
     parameters: {
@@ -445,7 +487,7 @@ export const KORE_TOOL_DECLARATIONS = [
   },
   {
     name: 'remove_item',
-    behavior: 'BLOCKING',
+    behavior: 'NON_BLOCKING',
     description:
       'Remove a ticket line by line_id (preferred) or by item_name. Optional quantity removes only that many pieces from the line.',
     parameters: {
@@ -466,7 +508,7 @@ export const KORE_TOOL_DECLARATIONS = [
     name: 'search_menu',
     behavior: 'BLOCKING',
     description:
-      'Search the real store menu for items, prices and modifier options (use it to answer price questions or before adding an item you are unsure about).',
+      'Search the store menu (items, prices, modifiers) AND store knowledge base (hours, address, Fiesta Platter catering packages, employment, payment/delivery policies) in RAM (<1 ms).',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -477,7 +519,7 @@ export const KORE_TOOL_DECLARATIONS = [
   },
   {
     name: 'register_driver_pickup',
-    behavior: 'BLOCKING',
+    behavior: 'NON_BLOCKING',
     description:
       'Look up and register a delivery driver picking up 1 or MULTIPLE platform orders in the same vehicle (DoorDash, Uber Eats, Grubhub, Caviar, Postmates, Tacos Gavilan, Other) against live Delivery Armor status, and direct them to Drive-Thru Window 2 (ventana 2). Total is $0.00.',
     parameters: {
@@ -515,7 +557,7 @@ export const KORE_TOOL_DECLARATIONS = [
   },
   {
     name: 'cancel_order',
-    behavior: 'BLOCKING',
+    behavior: 'NON_BLOCKING',
     description:
       'Cancel the whole order when the customer explicitly asks to cancel, OR when they decide to go inside to the dining-room counter to pay with EBT (EBT is not accepted at the Drive-Thru). Pass a short reason (e.g. "EBT: pasa al comedor").',
     parameters: {
@@ -653,6 +695,7 @@ export function normalizeKoreText(input: unknown): string {
 const CON_TODO_TOKEN = 'zzcontodo'
 const COURTESY_CEBOLLA_ASADA_TOKEN = 'zzcebollaasada'
 const COURTESY_FRIJOL_OLLA_TOKEN = 'zzfrijoldelaolla'
+const CAFE_DE_OLLA_TOKEN = 'zzcafedeolla'
 const COURTESY_CONTAINER_TOKENS = new Set([
   'side', 'vasito', 'vasitos', 'vaso', 'vasos', 'porcion', 'porciones', 'porcione', 'bolsita', 'bolsitas',
   'cortesia', 'cortesias', 'gratis', 'grati', 'free', 'cup', 'cups', 'orden', 'ordenes', 'ordene',
@@ -679,6 +722,12 @@ const PHRASE_REWRITES: Array<[RegExp, string]> = [
   [/\bstrawberry soda\b/g, 'strawberry fanta'],
   [/\bte (?:helado|frio)\b/g, 'iced tea'],
   [/\bice tea\b/g, 'iced tea'],
+  [
+    /\b(?:cafecito|cafe|coffee)\s+(?:de\s+(?:la\s+)?(?:olla|hoya)|mexicano|tradicional(?:\s+de\s+olla)?|con\s+canela(?:\s+y\s+piloncillo)?)\b/g,
+    ` coffee ${CAFE_DE_OLLA_TOKEN} `
+  ],
+  [/\b(?:spiced\s+mexican|mexican\s+spiced|mexican|cinnamon|olla|hoya)\s+coffee\b/g, ` coffee ${CAFE_DE_OLLA_TOKEN} `],
+  [/\bfe\s+de\s+(?:la\s+)?(?:olla|hoya)\b/g, ` coffee ${CAFE_DE_OLLA_TOKEN} `],
   [/\bcafecito\b/g, 'coffee'],
   [/\bcafe\b/g, 'coffee'],
   [/\blimonada\b/g, 'lemonade'],
@@ -704,7 +753,15 @@ const PHRASE_REWRITES: Array<[RegExp, string]> = [
   [/\b(?:sin|without|hold the|hold)\b/g, 'no'],
   [/\btortillas? de harina\b/g, 'flour tortilla'],
   [/\btortillas? de maiz\b/g, 'corn tortilla'],
-  [/\b(?:mitad y mitad|mitad harina mitad maiz|half and half|mixtas?|mixed|combinadas?)\b/g, 'half flour corn'],
+  [
+    /\b(?:tortillas?\s+(?:mitad\s+y\s+mitad|half\s+and\s+half|mixtas?|mixed|combinadas?)|mitad\s+harina\s+(?:y\s+)?mitad\s+maiz|mitad\s+maiz\s+(?:y\s+)?mitad\s+harina|half\s+flour\s+(?:and\s+)?half\s+corn|half\s+corn\s+(?:and\s+)?half\s+flour)\b/g,
+    'half flour corn'
+  ],
+  [/\b(?:carne\s+bien\s+dorad[ao]s?|bien\s+dorad[ao]s?\s+la\s+carne|(?:crispy|extra\s+crispy|well\s+done)\s+meat)\b/g, 'carne dorada'],
+  [/\b(?:tortillas?\s+bien\s+dorad[ao]s?|crispy\s+tortillas?)\b/g, 'tortilla dorada'],
+  [/\b(?:pan\s+bien\s+dorad[ao]s?|teleras?\s+(?:bien\s+)?dorad[ao]s?|toasted\s+(?:bread|bun|roll))\b/g, 'pan dorado'],
+  [/\b(?:partid[oa]s?\s+(?:en\s+(?:dos|2)|a\s+la\s+mitad)|cortad[oa]s?\s+(?:en\s+(?:dos|2)|a\s+la\s+mitad)|cut\s+in\s+(?:half|two|2)|split\s+in\s+(?:half|two|2))\b/g, 'partido en dos'],
+  [/\b(?:partid[oa]s?\s+en\s+(?:cuatro|4)|cortad[oa]s?\s+en\s+(?:cuatro|4)|cut\s+in\s+(?:four|4|quarters))\b/g, 'partido 4'],
   [/\b(?:huevos? )?revueltos?\b/g, 'scrambled'],
   [/\b(?:huevos? )?estrellados?\b/g, 'sunny side up'],
   [/\b(?:huevos? )?volteados?\b/g, 'over easy'],
@@ -762,6 +819,10 @@ const TOKEN_CANON: Record<string, string> = {
   papitas: 'chips', totopos: 'chips', chip: 'chips', chips: 'chips',
   guac: 'guacamole', guacamole: 'guacamole', aguacate: 'guacamole', avocado: 'guacamole',
   doble: 'double', double: 'double',
+  mitad: 'half', mitades: 'half', half: 'half',
+  dorado: 'dorada', dorados: 'dorada', doradas: 'dorada', dorada: 'dorada',
+  doradita: 'dorada', doradito: 'dorada', doraditas: 'dorada', doraditos: 'dorada',
+  partido: 'partido', partida: 'partido', partidos: 'partido', partidas: 'partido', cortado: 'partido', cortada: 'partido',
   mexican: 'mexicana', mexicana: 'mexicana', mexicano: 'mexicana',
   nacho: 'nacho', nachos: 'nacho',
   soda: 'soda_generic', sodas: 'soda_generic', refresco: 'soda_generic', refrescos: 'soda_generic',
@@ -1035,6 +1096,38 @@ export function mapAppMenuRowsToKoreMenu(
       if (maxSelections > 0 && minSelections > maxSelections) minSelections = maxSelections
       groups.push({ guid: gGuid, name: gName, required: required || minSelections > 0, minSelections, maxSelections, multiSelect, options })
     }
+    const isMeatBurritoForHalf =
+      /^(?:meat\s+only\s+)?(?:super\s+)?burritos$/i.test(category.trim()) &&
+      /\b(?:asada|pastor|pollo|chorizo|cabeza|lengua|buche|carnitas)\b/i.test(name) &&
+      !groups.some((g) => g.guid === KORE_BURRITO_HALF_MEAT_GROUP_GUID)
+    if (isMeatBurritoForHalf) {
+      groups.push({
+        guid: KORE_BURRITO_HALF_MEAT_GROUP_GUID,
+        name: KORE_BURRITO_HALF_MEAT_GROUP_NAME,
+        required: false,
+        minSelections: 0,
+        maxSelections: 1,
+        multiSelect: false,
+        options: KORE_BURRITO_HALF_MEAT_OPTIONS.map((o) => ({ ...o }))
+      })
+    }
+
+    const isPreparedFoodForPrepOpts =
+      /^(?:tacos?|taco\s+plates?|(?:meat\s+only\s+)?(?:super\s+)?burritos?|(?:super\s+)?quesadillas?|(?:super\s+)?mulitas?|tortas?|sopes?|platos?|super\s+nachos?|breakfast)$/i.test(
+        category.trim()
+      ) && !groups.some((g) => g.guid === KORE_PREP_OPTIONS_GROUP_GUID)
+    if (isPreparedFoodForPrepOpts) {
+      groups.push({
+        guid: KORE_PREP_OPTIONS_GROUP_GUID,
+        name: KORE_PREP_OPTIONS_GROUP_NAME,
+        required: false,
+        minSelections: 0,
+        maxSelections: 3,
+        multiSelect: true,
+        options: KORE_PREP_OPTIONS.map((o) => ({ ...o }))
+      })
+    }
+
     items.push({ guid, name, category, price: centsToDollars(priceCents), description, modifierGroups: groups })
   }
   return items
@@ -1054,6 +1147,8 @@ export interface KoreItemResolution {
   wantsConTodo: boolean
   wantsCebollaAsada?: boolean
   wantsFrijolOlla?: boolean
+  wantsCafeDeOlla?: boolean
+  askedChampurradoSize?: boolean
   askedSmallSize: boolean
 }
 
@@ -1091,6 +1186,8 @@ export function resolveKoreMenuItem(menu: KoreMenuItem[], rawName: unknown): Kor
     wantsConTodo: false,
     wantsCebollaAsada: false,
     wantsFrijolOlla: false,
+    wantsCafeDeOlla: false,
+    askedChampurradoSize: false,
     askedSmallSize: false
   }
   if (!text) return empty
@@ -1104,8 +1201,13 @@ export function resolveKoreMenuItem(menu: KoreMenuItem[], rawName: unknown): Kor
   const wantsConTodo = allTokens.includes(CON_TODO_TOKEN)
   const wantsCebollaAsada = allTokens.includes(COURTESY_CEBOLLA_ASADA_TOKEN)
   const wantsFrijolOlla = allTokens.includes(COURTESY_FRIJOL_OLLA_TOKEN)
+  const wantsCafeDeOlla = allTokens.includes(CAFE_DE_OLLA_TOKEN)
   let tokens = allTokens.filter(
-    (t) => t !== CON_TODO_TOKEN && t !== COURTESY_CEBOLLA_ASADA_TOKEN && t !== COURTESY_FRIJOL_OLLA_TOKEN
+    (t) =>
+      t !== CON_TODO_TOKEN &&
+      t !== COURTESY_CEBOLLA_ASADA_TOKEN &&
+      t !== COURTESY_FRIJOL_OLLA_TOKEN &&
+      t !== CAFE_DE_OLLA_TOKEN
   )
   const askedSmallSize = tokens.includes('small')
 
@@ -1125,9 +1227,39 @@ export function resolveKoreMenuItem(menu: KoreMenuItem[], rawName: unknown): Kor
     }
   }
 
+  // Champurrado con tamaño ambiguo ("champurrado grande / mediano / chico") sin especificar vaso 16 oz vs Caja 96 oz:
+  if (
+    tokens.includes('champurrado') &&
+    (tokens.includes('large') || tokens.includes('medium') || tokens.includes('small')) &&
+    !tokens.includes('box') &&
+    !/\b(?:16|96)\s*(?:oz|onzas?)?\b|\b(?:vaso|vasito|cup|individual|caja|box|termico)\b/i.test(speechNormalized)
+  ) {
+    const champ16 = safeMenu.find((m) => normalizeKoreText(m.name) === 'champurrado')
+    const champBox = safeMenu.find(
+      (m) =>
+        m.guid !== champ16?.guid &&
+        koreCanonicalTokens(m.name).includes('champurrado') &&
+        (koreCanonicalTokens(m.name).includes('box') || /96/i.test(m.name))
+    )
+    if (champ16 && champBox) {
+      return {
+        ...empty,
+        ambiguous: [champ16, champBox],
+        wantsConTodo,
+        wantsCebollaAsada,
+        wantsFrijolOlla,
+        wantsCafeDeOlla,
+        askedChampurradoSize: true,
+        askedSmallSize: false
+      }
+    }
+  }
+
   const norm = normalizeKoreText(speechNormalized)
   const exact = safeMenu.filter((m) => normalizeKoreText(m.name) === norm)
-  if (exact.length === 1) return { ...empty, item: exact[0] }
+  if (exact.length === 1) {
+    return { ...empty, item: exact[0], wantsConTodo, wantsCebollaAsada, wantsFrijolOlla, wantsCafeDeOlla, askedSmallSize }
+  }
 
   // Evitar confundir "plato de tres tacos [de asada]" con "Plato Asada": siempre es Taco Plate ($9.69)
   if (tokens.includes('taco') && tokens.includes('plate')) {
@@ -1156,11 +1288,20 @@ export function resolveKoreMenuItem(menu: KoreMenuItem[], rawName: unknown): Kor
       wantsConTodo,
       wantsCebollaAsada,
       wantsFrijolOlla,
+      wantsCafeDeOlla,
       askedSmallSize
     }
   }
   if (pick.ambiguous.length > 0) {
-    return { ...empty, ambiguous: pick.ambiguous.map((r) => r.value), wantsConTodo, wantsCebollaAsada, wantsFrijolOlla, askedSmallSize }
+    return {
+      ...empty,
+      ambiguous: pick.ambiguous.map((r) => r.value),
+      wantsConTodo,
+      wantsCebollaAsada,
+      wantsFrijolOlla,
+      wantsCafeDeOlla,
+      askedSmallSize
+    }
   }
   // Sugerencias: coincidencia parcial por nombre o por categoría (ej. "pastel" => Desserts: Flan, Cheesecake).
   const catCands: Candidate<KoreMenuItem>[] = safeMenu.map((it) => ({
@@ -1169,7 +1310,7 @@ export function resolveKoreMenuItem(menu: KoreMenuItem[], rawName: unknown): Kor
     label: it.name
   }))
   const partial = rankCandidates(tokens, catCands).slice(0, 6).map((r) => r.value)
-  return { ...empty, suggestions: partial, wantsConTodo, wantsCebollaAsada, wantsFrijolOlla, askedSmallSize }
+  return { ...empty, suggestions: partial, wantsConTodo, wantsCebollaAsada, wantsFrijolOlla, wantsCafeDeOlla, askedSmallSize }
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,6 +1327,7 @@ interface ModifierResolution {
   errors: string[]
   warnings: string[]
   conTodo: boolean
+  cafeDeOlla?: boolean
 }
 
 function describeOption(o: KoreModifierOption): string {
@@ -1227,6 +1369,9 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
   const errors: string[] = []
   const warnings: string[] = []
   let conTodo = false
+  let cafeDeOlla = false
+  const isCoffeeItem = normalizeKoreText(item.name) === 'coffee'
+  const hasTortillasGroup = item.modifierGroups.some((g) => normalizeKoreText(g.name) === 'tortillas')
   const refs: OptionRef[] = []
   for (const g of item.modifierGroups) for (const o of g.options) refs.push({ group: g, option: o })
   const cands: Candidate<OptionRef>[] = refs.map((r) => ({ value: r, tokens: koreCanonicalTokens(r.option.name), label: r.option.name }))
@@ -1252,7 +1397,27 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
         scopedCands = cands.filter((c) => allowedGuids.has(c.value.group.guid))
       }
     }
-    const { qty, rest } = splitLeadingQuantity(text)
+    const { qty, rest: rawRest } = splitLeadingQuantity(text)
+    let rest = rawRest
+    if (
+      hasTortillasGroup &&
+      /^(?:mitad\s+y\s+mitad|half\s+and\s+half|mixtas?|mixed|combinadas?)$/i.test(rest)
+    ) {
+      rest = 'half flour corn'
+    }
+    if (isCoffeeItem) {
+      const coffeeModTokens = koreCanonicalTokens(rest)
+      if (
+        coffeeModTokens.includes(CAFE_DE_OLLA_TOKEN) ||
+        /^(?:cafe\s+de\s+(?:la\s+)?(?:olla|hoya)|de\s+(?:la\s+)?olla|olla|spiced(?:\s+mexican)?|mexican(?:\s+coffee)?)$/i.test(rest)
+      ) {
+        cafeDeOlla = true
+        continue
+      }
+      if (/^(?:cafe\s+)?regular$/i.test(rest)) {
+        continue
+      }
+    }
     const times = qty === null ? 1 : qty
     if (!Number.isInteger(times) || times < 1 || times > 25) {
       errors.push(`Invalid repeat count in modifier "${raw}".`)
@@ -1355,7 +1520,7 @@ function resolveModifiers(item: KoreMenuItem, rawList: string[]): ModifierResolu
       quantity: qty
     })
   }
-  return { modifiers, errors, warnings, conTodo }
+  return { modifiers, errors, warnings, conTodo, cafeDeOlla }
 }
 
 /** Valida min/max/requerido por grupo. Devuelve errores legibles para el modelo. */
@@ -1597,7 +1762,11 @@ const STANDALONE_SUPER_HINT_RE = /^\s*(?:haz(?:lo|la)?\s+|make\s+it\s+|cambiar?\
 const CONTAINS_POSITIVE_SUPER_WORD_RE = /(?<!\b(?:no|not|sin)\s+)\b(?:s[uú]per|suprem[oa]s?|supreme)\b/i
 
 function findSuperCounterpartInMenu(regularItem: KoreMenuItem, menu: KoreMenuItem[]): KoreMenuItem | null {
-  if (/^super\b/i.test(regularItem.name)) return null
+  if (/^super\b/i.test(regularItem.name) || /^meat\s+only\s+super\b/i.test(regularItem.name)) return null
+  if (/^meat\s+only\s+burrito\b/i.test(regularItem.name)) {
+    const targetMeatOnlyNorm = normalizeKoreText(regularItem.name.replace(/^meat\s+only\s+burrito\b/i, 'Meat Only Super Burrito'))
+    return menu.find((m) => normalizeKoreText(m.name) === targetMeatOnlyNorm) || null
+  }
   if (!/^(?:burrito|quesadilla|mulita)\b/i.test(regularItem.name)) return null
   const targetNorm = normalizeKoreText(`Super ${regularItem.name}`)
   return menu.find((m) => normalizeKoreText(m.name) === targetNorm) || null
@@ -1903,6 +2072,334 @@ function autoClampOptionalFreeGroupsWithNote(
   }
 }
 
+interface BurritoHalfMeatDef {
+  key: string
+  display: string
+  halfOptionName: string
+  re: RegExp
+}
+
+const BURRITO_HALF_MEAT_DEFS: ReadonlyArray<BurritoHalfMeatDef> = Object.freeze([
+  { key: 'asada', display: 'Asada', halfOptionName: 'Half Asada', re: /\b(?:carne\s+asada|asada|steak|beef)\b/gi },
+  { key: 'pastor', display: 'Pastor', halfOptionName: 'Half Pastor', re: /\b(?:al\s+pastor|pastor|adobad[ao]s?)\b/gi },
+  { key: 'pollo', display: 'Pollo', halfOptionName: 'Half Pollo', re: /\b(?:pollo|chicken)\b/gi },
+  { key: 'chorizo', display: 'Chorizo', halfOptionName: 'Half Chorizo', re: /\b(?:chorizo|sausage)\b/gi },
+  { key: 'cabeza', display: 'Cabeza', halfOptionName: 'Half Cabeza', re: /\b(?:cabeza|beef\s+head)\b/gi },
+  { key: 'lengua', display: 'Lengua', halfOptionName: 'Half Lengua', re: /\b(?:lengua|lingua|tongue)\b/gi },
+  { key: 'buche', display: 'Buche', halfOptionName: 'Half Buche', re: /\b(?:buche|pork\s+maw)\b/gi },
+  { key: 'carnitas', display: 'Carnitas', halfOptionName: 'Half Carnitas', re: /\b(?:carnitas?)\b/gi }
+])
+
+function extractDistinctBurritoMeatsInOrder(text: string): BurritoHalfMeatDef[] {
+  const norm = normalizeKoreText(normalizeKoreCustomerSpeech(text, { mode: 'drive_thru' }))
+  if (!norm) return []
+  const hits: Array<{ idx: number; def: BurritoHalfMeatDef }> = []
+  for (const def of BURRITO_HALF_MEAT_DEFS) {
+    const re = new RegExp(def.re.source, 'i')
+    const m = re.exec(norm)
+    if (m) hits.push({ idx: m.index, def })
+  }
+  hits.sort((a, b) => a.idx - b.idx)
+  const out: BurritoHalfMeatDef[] = []
+  for (const h of hits) {
+    if (!out.some((x) => x.key === h.def.key)) out.push(h.def)
+  }
+  return out
+}
+
+function findBurritoMeatDef(text: string): BurritoHalfMeatDef | null {
+  const found = extractDistinctBurritoMeatsInOrder(text)
+  return found.length > 0 ? found[0] : null
+}
+
+function upsertHalfMeatNote(existingNotes: string | undefined, meatA: BurritoHalfMeatDef, meatB: BurritoHalfMeatDef): string | undefined {
+  const label = `MITAD ${meatA.display.toUpperCase()} / MITAD ${meatB.display.toUpperCase()}`
+  const cleaned = existingNotes
+    ? existingNotes
+        .replace(/\bMITAD\s+[A-ZÁÉÍÓÚÑ]+\s*\/\s*MITAD\s+[A-ZÁÉÍÓÚÑ]+\b\s*(?:[—;,-]\s*)?/gi, '')
+        .replace(/^[\s—;,-]+|[\s—;,-]+$/g, '')
+        .trim()
+    : ''
+  return sanitizeNotes(cleaned ? `${label} — ${cleaned}` : label)
+}
+
+function removeHalfMeatNote(existingNotes: string | undefined): string | undefined {
+  if (!existingNotes) return undefined
+  const cleaned = existingNotes
+    .replace(/\bMITAD\s+[A-ZÁÉÍÓÚÑ]+\s*\/\s*MITAD\s+[A-ZÁÉÍÓÚÑ]+\b\s*(?:[—;,-]\s*)?/gi, '')
+    .replace(/^[\s—;,-]+|[\s—;,-]+$/g, '')
+    .trim()
+  return sanitizeNotes(cleaned)
+}
+
+function upsertCafeDeOllaNote(existingNotes: string | undefined): string | undefined {
+  const base = existingNotes ? existingNotes.trim() : ''
+  if (/\bcaf[eé]\s+de\s+(?:la\s+)?olla\b/i.test(base)) return sanitizeNotes(base)
+  return sanitizeNotes(base ? `Café de Olla — ${base}` : 'Café de Olla')
+}
+
+function extractInlinePrepModifiersFromItemName(rawItemQuery: string): { cleanedQuery: string; prepModifiers: string[] } {
+  let q = String(rawItemQuery ?? '')
+  const prepModifiers: string[] = []
+  const addPrep = (label: string) => {
+    if (!prepModifiers.includes(label)) prepModifiers.push(label)
+  }
+
+  const rules: Array<[RegExp, string]> = [
+    [/(?:\s+(?:con|with))?(?:\s+(?:la|the))?\s+carne\s+(?:bien\s+)?dorad(?:a|as|ita|itas)\b/gi, 'Carne Dorada'],
+    [/(?:\s+(?:con|with))?\s+(?:crispy|extra\s+crispy|well\s+done)\s+meat\b/gi, 'Carne Dorada'],
+    [/(?:\s+(?:con|with))?(?:\s+(?:la|las|the))?\s+tortillas?\s+(?:bien\s+)?dorad(?:a|as|ita|itas)\b/gi, 'Tortilla Dorada'],
+    [/(?:\s+(?:con|with))?\s+crispy\s+tortillas?\b/gi, 'Tortilla Dorada'],
+    [/(?:\s+(?:con|with))?(?:\s+(?:el|the))?\s+(?:pan|telera)\s+(?:bien\s+)?dorad(?:o|os|ito|itos|a|as)\b/gi, 'Pan Dorado'],
+    [/(?:\s+(?:con|with))?\s+toasted\s+(?:bread|bun|roll)\b/gi, 'Pan Dorado'],
+    [/\s+(?:partid[oa]s?|cortad[oa]s?)\s+(?:en\s+(?:dos|2)|a\s+la\s+mitad)\b/gi, 'Partido en Dos'],
+    [/\s+(?:cut|split)\s+in\s+(?:half|two|2)\b/gi, 'Partido en Dos'],
+    [/\s+(?:partid[oa]s?|cortad[oa]s?)\s+en\s+(?:cuatro|4)\b/gi, 'Partido 4'],
+    [/\s+cut\s+in\s+(?:four|4|quarters)\b/gi, 'Partido 4']
+  ]
+
+  for (const [re, label] of rules) {
+    if (re.test(q)) {
+      addPrep(label)
+      q = q.replace(re, ' ')
+    }
+  }
+
+  // Ej. "sope de carnitas bien dorado" / "torta de asada bien dorada" / "tacos de pastor bien doraditos"
+  if (/\b(?:bien\s+dorad(?:o|os|a|as|ito|itos|ita|itas)|doradit(?:o|os|a|itas))\b/i.test(q)) {
+    if (/\bsopes?\b/i.test(q)) {
+      addPrep('Sope Dorado')
+      q = q.replace(/\b(?:bien\s+)?dorad(?:o|os|a|as|ito|itos|ita|itas)\b/gi, ' ')
+    } else if (/\btortas?\b/i.test(q)) {
+      addPrep('Pan Dorado')
+      q = q.replace(/\b(?:bien\s+)?dorad(?:o|os|a|as|ito|itos|ita|itas)\b/gi, ' ')
+    } else if (/\b(?:tacos?|burritos?|mulitas?|quesadillas?)\b/i.test(q)) {
+      addPrep('Carne Dorada')
+      q = q.replace(/\b(?:bien\s+)?dorad(?:o|os|a|as|ito|itos|ita|itas)\b/gi, ' ')
+    }
+  }
+
+  return { cleanedQuery: q.replace(/\s+/g, ' ').trim(), prepModifiers }
+}
+
+type BurritoHalfResolution =
+  | { kind: 'none' }
+  | { kind: 'ambiguous'; options: KoreMenuItem[]; messageEs: string; messageEn: string }
+  | {
+      kind: 'resolved'
+      baseItem: KoreMenuItem
+      halfModifierName: string
+      remainingRawModifiers: string[]
+      meat1: BurritoHalfMeatDef
+      meat2: BurritoHalfMeatDef
+    }
+
+function resolveBurritoHalfAndHalfRequest(params: {
+  rawQueryWithoutQty: string
+  rawNameFull: string
+  rawModifiersList: string[]
+  explicitSuperHint: boolean
+  variantArg?: string
+  notesArg?: string
+  menu: KoreMenuItem[]
+  sessionCustomerTurns?: string[]
+}): BurritoHalfResolution {
+  const { rawQueryWithoutQty, rawNameFull, rawModifiersList, explicitSuperHint, variantArg, notesArg, menu, sessionCustomerTurns } = params
+  const normQuery = normalizeKoreText(normalizeKoreCustomerSpeech(rawQueryWithoutQty, { mode: 'drive_thru' }))
+  if (!/\bburritos?\b/.test(normQuery)) return { kind: 'none' }
+
+  const combinedText = [rawQueryWithoutQty, variantArg || '', ...rawModifiersList, notesArg || ''].join(' ')
+  const normCombined = normalizeKoreText(normalizeKoreCustomerSpeech(combinedText, { mode: 'drive_thru' }))
+  const hasExplicitHalfCue = /\b(?:mitad|half|50\s*50|campechan[oa]s?)\b/.test(normCombined)
+
+  const queryMeats = extractDistinctBurritoMeatsInOrder(rawQueryWithoutQty)
+  const modHalfMeats: BurritoHalfMeatDef[] = []
+  const remainingRawModifiers: string[] = []
+
+  for (const modEntry of rawModifiersList) {
+    const modNorm = normalizeKoreText(normalizeKoreCustomerSpeech(modEntry, { mode: 'drive_thru' }))
+    const isHalfModEntry = /\b(?:mitad|half|50\s*50)\b/.test(modNorm)
+    const entryMeats = extractDistinctBurritoMeatsInOrder(modEntry)
+    if (isHalfModEntry && entryMeats.length > 0) {
+      for (const em of entryMeats) {
+        if (!modHalfMeats.some((x) => x.key === em.key)) modHalfMeats.push(em)
+      }
+    } else {
+      remainingRawModifiers.push(modEntry)
+    }
+  }
+
+  const allDistinctMeats: BurritoHalfMeatDef[] = [...queryMeats]
+  for (const mm of modHalfMeats) {
+    if (!allDistinctMeats.some((x) => x.key === mm.key)) allDistinctMeats.push(mm)
+  }
+
+  if (!hasExplicitHalfCue && allDistinctMeats.length < 2) {
+    return { kind: 'none' }
+  }
+
+  // Pide "burrito mitad y mitad" sin decir las 2 carnes aún:
+  if (allDistinctMeats.length < 2) {
+    const sampleOpts = menu.filter((m) => /^(?:Super\s+)?Burrito\s+(?:Asada|Pastor|Pollo)$/i.test(m.name))
+    const chosenHint = allDistinctMeats.length === 1 ? ` (ya indicó una mitad de ${allDistinctMeats[0].display}; falta la segunda carne)` : ''
+    const chosenHintEn = allDistinctMeats.length === 1 ? ` (customer picked ${allDistinctMeats[0].display} for one half; ask for the second meat)` : ''
+    return {
+      kind: 'ambiguous',
+      options: sampleOpts,
+      messageEs: `¡Sí hacemos burritos mitad y mitad sin costo extra!$1 Pregunta brevemente en ESPAÑOL de qué dos carnes lo desea (Asada, Pastor, Pollo, Chorizo, Cabeza, Lengua, Buche o Carnitas) y si lo prefiere Regular o Super.`.replace('$1', chosenHint),
+      messageEn: `Yes, we make half-and-half burritos at no extra charge!$1 Ask concisely in ENGLISH which two meats they want (Asada, Pastor, Chicken, Chorizo, Cabeza, Lengua, Buche, or Carnitas) and whether Regular or Super.`.replace('$1', chosenHintEn)
+    }
+  }
+
+  const [meat1, meat2] = allDistinctMeats
+
+  const tierText = `${rawNameFull} ${variantArg || ''}`
+  const normTierText = normalizeKoreText(normalizeKoreCustomerSpeech(tierText, { mode: 'drive_thru' }))
+  const normTurns = (sessionCustomerTurns || [])
+    .map((t) => normalizeKoreText(normalizeKoreCustomerSpeech(t, { mode: 'drive_thru' })))
+    .join(' ')
+
+  const isMeatOnly =
+    /\b(?:meat\s+only|(?:solo|puro|pura|nomas|nada\s+mas|all)\s+(?:carne|meat))\b/.test(normCombined) ||
+    /\b(?:meat\s+only|(?:solo|puro|pura|nomas|nada\s+mas|all)\s+(?:carne|meat))\b/.test(normTurns)
+  const hasSuper =
+    explicitSuperHint ||
+    /\b(?:super|supreme|suprem[oa]s?)\b/.test(normTierText) ||
+    (sessionCustomerTurns && sessionCustomerTurns.length > 0 && /\b(?:super|supreme|suprem[oa]s?)\b/.test(normTurns))
+  const hasRegularWord =
+    /\b(?:regular|sencill[oa]s?|normal(?:es)?|clasic[oa]s?|plain)\b/.test(normTierText) ||
+    (sessionCustomerTurns && sessionCustomerTurns.length > 0 && /\b(?:regular|sencill[oa]s?|normal(?:es)?|clasic[oa]s?|plain)\b/.test(normTurns))
+
+  // Si rawQueryWithoutQty ya es el nombre exacto de un SKU de 1 carne (ej. "Burrito Asada") y no hay historial de voz ambiguo, se respeta 'regular'.
+  const isExactSingleMeatRegularSku =
+    (!sessionCustomerTurns || sessionCustomerTurns.length === 0) &&
+    queryMeats.length === 1 &&
+    menu.some((m) => m.category === 'Burritos' && normalizeKoreText(m.name) === normQuery)
+
+  if (!isMeatOnly && !hasSuper && !hasRegularWord && !isExactSingleMeatRegularSku) {
+    const regOpt = menu.find((m) => normalizeKoreText(m.name) === normalizeKoreText(`Burrito ${meat1.display}`))
+    const supOpt = menu.find((m) => normalizeKoreText(m.name) === normalizeKoreText(`Super Burrito ${meat1.display}`))
+    const ambOpts = [regOpt, supOpt].filter(Boolean) as KoreMenuItem[]
+    if (ambOpts.length === 2) {
+      return {
+        kind: 'ambiguous',
+        options: ambOpts,
+        messageEs: `El cliente pidió un burrito mitad ${meat1.display} y mitad ${meat2.display} (sí se hace mitad y mitad sin cargo extra), pero falta saber si lo prefiere Regular (${formatKoreUsd(toKoreCents(regOpt!.price))}) o Super (${formatKoreUsd(toKoreCents(supOpt!.price))}). Pregunta brevemente en ESPAÑOL: "¿Su burrito mitad ${meat1.display.toLowerCase()} y mitad ${meat2.display.toLowerCase()} lo prefiere Regular o Super?".`,
+        messageEn: `Customer requested a half ${meat1.display} and half ${meat2.display} burrito (available at $0.00 extra), but did not specify Regular (${formatKoreUsd(toKoreCents(regOpt!.price))}) or Super (${formatKoreUsd(toKoreCents(supOpt!.price))}). Ask briefly in ENGLISH: "Would you like your half ${meat1.display.toLowerCase()} and half ${meat2.display.toLowerCase()} burrito Regular or Super?".`
+      }
+    }
+  }
+
+  const prefix = isMeatOnly
+    ? hasSuper
+      ? 'Meat Only Super Burrito'
+      : 'Meat Only Burrito'
+    : hasSuper
+      ? 'Super Burrito'
+      : 'Burrito'
+
+  const sku1 = menu.find((m) => normalizeKoreText(m.name) === normalizeKoreText(`${prefix} ${meat1.display}`))
+  const sku2 = menu.find((m) => normalizeKoreText(m.name) === normalizeKoreText(`${prefix} ${meat2.display}`))
+  if (!sku1 && !sku2) return { kind: 'none' }
+
+  let baseItem: KoreMenuItem
+  let otherMeat: BurritoHalfMeatDef
+  if (sku1 && sku2) {
+    if (toKoreCents(sku2.price) > toKoreCents(sku1.price)) {
+      baseItem = sku2
+      otherMeat = meat1
+    } else {
+      baseItem = sku1
+      otherMeat = meat2
+    }
+  } else if (sku1) {
+    baseItem = sku1
+    otherMeat = meat2
+  } else {
+    baseItem = sku2!
+    otherMeat = meat1
+  }
+
+  return {
+    kind: 'resolved',
+    baseItem,
+    halfModifierName: otherMeat.halfOptionName,
+    remainingRawModifiers,
+    meat1,
+    meat2
+  }
+}
+
+function reconcileBurritoHalfMeatAfterModifiers(params: {
+  item: KoreMenuItem
+  modifiers: KoreOrderModifier[]
+  notes: string | undefined
+  menu: KoreMenuItem[]
+  preferredPair?: [BurritoHalfMeatDef, BurritoHalfMeatDef] | null
+}): { item: KoreMenuItem; modifiers: KoreOrderModifier[]; notes: string | undefined } {
+  let { item, modifiers, notes, menu, preferredPair } = params
+  if (!/^(?:meat\s+only\s+)?(?:super\s+)?burritos$/i.test(item.category.trim())) {
+    return { item, modifiers, notes }
+  }
+  const baseMeat = findBurritoMeatDef(item.name)
+  if (!baseMeat) return { item, modifiers, notes }
+
+  const halfGroupMods = modifiers.filter((m) => m.groupGuid === KORE_BURRITO_HALF_MEAT_GROUP_GUID || /^half\s+/i.test(m.name))
+  const nonHalfMods = modifiers.filter((m) => m.groupGuid !== KORE_BURRITO_HALF_MEAT_GROUP_GUID && !/^half\s+/i.test(m.name))
+
+  if (halfGroupMods.length === 0) {
+    return { item, modifiers, notes: removeHalfMeatNote(notes) }
+  }
+
+  // Quedarse con la última mitad distinta de la carne base (permite cambiar la 2da mitad en update_item sin chocar maxSelections=1).
+  const distinctHalfMods = halfGroupMods
+    .map((hm) => ({ mod: hm, def: findBurritoMeatDef(hm.name) }))
+    .filter((x): x is { mod: KoreOrderModifier; def: BurritoHalfMeatDef } => Boolean(x.def && x.def.key !== baseMeat.key))
+
+  if (distinctHalfMods.length === 0) {
+    // Ej. Burrito Asada + Half Asada -> es 100% Asada; limpiar redundancia.
+    return { item, modifiers: nonHalfMods, notes: removeHalfMeatNote(notes) }
+  }
+
+  const chosenHalf = distinctHalfMods[distinctHalfMods.length - 1]
+  let finalItem = item
+  let activeBaseMeat = baseMeat
+  let activeHalfMeat = chosenHalf.def
+  let activeHalfMod: KoreOrderModifier = { ...chosenHalf.mod, quantity: 1 }
+
+  // Regla de protección financiera: si la 2da carne tiene mayor precio base en la misma categoría, usar el SKU de mayor precio.
+  const prefix = item.name.replace(/\s+(?:Asada|Pastor|Pollo|Chorizo|Cabeza|Lengua|Buche|Carnitas)$/i, '').trim()
+  const siblingHigher = menu.find(
+    (m) =>
+      m.category === item.category &&
+      normalizeKoreText(m.name) === normalizeKoreText(`${prefix} ${activeHalfMeat.display}`) &&
+      toKoreCents(m.price) > toKoreCents(item.price)
+  )
+  if (siblingHigher) {
+    const swappedHalfRes = resolveModifiers(siblingHigher, [activeBaseMeat.halfOptionName])
+    if (swappedHalfRes.errors.length === 0 && swappedHalfRes.modifiers.length === 1) {
+      finalItem = siblingHigher
+      activeHalfMod = { ...swappedHalfRes.modifiers[0], quantity: 1 }
+      const prevBase = activeBaseMeat
+      activeBaseMeat = activeHalfMeat
+      activeHalfMeat = prevBase
+    }
+  }
+
+  const [noteMeat1, noteMeat2] =
+    preferredPair &&
+    ((preferredPair[0].key === activeBaseMeat.key && preferredPair[1].key === activeHalfMeat.key) ||
+      (preferredPair[0].key === activeHalfMeat.key && preferredPair[1].key === activeBaseMeat.key))
+      ? preferredPair
+      : [activeBaseMeat, activeHalfMeat]
+
+  return {
+    item: finalItem,
+    modifiers: [...nonHalfMods, activeHalfMod],
+    notes: upsertHalfMeatNote(notes, noteMeat1, noteMeat2)
+  }
+}
+
 function tryExtractSiblingSkuSwapFromModifiers(
   baseItem: KoreMenuItem,
   menu: KoreMenuItem[],
@@ -1916,6 +2413,8 @@ function tryExtractSiblingSkuSwapFromModifiers(
   }
   for (let i = 0; i < rawModList.length; i++) {
     const rawEntry = rawModList[i]
+    // Jamás tratar "mitad pastor" / "half chicken" como reemplazo total del SKU base: es modificador 50/50.
+    if (/\b(?:mitad|half|50\s*\/\s*50|50\s+50)\b/i.test(rawEntry)) continue
     const asMod = resolveModifiers(baseItem, [rawEntry])
     if (asMod.errors.length === 0 && asMod.modifiers.length > 0) continue
 
@@ -2018,7 +2517,55 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   const qtyParse = parseQuantity(args.quantity, lead.qty ?? 1)
   if (qtyParse.error || qtyParse.qty === null) return fail(state, 'invalid_quantity', qtyParse.error || 'Invalid quantity.', opts)
   const quantity = qtyParse.qty
-  const res = resolveKoreMenuItem(menu, lead.qty !== null ? lead.rest : rawName)
+
+  const rawQueryBeforePrep = lead.qty !== null ? lead.rest : rawName
+  const inlinePrep = extractInlinePrepModifiersFromItemName(rawQueryBeforePrep)
+  const effectiveItemQuery = inlinePrep.cleanedQuery || rawQueryBeforePrep
+
+  const preExplicitSuper =
+    parsedModifiersSplit.hadSuperToken ||
+    CONTAINS_POSITIVE_SUPER_WORD_RE.test(rawName) ||
+    Boolean(args.variant && CONTAINS_POSITIVE_SUPER_WORD_RE.test(String(args.variant))) ||
+    Boolean(args.notes && STANDALONE_SUPER_HINT_RE.test(String(args.notes)))
+
+  const burritoHalf = resolveBurritoHalfAndHalfRequest({
+    rawQueryWithoutQty: effectiveItemQuery,
+    rawNameFull: rawName,
+    rawModifiersList,
+    explicitSuperHint: preExplicitSuper,
+    variantArg: args.variant ? String(args.variant) : undefined,
+    notesArg: args.notes ? String(args.notes) : undefined,
+    menu,
+    sessionCustomerTurns: opts?.sessionCustomerTurns
+  })
+  if (burritoHalf.kind === 'ambiguous') {
+    const thirdLang = opts?.thirdLanguage || null
+    const isEn = opts?.lang === 'en'
+    const msg = thirdLang
+      ? `${burritoHalf.messageEn} Ask concisely 100% in ${thirdLang.nameEn}.`
+      : isEn
+        ? burritoHalf.messageEn
+        : burritoHalf.messageEs
+    return fail(state, 'ambiguous_item', msg, opts, {
+      options: suggestionList(burritoHalf.options)
+    })
+  }
+
+  const res =
+    burritoHalf.kind === 'resolved'
+      ? {
+          item: burritoHalf.baseItem,
+          ambiguous: [],
+          suggestions: [],
+          droppedTokens: [],
+          wantsConTodo: koreCanonicalTokens(rawQueryBeforePrep).includes(CON_TODO_TOKEN),
+          wantsCebollaAsada: koreCanonicalTokens(rawQueryBeforePrep).includes(COURTESY_CEBOLLA_ASADA_TOKEN),
+          wantsFrijolOlla: koreCanonicalTokens(rawQueryBeforePrep).includes(COURTESY_FRIJOL_OLLA_TOKEN),
+          wantsCafeDeOlla: false,
+          askedChampurradoSize: false,
+          askedSmallSize: false
+        }
+      : resolveKoreMenuItem(menu, effectiveItemQuery)
   if (!res.item) {
     // Desayunos fuera de horario: no obligar al cliente a escoger entre platillos de desayuno que luego serían rechazados.
     const bwAmb = isKoreBreakfastOpen(opts?.now)
@@ -2044,6 +2591,16 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
       const hasFoodFamily = ambiguousOptions.some((a) =>
         /\b(burritos?|quesadillas?|mulitas?|tortas?|sopes?|tacos?|nachos?|platos?)\b/i.test(a.category)
       )
+      if (res.askedChampurradoSize) {
+        const champMsg = thirdLang
+          ? `Champurrado comes in two presentations only: individual 16 oz cup ($4.09) or 96 oz To-Go Box ($27.89). Ask concisely 100% in ${thirdLang.nameEn} which one they would like.`
+          : isEn
+            ? 'Champurrado comes in two presentations only: individual 16 oz cup ($4.09) or 96 oz To-Go Box ($27.89). Ask the customer briefly which one they would like.'
+            : 'El Champurrado se maneja únicamente en vaso individual de 16 oz ($4.09) o en Caja para Llevar de 96 oz ($27.89). Pregunta brevemente en ESPAÑOL cuál de las dos presentaciones prefiere.'
+        return fail(state, 'ambiguous_item', champMsg, opts, {
+          options: suggestionList(ambiguousOptions)
+        })
+      }
       if (!isEn && !thirdLang) {
         const sizeHintEs = res.askedSmallSize
           ? ' No existe tamaño chico: el menor tamaño es Mediana (22 oz); jamás digas "chica" ni "pequeña".'
@@ -2085,7 +2642,52 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     return sub2
   }
 
-  let effectiveRawModifiers = [...rawModifiersList]
+  // Si Gemini quitó "grande/large" por su cuenta y mandó item_name="Champurrado", verificar el último turno del cliente:
+  if (normalizeKoreText(item.name) === 'champurrado' && opts?.sessionCustomerTurns?.length) {
+    const latestTurn = String(opts.sessionCustomerTurns[opts.sessionCustomerTurns.length - 1] || '')
+    const normTurn = normalizeKoreText(normalizeKoreCustomerSpeech(latestTurn, { mode: 'drive_thru' }))
+    const allTurnsNorm = opts.sessionCustomerTurns
+      .map((t) => normalizeKoreText(normalizeKoreCustomerSpeech(t, { mode: 'drive_thru' })))
+      .join(' ')
+    const askedAmbiguousChampSizeInTurn =
+      (/\bchampurrado\b[^.!?,;]{0,28}\b(?:grande|large|mediano|medium|chico|pequeno|small)\b/.test(normTurn) ||
+        /\b(?:grande|large|mediano|medium|chico|pequeno|small)\s+(?:de\s+)?champurrado\b/.test(normTurn)) &&
+      !/\b(?:16|96|vaso|vasito|cup|individual|caja|box|termico)\b/.test(allTurnsNorm) &&
+      !/\b(?:16|96|vaso|vasito|cup|individual|caja|box|termico)\b/i.test(rawName)
+    if (askedAmbiguousChampSizeInTurn) {
+      const champBox = menu.find(
+        (m) =>
+          m.guid !== item.guid &&
+          koreCanonicalTokens(m.name).includes('champurrado') &&
+          (koreCanonicalTokens(m.name).includes('box') || /96/i.test(m.name))
+      )
+      if (champBox) {
+        const thirdLang = opts?.thirdLanguage || null
+        const isEn = opts?.lang === 'en'
+        const champMsg = thirdLang
+          ? `Champurrado comes in two presentations only: individual 16 oz cup ($4.09) or 96 oz To-Go Box ($27.89). Ask concisely 100% in ${thirdLang.nameEn} which one they would like.`
+          : isEn
+            ? 'Champurrado comes in two presentations only: individual 16 oz cup ($4.09) or 96 oz To-Go Box ($27.89). Ask the customer briefly which one they would like.'
+            : 'El Champurrado se maneja únicamente en vaso individual de 16 oz ($4.09) o en Caja para Llevar de 96 oz ($27.89). Pregunta brevemente en ESPAÑOL cuál de las dos presentaciones prefiere.'
+        return fail(state, 'ambiguous_item', champMsg, opts, {
+          options: suggestionList([item, champBox])
+        })
+      }
+    }
+  }
+
+  let effectiveRawModifiers =
+    burritoHalf.kind === 'resolved'
+      ? [...burritoHalf.remainingRawModifiers, burritoHalf.halfModifierName]
+      : [...rawModifiersList]
+  for (const prepMod of inlinePrep.prepModifiers) {
+    const prepTokens = koreCanonicalTokens(prepMod)
+    const alreadyHasPrep = effectiveRawModifiers.some((em) => {
+      const emTokens = koreCanonicalTokens(em)
+      return prepTokens.every((pt) => emTokens.includes(pt))
+    })
+    if (!alreadyHasPrep) effectiveRawModifiers.push(prepMod)
+  }
   if (
     normalizeKoreText(item.name) === 'taco plate' &&
     effectiveRawModifiers.length === 0 &&
@@ -2122,16 +2724,40 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
   }
   const modRes = resolveModifiers(item, effectiveRawModifiers)
   if (modRes.errors.length > 0) {
-    return fail(state, 'invalid_modifiers', modRes.errors.join(' '), opts, {
+    const askedHalfOnNonBurrito =
+      !/^(?:meat\s+only\s+)?(?:super\s+)?burritos$/i.test(item.category.trim()) &&
+      effectiveRawModifiers.some((m) => /\b(?:mitad|half)\b/i.test(m) && Boolean(findBurritoMeatDef(m)))
+    const halfHint = askedHalfOnNonBurrito
+      ? ' (Note: Half-and-half meats apply to Burritos; for individual tacos/items, add separate items per meat.)'
+      : ''
+    return fail(state, 'invalid_modifiers', modRes.errors.join(' ') + halfHint, opts, {
       item: item.name,
       available_modifier_groups: item.modifierGroups.map((g) => describeGroup(g))
     })
   }
-  const initialRawNotes = sanitizeNotes(args.notes)
-  const clampedFreeAdd = autoClampOptionalFreeGroupsWithNote(item, modRes.modifiers, initialRawNotes)
-  const groupErrors = validateGroups(item, clampedFreeAdd.modifiers)
+  let initialRawNotes = sanitizeNotes(args.notes)
+  if (normalizeKoreText(item.name) === 'coffee') {
+    const latestTurnText = opts?.sessionCustomerTurns?.length
+      ? String(opts.sessionCustomerTurns[opts.sessionCustomerTurns.length - 1] || '')
+      : ''
+    const turnTokens = latestTurnText ? koreCanonicalTokens(latestTurnText) : []
+    const turnAskedRegularCoffee = /\b(?:cafe\s+regular|regular\s+coffee|normal\s+coffee)\b/i.test(latestTurnText)
+    if (res.wantsCafeDeOlla || modRes.cafeDeOlla || (turnTokens.includes(CAFE_DE_OLLA_TOKEN) && !turnAskedRegularCoffee)) {
+      initialRawNotes = upsertCafeDeOllaNote(initialRawNotes)
+    }
+  }
+  const reconciledAdd = reconcileBurritoHalfMeatAfterModifiers({
+    item,
+    modifiers: modRes.modifiers,
+    notes: initialRawNotes,
+    menu,
+    preferredPair: burritoHalf.kind === 'resolved' ? [burritoHalf.meat1, burritoHalf.meat2] : null
+  })
+  const itemAfterHalf = reconciledAdd.item
+  const clampedFreeAdd = autoClampOptionalFreeGroupsWithNote(itemAfterHalf, reconciledAdd.modifiers, reconciledAdd.notes)
+  const groupErrors = validateGroups(itemAfterHalf, clampedFreeAdd.modifiers)
   if (groupErrors.length > 0) {
-    const tacoPlateProactive = buildProactiveTacoPlateGroupError(item, modRes.modifiers, opts)
+    const tacoPlateProactive = buildProactiveTacoPlateGroupError(itemAfterHalf, reconciledAdd.modifiers, opts)
     const errMsg = tacoPlateProactive
       ? tacoPlateProactive.message
       : opts?.thirdLanguage
@@ -2169,7 +2795,7 @@ function toolAddItem(state: KoreOrderState, menu: KoreMenuItem[], args: Record<s
     Boolean(rawNotes && STANDALONE_SUPER_HINT_RE.test(rawNotes)) ||
     Boolean(args.variant && CONTAINS_POSITIVE_SUPER_WORD_RE.test(String(args.variant)))
   const promotedAdd = tryPromoteRegularLineToSuper({
-    item,
+    item: itemAfterHalf,
     modifiers: clampedFreeAdd.modifiers,
     menu,
     explicitSuperHint: addExplicitSuper,
@@ -2232,8 +2858,7 @@ function toolAddItems(state: KoreOrderState, menu: KoreMenuItem[], args: Record<
     }
     const sub = toolAddItem(working, menu, rawEntry as Record<string, any>, {
       ...opts,
-      unfulfilledSessionCategories: undefined,
-      sessionCustomerTurns: undefined
+      unfulfilledSessionCategories: undefined
     })
     if (sub.result.ok === true) {
       working = sub.state
@@ -2436,8 +3061,22 @@ function toolUpdateItem(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   if (errors.length) {
     return fail(state, 'invalid_modifiers', errors.join(' '), opts, { available_modifier_groups: activeItem.modifierGroups.map((g) => describeGroup(g)) })
   }
-  const initialUpdNotes = args.notes === undefined ? line.notes : sanitizeNotes(args.notes)
-  const clampedFreeUpd = autoClampOptionalFreeGroupsWithNote(activeItem, modifiers, initialUpdNotes)
+  let initialUpdNotes = args.notes === undefined ? line.notes : sanitizeNotes(args.notes)
+  if (normalizeKoreText(activeItem.name) === 'coffee') {
+    const updCombinedMods = [...(effectiveModCleaned || []), ...effectiveAddCleaned].join(' ')
+    if (koreCanonicalTokens(updCombinedMods).includes(CAFE_DE_OLLA_TOKEN) || koreCanonicalTokens(rawRequestedName).includes(CAFE_DE_OLLA_TOKEN)) {
+      initialUpdNotes = upsertCafeDeOllaNote(initialUpdNotes)
+    }
+  }
+  const reconciledUpd = reconcileBurritoHalfMeatAfterModifiers({
+    item: activeItem,
+    modifiers,
+    notes: initialUpdNotes,
+    menu
+  })
+  activeItem = reconciledUpd.item
+  modifiers = reconciledUpd.modifiers
+  const clampedFreeUpd = autoClampOptionalFreeGroupsWithNote(activeItem, modifiers, reconciledUpd.notes)
   modifiers = clampedFreeUpd.modifiers
   const groupErrors = validateGroups(activeItem, modifiers)
   if (groupErrors.length) {
@@ -2558,7 +3197,43 @@ function toolSearchMenu(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
   for (const amb of resolved.ambiguous) {
     if (!results.some((r) => r.guid === amb.guid)) results.push(amb)
   }
+  const kbList = Array.isArray(opts?.knowledge) ? opts!.knowledge! : []
+  const kbMatches =
+    kbList.length > 0 && tokens.length > 0
+      ? kbList
+          .map((k) => {
+            const hay = koreCanonicalTokens(
+              `${k.category || ''} ${k.title || ''} ${k.titleEn || ''} ${k.answerEs || ''} ${k.answerEn || ''}`
+            )
+            const matched = tokens.filter((t) => hay.includes(t)).length
+            return { k, matched }
+          })
+          .filter((x) => x.matched > 0)
+          .sort((a, b) => b.matched - a.matched)
+          .slice(0, 4)
+          .map(({ k }) => {
+            const maxChars = k.category === 'hours' ? 760 : 480
+            return {
+              category: k.category || 'general',
+              title: opts?.lang === 'en' ? k.titleEn || k.title || '' : k.title || k.titleEn || '',
+              answer: (opts?.lang === 'en' ? k.answerEn || k.answerEs || '' : k.answerEs || k.answerEn || '').slice(0, maxChars)
+            }
+          })
+      : []
   if (results.length === 0) {
+    if (kbMatches.length > 0) {
+      return {
+        state,
+        result: {
+          ok: true,
+          action: 'search',
+          query,
+          results: [],
+          knowledge_matches: kbMatches,
+          status: state.status
+        }
+      }
+    }
     return fail(state, 'no_results', `Nothing on this store's menu matches "${query}". Do not invent items or prices.`, opts)
   }
   const detailed = resolved.item ? [resolved.item] : results.length <= 2 ? results : []
@@ -2585,6 +3260,7 @@ function toolSearchMenu(state: KoreOrderState, menu: KoreMenuItem[], args: Recor
         description: it.description.slice(0, 160),
         modifier_groups: it.modifierGroups.map((g) => describeGroup(g))
       })),
+      ...(kbMatches.length > 0 ? { knowledge_matches: kbMatches } : {}),
       status: state.status
     }
   }
@@ -2875,6 +3551,32 @@ function toolEndSession(state: KoreOrderState, args: Record<string, any>, opts?:
       state.confirmedAtVersion !== null &&
       state.confirmedAtVersion !== state.version
     if (state.status !== 'confirmed' || versionMismatch) {
+      if (opts?.allowImplicitConfirmOnEndSession === true && opts?.confirmedInCurrentTurn !== true) {
+        const autoConfirmedState: KoreOrderState = {
+          ...state,
+          status: 'confirmed',
+          confirmedAtVersion: state.version || 0
+        }
+        const reason = sanitizeNotes(args.reason) || 'order_confirmed'
+        return {
+          state: autoConfirmedState,
+          result: {
+            ok: true,
+            action: 'end_session',
+            should_end_session: true,
+            implicitly_confirmed: true,
+            ...orderSummary(autoConfirmedState, opts),
+            ...computeKoreTotals(autoConfirmedState, opts?.taxRatePct ?? null),
+            status: autoConfirmedState.status,
+            reason,
+            instruction: thirdLang
+              ? `Give ONE brief warm send-off 100% in natural ${thirdLang.nameEn} asking the customer to pull forward to the window, with NO question; the lane session will close automatically right after your audio finishes.`
+              : isEn
+                ? 'Give ONE brief warm send-off in English ONLY (e.g. "Awesome, thank you! Please pull forward to the window.") with NO question; the lane session will close automatically right after your audio finishes.'
+                : 'Da UNA despedida breve y cálida 100% en ESPAÑOL (ej. "¡Perfecto, muchas gracias! Pase a la ventanilla por favor.") SIN ninguna pregunta; la sesión se cerrará automáticamente al terminar tu voz.'
+          }
+        }
+      }
       return fail(
         state,
         'must_confirm_and_read_total_first',
@@ -3232,7 +3934,7 @@ export function rebuildKoreOrderFromMenu(raw: unknown, menu: KoreMenuItem[]): { 
           rm.name &&
           Object.values(KORE_COURTESY_MODIFIERS).find((cm) => normalizeKoreText(cm.name) === normalizeKoreText(rm.name)))
       if (courtesyHit) {
-        if (!Number.isInteger(mq) || mq < 1 || mq > 10) {
+        if (!Number.isInteger(mq) || mq < 1 || mq > 25) {
           errors.push(`${lineId}: invalid modifier quantity on "${courtesyHit.name}".`)
           continue
         }
@@ -3263,7 +3965,7 @@ export function rebuildKoreOrderFromMenu(raw: unknown, menu: KoreMenuItem[]): { 
       const option = group?.options.find(
         (o) => (rm.guid && o.guid === String(rm.guid)) || (!rm.guid && rm.name && normalizeKoreText(o.name) === normalizeKoreText(rm.name))
       )
-      if (!group || !option || !Number.isInteger(mq) || mq < 1 || mq > 10) {
+      if (!group || !option || !Number.isInteger(mq) || mq < 1 || mq > 25) {
         errors.push(`${lineId}: invalid modifier "${String(rm?.name ?? rm?.guid ?? '').slice(0, 60)}".`)
         continue
       }

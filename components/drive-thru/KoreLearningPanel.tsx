@@ -35,6 +35,7 @@ import {
     AlertTriangle, Gauge, BookOpen, MessageSquareQuote, PhoneCall, Pencil, X
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, stripStoreNumberTokensInText } from '@/lib/store-display'
 
 export type KoreAppliesToChannels = 'both' | 'drive_thru_only' | 'phone_only'
 
@@ -96,9 +97,9 @@ export function normalizeKoreLearningDto(raw: Record<string, unknown>): KoreLear
             ? Number(rawStoreId)
             : null
     const rawLat = raw.avgLatencyMs !== undefined ? raw.avgLatencyMs : raw.avg_latency_ms
-    const qEs = String(raw.questionOrTrigger ?? raw.question_or_trigger ?? '')
+    const qEs = stripStoreNumberTokensInText(String(raw.questionOrTrigger ?? raw.question_or_trigger ?? ''))
     const rawQEn = raw.questionOrTriggerEn ?? raw.question_or_trigger_en ?? null
-    const qEn = typeof rawQEn === 'string' && rawQEn.trim() ? rawQEn.trim() : null
+    const qEn = typeof rawQEn === 'string' && rawQEn.trim() ? stripStoreNumberTokensInText(rawQEn.trim()) : null
     return {
         id: (raw.id as string | number) ?? '',
         storeId: parsedStoreId,
@@ -131,9 +132,9 @@ export function buildOrderedBilingualLines(
     lang: 'es' | 'en',
     fallbackText?: string | null
 ): { flag: string; langCode: 'ES' | 'EN'; text: string }[] {
-    const cleanEs = String(textEs ?? '').trim()
-    const cleanEn = String(textEn ?? '').trim()
-    const cleanFallback = String(fallbackText ?? '').trim()
+    const cleanEs = stripStoreNumberTokensInText(String(textEs ?? '').trim())
+    const cleanEn = stripStoreNumberTokensInText(String(textEn ?? '').trim())
+    const cleanFallback = stripStoreNumberTokensInText(String(fallbackText ?? '').trim())
     const esEntry = cleanEs ? { flag: '🇲🇽', langCode: 'ES' as const, text: cleanEs } : null
     const enEntry = cleanEn ? { flag: '🇺🇸', langCode: 'EN' as const, text: cleanEn } : null
     const ordered = lang === 'en' ? [enEntry, esEntry] : [esEntry, enEntry]
@@ -520,7 +521,7 @@ export default function KoreLearningPanel({ storeId, isGlobalScope, refreshKey =
         <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
             {itemStoreId === null
                 ? t('drive_thru.kore_learn_scope_all')
-                : t('drive_thru.kore_learn_scope_store', { id: itemStoreId })}
+                : (formatStoreDisplayName(itemStoreId) || t('drive_thru.kore_learn_scope_store', { id: itemStoreId }))}
         </span>
     )
 

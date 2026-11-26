@@ -177,13 +177,17 @@ export async function POST(request: NextRequest) {
     if (!storeId) return jsonError('storeId inválido (usa stores.id numérico).', 400)
     if (!canAccessStore(user, storeId)) return jsonError('Acceso denegado: no tienes autorización sobre esa sucursal.', 403)
 
-    const startedAt = parseIso(b.startedAt ?? b.started_at)
-    const endedAt = parseIso(b.endedAt ?? b.ended_at)
-    if (!startedAt || !endedAt) return jsonError('startedAt y endedAt deben ser fechas ISO válidas.', 400)
+    const rawStartedAt = parseIso(b.startedAt ?? b.started_at)
+    const rawEndedAt = parseIso(b.endedAt ?? b.ended_at)
+    if (!rawStartedAt || !rawEndedAt) return jsonError('startedAt y endedAt deben ser fechas ISO válidas.', 400)
     const nowMs = Date.now()
-    if (endedAt.getTime() < startedAt.getTime()) return jsonError('endedAt no puede ser anterior a startedAt.', 400)
-    if (endedAt.getTime() > nowMs + CLOCK_SKEW_MS) return jsonError('endedAt no puede estar en el futuro.', 400)
-    if (endedAt.getTime() - startedAt.getTime() > MAX_SESSION_MS) return jsonError('La simulación excede 2 horas.', 400)
+    if (rawEndedAt.getTime() < rawStartedAt.getTime()) return jsonError('endedAt no puede ser anterior a startedAt.', 400)
+    if (rawEndedAt.getTime() > nowMs + 24 * 60 * 60 * 1000) return jsonError('endedAt no puede estar en el futuro.', 400)
+    // Tolerar desfase leve de reloj local en tablet/PC acotando al reloj del servidor en lugar de descartar la sesión
+    const rawDurationMs = rawEndedAt.getTime() - rawStartedAt.getTime()
+    if (rawDurationMs > MAX_SESSION_MS) return jsonError('La simulación excede 2 horas.', 400)
+    const endedAt = rawEndedAt.getTime() > nowMs + CLOCK_SKEW_MS ? new Date(nowMs) : rawEndedAt
+    const startedAt = endedAt.getTime() < rawStartedAt.getTime() ? new Date(endedAt.getTime() - rawDurationMs) : rawStartedAt
     const lang = b.lang === undefined || b.lang === null ? 'es' : b.lang
     if (lang !== 'es' && lang !== 'en') return jsonError("lang inválido (usa 'es' o 'en').", 400)
     const outcome = String(b.outcome ?? '')

@@ -90,6 +90,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { CANONICAL_CUSTOMER_STORES_BY_ID, formatCustomerGreetingTarget, formatCustomerStoreName } from '@/lib/customer-store-names'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import {
     KORE_HUMAN_TAKEOVER_OBSERVER_CUE,
     applyKoreTool,
@@ -1178,14 +1179,17 @@ export class KoreCashierSessionController {
 }
 
 /** Respaldo si `/api/stores` falla (stores.id numérico; nombres internos de la DB). */
-const FALLBACK_DT_STORES: DtStoreOption[] = [
-    { id: 3, name: 'West Covina', externalId: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02' },
-    { id: 6, name: 'LA Central', externalId: '8685e942-3f07-403a-afb6-faec697cd2cb' },
-    { id: 10, name: 'La Puente', externalId: '3a803939-eb13-4def-a1a4-462df8e90623' },
-    { id: 12, name: 'Norwalk', externalId: '42ed15a6-106b-466a-9076-1e8f72451f6b' },
-    { id: 14, name: 'Lynwood', externalId: '80a1ec95-bc73-402e-8884-e5abbe9343e6' },
-    { id: 15, name: 'South Gate', externalId: '95866cfc-eeb8-4af9-9586-f78931e1ea04' },
-]
+const FALLBACK_DT_STORES: DtStoreOption[] = sortStoresAlphabetically(
+    [
+        { id: 6, name: 'LA Central', externalId: '8685e942-3f07-403a-afb6-faec697cd2cb' },
+        { id: 10, name: 'La Puente', externalId: '3a803939-eb13-4def-a1a4-462df8e90623' },
+        { id: 14, name: 'Lynwood', externalId: '80a1ec95-bc73-402e-8884-e5abbe9343e6' },
+        { id: 12, name: 'Norwalk', externalId: '42ed15a6-106b-466a-9076-1e8f72451f6b' },
+        { id: 15, name: 'South Gate', externalId: '95866cfc-eeb8-4af9-9586-f78931e1ea04' },
+        { id: 3, name: 'West Covina', externalId: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02' },
+    ],
+    (s) => s.name
+)
 
 // ─────────────────────────────────────────────────────────
 // Tipos
@@ -1247,12 +1251,21 @@ export interface KoreFastClipsStats {
     topDriveThruItems: string[]
 }
 
+interface KoreSessionKnowledgeItem {
+    category?: string
+    title?: string
+    titleEn?: string
+    answerEs?: string
+    answerEn?: string
+}
+
 interface KoreSessionResponse {
     token: string
     wsUrl: string
     model: string
     setup: Record<string, unknown>
     menu: KoreMenuItem[]
+    knowledge?: KoreSessionKnowledgeItem[]
     store: KoreSessionStore
     initialGreetingClips?: {
         es?: KoreRawFastClipVariant | null
@@ -2040,7 +2053,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     // ─── Estado de UI (alcance por rol resuelto ANTES del primer efecto) ───
     const [viewerScope, setViewerScope] = useState<KoreViewerScope>(() => readBrowserViewerScope())
     const [rawStores, setRawStores] = useState<DtStoreOption[]>(FALLBACK_DT_STORES)
-    const stores = useMemo(() => filterDtStoresForViewer(rawStores, viewerScope), [rawStores, viewerScope])
+    const stores = useMemo(() => sortStoresAlphabetically(filterDtStoresForViewer(rawStores, viewerScope), (s) => s.name), [rawStores, viewerScope])
     const [storeId, setStoreId] = useState<number>(() => {
         const scope = readBrowserViewerScope()
         return pickInitialKoreStoreId(filterDtStoresForViewer(FALLBACK_DT_STORES, scope), scope, defaultStoreExternalId)
@@ -2128,6 +2141,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const lastCompletedCustomerTurnTextRef = useRef('')
     const customerTurnFreshRef = useRef(true)
     const confirmedOrderInCurrentTurnRef = useRef(false)
+    const koreSpokenTotalForVersionRef = useRef<number | null>(null)
     const lastTranscriptTvCutMsRef = useRef(0)
     const lastCustomerSpeechTimestampMsRef = useRef(0)
     const recentRawMicRmsRef = useRef(0)
@@ -2151,6 +2165,8 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
     const lastSpokenKoreAtMsRef = useRef(0)
     const fastClipSeedRef = useRef(0)
     const playedFastClipIdsRef = useRef<Set<string>>(new Set())
+    const knowledgeRef = useRef<KoreSessionKnowledgeItem[]>([])
+    const autoRecycledCountRef = useRef(0)
     const sawRecentNonLatinNoiseRef = useRef(false)
     const pendingKorePrefixRef = useRef('')
     const previewCtxRef = useRef<AudioContext | null>(null)
@@ -2197,16 +2213,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             .then(res => (res.ok ? res.json() : null))
             .then((data: unknown) => {
                 if (cancelled || !Array.isArray(data)) return
-                const list: DtStoreOption[] = data
-                    .filter((s): s is Record<string, unknown> => isPlainObject(s) && s.has_drive_thru === true)
-                    .map(s => ({
-                        id: Number(s.id),
-                        name: String(s.name ?? ''),
-                        externalId: typeof s.external_id === 'string' ? s.external_id : null,
-                        code: typeof s.code === 'string' ? s.code : null,
-                    }))
-                    .filter(s => Number.isInteger(s.id) && s.id > 0)
-                    .sort((a, b) => a.id - b.id)
+                const list: DtStoreOption[] = sortStoresAlphabetically(
+                    data
+                        .filter((s): s is Record<string, unknown> => isPlainObject(s) && s.has_drive_thru === true)
+                        .map(s => ({
+                            id: Number(s.id),
+                            name: formatStoreDisplayName(String(s.name ?? '')),
+                            externalId: typeof s.external_id === 'string' ? s.external_id : null,
+                            code: typeof s.code === 'string' ? s.code : null,
+                        }))
+                        .filter(s => Number.isInteger(s.id) && s.id > 0),
+                    (s) => s.name
+                )
                 if (list.length > 0) setRawStores(list)
             })
             .catch(err => console.error('[Kore DT] Error cargando tiendas:', err))
@@ -2484,6 +2502,21 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 transcriptRef.current = transcriptRef.current.filter(e => e.id !== openId)
                 publishTranscript()
                 return
+            }
+            if (openEntry && orderRef.current.lines.length > 0 && orderRef.current.status === 'building') {
+                const curTotals = computeKoreTotals(orderRef.current, sessionRef.current?.store.taxRatePct ?? 0)
+                const totalStr = (curTotals.totalCents / 100).toFixed(2)
+                const [dollarsPart, centsPart] = totalStr.split('.')
+                const spokenTxt = openEntry.text
+                const mentionsExactTotal =
+                    spokenTxt.includes(totalStr) ||
+                    (centsPart !== '00' &&
+                        new RegExp(`\\b${dollarsPart}\\s*(?:d[oó]lares?\\s+)?(?:con|and|punto|point)\\s*${centsPart}\\b`, 'i').test(
+                            spokenTxt
+                        ))
+                if (mentionsExactTotal) {
+                    koreSpokenTotalForVersionRef.current = orderRef.current.version ?? 0
+                }
             }
         }
         transcriptRef.current = transcriptRef.current.map(e => (e.id === openId ? { ...e, final: true } : e))
@@ -2767,20 +2800,19 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     setNoiseGatedNow(filteringNow)
                 }
                 if (!liveRef.current) return
+                // Cero envío de silencios mientras Kore habla (solo transmitir si el Canal 2 de cajera trae audio activo)
+                const cashierExtraOnly = cashierMonitorRef.current?.popPendingPcm() ?? null
+                if (!cashierExtraOnly) return
                 const wsSilent = wsRef.current
                 if (!wsSilent || wsSilent.readyState !== WebSocket.OPEN || wsSilent.bufferedAmount > WS_BACKPRESSURE_BYTES) return
-                for (const silentBuf of bgStep.chunksToForward) {
-                    const cashierExtra = cashierMonitorRef.current?.popPendingPcm() ?? null
-                    const outboundBuf = cashierExtra ? mixPcm16Buffers(silentBuf, cashierExtra) : silentBuf
-                    sendJson({
-                        realtimeInput: {
-                            audio: {
-                                data: bytesToBase64(new Uint8Array(outboundBuf)),
-                                mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
-                            },
+                sendJson({
+                    realtimeInput: {
+                        audio: {
+                            data: bytesToBase64(new Uint8Array(cashierExtraOnly)),
+                            mimeType: `audio/pcm;rate=${KORE_INPUT_SAMPLE_RATE}`,
                         },
-                    })
-                }
+                    },
+                })
                 return
             }
 
@@ -2857,6 +2889,9 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         if (gate.speechActive && bargeInOrPtt) {
             const nowSpeechMs = performance.now()
             initialGreetingPendingRef.current = false
+            if (!holdSuppressedCurrentTurnRef.current && !cashierTakeoverActiveRef.current) {
+                suppressGeminiTurnAudioRef.current = false
+            }
             lastCustomerVoiceMsRef.current = nowSpeechMs
             lastCustomerSpeechTimestampMsRef.current = nowSpeechMs
             koreTurnFirstAudioRecordedRef.current = false
@@ -2950,6 +2985,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         customerBargeInActiveRef.current = false
         pendingLiveBargeInUntilMsRef.current = 0
         confirmedOrderInCurrentTurnRef.current = false
+        koreSpokenTotalForVersionRef.current = null
         lastCustomerSpeechTimestampMsRef.current = 0
         autoEndCancelConsecRef.current = 0
         clearAutoEnd(true, { force: true })
@@ -3639,6 +3675,29 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
             if (spokenKoreTurn) {
                 lastSpokenKoreTextRef.current = spokenKoreTurn
                 lastSpokenKoreAtMsRef.current = performance.now()
+                // Auto-reciclaje en segundo plano: guarda frases cortas reutilizables nuevas en Supabase Storage (máx 2 por sesión)
+                if (
+                    autoRecycledCountRef.current < 2 &&
+                    activeThirdLangRef.current === null &&
+                    spokenKoreTurn.length >= 12 &&
+                    spokenKoreTurn.length <= 155 &&
+                    !/\$\s*\d|\b\d+\s*(?:d[oó]lares?|dollars?|centavos?|cents?)\b|#\s*\d{2,}/i.test(spokenKoreTurn)
+                ) {
+                    const langNow = sessionMetaRef.current.lang
+                    let alreadyInRam = false
+                    fastClipsMapRef.current.forEach(pair => {
+                        const v = pair[langNow]
+                        if (v && v.text.trim().toLowerCase() === spokenKoreTurn.toLowerCase()) alreadyInRam = true
+                    })
+                    if (!alreadyInRam) {
+                        autoRecycledCountRef.current += 1
+                        void fetch('/api/drive-thru/kore/fast-clips', {
+                            method: 'POST',
+                            headers: getAuthHeaders(),
+                            body: JSON.stringify({ dynamicPhrase: spokenKoreTurn, lang: langNow }),
+                        }).catch(() => undefined)
+                    }
+                }
             }
             currentKoreTurnTextRef.current = ''
             if (cashierTakeoverActiveRef.current || wasSuppressedTurn) return
@@ -3733,20 +3792,23 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         if (gen !== genRef.current || !liveRef.current) return
         const calls = Array.isArray(toolCall.functionCalls) ? toolCall.functionCalls : []
         if (cashierTakeoverActiveRef.current) {
-            const blockedResponses: { id?: string; name: string; response: Record<string, unknown> }[] = []
+            const blockedResponses: { id?: string; name: string; scheduling?: 'SILENT' | 'WHEN_IDLE'; response: Record<string, unknown> }[] = []
             for (const rawCall of calls) {
                 if (!isPlainObject(rawCall)) continue
                 const name = typeof rawCall.name === 'string' ? rawCall.name : ''
                 const id = typeof rawCall.id === 'string' ? rawCall.id : undefined
-                let response: Record<string, unknown> = {
+                const isNonBlocking = toolBehaviorRef.current.get(name) === 'NON_BLOCKING'
+                const response: Record<string, unknown> = {
                     ok: false,
                     error_code: 'human_cashier_takeover_active',
                     message: KORE_HUMAN_TAKEOVER_OBSERVER_CUE[sessionMetaRef.current.lang],
                 }
-                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
-                    response = { ...response, scheduling: 'WHEN_IDLE' }
-                }
-                blockedResponses.push({ ...(id ? { id } : {}), name, response })
+                blockedResponses.push({
+                    ...(id ? { id } : {}),
+                    name,
+                    ...(isNonBlocking ? { scheduling: 'SILENT' as const } : {}),
+                    response,
+                })
             }
             if (blockedResponses.length > 0) sendJson({ toolResponse: { functionResponses: blockedResponses } })
             return
@@ -3777,7 +3839,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         if (!koreAlreadyAskedQuestion) {
             finalizeSpeech('kore')
         }
-        const functionResponses: { id?: string; name: string; response: Record<string, unknown> }[] = []
+        const functionResponses: { id?: string; name: string; scheduling?: 'SILENT' | 'WHEN_IDLE'; response: Record<string, unknown> }[] = []
         const executedCallsForCount: { name: string; args: Record<string, unknown>; response: Record<string, unknown> }[] = []
         const candidateMatches: { idx: number; match: KoreFastClipMatch }[] = []
         let failedCallsCount = 0
@@ -3813,26 +3875,32 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     message: 'Audio was background TV/YouTube media with no customer order; ticket unchanged.',
                 }
                 pushSystem(`${describeTool(name, args)} — background_media_ignored`, 'tool_error', name)
-                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
-                    blockedResp = { ...blockedResp, scheduling: 'WHEN_IDLE' }
-                }
-                functionResponses.push({ ...(id ? { id } : {}), name, response: blockedResp })
+                const isNbMedia = toolBehaviorRef.current.get(name) === 'NON_BLOCKING'
+                functionResponses.push({
+                    ...(id ? { id } : {}),
+                    name,
+                    ...(isNbMedia ? { scheduling: 'SILENT' as const } : {}),
+                    response: blockedResp,
+                })
                 continue
             }
 
             // Candado contra adivinanzas cuando el cliente fue cortado a mitad de frase ("Quiero", "Quiero una")
             if (shouldBlockDanglingFragmentToolCall(name, activeTurnCustomerText)) {
                 failedCallsCount += 1
-                let incompleteResp: Record<string, unknown> = {
+                const incompleteResp: Record<string, unknown> = {
                     ok: false,
                     error_code: 'incomplete_customer_utterance',
                     message: `Customer utterance was cut mid-phrase ("${activeTurnCustomerText}"). Ask briefly what they wanted to say instead of guessing items or sizes.`,
                 }
                 pushSystem(`${describeTool(name, args)} — incomplete_customer_utterance`, 'tool_error', name)
-                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
-                    incompleteResp = { ...incompleteResp, scheduling: 'WHEN_IDLE' }
-                }
-                functionResponses.push({ ...(id ? { id } : {}), name, response: incompleteResp })
+                const isNbInc = toolBehaviorRef.current.get(name) === 'NON_BLOCKING'
+                functionResponses.push({
+                    ...(id ? { id } : {}),
+                    name,
+                    ...(isNbInc ? { scheduling: 'WHEN_IDLE' as const } : {}),
+                    response: incompleteResp,
+                })
                 continue
             }
 
@@ -3841,17 +3909,20 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 orderRef.current.lines.length > 0 && orderRef.current.status !== 'cancelled'
             if (shouldBlockAmbiguousCancelOrderToolCall(name, args, activeTurnCustomerText, hasActiveOrderLines)) {
                 failedCallsCount += 1
-                let cancelBlockedResp: Record<string, unknown> = {
+                const cancelBlockedResp: Record<string, unknown> = {
                     ok: false,
                     error_code: 'confirm_whole_order_cancel_first',
                     message:
                         'Ambiguous dismissal ("olvídalo" / "never mind" / non-order topic) does NOT cancel an active food order. Ticket kept intact; clarify briefly or confirm their existing order in the active language.',
                 }
                 pushSystem('Cancelación bloqueada (frase ambigua) — confirm_whole_order_cancel_first', 'tool_error', name)
-                if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') {
-                    cancelBlockedResp = { ...cancelBlockedResp, scheduling: 'WHEN_IDLE' }
-                }
-                functionResponses.push({ ...(id ? { id } : {}), name, response: cancelBlockedResp })
+                const isNbCancel = toolBehaviorRef.current.get(name) === 'NON_BLOCKING'
+                functionResponses.push({
+                    ...(id ? { id } : {}),
+                    name,
+                    ...(isNbCancel ? { scheduling: 'WHEN_IDLE' as const } : {}),
+                    response: cancelBlockedResp,
+                })
                 continue
             }
 
@@ -3888,13 +3959,18 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     }
                 } else {
                     const preCallUnfulfilled = findUnfulfilledSessionOrderCategories(sessionCustomerTurns, before.lines)
-                    const toolOpts: Parameters<typeof applyKoreTool>[4] & { confirmedInCurrentTurn?: boolean } = {
+                    const allowImplicitConfirm =
+                        koreSpokenTotalForVersionRef.current !== null &&
+                        koreSpokenTotalForVersionRef.current === (before.version ?? 0)
+                    const toolOpts: Parameters<typeof applyKoreTool>[4] = {
                         taxRatePct: sessionRef.current?.store.taxRatePct ?? null,
                         lang: activeLang,
                         thirdLanguage: activeThirdLangRef.current,
                         confirmedInCurrentTurn: confirmedOrderInCurrentTurnRef.current,
+                        allowImplicitConfirmOnEndSession: allowImplicitConfirm,
                         sessionCustomerTurns,
                         unfulfilledSessionCategories: preCallUnfulfilled,
+                        knowledge: knowledgeRef.current,
                         ...(typeof storeAcceptsEbt === 'boolean' ? { acceptsEbt: storeAcceptsEbt } : {}),
                     }
                     const out = applyKoreTool(before, menuRef.current, name, args, toolOpts)
@@ -3916,6 +3992,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                     response.ok === true
                 ) {
                     confirmedOrderInCurrentTurnRef.current = false
+                    koreSpokenTotalForVersionRef.current = null
                     clearAutoEnd(true)
                 }
                 // Contrato del motor: éxito {ok:true,…}; falla {ok:false, error_code, message,…}
@@ -3957,8 +4034,13 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 }
             }
             executedCallsForCount.push({ name, args, response })
-            if (toolBehaviorRef.current.get(name) === 'NON_BLOCKING') response = { ...response, scheduling: 'WHEN_IDLE' }
-            functionResponses.push({ ...(id ? { id } : {}), name, response })
+            const isNonBlockingCall = toolBehaviorRef.current.get(name) === 'NON_BLOCKING'
+            functionResponses.push({
+                ...(id ? { id } : {}),
+                name,
+                ...(isNonBlockingCall ? { scheduling: 'WHEN_IDLE' as const } : {}),
+                response,
+            })
         }
         if (gen !== genRef.current || !liveRef.current) return
         setOrder(orderRef.current)
@@ -4048,11 +4130,20 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 return
             }
 
-            // No terminal: reproduce al instante (<10 ms), suprime audio/texto tardío de Gemini hasta turnComplete
+            // No terminal: reproduce el clip pregrabado de Supabase (<10 ms) y envía scheduling:'SILENT' en NON_BLOCKING
+            // para que Google NO sintetice ni cobre audio repetido (0 tokens de voz de salida y 0 turno extra!)
             koreModelStreamingRef.current = false
             lastModelAudioChunkMsRef.current = 0
             playbackRef.current?.clear()
-            suppressGeminiTurnAudioRef.current = true
+            const allBatchNonBlocking =
+                functionResponses.length > 0 &&
+                functionResponses.every(fnEntry => toolBehaviorRef.current.get(fnEntry.name) === 'NON_BLOCKING')
+            for (const fnEntry of functionResponses) {
+                if (toolBehaviorRef.current.get(fnEntry.name) === 'NON_BLOCKING') {
+                    fnEntry.scheduling = 'SILENT'
+                }
+            }
+            suppressGeminiTurnAudioRef.current = !allBatchNonBlocking
             const nowClipMs = performance.now()
             localFastClipStartedAtRef.current = nowClipMs
             customerSpokeSinceFastClipRef.current = false
@@ -4067,10 +4158,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 targetEntry.response = {
                     ...targetEntry.response,
                     fast_clip_spoken: true,
-                    instruction:
-                        finalLang === 'en'
-                            ? `Respond ONLY in English with exact text: "${spokenText}"`
-                            : `Responde ÚNICAMENTE en español con este texto exacto: "${spokenText}"`,
+                    already_spoken_to_customer: spokenText,
                 }
             }
         }
@@ -4197,12 +4285,14 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         customerBargeInActiveRef.current = false
         pendingLiveBargeInUntilMsRef.current = 0
         confirmedOrderInCurrentTurnRef.current = false
+        koreSpokenTotalForVersionRef.current = null
         lastTranscriptTvCutMsRef.current = 0
         lastCustomerSpeechTimestampMsRef.current = 0
         recentRawMicRmsRef.current = 0
         autoEndCancelConsecRef.current = 0
         fastClipSeedRef.current = 0
         playedFastClipIdsRef.current.clear()
+        autoRecycledCountRef.current = 0
         sawRecentNonLatinNoiseRef.current = false
         pendingKorePrefixRef.current = ''
         currentKoreTurnTextRef.current = ''
@@ -4392,6 +4482,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         }
         sessionRef.current = session
         menuRef.current = Array.isArray(session.menu) ? session.menu : []
+        knowledgeRef.current = Array.isArray(session.knowledge) ? session.knowledge : []
         toolBehaviorRef.current = extractToolBehaviors(session.setup)
         setSessionStore(session.store)
 
@@ -4553,12 +4644,38 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
         startedAtRef.current = null
         if (!payload) return
         try {
+            const headers = getAuthHeaders()
+            let bodyStr = JSON.stringify(payload)
+            const pageUnloading = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+            if (!pageUnloading) {
+                // Desmontaje interno de React/SPA (ej. cambio de pestaña UI): enviar fetch estándar sin límite de 64 KiB
+                void fetch('/api/drive-thru/kore/sessions', {
+                    method: 'POST',
+                    headers,
+                    body: bodyStr,
+                }).catch(() => undefined)
+                return
+            }
+            // Cierre real de pestaña/ventana: Chromium aborta keepalive si el body supera 64 KiB; compactar si excede 56 KB
+            if (bodyStr.length > 56_000 && Array.isArray(payload.transcript)) {
+                const compactPayload = {
+                    ...payload,
+                    transcript: payload.transcript.slice(-120).map(e => ({ ...e, text: e.text.slice(0, 420) })),
+                }
+                bodyStr = JSON.stringify(compactPayload)
+            }
             void fetch('/api/drive-thru/kore/sessions', {
                 method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify(payload),
-                keepalive: true,
-            }).catch(() => undefined)
+                headers,
+                body: bodyStr,
+                keepalive: bodyStr.length <= 60_000,
+            }).catch(() => {
+                void fetch('/api/drive-thru/kore/sessions', {
+                    method: 'POST',
+                    headers,
+                    body: bodyStr,
+                }).catch(() => undefined)
+            })
         } catch { /* noop */ }
     }
     const teardownRef = useRef<() => void>(() => undefined)
@@ -4736,7 +4853,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                         >
                             {hasDtAccess ? (
                                 stores.map(s => (
-                                    <option key={s.id} value={s.id}>#{s.id} {s.name}</option>
+                                    <option key={s.id} value={s.id}>{formatStoreDisplayName(s.name)}</option>
                                 ))
                             ) : (
                                 <option value="">{t('drive_thru.kore_no_dt_store_option')}</option>
@@ -5441,7 +5558,7 @@ export default function KoreDriveThruSimulator({ defaultStoreExternalId }: KoreD
                 <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                         <History size={16} /> {t('drive_thru.kore_history')}
-                        {selectedStore && <span className="font-semibold text-slate-400">· #{selectedStore.id} {selectedStore.name}</span>}
+                        {selectedStore && <span className="font-semibold text-slate-400">· {formatStoreDisplayName(selectedStore.name)}</span>}
                     </h3>
                     <button
                         type="button"

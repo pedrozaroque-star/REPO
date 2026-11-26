@@ -695,6 +695,47 @@ export async function getKoreFastClipsBundle(
  * Pre-graba y persiste en Supabase Storage cualquier clip faltante del catálogo común (`KORE_FAST_CLIP_SPECS`)
  * y de las bienvenidas de las 6 sucursales con Drive-Thru (`#3, #6, #10, #12, #14, #15`) en Español e Inglés.
  */
+/**
+ * Determina si una frase hablada por Kore es reutilizable entre clientes (sin totales dinámicos en dólares,
+ * códigos de orden ni nombres propios de tickets) para persistirla una sola vez en Supabase Storage (`phone_v6/Kore/`).
+ */
+export function isReusableDriveThruPhrase(rawText: string): boolean {
+  const clean = String(rawText || '').replace(/\s+/g, ' ').trim()
+  if (clean.length < 10 || clean.length > 165) return false
+  if (/^[.\s…]+$/.test(clean)) return false
+  // Excluir frases con precios/totales dinámicos, porcentajes o números de orden/ticket específicos
+  if (/\$\s*\d|\b\d+\s*(?:d[oó]lares?|dollars?|centavos?|cents?)\b|#\s*\d{2,}|\borden\s+de\s+[A-ZÁÉÍÓÚÑ]/i.test(clean)) {
+    return false
+  }
+  return true
+}
+
+/**
+ * Auto-recicla en segundo plano una frase reutilizable hablada por Kore: si ya existe en Supabase Storage (`phone_v6/Kore/`),
+ * la devuelve desde Storage a costo $0.00; si es nueva, la sintetiza UNA SOLA VEZ con `Kore 3.8` y la persiste para siempre.
+ */
+export async function cacheDynamicKoreFastClip(
+  text: string,
+  lang: KoreLang
+): Promise<{ ok: boolean; fromCache: boolean; clip: KoreEncodedFastClip | null; storagePath?: string; reason?: string }> {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!isReusableDriveThruPhrase(clean)) {
+    return { ok: false, fromCache: false, clip: null, reason: 'non_reusable_phrase' }
+  }
+  const info = getPhoneSpeechStoragePath(clean, lang, 'Kore')
+  if (!info) {
+    return { ok: false, fromCache: false, clip: null, reason: 'empty_storage_path' }
+  }
+  const res = await ensureFastClipRecorded(clean, lang, false)
+  if (!res.clip) {
+    return { ok: false, fromCache: false, clip: null, reason: res.error || 'synthesis_failed' }
+  }
+  if (persistedPathsCache) {
+    persistedPathsCache.paths.add(info.path)
+  }
+  return { ok: true, fromCache: res.fromCache, clip: res.clip, storagePath: info.path }
+}
+
 export async function prewarmAllKoreFastClips(opts?: {
   storeIds?: readonly number[]
   concurrency?: number

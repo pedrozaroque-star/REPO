@@ -26,6 +26,7 @@ import { authorizePhoneModuleRequest } from '@/lib/phone-agent-access'
 import { KORE_SIM_ALLOWED_ROLES, loadKoreStore } from '@/lib/drive-thru-kore'
 import {
   KORE_DRIVE_THRU_STORE_IDS,
+  cacheDynamicKoreFastClip,
   getKoreFastClipsBundle,
   prewarmAllKoreFastClips
 } from '@/lib/drive-thru-kore-fast-clips'
@@ -104,6 +105,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}))
     const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, any>) : {}
+
+    if (typeof b.dynamicPhrase === 'string' && b.dynamicPhrase.trim().length > 0) {
+      const phraseLang = b.lang === 'en' ? 'en' : 'es'
+      const saved = await cacheDynamicKoreFastClip(b.dynamicPhrase, phraseLang)
+      return NextResponse.json(saved, { headers: NO_STORE_HEADERS })
+    }
     const parsedStoreId = parseOptionalStoreId(b.storeId ?? b.store_id ?? request.nextUrl.searchParams.get('storeId'))
     if (parsedStoreId === 'invalid') {
       return jsonError('storeId inválido (usa stores.id numérico).', 400)

@@ -1099,6 +1099,24 @@ function hasOnlyFreeModifiers(line: KoreOrderLine): boolean {
   return line.modifiers.every((m) => (Number(m.priceCents) || 0) === 0 && (Number(m.price) || 0) === 0)
 }
 
+function hasSpecialPrepOrHalfMeatOrCafeNote(line: KoreOrderLine): boolean {
+  const noteNorm = normPlain(line.notes)
+  if (/\bcafe\s+de\s+(?:la\s+)?olla\b|\bmitad\b|\bhalf\b/.test(noteNorm)) {
+    return true
+  }
+  if (!Array.isArray(line.modifiers) || line.modifiers.length === 0) return false
+  return line.modifiers.some((m) => {
+    const nm = normPlain(m.name)
+    const grp = normPlain(m.groupName)
+    return (
+      /^half\s+(?:asada|pastor|pollo|chorizo|cabeza|lengua|buche|carnitas)$/.test(nm) ||
+      grp === 'half meat 50 50' ||
+      grp === 'prep options' ||
+      /\b(?:carne\s+dorada|tortilla\s+dorada|pan\s+dorado|sope\s+dorado|partido\s+(?:en\s+dos|4))\b/.test(nm)
+    )
+  })
+}
+
 function extractSeed(variantSeed: unknown, stateAfter?: KoreOrderState | null): number {
   if (typeof variantSeed === 'number' && Number.isFinite(variantSeed)) {
     return Math.abs(Math.trunc(variantSeed))
@@ -1240,7 +1258,7 @@ function matchUpdateItemFastClip(
     }) ||
     afterLines[afterLines.length - 1]
 
-  if (!updatedLine || !hasOnlyFreeModifiers(updatedLine)) return null
+  if (!updatedLine || !hasOnlyFreeModifiers(updatedLine) || hasSpecialPrepOrHalfMeatOrCafeNote(updatedLine)) return null
 
   const rawMods = Array.isArray(args.modifiers) ? args.modifiers.map((m) => normPlain(m)).join(' ') : ''
   const rawNotes = normPlain(args.notes)
@@ -1468,6 +1486,16 @@ export function matchKoreFastClipForToolOutcome(
         return null
       }
       if (Array.isArray(res.unfulfilled_session_items) && res.unfulfilled_session_items.length > 0) {
+        return null
+      }
+      if (newlyAdded.some((l) => hasSpecialPrepOrHalfMeatOrCafeNote(l))) {
+        return null
+      }
+      if (
+        params.customerTurnText &&
+        /\bchampur{1,2}ado\b/i.test(params.customerTurnText) &&
+        /\b(?:grande|large|mediano|medium|chico|peque[nñ]o|small|caja|box)\b/i.test(params.customerTurnText)
+      ) {
         return null
       }
 

@@ -35,11 +35,14 @@ import {
   KORE_LIVE_MODEL,
   KORE_SIM_ALLOWED_ROLES,
   KoreTokenError,
+  buildKoreHoursKnowledgeEntries,
   buildKoreLiveSetup,
   buildKoreSystemPrompt,
   buildKoreWsUrl,
   createKoreEphemeralToken,
   getKoreStoreTaxRate,
+  loadAllActiveStoresDirectory,
+  loadAllSpecialHoursCached,
   loadKoreEbtStoreMatrix,
   loadKoreKnowledge,
   loadKoreMenu,
@@ -113,15 +116,24 @@ export async function POST(request: NextRequest) {
 
     const pickedGreeting = pickKoreDriveThruGreeting(store.id, lang)
 
-    const [menu, knowledge, tax, learnedRules, ebtMatrix, initialGreetingClips] = await Promise.all([
+    const [menu, rawKnowledge, tax, learnedRules, ebtMatrix, initialGreetingClips, specialHours, allStores] = await Promise.all([
       loadKoreMenu(store.id),
       loadKoreKnowledge(store.id),
       getKoreStoreTaxRate(store),
       loadActiveKoreLearnedRules(store.id),
       loadKoreEbtStoreMatrix(),
-      getInitialGreetingFastClips(store.id, pickedGreeting.index, 650)
+      getInitialGreetingFastClips(store.id, pickedGreeting.index, 650),
+      loadAllSpecialHoursCached().catch(() => []),
+      loadAllActiveStoresDirectory().catch(() => [])
     ])
     if (menu.length === 0) return jsonError('El menú en línea de esta sucursal no está disponible en este momento.', 503)
+
+    const liveHoursKb = buildKoreHoursKnowledgeEntries({
+      store,
+      allStores,
+      specialHours
+    })
+    const knowledge = [...liveHoursKb, ...rawKnowledge]
 
     const systemText = buildKoreSystemPrompt({
       storeId: store.id,
@@ -132,6 +144,10 @@ export async function POST(request: NextRequest) {
       learnedRules,
       acceptsEbt: store.acceptsEbt,
       city: store.city,
+      address: store.address,
+      phone: store.phone,
+      weeklyHours: store.weeklyHours,
+      specialHours,
       ebtMatrixSummary: ebtMatrix,
       greetingVariantIndex: pickedGreeting.index
     })
@@ -146,6 +162,7 @@ export async function POST(request: NextRequest) {
         model: KORE_LIVE_MODEL,
         setup,
         menu,
+        knowledge,
         lang,
         initialGreetingClips,
         store: {

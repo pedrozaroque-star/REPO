@@ -252,7 +252,10 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     .replace(/\blinguas?\b/gi, (m) => (/s$/i.test(m) ? 'lenguas' : 'lengua'))
     // Plataformas de delivery con colisión STT ("Dortmund" / "Door Dash" -> "DoorDash")
     .replace(/\b(?:dortmund|door\s+dash|dordash|ordash)\b/gi, 'DoorDash')
-    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata", "una chata" / "agua de chata")
+    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata", "una chata" / "agua de chata", "fe de la hoya" -> "café de olla")
+    .replace(/\bcaf[eé]\s+de\s+(?:la\s+)?hoya(s?)\b/gi, 'café de olla$1')
+    .replace(/(?<!\bsanta\s+)\bfe\s+de\s+(?:la\s+)?(?:hoya|olla)(s?)\b/gi, 'café de olla$1')
+    .replace(/\bolla\s+coffee(s?)\b/gi, 'café de olla$1')
     .replace(/\bch[ao]mpur{1,2}ado(s?)\b/gi, 'champurrado$1')
     .replace(/\b(?:chapurrado|champorado)(s?)\b/gi, 'champurrado$1')
     .replace(/\b(?:whore\s*chata|or\s+chata|hor\s*chat{1,2}a|orchata)(s?)\b/gi, 'horchata$1')
@@ -1682,7 +1685,8 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
   const rawRuleEn = String(candidate.proposedRuleEn ?? candidate.proposed_rule_en ?? '')
   const rawDoubt = String(candidate.doubtForOwner ?? candidate.doubt_for_owner ?? '')
   const rawCustomer = String(candidate.customerQuote ?? candidate.customer_quote ?? '')
-  const rawAll = `${dedupeKey} ${rawTrigger} ${rawRuleEs} ${rawRuleEn} ${rawDoubt} ${rawCustomer}`
+  const rawKore = String((candidate as any).koreQuote ?? (candidate as any).kore_quote ?? '')
+  const rawAll = `${dedupeKey} ${rawTrigger} ${rawRuleEs} ${rawRuleEn} ${rawDoubt} ${rawCustomer} ${rawKore}`
 
   if (/\bTEST_SMOKE_/i.test(rawAll)) return false
 
@@ -1882,6 +1886,28 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
   if (
     /\bwhy\s+i\s+speak\s+english\b/.test(normTrigger) ||
     (/^definir\s+criterio\s+oficial\s+de\s+respuesta\s+para:/.test(normRule) && normRule.length < 180)
+  ) {
+    return true
+  }
+
+  // b.15 Blindaje contra negaciones falsas de capacidades oficiales (Delivery Armor, Café de Olla, Burritos Mitad y Mitad, Horarios) y meta-directivas NLU
+  if (
+    (/\b(?:doordash|uber\s*eats|grubhub|repartidor|driver|pickup|orden(?:es)?)\b/.test(normAll) &&
+      /\b(?:no\s+tiene\s+acceso\s+a\s+la\s+orden|does\s+not\s+have\s+access\s+to\s+the\s+order|exclusivamente\s+a\s+traves\s+de\s+la\s+aplicacion|exclusively\s+through\s+the\s+app)\b/.test(
+        normRule
+      )) ||
+    /\bno\s+(?:tenemos|manejamos|vendemos|hay|contamos\s+con)\s+cafe\s+de\s+(?:la\s+)?olla\b|\bdo\s+not\s+(?:have|carry|sell)\s+(?:cafe\s+de\s+olla|mexican\s+coffee)\b/.test(
+      normRule
+    ) ||
+    /\bno\s+(?:se\s+puede|hacemos|manejamos|permitimos)[^.!?]{0,45}\bmitad\s+y\s+mitad\b|\bcannot\s+(?:do|make|split)[^.!?]{0,45}\bhalf\s+and\s+half\b/.test(
+      normRule
+    ) ||
+    /\bno\s+(?:cuenta|contamos|tengo|tenemos)\s+con\s+(?:la\s+)?informacion\s+de\s+(?:los\s+)?horarios\b|\bdo(?:es)?\s+not\s+have\s+(?:store\s+)?hours\s+information\b/.test(
+      normRule
+    ) ||
+    /\b(?:configurar\s+el\s+(?:nlu|motor\s+de\s+reconocimiento|modelo|prompt)|ajustar\s+el\s+(?:nlu|prompt|modelo)|entrenar\s+el\s+modelo|goodbye\s+intent|intent\s+detection)\b/.test(
+      normAll
+    )
   ) {
     return true
   }

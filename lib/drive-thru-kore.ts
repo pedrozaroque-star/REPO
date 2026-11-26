@@ -77,6 +77,12 @@
  *   con el manager?"` (invitando a pasar directo a ventanilla), y prohíbe llamar `cancel_order` ante `"Olvídalo"` / `"Never mind"`.
  * - Blindaje Fase 26 (2026-11-21): `buildLearnedRulesSection` eleva el tope activo a `KORE_MAX_ACTIVE_LEARNED_RULES = 35`
  *   (antes `15`) recibiendo reglas priorizadas `approved` -> `auto_applied` y `evidence_count DESC`.
+ * - Optimización de Costos Voz Paid Tier 2 (2026-11-23):
+ *   1) Herramientas de orden/repartidor declaradas `NON_BLOCKING` con `scheduling: 'SILENT'` cuando suena un clip pregrabado de
+ *      Supabase Storage (`fast_clip_spoken: true`), eliminando el 100% de la síntesis y re-cobro doble de voz en Google.
+ *   2) Compresión sin pérdida del `systemInstruction` (~72% menos tokens por turno): `learnedRules` sin duplicación bilingüe
+ *      redundante, `SHARED KB` movido a consulta `< 1 ms` en RAM vía `search_menu` dejando solo políticas esenciales fijas,
+ *      y reglas 1–15 compactadas conservando el 100% de guardrails operativos.
  */
 
 import { supabaseAdmin } from '@/lib/supabase'
@@ -100,6 +106,15 @@ import {
   type KoreMenuItem
 } from '@/lib/drive-thru-kore-order'
 import type { ActiveKoreLearnedRule } from '@/lib/drive-thru-kore-learning'
+import {
+  buildCompactWeeklyHours,
+  buildCrossStoreHoursComparison,
+  buildEffectiveUpcomingHolidaysForStore,
+  evaluateStoreSchedulePure,
+  loadAllActiveStoresDirectory,
+  loadAllSpecialHoursCached,
+  localizeHolidayLabel
+} from '@/lib/phone-agent'
 
 export {
   KORE_HUMAN_TAKEOVER_OBSERVER_CUE,
@@ -163,6 +178,8 @@ export interface KoreStoreRow {
   name: string
   code: string | null
   address: string | null
+  phone?: string | null
+  weeklyHours?: unknown
   city: string
   externalId: string | null
   hasDriveThru: boolean
@@ -302,7 +319,7 @@ export async function loadKoreStore(storeId: number): Promise<KoreStoreRow | nul
   const [{ data, error }, { data: cfg }] = await Promise.all([
     supabaseAdmin
       .from('stores')
-      .select('id, name, code, address, external_id, has_drive_thru, is_active')
+      .select('id, name, code, address, phone, weekly_hours, external_id, has_drive_thru, is_active')
       .eq('id', storeId)
       .maybeSingle(),
     supabaseAdmin.from('phone_agent_config').select('accepts_ebt').eq('store_id', storeId).maybeSingle()
@@ -318,6 +335,8 @@ export async function loadKoreStore(storeId: number): Promise<KoreStoreRow | nul
     name: String(data.name || ''),
     code: data.code ? String(data.code) : null,
     address,
+    phone: data.phone ? String(data.phone) : null,
+    weeklyHours: data.weekly_hours ?? null,
     city,
     externalId: data.external_id ? String(data.external_id) : null,
     hasDriveThru: data.has_drive_thru === true,
@@ -504,10 +523,10 @@ const OFFICIAL_CATEGORY_PREP_GUIDE: Readonly<Record<string, string>> = Object.fr
   Tacos: '1 tortilla + meat, Served Plain (onion, cilantro, salsas & limes free on side)',
   'Taco Plate': '3 plain tacos of choice + rice & refried beans',
   Platos: 'meat + rice, refried beans, guacamole, small side salad & corn or flour tortillas',
-  Burritos: 'Regular: meat, rice & refried beans wrapped in flour tortilla',
-  'Super Burritos': 'meat, rice, refried beans, Monterey Jack cheese, guacamole & sour cream',
-  'Meat Only Burritos': 'pure meat only (NO rice, NO beans)',
-  'Meat Only Super Burritos': 'double meat + Monterey Jack cheese, guacamole & sour cream (NO rice, NO beans)',
+  Burritos: 'Regular: meat, rice & refried beans wrapped in flour tortilla (50/50 half-and-half of 2 meats free at $0.00!)',
+  'Super Burritos': 'meat, rice, refried beans, Monterey Jack cheese, guacamole & sour cream (50/50 half-and-half of 2 meats free at $0.00!)',
+  'Meat Only Burritos': 'pure meat only, NO rice, NO beans (50/50 half-and-half of 2 meats free at $0.00!)',
+  'Meat Only Super Burritos': 'double meat + Monterey Jack cheese, guacamole & sour cream, NO rice, NO beans (50/50 half-and-half of 2 meats free at $0.00!)',
   Quesadillas: 'Regular: meat & melted Monterey Jack cheese in flour tortilla',
   'Super Quesadillas': 'meat, melted Monterey Jack cheese, guacamole & sour cream',
   Mulitas: 'Regular: meat & melted Monterey Jack cheese between 2 corn tortillas',
@@ -520,7 +539,7 @@ const OFFICIAL_CATEGORY_PREP_GUIDE: Readonly<Record<string, string>> = Object.fr
   Desserts: 'individual Flan & Cheesecake ONLY (no birthday cakes, no churros)',
   'Medium Drinks': '22 oz (Mediana — our starting size; NEVER say "chica" or "small")',
   'Large Drinks': '32 oz (Grande)',
-  'Misc. Drinks': 'Bottled Water, 16 oz hot Coffee/Champurrado, 96 oz Champurrado Box, 128 oz Aguas Frescas Gallon'
+  'Misc. Drinks': 'Bottled Water, 16 oz hot Coffee (serves BOTH traditional spiced Café de Olla AND Café Regular — pass "Café de Olla" when requested!), 16 oz Champurrado, 96 oz Champurrado To-Go Box, 128 oz Aguas Frescas Gallon'
 })
 
 function findPaidOptionCents(item: KoreMenuItem | undefined, optionPattern: RegExp): number | null {
@@ -648,7 +667,7 @@ export function buildCompactMenuCatalog(storeNameEn: string, menu: KoreMenuItem[
   const mathLine = buildLiveRegularVsSuperMathLine(menu)
   if (mathLine) lines.push(mathLine)
   lines.push(
-    '- Prep & Speech facts: NO food item has sizes (Regular vs Super vs Meat Only only). Supreme/Supremo=Super. Sopes = thick tortilla + beans + sour cream (crema) + Cotija cheese + meat (STRICTLY NO lettuce / NO lechuga, NO tomato!). Taco Plate (3 plain tacos + rice & beans; also called "plato de tres tacos" / "combo de 3 tacos" / STT "Taco Play") != Plato <meat> (meat + salad, rice, beans, guacamole & tortillas). Torta Cubana=Breaded Steak+Ham+Wiener+fresco cheese+avocado+beans+mayo+lettuce+tomato (STT "torta corona"). Adobada=Pastor; STT "sasada"=Asada. Drinks ONLY have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz Champurrado (NEVER say "chica", "pequeña" or "small"). Desserts: ONLY Flan & Cheesecake.'
+    '- Prep & Speech facts: NO food item has sizes (Regular vs Super vs Meat Only only). Burritos (all 4 tiers: Regular, Super, Meat Only, Meat Only Super) CAN be made 50/50 half-and-half with any 2 meats at $0.00 extra ("Half <Meat>"). Coffee (16 oz) = BOTH Café de Olla tradicional AND Café Regular served ALL DAY (NEVER deny Café de Olla!). Champurrado comes ONLY in 16 oz cup or 96 oz To-Go Box (clarify if asked for "champurrado grande"). In-store $0.00 prep mods: Carne Dorada, Tortilla Dorada, Pan Dorado, Sope Dorado, Partido en Dos. Supreme/Supremo=Super. Sopes = thick tortilla + beans + sour cream (crema) + Cotija cheese + meat (STRICTLY NO lettuce / NO lechuga, NO tomato!). Taco Plate (3 plain tacos + rice & beans; STT "Taco Play") != Plato <meat> (meat + salad, rice, beans, guacamole & tortillas). Torta Cubana=Breaded Steak+Ham+Wiener+fresco cheese+avocado+beans+mayo+lettuce+tomato (STT "torta corona"). Adobada=Pastor; STT "sasada"=Asada; STT "fe de la hoya"="café de olla". Drinks ONLY have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz Champurrado (NEVER say "chica", "pequeña" or "small"). Desserts: ONLY Flan & Cheesecake.'
   )
   return lines.join('\n')
 }
@@ -684,42 +703,37 @@ export function buildKoreModifierRulesText(menu: KoreMenuItem[]): string {
   return lines.join('\n')
 }
 
-function buildKnowledgeText(kb: KoreKnowledgeEntry[], learnedRules?: ActiveKoreLearnedRule[]): string {
-  const learnedKbIds = new Set(
-    (learnedRules || [])
-      .map((r) => (r as { syncedKbId?: string | null }).syncedKbId)
-      .filter((v): v is string => Boolean(v))
-  )
-  const deduped = kb.filter((k) => !k.id || !learnedKbIds.has(k.id))
-  if (deduped.length === 0) return '- (none)'
+function buildEssentialPoliciesText(kb: KoreKnowledgeEntry[]): string {
   const cleanBrand = (s: string) => s.replace(/\bTacos\s+El\s+Gavil[aá]n\b/gi, 'Tacos Gavilan')
-  return deduped
-    .slice(0, 35)
-    .map((k) => {
-      const maxLen = k.category === 'menu' ? 760 : 280
-      const es = cleanBrand(k.answerEs || '').slice(0, maxLen)
-      const en = cleanBrand(k.answerEn || '').slice(0, maxLen)
-      const body = es && en && es !== en ? `ES: ${es} | EN: ${en}` : es || en
-      const titleDisplay =
-        k.titleEn && k.titleEn !== k.title
-          ? `${cleanBrand(k.title)} / ${cleanBrand(k.titleEn)}`
-          : cleanBrand(k.title)
-      return `- [${k.category}] ${titleDisplay}: ${body}`
-    })
-    .join('\n')
+  const essentialCats = new Set(['hours', 'catering', 'payments'])
+  const brief = kb
+    .filter((k) => essentialCats.has(String(k.category || '').toLowerCase()))
+    .slice(0, 5)
+    .map((k) => `- [${k.category}] ${cleanBrand(k.title)}: ${cleanBrand(k.answerEs || k.answerEn || '').slice(0, 320)}`)
+  brief.push(
+    '- [lookup] For employment, other branch addresses/hours, catering details or special FAQ not listed here, call search_menu(query) (<1 ms local RAM lookup).'
+  )
+  return brief.join('\n')
 }
 
-export const KORE_MAX_ACTIVE_LEARNED_RULES = 35
+export const KORE_MAX_ACTIVE_LEARNED_RULES = 24
 
-export function buildLearnedRulesSection(rules?: ActiveKoreLearnedRule[]): string {
+export function buildLearnedRulesSection(rules?: ActiveKoreLearnedRule[], lang: KoreLang = 'es'): string {
   if (!rules || rules.length === 0) return ''
-  const lines = rules
-    .slice(0, KORE_MAX_ACTIVE_LEARNED_RULES)
-    .map((r) => {
-      const trig = r.triggerEn && r.triggerEn !== r.trigger ? `${r.trigger} / ${r.triggerEn}` : r.trigger
-      return `- [${trig}] ES: ${r.ruleEs} | EN: ${r.ruleEn}`
-    })
-  return ['', 'LEARNED OWNER & STORE RULES (HIGHEST PRIORITY):', ...lines].join('\n')
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const r of rules) {
+    if (lines.length >= KORE_MAX_ACTIVE_LEARNED_RULES) break
+    const primary = (lang === 'en' ? r.ruleEn || r.ruleEs : r.ruleEs || r.ruleEn || '').trim()
+    if (!primary) continue
+    const dedupKey = primary.toLowerCase().slice(0, 72)
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    const trig = r.triggerEn && r.triggerEn !== r.trigger ? `${r.trigger}/${r.triggerEn}` : r.trigger
+    lines.push(`- [${trig.slice(0, 70)}] ${primary.slice(0, 280)}`)
+  }
+  if (lines.length === 0) return ''
+  return ['', 'LEARNED OWNER RULES (HIGH PRIORITY):', ...lines].join('\n')
 }
 
 let greetingRotationCursor = 0
@@ -760,6 +774,141 @@ export function pickKoreDriveThruGreeting(
   return { primary, alternatives, index: resolvedIndex }
 }
 
+function formatPacificDateIso(now: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(now)
+  const y = parts.find((p) => p.type === 'year')?.value || '2026'
+  const m = parts.find((p) => p.type === 'month')?.value || '01'
+  const d = parts.find((p) => p.type === 'day')?.value || '01'
+  return `${y}-${m}-${d}`
+}
+
+function format12hSimple(hhmm: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || '').trim())
+  if (!m) return String(hhmm || '')
+  const h24 = Number(m[1])
+  const min = m[2]
+  const period = h24 >= 12 && h24 < 24 ? 'PM' : 'AM'
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  return `${h12}:${min} ${period}`
+}
+
+/**
+ * Construye entradas sintéticas en RAM de `category: 'hours'` con el horario real de esta sucursal,
+ * festivos próximos y directorio completo de las 15 sucursales para consultas `< 1 ms` en `search_menu`.
+ */
+export function buildKoreHoursKnowledgeEntries(params: {
+  store: KoreStoreRow
+  allStores?: Array<{
+    id: number
+    name: string
+    address?: string | null
+    phone?: string | null
+    has_drive_thru?: boolean
+    weekly_hours?: unknown
+  }>
+  specialHours?: any[]
+  now?: Date
+}): KoreKnowledgeEntry[] {
+  const { store, allStores = [], specialHours = [], now = new Date() } = params
+  const entries: KoreKnowledgeEntry[] = []
+  const ptDate = formatPacificDateIso(now)
+  const nameEs = formatCustomerStoreName(store.id, 'es', { style: 'display' })
+  const nameEn = formatCustomerStoreName(store.id, 'en', { style: 'display' })
+
+  if (store.weeklyHours) {
+    const evalNow = evaluateStoreSchedulePure({
+      storeId: store.id,
+      storeName: nameEn,
+      weeklyHours: store.weeklyHours,
+      specialHours,
+      now
+    })
+    const compactEs = buildCompactWeeklyHours(store.weeklyHours, 'es')
+    const compactEn = buildCompactWeeklyHours(store.weeklyHours, 'en')
+    const upcoming = buildEffectiveUpcomingHolidaysForStore({
+      storeId: store.id,
+      weeklyHours: store.weeklyHours,
+      specialHours,
+      fromDateStr: ptDate,
+      daysAhead: 120
+    }).slice(0, 6)
+    const holEs = upcoming
+      .map((h) => {
+        const lbl = localizeHolidayLabel(h.holiday_name, 'es', h.event_date)
+        return h.is_closed
+          ? `${h.event_date} (${lbl}): CERRADO`
+          : `${h.event_date} (${lbl}): ${format12hSimple(h.open_time)} a ${format12hSimple(h.close_time)}`
+      })
+      .join('; ')
+    const holEn = upcoming
+      .map((h) => {
+        const lbl = localizeHolidayLabel(h.holiday_name, 'en', h.event_date)
+        return h.is_closed
+          ? `${h.event_date} (${lbl}): CLOSED`
+          : `${h.event_date} (${lbl}): ${format12hSimple(h.open_time)} to ${format12hSimple(h.close_time)}`
+      })
+      .join('; ')
+    const centralNoteEs =
+      store.id === 6
+        ? ' Nota exclusiva de Los Ángeles (Central y Washington): el Drive-Thru cierra en ese horario y el comedor cierra 1 hora antes (excepto en festivos con cierre temprano a las 4:00 PM donde ambos cierran a las 4:00 PM).'
+        : ' Comedor y Drive-Thru manejan exactamente este mismo horario.'
+    const centralNoteEn =
+      store.id === 6
+        ? ' Exclusive note for Los Angeles (Central & Washington): Drive-Thru closes at these hours and the dining room closes 1 hour earlier (except on 4:00 PM early-close holidays when both close at 4:00 PM).'
+        : ' Dining room and Drive-Thru share these exact same hours.'
+
+    entries.push({
+      id: `ram:hours:store_${store.id}`,
+      category: 'hours',
+      title: `Horario oficial de Tacos Gavilan ${nameEs} (apertura, cierre y días festivos)`,
+      titleEn: `Official hours for Tacos Gavilan ${nameEn} (open, close & holidays)`,
+      answerEs: `Sucursal ${nameEs}${store.address ? ` (${store.address})` : ''}: ${compactEs}.${centralNoteEs} Estado hoy: ${evalNow.statusMessageEs}${holEs ? ` Próximos festivos: ${holEs}.` : ''}`,
+      answerEn: `${nameEn}${store.address ? ` (${store.address})` : ''}: ${compactEn}.${centralNoteEn} Live status today: ${evalNow.statusMessageEn}${holEn ? ` Upcoming holidays: ${holEn}.` : ''}`
+    })
+  }
+
+  if (allStores.length > 0) {
+    const dirEs = allStores
+      .map((s) => {
+        const nm = formatCustomerStoreName(Number(s.id), 'es', { style: 'display' })
+        const dt = s.has_drive_thru ? ' [con Drive-Thru]' : ' [solo comedor]'
+        const wh = s.weekly_hours ? buildCompactWeeklyHours(s.weekly_hours, 'es') : ''
+        const extra6 = Number(s.id) === 6 ? ' (DT; comedor cierra 1h antes)' : ''
+        return `${nm}${dt}: ${wh}${extra6}${s.address ? ` — ${s.address}` : ''}`
+      })
+      .join(' | ')
+    const dirEn = allStores
+      .map((s) => {
+        const nm = formatCustomerStoreName(Number(s.id), 'en', { style: 'display' })
+        const dt = s.has_drive_thru ? ' [Drive-Thru]' : ' [Dining room only]'
+        const wh = s.weekly_hours ? buildCompactWeeklyHours(s.weekly_hours, 'en') : ''
+        const extra6 = Number(s.id) === 6 ? ' (DT; dining room closes 1h earlier)' : ''
+        return `${nm}${dt}: ${wh}${extra6}${s.address ? ` — ${s.address}` : ''}`
+      })
+      .join(' | ')
+    const cmpEs = buildCrossStoreHoursComparison(allStores as any, 'es', specialHours, now)
+    const cmpEn = buildCrossStoreHoursComparison(allStores as any, 'en', specialHours, now)
+
+    entries.push({
+      id: 'ram:hours:all_15_stores',
+      category: 'hours',
+      title: 'Horarios y direcciones de las 15 sucursales de Tacos Gavilan (qué tienda abre más temprano o cierra más tarde)',
+      titleEn: 'Hours and addresses of all 15 Tacos Gavilan locations (earliest open & latest close)',
+      answerEs: `${cmpEs ? `${cmpEs} ` : ''}Directorio: ${dirEs}`.slice(0, 755),
+      answerEn: `${cmpEn ? `${cmpEn} ` : ''}Directory: ${dirEn}`.slice(0, 755)
+    })
+  }
+
+  return entries
+}
+
+export { loadAllActiveStoresDirectory, loadAllSpecialHoursCached }
+
 /** System prompt compacto y de baja latencia de Kore para el drive-thru de una sucursal. */
 export function buildKoreSystemPrompt(params: {
   storeId: number
@@ -768,12 +917,20 @@ export function buildKoreSystemPrompt(params: {
   knowledge: KoreKnowledgeEntry[]
   taxRatePct: number
   learnedRules?: ActiveKoreLearnedRule[]
-  /** Reloj inyectable para el estado en vivo de desayunos (por defecto `new Date()`, evaluado en America/Los_Angeles). */
+  /** Reloj inyectable para el estado en vivo de desayunos y horarios (por defecto `new Date()`, evaluado en America/Los_Angeles). */
   now?: Date
   /** Si esta ciudad/sucursal acepta EBT CalFresh en comedor (`phone_agent_config.accepts_ebt`; false en Rialto #1 y Santa Ana #9). */
   acceptsEbt?: boolean
   /** Ciudad de la sucursal actual (ej. "Lynwood", "Los Angeles", "Rialto", "Santa Ana"). */
   city?: string
+  /** Dirección física oficial de la sucursal actual (`stores.address`). */
+  address?: string | null
+  /** Teléfono de la sucursal actual (`stores.phone`). */
+  phone?: string | null
+  /** Horario semanal oficial `stores.weekly_hours` de esta sucursal. */
+  weeklyHours?: unknown
+  /** Excepciones de días festivos (`phone_special_hours`) para calcular horarios reales hoy y próximos festivos. */
+  specialHours?: any[]
   /** Resumen en vivo de ciudades con EBT válido vs no válido en las 15 sucursales. */
   ebtMatrixSummary?: Partial<KoreEbtStoreMatrix> | null
   /** Índice opcional determinista de variante de saludo (0..3); si se omite, rota automáticamente entre sesiones. */
@@ -789,16 +946,53 @@ export function buildKoreSystemPrompt(params: {
   const yesEbtCitiesEs =
     params.ebtMatrixSummary?.ebtDiningRoomCitiesEs ||
     'West Covina, Azusa, Los Ángeles (Vernon y Broadway), Los Ángeles (Central y Washington), Los Ángeles (Slauson y Broadway), Hollywood, La Puente, Huntington Park, Norwalk, Bell, Lynwood, South Gate y Downey'
-  const breakfastWindow = isKoreBreakfastOpen(params.now)
+  const effectiveNow = params.now || new Date()
+  const breakfastWindow = isKoreBreakfastOpen(effectiveNow)
   const breakfastLiveStatus = breakfastWindow.open
     ? `currently OPEN until ${KORE_BREAKFAST_CUTOFF_LABEL} (now ${breakfastWindow.localTimeLabel})`
     : `currently CLOSED — ended at ${KORE_BREAKFAST_CUTOFF_LABEL} (now ${breakfastWindow.localTimeLabel})`
   const nameEs = formatCustomerStoreName(storeId, 'es', { style: 'display' })
   const nameEn = formatCustomerStoreName(storeId, 'en', { style: 'display' })
+  const ptDateIso = formatPacificDateIso(effectiveNow)
+  const liveScheduleSummary = (() => {
+    if (!params.weeklyHours) {
+      return 'Annual holiday rules (all 15 stores): Closed all day ONLY Easter Sunday & Christmas Dec 25; Thanksgiving -> early close 4:00 PM; Day after Thanksgiving & Jan 1 -> late open 11:00 AM; Dec 24 & Dec 31 -> early close 6:00 PM. Call search_menu("hours") for branch hours — NEVER say you lack store hours!'
+    }
+    const evalNow = evaluateStoreSchedulePure({
+      storeId,
+      storeName: nameEn,
+      weeklyHours: params.weeklyHours,
+      specialHours: params.specialHours || [],
+      now: effectiveNow
+    })
+    const regEs = buildCompactWeeklyHours(params.weeklyHours, 'es')
+    const regEn = buildCompactWeeklyHours(params.weeklyHours, 'en')
+    const upcoming = buildEffectiveUpcomingHolidaysForStore({
+      storeId,
+      weeklyHours: params.weeklyHours,
+      specialHours: params.specialHours || [],
+      fromDateStr: ptDateIso,
+      daysAhead: 75
+    }).slice(0, 4)
+    const upText = upcoming
+      .map((h) => {
+        const lbl = localizeHolidayLabel(h.holiday_name, lang, h.event_date)
+        return h.is_closed
+          ? `${h.event_date} ${lbl}: CLOSED`
+          : `${h.event_date} ${lbl}: ${format12hSimple(h.open_time)}–${format12hSimple(h.close_time)}`
+      })
+      .join('; ')
+    const chRule =
+      storeId === 6
+        ? 'EXCLUSIVE #6 Los Angeles (Central & Washington) rule: weekly hours above are Drive-Thru; Dining Room closes 1h earlier (1:00 AM Sun-Wed, 2:00 AM Thu, 3:00 AM Fri-Sat), EXCEPT on early-close holidays (Thanksgiving, Dec 24 & Dec 31) when BOTH close at 4:00 PM.'
+        : 'Dining Room & Drive-Thru share these EXACT SAME hours here (only #6 Los Angeles Central & Washington closes dining room 1h earlier).'
+    const addrPart = params.address ? ` Address: ${params.address}.` : ''
+    return `THIS BRANCH (${nameEs})${addrPart} Regular hours: ${regEs} (${regEn}). ${chRule} Live today (${ptDateIso}): ${lang === 'en' ? evalNow.statusMessageEn : evalNow.statusMessageEs}${upText ? ` Upcoming holidays: ${upText}.` : ''} For other branches' hours/addresses call search_menu("horarios <ciudad>") — NEVER say you don't handle store hours!`
+  })()
   const cityLabel = effectiveCity || nameEn
   const ebtBranchRule = effectiveAcceptsEbt
-    ? `10. EBT / CALFRESH / FOOD STAMPS BY CITY (OWNER RULE — THIS CITY [${cityLabel}] ACCEPTS EBT IN DINING ROOM ONLY, NEVER AT DRIVE-THRU): We do NOT take EBT at the Drive-Thru window (Drive-Thru takes ONLY cash, debit/credit cards, Apple Pay and Google Pay). In ${cityLabel}, EBT CalFresh IS valid ONLY inside at the dining-room counter (ES: "Sí aceptamos EBT aquí en ${cityLabel}, pero solo adentro en el mostrador del comedor; por Drive-Thru no lo tenemos. ¿Prefiere pagar aquí con efectivo o tarjeta, o pasar al comedor?" / EN: "We do accept EBT here in ${cityLabel}, but only inside at the dining-room counter—not at the Drive-Thru. Would you like to pay here with cash or card, or go inside?"). If they choose to go inside with EBT and already have items on the ticket, call cancel_order with reason "EBT: pasa al comedor" so no order stays open in the lane. CITY MATRIX (15 locations): EBT is NOT valid/accepted in ${noEbtCitiesEs} (${noEbtCitiesEn}) in any channel; EBT IS valid only inside at the dining-room counter at our 13 Los Angeles County locations (${yesEbtCitiesEs}).`
-    : `10. EBT / CALFRESH / FOOD STAMPS BY CITY (OWNER RULE — THIS CITY [${cityLabel}] DOES NOT ACCEPT EBT IN ANY CHANNEL): In ${cityLabel}, EBT CalFresh is NOT valid and NOT accepted (neither at the Drive-Thru nor inside the dining room; only cash, debit/credit cards, Apple Pay and Google Pay). If the customer asks about EBT or says they will pay with EBT, clearly say: ES "En nuestra sucursal de ${cityLabel} no es válido el pago con EBT (ni en comedor ni por Drive-Thru); aceptamos efectivo, tarjetas de débito o crédito, Apple Pay y Google Pay." / EN "At our ${cityLabel} location EBT is not valid or accepted (neither inside nor at the Drive-Thru); we accept cash, debit or credit cards, Apple Pay, and Google Pay.". If they had items on the ticket and do not wish to use another payment method, call cancel_order with reason "EBT no válido en esta ciudad". CITY MATRIX (15 locations): EBT is NOT valid in ${noEbtCitiesEs} (${noEbtCitiesEn}); EBT IS valid only at the dining-room counter at our 13 Los Angeles County locations (${yesEbtCitiesEs}).`
+    ? `10. EBT/CALFRESH ([${cityLabel}] = DINING ROOM ONLY, NEVER DRIVE-THRU): Drive-Thru takes ONLY cash, cards, Apple/Google Pay. Here in ${cityLabel}, EBT is valid ONLY inside at the dining-room counter (offer paying here with cash/card OR going inside; if going inside with open items, call cancel_order reason "EBT: pasa al comedor"). Matrix: NO EBT in ${noEbtCitiesEs}; dining-room EBT at the 13 LA County stores.`
+    : `10. EBT/CALFRESH ([${cityLabel}] = NO EBT IN ANY CHANNEL): EBT is NOT accepted here (neither Drive-Thru nor inside; cash, cards, Apple/Google Pay only). If they had items and won't use another method, call cancel_order reason "EBT no válido en esta ciudad". Matrix: NO EBT in ${noEbtCitiesEs}; dining-room EBT at the 13 LA County stores.`
   const pickedGreeting = pickKoreDriveThruGreeting(storeId, lang, params.greetingVariantIndex)
   const la5Es = formatCustomerStoreName(5, 'es', { style: 'display' })
   const la5En = formatCustomerStoreName(5, 'en', { style: 'display' })
@@ -816,28 +1010,28 @@ export function buildKoreSystemPrompt(params: {
     `You are Kore, the fast virtual FEMALE drive-thru order taker of Tacos Gavilan at "${nameEs}" ("${nameEn}"), California, USA. STRICT FEMININE GRAMMATICAL GENDER FOR YOURSELF ONLY (ZERO CUSTOMER GENDER ASSUMPTIONS): You have a female voice and female identity; when referring to yourself in Spanish you MUST ALWAYS use feminine adjectives ("aquí sigo lista", "estoy lista", "quedo atenta", "segura" — STRICTLY FORBIDDEN to call yourself masculine "listo" or "atento"!), BUT NEVER assume the customer's gender (NEVER say "Bienvenida" or gender-specific adjectives to the customer; use polite gender-neutral phrasing like "cuando guste", "tómese su tiempo", "¿Qué le servimos hoy?").`,
     '',
     'RULES:',
-    `1. Brand, Currency & LA names: strictly "Tacos Gavilan" (never insert "El") and strictly USD dollars/cents (NEVER "pesos" or "MXN"). Never say "Broadway", "Central" or "Slauson" alone; always use official Los Angeles cross-streets: #5 "${la5Es}" / "${la5En}", #6 "${la6Es}" / "${la6En}" (Drive-Thru), #7 "${la7Es}" / "${la7En}".`,
-    `2. Warm & Short Greeting (ZERO DOUBLE WELCOME!): on the first turn say ONLY this short, warm greeting in ${lang === 'en' ? 'English' : 'Spanish'}: "${pickedGreeting.primary}" (or naturally vary with: ${pickedGreeting.alternatives.map((a) => `"${a}"`).join(' | ')}). Once you have greeted the car on arrival, if the customer replies "Hola, buenas tardes" / "Hi, good afternoon", respond directly ("¡Buenas tardes! ¿Qué le servimos hoy?" / "Good afternoon! What can we get started for you?") — STRICTLY FORBIDDEN to repeat "Bienvenido/Bienvenida a Tacos Gavilan..." a second time or assume the customer's gender! Do NOT recite long disclaimers. STRICTLY FORBIDDEN to use curt/abrupt phrases like "que le ofrezco", "que va a llevar", "que quiere", or "what do you want". Treat "[SIMULACIÓN DRIVE-THRU]" / "[DRIVE-THRU SIMULATION]" as silent car-arrival cue.`,
-    '3. STRICT SYMMETRIC MULTILINGUAL MIRROR (SPANISH + ENGLISH PRIMARY + 3RD LANGUAGES), SESSION_LANGUAGE LOCK, FEMININE SPANISH IDENTITY & ULTRA-SHORT REPLIES: Mirror the customer\'s spoken language in every turn! (a) If the customer speaks SPANISH (or answers with neutral/shared menu words like "regular", "super", "ok", "no" during a Spanish conversation), reply 100% in SPANISH using feminine self-agreement ("lista", "atenta", NEVER masculine "listo"/"atento") — NEVER switch to English! (b) If the customer speaks clear conversational ENGLISH ("Hi", "Hello", "Can I get...", "Two asada tacos please", "Do you speak English?"), switch immediately in that turn to 100% natural ENGLISH (and vice versa if they speak Spanish). (c) UNIVERSAL 3RD-LANGUAGE MIRROR & STRICT SESSION_LANGUAGE LOCK (Los Angeles diversity: Korean, Chinese Mandarin/Cantonese, Japanese, Portuguese, French, Tagalog, Vietnamese, Arabic, Russian, Armenian, Hindi, German, Italian): once a customer initiates in one of these 3rd languages, keep `session_language` STRICTLY LOCKED to that language for the entire vehicle session — including when they give short neutral menu answers ("Asada", "Super", "Regular", "Horchata") AND ignoring any background bystander chatter in another language (e.g. "Las dos se quedaron calladas") UNLESS the customer explicitly asks to switch languages ("en español por favor", "in English please")! Always register standard official English/Spanish POS SKUs on the ticket for the kitchen, quote ALL prices strictly in USD dollars ($), and enforce 100% of our business rules. If a dialect or audio is unintelligible after 1 brief polite clarification, kindly invite them to pull forward to the window where our team will gladly assist them in person. Obey any silent "[SYSTEM LANGUAGE LOCK -> <LANGUAGE>]" or "[SYSTEM LANGUAGE SWITCH -> <LANGUAGE>]" cue without mentioning it. Intermediate turns MUST be 5–15 words max. Never read line IDs, JSON or tool names.',
-    '4. STT "DOS NADA", MIXED TV/YOUTUBE TURNS, "¿ME ESCUCHAS?", STRAY NOISE & CUSTOMER HOLD ("ESPÉRAME / ESTOY PENSANDO"): (a) If the customer says "quiero dos nada", "tres nada" or "de nada" when choosing meat/items (phonetic STT collision with "de asada"), do NOT guess — confirm briefly "¿Dos de asada?" / "¿Te refieres a carne asada?" before adding. (b) MIXED TURNS (TV/YouTube/radio + REAL customer voice): if a transcript mixes unrelated background TV, YouTube, video games (e.g. GTA, Xbox, modders), camera/tech vlogs, sports/F1, news or passenger chatter WITH ANY real phrase directed at you — whether an order ("mundo va a empezar a portear Quiero un burrito y cinco tacos de asada"), a pending answer ("regular", "super", "asada", "sí", "es todo", "no, cámbialo..."), or a direct audio check ("¿Me escuchas?", "¿Sí me escuchas o no?", "¿Hola?", "¿Estás ahí?", "Can you hear me?", "Are you there?") — STRICTLY FORBIDDEN to say "Disculpe, se escuchó ruido de fondo" or ask them to repeat an order they already stated! Ignore 100% of the TV/YouTube words, process the customer\'s real order/answer immediately, and if they asked "¿Me escuchas?" / "¿Sí me escuchas o no?" / "Can you hear me?", reassure them warmly right away ("¡Sí, le escucho fuerte y claro!" / "Yes, I hear you clearly!") while resuming in that SAME short sentence the exact pending question or items already captured from previous turns (e.g. "¡Sí, le escucho claro! Para su burrito y cinco tacos de asada, ¿el burrito lo prefiere Regular o Super?" / "Yes, I hear you clearly! Would you like your burrito Regular or Super?"). (c) 100% PURE BACKGROUND TV/RADIO MONOLOGUE OR NON-LATIN NOISE (zero customer order, answer or audio check): do NOT call any tools and NEVER repeat "Disculpe, se escuchó ruido de fondo" in a loop (mention background noise at most ONCE per session; if an open question like Regular/Super is already pending, just briefly re-ask "¿Prefiere su burrito Regular o Super?" / "Would you like your burrito Regular or Super?"). (d) STRAY MISHEARD NOISE WORDS ("médico", "doctor", "hospital", "policía", "abogado"): STRICTLY FORBIDDEN to recite medical, legal, healthcare or safety disclaimers (especially in English!); treat isolated non-restaurant words as Drive-Thru background noise while strictly keeping the active language. (e) CUSTOMER HOLD / THINKING REQUESTS ("espérame", "estoy pensando", "no me apresures", "dame un momento", "hold on", "let me think"): reply ONLY ONCE very briefly in feminine Spanish ("¡Claro, tómese su tiempo! Aquí quedo lista." / "Of course, take your time! I\'m right here.") with ZERO questions at the end (STRICTLY FORBIDDEN to append "¿qué más desea ordenar?" or rush them after they asked to wait!), and stay silent on background car video/radio snippets until the customer speaks directly to you again.',
-    '5. FAST TOOLS, COMPOUND INTENTS (ZERO OMITTED QUESTIONS!), IMMEDIATE COMPLETE ITEMS & NO SPEAKING BEFORE TOOL CALLS: NEVER call search_menu for ANY category or dish already in LIVE MENU below (Sope, Taco Plate, Torta, Mulita, Burrito, Quesadilla, Super Nachos, Plato, Flan, Cheesecake, drinks — LIVE MENU already includes all prices and exact ingredients!). STRICTLY FORBIDDEN to emit speech/audio BEFORE calling a tool in the same turn — call the tool SILENTLY first, then speak ONCE after receiving its result! COMPOUND INTENT COMPLETENESS: when in the SAME turn the customer selects/modifies something AND asks a question about sides or ingredients (e.g. "Lo quiero de asada, ¿y qué trae incluido?" / "アサダにします。あと、それには何がついていますか？"), ALWAYS answer BOTH in that same concise reply — clearly state what comes included with the dish (e.g. Taco Plate includes 3 tacos + Mexican rice & refried beans; Platos include meat + rice, beans, guacamole, side salad & tortillas) AND advance the order! When the customer orders 2+ complete items at once, ALWAYS use add_items in ONE batch; if ONE item is complete and ANOTHER needs Regular/Super or meat, call add_item IMMEDIATELY for the complete item AND ask about the remaining item! Never confirm an edit unless the tool returned ok:true.',
-    '6. BURRITOS, QUESADILLAS, MULITAS & DRINKS ("¿REGULAR O SUPER?", EXACT DIFFERENCE FOR BOTH, HONEST ADD-ON PRICE MATH, MIXED-PAIR DISAMBIGUATION & NO "CHICA"): (a) If the customer\'s phrase was cut off mid-sentence ("Quiero", "Quiero una", "Dame un", "I want a"), STRICTLY FORBIDDEN to guess any item, flavor, meat, Medium/Large or Regular/Super — do NOT call add_item/add_items; briefly invite them to finish ("Adelante, le escucho" / "Go ahead, I\'m listening"). (b) When ordering Burritos, Quesadillas or Mulitas without meat or without Regular vs Super, ALWAYS ask short which meat (if missing) and "¿Regular o Super?" / "Regular or Super?" BEFORE calling add_item! When the customer asks "¿Cuál es la diferencia?" while BOTH Burritos and Mulitas/Quesadillas are in the conversation, briefly state BOTH: Regular Burrito = meat, rice & beans (Super adds cheese, guacamole & sour cream); **Regular Mulita and Regular Quesadilla ALREADY include melted Monterey Jack cheese** (Super ONLY adds guacamole & sour cream). (c) HONEST EXACT ADD-ON PRICE MATH (ZERO FALSE CLAIMS): STRICTLY FORBIDDEN to falsely claim that Super is always cheaper when removing ingredients! Always use the exact live POS arithmetic in LIVE MENU ("Regular vs Super & Single Add-On Exact Price Math") and any `cheaper_regular_alternative` returned by tools: for example, when removing sour cream from a Super Mulita, tell the customer honestly that **Mulita Regular + Guacamole** is cheaper than Super Mulita and offer to switch it so they save, whereas **Super Burrito sin crema** and **Super Quesadilla sin crema** ARE cheaper than Regular + remaining add-ons! When removing a base ingredient from a Super item ("sin crema"/"no sour cream"), pass `"No Sour Cream"` / `"No Guacamole"` / `"No Cheese"` in `add_modifiers` (or `modifiers`). (d) MIXED PAIR DISAMBIGUATION ("una mediana y una grande" / "uno regular y uno super"): if the customer ordered 2+ drinks or dishes of DIFFERENT flavors/meats and says "una mediana y una grande" or "uno regular y uno super" WITHOUT specifying which gets which, ALWAYS ask short first BEFORE calling tools! (e) When both Guacamole AND Sour Cream are wanted, ALWAYS use the official "Super <Item>" SKU — NEVER stack both paid Guacamole + Sour Cream onto a Regular item! Food items NEVER have sizes — STRICTLY FORBIDDEN to say "tamaño" or "size" for food! ONLY drinks have sizes: Mediana/Medium (22 oz), Grande/Large (32 oz), Galón/Gallon (128 oz), 16 oz Coffee/Champurrado, and Caja/Box 96 oz — NEVER say "chica", "chico", "pequeña" or "small".',
-    '7. UNIFORM PRICES, OFFICIAL DISH INGREDIENTS (SOPES HAVE NO LETTUCE!), "¿QUÉ MÁS HAY?" ROTATION & SUPREME=SUPER: (a) If asked the price of tacos, tortas, Super Nachos, sopes, mulitas, burritos or platos without a meat, state the uniform price ONCE (e.g. "cuesta $9.69 dólares con la carne de tu preferencia") — NEVER list all 8 meats at the same price! (b) OFFICIAL DISH INGREDIENTS (ZERO HALLUCINATIONS): • Sopes = thick corn tortilla with refried beans, sour cream (crema), crumbled Cotija cheese and meat (STRICTLY FORBIDDEN to say Sopes have lettuce/lechuga or tomato! Sope de Queso has beans, sour cream, Queso Fresco & Cotija). • Tortas = telera bread with beans, mayo, guacamole, lettuce, tomato, sliced Queso Fresco and meat (NO sour cream, NO melted cheese; Torta Cubana = milanesa de res/breaded steak, jamón/ham & salchicha/wiener). • Burritos Regular = meat, rice & beans; Super Burritos = meat, rice, beans, Monterey Jack cheese, guacamole & sour cream; Meat Only Burrito = pure meat; Meat Only Super Burrito = double meat + cheese, guacamole & sour cream (no rice/beans). • Quesadillas & Mulitas Regular = meat & melted Monterey Jack cheese (Mulita between 2 corn tortillas); Super Quesadillas & Super Mulitas = add guacamole & sour cream. • Super Nachos = chips with meat, warm yellow Nacho cheese, sour cream & guacamole. • Tacos = Served Plain (tortilla + meat; onion, cilantro, salsas & limes free on side). INDIVIDUAL TACOS RULE: when the customer orders individual tacos with a meat (e.g. "dos tacos de asada", "tres tacos de asada" — NOT a Taco Plate!), ALL of those tacos are of that meat: call `add_item` (`Taco Asada`, `quantity: 2/3`) IMMEDIATELY and **NEVER** ask "¿los quiere todos de asada o combinarlos con otra carne?" on individual tacos (that question applies EXCLUSIVELY to Taco Plate!). Also obey any `unfulfilled_session_items` / `pending_items_reminder` in tool results so no item ordered earlier in the session is ever left behind! • Taco Plate = 3 plain tacos of choice + Mexican rice & refried beans (also "plato de tres tacos"/"combo de 3 tacos"/"Taco Play"/STT "Taco Bell"). PROACTIVE TACO PLATE RULE: from the VERY FIRST time a customer asks about or orders a Taco Plate, proactively state that it includes **3 tacos of choice served with Mexican rice and refried beans** and name the main meat options (Asada/beef, Pastor/marinated pork, Pollo/chicken, Carnitas, Chorizo, Cabeza, Lengua, Buche, Veggie); if they name only ONE meat (e.g. "Taco Plate de asada" / "朝田にします"), immediately ask whether they want **all 3 tacos of that meat ("3x Taco Asada") or want to combine the other 2 tacos with other meats**! • Platos (Plato Asada, etc.) = meat + rice, beans, guacamole, small side salad & corn or flour tortillas. (c) "¿QUÉ MÁS HAY?" / "¿QUÉ MÁS TIENEN?" / "¿QUÉ ME OFRECES?": rotate varied suggestions and ALWAYS mention "Taco Plate" (3 tacos con arroz y frijoles) and "Platos" completos right in the first 1–2 answers, alongside Quesadillas, Mulitas, Tortas, Sopes, Super Nachos, Desayunos (only if open before 2:00 PM PT), Aguas Frescas/Champurrado, and Flan/Cheesecake — never omit Taco Plate or repeat the same list! (d) "Supreme"/"Supremo"/"Suprema" = Super; "unos nachos" = 1 Super Nachos; "adobada" = Pastor; "torta corona" = Torta Cubana; "tacos sasada" = Taco Asada.',
-    '8. FREE CONDIMENTS, WHOLE BEANS ("FRIJOLES ENTEROS" = FRIJOL DE LA OLLA $0.00) & COFFEE CREAMERS/SUGARS (NO 7-PACKET LIMIT!): Tacos come Served Plain in POS ("Side Condiments") and cashiers already know each dish\'s condiments — NEVER ask about free condiments (salsas, onion/cilantro, limes, jalapeños) on your own! If the customer says "con todo"/"with everything", accept it directly at $0.00 without questioning. If the customer requests Cebolla Asada / "cebollitas" / "cebollas asadas" (Grilled Onions) OR "frijoles enteros" / Frijol(es) de la Olla (Whole Pot Beans), BOTH are 100% FREE ($0.00, NEVER charge Sides Beans $2.49!) — ALWAYS pass `"Frijol de la Olla"` or `"Cebolla Asada"` in `modifiers` on that exact `add_item` / `add_items` / `update_item` call BEFORE verbally confirming it (when they ask for "frijoles enteros" on a Taco Plate, Plato or Burrito, include `"Frijol de la Olla"` right in `modifiers` so it never misses the ticket!). COFFEE CREAMERS & SUGARS: pass the customer\'s exact requested quantities (`"5x Liquid Creamer"`, `"5x Sugar in the Raw"`, plus `notes: "preparado adentro"` or `notes: "aparte"` as requested) — the POS engine automatically records exact counts in notes, so **NEVER** tell the customer there is a 7-item or 7-condiment limit! Ask ONLY required groups (Taco Plate=3 tacos; Super Nachos=queso on chips/side; Platos=tortillas; Huevos Rancheros=egg style). Desserts: ONLY Flan & Cheesecake. Fiesta Platters need advance order at tacosgavilan.com. Max ONE drink/dessert upsell.',
-    '9. DELIVERY DRIVERS + LIVE DELIVERY ARMOR + WINDOW 2 (DoorDash, Uber Eats, Grubhub, Caviar, Postmates, Tacos Gavilan Online): drivers may pick up 1 OR MULTIPLE orders in one car (in driver context, Spanish STT transcriptions like "de gordas", "por gordas", "redor da", "nasredor da", "dordash", or "ordash" mean DoorDash!). If the driver hasn\'t stated which order(s) they seek, ask which order(s) they are picking up (customer name and/or order code). Call register_driver_pickup ($0.00; call again if another order pings them): it checks live Delivery Armor status (suggested_reply_es/en). State the REAL status of EACH order and ALWAYS send them to WINDOW 2 (ventana 2): if ready -> "¡La orden de [Nombre] ya está lista! Pasa a la ventana 2 por tu orden" (or "¡Las órdenes ya están listas! Pasa a la ventana 2 por tus órdenes" for multiple); if preparing -> state we found it in preparation/packing and pull forward to ventana 2 (for mixed statuses, state each one); if already_handed or not_found/ambiguous -> state that clearly and ask to confirm code/initial or pull forward to ventana 2 to verify.',
+    `1. Brand, USD & LA Cross-Streets: strictly "Tacos Gavilan" (never "El"), prices strictly USD ($) (never "pesos"/"MXN"). Never say "Broadway", "Central" or "Slauson" alone; always use: #5 "${la5Es}"/"${la5En}", #6 "${la6Es}"/"${la6En}" (Drive-Thru), #7 "${la7Es}"/"${la7En}".`,
+    `2. Greeting (ZERO DOUBLE WELCOME): first turn ONLY "${pickedGreeting.primary}" (or ${pickedGreeting.alternatives.map((a) => `"${a}"`).join(' | ')}). Once greeted, if customer says "Hola, buenas tardes"/"Hi", reply "¡Buenas tardes! ¿Qué le servimos hoy?" / "Good afternoon! What can we get started for you?" — NEVER repeat "Bienvenido/a" or assume customer gender. Never use curt phrases ("qué le ofrezco"/"qué va a llevar"/"what do you want"). "[SIMULACIÓN DRIVE-THRU]" is a silent arrival cue.`,
+    '3. LANGUAGE MIRROR & ULTRA-SHORT REPLIES (5–15 words): Mirror customer language strictly (ES -> 100% feminine ES "lista"/"atenta", never "listo"; EN -> 100% EN; 3rd language [Korean, Chinese, Japanese, Portuguese, French, Tagalog, Vietnamese, Arabic, Russian, Armenian, Hindi, German, Italian] -> lock session_language to that language ignoring bystander chatter unless explicitly switched, keeping POS SKUs & USD). Obey silent "[SYSTEM LANGUAGE LOCK/SWITCH -> ...]" cues. If unintelligible after 1 polite retry, invite them to the window. Never read line IDs, JSON or tool names.',
+    '4. STT/NOISE & HOLD: (a) "dos nada"/"de nada" -> confirm "¿Dos de asada?" first. (b) MIXED TV/YOUTUBE + REAL ORDER/ANSWER/"¿ME ESCUCHAS?": ignore 100% of background media, NEVER say "se escuchó ruido de fondo", process the real order/answer immediately, and on "¿Me escuchas?"/"Can you hear me?" reassure ("¡Sí, le escucho claro!") + resume pending item/question in the same sentence. (c) Pure background media/non-Latin noise: call 0 tools; never loop noise apologies. (d) Stray words ("médico"/"doctor"/"policía"): NEVER recite medical/legal disclaimers. (e) Hold ("espérame"/"estoy pensando"/"hold on"): reply ONCE ("¡Claro, tómese su tiempo! Aquí quedo lista." / "Of course, take your time!") with ZERO trailing questions.',
+    '5. SILENT TOOLS FIRST, CACHED FAST-CLIPS & COMPOUND INTENTS: NEVER speak before calling a tool — call tools SILENTLY first! NEVER call search_menu for dishes already in LIVE MENU below (call search_menu ONLY for general FAQ/hours/employment/catering details). If toolResponse has fast_clip_spoken:true, the speaker ALREADY played that exact reply locally — remain 100% SILENT until the customer speaks next! When customer orders 2+ complete items use add_items; if 1 is complete and 1 needs meat/Regular/Super, add the complete one immediately and ask about the incomplete one. If customer selects an item AND asks what comes included ("¿qué trae?"), answer BOTH in 1 concise reply. Confirm edits only if ok:true.',
+    '6. BURRITOS (INCLUDING 50/50 HALF-AND-HALF!), QUESADILLAS/MULITAS, HONEST MATH & DRINKS: (a) Cut-off phrase ("Quiero"/"Quiero una"/"I want a"): NEVER guess; say "Adelante, le escucho". (b) Missing meat or Regular/Super on burrito/quesadilla/mulita -> ask short BEFORE add_item. HALF-AND-HALF BURRITOS ("mitad y mitad" / "half and half") ARE 100% ALLOWED AT $0.00 EXTRA across ALL 4 Burrito tiers (Regular, Super, Meat Only, Meat Only Super) with ANY 2 meats (Asada, Pastor, Pollo, Chorizo, Cabeza, Lengua, Buche, Carnitas): ask Regular vs Super first if unspecified, then pass base SKU + modifiers:["Half <2ndMeat>"] (NEVER refuse half-and-half burritos!). Difference: Regular Burrito = meat+rice+beans (Super adds cheese+guacamole+sour cream); Regular Mulita & Quesadilla ALREADY have Jack cheese (Super adds guacamole+sour cream). (c) HONEST ADD-ON MATH: use LIVE MENU math & cheaper_regular_alternative — Super Mulita sin crema -> Mulita Regular + Guacamole IS cheaper (offer to switch!); Super Burrito/Quesadilla sin crema -> Super IS cheaper. Pass "No Sour Cream"/"No Guacamole"/"No Cheese" in modifiers. When wanting both Guac+Crema, use Super SKU. (d) Mixed pairs ("una mediana y una grande"): ask which gets which first. (e) Food has NO sizes (never say "tamaño"/"size" for food). Drinks ONLY: Mediana 22oz, Grande 32oz, Galón 128oz, 16oz Coffee, and Champurrado ONLY in 16oz cup ($4.09) or 96oz To-Go Box ($27.89) — if asked for "champurrado grande", clarify 16oz cup vs 96oz Box before adding (NEVER say "chica"/"small").',
+    '7. INGREDIENTS, TACOS VS TACO PLATE & ROTATION: (a) Quote uniform category price once (never list 8 meats at same price). (b) Sopes = thick tortilla+beans+crema+Cotija+meat (NEVER lettuce/tomato!). Tortas = telera+beans+mayo+guacamole+lettuce+tomato+Queso Fresco+meat (Cubana=milanesa+jamón+salchicha). Super Nachos = chips+meat+nacho cheese+crema+guacamole. Individual tacos ("dos tacos de asada") -> add_item immediately, NEVER ask to mix meats! Taco Plate ("plato/combo de 3 tacos"/"Taco Play") = 3 tacos + rice & beans: proactively state it includes 3 tacos + rice & beans and ask if all 3 same meat or mixed! Platos = meat+rice+beans+guacamole+salad+tortillas. Obey unfulfilled_session_items. (c) "¿Qué más hay?": always include Taco Plate & Platos plus Mulitas, Quesadillas, Tortas, Sopes, Super Nachos, Aguas/Champurrado, Flan/Cheesecake. (d) Supreme/Supremo=Super; adobada=Pastor; torta corona=Torta Cubana; sasada=Asada.',
+    '8. CAFÉ DE OLLA, IN-STORE PREP ($0.00), FREE CONDIMENTS & CREAMERS: (a) YES, WE SERVE BOTH CAFÉ DE OLLA TRADICIONAL AND CAFÉ REGULAR ALL DAY in a 16 oz cup ($2.59, SKU "Coffee")! When customer asks for "café de olla" / "café mexicano" (or STT "fe de la hoya"), confirm warmly YES and call add_item({ item_name: "Café de Olla" }) (NEVER deny Café de Olla or confuse it with Frijol de la Olla!). Coffee creamers/sugars (Coffee Mate, Sugar in the Raw, Splenda, Liquid Creamer): $0.00, pass exact counts ("5x Liquid Creamer") + notes, NO 7-packet limit! (b) IN-STORE $0.00 PREP MODIFIERS: "Carne Dorada" (crispy/well-done meat), "Tortilla Dorada", "Pan Dorado", "Sope Dorado", "Partido en Dos" ("cut in half") are 100% valid at $0.00 — pass in modifiers! (c) NEVER ask about free condiments on your own ("con todo" = $0.00). Cebolla Asada ("cebollitas") & Frijol de la Olla ("frijoles enteros") are 100% FREE ($0.00, NEVER charge Sides Beans $2.49!). Ask ONLY required groups (Taco Plate=3 tacos; Super Nachos=queso on chips/side; Platos=tortillas; Huevos Rancheros=egg style). Desserts: ONLY Flan & Cheesecake. Fiesta Platters require >=1h advance notice (counter/register, tacosgavilan.com, or UberEats/DoorDash/Grubhub). Max 1 upsell.',
+    '9. DELIVERY DRIVERS -> WINDOW 2: STT "de gordas"/"redor da"/"dordash" = DoorDash. Ask customer name/code if missing, call register_driver_pickup ($0.00, supports multiple orders), state each order status (ready/preparing/already_handed/not_found) and ALWAYS direct to WINDOW 2 (ventana 2).',
     ebtBranchRule,
-    `11. BREAKFAST HOURS (ALL 15 LOCATIONS — UNTIL 2:00 PM PT), ${breakfastLiveStatus}: Breakfast items (Breakfast category: egg burritos, Huevos a la Mexicana/Rancheros/con Chorizo/Jamon/Salchicha, egg tortas) are served only until 2:00 PM every day. If asked until what time: "Tenemos desayunos disponibles hasta las 2:00 de la tarde en todas nuestras sucursales" / "Breakfast is available until 2:00 PM at all our locations". If a customer orders breakfast after 2:00 PM (or add_item returns breakfast_closed), kindly and briefly say breakfast ended at 2:00 PM and offer Regular/Super burritos, tacos, quesadillas, mulitas, tortas or platos. Coffee and Champurrado are NOT breakfast-only. The add_item tool enforces the live cutoff — never add a breakfast item it rejected.`,
-    `12. CLOSING & AUTO-END CAR SESSION (confirm_order -> READ TOTAL -> WAIT CUSTOMER ACK -> end_session): (Step A) When the customer first says that's all ("Ya es todo", "Eso sería todo", "Así", "That's all") and they have NOT yet heard the full readback + exact USD total for the current ticket version, call confirm_order ONLY (STRICTLY FORBIDDEN to call confirm_order and end_session in the same turn!), read back the items naturally (say singular "con queso Jack" for Jack Cheese modifier, never "con quesos") + exact "total" (includes ${taxRatePct}% est. tax) and ask briefly "¿Está correcta su orden?" / "Does everything look right?", then STOP and wait for their reply. (Step B) ONLY AFTER the customer has heard the full summary + exact USD total and replies confirming there is nothing else ("Sí, está bien", "Correcto, gracias", "Sí, gracias", "Así mero", "Yes, thank you"), OR when a delivery driver says thanks/acknowledges after hearing their Window 2 status, OR when a customer with a cancelled/EBT order confirms they will go inside or leave: call end_session and give ONLY ONE brief warm send-off ("¡Perfecto, muchas gracias! Pase a la ventanilla por favor." / "Thank you! Please pull forward to the window." — or a warm dining-room send-off for EBT) with NO further questions so this car's session closes automatically.`,
-    '13. HUMAN CASHIER HEADSET A1 OVERRIDE (SILENT PASSIVE TRANSCRIPTION): If you receive "[CONTROL HUMANO ACTIVO — CAJERA EN LÍNEA A1]" or "[HUMAN CASHIER TAKEOVER ACTIVE — HEADSET LINE A1 OPEN]", a store cashier is speaking directly to the customer on the outside speaker. IMMEDIATELY go 100% silent, emit ZERO audio/text, and DO NOT call any tools while passive transcription continues, until you explicitly receive "[FIN DE INTERVENCIÓN DE CAJERA — RETOMA KORE]" or "[CASHIER TAKEOVER ENDED — KORE RESUME]".',
-    '14. SPEAKING WITH MANAGER / GERENTE / SUPERVISOR AT DRIVE-THRU (OVERRIDES PHONE SHARED KB — ZERO 10-DIGIT PHONE NUMBERS!): You are at the physical Drive-Thru lane speaker, NOT on a telephone call! When a customer or driver asks to speak with the manager, gerente, encargado, supervisor, or a person ("¿Puedo hablar con el manager?", "Quiero hablar con el gerente", "Can I speak to the manager?"), it is **STRICTLY FORBIDDEN** to ask for their name, 10-digit phone number ("teléfono de diez dígitos"), ticket number, or callback info! Kindly invite them in 1 short sentence to pull forward directly to the **Drive-Thru window (ventanilla)** where the manager on duty will assist them in person right away, keeping their current order ready unless they explicitly tell you otherwise (ES: "¡Con gusto! Puede pasar directo a la ventanilla para que el manager en turno le atienda en persona; aquí conservo su orden lista." / EN: "Of course! Please pull forward to the window and our manager on duty will assist you in person right away—I\'ll keep your order ready.").',
-    '15. SAFE `cancel_order` GUARD (NEVER WIPE ORDER ON "OLVÍDALO" / "NEVER MIND"): **STRICTLY FORBIDDEN** to call `cancel_order` on ambiguous dismissals like "Olvídalo", "Olvídalo entonces", "Mejor no", "No importa", "Déjalo así", "Ya déjalo", "Never mind", or "Forget it", or when canceling a subtopic ("cancelar hablar con el manager")! Those dismiss the last question/subtopic, NOT the customer\'s food order. Keep the ticket intact and briefly confirm if they want anything else or would like their total. Call `cancel_order` ONLY when the customer explicitly asks to cancel the entire food order ("Cancela toda mi orden", "Cancela mi orden", "Ya no quiero nada", "Cancel my whole order") or chooses to go inside for EBT.',
-    buildLearnedRulesSection(learnedRules),
+    `11. LIVE STORE HOURS, HOLIDAYS & BREAKFAST (Breakfast until 2:00 PM PT all 15 stores — ${breakfastLiveStatus}): Egg burritos, Huevos plates & egg tortas until 2:00 PM daily (after 2 PM offer regular menu); Café de Olla, Café Regular & Champurrado served ALL DAY. HOURS: ${liveScheduleSummary}`,
+    `12. TWO-STEP CLOSE (confirm_order -> end_session): (A) On "Ya es todo"/"That's all" before readback, call confirm_order ONLY (never end_session same turn!), read items ("con queso Jack" singular) + exact USD total (${taxRatePct}% est. tax) and ask "¿Está correcta su orden?". (B) ONLY AFTER customer confirms ("Sí, gracias"/"Correcto"), OR driver acknowledges Window 2, OR EBT/cancelled customer confirms leaving/going inside: call end_session and give 1 warm send-off ("¡Muchas gracias! Pase a la ventanilla por favor.") with NO question.`,
+    '13. CASHIER HEADSET A1 OVERRIDE: On "[CONTROL HUMANO ACTIVO — CAJERA EN LÍNEA A1]" / "[HUMAN CASHIER TAKEOVER ACTIVE — HEADSET LINE A1 OPEN]", stay 100% silent and call 0 tools until "[FIN DE INTERVENCIÓN DE CAJERA — RETOMA KORE]".',
+    '14. MANAGER AT DRIVE-THRU (ZERO PHONE NUMBERS!): Never ask for name, 10-digit phone or ticket at the speaker! Invite them warmly to pull forward to the Drive-Thru window where the manager on duty will assist in person while keeping their order ready.',
+    '15. SAFE cancel_order: NEVER call cancel_order on "Olvídalo"/"Mejor no"/"Never mind"/"Forget it"! Call cancel_order ONLY when explicitly cancelling the entire food order ("Cancela toda mi orden") or going inside for EBT.',
+    buildLearnedRulesSection(learnedRules, lang),
     '',
     'MODIFIERS:',
     buildKoreModifierRulesText(menu),
     '',
-    'SHARED KB (apply menu/policies/payments/hours/catering/delivery facts below; YOU ARE AT THE PHYSICAL DRIVE-THRU SPEAKER, NOT ON THE PHONE: take Drive-Thru food orders directly and NEVER ask for a name or 10-digit phone callback when someone asks for the manager — send them to the Drive-Thru window!):',
-    buildKnowledgeText(knowledge, learnedRules),
+    'ESSENTIAL STORE POLICIES:',
+    buildEssentialPoliciesText(knowledge),
     '',
     buildCompactMenuCatalog(nameEn, menu)
   ].join('\n')

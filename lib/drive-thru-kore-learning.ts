@@ -287,7 +287,7 @@ export function inferAppliesToChannels(
     /\b(?:desvio\s+condicional|spectrum\s+landline|att\s+wireless|at\s+t\s+wireless|forwardedfrom|ring\s+timeout|numero\s+twilio)\b/.test(
       combined
     ) ||
-    /\b(?:colgar\s+(?:la\s+)?llamada|terminar\s+(?:la\s+)?llamada|hang\s+up\s+the\s+call)\b/.test(combined) ||
+    /\b(?:colgar\s+(?:la\s+)?llamada|terminar\s+(?:la\s+)?llamada|finalizar\s+(?:la\s+)?llamada|cerrar\s+(?:la\s+)?llamada|cierre\s+de\s+(?:la\s+)?llamada|despedir\s+(?:la\s+)?llamada|hang\s+up\s+the\s+call|end\s+the\s+call|close\s+the\s+call|goodbye\s+intent)\b/.test(combined) ||
     (/\bhablar\s+con\s+el\s+(?:manager|gerente)\b/.test(combined) &&
       /\b(?:ticket|recado|10\s+digitos|motivo|avise\s+al\s+gerente)\b/.test(combined))
   ) {

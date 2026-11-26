@@ -45,6 +45,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useLanguage } from '@/lib/i18n'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import {
     Timer, Trophy, Zap, Car, AlertTriangle, TrendingUp, Clock,
     ChevronLeft, ChevronRight, Search, Download, BarChart3, Calendar,
@@ -146,14 +147,17 @@ interface IdealTimeData {
 }
 
 /** Las 6 tiendas con Drive-Thru y sus GUIDs */
-const DT_STORES = [
-    { id: '8685e942-3f07-403a-afb6-faec697cd2cb', name: 'LA Central' },
-    { id: '80a1ec95-bc73-402e-8884-e5abbe9343e6', name: 'Lynwood' },
-    { id: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02', name: 'West Covina' },
-    { id: '42ed15a6-106b-466a-9076-1e8f72451f6b', name: 'Norwalk' },
-    { id: '3a803939-eb13-4def-a1a4-462df8e90623', name: 'La Puente' },
-    { id: '95866cfc-eeb8-4af9-9586-f78931e1ea04', name: 'South Gate' },
-]
+const DT_STORES = sortStoresAlphabetically(
+    [
+        { id: '8685e942-3f07-403a-afb6-faec697cd2cb', name: 'LA Central' },
+        { id: '3a803939-eb13-4def-a1a4-462df8e90623', name: 'La Puente' },
+        { id: '80a1ec95-bc73-402e-8884-e5abbe9343e6', name: 'Lynwood' },
+        { id: '42ed15a6-106b-466a-9076-1e8f72451f6b', name: 'Norwalk' },
+        { id: '95866cfc-eeb8-4af9-9586-f78931e1ea04', name: 'South Gate' },
+        { id: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02', name: 'West Covina' },
+    ],
+    (s) => s.name
+)
 
 type TabId = 'leaderboard' | 'timeline' | 'lookup' | 'reports' | 'kore'
 
@@ -303,9 +307,12 @@ function DriveThruContent() {
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
-                    const filtered = data
-                        .filter((s: any) => s.has_drive_thru === true)
-                        .map((s: any) => ({ id: s.external_id, name: s.name }))
+                    const filtered = sortStoresAlphabetically(
+                        data
+                            .filter((s: any) => s.has_drive_thru === true)
+                            .map((s: any) => ({ id: s.external_id, name: formatStoreDisplayName(s.name) })),
+                        (s) => s.name
+                    )
                     if (filtered.length > 0) {
                         setDtStores(filtered)
                     }
