@@ -18,6 +18,7 @@
  * - En caso de requerir reparación de datos corruptos o antiguos, se debe borrar explícitamente la entrada del día en la caché (`.delete().eq('business_date', date)`) antes de invocar el fetch.
  * - [Paquete 2C] `logDebug` escribe vía `console.error` en lugar de `fs.appendFileSync('server-debug.log')` para evitar que `@vercel/nft` empaquete `server-debug.log` (1.46 MB) en 46 Serverless Functions (~67.2 MB por deploy) y evitar fallos `EROFS` en Vercel.
  * - [2026-11-23] FIX CRÍTICO: Bloqueado cacheo de fechas futuras (`r.date >= todayStr`) que pre-insertaban filas `$0` en `sales_daily_cache`, y propagado `hasError?: boolean` en `MetricRow` para que `sales-live`, `sync-sales` y `sync-sales-today` jamás sobrescriban ventas válidas con `$0` ante un fallo transitorio de Toast API.
+ * - [2026-11-26] Blindaje Supabase `ci_small` (Critical #4): propagación explícita de errores de DB (`SalesCacheReadError`) en `sales_daily_cache` (prohibido silenciar `522/524/57014` en tormentas de Toast/Upserts), tope `MAX_PAGES = 30`, proyección explícita de columnas (soporte `excludeHourly`), `AbortSignal.timeout(25_000)` en todos los `fetch()` externos a Toast y tope de reintentos `429` (`<= 4`).
  */
 import { getSupabaseClient } from '@/lib/supabase'
 
@@ -39,6 +40,44 @@ const logDebug = (msg: string, data?: unknown) => {
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 const TOAST_CLIENT_ID = process.env.TOAST_CLIENT_ID || ''
 const TOAST_CLIENT_SECRET = process.env.TOAST_CLIENT_SECRET || ''
+const TOAST_FETCH_TIMEOUT_MS = 25_000
+const TOAST_MAX_429_RETRIES = 4
+const SALES_CACHE_MAX_PAGES = 30
+const SALES_CACHE_BASE_COLUMNS =
+    'store_id, store_name, business_date, net_sales, gross_sales, discounts, tips, taxes, service_charges, order_count, guest_count, labor_hours, labor_cost, uber_sales, doordash_sales, grubhub_sales, ebt_count, ebt_amount'
+const SALES_CACHE_HOURLY_COLUMNS = `${SALES_CACHE_BASE_COLUMNS}, hourly_data, hourly_tickets, hourly_labor`
+
+/**
+ * Error explícito cuando falla la lectura de caché en Supabase (`sales_daily_cache`).
+ * Se propaga hacia el llamador para evitar tormentas de fallback en vivo contra Toast API + upserts masivos
+ * cuando PostgreSQL/PostgREST reporta `522`, `524`, `57014 statement_timeout` o errores de conexión.
+ */
+export class SalesCacheReadError extends Error {
+    public readonly causeError?: unknown
+    constructor(message: string, causeError?: unknown) {
+        super(message)
+        this.name = 'SalesCacheReadError'
+        this.causeError = causeError
+    }
+}
+
+function formatSupabaseCacheError(err: unknown): string {
+    if (!err) return 'Unknown database cache error'
+    if (err instanceof Error) return err.message || err.name
+    if (typeof err === 'object') {
+        const obj = err as Record<string, unknown>
+        const parts = [obj.code, obj.status, obj.message, obj.details, obj.hint]
+            .filter((v) => v !== undefined && v !== null && String(v).trim() !== '')
+            .map((v) => String(v))
+        if (parts.length > 0) return parts.join(' | ')
+        try {
+            return JSON.stringify(obj)
+        } catch {
+            return String(err)
+        }
+    }
+    return String(err)
+}
 
 export interface ToastMetricsOptions {
     storeIds: string | 'all'
@@ -49,6 +88,7 @@ export interface ToastMetricsOptions {
     fastMode?: boolean
     readOnly?: boolean
     allowDirtyCache?: boolean // NEW: Allows reading "Today's" data from DB to speed up initial UI load
+    excludeHourly?: boolean // Skips hourly_data/hourly_tickets/hourly_labor JSONB columns when only daily aggregates are needed
 }
 
 export interface MetricRow {
@@ -116,6 +156,7 @@ export async function getAuthToken() {
     try {
         const res = await fetch(`${TOAST_API_HOST}/authentication/v1/authentication/login`, {
             method: 'POST',
+            signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
             headers: {
                 'Content-Type': 'application/json'
             },
@@ -145,6 +186,7 @@ export async function getAuthToken() {
 // --- HELPER: GET RESTAURANTS (Dynamic Scalability) ---
 export async function getToastRestaurants(token: string) {
     const res = await fetch(`${TOAST_API_HOST}/partners/v1/restaurants`, {
+        signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
         headers: {
             'Authorization': `Bearer ${token}`
         }
@@ -254,6 +296,7 @@ export async function getDiningOptionsMap(token: string, storeId: string): Promi
     try {
         const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
         const res = await fetch(url.toString(), {
+            signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Toast-Restaurant-External-ID': storeId
@@ -278,6 +321,7 @@ async function getAlternatePaymentTypesMap(token: string, storeId: string): Prom
     try {
         const url = new URL(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`)
         const res = await fetch(url.toString(), {
+            signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Toast-Restaurant-External-ID': storeId
@@ -321,6 +365,7 @@ async function getCrossDateRefunds(
         url.searchParams.append('refundBusinessDate', formattedDate)
 
         const res = await fetch(url.toString(), {
+            signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Toast-Restaurant-External-ID': storeId
@@ -364,6 +409,7 @@ async function getCrossDateRefunds(
             if (!pGuid) continue
             try {
                 const pRes = await fetch(`${TOAST_API_HOST}/orders/v2/payments/${pGuid}`, {
+                    signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Toast-Restaurant-External-ID': storeId
@@ -386,6 +432,7 @@ async function getCrossDateRefunds(
                     if (pay.orderGuid) {
                         try {
                             const oRes = await fetch(`${TOAST_API_HOST}/orders/v2/orders/${pay.orderGuid}`, {
+                                signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
                                 headers: {
                                     'Authorization': `Bearer ${token}`,
                                     'Toast-Restaurant-External-ID': storeId
@@ -508,6 +555,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
         let page = 1
         const pageSize = 100
         let hasMore = true
+        let rateLimitRetries = 0
         // Robust date formatting: YYYY-MM-DD -> YYYYMMDD
         const formattedDate = startDate.split('-').join('')
 
@@ -588,25 +636,34 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
 
             console.log(`[FastMode] Fetching for ${storeId} (Fast=${fastMode})`)
 
-            const res = await fetch(url.toString(), {
-                signal: controller.signal,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Toast-Restaurant-External-ID': storeId
-                }
-            })
-            clearTimeout(timeoutId)
+            let res: Response
+            try {
+                res = await fetch(url.toString(), {
+                    signal: controller.signal,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Toast-Restaurant-External-ID': storeId
+                    }
+                })
+            } finally {
+                clearTimeout(timeoutId)
+            }
 
             if (!res.ok) {
                 const errTxt = await res.text().catch(() => 'No Body')
                 console.error(`[FastMode] ERROR ${res.status}: ${errTxt}`)
                 if (res.status === 429) {
-                    console.warn(`[Toast API] Rate limited on page ${page}, waiting 5s...`)
+                    rateLimitRetries += 1
+                    if (rateLimitRetries > TOAST_MAX_429_RETRIES) {
+                        throw new Error(`Toast API Rate Limited (429) after ${TOAST_MAX_429_RETRIES} retries on page ${page}`)
+                    }
+                    console.warn(`[Toast API] Rate limited on page ${page} (retry ${rateLimitRetries}/${TOAST_MAX_429_RETRIES}), waiting 5s...`)
                     await new Promise(r => setTimeout(r, 5000))
                     continue // retry the same page
                 }
                 throw new Error(`Toast API Error: ${res.status} ${errTxt}`)
             }
+            rateLimitRetries = 0
 
             const data = await res.json()
             const orders = Array.isArray(data) ? data : []
@@ -899,6 +956,7 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
         let page = 1
         const pageSize = 100
         let hasMore = true
+        let rateLimitRetries = 0
 
         const startPath = new Date(startDate)
         startPath.setDate(startPath.getDate() - 1)
@@ -918,24 +976,33 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
             const controller = new AbortController()
             const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s timeout
 
-            const res = await fetch(url.toString(), {
-                signal: controller.signal,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Toast-Restaurant-External-ID': storeId,
-                    'Content-Type': 'application/json'
-                }
-            })
-            clearTimeout(timeoutId)
+            let res: Response
+            try {
+                res = await fetch(url.toString(), {
+                    signal: controller.signal,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Toast-Restaurant-External-ID': storeId,
+                        'Content-Type': 'application/json'
+                    }
+                })
+            } finally {
+                clearTimeout(timeoutId)
+            }
 
             if (!res.ok) {
                 if (res.status === 429) {
-                    console.warn(`[Toast Labor API] Rate limited on page ${page}, waiting 5s...`)
+                    rateLimitRetries += 1
+                    if (rateLimitRetries > TOAST_MAX_429_RETRIES) {
+                        throw new Error(`Toast Labor API Rate Limited (429) after ${TOAST_MAX_429_RETRIES} retries on page ${page}`)
+                    }
+                    console.warn(`[Toast Labor API] Rate limited on page ${page} (retry ${rateLimitRetries}/${TOAST_MAX_429_RETRIES}), waiting 5s...`)
                     await new Promise(r => setTimeout(r, 5000))
                     continue // retry the same page
                 }
                 break
             }
+            rateLimitRetries = 0
 
             const data = await res.json()
             const entries = Array.isArray(data) ? data : (data.timeEntries || [])
@@ -1133,21 +1200,24 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
     // We now allow cache even for single days (isHourly) to speed up "Yesterday" or specific past dates.
     // The trade-off is we lose real hourly granularity for that specific day from cache, but gain massive speed.
     try {
-        if (!options.skipCache) {
+        if (!options.skipCache && storeList.length > 0) {
+            const storeIdsToQuery = storeList.map(s => s.id)
+            const selectColumns = (options.excludeHourly && !isHourly)
+                ? SALES_CACHE_BASE_COLUMNS
+                : SALES_CACHE_HOURLY_COLUMNS
+
             try {
                 const supabase = await getSupabaseClient()
 
-                // PAGINATION FIX: PostgREST limit is 1000. We fetch all in batches.
-                let allRows: any[] = []
-                let page = 0
+                // PAGINATION FIX: PostgREST limit is 1000. Fetch deterministically with hard MAX_PAGES = 30 cap.
+                const allRows: any[] = []
                 const pageSize = 1000
-                let hasMore = true
 
-                while (hasMore) {
+                for (let page = 0; page < SALES_CACHE_MAX_PAGES; page++) {
                     const { data, error } = await supabase
                         .from('sales_daily_cache')
-                        .select('*')
-                        .in('store_id', storeList.map(s => s.id))
+                        .select(selectColumns)
+                        .in('store_id', storeIdsToQuery)
                         .gte('business_date', options.startDate)
                         .lte('business_date', options.endDate)
                         .order('business_date', { ascending: true })
@@ -1155,17 +1225,19 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         .range(page * pageSize, (page + 1) * pageSize - 1)
 
                     if (error) throw error
-                    if (data) {
-                        allRows = allRows.concat(data)
-                        if (data.length < pageSize) hasMore = false
-                        else page++
-                    } else {
-                        hasMore = false
-                    }
+                    if (!data || data.length === 0) break
+                    allRows.push(...data)
+                    if (data.length < pageSize) break
                 }
                 cachedData = allRows
-            } catch (e) {
-                // silent fail
+            } catch (cacheErr: unknown) {
+                const errSummary = formatSupabaseCacheError(cacheErr)
+                logDebug('CRITICAL sales_daily_cache read failed (aborting live Toast fallback):', errSummary)
+                // NEVER swallow DB/PostgREST errors (522, 524, 57014, timeout, connection errors) into a 15-store live Toast + upsert storm.
+                throw new SalesCacheReadError(
+                    `sales_daily_cache read failed (${options.startDate}..${options.endDate}): ${errSummary}`,
+                    cacheErr
+                )
             }
         }
 
@@ -1660,8 +1732,11 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             throw err
         }
     } catch (outerErr: any) {
-        logDebug("OUTER CATCH ERROR:", outerErr.message)
-        return { rows: [], connectionError: outerErr.message || 'Unknown error' }
+        logDebug("OUTER CATCH ERROR:", outerErr?.message || String(outerErr))
+        if (outerErr instanceof SalesCacheReadError || outerErr?.name === 'SalesCacheReadError') {
+            throw outerErr
+        }
+        return { rows: [], connectionError: outerErr?.message || 'Unknown error' }
     }
 }
 
@@ -1714,6 +1789,7 @@ export async function getSalesCategories(storeGuid: string): Promise<Map<string,
     try {
         const url = `${TOAST_API_HOST}/config/v2/salesCategories?pageSize=1000` // Assuming < 1000 categories
         const res = await fetch(url, {
+            signal: AbortSignal.timeout(TOAST_FETCH_TIMEOUT_MS),
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Toast-Restaurant-External-ID': storeGuid

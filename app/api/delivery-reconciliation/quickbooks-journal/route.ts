@@ -40,6 +40,9 @@
  *   cruce contra Toast POS (`toastMatchedExactCount`, `varianceOrDeductionCount`, `missingToastCount`, `toastExpectedGrossTotal`,
  *   `platformGrossTotal`) y en el detalle (`auditBreakdown.includedOrders`) entrega la lista orden por orden vinculada al payout
  *   con su ticket Toast (`toast_display_number`), montos comparados y estado operativo.
+ * - 2026-11-26 (Server Shield Hardening): candado `maxDays <= 65` (y ventana acotada `<= 95` días en `search`),
+ *   `MAX_PAGES = 30` + `.order('id')` determinista en todos los `fetchAllSupabaseRows`, fragmentación `.in()` a `<= 150`,
+ *   tope de `<= 15` `payoutsToBackfillQbId` por `GET` con concurrencia `<= 2`, y `AbortSignal.timeout(25_000)` en `fetch()` QBO.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -63,6 +66,50 @@ import {
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
+
+const QBJ_MAX_DAYS = 65
+const QBJ_SEARCH_MAX_DAYS = 95
+const QBJ_PAGE_SIZE = 1000
+const QBJ_MAX_PAGES = 30
+const QBJ_MAX_ROWS = QBJ_PAGE_SIZE * QBJ_MAX_PAGES
+const QBJ_IN_CHUNK_SIZE = 150
+const QBJ_DB_CONCURRENCY = 2
+const MAX_QB_BACKFILL_UPDATES_PER_GET = 15
+const QBO_FETCH_TIMEOUT_MS = 25_000
+
+function isValidIsoDate(val: unknown): val is string {
+  return typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())
+}
+
+function isoDateSpanDays(startIso: string, endIso: string): number {
+  const [sy, sm, sd] = startIso.split('-').map(Number)
+  const [ey, em, ed] = endIso.split('-').map(Number)
+  return Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000) + 1
+}
+
+function shiftIsoDateByDays(isoDate: string, deltaDays: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + deltaDays)).toISOString().slice(0, 10)
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const safeLimit = Math.max(1, Math.min(limit, items.length))
+  const results = new Array<R>(items.length)
+  let next = 0
+  const workers = Array.from({ length: safeLimit }, async () => {
+    while (next < items.length) {
+      const idx = next++
+      results[idx] = await fn(items[idx], idx)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
 
 interface PlatformQBConfig {
   receivableAccountNum: string
@@ -1355,9 +1402,38 @@ export async function GET(req: NextRequest) {
     const storeIdParam = searchParams.get('store_id')
     const platformParam = searchParams.get('platform')
     const statusParam = searchParams.get('status') || 'ALL'
-    const startDate = searchParams.get('start_date') || ''
-    const endDate = searchParams.get('end_date') || ''
+    const rawStartDate = (searchParams.get('start_date') || '').trim()
+    const rawEndDate = (searchParams.get('end_date') || '').trim()
+    const todayIso = new Date().toISOString().slice(0, 10)
+    const endDate = rawEndDate || todayIso
+    const startDate = rawStartDate || shiftIsoDateByDays(endDate, -30)
     const search = (searchParams.get('search') || '').trim().toLowerCase()
+
+    if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate)) {
+      return NextResponse.json(
+        { success: false, error: 'Fechas inválidas. Formato esperado: YYYY-MM-DD.', code: 'INVALID_DATE' },
+        { status: 400 }
+      )
+    }
+    if (startDate > endDate) {
+      return NextResponse.json(
+        { success: false, error: 'La fecha inicial no puede ser posterior a la fecha final.', code: 'INVALID_DATE_RANGE' },
+        { status: 400 }
+      )
+    }
+    const requestedSpanDays = isoDateSpanDays(startDate, endDate)
+    if (requestedSpanDays > QBJ_MAX_DAYS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `El rango máximo permitido es de ${QBJ_MAX_DAYS} días (solicitado: ${requestedSpanDays} días).`,
+          code: 'DATE_RANGE_TOO_LARGE',
+          maxDays: QBJ_MAX_DAYS,
+        },
+        { status: 400 }
+      )
+    }
+    const searchWindowStart = shiftIsoDateByDays(endDate, -(QBJ_SEARCH_MAX_DAYS - 1))
 
     const requestedStoreNum =
       storeIdParam && storeIdParam !== 'ALL' && Number.isFinite(Number(storeIdParam))
@@ -1389,21 +1465,25 @@ export async function GET(req: NextRequest) {
     const rawPayoutsAll =
       selectedStoreNum === 0
         ? []
-        : await fetchAllSupabaseRows<any>((from, to) => {
-            let q = supabaseAdmin
-              .from('delivery_platform_payouts')
-              .select('*')
-              .order('period_end', { ascending: false })
-              .order('payout_date', { ascending: false })
-              .order('id', { ascending: true })
-            if (selectedStoreNum !== null && selectedStoreNum > 0) {
-              q = q.eq('store_id', selectedStoreNum)
-            }
-            if (platformParam && platformParam !== 'ALL') {
-              q = q.eq('platform', platformParam)
-            }
-            return q.range(from, to)
-          })
+        : await fetchAllSupabaseRows<any>(
+            (from, to) => {
+              let q = supabaseAdmin
+                .from('delivery_platform_payouts')
+                .select('*')
+                .order('period_end', { ascending: false })
+                .order('payout_date', { ascending: false })
+                .order('id', { ascending: true })
+              if (selectedStoreNum !== null && selectedStoreNum > 0) {
+                q = q.eq('store_id', selectedStoreNum)
+              }
+              if (platformParam && platformParam !== 'ALL') {
+                q = q.eq('platform', platformParam)
+              }
+              return q.range(from, to)
+            },
+            QBJ_PAGE_SIZE,
+            QBJ_MAX_ROWS
+          )
 
     for (const p of rawPayoutsAll || []) {
       const eff = resolveEffectivePayoutPeriod(p)
@@ -1412,26 +1492,26 @@ export async function GET(req: NextRequest) {
     }
 
     const rawPayouts = (rawPayoutsAll || []).filter((p: any) => {
-      if (search && search.length >= 2) return true
-      if (!startDate && !endDate) return true
+      if (search && search.length >= 2) {
+        return payoutPeriodOverlapsRange(p, searchWindowStart, endDate)
+      }
       // Defecto 3: solapamiento INCLUSIVO (period_start <= endDate && period_end >= startDate)
-      return payoutPeriodOverlapsRange(p, startDate || '2020-01-01', endDate || '2099-12-31')
+      return payoutPeriodOverlapsRange(p, startDate, endDate)
     })
 
-    let minQbDate = startDate || '2026-09-01'
-    let maxQbDate = endDate || new Date().toISOString().slice(0, 10)
+    let minQbDate = search && search.length >= 2 ? searchWindowStart : startDate
+    let maxQbDate = endDate
     for (const p of rawPayouts) {
       const ps = p.period_start || p.payout_date || ''
       const pe = p.payout_date || p.period_end || ''
       if (ps && ps < minQbDate) minQbDate = ps
       if (pe && pe > maxQbDate) maxQbDate = pe
     }
-    const minQbDateBuffered = new Date(new Date(`${minQbDate}T12:00:00Z`).getTime() - 7 * 86400000)
-      .toISOString()
-      .slice(0, 10)
-    const maxQbDateBuffered = new Date(new Date(`${maxQbDate}T12:00:00Z`).getTime() + 14 * 86400000)
-      .toISOString()
-      .slice(0, 10)
+    const maxLookbackDate = shiftIsoDateByDays(maxQbDate, -(QBJ_SEARCH_MAX_DAYS + 14))
+    if (minQbDate < maxLookbackDate) minQbDate = maxLookbackDate
+
+    const minQbDateBuffered = shiftIsoDateByDays(minQbDate, -7)
+    const maxQbDateBuffered = shiftIsoDateByDays(maxQbDate, 14)
 
     const activePayoutRefs = Array.from(
       new Set(
@@ -1441,45 +1521,66 @@ export async function GET(req: NextRequest) {
       )
     )
 
-    const [ordersInDateRange, ordersByPayoutRef] = await Promise.all([
-      selectedStoreNum === 0
-        ? Promise.resolve([])
-        : fetchAllSupabaseRows<any>((from, to) => {
-        let q = supabaseAdmin
-          .from('delivery_platform_orders')
-          .select('*')
-          .neq('match_confidence', 'TOAST_ONLY')
-          .gte('business_date', minQbDateBuffered)
-          .lte('business_date', maxQbDateBuffered)
-          .order('business_date', { ascending: false })
-          .order('id', { ascending: true })
-        if (selectedStoreNum !== null && selectedStoreNum > 0) {
-          q = q.eq('store_id', selectedStoreNum)
-        }
-        if (platformParam && platformParam !== 'ALL') {
-          q = q.eq('platform', platformParam)
-        }
-        return q.range(from, to)
-      }),
-      activePayoutRefs.length > 0 && activePayoutRefs.length <= 200
-        ? fetchAllSupabaseRows<any>((from, to) => {
-            let q = supabaseAdmin
-              .from('delivery_platform_orders')
-              .select('*')
-              .neq('match_confidence', 'TOAST_ONLY')
-              .in('payout_reference_id', activePayoutRefs)
-              .order('business_date', { ascending: false })
-              .order('id', { ascending: true })
-            if (selectedStoreNum !== null && selectedStoreNum > 0) {
-              q = q.eq('store_id', selectedStoreNum)
-            }
-            if (platformParam && platformParam !== 'ALL') {
-              q = q.eq('platform', platformParam)
-            }
-            return q.range(from, to)
-          })
-        : Promise.resolve([]),
-    ])
+    const [ordersInDateRange, ordersByPayoutRef] = await runWithConcurrency<() => Promise<any[]>, any[]>(
+      [
+        () =>
+          selectedStoreNum === 0
+            ? Promise.resolve([])
+            : fetchAllSupabaseRows<any>(
+                (from, to) => {
+                  let q = supabaseAdmin
+                    .from('delivery_platform_orders')
+                    .select('*')
+                    .neq('match_confidence', 'TOAST_ONLY')
+                    .gte('business_date', minQbDateBuffered)
+                    .lte('business_date', maxQbDateBuffered)
+                    .order('business_date', { ascending: false })
+                    .order('id', { ascending: true })
+                  if (selectedStoreNum !== null && selectedStoreNum > 0) {
+                    q = q.eq('store_id', selectedStoreNum)
+                  }
+                  if (platformParam && platformParam !== 'ALL') {
+                    q = q.eq('platform', platformParam)
+                  }
+                  return q.range(from, to)
+                },
+                QBJ_PAGE_SIZE,
+                QBJ_MAX_ROWS
+              ),
+        async () => {
+          if (selectedStoreNum === 0 || activePayoutRefs.length === 0) return []
+          const collected: any[] = []
+          for (let i = 0; i < activePayoutRefs.length; i += QBJ_IN_CHUNK_SIZE) {
+            const refChunk = activePayoutRefs.slice(i, i + QBJ_IN_CHUNK_SIZE)
+            const rows = await fetchAllSupabaseRows<any>(
+              (from, to) => {
+                let q = supabaseAdmin
+                  .from('delivery_platform_orders')
+                  .select('*')
+                  .neq('match_confidence', 'TOAST_ONLY')
+                  .in('payout_reference_id', refChunk)
+                  .order('business_date', { ascending: false })
+                  .order('id', { ascending: true })
+                if (selectedStoreNum !== null && selectedStoreNum > 0) {
+                  q = q.eq('store_id', selectedStoreNum)
+                }
+                if (platformParam && platformParam !== 'ALL') {
+                  q = q.eq('platform', platformParam)
+                }
+                return q.range(from, to)
+              },
+              QBJ_PAGE_SIZE,
+              QBJ_MAX_ROWS
+            )
+            collected.push(...rows)
+            if (collected.length >= QBJ_MAX_ROWS) break
+          }
+          return collected
+        },
+      ],
+      QBJ_DB_CONCURRENCY,
+      (runTask) => runTask()
+    )
 
     const rawOrdersMap = new Map<string, any>()
     for (const o of ordersInDateRange || []) {
@@ -1525,7 +1626,10 @@ export async function GET(req: NextRequest) {
         )
         const qbRes = await fetch(
           `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
-          { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+          {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(QBO_FETCH_TIMEOUT_MS),
+          }
         )
         if (qbRes.status === 401) {
           isAuthError = true
@@ -1547,7 +1651,10 @@ export async function GET(req: NextRequest) {
         )
         const depRes = await fetch(
           `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${qDep}&minorversion=75`,
-          { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+          {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(QBO_FETCH_TIMEOUT_MS),
+          }
         )
         if (depRes.ok) {
           const depJson = await depRes.json()
@@ -2007,17 +2114,30 @@ export async function GET(req: NextRequest) {
     })
 
     if (payoutsToBackfillQbId.length > 0) {
-      Promise.allSettled(
-        payoutsToBackfillQbId.map((item) =>
-          supabaseAdmin
-            .from('delivery_platform_payouts')
-            .update({
-              raw_payload: item.raw_payload,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', item.id)
+      const backfillBatch = payoutsToBackfillQbId.slice(0, MAX_QB_BACKFILL_UPDATES_PER_GET)
+      if (payoutsToBackfillQbId.length > MAX_QB_BACKFILL_UPDATES_PER_GET) {
+        console.warn(
+          `[GET /api/delivery-reconciliation/quickbooks-journal] Capping payoutsToBackfillQbId from ${payoutsToBackfillQbId.length} to ${MAX_QB_BACKFILL_UPDATES_PER_GET} updates for this GET.`
         )
-      ).catch(() => {})
+      }
+      const nowIso = new Date().toISOString()
+      try {
+        await runWithConcurrency(backfillBatch, QBJ_DB_CONCURRENCY, async (item) => {
+          try {
+            await supabaseAdmin
+              .from('delivery_platform_payouts')
+              .update({
+                raw_payload: item.raw_payload,
+                updated_at: nowIso,
+              })
+              .eq('id', item.id)
+          } catch {
+            // Non-blocking backfill error ignored
+          }
+        })
+      } catch {
+        // Non-blocking backfill batch error ignored
+      }
     }
 
     if (search) {
@@ -2203,11 +2323,15 @@ export async function POST(req: NextRequest) {
 
         if (action === 'confirm_qbo_candidate') {
           // Verificar que ninguna otra fila tenga ya asignada esta misma póliza QBO (salvo agrupación explícitamente aprobada)
-          const allPayoutRows = await fetchAllSupabaseRows<any>((from, to) =>
-            supabaseAdmin
-              .from('delivery_platform_payouts')
-              .select('id, payout_reference_id, store_id, platform, raw_payload')
-              .range(from, to)
+          const allPayoutRows = await fetchAllSupabaseRows<any>(
+            (from, to) =>
+              supabaseAdmin
+                .from('delivery_platform_payouts')
+                .select('id, payout_reference_id, store_id, platform, raw_payload')
+                .order('id', { ascending: true })
+                .range(from, to),
+            QBJ_PAGE_SIZE,
+            QBJ_MAX_ROWS
           )
           const conflictingRow = (allPayoutRows || []).find(
             (r: any) =>
@@ -2231,7 +2355,10 @@ export async function POST(req: NextRequest) {
             const q = encodeURIComponent(`select * from JournalEntry where Id = '${candidateJeId.replace(/'/g, '')}'`)
             const r = await fetch(
               `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
-              { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+              {
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+                signal: AbortSignal.timeout(QBO_FETCH_TIMEOUT_MS),
+              }
             )
             if (r.ok) {
               const j = await r.json()
@@ -2392,7 +2519,10 @@ export async function POST(req: NextRequest) {
         const q = encodeURIComponent(`select * from JournalEntry orderby TxnDate desc maxresults 500`)
         const r = await fetch(
           `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
-          { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+          {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(QBO_FETCH_TIMEOUT_MS),
+          }
         )
         if (!r.ok) {
           return NextResponse.json(
@@ -2532,11 +2662,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Cargar todos los vínculos QBO existentes para evitar duplicidad de póliza entre payouts
-    const allPayoutLinksRows = await fetchAllSupabaseRows<any>((from, to) =>
-      supabaseAdmin
-        .from('delivery_platform_payouts')
-        .select('id, raw_payload')
-        .range(from, to)
+    const allPayoutLinksRows = await fetchAllSupabaseRows<any>(
+      (from, to) =>
+        supabaseAdmin
+          .from('delivery_platform_payouts')
+          .select('id, raw_payload')
+          .order('id', { ascending: true })
+          .range(from, to),
+      QBJ_PAGE_SIZE,
+      QBJ_MAX_ROWS
     )
     const alreadyAssignedJeIds = new Map<string, string>()
     for (const row of allPayoutLinksRows || []) {
@@ -2560,13 +2694,17 @@ export async function POST(req: NextRequest) {
       )
     }
     const storeOrdersAll = involvedStoreIds.length > 0
-      ? await fetchAllSupabaseRows<any>((from, to) =>
-          supabaseAdmin
-            .from('delivery_platform_orders')
-            .select('*')
-            .neq('match_confidence', 'TOAST_ONLY')
-            .in('store_id', involvedStoreIds)
-            .range(from, to)
+      ? await fetchAllSupabaseRows<any>(
+          (from, to) =>
+            supabaseAdmin
+              .from('delivery_platform_orders')
+              .select('*')
+              .neq('match_confidence', 'TOAST_ONLY')
+              .in('store_id', involvedStoreIds)
+              .order('id', { ascending: true })
+              .range(from, to),
+          QBJ_PAGE_SIZE,
+          QBJ_MAX_ROWS
         )
       : []
 
@@ -2587,7 +2725,10 @@ export async function POST(req: NextRequest) {
       )
       const r = await fetch(
         `https://quickbooks.api.intuit.com/v3/company/${realmId}/query?query=${q}&minorversion=75`,
-        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }
+        {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+          signal: AbortSignal.timeout(QBO_FETCH_TIMEOUT_MS),
+        }
       )
       if (r.ok) {
         const j = await r.json()
@@ -2847,6 +2988,7 @@ export async function POST(req: NextRequest) {
               Accept: 'application/json',
             },
             body: JSON.stringify(qbPayload),
+            signal: AbortSignal.timeout(QBO_FETCH_TIMEOUT_MS),
           }
         )
 

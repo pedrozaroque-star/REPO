@@ -53,6 +53,11 @@ import {
   normalizeCorporateEmail,
 } from '@/lib/inventory/portion-control-alerts'
 import { formatShortDateLabelEs } from '@/lib/inventory/toast-meat-sold-resolver'
+import {
+  loadEmailDeliverabilityContext,
+  resolveDeliverableUserEmail,
+  resolveSingleRecipientEmail,
+} from '@/lib/email-recipient-guard'
 
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 const EXEC_COPY_EMAIL = 'carlos@tacosgavilan.com'
@@ -557,7 +562,7 @@ export async function scanAndNotifyMissingMeatModifiers(
   const rollingStart = addDaysIso(businessDate, -6)
   const rollingEnd = addDaysIso(businessDate, 1)
 
-  const [usersRows, toastEmpRows, checklistsRes] = await Promise.all([
+  const [usersRows, toastEmpRows, checklistsRes, deliverabilityCtx] = await Promise.all([
     fetchAllPaginated<any>((from, to) =>
       supabase
         .from('users')
@@ -569,7 +574,7 @@ export async function scanAndNotifyMissingMeatModifiers(
     fetchAllPaginated<any>((from, to) =>
       supabase
         .from('toast_employees')
-        .select('toast_guid, v2_toast_guid, first_name, last_name, chosen_name, email, deleted')
+        .select('id, toast_guid, v2_toast_guid, first_name, last_name, chosen_name, email, deleted, store_ids')
         .order('id', { ascending: true })
         .range(from, to)
     ),
@@ -578,6 +583,7 @@ export async function scanAndNotifyMissingMeatModifiers(
       .select('store_id, shift, user_id, user_name')
       .in('store_id', candidateStoreIds)
       .eq('checklist_date', businessDate),
+    loadEmailDeliverabilityContext(supabase),
   ])
   if (checklistsRes.error) {
     throw new Error(`Error leyendo assistant_checklists: ${checklistsRes.error.message}`)
@@ -615,7 +621,10 @@ export async function scanAndNotifyMissingMeatModifiers(
   }
   const existingAlertsRows = existingAlertsRes.data || []
 
-  const escaleraByStore = buildEscaleraByStore(stores as any, usersRows)
+  const escaleraByStore = buildEscaleraByStore(stores as any, usersRows, {
+    deliverabilityCtx,
+    toastEmployees: toastEmpRows,
+  })
 
   const userById = new Map<number, any>()
   const userByToastGuid = new Map<string, any>()
@@ -630,7 +639,9 @@ export async function scanAndNotifyMissingMeatModifiers(
   for (const te of toastEmpRows) {
     const rawName = String(te.chosen_name || `${te.first_name || ''} ${te.last_name || ''}`)
     const fullName = formatPersonDisplayName(rawName) || 'Cajera en Turno'
-    const email = cleanEmailAnyDomain(te.email)
+    const rawClean = cleanEmailAnyDomain(te.email)
+    const checkedEmail = rawClean ? resolveSingleRecipientEmail(rawClean, deliverabilityCtx) : null
+    const email = checkedEmail?.deliverable ? checkedEmail.resolvedEmail : null
     const g1 = te.toast_guid ? String(te.toast_guid).trim().toLowerCase() : ''
     const g2 = te.v2_toast_guid ? String(te.v2_toast_guid).trim().toLowerCase() : ''
     if (g1) toastEmpByGuid.set(g1, { name: fullName, email })
@@ -656,7 +667,12 @@ export async function scanAndNotifyMissingMeatModifiers(
       if (u) {
         const nm = formatPersonDisplayName(u.full_name || fallbackName)
         if (nm) names.add(nm)
-        const em = normalizeCorporateEmail(u.google_email_connected || u.email) || cleanEmailAnyDomain(u.email)
+        const em = resolveDeliverableUserEmail(
+          u,
+          deliverabilityCtx.verifiedCorporateEmails,
+          deliverabilityCtx.assistantIndex,
+          deliverabilityCtx.blockedExternalEmails
+        )
         if (em && em !== EXEC_COPY_EMAIL) emails.add(em)
       } else if (fallbackName) {
         const nm = formatPersonDisplayName(fallbackName)

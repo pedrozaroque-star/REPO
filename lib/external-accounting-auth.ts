@@ -28,6 +28,9 @@
  * - 2026-11-12 (Wave P0/P1 Hardening): verificación estricta de `exp` en JWT (`ignoreExpiration: false`),
  *   lista blanca de 3 usuarios y helper `fetchAllTableRows` con desempate determinista `.order('id')` para
  *   eliminar truncamientos silenciosos de 1,000 filas de PostgREST en cuentas, contactos, ítems, adjuntos y vínculos.
+ * - 2026-11-26 (Server Shield Hardening): añadido `runWithConcurrency`, tope estricto `MAX_PAGES = 30` en
+ *   `fetchAllCompanyTransactions` y `fetchAllTableRows`, fragmentación de `.in()` a `<= 150` elementos y
+ *   eliminación de reintentos sobre `520/521/522/524/57014` para evitar retry-piling en Supabase `ci_small`.
  */
 
 import { cookies } from 'next/headers'
@@ -205,58 +208,80 @@ export async function authorizeExternalAccounting(
   }
 }
 
+const DEFAULT_MAX_PAGES = 30
+const IN_FILTER_CHUNK_SIZE = 150
+
 /**
- * Descarga el 100% de las transacciones de una empresa (`company_realm_id`) superando
- * el límite por defecto de 1,000 filas de Supabase PostgREST mediante bloques `.range()`.
+ * Ejecuta tareas asíncronas sobre una colección respetando un límite estricto de concurrencia
+ * para evitar tormentas de conexiones simultáneas contra Supabase (`ci_small`) o APIs externas.
  */
-function isTransientSupabaseGatewayError(err: any): boolean {
-  const msg = String(err?.message || err || '')
-  return (
-    msg.includes('<!DOCTYPE html>') ||
-    msg.includes('520') ||
-    msg.includes('521') ||
-    msg.includes('522') ||
-    msg.includes('524') ||
-    msg.includes('502 Bad Gateway') ||
-    msg.includes('503 Service') ||
-    msg.includes('504 Gateway') ||
-    /fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)
-  )
+export async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const safeLimit = Math.max(1, Math.min(limit, items.length))
+  const results = new Array<R>(items.length)
+  let next = 0
+  const workers = Array.from({ length: safeLimit }, async () => {
+    while (next < items.length) {
+      const idx = next++
+      results[idx] = await fn(items[idx], idx)
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
+export interface FetchCompanyTransactionsOptions {
+  select?: string
+  maxPages?: number
+  startDate?: string | null
+  endDate?: string | null
+}
+
+/**
+ * Descarga las transacciones de una empresa (`company_realm_id`) superando el límite de 1,000 filas
+ * de Supabase PostgREST mediante bloques `.range()` acotados (`MAX_PAGES = 30`), con orden determinista
+ * (`txn_date`, `created_at`, `id`) y fallo rápido sin reintentos ante errores `520/521/522/524/57014`.
+ */
 export async function fetchAllCompanyTransactions(
   supabase: SupabaseClient,
   realmId: string,
-  ascending = false
+  ascending = false,
+  options: FetchCompanyTransactionsOptions = {}
 ): Promise<any[]> {
   const PAGE_SIZE = 1000
+  const maxPages = Math.max(1, Math.min(options.maxPages ?? DEFAULT_MAX_PAGES, DEFAULT_MAX_PAGES))
   const allRows: any[] = []
-  let offset = 0
 
-  while (true) {
-    let data: any[] | null = null
-    let error: any = null
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await supabase
-        .from('external_accounting_transactions')
-        .select('*')
-        .eq('company_realm_id', realmId)
-        .order('txn_date', { ascending })
-        .order('created_at', { ascending })
-        .order('id', { ascending })
-        .range(offset, offset + PAGE_SIZE - 1)
-      data = res.data
-      error = res.error
-      if (!error || !isTransientSupabaseGatewayError(error) || attempt === 2) break
-      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)))
-    }
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * PAGE_SIZE
+    let q = supabase
+      .from('external_accounting_transactions')
+      .select(options.select || '*')
+      .eq('company_realm_id', realmId)
+      .order('txn_date', { ascending })
+      .order('created_at', { ascending })
+      .order('id', { ascending })
+      .range(offset, offset + PAGE_SIZE - 1)
 
+    if (options.startDate) q = q.gte('txn_date', options.startDate)
+    if (options.endDate) q = q.lte('txn_date', options.endDate)
+
+    // Fail-fast: NEVER retry 520/521/522/524/57014 on heavy scans so Postgres is never retry-piled
+    const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break
 
     allRows.push(...data)
     if (data.length < PAGE_SIZE) break
-    offset += PAGE_SIZE
+    if (page === maxPages - 1) {
+      console.warn(
+        `[fetchAllCompanyTransactions] Reached MAX_PAGES (${maxPages}) safety cap for realm ${realmId} (${allRows.length} rows).`
+      )
+    }
   }
 
   return allRows
@@ -272,11 +297,13 @@ export interface FetchAllTableRowsOptions {
   orders?: Array<{ column: string; ascending?: boolean }>
   tieBreakerColumn?: string | null
   pageSize?: number
+  maxPages?: number
 }
 
 /**
- * Descarga todas las filas de cualquier tabla de Contabilidad Externa en bloques `.range()`
- * con orden determinista (`id` como tie-breaker), eliminando el tope por defecto de 1,000 filas de PostgREST.
+ * Descarga filas de cualquier tabla de Contabilidad Externa en bloques `.range()` acotados (`MAX_PAGES = 30`)
+ * con orden determinista (`id` como tie-breaker), fragmentación de `.in()` (`<= 150` elementos) y fallo rápido
+ * sin reintentos ante `520/521/522/524/57014`.
  */
 export async function fetchAllTableRows<T = any>(
   supabase: SupabaseClient,
@@ -284,15 +311,27 @@ export async function fetchAllTableRows<T = any>(
   options: FetchAllTableRowsOptions = {}
 ): Promise<{ data: T[]; error: any }> {
   const pageSize = Math.max(100, Math.min(options.pageSize || 1000, 1000))
+  const maxPages = Math.max(1, Math.min(options.maxPages ?? DEFAULT_MAX_PAGES, DEFAULT_MAX_PAGES))
   const allRows: T[] = []
-  let offset = 0
   const tieCol = options.tieBreakerColumn === undefined ? 'id' : options.tieBreakerColumn
   const orders = options.orders || []
 
-  while (true) {
-    let data: T[] | null = null
-    let error: any = null
-    for (let attempt = 0; attempt < 3; attempt++) {
+  let inChunks: Array<Array<string | number> | null> = [null]
+  if (options.inFilter) {
+    const vals = options.inFilter.values || []
+    if (vals.length === 0) {
+      return { data: [], error: null }
+    }
+    inChunks = []
+    for (let i = 0; i < vals.length; i += IN_FILTER_CHUNK_SIZE) {
+      inChunks.push(vals.slice(i, i + IN_FILTER_CHUNK_SIZE))
+    }
+  }
+
+  let totalPagesFetched = 0
+  for (const inChunk of inChunks) {
+    for (let page = 0; page < maxPages && totalPagesFetched < maxPages; page++) {
+      const offset = page * pageSize
       let q: any = supabase.from(table).select(options.select || '*')
       if (options.realmId) {
         q = q.eq(options.realmColumn || 'company_realm_id', options.realmId)
@@ -302,8 +341,8 @@ export async function fetchAllTableRows<T = any>(
           q = q.eq(col, val)
         }
       }
-      if (options.inFilter) {
-        q = q.in(options.inFilter.column, options.inFilter.values)
+      if (options.inFilter && inChunk) {
+        q = q.in(options.inFilter.column, inChunk)
       }
       if (options.ilike) {
         q = q.ilike(options.ilike.column, options.ilike.pattern)
@@ -316,19 +355,23 @@ export async function fetchAllTableRows<T = any>(
       }
       q = q.range(offset, offset + pageSize - 1)
 
-      const res = await q
-      data = res.data
-      error = res.error
-      if (!error || !isTransientSupabaseGatewayError(error) || attempt === 2) break
-      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+      // Fail-fast: NEVER retry 520/521/522/524/57014 on heavy scans so Postgres is never retry-piled
+      const { data, error } = await q
+      totalPagesFetched++
+
+      if (error) return { data: allRows, error }
+      if (!data || data.length === 0) break
+
+      allRows.push(...data)
+      if (data.length < pageSize) break
+      if (totalPagesFetched >= maxPages) {
+        console.warn(
+          `[fetchAllTableRows] Reached MAX_PAGES (${maxPages}) safety cap on table ${table} (${allRows.length} rows).`
+        )
+        break
+      }
     }
-
-    if (error) return { data: allRows, error }
-    if (!data || data.length === 0) break
-
-    allRows.push(...data)
-    if (data.length < pageSize) break
-    offset += pageSize
+    if (totalPagesFetched >= maxPages) break
   }
 
   return { data: allRows, error: null }

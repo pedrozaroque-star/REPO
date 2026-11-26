@@ -36,13 +36,16 @@
  *   2) Paginación determinista sin truncamiento (`fetchAllTableRows`) en `accounts`, `contacts`, `items`, `reports_archive` y `budgets`.
  *   3) Soporte completo de alias de reportes CPA (`pnl_by_month`, `balance_sheet_comparison`, `estimates_progress`, `payroll_summary`, etc.)
  *      y controles de personalización (`comparePeriod`, `only1099`, `hideZeroRows`, `showCents`).
+ * - 2026-11-26 (Server Shield Hardening): reutilización del singleton `supabaseAdmin`, `maxDuration = 60`,
+ *   candado `maxDays <= 366` cuando se envían fechas, `MAX_PAGES = 25` con `.order('id')` determinista,
+ *   concurrencia acotada (`<= 3`) y fallo rápido sin reintentos en `520/521/522/524/57014`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
-import { authorizeExternalAccounting, fetchAllTableRows } from '@/lib/external-accounting-auth'
+import { supabaseAdmin } from '@/lib/supabase'
+import { authorizeExternalAccounting, fetchAllTableRows, runWithConcurrency } from '@/lib/external-accounting-auth'
 import {
   buildLedgerContext,
   buildTxnPostings,
@@ -58,6 +61,7 @@ import {
 } from '@/lib/external-accounting-ledger'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 function formatCurrencyForPdf(n: number, showCents = true): string {
   const raw = Number(n || 0)
@@ -621,50 +625,41 @@ function respondReport(req: NextRequest, payload: Record<string, any>) {
   return NextResponse.json(payload)
 }
 
-function getAdminSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+const MAX_REPORT_DAYS = 366
+const REPORTS_MAX_PAGES = 25
 
 async function fetchAllTxns(
-  supabase: ReturnType<typeof getAdminSupabase>,
+  supabase: typeof supabaseAdmin,
   realmId: string,
   startDate?: string | null,
   endDate?: string | null
 ) {
   const rows: any[] = []
-  let from = 0
   const step = 1000
-  while (true) {
-    let data: any[] | null = null
-    let error: any = null
-    for (let attempt = 0; attempt < 3; attempt++) {
-      let q = supabase
-        .from('external_accounting_transactions')
-        .select('*')
-        .eq('company_realm_id', realmId)
-        .order('txn_date', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, from + step - 1)
+  for (let page = 0; page < REPORTS_MAX_PAGES; page++) {
+    const from = page * step
+    let q = supabase
+      .from('external_accounting_transactions')
+      .select('*')
+      .eq('company_realm_id', realmId)
+      .order('txn_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + step - 1)
 
-      if (startDate) q = q.gte('txn_date', startDate)
-      if (endDate) q = q.lte('txn_date', endDate)
+    if (startDate) q = q.gte('txn_date', startDate)
+    if (endDate) q = q.lte('txn_date', endDate)
 
-      const res = await q
-      data = res.data
-      error = res.error
-      const errMsg = String(error?.message || '')
-      const isTransient = errMsg.includes('<!DOCTYPE html>') || /520|521|522|524|502|503|504|fetch failed|ECONNRESET/i.test(errMsg)
-      if (!error || !isTransient || attempt === 2) break
-      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)))
-    }
+    // Fail-fast: NEVER retry 520/521/522/524/57014 on heavy scans so Postgres is never retry-piled
+    const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break
     rows.push(...data)
     if (data.length < step) break
-    from += step
+    if (page === REPORTS_MAX_PAGES - 1) {
+      console.warn(
+        `[GET /api/external-accounting/reports] fetchAllTxns reached MAX_PAGES (${REPORTS_MAX_PAGES}) cap for realm ${realmId} (${rows.length} rows).`
+      )
+    }
   }
   return rows
 }
@@ -701,7 +696,7 @@ function flattenQboReportRows(rows: any[] = [], depth = 0, out: any[] = []): any
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = getAdminSupabase()
+    const supabase = supabaseAdmin
 
     // Strict Backend Authorization (Fail-Closed)
     const auth = await authorizeExternalAccounting(req, supabase)
@@ -837,28 +832,52 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       )
     }
+    if (startDate && endDate) {
+      const [sy, sm, sd] = startDate.split('-').map(Number)
+      const [ey, em, ed] = endDate.split('-').map(Number)
+      const diffDays = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000) + 1
+      if (diffDays > MAX_REPORT_DAYS) {
+        return NextResponse.json(
+          {
+            error: `Date range exceeds maximum allowed window of ${MAX_REPORT_DAYS} days (requested ${diffDays} days).`,
+            code: 'DATE_RANGE_TOO_LARGE',
+            maxDays: MAX_REPORT_DAYS,
+          },
+          { status: 400 }
+        )
+      }
+    }
 
-    // Fetch company, accounts, contacts, items, and available archive keys (paginated beyond PostgREST 1,000-row cap)
-    const [compRes, accRes, conRes, itemsRes, archListRes] = await Promise.all([
-      supabase.from('external_accounting_companies').select('*').eq('realm_id', realmId).maybeSingle(),
-      fetchAllTableRows(supabase, 'external_accounting_accounts', {
+    // Fetch company, accounts, contacts, items, and available archive keys (paginated with MAX_PAGES & concurrency <= 3)
+    const reportMetaTasks: Array<() => Promise<any>> = [
+      async () => await supabase.from('external_accounting_companies').select('*').eq('realm_id', realmId).maybeSingle(),
+      () => fetchAllTableRows(supabase, 'external_accounting_accounts', {
         realmId,
         orders: [{ column: 'name', ascending: true }],
+        maxPages: REPORTS_MAX_PAGES,
       }),
-      fetchAllTableRows(supabase, 'external_accounting_contacts', {
+      () => fetchAllTableRows(supabase, 'external_accounting_contacts', {
         realmId,
         orders: [{ column: 'display_name', ascending: true }],
+        maxPages: REPORTS_MAX_PAGES,
       }),
-      fetchAllTableRows(supabase, 'external_accounting_items', {
+      () => fetchAllTableRows(supabase, 'external_accounting_items', {
         realmId,
         orders: [{ column: 'name', ascending: true }],
+        maxPages: REPORTS_MAX_PAGES,
       }),
-      fetchAllTableRows(supabase, 'external_accounting_reports_archive', {
+      () => fetchAllTableRows(supabase, 'external_accounting_reports_archive', {
         select: 'id, report_key, report_title, accounting_method, start_date, end_date',
         realmId,
         orders: [{ column: 'report_key', ascending: true }],
+        maxPages: REPORTS_MAX_PAGES,
       }),
-    ])
+    ]
+    const [compRes, accRes, conRes, itemsRes, archListRes] = await runWithConcurrency(
+      reportMetaTasks,
+      3,
+      (runTask) => runTask()
+    )
 
     if (compRes.error) throw compRes.error
     if (accRes.error) throw accRes.error
@@ -870,10 +889,10 @@ export async function GET(req: NextRequest) {
     if (!company) {
       return NextResponse.json({ error: `Empresa no encontrada para realmId: ${realmId}` }, { status: 404 })
     }
-    const accounts = accRes.data || []
-    const contacts = conRes.data || []
-    const items = itemsRes.data || []
-    const availableArchives = archListRes.data || []
+    const accounts: any[] = accRes.data || []
+    const contacts: any[] = conRes.data || []
+    const items: any[] = itemsRes.data || []
+    const availableArchives: any[] = archListRes.data || []
 
     const accountTypeMap = new Map<string, any>()
     const accountUuidMap = new Map<string, any>()
@@ -3764,6 +3783,7 @@ export async function GET(req: NextRequest) {
           realmId,
           eq: { fiscal_year: fy },
           orders: [{ column: 'account_name', ascending: true }],
+          maxPages: REPORTS_MAX_PAGES,
         }
       )
       if (budgetErr) throw budgetErr

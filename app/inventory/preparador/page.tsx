@@ -960,7 +960,9 @@ export default function PreparadorPage() {
                 }
                 pendingToastSyncTimeoutRef.current = setTimeout(() => {
                     pendingToastSyncTimeoutRef.current = null
-                    fetchReadyOrdersRef.current?.(false, true)
+                    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                        fetchReadyOrdersRef.current?.(false, true)
+                    }
                 }, 150)
             }
         }
@@ -1008,8 +1010,28 @@ export default function PreparadorPage() {
             }, 500)
         }
 
-        // Carga inicial
-        fetchReadyOrders(false, true)
+        // Detecta horas muertas (04:15–06:59 America/Los_Angeles) cuando las sucursales están cerradas
+        // para reducir el sondeo de tabletas 24/7 a >= 60s y proteger Supabase/Vercel.
+        const isLosAngelesDeadHours = (now = new Date()): boolean => {
+            try {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Los_Angeles',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hourCycle: 'h23'
+                }).formatToParts(now)
+                const rawHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+                const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+                const hour = rawHour === 24 ? 0 : rawHour
+                const totalMinutes = hour * 60 + minute
+                return totalMinutes >= 4 * 60 + 15 && totalMinutes <= 6 * 60 + 59
+            } catch {
+                return false
+            }
+        }
+
+        // Carga inicial (evitar syncToast inmediato durante horas muertas)
+        fetchReadyOrders(false, !isLosAngelesDeadHours())
 
         const setupRealtimeChannel = () => {
             if (unmounted) return
@@ -1087,31 +1109,66 @@ export default function PreparadorPage() {
 
         setupRealtimeChannel()
 
-        // Ciclo unificado cada 5s sin auto-colisión entre intervalos:
-        // - Ticks impares (5s, 15s, 25s...): lectura ligera de BD (syncToast=false)
-        // - Ticks pares (10s, 20s, 30s...): detección activa de KDS bump en Toast (syncToast=true cuando pantalla visible)
+        // Ciclo unificado cada 5s con escudo de polling 24/7:
+        // - Pausa por completo cuando document.visibilityState !== 'visible'.
+        // - En horas muertas (04:15–06:59 America/Los_Angeles): reduce el sondeo a >= 60s.
+        // - En horas operativas:
+        //   * Ticks impares (5s, 15s, 25s...): lectura ligera de BD (syncToast=false)
+        //   * Ticks pares (10s, 20s, 30s...): detección activa de KDS bump en Toast (syncToast=true)
         let pollTickCount = 0
         let lastRealtimeRecycleAt = Date.now()
+        let lastPollExecutedAt = Date.now()
+        let lastResumedAt = Date.now()
+
+        const handleVisibilityResume = () => {
+            if (!unmounted && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
+                lastResumedAt = Date.now()
+                scheduleRealtimePrepRefresh()
+            }
+        }
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', handleVisibilityResume)
+        }
+
         const pollTimer = setInterval(() => {
-            pollTickCount = (pollTickCount + 1) % 1000
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                return
+            }
+
             const nowTickMs = Date.now()
-            // Si tras un micro-corte Wi-Fi pasaron >60s sin refresco exitoso, reciclar preventivamente el canal Realtime
+            const deadHours = isLosAngelesDeadHours()
+            if (deadHours) {
+                if (nowTickMs - lastPollExecutedAt < 60_000) {
+                    return
+                }
+                lastPollExecutedAt = nowTickMs
+                fetchReadyOrdersRef.current?.(false, true)
+                return
+            }
+
+            pollTickCount = (pollTickCount + 1) % 1000
+            // Si tras un micro-corte Wi-Fi pasaron >60s sin refresco exitoso en horas activas, reciclar preventivamente el canal Realtime
+            const lastHealthyAt = Math.max(lastOrdersSyncSuccessAtRef.current, lastResumedAt)
             if (
-                nowTickMs - lastOrdersSyncSuccessAtRef.current > 60000 &&
+                nowTickMs - lastHealthyAt > 60000 &&
                 nowTickMs - lastRealtimeRecycleAt > 60000
             ) {
                 lastRealtimeRecycleAt = nowTickMs
                 setupRealtimeChannel()
             }
-            // Sincronización activa cada 5s cuando la pantalla es visible (protegida por lease distribuido de 3.5s en PostgreSQL)
-            const shouldSyncToastOnTick =
-                typeof document === 'undefined' || document.visibilityState === 'visible'
+
+            // Sincronización Toast EXCLUSIVAMENTE en ticks pares (cada 10s); ticks impares solo lectura ligera (5s)
+            const shouldSyncToastOnTick = pollTickCount % 2 === 0
+            lastPollExecutedAt = nowTickMs
             fetchReadyOrdersRef.current?.(false, shouldSyncToastOnTick)
         }, 5000)
 
         return () => {
             unmounted = true
             pendingToastSyncRef.current = false
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', handleVisibilityResume)
+            }
             if (pendingToastSyncTimeoutRef.current) {
                 clearTimeout(pendingToastSyncTimeoutRef.current)
                 pendingToastSyncTimeoutRef.current = null
@@ -1125,6 +1182,13 @@ export default function PreparadorPage() {
                 realtimeDebounceTimer = null
             }
             clearInterval(pollTimer)
+            if (activeOrdersFetchAbortRef.current) {
+                try {
+                    activeOrdersFetchAbortRef.current.abort()
+                } catch {}
+                activeOrdersFetchAbortRef.current = null
+                fetchingReadyOrdersRef.current = false
+            }
             disposeActiveChannel()
         }
     }, [storeId, stores, supabase])

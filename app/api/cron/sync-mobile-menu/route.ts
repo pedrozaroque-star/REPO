@@ -13,7 +13,8 @@
  * - Reemplaza de forma segura las filas de `public.app_menu_cache` codificando la secuencia exacta en `last_synced` (+10ms por ítem) y metadatos de ordenamiento.
  * @notes
  * - Garantiza paridad 1:1 en orden de categorías, orden de productos, fotografías S3 y modificadores con Toast Local / Toast Online Ordering.
- * - Solo sincroniza sucursales activas (`is_active = true`) y ejecuta rollback en bloques de 50 filas con logging de errores si falla Toast.
+ * - Solo sincroniza sucursales activas (`is_active = true`).
+ * - HARDENING (2026-11-26): `maxDuration = 120`, `AbortSignal.timeout(25_000)` en Toast `/menus/v2/menus`, presupuesto de tiempo de `100s` y reemplazo sin ventana vacía (UPSERT completo por `(store_id, toast_item_guid)` antes de podar ítems obsoletos), garantizando que `app_menu_cache` nunca quede vacío si falla Toast o expira el timeout.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -21,9 +22,13 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getAuthToken } from '@/lib/toast-api'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
 const TOAST_MENUS_V2_URL = 'https://ws-api.toasttab.com/menus/v2/menus'
 const ONLINE_CHANNEL_VISIBILITY = 'TOAST_ONLINE_ORDERING'
+const TOAST_MENUS_TIMEOUT_MS = 25_000
+const TIME_BUDGET_MS = 100_000
+const MAX_429_RETRIES = 3
 
 export interface MenuModifier {
   guid: string
@@ -140,7 +145,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }[] = []
 
     // 3. Sincronizar cada sucursal desde su propio payload de Toast /menus/v2/menus
+    const deadlineMs = startTime + TIME_BUDGET_MS
+    let timedOut = false
+
     for (const store of stores) {
+      if (Date.now() >= deadlineMs) {
+        timedOut = true
+        storeResults.push({
+          storeId: store.id,
+          name: store.name,
+          categories: 0,
+          items: 0,
+          withOfficialImage: 0,
+          success: false,
+          error: 'TIME_BUDGET_EXCEEDED (menú previo conservado intacto)',
+        })
+        continue
+      }
+
       if (!store.external_id) {
         storeResults.push({
           storeId: store.id,
@@ -154,25 +176,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         continue
       }
 
-      // Respaldar filas actuales de la tienda en memoria antes de reemplazar
-      const { data: previousRows } = await supabaseAdmin
-        .from('app_menu_cache')
-        .select(
-          'store_id, category_name, toast_item_guid, name, description, price, image_url, modifier_groups_json, is_available, last_synced'
-        )
-        .eq('store_id', store.id)
-
       try {
-        const res = await fetch(TOAST_MENUS_V2_URL, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Toast-Restaurant-External-ID': store.external_id,
-          },
-          cache: 'no-store',
-        })
+        let res: Response | null = null
+        let attempt429 = 0
+        while (true) {
+          if (Date.now() >= deadlineMs) {
+            timedOut = true
+            throw new Error('TIME_BUDGET_EXCEEDED antes de consultar Toast /menus/v2/menus')
+          }
 
-        if (!res.ok) {
-          throw new Error(`Toast /menus/v2/menus HTTP ${res.status}`)
+          res = await fetch(TOAST_MENUS_V2_URL, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Toast-Restaurant-External-ID': store.external_id,
+            },
+            cache: 'no-store',
+            signal: AbortSignal.timeout(TOAST_MENUS_TIMEOUT_MS),
+          })
+
+          if (res.status === 429 && attempt429 < MAX_429_RETRIES) {
+            attempt429++
+            const backoffMs = Math.min(3000 * attempt429, 10_000)
+            if (Date.now() + backoffMs >= deadlineMs) {
+              timedOut = true
+              throw new Error('TIME_BUDGET_EXCEEDED durante backoff 429')
+            }
+            await new Promise((r) => setTimeout(r, backoffMs))
+            continue
+          }
+          break
+        }
+
+        if (!res || !res.ok) {
+          throw new Error(`Toast /menus/v2/menus HTTP ${res?.status ?? 'NO_RESPONSE'}`)
         }
 
         const payload = await res.json()
@@ -189,7 +225,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           )
 
         const storeRows: MenuCacheRow[] = []
-        const seenItemGuidsInCategory = new Set<string>()
+        const seenItemGuids = new Set<string>()
         const seenCategories = new Set<string>()
         let sequenceIndex = 0
         let withOfficialImage = 0
@@ -210,9 +246,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               const itemGuid = String(item?.guid || '').trim()
               if (!itemGuid || !itemName || isSeparatorOrDiscontinued(itemName)) continue
 
-              const dedupKey = `${categoryName}::${itemGuid}`
-              if (seenItemGuidsInCategory.has(dedupKey)) continue
-              seenItemGuidsInCategory.add(dedupKey)
+              // Respetar UNIQUE(store_id, toast_item_guid) en public.app_menu_cache
+              if (seenItemGuids.has(itemGuid)) continue
+              seenItemGuids.add(itemGuid)
               seenCategories.add(categoryName)
 
               // Resolver grupos de modificadores oficiales de Toast Online Ordering para este platillo
@@ -321,18 +357,54 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           throw new Error('Toast devolvió 0 artículos visibles en TOAST_ONLINE_ORDERING')
         }
 
-        // Borrar caché previo de esta tienda e insertar el catálogo nuevo en bloques de 50
-        const { error: delErr } = await supabaseAdmin
-          .from('app_menu_cache')
-          .delete()
-          .eq('store_id', store.id)
-        if (delErr) throw delErr
+        if (Date.now() >= deadlineMs) {
+          timedOut = true
+          throw new Error('TIME_BUDGET_EXCEEDED antes de escribir en app_menu_cache')
+        }
 
+        // REEMPLAZO SIN VENTANA VACÍA:
+        // 1) Hacer UPSERT de todo el catálogo nuevo por (store_id, toast_item_guid) en bloques de 50.
+        //    Si Toast o un upsert falla, las filas previas en app_menu_cache JAMÁS se borran ni quedan vacías.
         const chunkSize = 50
         for (let i = 0; i < storeRows.length; i += chunkSize) {
           const chunk = storeRows.slice(i, i + chunkSize)
-          const { error: insErr } = await supabaseAdmin.from('app_menu_cache').insert(chunk)
-          if (insErr) throw insErr
+          const { error: upsertErr } = await supabaseAdmin
+            .from('app_menu_cache')
+            .upsert(chunk, { onConflict: 'store_id,toast_item_guid' })
+          if (upsertErr) throw upsertErr
+        }
+
+        // 2) Solo después de que TODOS los bloques nuevos se escribieron con éxito,
+        //    podar únicamente los ítems obsoletos que ya no existen en Toast Online.
+        const { data: currentStoreItems, error: currentReadErr } = await supabaseAdmin
+          .from('app_menu_cache')
+          .select('id, toast_item_guid')
+          .eq('store_id', store.id)
+
+        if (currentReadErr) {
+          console.warn(
+            `⚠️ [MOBILE MENU SYNC] Tienda ${store.id} (${store.name}): upsert OK pero falló lectura para poda de obsoletos:`,
+            currentReadErr.message
+          )
+        } else if (Array.isArray(currentStoreItems) && currentStoreItems.length > 0) {
+          const staleIds = currentStoreItems
+            .filter((row: any) => row?.id && !seenItemGuids.has(String(row.toast_item_guid || '')))
+            .map((row: any) => row.id)
+
+          for (let i = 0; i < staleIds.length; i += 150) {
+            const idChunk = staleIds.slice(i, i + 150)
+            const { error: pruneErr } = await supabaseAdmin
+              .from('app_menu_cache')
+              .delete()
+              .eq('store_id', store.id)
+              .in('id', idChunk)
+            if (pruneErr) {
+              console.warn(
+                `⚠️ [MOBILE MENU SYNC] Tienda ${store.id} (${store.name}): error podando lote de obsoletos:`,
+                pruneErr.message
+              )
+            }
+          }
         }
 
         totalInserted += storeRows.length
@@ -349,34 +421,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         )
       } catch (storeError) {
         const msg = storeError instanceof Error ? storeError.message : 'Error desconocido'
+        // No se ejecutó DELETE previo: el menú existente de esta tienda permanece 100% intacto
         console.error(
-          `❌ [MOBILE MENU SYNC] Error en tienda ${store.id} (${store.name}), restaurando respaldo previo:`,
+          `❌ [MOBILE MENU SYNC] Error en tienda ${store.id} (${store.name}) — catálogo previo conservado intacto:`,
           msg
         )
-        if (previousRows && previousRows.length > 0) {
-          const { error: delRestoreErr } = await supabaseAdmin
-            .from('app_menu_cache')
-            .delete()
-            .eq('store_id', store.id)
-          if (delRestoreErr) {
-            console.error(
-              `❌ [MOBILE MENU SYNC] Error limpiando caché fallido de tienda ${store.id}:`,
-              delRestoreErr.message
-            )
-          }
-          for (let c = 0; c < previousRows.length; c += 50) {
-            const chunk = previousRows.slice(c, c + 50)
-            const { error: insRestoreErr } = await supabaseAdmin
-              .from('app_menu_cache')
-              .insert(chunk)
-            if (insRestoreErr) {
-              console.error(
-                `❌ [MOBILE MENU SYNC] Error restaurando lote ${Math.floor(c / 50) + 1} de respaldo tienda ${store.id}:`,
-                insRestoreErr.message
-              )
-            }
-          }
-        }
         storeResults.push({
           storeId: store.id,
           name: store.name,
@@ -396,6 +445,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       ok: true,
+      partial: timedOut,
       source: 'TOAST_ONLINE_ORDERING_MENUS_V2',
       durationMs,
       storesCount: stores.length,

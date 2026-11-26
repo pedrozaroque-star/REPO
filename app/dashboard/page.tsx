@@ -121,34 +121,56 @@ function DashboardContent() {
     const [selectedFeedback, setSelectedFeedback] = useState<any>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
-    // AbortController: cancels in-flight HTTP requests when user changes filter
+    // AbortController: cancels in-flight HTTP requests when user changes filter or tab visibility
     const abortControllerRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort()
+        const runFetch = () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort()
+            }
+            const nextController = new AbortController()
+            abortControllerRef.current = nextController
+            fetchStats(nextController.signal)
         }
-        const controller = new AbortController()
-        abortControllerRef.current = controller
 
-        fetchStats(controller.signal)
+        runFetch()
 
         let interval: ReturnType<typeof setInterval> | undefined
+        let handleVisibilityChange: (() => void) | undefined
         const todayStr = getBusinessDateLA()
         const isViewingToday = timeFilter === 'today' || (startDate === todayStr && endDate === todayStr)
         if (isViewingToday) {
             interval = setInterval(() => {
-                if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-                if (abortControllerRef.current) abortControllerRef.current.abort()
-                const refreshController = new AbortController()
-                abortControllerRef.current = refreshController
-                fetchStats(refreshController.signal)
+                if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+                runFetch()
             }, 120000)
+
+            if (typeof document !== 'undefined') {
+                let wasHidden = document.visibilityState !== 'visible'
+                handleVisibilityChange = () => {
+                    if (document.visibilityState !== 'visible') {
+                        wasHidden = true
+                        return
+                    }
+                    if (wasHidden) {
+                        wasHidden = false
+                        runFetch()
+                    }
+                }
+                document.addEventListener('visibilitychange', handleVisibilityChange)
+            }
         }
 
         return () => {
-            controller.abort()
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort()
+                abortControllerRef.current = null
+            }
             if (interval) clearInterval(interval)
+            if (handleVisibilityChange && typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', handleVisibilityChange)
+            }
         }
     }, [timeFilter, startDate, endDate])
 

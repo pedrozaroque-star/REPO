@@ -5,47 +5,79 @@
  *   and Supervisor Inspection Compliance (cross-referencing store ownership, schedules, and inspections).
  * @businessRules
  * - Business day runs 6:00 AM to 5:59 AM next day in America/Los_Angeles.
+ * - Strictly enforces `maxDays <= 366` on `startDate..endDate`.
  * - Labor Target: <= 21.5% (Warning > 21.5%, Critical > 23.0%).
  * - Food Cost Target: <= 32.0% (Warning > 32.0%–35.0%, Critical > 35.0%).
+ * - NEVER invokes `foodCostGet(storeId=all)` synchronously inside this polled dashboard endpoint: reads `food_cost_daily_cache` with bounded deterministic pagination and exposes `foodCostPartial: true` if `< 14` valid stores are populated yet (relying on `sync-food-cost-today` cron).
  * - Low Sales Alert: Store drops >= 15% compared to its own equivalent previous period.
  * - Inspection Compliance: Each scheduled day for a supervisor requires >= 1 inspection at an owned store.
  *   Future dates or shifts still in progress today are not penalized as misses.
+ * - Deduplicates concurrent dashboard polls via 60s bounded TTL cache (`MAX_CACHE_KEYS = 50`) + `inFlight` single-flight map.
  * @dataFlow
  * - GET /api/dashboard/alerts?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
- * - Reads sales_daily_cache (with fetchToastData live fallback), food_cost_daily_cache (with foodCostGet fallback),
- *   supervisor_inspections, users, schedules (filtered by supervisor IDs), and stores.
+ * - Reads sales_daily_cache (bounded pagination, 1-2d live fallback if empty), food_cost_daily_cache (cache-only),
+ *   supervisor_inspections, users, schedules (filtered by supervisor IDs), stores, and portion_control_alerts.
  * @notes
  * - [2026-10-16] Fixed schedules PostgREST 1,000-row truncation by filtering .in('user_id', supervisorIds).
  * - [2026-10-16] Added live fallback when today's cache is not yet populated.
+ * - [2026-11-26] Blindaje Supabase `ci_small` (Critical #3): `maxDuration = 60`, singleton `supabaseAdmin`, `maxDays <= 366`, paginación determinista `.order('id')` (`MAX_PAGES = 3`, `1000`/pág.) en lugar de `.limit(5000)`, eliminación de fallback vivo `foodCostGet`, exposición de `foodCostPartial` y caché single-flight TTL 60s.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyStaffAuth } from '@/lib/auth-server'
-import { createClient } from '@supabase/supabase-js'
-import { fetchToastData } from '@/lib/toast-api'
+import { supabaseAdmin } from '@/lib/supabase'
+import { fetchToastData, SalesCacheReadError } from '@/lib/toast-api'
 import { formatStoreDisplayName, getInternalStoreNameById, sortStoresAlphabetically } from '@/lib/store-display'
-import { GET as foodCostGet } from '@/app/api/inventory/food-cost/route'
 import {
   FOOD_COST_HEALTHY_MAX_PCT,
   FOOD_COST_WARNING_MAX_PCT,
   addDaysIso,
   isInvalidFoodCostCacheRow,
   resolveCachedFoodCostDollars,
+  validateDateRangeWithinMaxDays,
 } from '@/lib/inventory/food-cost-sales-resolver'
 
 export const dynamic = 'force-dynamic'
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder',
-  { auth: { persistSession: false } }
-)
+export const maxDuration = 60
 
 // Targets (unified with food-cost-sales-resolver.ts)
 const LABOR_TARGET = 21.5
 const LABOR_CRITICAL = 23
 const FOOD_COST_TARGET = FOOD_COST_HEALTHY_MAX_PCT
 const FOOD_COST_CRITICAL = FOOD_COST_WARNING_MAX_PCT
+
+const MAX_ALERTS_DAYS = 366
+const ALERTS_PAGE_SIZE = 1000
+const ALERTS_MAX_PAGES = 3
+const ALERTS_CACHE_TTL_MS = 60_000
+const ALERTS_MAX_CACHE_KEYS = 50
+
+const alertsResponseCache = new Map<string, { expiresAt: number; payload: Record<string, unknown> }>()
+const alertsInFlight = new Map<string, Promise<Record<string, unknown>>>()
+
+function setAlertsCacheBounded(key: string, payload: Record<string, unknown>) {
+  if (alertsResponseCache.size >= ALERTS_MAX_CACHE_KEYS) {
+    const oldestKey = alertsResponseCache.keys().next().value
+    if (oldestKey !== undefined) alertsResponseCache.delete(oldestKey)
+  }
+  alertsResponseCache.set(key, { expiresAt: Date.now() + ALERTS_CACHE_TTL_MS, payload })
+}
+
+async function fetchPaginatedById<T = any>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const allRows: T[] = []
+  for (let page = 0; page < ALERTS_MAX_PAGES; page++) {
+    const from = page * ALERTS_PAGE_SIZE
+    const to = from + ALERTS_PAGE_SIZE - 1
+    const { data, error } = await buildQuery(from, to)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    allRows.push(...data)
+    if (data.length < ALERTS_PAGE_SIZE) break
+  }
+  return allRows
+}
 
 function getBusinessDateLA(): { dateStr: string; timeStr: string } {
   const now = new Date()
@@ -61,90 +93,106 @@ function getBusinessDateLA(): { dateStr: string; timeStr: string } {
   return { dateStr: `${y}-${m}-${d}`, timeStr: `${hh}:${mm}` }
 }
 
-export async function GET(req: NextRequest) {
-  const auth = await verifyStaffAuth(req)
-  if (!auth.authorized) return auth.response!
-
-  try {
-    const { searchParams } = new URL(req.url)
-    const { dateStr: todayBusinessStr, timeStr: nowTimeLA } = getBusinessDateLA()
-    const startDate = searchParams.get('startDate') || todayBusinessStr
-    const endDate = searchParams.get('endDate') || startDate
-
-    // Calculate lookback: equivalent previous period (same length)
-    const rangeMs = new Date(endDate + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()
-    const rangeDays = Math.max(1, Math.round(rangeMs / (1000 * 60 * 60 * 24)) + 1)
-
-    let lookbackEnd: Date, lookbackStart: Date
+async function computeDashboardAlerts(
+  startDate: string,
+  endDate: string,
+  rangeDays: number,
+  todayBusinessStr: string,
+  nowTimeLA: string
+): Promise<Record<string, unknown>> {
+    // Calculate lookback: equivalent previous period (same length), UTC-pure and DST-safe
+    let lbStartStr: string
+    let lbEndStr: string
     if (rangeDays <= 2) {
       // For single/two day filters: compare vs same day(s) last week
-      lookbackEnd = new Date(endDate + 'T12:00:00')
-      lookbackEnd.setDate(lookbackEnd.getDate() - 7)
-      lookbackStart = new Date(startDate + 'T12:00:00')
-      lookbackStart.setDate(lookbackStart.getDate() - 7)
+      lbStartStr = addDaysIso(startDate, -7)
+      lbEndStr = addDaysIso(endDate, -7)
     } else {
       // For longer ranges: compare vs equivalent previous period
-      lookbackEnd = new Date(startDate + 'T12:00:00')
-      lookbackEnd.setDate(lookbackEnd.getDate() - 1)
-      lookbackStart = new Date(lookbackEnd)
-      lookbackStart.setDate(lookbackStart.getDate() - (rangeDays - 1))
+      lbEndStr = addDaysIso(startDate, -1)
+      lbStartStr = addDaysIso(lbEndStr, -(rangeDays - 1))
     }
-    const lbStartStr = lookbackStart.toISOString().split('T')[0]
-    const lbEndStr = lookbackEnd.toISOString().split('T')[0]
 
     // First fetch supervisors (tiny table, ~4 rows) so we can filter schedules strictly by supervisor IDs
-    const { data: supervisorsData } = await supabaseAdmin
+    const { data: supervisorsData, error: supErr } = await supabaseAdmin
       .from('users')
       .select('id, full_name, role')
       .eq('role', 'supervisor')
       .eq('is_active', true)
 
+    if (supErr) throw supErr
+
     const supervisors = supervisorsData || []
     const supervisorIds = supervisors.map(s => s.id)
 
-    // ── Parallel data fetch ──
-    const [salesRes, fcRes, inspRes, schedRes, storesRes, histSalesRes] = await Promise.all([
+    // ── Bounded parallel data fetch (concurrency <= 3, deterministic .order('id'), MAX_PAGES = 3) ──
+    const [salesRows, foodCosts, histSales] = await Promise.all([
       // 1. Sales + Labor by store (current range)
-      supabaseAdmin.from('sales_daily_cache')
-        .select('store_id, store_name, net_sales, labor_cost, business_date')
-        .gte('business_date', startDate).lte('business_date', endDate)
-        .limit(5000),
-      // 2. Food Cost by store
-      supabaseAdmin.from('food_cost_daily_cache')
-        .select('store_id, store_name, cost_percentage, net_sales, food_cost, total_cost, packaging_cost, business_date')
-        .gte('business_date', startDate).lte('business_date', endDate)
-        .limit(5000),
-      // 3. Inspections in date range
-      supabaseAdmin.from('supervisor_inspections')
-        .select('inspector_id, store_id, inspection_date')
-        .gte('inspection_date', startDate).lte('inspection_date', endDate)
-        .limit(5000),
-      // 4. Supervisor schedules in date range (strictly filtered by supervisorIds to prevent 1,000-row truncation!)
-      supervisorIds.length > 0
-        ? supabaseAdmin.from('schedules')
-            .select('user_id, store_id, date, start_time, end_time, shift_label')
-            .in('user_id', supervisorIds)
-            .gte('date', startDate).lte('date', endDate)
-            .limit(5000)
-        : Promise.resolve({ data: [] as any[] }),
-      // 5. Store details (numeric ID → name + supervisor_id ownership + external_id)
-      supabaseAdmin.from('stores')
-        .select('id, name, supervisor_id, external_id'),
-      // 6. Historical sales for lookback — for self-comparison
-      supabaseAdmin.from('sales_daily_cache')
-        .select('store_id, store_name, net_sales, business_date')
-        .gte('business_date', lbStartStr).lte('business_date', lbEndStr)
-        .limit(5000)
+      fetchPaginatedById<any>((from, to) =>
+        supabaseAdmin
+          .from('sales_daily_cache')
+          .select('id, store_id, store_name, net_sales, labor_cost, business_date')
+          .gte('business_date', startDate)
+          .lte('business_date', endDate)
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      // 2. Food Cost by store (cache-only; never trigger synchronous live 15-store foodCostGet during polling)
+      fetchPaginatedById<any>((from, to) =>
+        supabaseAdmin
+          .from('food_cost_daily_cache')
+          .select('id, store_id, store_name, cost_percentage, net_sales, food_cost, total_cost, packaging_cost, business_date')
+          .gte('business_date', startDate)
+          .lte('business_date', endDate)
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      // 3. Historical sales for lookback — for self-comparison
+      fetchPaginatedById<any>((from, to) =>
+        supabaseAdmin
+          .from('sales_daily_cache')
+          .select('id, store_id, store_name, net_sales, business_date')
+          .gte('business_date', lbStartStr)
+          .lte('business_date', lbEndStr)
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
     ])
 
-    let sales = salesRes.data || []
-    let foodCosts = fcRes.data || []
-    const inspections = inspRes.data || []
-    const schedules = schedRes.data || []
-    const stores = storesRes.data || []
-    const histSales = histSalesRes.data || []
+    const [inspections, schedules, storesRes] = await Promise.all([
+      // 4. Inspections in date range
+      fetchPaginatedById<any>((from, to) =>
+        supabaseAdmin
+          .from('supervisor_inspections')
+          .select('id, inspector_id, store_id, inspection_date')
+          .gte('inspection_date', startDate)
+          .lte('inspection_date', endDate)
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      // 5. Supervisor schedules in date range (strictly filtered by supervisorIds + bounded pagination)
+      supervisorIds.length > 0
+        ? fetchPaginatedById<any>((from, to) =>
+            supabaseAdmin
+              .from('schedules')
+              .select('id, user_id, store_id, date, start_time, end_time, shift_label')
+              .in('user_id', supervisorIds)
+              .gte('date', startDate)
+              .lte('date', endDate)
+              .order('id', { ascending: true })
+              .range(from, to)
+          )
+        : Promise.resolve([] as any[]),
+      // 6. Store details (numeric ID → name + supervisor_id ownership + external_id)
+      supabaseAdmin.from('stores').select('id, name, supervisor_id, external_id'),
+    ])
 
-    // Live fallback for Sales + Labor if cache is empty on a short range (e.g. Today early morning)
+    if (storesRes.error) throw storesRes.error
+
+    let sales = salesRows
+    const stores = storesRes.data || []
+
+    // Live fallback for Sales + Labor ONLY if cache is genuinely empty on a short range (e.g. Today early morning)
     if (sales.length === 0 && rangeDays <= 2) {
       try {
         const liveSales = await fetchToastData({
@@ -152,7 +200,8 @@ export async function GET(req: NextRequest) {
           startDate,
           endDate,
           groupBy: 'day',
-          allowDirtyCache: true
+          allowDirtyCache: true,
+          excludeHourly: true,
         })
         if (liveSales.rows && liveSales.rows.length > 0) {
           sales = liveSales.rows.map(r => ({
@@ -168,53 +217,16 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Live fallback for Food Cost if cache is missing/incomplete on 1-day range
-    const distinctFcStores = new Set(foodCosts.map(r => r.store_id).filter(Boolean))
-    if (rangeDays === 1 && distinctFcStores.size < 14) {
-      try {
-        const directReq = new NextRequest(`http://localhost:3000/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`, {
-          headers: req.headers
-        })
-        const directRes = await foodCostGet(directReq)
-        if (directRes.ok) {
-          const directJson = await directRes.json()
-          if (directJson.data && directJson.data.length > 0) {
-            const byStoreId: Record<string, { store_id: string; store_name: string; food_cost: number; total_cost: number; packaging_cost: number; net_sales: number }> = {}
-            directJson.data.forEach((item: any) => {
-              const sId = item.store_id || item.store_name || 'Unknown'
-              const sName = item.store_name || sId
-              if (!byStoreId[sId]) {
-                byStoreId[sId] = { store_id: item.store_id || '', store_name: sName, food_cost: 0, total_cost: 0, packaging_cost: 0, net_sales: 0 }
-              }
-              const fcVal = Number(item.food_cost ?? item.total_cost ?? 0)
-              byStoreId[sId].food_cost += fcVal
-              byStoreId[sId].total_cost += fcVal
-              byStoreId[sId].packaging_cost += Number(item.packaging_cost ?? 0)
-              byStoreId[sId].net_sales += Number(item.net_sales || 0)
-            })
-            if (directJson.salesNetSales) {
-              Object.entries(directJson.salesNetSales as Record<string, number>).forEach(([storeGuid, authSales]) => {
-                if (byStoreId[storeGuid] && authSales > 0) {
-                  byStoreId[storeGuid].net_sales = Number(authSales)
-                }
-              })
-            }
-            foodCosts = Object.values(byStoreId).map(s => ({
-              store_id: s.store_id,
-              store_name: s.store_name,
-              food_cost: s.food_cost,
-              total_cost: s.total_cost,
-              packaging_cost: s.packaging_cost,
-              net_sales: s.net_sales,
-              cost_percentage: s.net_sales > 0 ? (s.total_cost / s.net_sales) * 100 : 0,
-              business_date: startDate
-            }))
-          }
-        }
-      } catch (e) {
-        console.error('[Dashboard Alerts] Live food cost fallback error:', e)
+    // Track cached food-cost store coverage (rely on sync-food-cost-today cron; never invoke foodCostGet synchronously)
+    const distinctValidFcStores = new Set<string>()
+    foodCosts.forEach((r: any) => {
+      const rowCost = resolveCachedFoodCostDollars(r)
+      const rowSales = Number(r.net_sales) || 0
+      if (!isInvalidFoodCostCacheRow(rowCost, rowSales) && r.store_id) {
+        distinctValidFcStores.add(String(r.store_id))
       }
-    }
+    })
+    const foodCostPartial = distinctValidFcStores.size < 14
 
     // Build store numeric ID → name map
     const storeNameMap: Record<number, string> = {}
@@ -361,12 +373,10 @@ export async function GET(req: NextRequest) {
     // Cross-refs with schedules to know WHEN supervisor was working
     // ══════════════════════════════════════════════════
 
-    // Generate list of dates in range
+    // Generate list of dates in range (UTC-pure, DST-safe)
     const dateList: string[] = []
-    const dtStart = new Date(startDate + 'T12:00:00')
-    const dtEnd = new Date(endDate + 'T12:00:00')
-    for (let d = new Date(dtStart); d <= dtEnd; d.setDate(d.getDate() + 1)) {
-      dateList.push(d.toISOString().split('T')[0])
+    for (let i = 0; i < rangeDays; i++) {
+      dateList.push(addDaysIso(startDate, i))
     }
 
     // Build schedule lookup: supId → date → {store_id, start_time, end_time}
@@ -645,18 +655,58 @@ export async function GET(req: NextRequest) {
       lowSalesAlerts.length +
       inspectionCompliance.filter(s => !s.compliant).length
 
-    return NextResponse.json({
+    return {
       totalAlerts,
       laborAlerts,
       foodCostAlerts,
+      foodCostPartial,
+      foodCostStoresCount: distinctValidFcStores.size,
       portionControlAlerts,
       lowSalesAlerts,
       inspectionCompliance,
       targets: { labor: LABOR_TARGET, laborCritical: LABOR_CRITICAL, foodCost: FOOD_COST_TARGET, foodCostCritical: FOOD_COST_CRITICAL },
       dateRange: { startDate, endDate }
-    })
+    }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = await verifyStaffAuth(req)
+  if (!auth.authorized) return auth.response!
+
+  try {
+    const { searchParams } = new URL(req.url)
+    const { dateStr: todayBusinessStr, timeStr: nowTimeLA } = getBusinessDateLA()
+    const startDate = searchParams.get('startDate') || todayBusinessStr
+    const endDate = searchParams.get('endDate') || startDate
+
+    const rangeCheck = validateDateRangeWithinMaxDays(startDate, endDate, MAX_ALERTS_DAYS)
+    if (!rangeCheck.ok) {
+      return NextResponse.json({ error: rangeCheck.error }, { status: 400 })
+    }
+
+    const cacheKey = `${startDate}:${endDate}:${todayBusinessStr}`
+    const cached = alertsResponseCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return NextResponse.json(cached.payload)
+    }
+
+    let loader = alertsInFlight.get(cacheKey)
+    if (!loader) {
+      loader = computeDashboardAlerts(startDate, endDate, rangeCheck.days, todayBusinessStr, nowTimeLA)
+      alertsInFlight.set(cacheKey, loader)
+      loader.finally(() => {
+        if (alertsInFlight.get(cacheKey) === loader) {
+          alertsInFlight.delete(cacheKey)
+        }
+      })
+    }
+
+    const payload = await loader
+    setAlertsCacheBounded(cacheKey, payload)
+    return NextResponse.json(payload)
   } catch (err: any) {
-    console.error('[Dashboard Alerts] Error:', err.message)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    console.error('[Dashboard Alerts] Error:', err?.message || err)
+    const status = err instanceof SalesCacheReadError || err?.name === 'SalesCacheReadError' ? 503 : 500
+    return NextResponse.json({ error: err?.message || 'Internal Server Error' }, { status })
   }
 }

@@ -28,6 +28,7 @@
  *
  * @notes
  *   - Respuestas con `Cache-Control: no-store, no-cache, must-revalidate` para reflejar cambios de estatus inmediatamente.
+ *   - HARDENING (2026-11-26): Exporta `dynamic = 'force-dynamic'` y `maxDuration = 120` para blindar escaneos multi-tienda contra timeouts default de Vercel.
  */
 
 import { NextResponse } from 'next/server'
@@ -48,6 +49,9 @@ import {
   recordMandatoryPortionCorrectionAndStrike,
 } from '@/lib/inventory/portion-discipline-policy'
 import { getBusinessDateLA, isValidIsoDate, validateDateRangeWithinMaxDays } from '@/lib/inventory/food-cost-sales-resolver'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
 const ALLOWED_STAFF_ROLES = [
   'admin',
@@ -578,10 +582,19 @@ export async function POST(req: Request) {
         )
       }
 
+      const sendStartDate = body.start_date ?? body.startDate ?? null
+      const sendEndDate = body.end_date ?? body.endDate ?? null
+      if (sendStartDate && sendEndDate) {
+        const check = validateDateRangeWithinMaxDays(String(sendStartDate), String(sendEndDate), 35)
+        if (!check.ok) {
+          return NextResponse.json({ error: check.error }, { status: 400, headers: NO_STORE_HEADERS })
+        }
+      }
+
       const scanRes = await scanPortionControlAlerts({
         storeId: scope.singleStoreId,
-        startDate: body.start_date ?? body.startDate ?? null,
-        endDate: body.end_date ?? body.endDate ?? null,
+        startDate: sendStartDate,
+        endDate: sendEndDate,
         spanDays: Number(body.span_days ?? body.spanDays) || 7,
         meatKey: body.meat_key ?? body.meatKey ?? null,
         dryRun,

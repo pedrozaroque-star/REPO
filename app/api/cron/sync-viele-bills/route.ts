@@ -9,10 +9,11 @@
  *
  * @businessRules
  * - Horario Oficial: Se ejecuta diariamente a las 4:00 PM hora de Los Ángeles (`America/Los_Angeles`, 16:00 hrs).
- * - Manejo de Horario de Verano (DST): En `vercel.json` están registrados `0 23 * * *` (4:00 PM PDT) y `0 0 * * *` (4:00 PM PST).
+ * - Manejo de Horario de Verano (DST): En `vercel.json` están registrados `29 23 * * *` (4:29 PM PDT) y `29 0 * * *` (4:29 PM PST).
  *   Cuando la petición proviene del programador automático de Vercel (`vercel-cron`), el endpoint verifica que la hora actual
  *   en `America/Los_Angeles` sea las `16` hrs (4:00 PM) para evitar doble ejecución por cambio de horario estacional,
  *   salvo que se invoque manualmente o con `?force=true`.
+ * - Ventana Móvil Acotada: Por defecto sincroniza los últimos 45 días (`addDaysIso(todayLA, -45)`) para impedir crecimiento ilimitado de payloads ClearNine/Wholesail/QBO; acepta override explícito con `?startDate=YYYY-MM-DD`.
  * - Persiste la caché unificada de las 15 sucursales en `integrations` (`service_name = 'viele_store_invoices_cache'`),
  *   el estado de última sincronización en `integrations` (`service_name = 'crear_bills_last_sync'`) y la auditoría en `activity_logs`.
  *
@@ -22,6 +23,7 @@
  *
  * @notes
  * - Soporta ejecución manual vía `GET` o `POST` con `?force=true` y `?startDate=YYYY-MM-DD`.
+ * - HARDENING (2026-11-26): Se reemplazó el `startDate = '2026-07-01'` fijo por ventana móvil de 45 días (`DEFAULT_LOOKBACK_DAYS = 45`).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -35,6 +37,17 @@ import { getWarehouseInvoicesWithBills } from '@/lib/quickbooks-bills';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes max duration for Vercel Cron
+
+const DEFAULT_LOOKBACK_DAYS = 45;
+
+function addDaysIso(isoDate: string, deltaDays: number): string {
+    const [year, month, day] = isoDate.split('-').map(Number);
+    const utcDate = new Date(Date.UTC(year, (month || 1) - 1, (day || 1) + deltaDays));
+    const y = utcDate.getUTCFullYear();
+    const m = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(utcDate.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
 
 function getLosAngelesDateTimeParts(date = new Date()): {
     laDateFormatted: string;
@@ -80,11 +93,19 @@ async function handleCronSync(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const force = searchParams.get('force') === 'true';
     const forceFullClearNine = searchParams.get('forceFullClearNine') === 'true';
-    const startDate = searchParams.get('startDate') || '2026-07-01';
 
     const userAgent = (request.headers.get('user-agent') || '').toLowerCase();
     const isVercelCron = userAgent.includes('vercel-cron');
     const { laDateFormatted, laIsoDate, laHour, laTimeFormatted } = getLosAngelesDateTimeParts();
+
+    const rawStartDate = (searchParams.get('startDate') || '').trim();
+    if (rawStartDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawStartDate)) {
+        return NextResponse.json(
+            { success: false, error: 'startDate inválido: usa formato YYYY-MM-DD' },
+            { status: 400 }
+        );
+    }
+    const startDate = rawStartDate || addDaysIso(laIsoDate, -DEFAULT_LOOKBACK_DAYS);
 
     // Si es disparado automáticamente por las dos reglas UTC de Vercel Cron (PDT vs PST),
     // ejecutar únicamente cuando en Los Ángeles sean las 4:00 PM (16:00 hrs).
@@ -168,6 +189,7 @@ async function handleCronSync(request: NextRequest) {
         const syncSummary = {
             status: 'success',
             schedule: 'Daily 4:00 PM America/Los_Angeles',
+            startDate,
             laDateFormatted,
             laIsoDate,
             laTimeFormatted,

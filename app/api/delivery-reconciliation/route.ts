@@ -39,6 +39,8 @@
  *   soportar cierres `ACCEPTED_LOSS`/`REJECTED`, excluir disputas $0.00 sin pérdida, corregir `store_id=0` y enriquecer payouts con CxC QBO y Toast vivo.
  * - No incluye ninguna columna autogenerada (`GENERATED ALWAYS AS`) en mutaciones SQL.
  * - `summary.byPlatform` expone métricas deduplicadas de Toast POS acotadas estrictamente al periodo consultado (`periodToastNet`, `periodToastTax`, `periodToastExpectedGross`, `periodToastOrdersCount`) junto con el desglose real del corte (`payoutsSubtotalTotal`, `payoutsTaxToMerchant`, `payoutsTaxWithheld`, `payoutsTipsTotal`, `payoutsWithTaxBreakdownCount`) para comparación lado a lado Corte vs Toast POS sin contaminación de disputas de semanas previas.
+ * - 2026-11-26 (Server Shield Hardening): candado `maxDays <= 65` (y ventana acotada `<= 95` días en `search` sin eliminar el filtro de fecha),
+ *   concurrencia acotada `<= 2` y `MAX_PAGES = 30` en los bucles `fetchAllSupabaseRows`, y límite de `<= 20` `autoLinkUpdates` por `GET` a concurrencia `<= 2`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -95,8 +97,46 @@ const ALLOWED_MAPPING_COLUMNS = new Set<string>([
   'grubhub_pickup_comm_pct',
 ])
 
+const DELIVERY_MAX_DAYS = 65
+const DELIVERY_SEARCH_MAX_DAYS = 95
+const DELIVERY_PAGE_SIZE = 1000
+const DELIVERY_MAX_PAGES = 30
+const DELIVERY_MAX_ROWS = DELIVERY_PAGE_SIZE * DELIVERY_MAX_PAGES
+const DELIVERY_DB_CONCURRENCY = 2
+const MAX_AUTO_LINK_UPDATES_PER_GET = 20
+
 function isValidIsoDate(val: unknown): val is string {
   return typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())
+}
+
+function isoDateSpanDays(startIso: string, endIso: string): number {
+  const [sy, sm, sd] = startIso.split('-').map(Number)
+  const [ey, em, ed] = endIso.split('-').map(Number)
+  return Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000) + 1
+}
+
+function shiftIsoDateByDays(isoDate: string, deltaDays: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + deltaDays)).toISOString().slice(0, 10)
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const safeLimit = Math.max(1, Math.min(limit, items.length))
+  const results = new Array<R>(items.length)
+  let next = 0
+  const workers = Array.from({ length: safeLimit }, async () => {
+    while (next < items.length) {
+      const idx = next++
+      results[idx] = await fn(items[idx], idx)
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 /**
@@ -821,6 +861,37 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get('end_date') || new Date().toISOString().slice(0, 10)
     const search = (searchParams.get('search') || '').trim().toLowerCase()
 
+    if (!payoutRefParam) {
+      if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate)) {
+        return NextResponse.json(
+          { success: false, error: 'Fechas inválidas. Formato esperado: YYYY-MM-DD.', code: 'INVALID_DATE' },
+          { status: 400 }
+        )
+      }
+      if (startDate > endDate) {
+        return NextResponse.json(
+          { success: false, error: 'La fecha inicial no puede ser posterior a la fecha final.', code: 'INVALID_DATE_RANGE' },
+          { status: 400 }
+        )
+      }
+      const spanDays = isoDateSpanDays(startDate, endDate)
+      if (spanDays > DELIVERY_MAX_DAYS) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `El rango máximo permitido es de ${DELIVERY_MAX_DAYS} días (solicitado: ${spanDays} días).`,
+            code: 'DATE_RANGE_TOO_LARGE',
+            maxDays: DELIVERY_MAX_DAYS,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    const searchWindowStart = isValidIsoDate(endDate)
+      ? shiftIsoDateByDays(endDate, -(DELIVERY_SEARCH_MAX_DAYS - 1))
+      : startDate
+
     const allMappings = await getStorePlatformMappings()
     const mappings =
       !auth.isGlobalScope && auth.user?.storeId
@@ -852,6 +923,114 @@ export async function GET(req: NextRequest) {
     const selectedStoreNum =
       !auth.isGlobalScope && auth.user?.storeId ? auth.user.storeId : requestedStoreNum
 
+    const deliveryLoadTasks: Array<() => Promise<any>> = [
+      () => fetchAllSupabaseRows<any>(
+        (from, to) => {
+          let q = supabaseAdmin
+            .from('delivery_platform_orders')
+            .select('*')
+            .order('business_date', { ascending: false })
+            .order('placed_at', { ascending: false })
+            .order('id', { ascending: true })
+          if (payoutRefParam) {
+            q = q.eq('payout_reference_id', payoutRefParam)
+          } else if (search && search.length >= 2) {
+            // Keep bounded <= 95 day window during search instead of scanning all historical rows
+            q = q.gte('business_date', searchWindowStart).lte('business_date', endDate)
+          } else {
+            q = q.gte('business_date', startDate).lte('business_date', endDate)
+          }
+          if (selectedStoreNum !== null && selectedStoreNum > 0) {
+            q = q.eq('store_id', selectedStoreNum)
+          }
+          if (platformParam && platformParam !== 'ALL') {
+            q = q.eq('platform', platformParam)
+          }
+          if (statusParam && statusParam !== 'ALL') {
+            q = q.eq('reconciliation_status', statusParam)
+          }
+          return q.range(from, to)
+        },
+        DELIVERY_PAGE_SIZE,
+        DELIVERY_MAX_ROWS
+      ),
+      () =>
+        selectedStoreNum === 0
+          ? Promise.resolve([])
+          : fetchAllSupabaseRows<any>(
+              (from, to) => {
+                let q = supabaseAdmin
+                  .from('delivery_platform_orders')
+                  .select('*')
+                  .eq('is_disputed', true)
+                  .order('id', { ascending: true })
+                if (selectedStoreNum !== null && selectedStoreNum > 0) {
+                  q = q.eq('store_id', selectedStoreNum)
+                }
+                if (platformParam && platformParam !== 'ALL') {
+                  q = q.eq('platform', platformParam)
+                }
+                if (statusParam && statusParam !== 'ALL') {
+                  q = q.eq('reconciliation_status', statusParam)
+                }
+                return q.range(from, to)
+              },
+              DELIVERY_PAGE_SIZE,
+              DELIVERY_MAX_ROWS
+            ),
+      () =>
+        selectedStoreNum === 0
+          ? Promise.resolve([])
+          : fetchAllSupabaseRows<any>(
+              (from, to) => {
+                let q = supabaseAdmin
+                  .from('delivery_platform_payouts')
+                  .select('*')
+                  .order('payout_date', { ascending: false })
+                  .order('id', { ascending: true })
+                if (selectedStoreNum !== null && selectedStoreNum > 0) {
+                  q = q.eq('store_id', selectedStoreNum)
+                }
+                if (platformParam && platformParam !== 'ALL') {
+                  q = q.eq('platform', platformParam)
+                }
+                if (payoutRefParam) {
+                  q = q.eq('payout_reference_id', payoutRefParam)
+                }
+                return q.range(from, to)
+              },
+              DELIVERY_PAGE_SIZE,
+              DELIVERY_MAX_ROWS
+            ),
+      () => fetchAllSupabaseRows<any>(
+        (from, to) =>
+          supabaseAdmin
+            .from('delivery_platform_orders')
+            .select('store_id, platform, business_date, match_confidence, toast_order_guid, payout_reference_id, updated_at')
+            .neq('match_confidence', 'TOAST_ONLY')
+            .order('id', { ascending: true })
+            .range(from, to),
+        DELIVERY_PAGE_SIZE,
+        DELIVERY_MAX_ROWS
+      ),
+      () => fetchAllSupabaseRows<any>(
+        (from, to) =>
+          supabaseAdmin
+            .from('delivery_platform_payouts')
+            .select('store_id, platform, payout_reference_id, payout_date, period_start, period_end, orders_count, updated_at')
+            .order('id', { ascending: true })
+            .range(from, to),
+        DELIVERY_PAGE_SIZE,
+        DELIVERY_MAX_ROWS
+      ),
+      () => getQuarantinedUnassignedRecords(),
+      async () =>
+        await supabaseAdmin
+          .from('integrations')
+          .select('service_name, expires_at, updated_at, access_token')
+          .in('service_name', ['doordash_merchant', 'ubereats_merchant', 'grubhub_merchant', 'delivery_sync_status']),
+    ]
+
     const [
       rawOrdersRange,
       disputedOrdersAll,
@@ -860,89 +1039,7 @@ export async function GET(req: NextRequest) {
       allSyncPayouts,
       quarantinedUnassigned,
       integrationsRes,
-    ] = await Promise.all([
-      fetchAllSupabaseRows<any>((from, to) => {
-        let q = supabaseAdmin
-          .from('delivery_platform_orders')
-          .select('*')
-          .order('business_date', { ascending: false })
-          .order('placed_at', { ascending: false })
-          .order('id', { ascending: true })
-        if (payoutRefParam) {
-          q = q.eq('payout_reference_id', payoutRefParam)
-        } else if (!search || search.length < 2) {
-          q = q.gte('business_date', startDate).lte('business_date', endDate)
-        }
-        if (selectedStoreNum !== null && selectedStoreNum > 0) {
-          q = q.eq('store_id', selectedStoreNum)
-        }
-        if (platformParam && platformParam !== 'ALL') {
-          q = q.eq('platform', platformParam)
-        }
-        if (statusParam && statusParam !== 'ALL') {
-          q = q.eq('reconciliation_status', statusParam)
-        }
-        return q.range(from, to)
-      }),
-      selectedStoreNum === 0
-        ? Promise.resolve([])
-        : fetchAllSupabaseRows<any>((from, to) => {
-            let q = supabaseAdmin
-              .from('delivery_platform_orders')
-              .select('*')
-              .eq('is_disputed', true)
-              .order('id', { ascending: true })
-            if (selectedStoreNum !== null && selectedStoreNum > 0) {
-              q = q.eq('store_id', selectedStoreNum)
-            }
-            if (platformParam && platformParam !== 'ALL') {
-              q = q.eq('platform', platformParam)
-            }
-            if (statusParam && statusParam !== 'ALL') {
-              q = q.eq('reconciliation_status', statusParam)
-            }
-            return q.range(from, to)
-          }),
-      selectedStoreNum === 0
-        ? Promise.resolve([])
-        : fetchAllSupabaseRows<any>((from, to) => {
-            let q = supabaseAdmin
-              .from('delivery_platform_payouts')
-              .select('*')
-              .order('payout_date', { ascending: false })
-              .order('id', { ascending: true })
-            if (selectedStoreNum !== null && selectedStoreNum > 0) {
-              q = q.eq('store_id', selectedStoreNum)
-            }
-            if (platformParam && platformParam !== 'ALL') {
-              q = q.eq('platform', platformParam)
-            }
-            if (payoutRefParam) {
-              q = q.eq('payout_reference_id', payoutRefParam)
-            }
-            return q.range(from, to)
-          }),
-      fetchAllSupabaseRows<any>((from, to) =>
-        supabaseAdmin
-          .from('delivery_platform_orders')
-          .select('store_id, platform, business_date, match_confidence, toast_order_guid, payout_reference_id, updated_at')
-          .neq('match_confidence', 'TOAST_ONLY')
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      fetchAllSupabaseRows<any>((from, to) =>
-        supabaseAdmin
-          .from('delivery_platform_payouts')
-          .select('store_id, platform, payout_reference_id, payout_date, period_start, period_end, orders_count, updated_at')
-          .order('id', { ascending: true })
-          .range(from, to)
-      ),
-      getQuarantinedUnassignedRecords(),
-      supabaseAdmin
-        .from('integrations')
-        .select('service_name, expires_at, updated_at, access_token')
-        .in('service_name', ['doordash_merchant', 'ubereats_merchant', 'grubhub_merchant', 'delivery_sync_status']),
-    ])
+    ] = await runWithConcurrency(deliveryLoadTasks, DELIVERY_DB_CONCURRENCY, (runTask) => runTask())
 
     const integrationsRows: any[] = integrationsRes?.data || []
     let persistedSyncState: {
@@ -1142,18 +1239,21 @@ export async function GET(req: NextRequest) {
         so.payout_reference_id = candidatePayouts[0].payout_reference_id
       }
     }
-    if (autoLinkUpdates.length > 0) {
-      await Promise.all(
-        autoLinkUpdates.map((u) =>
-          supabaseAdmin
-            .from('delivery_platform_orders')
-            .update({
-              payout_reference_id: u.payoutRef,
-              payout_date: u.payoutDate,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', u.orderId)
-        )
+    if (autoLinkUpdates.length > 0 && autoLinkUpdates.length <= MAX_AUTO_LINK_UPDATES_PER_GET) {
+      const nowIso = new Date().toISOString()
+      await runWithConcurrency(autoLinkUpdates, DELIVERY_DB_CONCURRENCY, async (u) => {
+        await supabaseAdmin
+          .from('delivery_platform_orders')
+          .update({
+            payout_reference_id: u.payoutRef,
+            payout_date: u.payoutDate,
+            updated_at: nowIso,
+          })
+          .eq('id', u.orderId)
+      })
+    } else if (autoLinkUpdates.length > MAX_AUTO_LINK_UPDATES_PER_GET) {
+      console.warn(
+        `[GET /api/delivery-reconciliation] Skipping ${autoLinkUpdates.length} autoLinkUpdates (> ${MAX_AUTO_LINK_UPDATES_PER_GET} cap) during GET to avoid write storms.`
       )
     }
 
@@ -2247,27 +2347,31 @@ export async function GET(req: NextRequest) {
       const refArr = Array.from(activePayoutRefsSet)
       for (let i = 0; i < refArr.length; i += 80) {
         const chunk = refArr.slice(i, i + 80)
-        const chunkRows = await fetchAllSupabaseRows<any>((from, to) => {
-          let q = supabaseAdmin
-            .from('delivery_platform_orders')
-            .select(
-              'id, store_id, platform, business_date, placed_at, platform_order_id, toast_order_guid, toast_display_number, payout_reference_id, match_confidence, reconciliation_status, platform_subtotal, platform_tax_paid_to_merchant, platform_tax_withheld, platform_gross_receivable, toast_net_sales, toast_tax, toast_expected_gross, raw_payload'
-            )
-            .in('payout_reference_id', chunk)
-            .or(`business_date.lt.${startDate},business_date.gt.${endDate},business_date.is.null`)
-            .order('placed_at', { ascending: true })
-            .order('id', { ascending: true })
-          if (selectedStoreNum !== null && selectedStoreNum > 0) {
-            q = q.eq('store_id', selectedStoreNum)
-          }
-          if (platformParam && platformParam !== 'ALL') {
-            q = q.eq('platform', platformParam)
-          }
-          if (statusParam && statusParam !== 'ALL') {
-            q = q.eq('reconciliation_status', statusParam)
-          }
-          return q.range(from, to)
-        })
+        const chunkRows = await fetchAllSupabaseRows<any>(
+          (from, to) => {
+            let q = supabaseAdmin
+              .from('delivery_platform_orders')
+              .select(
+                'id, store_id, platform, business_date, placed_at, platform_order_id, toast_order_guid, toast_display_number, payout_reference_id, match_confidence, reconciliation_status, platform_subtotal, platform_tax_paid_to_merchant, platform_tax_withheld, platform_gross_receivable, toast_net_sales, toast_tax, toast_expected_gross, raw_payload'
+              )
+              .in('payout_reference_id', chunk)
+              .or(`business_date.lt.${startDate},business_date.gt.${endDate},business_date.is.null`)
+              .order('placed_at', { ascending: true })
+              .order('id', { ascending: true })
+            if (selectedStoreNum !== null && selectedStoreNum > 0) {
+              q = q.eq('store_id', selectedStoreNum)
+            }
+            if (platformParam && platformParam !== 'ALL') {
+              q = q.eq('platform', platformParam)
+            }
+            if (statusParam && statusParam !== 'ALL') {
+              q = q.eq('reconciliation_status', statusParam)
+            }
+            return q.range(from, to)
+          },
+          DELIVERY_PAGE_SIZE,
+          DELIVERY_MAX_ROWS
+        )
         boundaryPayoutOrders.push(...chunkRows)
       }
     }

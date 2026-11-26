@@ -1094,6 +1094,8 @@ function OrderReadyBoardContent() {
   const activeStoreRef = useRef<string | null>(null)
   const reminderTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const fetchingRef = useRef<boolean>(false)
+  const activeFetchAbortRef = useRef<AbortController | null>(null)
+  const realtimeSubscribedRef = useRef<boolean>(false)
   const enqueueReminderRef = useRef<((o: OrderItem) => void) | null>(null)
   // Clips de voz natural ya descargados: "en:141" -> objectURL
   const clipCacheRef = useRef<Map<string, Promise<string | null>>>(new Map())
@@ -2324,15 +2326,41 @@ function OrderReadyBoardContent() {
     }
   }, [])
 
+  // Detecta horas muertas (04:15–06:59 America/Los_Angeles) cuando las sucursales están cerradas
+  // para reducir el sondeo de kioskos 24/7 a >= 60s y proteger Supabase/Vercel.
+  const isLosAngelesDeadHours = useCallback((now = new Date()): boolean => {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(now)
+      const rawHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+      const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+      const hour = rawHour === 24 ? 0 : rawHour
+      const totalMinutes = hour * 60 + minute
+      return totalMinutes >= 4 * 60 + 15 && totalMinutes <= 6 * 60 + 59
+    } catch {
+      return false
+    }
+  }, [])
+
   // Cargar órdenes desde el backend (por defecto solo lectura de BD: syncToast=false)
   const fetchOrders = useCallback(async (syncToast = false, forceToast = false) => {
     // No consultar hasta confirmar que el usuario tiene permiso para esta tienda
     if (!storeOk) return
-    // Evita peticiones encimadas si la red/PC va lenta (una a la vez)
+    // Evita peticiones encimadas si la red/PC va lenta (una a la vez); un forceToast cancela vuelo previo con AbortController
     if (fetchingRef.current && !forceToast) return
+    if (forceToast && activeFetchAbortRef.current) {
+      try {
+        activeFetchAbortRef.current.abort()
+      } catch {}
+    }
     fetchingRef.current = true
     const timeoutMs = syncToast || forceToast ? 35000 : 20000
     const controller = new AbortController()
+    activeFetchAbortRef.current = controller
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
     try {
       if (syncToast || forceToast) {
@@ -2345,10 +2373,12 @@ function OrderReadyBoardContent() {
         credentials: 'include',
         headers: getTabletNoCacheHeaders()
       })
+      if (controller.signal.aborted) return
       if (res.status === 401) {
         ensureFreshTabletAuth(true).catch(() => {})
       }
       const data = await res.json()
+      if (controller.signal.aborted) return
 
       if (data.success) {
         if (data.authenticated === false && !isKioskTvQuery) {
@@ -2449,9 +2479,12 @@ function OrderReadyBoardContent() {
       console.warn('Error fetching orders:', e)
     } finally {
       clearTimeout(abortTimer)
-      fetchingRef.current = false
-      setIsLoading(false)
-      setIsSyncing(false)
+      if (activeFetchAbortRef.current === controller) {
+        activeFetchAbortRef.current = null
+        fetchingRef.current = false
+        setIsLoading(false)
+        setIsSyncing(false)
+      }
     }
   }, [selectedStore, storeOk, enqueueAnnouncement, resetForNewBusinessDay])
 
@@ -2460,30 +2493,64 @@ function OrderReadyBoardContent() {
     fetchOrdersRef.current = fetchOrders
   }, [fetchOrders])
 
-  // FASE 8: Separar el polling visual de solo lectura (cada 4s con syncToast=false)
-  // del flujo explícito de detección de KDS bump contra Toast (cada 10s con syncToast=true).
+  // FASE 8 + SHIELD POLLING 24/7:
+  // - Pausa por completo cuando document.visibilityState !== 'visible'.
+  // - Horas muertas (04:15–06:59 America/Los_Angeles): reduce todo sondeo a >= 60s.
+  // - Horas operativas: con Supabase Realtime SUBSCRIBED, el respaldo read-only baja a 15s (4s solo si está desconectado);
+  //   la sincronización KDS Toast (syncToast=true) corre cada 10s y reinicia el reloj read-only para evitar doble consulta.
   useEffect(() => {
     if (!storeOk) return
+    const nowInitMs = Date.now()
+    let lastReadOnlyAt = nowInitMs
+    let lastToastSyncAt = nowInitMs
+
     fetchOrdersRef.current?.(false, false)
     const initialToastSyncTimeout = setTimeout(() => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      if (
+        (typeof document === 'undefined' || document.visibilityState === 'visible') &&
+        !isLosAngelesDeadHours()
+      ) {
+        lastToastSyncAt = Date.now()
+        lastReadOnlyAt = lastToastSyncAt
         fetchOrdersRef.current?.(true, false)
       }
     }, 500)
-    const readOnlyInterval = setInterval(() => {
-      fetchOrdersRef.current?.(false, false)
-    }, 4000)
-    const explicitToastSyncInterval = setInterval(() => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+
+    const pollSchedulerInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      if (fetchingRef.current) return
+
+      const nowMs = Date.now()
+      const deadHours = isLosAngelesDeadHours()
+      const toastSyncIntervalMs = deadHours ? 60_000 : 10_000
+      const readOnlyIntervalMs = deadHours
+        ? 60_000
+        : realtimeSubscribedRef.current
+          ? 15_000
+          : 4_000
+
+      if (nowMs - lastToastSyncAt >= toastSyncIntervalMs) {
+        lastToastSyncAt = nowMs
+        lastReadOnlyAt = nowMs
         fetchOrdersRef.current?.(true, false)
+      } else if (nowMs - lastReadOnlyAt >= readOnlyIntervalMs) {
+        lastReadOnlyAt = nowMs
+        fetchOrdersRef.current?.(false, false)
       }
-    }, 10000)
+    }, 2000)
+
     return () => {
       clearTimeout(initialToastSyncTimeout)
-      clearInterval(readOnlyInterval)
-      clearInterval(explicitToastSyncInterval)
+      clearInterval(pollSchedulerInterval)
+      if (activeFetchAbortRef.current) {
+        try {
+          activeFetchAbortRef.current.abort()
+        } catch {}
+        activeFetchAbortRef.current = null
+        fetchingRef.current = false
+      }
     }
-  }, [selectedStore, storeOk])
+  }, [selectedStore, storeOk, isLosAngelesDeadHours])
 
   // Precargar la voz de las órdenes en preparación (las más antiguas en KDS primero) para que el anuncio sea instantáneo al primer toque
   useEffect(() => {
@@ -2520,6 +2587,7 @@ function OrderReadyBoardContent() {
     let realtimeDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
     const disposeActiveChannel = () => {
+      realtimeSubscribedRef.current = false
       if (disposeCurrentChannelGuard) {
         disposeCurrentChannelGuard()
         disposeCurrentChannelGuard = null
@@ -2664,6 +2732,7 @@ function OrderReadyBoardContent() {
         .subscribe((status: string) => {
           // No reconectar si el componente se desmontó o el canal fue cerrado intencionalmente
           if (unmounted || channelDisposed || activeChannel !== channel) return
+          realtimeSubscribedRef.current = status === 'SUBSCRIBED'
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             if (reconnectTimer) clearTimeout(reconnectTimer)
             reconnectTimer = setTimeout(() => {

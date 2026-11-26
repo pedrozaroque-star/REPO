@@ -94,10 +94,6 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (abortRef.current) abortRef.current.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-
     const fetchAlerts = async (signal: AbortSignal, isBackground = false) => {
       if (!isBackground) setLoading(true)
       try {
@@ -115,24 +111,51 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
       }
     }
 
-    fetchAlerts(controller.signal, false)
+    const runFetch = (isBackground: boolean) => {
+      if (abortRef.current) abortRef.current.abort()
+      const nextController = new AbortController()
+      abortRef.current = nextController
+      fetchAlerts(nextController.signal, isBackground)
+    }
+
+    runFetch(false)
 
     const todayStr = getBusinessDateLA()
     const isViewingToday = startDate === todayStr && endDate === todayStr
     let interval: ReturnType<typeof setInterval> | undefined
+    let handleVisibilityChange: (() => void) | undefined
+
     if (isViewingToday) {
       interval = setInterval(() => {
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-        if (abortRef.current) abortRef.current.abort()
-        const refreshController = new AbortController()
-        abortRef.current = refreshController
-        fetchAlerts(refreshController.signal, true)
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+        runFetch(true)
       }, 120000)
+
+      if (typeof document !== 'undefined') {
+        let wasHidden = document.visibilityState !== 'visible'
+        handleVisibilityChange = () => {
+          if (document.visibilityState !== 'visible') {
+            wasHidden = true
+            return
+          }
+          if (wasHidden) {
+            wasHidden = false
+            runFetch(true)
+          }
+        }
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+      }
     }
 
     return () => {
-      controller.abort()
+      if (abortRef.current) {
+        abortRef.current.abort()
+        abortRef.current = null
+      }
       if (interval) clearInterval(interval)
+      if (handleVisibilityChange && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      }
     }
   }, [startDate, endDate])
 

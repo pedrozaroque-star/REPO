@@ -34,15 +34,21 @@
  *   2) Motor de conciliación unificado para Bancos y Tarjetas de Crédito (`PayDownCreditCard`, `Expense`, `CreditCardCredit`, cargos financieros e intereses con reversión automática al reabrir/eliminar).
  *   3) Paginación determinista sin truncamiento de 1,000 filas (`fetchAllTableRows`) en cuentas, contactos, ítems, adjuntos y `linked_transactions`.
  *   4) Subida directa firmada (`create_attachment_upload_url` + `finalize_attachment_upload`) hasta 15 MB hacia Supabase Storage, evitando el límite de 4.5 MB de Vercel Serverless Functions y validando MIME/extensiones seguras.
+ * - 2026-11-26 (Server Shield Hardening):
+ *   1) Exporta `maxDuration = 60` y reutiliza el singleton `supabaseAdmin` (`@/lib/supabase`).
+ *   2) Reemplaza el burst simultáneo de 20 queries + 8 COUNTs + firmas de Storage con `runWithConcurrency(..., 3)` (`<= 3` simultáneas).
+ *   3) Proyección explícita sin `raw_data` en tablas maestras verificadas (`recurring`, `items`, `categories`, `locations`, `classes`, `payment_methods`, `terms`, `custom_fields`, `cost_groups`).
+ *   4) Caché acotado de 30s (`MAX_CACHE_KEYS = 40`) + deduplicación single-flight (`inFlight`) en `GET`, invalidado automáticamente ante mutaciones `POST` con epoch monótono anti-race.
  */
 
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase'
 import {
   authorizeExternalAccounting,
   fetchAllCompanyTransactions,
   fetchAllTableRows,
+  runWithConcurrency,
   computeTransactionAccountDeltas,
   mergeAccountDeltas,
   applyAccountDeltasAtomically,
@@ -89,11 +95,43 @@ import {
 } from '@/lib/external-accounting-invoice-email'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 function getAdminSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(url, key, { auth: { persistSession: false } })
+  return supabaseAdmin
+}
+
+const EXT_ACCT_GET_CACHE_TTL_MS = 30_000
+const EXT_ACCT_GET_MAX_CACHE_KEYS = 40
+const EXT_ACCT_DB_CONCURRENCY = 3
+
+interface ExtAcctGetCacheEntry {
+  status: number
+  body: Record<string, any>
+  expiresAt: number
+}
+
+const extAcctGetCache = new Map<string, ExtAcctGetCacheEntry>()
+const extAcctGetInFlight = new Map<string, Promise<{ status: number; body: Record<string, any> }>>()
+let extAcctCacheEpoch = 0
+
+function invalidateExternalAccountingGetCache() {
+  extAcctCacheEpoch++
+  extAcctGetCache.clear()
+  extAcctGetInFlight.clear()
+}
+
+function setExternalAccountingGetCache(key: string, entry: ExtAcctGetCacheEntry) {
+  const now = Date.now()
+  for (const [k, v] of extAcctGetCache.entries()) {
+    if (v.expiresAt <= now) extAcctGetCache.delete(k)
+  }
+  while (extAcctGetCache.size >= EXT_ACCT_GET_MAX_CACHE_KEYS) {
+    const oldestKey = extAcctGetCache.keys().next().value
+    if (oldestKey === undefined) break
+    extAcctGetCache.delete(oldestKey)
+  }
+  extAcctGetCache.set(key, entry)
 }
 
 const EXTERNAL_ACCOUNTING_STORAGE_BUCKET = 'external-accounting-attachments'
@@ -806,7 +844,7 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = getAdminSupabase()
 
-    // 1. Strict Backend Authorization (Fail-Closed)
+    // 1. Strict Backend Authorization (Fail-Closed — ALWAYS before reading cache)
     const auth = await authorizeExternalAccounting(req, supabase)
     if (!auth.authorized) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -814,6 +852,25 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const realmId = searchParams.get('realmId') || ''
+    const canonicalQuery = Array.from(searchParams.entries())
+      .sort(([aKey, aVal], [bKey, bVal]) => aKey.localeCompare(bKey) || aVal.localeCompare(bVal))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('&')
+    const cacheKey = `${realmId || '__DEFAULT__'}|${canonicalQuery}`
+
+    const cached = extAcctGetCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return NextResponse.json(cached.body, { status: cached.status })
+    }
+
+    const existingInFlight = extAcctGetInFlight.get(cacheKey)
+    if (existingInFlight) {
+      const sharedRes = await existingInFlight
+      return NextResponse.json(sharedRes.body, { status: sharedRes.status })
+    }
+
+    const startEpoch = extAcctCacheEpoch
+    const computePromise = (async (): Promise<{ status: number; body: Record<string, any> }> => {
     const txnType = searchParams.get('txnType') || 'ALL'
     const direction = searchParams.get('direction') || 'ALL'
     const accountId = searchParams.get('accountId') || 'ALL'
@@ -851,9 +908,11 @@ export async function GET(req: NextRequest) {
     if (allAccountsRes.error) throw allAccountsRes.error
     const companiesList = companiesRes.data || []
 
-    // Exact non-truncated transaction counts per company in parallel
-    const companyCountsArr = await Promise.all(
-      companiesList.map(async (c: any) => {
+    // Exact non-truncated transaction counts per company with bounded concurrency (<= 3)
+    const companyCountsArr = await runWithConcurrency(
+      companiesList,
+      EXT_ACCT_DB_CONCURRENCY,
+      async (c: any) => {
         const { count, error: countErr } = await supabase
           .from('external_accounting_transactions')
           .select('id', { count: 'exact', head: true })
@@ -861,7 +920,7 @@ export async function GET(req: NextRequest) {
           .eq('is_voided', false)
         if (countErr) throw countErr
         return { realmId: c.realm_id, count: count || 0 }
-      })
+      }
     )
     const countByRealm = new Map<string, number>(
       companyCountsArr.map(item => [item.realmId, item.count])
@@ -914,10 +973,126 @@ export async function GET(req: NextRequest) {
     const activeRealmId = realmId || enrichedCompanies[0]?.realm_id || '123145825185692'
     const validCompany = companiesList.find((c: any) => c.realm_id === activeRealmId)
     if (!validCompany) {
-      return NextResponse.json({ error: `Empresa no encontrada para realmId: ${activeRealmId}` }, { status: 404 })
+      return { status: 404, body: { error: `Empresa no encontrada para realmId: ${activeRealmId}` } }
     }
 
-    // 3. Fetch active company accounts, contacts, recurring templates, reconciliations, audit log, bank rules, budgets, 9 relational Lists tables, and 100% of company transactions
+    // 3. Fetch active company data with concurrency <= 3 (replaces 20-way simultaneous Promise.all burst)
+    //    and explicit slim column projections excluding `raw_data` where verified unused.
+    const companyQueryTasks: Array<() => Promise<any>> = [
+      () => fetchAllTableRows(supabase, 'external_accounting_accounts', {
+        realmId: activeRealmId,
+        orders: [{ column: 'account_type', ascending: true }, { column: 'name', ascending: true }],
+      }),
+      () => fetchAllTableRows(supabase, 'external_accounting_contacts', {
+        realmId: activeRealmId,
+        orders: [{ column: 'display_name', ascending: true }],
+      }),
+      async () => await supabase
+        .from('external_accounting_recurring')
+        .select('id, company_realm_id, qb_recurring_id, template_name, recur_type, txn_type, interval_type, num_interval, day_of_week, day_of_month, previous_date, next_date, start_date, account_qb_id, account_name, entity_qb_id, entity_name, department_qb_id, department_name, class_qb_id, class_name, amount, memo, line_items, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('template_name', { ascending: true })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_reconciliations')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('statement_ending_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_audit_log')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(300),
+      async () => await supabase
+        .from('external_accounting_bank_rules')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('priority', { ascending: true })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_budgets')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('fiscal_year', { ascending: false })
+        .order('account_name', { ascending: true })
+        .order('id', { ascending: true }),
+      () => fetchAllTableRows(supabase, 'external_accounting_items', {
+        select: 'id, company_realm_id, qb_item_id, name, fully_qualified_name, sku, item_type, category_qb_id, category_name, is_sub_item, description, unit_price, purchase_desc, purchase_cost, income_account_qb_id, income_account_name, expense_account_qb_id, expense_account_name, asset_account_qb_id, asset_account_name, taxable, track_qty_on_hand, qty_on_hand, is_active, created_at, updated_at',
+        realmId: activeRealmId,
+        orders: [{ column: 'name', ascending: true }],
+      }),
+      async () => await supabase
+        .from('external_accounting_categories')
+        .select('id, company_realm_id, qb_category_id, name, fully_qualified_name, parent_qb_id, parent_name, is_sub_category, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_locations')
+        .select('id, company_realm_id, qb_location_id, name, fully_qualified_name, parent_qb_id, parent_name, is_sub_location, address, manager_name, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('fully_qualified_name', { ascending: true })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_classes')
+        .select('id, company_realm_id, qb_class_id, name, fully_qualified_name, class_code, parent_qb_id, parent_name, is_sub_class, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('fully_qualified_name', { ascending: true })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_payment_methods')
+        .select('id, company_realm_id, qb_payment_method_id, name, method_type, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_terms')
+        .select('id, company_realm_id, qb_term_id, name, term_type, due_days, discount_percent, discount_days, day_of_month_due, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('due_days', { ascending: true })
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_custom_fields')
+        .select('id, company_realm_id, qb_field_id, name, data_type, applies_to_sales, applies_to_purchase, print_on_page, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }),
+      () => fetchAllTableRows(supabase, 'external_accounting_attachments', {
+        realmId: activeRealmId,
+        orders: [{ column: 'created_at', ascending: false }],
+      }),
+      async () => await supabase
+        .from('external_accounting_cost_groups')
+        .select('id, company_realm_id, qb_cost_group_id, name, code, description, default_account_qb_id, default_account_name, is_active, created_at, updated_at')
+        .eq('company_realm_id', activeRealmId)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }),
+      () => fetchAllTableRows(supabase, 'external_accounting_linked_transactions', {
+        realmId: activeRealmId,
+      }),
+      async () => await supabase
+        .from('external_accounting_notes_tasks')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }),
+      async () => await supabase
+        .from('external_accounting_email_log')
+        .select('*')
+        .eq('company_realm_id', activeRealmId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .limit(250),
+      () => fetchAllCompanyTransactions(supabase, activeRealmId, false),
+    ]
+
     const [
       accountsRes,
       contactsRes,
@@ -939,105 +1114,7 @@ export async function GET(req: NextRequest) {
       notesTasksRes,
       emailLogRes,
       allCompanyTxns
-    ] = await Promise.all([
-      fetchAllTableRows(supabase, 'external_accounting_accounts', {
-        realmId: activeRealmId,
-        orders: [{ column: 'account_type', ascending: true }, { column: 'name', ascending: true }],
-      }),
-      fetchAllTableRows(supabase, 'external_accounting_contacts', {
-        realmId: activeRealmId,
-        orders: [{ column: 'display_name', ascending: true }],
-      }),
-      supabase
-        .from('external_accounting_recurring')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('template_name', { ascending: true }),
-      supabase
-        .from('external_accounting_reconciliations')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('statement_ending_date', { ascending: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('external_accounting_audit_log')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('created_at', { ascending: false })
-        .limit(300),
-      supabase
-        .from('external_accounting_bank_rules')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('priority', { ascending: true })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('external_accounting_budgets')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('fiscal_year', { ascending: false })
-        .order('account_name', { ascending: true }),
-      fetchAllTableRows(supabase, 'external_accounting_items', {
-        realmId: activeRealmId,
-        orders: [{ column: 'name', ascending: true }],
-      }),
-      supabase
-        .from('external_accounting_categories')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('name', { ascending: true }),
-      supabase
-        .from('external_accounting_locations')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('fully_qualified_name', { ascending: true }),
-      supabase
-        .from('external_accounting_classes')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('fully_qualified_name', { ascending: true }),
-      supabase
-        .from('external_accounting_payment_methods')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('name', { ascending: true }),
-      supabase
-        .from('external_accounting_terms')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('due_days', { ascending: true })
-        .order('name', { ascending: true }),
-      supabase
-        .from('external_accounting_custom_fields')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('name', { ascending: true }),
-      fetchAllTableRows(supabase, 'external_accounting_attachments', {
-        realmId: activeRealmId,
-        orders: [{ column: 'created_at', ascending: false }],
-      }),
-      supabase
-        .from('external_accounting_cost_groups')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('name', { ascending: true }),
-      fetchAllTableRows(supabase, 'external_accounting_linked_transactions', {
-        realmId: activeRealmId,
-      }),
-      supabase
-        .from('external_accounting_notes_tasks')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('is_pinned', { ascending: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('external_accounting_email_log')
-        .select('*')
-        .eq('company_realm_id', activeRealmId)
-        .order('created_at', { ascending: false })
-        .limit(250),
-      fetchAllCompanyTransactions(supabase, activeRealmId, false)
-    ])
+    ] = await runWithConcurrency(companyQueryTasks, EXT_ACCT_DB_CONCURRENCY, (runTask) => runTask())
 
     const parallelQueryResults: Array<[string, { error: any }]> = [
       ['accounts', accountsRes],
@@ -1066,7 +1143,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const accountsList = accountsRes.data || []
+    const accountsList: any[] = accountsRes.data || []
+    const companyTxnsList: any[] = Array.isArray(allCompanyTxns) ? allCompanyTxns : []
     const acctBalanceMap = new Map<string, number>()
     const acctByQbIdForGet = new Map<string, any>()
     for (const a of accountsList) {
@@ -1074,14 +1152,14 @@ export async function GET(req: NextRequest) {
       acctByQbIdForGet.set(a.qb_account_id, a)
     }
     // Full double-entry context (items + linked payments) so every running balance matches the QBO register
-    const ledgerCtxForGet = buildLedgerContext(accountsList, itemsRes.data || [], allCompanyTxns)
+    const ledgerCtxForGet = buildLedgerContext(accountsList, itemsRes.data || [], companyTxnsList)
 
     // 4. Compute accurate chronological Running Balance per account across ALL company transactions
     //    and accumulate annual activity per account (`actualsByAccountAndYear`) for Budgeting vs Actuals
     const runningCursor = new Map<string, number>(acctBalanceMap)
     const actualsByAccountAndYear: Record<string, Record<string, number>> = {}
 
-    const txnsWithRunningBalance = allCompanyTxns.map((t: any) => {
+    const txnsWithRunningBalance: any[] = companyTxnsList.map((t: any) => {
       const touchesFilteredAccount = Boolean(
         accountId &&
         accountId !== 'ALL' &&
@@ -1751,7 +1829,10 @@ export async function GET(req: NextRequest) {
       Active: row.is_active !== false,
     }))
 
-    const mappedAttachments = await Promise.all((attachmentsRes.data || []).map(async (row: any) => {
+    const mappedAttachments = await runWithConcurrency(
+      attachmentsRes.data || [],
+      EXT_ACCT_DB_CONCURRENCY,
+      async (row: any) => {
       let resolvedFileUrl = row.file_url || null
       if (row.storage_bucket && row.storage_path) {
         const { data: signedObj } = await supabase.storage
@@ -1783,7 +1864,8 @@ export async function GET(req: NextRequest) {
         data_url: null,
         Active: true,
       }
-    }))
+    }
+    )
 
     const mappedCostGroups = (costGroupsRes.data || []).map((row: any) => ({
       ...row,
@@ -1905,7 +1987,9 @@ export async function GET(req: NextRequest) {
         return fqnA.localeCompare(fqnB)
       })
 
-    return NextResponse.json({
+    return {
+      status: 200,
+      body: {
       activeRealmId,
       companies: enrichedCompanies,
       // `current_balance` keeps the QBO API sign (debit-positive); `display_balance` is how QBO shows it on screen; `rollup_balance` includes all sub-accounts
@@ -1988,7 +2072,26 @@ export async function GET(req: NextRequest) {
         billsCount,
         invoicesCount,
       }
-    })
+      }
+    }
+    })()
+
+    extAcctGetInFlight.set(cacheKey, computePromise)
+    try {
+      const result = await computePromise
+      if (result.status === 200 && extAcctCacheEpoch === startEpoch) {
+        setExternalAccountingGetCache(cacheKey, {
+          status: result.status,
+          body: result.body,
+          expiresAt: Date.now() + EXT_ACCT_GET_CACHE_TTL_MS,
+        })
+      }
+      return NextResponse.json(result.body, { status: result.status })
+    } finally {
+      if (extAcctGetInFlight.get(cacheKey) === computePromise) {
+        extAcctGetInFlight.delete(cacheKey)
+      }
+    }
   } catch (err: any) {
     console.error('[GET /api/external-accounting] Error:', err)
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
@@ -1996,6 +2099,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const res = await handleExternalAccountingPost(req)
+  if (res.status < 400) {
+    invalidateExternalAccountingGetCache()
+  }
+  return res
+}
+
+async function handleExternalAccountingPost(req: NextRequest): Promise<NextResponse> {
   try {
     const supabase = getAdminSupabase()
 

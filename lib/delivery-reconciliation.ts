@@ -6741,50 +6741,59 @@ export async function reconcileAndPersistDeliveryData(params: {
       return pStart <= endDate && pEnd >= recalcLookbackStart
     })
 
-    await Promise.all(
-      activePayoutsToRecalc.map(async (payout) => {
-        // Vincular órdenes reales de la plataforma (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) dentro del `[period_start, period_end]`
-        // cuando existe un único corte oficial de esa plataforma para esa tienda y periodo y la orden aún tenía `payout_reference_id` nulo.
-        if (payout.platform && payout.period_start && payout.period_end && payout.payout_reference_id) {
-          const overlappingSamePlatformPayouts = (storePayouts || []).filter(
-            (sp) =>
-              sp.platform === payout.platform &&
-              sp.period_start &&
-              sp.period_end &&
-              sp.period_start <= payout.period_end &&
-              sp.period_end >= payout.period_start
-          )
-          if (overlappingSamePlatformPayouts.length === 1) {
-            const { data: unlinkedCandidates } = await supabaseAdmin
-              .from('delivery_platform_orders')
-              .select('id, raw_payload')
-              .eq('store_id', mapping.store_id)
-              .eq('platform', payout.platform)
-              .neq('match_confidence', 'TOAST_ONLY')
-              .is('payout_reference_id', null)
-              .gte('business_date', payout.period_start)
-              .lte('business_date', payout.period_end)
-            const linkableRows = (unlinkedCandidates || []).filter((row: any) =>
-              payout.platform === 'UBER_EATS' ? true : !row?.raw_payload?.pending_next_payout
+    const PAYOUT_RECALC_CONCURRENCY = 2
+    const DIRECT_IDS_CHUNK_SIZE = 150
+    let payoutRecalcIdx = 0
+    const payoutRecalcWorkers = Array.from(
+      { length: Math.min(PAYOUT_RECALC_CONCURRENCY, activePayoutsToRecalc.length) },
+      async () => {
+        while (payoutRecalcIdx < activePayoutsToRecalc.length) {
+          const payout = activePayoutsToRecalc[payoutRecalcIdx++]
+          // Vincular órdenes reales de la plataforma (`UBER_EATS`, `DOORDASH`, `GRUBHUB`) dentro del `[period_start, period_end]`
+          // cuando existe un único corte oficial de esa plataforma para esa tienda y periodo y la orden aún tenía `payout_reference_id` nulo.
+          if (payout.platform && payout.period_start && payout.period_end && payout.payout_reference_id) {
+            const overlappingSamePlatformPayouts = (storePayouts || []).filter(
+              (sp) =>
+                sp.platform === payout.platform &&
+                sp.period_start &&
+                sp.period_end &&
+                sp.period_start <= payout.period_end &&
+                sp.period_end >= payout.period_start
             )
-            if (linkableRows.length > 0) {
-              const directIds = linkableRows
-                .filter((row: any) => !row?.raw_payload?.pending_next_payout)
-                .map((row: any) => row.id)
-              if (directIds.length > 0) {
-                await supabaseAdmin
-                  .from('delivery_platform_orders')
-                  .update({
-                    payout_reference_id: payout.payout_reference_id,
-                    payout_date: payout.payout_date || null,
-                    updated_at: new Date().toISOString(),
-                  })
-                  .in('id', directIds)
-              }
-              const clearFlagRows = linkableRows.filter((row: any) => Boolean(row?.raw_payload?.pending_next_payout))
-              if (clearFlagRows.length > 0) {
-                await Promise.all(
-                  clearFlagRows.map(async (row: any) => {
+            if (overlappingSamePlatformPayouts.length === 1) {
+              const { data: unlinkedCandidates } = await supabaseAdmin
+                .from('delivery_platform_orders')
+                .select('id, raw_payload')
+                .eq('store_id', mapping.store_id)
+                .eq('platform', payout.platform)
+                .neq('match_confidence', 'TOAST_ONLY')
+                .is('payout_reference_id', null)
+                .gte('business_date', payout.period_start)
+                .lte('business_date', payout.period_end)
+              const linkableRows = (unlinkedCandidates || []).filter((row: any) =>
+                payout.platform === 'UBER_EATS' ? true : !row?.raw_payload?.pending_next_payout
+              )
+              if (linkableRows.length > 0) {
+                const directIds = linkableRows
+                  .filter((row: any) => !row?.raw_payload?.pending_next_payout)
+                  .map((row: any) => row.id)
+                if (directIds.length > 0) {
+                  const nowIso = new Date().toISOString()
+                  for (let i = 0; i < directIds.length; i += DIRECT_IDS_CHUNK_SIZE) {
+                    const idChunk = directIds.slice(i, i + DIRECT_IDS_CHUNK_SIZE)
+                    await supabaseAdmin
+                      .from('delivery_platform_orders')
+                      .update({
+                        payout_reference_id: payout.payout_reference_id,
+                        payout_date: payout.payout_date || null,
+                        updated_at: nowIso,
+                      })
+                      .in('id', idChunk)
+                  }
+                }
+                const clearFlagRows = linkableRows.filter((row: any) => Boolean(row?.raw_payload?.pending_next_payout))
+                if (clearFlagRows.length > 0) {
+                  for (const row of clearFlagRows) {
                     const cleanedRp = { ...(row.raw_payload || {}) }
                     delete cleanedRp.pending_next_payout
                     await supabaseAdmin
@@ -6796,25 +6805,28 @@ export async function reconcileAndPersistDeliveryData(params: {
                         updated_at: new Date().toISOString(),
                       })
                       .eq('id', row.id)
-                  })
-                )
+                  }
+                }
               }
             }
           }
-        }
 
-        // P0-5: Prohibido agregar órdenes a un payout solo por caer dentro del rango de fechas si no existe vínculo verificable (`payout_reference_id`).
-        const payoutOrders = await fetchAllSupabaseRows<Record<string, any>>((from, to) =>
-          supabaseAdmin
-            .from('delivery_platform_orders')
-            .select(
-              'toast_net_sales, toast_tax, toast_expected_gross, toast_order_guid, payout_reference_id, business_date, platform_subtotal, platform_tax, platform_tax_paid_to_merchant, platform_gross_receivable, reconciliation_status, match_confidence, raw_payload'
-            )
-            .eq('store_id', mapping.store_id)
-            .eq('platform', payout.platform)
-            .eq('payout_reference_id', payout.payout_reference_id)
-            .range(from, to)
-        )
+          // P0-5: Prohibido agregar órdenes a un payout solo por caer dentro del rango de fechas si no existe vínculo verificable (`payout_reference_id`).
+          const payoutOrders = await fetchAllSupabaseRows<Record<string, any>>(
+            (from, to) =>
+              supabaseAdmin
+                .from('delivery_platform_orders')
+                .select(
+                  'toast_net_sales, toast_tax, toast_expected_gross, toast_order_guid, payout_reference_id, business_date, platform_subtotal, platform_tax, platform_tax_paid_to_merchant, platform_gross_receivable, reconciliation_status, match_confidence, raw_payload'
+                )
+                .eq('store_id', mapping.store_id)
+                .eq('platform', payout.platform)
+                .eq('payout_reference_id', payout.payout_reference_id)
+                .order('id', { ascending: true })
+                .range(from, to),
+            1000,
+            30000
+          )
 
         if (payoutOrders && payoutOrders.length > 0) {
           let tNet = 0
@@ -6917,8 +6929,10 @@ export async function reconcileAndPersistDeliveryData(params: {
             .update(updatePayload)
             .eq('id', payout.id)
         }
-      })
+        }
+      }
     )
+    await Promise.all(payoutRecalcWorkers)
 
     const platErrParts: string[] = []
     if ((targetPlatform === 'ALL' || targetPlatform === 'DOORDASH') && mapping.doordash_store_id && doordashSyncError) {
