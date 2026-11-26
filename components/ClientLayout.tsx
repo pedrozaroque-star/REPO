@@ -48,6 +48,9 @@ function ProtectedMainContent({
     const { t } = useLanguage()
     const { homeViewMode } = useMobileDockPreferences(user, t)
     const isMobileOSHome = pathname === '/inicio' && homeViewMode === 'os'
+    const isKitchenFullBleed = Boolean(
+        pathname && (pathname === '/inventory/preparador' || pathname === '/inventory/preparador/bodega')
+    )
 
     return (
         <>
@@ -75,9 +78,11 @@ function ProtectedMainContent({
                             ? isMobileOSHome
                                 ? 'max-w-[1720px] px-0 lg:px-8 pt-0 pb-0 lg:pt-2 lg:pb-6'
                                 : 'max-w-[1720px] px-4 sm:px-6 lg:px-8 pt-2 pb-6'
-                            : isFullWidth
-                                ? 'max-w-full px-2 sm:px-4 lg:px-5 py-3 lg:py-4'
-                                : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
+                            : isKitchenFullBleed
+                                ? 'max-w-full p-0'
+                                : isFullWidth
+                                    ? 'max-w-full px-2 sm:px-4 lg:px-5 py-3 lg:py-4'
+                                    : 'max-w-[1600px] p-4 sm:p-6 lg:p-8'
                     }`}
                 >
                     {children}

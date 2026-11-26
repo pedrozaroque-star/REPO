@@ -6,9 +6,10 @@
  *   mientras se despliegan las tabletas dedicadas de empaque en todas las sucursales.
  *
  * @businessRules
- * - **Exclusión de Sucursales con Tableta Física Delivery Armor**: `#7 Slauson` y `#8 Hollywood` (`STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET`)
- *   ya operan con su propia tableta física de Delivery Armor, por lo que esta alerta temporal se apaga por completo en esas tiendas
- *   (0 peticiones, 0 Realtime, 0 sonido, 0 px) y solo se muestra en las otras 13 sucursales mientras reciben sus tabletas.
+ * - **Regla de Sucursales con Tableta Física Delivery Armor**: `#7 Slauson` y `#8 Hollywood` (`STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET`)
+ *   suprimen aquí las notas regulares de condimentos (atendidas en su tableta Delivery Armor), PERO muestran siempre alertas operativas
+ *   críticas dirigidas a parrilla/mostrador (`pickup_time_change`, `wrong_store_stop`, `wrong_store_prepare`, `fiesta_platter_custom`
+ *   y modificaciones `IN_KITCHEN`) en las 15 sucursales.
  * - **Cero Ruido en Reposo**: Cuando no hay alertas `pending` o `acknowledged` para la sucursal activa, renderiza `null`
  *   (0 px de altura) para no estorbar la operación normal de llamado de clientes ni parrilla.
  * - **Tiempo Real < 500 ms + Fallback Seguro**: Se suscribe al canal Supabase Realtime Broadcast
@@ -37,14 +38,19 @@
  * - Creado 2026-11-24 a solicitud de Carlos para operar la alerta de condimentos/modificaciones de delivery en la
  *   tableta de llamado de clientes (`/inventory/preparador`) y `/order-ready-board` antes del despliegue de tabletas
  *   Delivery Armor.
+ * - Upgrade 2026-11-26: Auth blindada vía `getTabletNoCacheHeaders` + retry `401` (`ensureFreshTabletAuth(true)`),
+ *   fix `document.addEventListener('visibilitychange')`, backoff 60s cuando Realtime está `SUBSCRIBED`, timeout 6s en `PATCH`,
+ *   y acabado industrial compacto con paginación `1/N` en `variant="tablet"` para la Samsung Galaxy Tab S10 FE 10.9".
  */
 
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowRightLeft, BellRing, CheckCircle2, ChefHat, Clock, PhoneCall, Utensils, Volume2, X } from 'lucide-react'
+import { AlertTriangle, ArrowRightLeft, BellRing, CheckCircle2, ChefHat, ChevronLeft, ChevronRight, Clock, PhoneCall, Utensils, Volume2, X } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
+import { ensureFreshTabletAuth, getTabletNoCacheHeaders } from '@/lib/tablet-cache-cleaner'
+import { useKitchenTapGuard } from '@/lib/kitchen-touch'
 import { formatCustomerStoreName, resolveCustomerStoreMeta } from '@/lib/customer-store-names'
 import type { DeliveryArmorNoteRequestType, DeliveryArmorPhoneNote } from '@/lib/delivery-armor-phone-notes'
 import type { DeliveryPlatform } from '@/lib/delivery-armor'
@@ -119,10 +125,11 @@ export function shouldShowDeliveryPhoneNoteOnPreparador(
 }
 
 const POLL_INTERVAL_OPEN_MS = 20_000
+const POLL_INTERVAL_SUBSCRIBED_MS = 60_000
 const POLL_INTERVAL_CLOSED_MS = 120_000
 const FETCH_TIMEOUT_MS = 6_000
 
-function getAdaptivePollIntervalMs(): number {
+function getAdaptivePollIntervalMs(isRealtimeSubscribed = false): number {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Los_Angeles',
@@ -135,9 +142,9 @@ function getAdaptivePollIntervalMs(): number {
     const mins = h * 60 + m
     // Cerrado de 4:15 AM a 6:59 AM hora California
     if (mins >= 255 && mins < 420) return POLL_INTERVAL_CLOSED_MS
-    return POLL_INTERVAL_OPEN_MS
+    return isRealtimeSubscribed ? POLL_INTERVAL_SUBSCRIBED_MS : POLL_INTERVAL_OPEN_MS
   } catch {
-    return POLL_INTERVAL_OPEN_MS
+    return isRealtimeSubscribed ? POLL_INTERVAL_SUBSCRIBED_MS : POLL_INTERVAL_OPEN_MS
   }
 }
 
@@ -196,10 +203,13 @@ export default function DeliveryPhoneNotesAlertPanel({
   const supabase = useMemo(() => createClient(), [])
 
   const [pendingNotes, setPendingNotes] = useState<DeliveryArmorPhoneNote[]>([])
+  const [activeNoteIdx, setActiveNoteIdx] = useState<number>(0)
   const [busyNoteId, setBusyNoteId] = useState<string | null>(null)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
+  const { bindInstantTap } = useKitchenTapGuard()
+  const realtimeSubscribedRef = useRef<boolean>(false)
 
   const audioCtxRef = useRef<AudioContext | null>(null)
   const pendingChimeRef = useRef<boolean>(false)
@@ -216,12 +226,9 @@ export default function DeliveryPhoneNotesAlertPanel({
   activeIncludeSimRef.current = includeSimulator
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('teg_token') : null
     return {
       'Content-Type': 'application/json',
-      ...(token && token !== 'null' && token !== 'undefined'
-        ? { Authorization: `Bearer ${token}` }
-        : {})
+      ...getTabletNoCacheHeaders()
     }
   }, [])
 
@@ -326,12 +333,24 @@ export default function DeliveryPhoneNotesAlertPanel({
 
       try {
         const simQuery = targetIncludeSim ? '&includeSimulator=1' : ''
-        const res = await fetch(`/api/delivery-armor/phone-notes?storeId=${targetStoreId}${simQuery}`, {
+        const reqUrl = `/api/delivery-armor/phone-notes?storeId=${targetStoreId}${simQuery}`
+        let res = await fetch(reqUrl, {
           headers: getAuthHeaders(),
           credentials: 'include',
           cache: 'no-store',
           signal: ctrl.signal
         })
+        if (res.status === 401) {
+          const refreshed = await ensureFreshTabletAuth(true).catch(() => null)
+          if (refreshed && !ctrl.signal.aborted) {
+            res = await fetch(reqUrl, {
+              headers: getAuthHeaders(),
+              credentials: 'include',
+              cache: 'no-store',
+              signal: ctrl.signal
+            })
+          }
+        }
         if (!res.ok) {
           return
         }
@@ -382,8 +401,16 @@ export default function DeliveryPhoneNotesAlertPanel({
     announcedIdsRef.current.clear()
     initializedStoreRef.current = null
     setPendingNotes([])
+    setActiveNoteIdx(0)
     setErrorMsg(null)
   }, [effectiveStoreId, includeSimulator])
+
+  useEffect(() => {
+    setActiveNoteIdx((prev) => {
+      if (pendingNotes.length === 0) return 0
+      return Math.min(prev, pendingNotes.length - 1)
+    })
+  }, [pendingNotes.length])
 
   // Polling adaptativo + refresh instantáneo al volver visible o recuperar conexión
   useEffect(() => {
@@ -396,7 +423,7 @@ export default function DeliveryPhoneNotesAlertPanel({
       pollTimer = window.setTimeout(() => {
         if (disposed) return
         void fetchNotes().finally(scheduleNext)
-      }, getAdaptivePollIntervalMs())
+      }, getAdaptivePollIntervalMs(realtimeSubscribedRef.current))
     }
 
     void fetchNotes({ force: true }).finally(scheduleNext)
@@ -406,13 +433,13 @@ export default function DeliveryPhoneNotesAlertPanel({
         void fetchNotes({ force: true })
       }
     }
-    window.addEventListener('visibilitychange', onVisibilityOrOnline)
+    document.addEventListener('visibilitychange', onVisibilityOrOnline)
     window.addEventListener('online', onVisibilityOrOnline)
 
     return () => {
       disposed = true
       if (pollTimer) window.clearTimeout(pollTimer)
-      window.removeEventListener('visibilitychange', onVisibilityOrOnline)
+      document.removeEventListener('visibilitychange', onVisibilityOrOnline)
       window.removeEventListener('online', onVisibilityOrOnline)
     }
   }, [ready, effectiveStoreId, hasValidStore, fetchNotes])
@@ -429,10 +456,14 @@ export default function DeliveryPhoneNotesAlertPanel({
         if (channelDisposed) return
         void fetchNotes({ force: true })
       })
-      .subscribe()
+      .subscribe((status) => {
+        if (channelDisposed) return
+        realtimeSubscribedRef.current = status === 'SUBSCRIBED'
+      })
 
     return () => {
       channelDisposed = true
+      realtimeSubscribedRef.current = false
       void supabase.removeChannel(channel)
     }
   }, [ready, effectiveStoreId, hasValidStore, supabase, fetchNotes])
@@ -451,19 +482,33 @@ export default function DeliveryPhoneNotesAlertPanel({
       setBusyNoteId(note.id)
       setErrorMsg(null)
       try {
-        const res = await fetch('/api/delivery-armor/phone-notes', {
+        const patchBody = JSON.stringify({
+          noteId: note.id,
+          storeId: effectiveStoreId,
+          action,
+          clientSource: variant === 'board' ? 'order_ready_board' : 'preparador_tablet',
+          matchedOrderGuid: note.toastOrderGuid || null,
+          matchedDisplayNumber: note.toastDisplayNumber || null
+        })
+        let res = await fetch('/api/delivery-armor/phone-notes', {
           method: 'PATCH',
           headers: getAuthHeaders(),
           credentials: 'include',
-          body: JSON.stringify({
-            noteId: note.id,
-            storeId: effectiveStoreId,
-            action,
-            clientSource: variant === 'board' ? 'order_ready_board' : 'preparador_tablet',
-            matchedOrderGuid: note.toastOrderGuid || null,
-            matchedDisplayNumber: note.toastDisplayNumber || null
-          })
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          body: patchBody
         })
+        if (res.status === 401) {
+          const refreshed = await ensureFreshTabletAuth(true).catch(() => null)
+          if (refreshed) {
+            res = await fetch('/api/delivery-armor/phone-notes', {
+              method: 'PATCH',
+              headers: getAuthHeaders(),
+              credentials: 'include',
+              signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+              body: patchBody
+            })
+          }
+        }
         const data = await res.json().catch(() => null)
         if (!res.ok || !data?.ok) {
           throw new Error(data?.error || t('blindaje_delivery.phone_note_action_error'))
@@ -513,6 +558,8 @@ export default function DeliveryPhoneNotesAlertPanel({
   }
 
   const isRedTabletTheme = variant === 'tablet'
+  const safeActiveIdx = Math.min(activeNoteIdx, Math.max(0, pendingNotes.length - 1))
+  const visibleNotes = isRedTabletTheme ? [pendingNotes[safeActiveIdx]] : pendingNotes
 
   return (
     <section
@@ -520,64 +567,90 @@ export default function DeliveryPhoneNotesAlertPanel({
       aria-live="assertive"
       className={`shrink-0 z-30 ${
         isRedTabletTheme
-          ? 'px-2.5 sm:px-4 py-2.5 bg-red-700 dark:bg-red-950 border-b-4 border-red-900 max-h-[46vh] overflow-y-auto'
+          ? 'px-2.5 py-2 bg-[#FFF7F5] dark:bg-[#1B1212] border-b-[3px] border-[#C8371A] dark:border-[#EF4444]'
           : 'px-3 sm:px-5 py-3 bg-amber-100/90 dark:bg-amber-950/70 border-b-4 border-amber-500'
       }`}
     >
       <div
-        className={`rounded-2xl sm:rounded-3xl border-4 p-3 sm:p-4 shadow-xl space-y-3 ${
+        className={`${
           isRedTabletTheme
-            ? 'border-red-300 bg-red-600 da-phone-alert-blink-red'
-            : 'border-amber-500 bg-amber-50 da-phone-alert-blink'
+            ? 'rounded-xl border-2 border-[#C8371A] dark:border-[#EF4444] bg-white dark:bg-[#1B1D21] p-2.5 shadow-sm space-y-2'
+            : 'rounded-2xl sm:rounded-3xl border-4 border-amber-500 bg-amber-50 da-phone-alert-blink p-3 sm:p-4 shadow-xl space-y-3'
         }`}
       >
-        {/* Cabecera parpadeante (rojo intenso en tableta Preparador / ámbar-rojo en tablero) */}
-        <div className="flex items-center justify-between gap-2.5 flex-wrap">
-          <div className={`flex items-center gap-2.5 min-w-0 ${isRedTabletTheme ? 'text-white' : 'text-red-700'}`}>
-            <BellRing className="w-6 h-6 sm:w-7 sm:h-7 flex-shrink-0 animate-bounce" />
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base sm:text-xl font-black uppercase tracking-tight leading-tight">
-                  {t('blindaje_delivery.phone_note_banner_title')} ({pendingNotes.length})
-                </h2>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wide ${
-                    isRedTabletTheme
-                      ? 'bg-red-950/75 border border-red-200/70 text-red-50'
-                      : 'bg-amber-200 border border-amber-400 text-amber-950'
-                  }`}
-                >
-                  {t('blindaje_delivery.phone_note_temp_badge')}
-                </span>
-              </div>
+        {/* Cabecera industrial (en tablet 10.9" compacta en 1 sola fila con paginación ◀ 1/N ▶ para no aplastar órdenes) */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className={`flex items-center gap-2 min-w-0 ${isRedTabletTheme ? 'text-[#C8371A] dark:text-[#F87171]' : 'text-red-700'}`}>
+            <BellRing className="w-5 h-5 shrink-0" />
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <h2 className="text-sm sm:text-base font-black uppercase tracking-tight leading-tight">
+                {t('blindaje_delivery.phone_note_banner_title')} ({pendingNotes.length})
+              </h2>
+              <span
+                className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wide ${
+                  isRedTabletTheme
+                    ? 'bg-[#FDECE8] dark:bg-[#3A1614] border border-[#E7B5AA] dark:border-[#7F1D1D] text-[#9A2711] dark:text-[#FCA5A5]'
+                    : 'bg-amber-200 border border-amber-400 text-amber-950'
+                }`}
+              >
+                {t('blindaje_delivery.phone_note_temp_badge')}
+              </span>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void playPhoneNoteAlertChime(true)}
-            title={t('blindaje_delivery.phone_note_replay_sound_tooltip')}
-            className={`px-3 py-2 rounded-xl active:scale-95 text-xs font-black flex items-center gap-1.5 border shadow-xs cursor-pointer touch-manipulation ${
-              isRedTabletTheme
-                ? 'bg-white/20 hover:bg-white/30 text-white border-white/50'
-                : 'bg-amber-200 hover:bg-amber-300 text-amber-950 border-amber-400'
-            }`}
-          >
-            <Volume2 className="w-4 h-4" />
-            <span>🔊</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isRedTabletTheme && pendingNotes.length > 1 && (
+              <div className="inline-flex items-center rounded-lg border border-[#D8D0C2] dark:border-[#2C3038] bg-[#F3EFE7] dark:bg-[#141619] p-0.5">
+                <button
+                  type="button"
+                  {...bindInstantTap('delivery-prev', () =>
+                    setActiveNoteIdx((i) => (i - 1 + pendingNotes.length) % pendingNotes.length)
+                  )}
+                  aria-label="Prev"
+                  className="w-9 h-9 rounded-md flex items-center justify-center text-[#171614] dark:text-[#F5F2EB] hover:bg-white dark:hover:bg-[#242830] active:scale-95 cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="px-2 text-xs font-black tabular-nums text-[#171614] dark:text-[#F5F2EB]">
+                  {safeActiveIdx + 1}/{pendingNotes.length}
+                </span>
+                <button
+                  type="button"
+                  {...bindInstantTap('delivery-next', () =>
+                    setActiveNoteIdx((i) => (i + 1) % pendingNotes.length)
+                  )}
+                  aria-label="Next"
+                  className="w-9 h-9 rounded-md flex items-center justify-center text-[#171614] dark:text-[#F5F2EB] hover:bg-white dark:hover:bg-[#242830] active:scale-95 cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              {...bindInstantTap('delivery-sound', () => void playPhoneNoteAlertChime(true))}
+              title={t('blindaje_delivery.phone_note_replay_sound_tooltip')}
+              className={`min-w-[44px] min-h-[40px] px-2.5 rounded-lg active:scale-95 text-xs font-black flex items-center justify-center gap-1 border cursor-pointer touch-manipulation ${
+                isRedTabletTheme
+                  ? 'bg-[#F3EFE7] dark:bg-[#23272F] hover:bg-[#E8E2D6] dark:hover:bg-[#2D323C] text-[#171614] dark:text-[#F5F2EB] border-[#D8D0C2] dark:border-[#343944]'
+                  : 'bg-amber-200 hover:bg-amber-300 text-amber-950 border-amber-400'
+              }`}
+            >
+              <Volume2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {errorMsg && (
-          <div className="p-2.5 rounded-xl bg-red-950 border border-red-300 text-white text-xs sm:text-sm font-black flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-[#9A2711] text-white text-xs font-black flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {/* Tarjetas individuales de alertas activas */}
-        <div className="space-y-2.5">
-          {pendingNotes.map((note) => {
+        <div className="space-y-2">
+          {visibleNotes.map((note) => {
             const plat = getPlatformMeta(note.platform)
             const customerDisplay = note.orderCustomerName || note.callerName
             const summaryText =
@@ -603,11 +676,15 @@ export default function DeliveryPhoneNotesAlertPanel({
             return (
               <div
                 key={note.id}
-                className={`relative rounded-2xl bg-white border-2 p-3 sm:p-4 shadow-md space-y-2.5 text-slate-950 ${
+                className={`relative rounded-xl border p-2.5 sm:p-3 space-y-2 ${
+                  isRedTabletTheme
+                    ? 'bg-[#FAF8F4] dark:bg-[#141619] text-[#171614] dark:text-[#F5F2EB]'
+                    : 'bg-white text-slate-950 shadow-md'
+                } ${
                   isWrongStorePrepare
-                    ? 'border-emerald-500 ring-2 ring-emerald-200'
+                    ? 'border-[#15803D] dark:border-[#22C55E]'
                     : isRedTabletTheme
-                    ? 'border-red-400 ring-2 ring-red-200/80'
+                    ? 'border-[#E7B5AA] dark:border-[#4B2322]'
                     : 'border-amber-400'
                 }`}
               >
@@ -692,10 +769,10 @@ export default function DeliveryPhoneNotesAlertPanel({
                     <span className={`px-2.5 py-1 rounded-lg text-xs sm:text-sm font-black tracking-tight ${plat.badgeClass}`}>
                       {plat.label}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 text-lg sm:text-2xl font-black text-slate-950 leading-none">
+                    <span className="inline-flex items-center gap-1.5 text-base sm:text-xl font-black text-[#171614] dark:text-[#F5F2EB] leading-none">
                       <PhoneCall
-                        className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${
-                          isRedTabletTheme ? 'text-red-600' : 'text-amber-600'
+                        className={`w-4 h-4 shrink-0 ${
+                          isRedTabletTheme ? 'text-[#C8371A] dark:text-[#F87171]' : 'text-amber-600'
                         }`}
                       />
                       <span>{customerDisplay}</span>
@@ -736,26 +813,26 @@ export default function DeliveryPhoneNotesAlertPanel({
                     )}
                   </div>
 
-                  {/* Tiempo + Botón circular rojo de cerrar (✕) replicado de la tableta Preparador */}
+                  {/* Tiempo + Botón circular rojo de cerrar (✕ 48×48px apto para guante) */}
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-bold text-slate-500">
+                    <span className="text-xs font-bold tabular-nums text-[#5C574F] dark:text-[#9CA3AF]">
                       {formatElapsed(note.updatedAt || note.createdAt)}
                     </span>
                     <button
                       type="button"
                       disabled={isBusy}
-                      onClick={() => void handleNoteAction(note, 'dismiss')}
+                      {...bindInstantTap(`delivery-dismiss-${note.id}`, () => void handleNoteAction(note, 'dismiss'))}
                       title={t('blindaje_delivery.phone_note_close_order_btn')}
                       aria-label={t('blindaje_delivery.phone_note_close_order_btn')}
-                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 text-white border-2 border-white shadow-md transition-all disabled:opacity-40 cursor-pointer select-none touch-manipulation flex items-center justify-center shrink-0"
+                      className="w-12 h-12 rounded-full bg-[#C8371A] hover:bg-[#A82D15] active:scale-95 text-white border-2 border-white dark:border-[#1B1D21] shadow-sm transition-transform disabled:opacity-40 cursor-pointer select-none touch-manipulation flex items-center justify-center shrink-0"
                     >
-                      <X className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={3.5} />
+                      <X className="w-5 h-5" strokeWidth={3.2} />
                     </button>
                   </div>
                 </div>
 
                 {/* Resumen legible en tamaño grande */}
-                <p className="text-base sm:text-xl font-black text-red-900 leading-snug">
+                <p className="text-sm sm:text-lg font-black text-[#9A2711] dark:text-[#FCA5A5] leading-snug">
                   {summaryText}
                 </p>
 
@@ -883,19 +960,19 @@ export default function DeliveryPhoneNotesAlertPanel({
                   </div>
                 )}
 
-                {/* Botón principal grande apto para guantes (el botón circular ✕ de cierre individual está arriba a la derecha) */}
-                <div className="pt-1">
+                {/* Botón principal grande apto para guantes (48px+ con bindInstantTap) */}
+                <div className="pt-0.5">
                   <button
                     type="button"
                     disabled={isBusy}
-                    onClick={() => void handleNoteAction(note, 'apply')}
-                    className={`w-full min-h-[48px] sm:min-h-[54px] px-4 py-2.5 rounded-2xl active:scale-[0.98] text-white text-sm sm:text-lg font-black disabled:opacity-40 shadow-md transition-transform cursor-pointer select-none touch-manipulation flex items-center justify-center gap-2 ${
+                    {...bindInstantTap(`delivery-apply-${note.id}`, () => void handleNoteAction(note, 'apply'))}
+                    className={`w-full min-h-[48px] px-4 py-2 rounded-xl border-b-[3px] active:translate-y-[1px] text-white text-sm sm:text-base font-black disabled:opacity-40 transition-transform cursor-pointer select-none touch-manipulation flex items-center justify-center gap-2 ${
                       isWrongStoreStop
-                        ? 'bg-red-700 hover:bg-red-800'
-                        : 'bg-emerald-600 hover:bg-emerald-700'
+                        ? 'bg-[#C8371A] hover:bg-[#A82D15] border-[#7F1D1D]'
+                        : 'bg-[#15803D] hover:bg-[#166534] border-[#0E4F26]'
                     }`}
                   >
-                    <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 shrink-0" />
                     <span>
                       {isBusy ? t('blindaje_delivery.phone_note_applying_btn') : confirmButtonLabel}
                     </span>

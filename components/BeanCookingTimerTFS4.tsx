@@ -53,7 +53,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@/lib/supabase-client'
-import { getTabletNoCacheHeaders, safeLocalStorageSet } from '@/lib/tablet-cache-cleaner'
+import { ensureFreshTabletAuth, getTabletNoCacheHeaders, safeLocalStorageSet } from '@/lib/tablet-cache-cleaner'
 import { pickStrictFemaleBrowserVoice } from '@/lib/phone-speech-format'
 import {
   BEAN_PRODUCT_KEYS,
@@ -317,28 +317,44 @@ export default function BeanCookingTimerTFS4({
     [ensureAudioContextUnlocked]
   )
 
-  // Desbloquear AudioContext y precargar `/sounds/alarm.mp3` + clips `Kore` al montar e interactuar
+  // Desbloquear AudioContext y precargar `/sounds/alarm.mp3` + clips `Kore` al montar e interactuar;
+  // una vez cálido y desbloqueado, retirar los listeners globales para evitar trabajo extra en cada toque.
   useEffect(() => {
     const activeLang: 'es' | 'en' = language === 'en' ? 'en' : 'es'
+    let listenersAttached = true
 
-    const warmAudioAssets = () => {
-      ensureAudioContextUnlocked()
-      void preloadAlarmAudioBuffer()
-      for (const prod of BEAN_PRODUCT_KEYS) {
-        void loadKoreVoiceClip(prod, activeLang)
-      }
-    }
-
-    warmAudioAssets()
-    window.addEventListener('pointerdown', warmAudioAssets, { passive: true })
-    window.addEventListener('touchstart', warmAudioAssets, { passive: true })
-    window.addEventListener('click', warmAudioAssets, { passive: true })
-    window.addEventListener('keydown', warmAudioAssets, { passive: true })
-    return () => {
+    const detachListeners = () => {
+      if (!listenersAttached) return
+      listenersAttached = false
       window.removeEventListener('pointerdown', warmAudioAssets)
       window.removeEventListener('touchstart', warmAudioAssets)
       window.removeEventListener('click', warmAudioAssets)
       window.removeEventListener('keydown', warmAudioAssets)
+    }
+
+    const warmAudioAssets = () => {
+      const ctx = ensureAudioContextUnlocked()
+      void preloadAlarmAudioBuffer()
+      for (const prod of BEAN_PRODUCT_KEYS) {
+        void loadKoreVoiceClip(prod, activeLang)
+      }
+      const allKoreCached = BEAN_PRODUCT_KEYS.every((prod) =>
+        koreBufferCacheRef.current.has(`${prod}_${activeLang}`)
+      )
+      if (ctx?.state === 'running' && alarmBufferRef.current && allKoreCached) {
+        detachListeners()
+      }
+    }
+
+    warmAudioAssets()
+    if (listenersAttached) {
+      window.addEventListener('pointerdown', warmAudioAssets, { passive: true })
+      window.addEventListener('touchstart', warmAudioAssets, { passive: true })
+      window.addEventListener('click', warmAudioAssets, { passive: true })
+      window.addEventListener('keydown', warmAudioAssets, { passive: true })
+    }
+    return () => {
+      detachListeners()
     }
   }, [ensureAudioContextUnlocked, language, loadKoreVoiceClip, preloadAlarmAudioBuffer])
 
@@ -675,15 +691,36 @@ export default function BeanCookingTimerTFS4({
   )
 
   // Carga inicial desde localStorage + sincronización autoritativa con el servidor
+  const fetchBeanTimerAuth = useCallback(
+    async (url: string, init: RequestInit = {}): Promise<Response> => {
+      const doReq = () =>
+        fetch(url, {
+          ...init,
+          credentials: 'include',
+          cache: 'no-store',
+          signal: AbortSignal.timeout(8000),
+          headers: {
+            ...(init.headers || {}),
+            ...getTabletNoCacheHeaders(),
+          },
+        })
+      let res = await doReq()
+      if (res.status === 401) {
+        const refreshed = await ensureFreshTabletAuth(true).catch(() => null)
+        if (refreshed) {
+          res = await doReq()
+        }
+      }
+      return res
+    },
+    []
+  )
+
   const syncFromServer = useCallback(async () => {
     if (!storeId) return
     try {
-      const res = await fetch(
-        `/api/preparador/bean-timer?storeId=${encodeURIComponent(storeId)}&_t=${Date.now()}`,
-        {
-          cache: 'no-store',
-          headers: getTabletNoCacheHeaders(),
-        }
+      const res = await fetchBeanTimerAuth(
+        `/api/preparador/bean-timer?storeId=${encodeURIComponent(storeId)}&_t=${Date.now()}`
       )
       if (!res.ok) return
       const data = await res.json()
@@ -725,7 +762,7 @@ export default function BeanCookingTimerTFS4({
     } catch (err) {
       console.warn('[BeanCookingTimerTFS4] Usando estado local mientras regresa conexión:', err)
     }
-  }, [persistLocalChannels, storeId])
+  }, [fetchBeanTimerAuth, persistLocalChannels, storeId])
 
   // Hidratar de inmediato desde localStorage al cambiar/cargar sucursal y luego sincronizar con Supabase
   useEffect(() => {
@@ -823,13 +860,15 @@ export default function BeanCookingTimerTFS4({
     }
   }, [storeId, supabase, syncFromServer])
 
-  // Reloj de alta precisión (250ms) para cuenta regresiva exacta y detección instantánea de 00:00:00
+  // Reloj de alta precisión (250ms) SOLO cuando hay >= 1 canal activo/sonando (0 re-renders/s en reposo 24/7)
   useEffect(() => {
+    if (!hasAnyActiveChannel) return
+    setNowMs(Date.now())
     const tick = setInterval(() => {
       setNowMs(Date.now())
     }, 250)
     return () => clearInterval(tick)
-  }, [])
+  }, [hasAnyActiveChannel])
 
   // Evaluar snapshots en vivo de los 4 canales
   const channelSnapshots = useMemo(
@@ -857,11 +896,10 @@ export default function BeanCookingTimerTFS4({
       if (alarmNotifiedDbSetRef.current.has(uniqueKey)) continue
       alarmNotifiedDbSetRef.current.add(uniqueKey)
 
-      fetch('/api/preparador/bean-timer', {
+      fetchBeanTimerAuth('/api/preparador/bean-timer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getTabletNoCacheHeaders(),
         },
         body: JSON.stringify({
           storeId,
@@ -871,7 +909,7 @@ export default function BeanCookingTimerTFS4({
         }),
       }).catch(() => {})
     }
-  }, [alarmingSnapshots, storeId])
+  }, [alarmingSnapshots, fetchBeanTimerAuth, storeId])
 
   // Motor acústico continuo (`/sounds/alarm.mp3` amplificado + Voz Oficial `Kore`) mientras exista >= 1 canal en ALARMING
   const primaryAlarmChannel = alarmingSnapshots[0] || null
@@ -1007,11 +1045,10 @@ export default function BeanCookingTimerTFS4({
       setNowMs(startMs)
 
       try {
-        const res = await fetch('/api/preparador/bean-timer', {
+        const res = await fetchBeanTimerAuth('/api/preparador/bean-timer', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...getTabletNoCacheHeaders(),
           },
           body: JSON.stringify({
             storeId,
@@ -1045,6 +1082,7 @@ export default function BeanCookingTimerTFS4({
     [
       channels,
       ensureAudioContextUnlocked,
+      fetchBeanTimerAuth,
       persistLocalChannels,
       playTactileBeep,
       presets,
@@ -1078,11 +1116,10 @@ export default function BeanCookingTimerTFS4({
       setSelectedChannel(channelId)
 
       try {
-        const res = await fetch('/api/preparador/bean-timer', {
+        const res = await fetchBeanTimerAuth('/api/preparador/bean-timer', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...getTabletNoCacheHeaders(),
           },
           body: JSON.stringify({
             storeId,
@@ -1107,6 +1144,7 @@ export default function BeanCookingTimerTFS4({
     [
       channels,
       ensureAudioContextUnlocked,
+      fetchBeanTimerAuth,
       persistLocalChannels,
       playTactileBeep,
       stopAllBeanAlarmAudio,
@@ -1131,11 +1169,10 @@ export default function BeanCookingTimerTFS4({
 
     setSavingAdminPresets(true)
     try {
-      const res = await fetch('/api/preparador/bean-timer', {
+      const res = await fetchBeanTimerAuth('/api/preparador/bean-timer', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          ...getTabletNoCacheHeaders(),
         },
         body: JSON.stringify({
           FRIJOLES_OLLA: ollaTotal,
@@ -1156,21 +1193,28 @@ export default function BeanCookingTimerTFS4({
 
   /**
    * Helper táctil para guantes húmedos y mica protectora: disparo inmediato en `onPointerDown`
-   * con bloqueo de 450ms en `onClick` sintético para impedir dobles toques involuntarios.
+   * con `data-ultra-tap="true"` (impide rescates fantasma de `TabletTouchBooster`), bloqueo de menú contextual
+   * y supresión de `onClick` sintético por `1200ms` para evitar auto-cancelaciones en toques lentos.
    */
   const bindGloveTap = (action: () => void) => ({
+    'data-ultra-tap': 'true' as const,
     onPointerDown: (e: React.PointerEvent) => {
       if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         e.preventDefault()
         e.stopPropagation()
-        lastGloveTapMsRef.current = Date.now()
+        const now = Date.now()
+        if (now - lastGloveTapMsRef.current < 320) return
+        lastGloveTapMsRef.current = now
         action()
       }
     },
     onClick: (e: React.MouseEvent) => {
       e.stopPropagation()
-      if (Date.now() - lastGloveTapMsRef.current < 450) return
+      if (Date.now() - lastGloveTapMsRef.current < 1200) return
       action()
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault()
     },
   })
 

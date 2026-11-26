@@ -42,15 +42,17 @@ import {
 } from '@/lib/bean-timer'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 15
+
+const BEAN_LOG_COLUMNS =
+  'id, store_id, business_date, shift_period, channel_id, product_key, target_seconds, started_at, expected_end_at, alarm_triggered_at, completed_at, status, overtime_seconds, started_by, completed_by, created_at, updated_at'
 
 const PRESETS_CACHE_TTL_MS = 5 * 60 * 1000
-const STALE_PURGE_GET_THROTTLE_MS = 15 * 60 * 1000
 
 let presetsRamCache: {
   at: number
   presets: Record<'FRIJOLES_OLLA' | 'FRIJOLES_ENTEROS', number>
 } | null = null
-const lastStalePurgeByStore = new Map<number, number>()
 
 async function loadAuthoritativePresets(forceRefresh = false) {
   const now = Date.now()
@@ -91,15 +93,6 @@ async function purgeStaleActiveChannels(storeId: number, nowMs: number) {
     .eq('store_id', storeId)
     .in('status', ['RUNNING', 'ALARMING'])
     .lt('started_at', staleCutoffIso)
-  lastStalePurgeByStore.set(storeId, nowMs)
-}
-
-async function maybePurgeStaleActiveChannelsForGet(storeId: number, nowMs: number) {
-  const lastRun = lastStalePurgeByStore.get(storeId) || 0
-  if (nowMs - lastRun < STALE_PURGE_GET_THROTTLE_MS) {
-    return
-  }
-  await purgeStaleActiveChannels(storeId, nowMs)
 }
 
 export async function GET(request: NextRequest) {
@@ -125,21 +118,23 @@ export async function GET(request: NextRequest) {
     }
 
     const nowMs = Date.now()
-    await maybePurgeStaleActiveChannelsForGet(numericStoreId, nowMs)
-
+    const staleCutoffIso = new Date(nowMs - MAX_ACTIVE_BEAN_TIMER_AGE_MS).toISOString()
     const { businessDate, shiftPeriod } = resolveBeanBusinessContext(nowMs)
 
+    // GET es 100% de solo lectura (Regla Protección de Servidores Ley #2): filtra sesiones abandonadas >6h
+    // sin ejecutar UPDATE; la limpieza física en DB ocurre únicamente dentro de POST START.
     const [presets, activeRes, historyRes] = await Promise.all([
       loadAuthoritativePresets(),
       supabaseAdmin
         .from('bean_cooking_logs')
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .eq('store_id', numericStoreId)
         .in('status', ['RUNNING', 'ALARMING'])
+        .gte('started_at', staleCutoffIso)
         .order('started_at', { ascending: true }),
       supabaseAdmin
         .from('bean_cooking_logs')
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .eq('store_id', numericStoreId)
         .eq('business_date', businessDate)
         .in('status', ['COMPLETED', 'CANCELLED'])
@@ -254,7 +249,7 @@ export async function POST(request: NextRequest) {
       // Verificar si el canal ya tiene una cocción activa (idempotencia ante reintentos o conflicto real)
       const { data: existingActive } = await supabaseAdmin
         .from('bean_cooking_logs')
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .eq('store_id', numericStoreId)
         .eq('channel_id', channelId)
         .in('status', ['RUNNING', 'ALARMING'])
@@ -300,7 +295,7 @@ export async function POST(request: NextRequest) {
           started_by: actorLabel,
           updated_at: new Date(nowMs).toISOString(),
         })
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .single()
 
       if (insertErr) {
@@ -325,7 +320,7 @@ export async function POST(request: NextRequest) {
 
       let query = supabaseAdmin
         .from('bean_cooking_logs')
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .eq('store_id', numericStoreId)
         .in('status', ['RUNNING', 'ALARMING'])
 
@@ -358,7 +353,7 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', activeRow.id)
         .eq('store_id', numericStoreId)
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .single()
 
       if (updErr) {
@@ -382,7 +377,7 @@ export async function POST(request: NextRequest) {
 
       let query = supabaseAdmin
         .from('bean_cooking_logs')
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .eq('store_id', numericStoreId)
         .in('status', ['RUNNING', 'ALARMING'])
 
@@ -418,7 +413,7 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', activeRow.id)
         .eq('store_id', numericStoreId)
-        .select('*')
+        .select(BEAN_LOG_COLUMNS)
         .single()
 
       if (closeErr) {

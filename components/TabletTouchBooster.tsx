@@ -11,14 +11,14 @@
  * - Asimismo, si React re-renderiza un nodo DOM entre `pointerdown` y `pointerup` (por relojes en vivo o
  *   actualizaciones por WebSocket/polling), el navegador descarta el `click`.
  * - Este motor escucha globalmente en fase de captura (`passive: true`), aplica feedback visual instantáneo (`0ms`)
- *   y rescata cualquier toque intencional (hasta `32px` de tolerancia de deslizamiento / touch-slop) cuyo `click`
+ *   y rescata cualquier toque intencional (hasta `44px` de tolerancia de deslizamiento / touch-slop) cuyo `click`
  *   nativo haya sido suprimido por el navegador o por un re-render intermedio.
  *
  * @dataFlow
  * - `pointerdown` (touch/pen) -> registra coordenadas iniciales, contenedor scroll y elemento interactivo objetivo.
- * - `pointerup` -> valida tolerancia (`<= 32px`, `<= 700ms`, scroll real `<= 18px`) y si el navegador no emite
- *   `click` en `26ms`, sintetiza `.click()` sobre el nodo original o el nodo re-renderizado en `(clientX, clientY)`.
- * - Incluye candado anti-rebote para evitar ejecuciones dobles.
+ * - `pointerup` -> valida tolerancia (`<= 44px`, `<= 1200ms`, scroll real `<= 22px`) y si el navegador no emite
+ *   `click` en `26ms`, sintetiza `.click()` sobre el nodo original o un nodo re-renderizado con el MISMO `data-tap-key`/`id`.
+ * - Incluye candado anti-rebote y bloqueo estricto contra auto-clics fantasma cuando un botón (ej. Alerta #1) se desmonta.
  */
 
 'use client'
@@ -56,6 +56,8 @@ interface ActiveTouch {
   startTime: number
   targetEl: HTMLElement
   tagName: string
+  tapKey: string | null
+  elId: string | null
   scrollParent: HTMLElement | null
   startScrollTop: number
   startScrollLeft: number
@@ -130,8 +132,11 @@ export default function TabletTouchBooster() {
 
       const scrollParent = findScrollParent(interactiveEl)
       interactiveEl.setAttribute('data-touch-pressing', 'true')
-      const isUltraTapHandled =
-        interactiveEl.hasAttribute('data-order-tap-id') || interactiveEl.hasAttribute('data-ultra-tap')
+      const isUltraTapHandled = Boolean(
+        interactiveEl.hasAttribute('data-order-tap-id') ||
+          interactiveEl.hasAttribute('data-ultra-tap') ||
+          interactiveEl.closest('[data-order-tap-id], [data-ultra-tap="true"]')
+      )
 
       activeTouches.set(e.pointerId, {
         pointerId: e.pointerId,
@@ -140,6 +145,8 @@ export default function TabletTouchBooster() {
         startTime: nowPerf,
         targetEl: interactiveEl,
         tagName: interactiveEl.tagName,
+        tapKey: interactiveEl.getAttribute('data-tap-key'),
+        elId: interactiveEl.id || null,
         scrollParent,
         startScrollTop: scrollParent ? scrollParent.scrollTop : 0,
         startScrollLeft: scrollParent ? scrollParent.scrollLeft : 0,
@@ -200,14 +207,18 @@ export default function TabletTouchBooster() {
 
         let targetToClick: HTMLElement | null = snapshot.targetEl
         if (!targetToClick.isConnected) {
-          // Element was replaced by a React re-render mid-touch; locate the new interactive node at touch point
+          // Solo recuperar si el nodo re-renderizado en esa coordenada coincide EXACTAMENTE con el mismo `data-tap-key` o `id`.
+          // Jamás disparar `.click()` sobre un botón distinto que subió a la misma posición tras desmontarse una alerta anterior.
           const pointEl = document.elementFromPoint(endX, endY) as HTMLElement | null
           const recovered = pointEl?.closest?.(INTERACTIVE_SELECTOR) as HTMLElement | null
-          if (recovered && recovered.tagName === snapshot.tagName) {
-            targetToClick = recovered
-          } else {
-            targetToClick = null
-          }
+          const sameIdentity = Boolean(
+            recovered &&
+              recovered.tagName === snapshot.tagName &&
+              !recovered.hasAttribute('data-ultra-tap') &&
+              ((snapshot.tapKey && recovered.getAttribute('data-tap-key') === snapshot.tapKey) ||
+                (snapshot.elId && recovered.id === snapshot.elId))
+          )
+          targetToClick = sameIdentity ? recovered : null
         }
 
         if (!targetToClick || !targetToClick.isConnected) return

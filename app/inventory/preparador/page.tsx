@@ -88,6 +88,9 @@
  *     1) `handleCallOrderImpulse`, `sendPrepHeartbeat`, `loadAutoTimerSettings` y el respaldo de `autoTimer` envían siempre `Authorization: Bearer` (`getTabletNoCacheHeaders()`) + `credentials: 'include'` con auto-renovación inmediata en `401` (`ensureFreshTabletAuth(true)`).
  *     2) Eliminado falso positivo verde optimista previo al `fetch`: la tarjeta solo marca verde ("¡Llamada Enviada!") cuando el broadcast WebSocket o `POST /api/order-ready/call` confirma entrega real; si ambos fallan muestra alerta roja de reintento y libera el bloqueo en 400ms.
  *     3) `fetchReadyOrders` detecta `authenticated: false` en `GET /api/order-ready/orders?view=prep` y renueva silenciosamente el JWT antes de que el cocinero toque la pantalla.
+ *   - REDISEÑO INDUSTRIAL HUMANO "WARM CERAMIC & COMAL GRAPHITE" + CALIBRACIÓN TAB S10 FE 10.9" (2026-11-26):
+ *     1) UI modularizada (`components/preparador/*`) sin recortes en `1024×640` / `1152×720`: 5 carnes visibles sin scroll, dock intercom de 1 fila (`Café/Champurrado/Orden Pendiente`) sin truncar y con estado rojo de error real, cabecera única `50px`, `Manager Control Sheet` oculto en Kiosco (U54/U62), `DESECHABLES` (9) + `ALIMENTOS` (34) por estaciones, Guía 24h (48 franjas) y acabado Día/Noche por tableta.
+ *     2) Blindaje técnico: columnas escalares explícitas (cero `SELECT *`), sin doble-fetch en ticks impares, `purgeTabletStaleCaches` nunca borra caché offline al montar/ver fechas pasadas, `isFullscreenRef` en telemetría, confirmación instantánea al responder WS o REST + limpieza de timers, `Map<pointerId>` + dedupe `1200ms` en `ALIMENTOS`, radar adaptativo `18px` (10.9") / `38px` (15.6"), y Mermas libre de `NaN` en tramos.
  */
 'use client'
 
@@ -96,12 +99,14 @@ import { useLanguage } from '@/lib/i18n'
 import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import DeliveryPhoneNotesAlertPanel from '@/components/DeliveryPhoneNotesAlertPanel'
 import { 
-    BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, 
-    X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, 
-    Calendar, FileText, BookOpen, Sun, ChevronLeft, ChevronRight, Store, Flame, 
-    BarChart3, SlidersHorizontal, ShoppingBag, Utensils, Volume2, RefreshCw, Megaphone,
-    CupSoda, Coffee, PanelLeftClose, PanelLeftOpen, Bot 
+    Loader2, ChevronLeft, ChevronRight, Flame, BarChart3, SlidersHorizontal, UtensilsCrossed
 } from 'lucide-react'
+import { getAdaptiveProximityRadiusPx } from '@/lib/kitchen-touch'
+import PreparadorTopRail from '@/components/preparador/PreparadorTopRail'
+import PreparadorManagerSheet from '@/components/preparador/PreparadorManagerSheet'
+import PreparadorGrillPanel, { type GrillMeatEditRequest } from '@/components/preparador/PreparadorGrillPanel'
+import PreparadorOrdersAndSupplies from '@/components/preparador/PreparadorOrdersAndSupplies'
+import PreparadorModals from '@/components/preparador/PreparadorModals'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -189,7 +194,7 @@ function parseOrderItemsSummary(raw: string | null | undefined): ParsedOrderItem
  * Detecta si un artículo de comanda corresponde a una bebida (aguas frescas, sodas, café, champurrado, etc.)
  * para permitir al preparador enfocarse al 100% en la parrilla y cocina caliente sin clutter de mostrador.
  */
-export function isDrinkItem(name: string | null | undefined): boolean {
+function isDrinkItem(name: string | null | undefined): boolean {
     if (!name) return false
     const raw = name.trim().toLowerCase()
     if (raw.includes('aguacate') || raw.includes('guacamole')) return false
@@ -212,23 +217,27 @@ export default function PreparadorPage() {
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     
-    // Calendar Date Selector (Shift starts at 6:00 AM LA time)
-    const getLAEffectiveBusinessDate = () => {
-        const now = new Date()
-        const laDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-        const laTimeStr = now.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
-        let hour = parseInt(laTimeStr.split(':')[0], 10)
-        if (hour === 24) hour = 0
-        
-        if (hour < 6) {
-            const [y, m, d] = laDateStr.split('-').map(Number)
-            const prevDay = new Date(y, m - 1, d - 1)
-            const py = prevDay.getFullYear()
-            const pm = String(prevDay.getMonth() + 1).padStart(2, '0')
-            const pd = String(prevDay.getDate()).padStart(2, '0')
-            return `${py}-${pm}-${pd}`
-        }
-        return laDateStr
+    // Calendar Date Selector (Shift starts at 6:00 AM LA time — canonical helper)
+    const getLAEffectiveBusinessDate = () => getCaliforniaBusinessDate()
+
+    // Acabado industrial por tableta ("day" = Warm Ceramic | "night" = Comal Graphite)
+    const [prepTheme, setPrepTheme] = useState<'day' | 'night'>('day')
+    const isDark = prepTheme === 'night'
+    const [supplyFeedback, setSupplyFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+    const [elapsedNowMs, setElapsedNowMs] = useState<number>(() => Date.now())
+    const [liveClockText, setLiveClockText] = useState<string>('')
+    const [ordersHasOverflow, setOrdersHasOverflow] = useState<boolean>(false)
+    const isFullscreenRef = useRef<boolean>(false)
+    const isSmartAutoVoiceStoreRef = useRef<boolean>(false)
+    const callStatusTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+    const prepAutoBackupRetryAfterRef = useRef<Map<string, number>>(new Map())
+    // Escudo anti-toque fantasma tras cambio de layout (ocultar/mostrar parrilla o cambiar pestaña)
+    const suppressOrderCallsUntilRef = useRef<number>(0)
+
+    const handleTogglePrepTheme = (nextDark: boolean) => {
+        const nextVal = nextDark ? 'night' : 'day'
+        setPrepTheme(nextVal)
+        try { localStorage.setItem('teg_preparador_theme', nextVal) } catch {}
     }
 
     const INACTIVITY_WAKE_MODAL_MS = 3 * 60 * 60 * 1000 // 3 horas de inactividad
@@ -241,7 +250,7 @@ export default function PreparadorPage() {
     const [showWakeUpModal, setShowWakeUpModal] = useState(false)
     const showWakeUpModalRef = useRef(false)
     const [wakingUpTablet, setWakingUpTablet] = useState(false)
-    const fetchReadyOrdersRef = useRef<((isManual?: boolean, syncToastExplicit?: boolean) => Promise<void>) | null>(null)
+    const fetchReadyOrdersRef = useRef<((isManual?: boolean, syncToastExplicit?: boolean, skipCachePurge?: boolean) => Promise<void>) | null>(null)
     const fetchingReadyOrdersRef = useRef<boolean>(false)
     const fetchingReadyOrdersStartedAtRef = useRef<number>(0)
     const activeOrdersFetchAbortRef = useRef<AbortController | null>(null)
@@ -294,15 +303,18 @@ export default function PreparadorPage() {
                 callingIdsRef.current.clear()
                 setCallingOrderIds(new Set())
                 setCallSuccessOrderIds(new Set())
-                try { localStorage.removeItem(`prep_real_meat_${storeId}`) } catch {}
-                // Autolimpieza profunda de cachés de días anteriores + renovación de token en cambio de jornada (6:00 AM)
-                purgeTabletStaleCaches({
-                    activeStoreId: storeId,
-                    activeDate: freshBusinessDate,
-                    activeDow: getDowFromDate(freshBusinessDate),
-                    forceTokenRefresh: true
-                }).catch(() => {})
-                fetchReadyOrdersRef.current?.(true)
+                setCallErrorOrderIds(new Set())
+                if (storeId) {
+                    try { localStorage.removeItem(`prep_real_meat_${storeId}`) } catch {}
+                    // Autolimpieza profunda de cachés de días anteriores + renovación de token en cambio de jornada (6:00 AM)
+                    purgeTabletStaleCaches({
+                        activeStoreId: storeId,
+                        activeDate: freshBusinessDate,
+                        activeDow: getDowFromDate(freshBusinessDate),
+                        forceTokenRefresh: true
+                    }).catch(() => {})
+                }
+                fetchReadyOrdersRef.current?.(true, true, true)
             }
         }
 
@@ -315,8 +327,8 @@ export default function PreparadorPage() {
                 console.log(`[Preparador] Idle on past date. Auto-returning to current date: ${freshBusinessDate}`)
                 checkDateRollover(true)
             }
-            // Tras 3 horas de inactividad, mostrar modal para despertar tableta y ejecutar reconfiguración completa
-            if (!showWakeUpModalRef.current && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
+            // Tras 3 horas de inactividad, mostrar modal para despertar tableta (exento en modo manos libres Smart Auto-Timer)
+            if (!isSmartAutoVoiceStoreRef.current && !showWakeUpModalRef.current && idleMs >= INACTIVITY_WAKE_MODAL_MS) {
                 console.log('[Preparador] 3+ hours of inactivity reached -> Showing Wake Up Tablet Modal')
                 showWakeUpModalRef.current = true
                 setShowWakeUpModal(true)
@@ -324,12 +336,15 @@ export default function PreparadorPage() {
         }
 
         checkDateRollover()
-        // Autolimpieza automática al montar o cambiar de tienda/fecha y cada 15 minutos en segundo plano
-        purgeTabletStaleCaches({
-            activeStoreId: storeId,
-            activeDate: selectedDate,
-            activeDow: businessDow
-        }).catch(() => {})
+        // Autolimpieza segura: NUNCA correr mientras !storeId y SIEMPRE preservar la fecha de HOY (jamás selectedDate histórica)
+        if (storeId) {
+            const todayLA = getLAEffectiveBusinessDate()
+            purgeTabletStaleCaches({
+                activeStoreId: storeId,
+                activeDate: todayLA,
+                activeDow: getDowFromDate(todayLA)
+            }).catch(() => {})
+        }
 
         const intervalId = setInterval(() => {
             checkDateRollover()
@@ -337,6 +352,7 @@ export default function PreparadorPage() {
         }, 10000)
 
         const cacheCleanupTimer = setInterval(() => {
+            if (!storeId) return
             const freshDate = getLAEffectiveBusinessDate()
             purgeTabletStaleCaches({
                 activeStoreId: storeId,
@@ -345,16 +361,22 @@ export default function PreparadorPage() {
             }).catch(() => {})
         }, 15 * 60 * 1000)
 
-        // Wake-up / Screen unlock / Tab active listeners
+        // Wake-up / Screen unlock / Tab active listeners (con dedupe de 1.5s para evitar triple disparo focus+visibility)
+        let lastWakeHandleAt = 0
         const handleWakeUp = () => {
-            console.log("[Preparador] Screen woke up or tab focused -> Re-checking date, cleaning cache & syncing...")
+            const now = Date.now()
+            if (now - lastWakeHandleAt < 1500) return
+            lastWakeHandleAt = now
             checkDateRollover()
             checkInactivityReturn()
-            purgeTabletStaleCaches({
-                activeStoreId: storeId,
-                activeDate: getLAEffectiveBusinessDate(),
-                activeDow: getDowFromDate(getLAEffectiveBusinessDate())
-            }).catch(() => {})
+            if (storeId) {
+                const todayLA = getLAEffectiveBusinessDate()
+                purgeTabletStaleCaches({
+                    activeStoreId: storeId,
+                    activeDate: todayLA,
+                    activeDow: getDowFromDate(todayLA)
+                }).catch(() => {})
+            }
             fetchReadyOrdersRef.current?.(false)
         }
 
@@ -432,52 +454,44 @@ export default function PreparadorPage() {
         callingIdsRef.current.clear()
         setCallingOrderIds(new Set())
         setCallSuccessOrderIds(new Set())
+        setCallErrorOrderIds(new Set())
 
         // Clear previous day's real consumptions & load only today's overrides
         setRealMeatData([])
-        try { localStorage.removeItem(`prep_real_meat_${storeId}`) } catch {}
-        try {
-            const savedOverrides = localStorage.getItem(`teg_prep_overrides_${storeId}_${freshBusinessDate}`)
-            setManualOverrides(savedOverrides ? JSON.parse(savedOverrides) : {})
-        } catch {
-            setManualOverrides({})
+        if (storeId) {
+            try { localStorage.removeItem(`prep_real_meat_${storeId}`) } catch {}
+            try { localStorage.removeItem(`prep_real_meat_${storeId}_${freshBusinessDate}`) } catch {}
+            try {
+                const savedOverrides = localStorage.getItem(`teg_prep_overrides_${storeId}_${freshBusinessDate}`)
+                setManualOverrides(savedOverrides ? JSON.parse(savedOverrides) : {})
+            } catch {
+                setManualOverrides({})
+            }
         }
 
-        // Request wake lock to keep screen active
-        try {
-            if ('wakeLock' in navigator) {
-                await (navigator as any).wakeLock.request('screen')
-            }
-        } catch (e) {}
+        // Desbloquear Web Audio API con tick sintetizado 0ms (cero petición 404 a /sounds/success.mp3)
+        playTabletTick()
 
-        // Unlock Web Audio API context & play subtle wake sound on user gesture
-        try {
-            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-            if (AudioCtx) {
-                const ctx = new AudioCtx()
-                if (ctx.state === 'suspended') await ctx.resume()
-                setTimeout(() => ctx.close().catch(() => {}), 300)
-            }
-            const au = new Audio('/sounds/success.mp3')
-            au.volume = 0.25
-            au.play().catch(() => {})
-        } catch (e) {}
-
-        // Execute deep cache cleanup + 30-day JWT refresh + live data & Toast orders sync
-        await Promise.allSettled([
-            purgeTabletStaleCaches({
+        // Lote 1 (concurrencia <= 3, Regla Protección de Servidores): caché + JWT + órdenes + historial
+        if (storeId) {
+            await purgeTabletStaleCaches({
                 activeStoreId: storeId,
                 activeDate: freshBusinessDate,
                 activeDow: freshDow,
                 forceTokenRefresh: true
-            }),
+            }).catch(() => {})
+        }
+        await Promise.allSettled([
+            fetchReadyOrdersRef.current?.(true, true, true),
             fetchHistoryRef.current?.(freshDow, freshBusinessDate),
             fetchManualScheduleRef.current?.(freshDow, freshBusinessDate, true),
+        ])
+        // Lote 2 (concurrencia <= 2): consumo real + inteligencia intradía
+        await Promise.allSettled([
             fetchRealMeatRef.current?.(freshBusinessDate),
             fetchIntelligenceRef.current?.(freshBusinessDate),
-            fetchReadyOrdersRef.current?.(true)
         ])
-        updateBucketsRef.current?.()
+        setTimeout(() => updateBucketsRef.current?.(), 50)
 
         setWakingUpTablet(false)
         setWakeToast(true)
@@ -487,8 +501,20 @@ export default function PreparadorPage() {
     // Manual Overrides & Weekly Schedule State
     const [manualOverrides, setManualOverrides] = useState<Record<string, number>>({})
     const [manualWeeklySchedule, setManualWeeklySchedule] = useState<Record<string, number>>({})
-    const [editingMeatItem, setEditingMeatItem] = useState<{ key: string, meatType: string, bucketLabel: string, intervalStart?: string, currentVal: number, isManualMode?: boolean } | null>(null)
+    const [editingMeatItem, setEditingMeatItem] = useState<GrillMeatEditRequest | null>(null)
     const [tempEditValue, setTempEditValue] = useState<number>(1)
+
+    const persistManualOverrides = (next: Record<string, number>) => {
+        setManualOverrides(next)
+        if (!storeId || !selectedDate) return
+        const storageKey = `teg_prep_overrides_${storeId}_${selectedDate}`
+        const todayLA = getLAEffectiveBusinessDate()
+        safeLocalStorageSet(storageKey, JSON.stringify(next), {
+            activeStoreId: storeId,
+            activeDate: todayLA,
+            activeDow: getDowFromDate(todayLA)
+        })
+    }
 
     // Load Manual Overrides from localStorage
     useEffect(() => {
@@ -498,7 +524,9 @@ export default function PreparadorPage() {
         if (saved) {
             try {
                 setManualOverrides(JSON.parse(saved))
-            } catch (e) {}
+            } catch (e) {
+                setManualOverrides({})
+            }
         } else {
             setManualOverrides({})
         }
@@ -513,38 +541,39 @@ export default function PreparadorPage() {
         return t
     }
 
-    // Load Manual Weekly Schedule from API & localStorage with 10s polling for multi-device sync
+    // Load Manual Weekly Schedule from API & localStorage (5-min background polling with visibility guard)
     useEffect(() => {
         if (!storeId) return
-        const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
-        
+        let cancelled = false
+
         const fetchManualSchedule = async (overrideDow?: number, overrideDate?: string, bypassCache = false) => {
-            // Prevent background polling from overwriting user's local edits while saving
             if (!overrideDow && !bypassCache && Date.now() - lastSaveTimeRef.current < 8000) return
             const targetDow = overrideDow || businessDow
-            const targetDate = overrideDate || selectedDate
             const targetStorageKey = `teg_prep_manual_weekly_${storeId}_${targetDow}`
 
             try {
                 const url = bypassCache
                     ? `/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`
                     : `/api/inventory/preparador-manual-schedule?storeId=${storeId}&dow=${targetDow}`
-                const res = await fetch(url, bypassCache ? { cache: 'no-store' } : undefined)
-                if (res.ok) {
+                const res = await fetch(url, {
+                    ...(bypassCache ? { cache: 'no-store' as RequestCache } : {}),
+                    signal: AbortSignal.timeout(8000)
+                })
+                if (res.ok && !cancelled) {
                     const data = await res.json()
-                    if (Array.isArray(data)) {
-                        if (!overrideDow && Date.now() - lastSaveTimeRef.current < 8000) return
+                    if (Array.isArray(data) && !cancelled) {
+                        if (!overrideDow && !bypassCache && Date.now() - lastSaveTimeRef.current < 8000) return
                         const map: Record<string, number> = {}
                         data.forEach((item: any) => {
                             const key = `${normTime(item.interval_start)}_${item.meat_type}`
                             map[key] = Number(item.max_lbs)
                         })
-                        // Reemplazar íntegramente el mapa del día de la semana actual (evita mezclar datos del día anterior cuando la tableta queda encendida 24/7)
                         setManualWeeklySchedule(map)
+                        const todayLA = getLAEffectiveBusinessDate()
                         safeLocalStorageSet(targetStorageKey, JSON.stringify(map), {
                             activeStoreId: storeId,
-                            activeDate: targetDate,
-                            activeDow: targetDow
+                            activeDate: overrideDate || todayLA,
+                            activeDow: getDowFromDate(todayLA)
                         })
                         return
                     }
@@ -553,7 +582,7 @@ export default function PreparadorPage() {
                 console.error('Error fetching manual schedule:', e)
             }
 
-            // Fallback to cache if API failed
+            if (cancelled) return
             const cached = localStorage.getItem(targetStorageKey)
             if (cached) {
                 try {
@@ -571,34 +600,28 @@ export default function PreparadorPage() {
                 fetchManualSchedule()
             }
         }, 300000)
-        return () => clearInterval(interval)
-    }, [storeId, businessDow, selectedDate])
+        return () => {
+            cancelled = true
+            clearInterval(interval)
+        }
+    }, [storeId, businessDow])
 
-    // Save Manual Overrides to localStorage
+    // Inactivity Reset Effect (Aero snap-back — pausado mientras se edita una carne)
     useEffect(() => {
-        if (!storeId || !selectedDate) return
-        const storageKey = `teg_prep_overrides_${storeId}_${selectedDate}`
-        safeLocalStorageSet(storageKey, JSON.stringify(manualOverrides), {
-            activeStoreId: storeId,
-            activeDate: selectedDate,
-            activeDow: businessDow
-        })
-    }, [manualOverrides, storeId, selectedDate, businessDow])
-
-    // Inactivity Reset Effect (Aero snap-back)
-    useEffect(() => {
-        if (activeIndex === currentBucketIndex) return;
-        
+        if (activeIndex === currentBucketIndex || editingMeatItem) return
         const timer = setTimeout(() => {
-            setActiveIndex(currentBucketIndex) // Snap back to current time bucket
+            setActiveIndex(currentBucketIndex)
         }, 15000)
-        
         return () => clearTimeout(timer)
-    }, [activeIndex, currentBucketIndex])
+    }, [activeIndex, currentBucketIndex, editingMeatItem])
 
     // Request Cart & Ready Orders Tab State (persistente en localStorage para tabletas 24/7)
     const [activeTab, setActiveTabState] = useState<'alimentos' | 'ordenes'>('alimentos')
     const setActiveTab = (tab: 'alimentos' | 'ordenes') => {
+        if (tab === 'ordenes') {
+            suppressOrderCallsUntilRef.current = Math.max(suppressOrderCallsUntilRef.current, Date.now() + 320)
+            cardRectsCacheRef.current = null
+        }
         setActiveTabState(tab)
         try { localStorage.setItem('teg_preparador_active_tab', tab) } catch {}
     }
@@ -660,17 +683,52 @@ export default function PreparadorPage() {
         () => isStoreSmartAutoCallEnabled(autoCallConfig, currentStoreCode),
         [autoCallConfig, currentStoreCode]
     )
+    isSmartAutoVoiceStoreRef.current = isSmartAutoVoiceStore
 
-    // Sincronizar configuración de Timer Inteligente desde /api/order-ready/settings
+    // Reloj en vivo California + contador de minutos para las 14 sucursales en modo manual (pausado si pestaña oculta)
+    useEffect(() => {
+        const updateClock = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+            const now = Date.now()
+            setElapsedNowMs(now)
+            try {
+                setLiveClockText(
+                    new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'America/Los_Angeles',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                    }).format(new Date(now))
+                )
+            } catch {}
+        }
+        updateClock()
+        const id = setInterval(updateClock, 30_000)
+        return () => clearInterval(id)
+    }, [])
+
+    // Sincronizar configuración de Timer Inteligente desde /api/order-ready/settings (con timeout 6s y retry 401)
     useEffect(() => {
         let cancelled = false
         const loadAutoTimerSettings = async () => {
             try {
-                const res = await fetch('/api/order-ready/settings', {
+                let res = await fetch('/api/order-ready/settings', {
                     cache: 'no-store',
                     credentials: 'include',
-                    headers: getTabletNoCacheHeaders()
+                    headers: getTabletNoCacheHeaders(),
+                    signal: AbortSignal.timeout(6000)
                 })
+                if (res.status === 401) {
+                    const refreshed = await ensureFreshTabletAuth(true).catch(() => null)
+                    if (refreshed && !cancelled) {
+                        res = await fetch('/api/order-ready/settings', {
+                            cache: 'no-store',
+                            credentials: 'include',
+                            headers: getTabletNoCacheHeaders(),
+                            signal: AbortSignal.timeout(6000)
+                        })
+                    }
+                }
                 if (!res.ok) return
                 const json = await res.json()
                 if (!cancelled && json?.success && json?.autoCallTimer) {
@@ -688,7 +746,7 @@ export default function PreparadorPage() {
         }
     }, [currentStoreCode])
 
-    // Telemetría silenciosa de latido de Tableta de Preparación (cada 5 min y al volver a primer plano)
+    // Telemetría silenciosa de latido de Tableta de Preparación (lee isFullscreenRef en vivo, sin stale closure)
     useEffect(() => {
         if (!currentStoreCode) return
         const sendPrepHeartbeat = () => {
@@ -702,7 +760,7 @@ export default function PreparadorPage() {
                     action: 'heartbeat',
                     storeCode: currentStoreCode,
                     deviceRole: 'prep_tablet',
-                    isFullscreen
+                    isFullscreen: isFullscreenRef.current
                 })
             })
                 .then((res) => {
@@ -732,9 +790,13 @@ export default function PreparadorPage() {
         prepAutoBackupClaimedRef.current.clear()
     }, [currentStoreCode, currentBusinessDate])
 
-    // Cargar preferencias persistidas de la tableta (ocultar bebidas, pestaña activa y modo solo órdenes)
+    // Cargar preferencias persistidas de la tableta (ocultar bebidas, pestaña activa, tema día/noche y modo solo órdenes)
     useEffect(() => {
         try {
+            const savedTheme = localStorage.getItem('teg_preparador_theme')
+            if (savedTheme === 'day' || savedTheme === 'night') {
+                setPrepTheme(savedTheme)
+            }
             const saved = localStorage.getItem('prep_hide_drinks')
             if (saved !== null) {
                 setHideDrinks(saved === 'true')
@@ -753,23 +815,22 @@ export default function PreparadorPage() {
     }, [])
 
     const toggleHideCookingPanel = (explicitState?: boolean) => {
-        setHideCookingPanel(prev => {
-            const next = typeof explicitState === 'boolean' ? explicitState : !prev
-            try { localStorage.setItem('teg_preparador_hide_cooking', String(next)) } catch {}
-            if (next) {
-                setActiveTab('ordenes')
-                fetchReadyOrdersRef.current?.(false)
-            }
-            return next
-        })
+        // Blindar 500ms contra clics/toques fantasma cuando el panel de órdenes se desliza debajo del dedo
+        suppressOrderCallsUntilRef.current = Math.max(suppressOrderCallsUntilRef.current, Date.now() + 500)
+        cardRectsCacheRef.current = null
+        const next = typeof explicitState === 'boolean' ? explicitState : !hideCookingPanel
+        setHideCookingPanel(next)
+        try { localStorage.setItem('teg_preparador_hide_cooking', String(next)) } catch {}
+        if (next) {
+            setActiveTab('ordenes')
+            fetchReadyOrdersRef.current?.(false)
+        }
     }
 
     const toggleHideDrinks = () => {
-        setHideDrinks(prev => {
-            const next = !prev
-            try { localStorage.setItem('prep_hide_drinks', String(next)) } catch {}
-            return next
-        })
+        const next = !hideDrinks
+        setHideDrinks(next)
+        try { localStorage.setItem('prep_hide_drinks', String(next)) } catch {}
     }
 
     // Filtra, desduplica y ordena FIFO 1:1 con Toast KDS las órdenes en preparación (IN_PROGRESS)
@@ -836,7 +897,7 @@ export default function PreparadorPage() {
     }
 
     // Consulta de órdenes en preparación de la sucursal actual (status = IN_PROGRESS / SEND)
-    const fetchReadyOrders = async (isManual = false, syncToastExplicit = false) => {
+    const fetchReadyOrders = async (isManual = false, syncToastExplicit = false, skipCachePurge = false) => {
         if (!storeId || stores.length === 0) return
         const currentStore = stores.find(s => String(s.id) === String(storeId))
         const storeCode = (currentStore?.code || TOAST_STORE_MAP[currentStore?.external_id]?.code || '').toUpperCase()
@@ -871,26 +932,30 @@ export default function PreparadorPage() {
 
         if (isManual) {
             setLoadingReadyOrders(true)
-            purgeTabletStaleCaches({
-                activeStoreId: storeId,
-                activeDate: selectedDate,
-                activeDow: businessDow,
-                forceTokenRefresh: true
-            }).catch(() => {})
+            if (!skipCachePurge && storeId) {
+                const todayLA = getLAEffectiveBusinessDate()
+                purgeTabletStaleCaches({
+                    activeStoreId: storeId,
+                    activeDate: todayLA,
+                    activeDow: getDowFromDate(todayLA),
+                    forceTokenRefresh: true
+                }).catch(() => {})
+            }
         }
         try {
             const todayLA = getCaliforniaBusinessDate()
             // @businessRule Tacos Gavilan: Ventana de consulta activa de los últimos 90 minutos (status = IN_PROGRESS).
-            // 1. Consulta directa ultrarrápida a Supabase con timeout estricto de 6.5s para evitar bloqueo por socket colgado
+            // 1. Consulta directa ultrarrápida a Supabase con columnas escalares explícitas (Ley #1: cero SELECT *)
             const cutoffTime = new Date(Date.now() - 90 * 60 * 1000).toISOString()
             const supaCtrl = new AbortController()
             const onParentAbortSupa = () => supaCtrl.abort()
             runController.signal.addEventListener('abort', onParentAbortSupa, { once: true })
             const supaTimer = setTimeout(() => supaCtrl.abort(), 6500)
+            let directQuerySucceeded = false
             try {
                 const { data, error } = await supabase
                     .from('order_ready_announcements')
-                    .select('*')
+                    .select('id, order_guid, order_number, store_code, store_name, customer_name, business_date, status, dining_option, items_summary, created_at, announced_at')
                     .eq('store_code', storeCode)
                     .eq('business_date', todayLA)
                     .eq('status', 'IN_PROGRESS') // Exclusivo órdenes en preparación (SEND)
@@ -901,6 +966,7 @@ export default function PreparadorPage() {
                     .abortSignal(supaCtrl.signal)
 
                 if (!error && data && !runController.signal.aborted) {
+                    directQuerySucceeded = true
                     applyReadyOrdersIfChanged(filterAndDedupePrepOrders(data, storeCode, todayLA))
                     lastOrdersSyncSuccessAtRef.current = Date.now()
                 }
@@ -913,7 +979,12 @@ export default function PreparadorPage() {
 
             if (runController.signal.aborted) return
 
-            // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador y con timeout estricto de 7.5s:
+            // En ticks impares rápidos (syncToast=false) si la lectura directa respondió OK, evitar doble-fetch innecesario a Vercel/DB
+            if (!shouldSyncToast && directQuerySucceeded) {
+                return
+            }
+
+            // 2. Consultar el servidor (/api/order-ready/orders) sin caché de navegador y con timeout estricto de 8s:
             const apiCtrl = new AbortController()
             const onParentAbortApi = () => apiCtrl.abort()
             runController.signal.addEventListener('abort', onParentAbortApi, { once: true })
@@ -923,6 +994,7 @@ export default function PreparadorPage() {
                     `/api/order-ready/orders?storeCode=${storeCode}&minutes=90&view=prep&syncToast=${shouldSyncToast ? 'true' : 'false'}&forceToast=${isManual ? 'true' : 'false'}&_t=${Date.now()}`,
                     {
                         cache: 'no-store',
+                        credentials: 'include',
                         headers: getTabletNoCacheHeaders(),
                         signal: apiCtrl.signal
                     }
@@ -948,11 +1020,12 @@ export default function PreparadorPage() {
                 console.warn('Error fetching prep orders on preparador tablet:', err)
             }
         } finally {
-            if (activeOrdersFetchAbortRef.current === runController) {
+            const isCurrentRun = activeOrdersFetchAbortRef.current === runController
+            if (isCurrentRun) {
                 activeOrdersFetchAbortRef.current = null
                 fetchingReadyOrdersRef.current = false
             }
-            if (isManual) setLoadingReadyOrders(false)
+            if (isManual && isCurrentRun) setLoadingReadyOrders(false)
             if (pendingToastSyncRef.current) {
                 pendingToastSyncRef.current = false
                 if (pendingToastSyncTimeoutRef.current) {
@@ -1142,7 +1215,7 @@ export default function PreparadorPage() {
                     return
                 }
                 lastPollExecutedAt = nowTickMs
-                fetchReadyOrdersRef.current?.(false, true)
+                fetchReadyOrdersRef.current?.(false, false)
                 return
             }
 
@@ -1198,6 +1271,7 @@ export default function PreparadorPage() {
         if (!isSmartAutoVoiceStore || readyOrdersList.length === 0) return
         setSmartNowMs(Date.now())
         const tick = setInterval(() => {
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
             if (isPrepTouchActiveRef.current && Date.now() - prepTouchActiveAtRef.current < 2000) return
             setSmartNowMs(Date.now())
         }, 1000)
@@ -1218,6 +1292,10 @@ export default function PreparadorPage() {
                 continue
             }
             if (prepAutoBackupClaimedRef.current.has(ord.id)) {
+                continue
+            }
+            const retryAfter = prepAutoBackupRetryAfterRef.current.get(ord.id) || 0
+            if (retryAfter > smartNowMs) {
                 continue
             }
 
@@ -1291,11 +1369,14 @@ export default function PreparadorPage() {
                                 prev.map((item) => (item.id === ord.id ? { ...item, announced_at: annIso } : item))
                             )
                         }
-                    } else if (overdueMs < 25_000) {
+                    } else if (overdueMs < 25_000 && res.status !== 522 && res.status !== 524 && res.status !== 521) {
+                        // Backoff de 8s para evitar retry-piling 1x/seg ante fallas transitorias
+                        prepAutoBackupRetryAfterRef.current.set(ord.id, Date.now() + 8000)
                         prepAutoBackupClaimedRef.current.delete(ord.id)
                     }
                 } catch {
                     if (overdueMs < 25_000) {
+                        prepAutoBackupRetryAfterRef.current.set(ord.id, Date.now() + 8000)
                         prepAutoBackupClaimedRef.current.delete(ord.id)
                     }
                 } finally {
@@ -1352,10 +1433,17 @@ export default function PreparadorPage() {
             window.removeEventListener('pointercancel', onGlobalRelease)
             window.removeEventListener('touchend', onGlobalRelease)
             window.removeEventListener('touchcancel', onGlobalRelease)
+            if (tabletTickCtxRef.current && tabletTickCtxRef.current.state !== 'closed') {
+                void tabletTickCtxRef.current.close().catch(() => {})
+            }
+            for (const timer of callStatusTimersRef.current.values()) {
+                clearTimeout(timer)
+            }
+            callStatusTimersRef.current.clear()
         }
     }, [])
 
-    const prepPointerStartRef = useRef<{ x: number; y: number; maxDist: number; key: string; at: number; firedOnDown: boolean } | null>(null)
+    const prepPointerStartsRef = useRef<Map<number, { x: number; y: number; maxDist: number; key: string; at: number; firedOnDown: boolean }>>(new Map())
     const prepLastTouchAtRef = useRef<number>(0)
     const prepLastTouchKeyRef = useRef<string>('')
     const prepLastTouchByKeyRef = useRef<Map<string, number>>(new Map())
@@ -1378,6 +1466,16 @@ export default function PreparadorPage() {
         const lastForKey = prepLastTouchByKeyRef.current.get(key) || 0
         if (now - lastForKey < dedupeMs) return
         prepLastTouchByKeyRef.current.set(key, now)
+        if (prepLastTouchByKeyRef.current.size > 80) {
+            for (const [k, ts] of prepLastTouchByKeyRef.current.entries()) {
+                if (now - ts > 15_000) prepLastTouchByKeyRef.current.delete(k)
+            }
+        }
+        if (lastTouchSignalByKeyRef.current.size > 80) {
+            for (const [k, ts] of lastTouchSignalByKeyRef.current.entries()) {
+                if (now - ts > 15_000) lastTouchSignalByKeyRef.current.delete(k)
+            }
+        }
         prepLastTouchAtRef.current = now
         prepLastTouchKeyRef.current = key
         action()
@@ -1482,36 +1580,39 @@ export default function PreparadorPage() {
     }
 
     // Disparo ULTRA-SENSIBLE al PRIMER MICROSEGUNDO DE CONTACTO (0.0ms) cuando todas las órdenes caben en pantalla,
-    // y modo compatible con scroll vertical suave (disparo al soltar <= 42px) cuando hay desborde vertical de tarjetas.
+    // y modo compatible con scroll vertical suave (Map<pointerId> multi-toque + rescate pointercancel + pausa de re-renders).
     const bindOrderCardTap = (key: string, action: () => void, scrollSafe = false) => {
         if (scrollSafe) {
             return {
+                'data-ultra-tap': 'true' as const,
                 onPointerDown: (e: React.PointerEvent) => {
                     if (e.pointerType === 'mouse' && e.button !== 0) return
+                    markPrepTouchActive(true)
                     if (!doesOrdersScrollOverflow()) {
                         triggerGestureSafeTap(key, 'down', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
                         return
                     }
-                    prepPointerStartRef.current = {
+                    prepPointerStartsRef.current.set(e.pointerId, {
                         x: e.clientX,
                         y: e.clientY,
                         maxDist: 0,
                         key,
                         at: Date.now(),
                         firedOnDown: false
-                    }
+                    })
                 },
                 onPointerMove: (e: React.PointerEvent) => {
-                    const start = prepPointerStartRef.current
+                    const start = prepPointerStartsRef.current.get(e.pointerId)
                     if (!start || start.key !== key) return
                     const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
                     if (dist > start.maxDist) start.maxDist = dist
                 },
                 onPointerUp: (e: React.PointerEvent) => {
                     if (e.pointerType === 'mouse' && e.button !== 0) return
-                    const start = prepPointerStartRef.current
+                    markPrepTouchActive(false)
+                    const start = prepPointerStartsRef.current.get(e.pointerId)
+                    prepPointerStartsRef.current.delete(e.pointerId)
                     if (start && start.key === key) {
-                        prepPointerStartRef.current = null
                         const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
                         const elapsed = Date.now() - start.at
                         if (!start.firedOnDown && dist <= 42 && start.maxDist <= 42 && elapsed <= 3500) {
@@ -1519,17 +1620,26 @@ export default function PreparadorPage() {
                         }
                     }
                 },
+                onPointerCancel: (e: React.PointerEvent) => {
+                    markPrepTouchActive(false)
+                    const start = prepPointerStartsRef.current.get(e.pointerId)
+                    prepPointerStartsRef.current.delete(e.pointerId)
+                    if (start && start.key === key && !start.firedOnDown && start.maxDist <= 34 && Date.now() - start.at <= 3500) {
+                        triggerGestureSafeTap(key, 'cancel', action, 450, e.pointerType === 'mouse' ? 'mouse' : 'touch')
+                    }
+                },
                 onContextMenu: (e: React.MouseEvent) => {
                     e.preventDefault()
                 },
-                onClick: () => {
-                    if (!doesOrdersScrollOverflow()) {
+                onClick: (e: React.MouseEvent) => {
+                    // Respaldo para teclado (e.detail === 0) o clic limpio cuando no hubo scroll
+                    if (e.detail === 0 || !doesOrdersScrollOverflow()) {
                         triggerGestureSafeTap(key, 'click', action, 450, 'unknown')
                     }
                 }
             }
         }
-        return bindOrderCardUltraTap(key, action)
+        return { 'data-ultra-tap': 'true' as const, ...bindOrderCardUltraTap(key, action) }
     }
 
     const bindOrderCardUltraTap = (key: string, action: () => void) => ({
@@ -1574,97 +1684,99 @@ export default function PreparadorPage() {
     })
 
     // Disparo instantáneo al PRIMER CONTACTO (0ms) para botones fijos fuera de listas con scroll
-    // Ideal para uso con guantes de cocina sobre mica protectora, blindado por gesto completo
+    // Ideal para uso con guantes de cocina sobre mica protectora, blindado por gesto completo y data-ultra-tap
     const bindPrepInstantTap = (key: string, action: () => void) => ({
+        'data-ultra-tap': 'true' as const,
+        'data-tap-key': key,
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'down', action, 400, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
-        onTouchStart: () => {
+        onTouchStart: (e: React.TouchEvent) => {
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'down', action, 400, 'touch')
         },
         onMouseDown: (e: React.MouseEvent) => {
             if (e.button !== 0) return
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'down', action, 400, 'mouse')
         },
         onPointerUp: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'up', action, 400, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
-        onTouchEnd: () => {
+        onTouchEnd: (e: React.TouchEvent) => {
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'up', action, 400, 'touch')
         },
         onPointerCancel: (e: React.PointerEvent) => {
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'cancel', action, 400, e.pointerType === 'mouse' ? 'mouse' : 'touch')
         },
-        onTouchCancel: () => {
+        onTouchCancel: (e: React.TouchEvent) => {
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'cancel', action, 400, 'touch')
         },
         onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
         },
-        onClick: () => {
+        onClick: (e: React.MouseEvent) => {
+            e.stopPropagation()
             triggerGestureSafeTap(key, 'click', action, 400, 'unknown')
         }
     })
 
-    // Toque ultra-tolerante para tarjetas de Alimentos/Insumos
+    // Toque ultra-tolerante para tarjetas de Alimentos/Insumos (1200ms dedupe anti +2 en guantes lentos, Map<pointerId>)
     const bindPrepForgivingTap = (key: string, action: () => void) => ({
+        'data-ultra-tap': 'true' as const,
+        'data-tap-key': key,
         onPointerDown: (e: React.PointerEvent) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return
-            const scroller = (e.currentTarget as HTMLElement | null)?.closest?.('.overflow-y-auto') as HTMLElement | null
-            const hasVerticalScroll = !!scroller && (scroller.scrollHeight > scroller.clientHeight + 24)
-            if (!hasVerticalScroll) {
-                prepPointerStartRef.current = { x: e.clientX, y: e.clientY, maxDist: 0, key, at: Date.now(), firedOnDown: true }
-                triggerPrepDedupedAction(key, action, 320)
-                return
-            }
-            prepPointerStartRef.current = { x: e.clientX, y: e.clientY, maxDist: 0, key, at: Date.now(), firedOnDown: false }
-        },
-        onTouchStart: (e: React.TouchEvent) => {
-            const scroller = (e.currentTarget as HTMLElement | null)?.closest?.('.overflow-y-auto') as HTMLElement | null
-            const hasVerticalScroll = !!scroller && (scroller.scrollHeight > scroller.clientHeight + 24)
-            if (!hasVerticalScroll) {
-                triggerPrepDedupedAction(key, action, 320)
-            }
+            prepPointerStartsRef.current.set(e.pointerId, {
+                x: e.clientX,
+                y: e.clientY,
+                maxDist: 0,
+                key,
+                at: Date.now(),
+                firedOnDown: false
+            })
         },
         onPointerMove: (e: React.PointerEvent) => {
-            const start = prepPointerStartRef.current
+            const start = prepPointerStartsRef.current.get(e.pointerId)
             if (!start || start.key !== key) return
             const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
             if (dist > start.maxDist) start.maxDist = dist
         },
         onPointerUp: (e: React.PointerEvent) => {
-            const start = prepPointerStartRef.current
-            prepPointerStartRef.current = null
+            if (e.pointerType === 'mouse' && e.button !== 0) return
+            const start = prepPointerStartsRef.current.get(e.pointerId)
+            prepPointerStartsRef.current.delete(e.pointerId)
             if (!start || start.key !== key || start.firedOnDown) return
             const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y)
             const elapsed = Date.now() - start.at
-            if (dist <= 85 && start.maxDist <= 85 && elapsed <= 4000) {
-                triggerPrepDedupedAction(key, action, 320)
+            if (dist <= 54 && start.maxDist <= 54 && elapsed <= 4000) {
+                triggerPrepDedupedAction(key, action, 1200)
             }
         },
-        onPointerCancel: () => {
-            const start = prepPointerStartRef.current
-            prepPointerStartRef.current = null
+        onPointerCancel: (e: React.PointerEvent) => {
+            const start = prepPointerStartsRef.current.get(e.pointerId)
+            prepPointerStartsRef.current.delete(e.pointerId)
             if (!start || start.key !== key || start.firedOnDown) return
-            if (start.maxDist <= 55 && Date.now() - start.at <= 4000) {
-                triggerPrepDedupedAction(key, action, 320)
-            }
-        },
-        onTouchCancel: () => {
-            const start = prepPointerStartRef.current
-            prepPointerStartRef.current = null
-            if (!start || start.key !== key || start.firedOnDown) return
-            if (start.maxDist <= 55 && Date.now() - start.at <= 4000) {
-                triggerPrepDedupedAction(key, action, 320)
+            if (start.maxDist <= 40 && Date.now() - start.at <= 4000) {
+                triggerPrepDedupedAction(key, action, 1200)
             }
         },
         onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
         },
-        onClick: () => {
-            triggerPrepDedupedAction(key, action, 320)
+        onClick: (e: React.MouseEvent) => {
+            if (e.detail === 0) {
+                triggerPrepDedupedAction(key, action, 320)
+            } else {
+                triggerPrepDedupedAction(key, action, 1200)
+            }
         }
     })
 
@@ -1678,6 +1790,7 @@ export default function PreparadorPage() {
         source: 'touch' | 'mouse' = 'touch',
         eventTarget?: EventTarget | null
     ): boolean => {
+        if (Date.now() < suppressOrderCallsUntilRef.current) return false
         if (!containerEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false
         const targetEl = eventTarget as HTMLElement | null
         if (targetEl?.closest?.('[data-no-proximity="true"], button:not([data-order-tap-id]), a, select, input, textarea')) {
@@ -1700,7 +1813,7 @@ export default function PreparadorPage() {
         }
 
         let closestTapId = ''
-        let minDistance = 40 // 40px de halo magnético adecuado para pantalla grande de 15.6"
+        let minDistance = getAdaptiveProximityRadiusPx() // 18px en 10.9" Tab S10 FE, 38px en 15.6" MESWAO
 
         for (let i = 0; i < items.length; i++) {
             const { tapId, rect } = items[i]
@@ -1768,7 +1881,7 @@ export default function PreparadorPage() {
         if (!list || list.length === 0) return
         for (let i = 0; i < list.length; i++) {
             const pt = list[i]
-            if (handleOrdersProximityRadar(pt.clientX, pt.clientY, e.currentTarget, phase, 'touch', e.target)) {
+            if (handleOrdersProximityRadar(pt.clientX, pt.clientY, e.currentTarget, phase, 'touch', pt.target || e.target)) {
                 return
             }
         }
@@ -1777,6 +1890,7 @@ export default function PreparadorPage() {
     // Acción de llamado de orden (impulso táctil enviado a la PC del Manager; la voz suena EXCLUSIVAMENTE en la PC)
     const handleCallOrderImpulse = async (order: any) => {
         if (!order || !order.id) return
+        if (Date.now() < suppressOrderCallsUntilRef.current) return
         if (callingIdsRef.current.has(order.id)) {
             try {
                 if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
@@ -1872,10 +1986,25 @@ export default function PreparadorPage() {
                 return false
             })()
 
-            const [wsSettled, apiSettled] = await Promise.allSettled([wsPromise, apiPromise])
-            const wsOk = wsSettled.status === 'fulfilled' && wsSettled.value === true
-            const apiOk = apiSettled.status === 'fulfilled' && apiSettled.value === true
-            deliveredOk = apiOk || wsOk
+            // Confirmar al instante en cuanto WS o REST entregue (sin esperar 14-26s al canal más lento)
+            deliveredOk = await new Promise<boolean>((resolve) => {
+                let pending = 2
+                let settled = false
+                const onResult = (ok: boolean) => {
+                    pending -= 1
+                    if (ok && !settled) {
+                        settled = true
+                        resolve(true)
+                        return
+                    }
+                    if (pending <= 0 && !settled) {
+                        settled = true
+                        resolve(false)
+                    }
+                }
+                wsPromise.then((v) => onResult(v === true)).catch(() => onResult(false))
+                apiPromise.then((v) => onResult(v === true)).catch(() => onResult(false))
+            })
 
             if (deliveredOk) {
                 setCallSuccessOrderIds(prev => new Set(prev).add(order.id))
@@ -1891,7 +2020,6 @@ export default function PreparadorPage() {
             console.error('Error enviando impulso de orden desde tableta:', err)
             setCallErrorOrderIds(prev => new Set(prev).add(order.id))
         } finally {
-            // Si el envío fue exitoso aplica cooldown de 1800ms anti-rebote; si falló libera en 400ms para reintentar al instante
             const releaseMs = deliveredOk ? 1800 : 400
             setTimeout(() => {
                 callingIdsRef.current.delete(order.id)
@@ -1901,7 +2029,10 @@ export default function PreparadorPage() {
                     return next
                 })
             }, releaseMs)
-            setTimeout(() => {
+            const prevTimer = callStatusTimersRef.current.get(order.id)
+            if (prevTimer) clearTimeout(prevTimer)
+            const nextTimer = setTimeout(() => {
+                callStatusTimersRef.current.delete(order.id)
                 setCallSuccessOrderIds(prev => {
                     if (!prev.has(order.id)) return prev
                     const next = new Set(prev)
@@ -1915,6 +2046,7 @@ export default function PreparadorPage() {
                     return next
                 })
             }, 4000)
+            callStatusTimersRef.current.set(order.id, nextTimer)
         }
     }
     
@@ -1925,178 +2057,120 @@ export default function PreparadorPage() {
     const [loadingWasteData, setLoadingWasteData] = useState(false)
     const [showWasteInfo, setShowWasteInfo] = useState(false)
 
-    // Carga de Datos de Merma (para el día de hoy o días pasados)
+    // Carga de Datos de Merma (usa bloques reales de 30m sin romperse en modo Tramos ni mezclar fechas pasadas)
     useEffect(() => {
         if (!showWasteModal || !storeId) return
-
-        // Función para obtener la fecha local de LA de hoy
-        const getLATodayStr = () => {
-            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-            const laDate = new Date(laTimeStr)
-            if (laDate.getHours() < 6) laDate.setDate(laDate.getDate() - 1)
-            return laDate.getFullYear() + '-' + String(laDate.getMonth() + 1).padStart(2, '0') + '-' + String(laDate.getDate()).padStart(2, '0')
-        }
-
-        const todayStr = getLATodayStr()
-        
-        // Si no se ha inicializado la fecha seleccionada, la ponemos en hoy
+        const todayStr = getCaliforniaBusinessDate()
         if (!selectedWasteDate) {
             setSelectedWasteDate(todayStr)
             return
         }
 
+        let cancelled = false
         const loadData = async () => {
             setLoadingWasteData(true)
             const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
-            const isToday = selectedWasteDate === todayStr
+            const wasteIsToday = selectedWasteDate === todayStr
 
-            if (isToday) {
-                // Para hoy, calculamos en base a los datos en vivo que ya están cargados en el componente
-                // 1. Obtener la hora actual en LA para ver qué bloques ya se completaron
+            // Solo reutilizar estado en vivo si el modal pide HOY y la pantalla principal también está en HOY
+            if (wasteIsToday && isToday) {
                 const d = new Date()
                 const formatter = new Intl.DateTimeFormat('en-US', {
                     timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false
-                });
-                let timeParts = formatter.format(d).split(':')
+                })
+                const timeParts = formatter.format(d).split(':')
                 let h = parseInt(timeParts[0], 10)
-                let m = parseInt(timeParts[1], 10)
-                if (h === 24) h = 0;
-                const curMin = h * 60 + m;
+                const m = parseInt(timeParts[1], 10)
+                if (h === 24) h = 0
+                const curMin = h * 60 + m
+                const adjustedCurMin = h < 6 ? curMin + 24 * 60 : curMin
 
                 const stats = proteins.map(proto => {
                     let totalProj = 0
                     let totalReal = 0
                     let count = 0
 
-                    carouselBuckets.forEach((bucket) => {
-                        if (!bucket.id || !bucket.id.includes(':')) return
-                        const [bh, bm] = bucket.id.split(':').map(Number)
-                        const bMin = (bh || 0) * 60 + (bm || 0)
-                        
+                    meatData.forEach((item) => {
+                        if (item.meat_type !== proto || !item.interval_start) return
+                        const [bh, bm] = item.interval_start.split(':').map(Number)
+                        if (!Number.isFinite(bh) || !Number.isFinite(bm)) return
+                        const bMin = bh * 60 + bm
                         const adjustedBMin = bh < 6 ? bMin + 24 * 60 : bMin
-                        const adjustedCurMin = h < 6 ? curMin + 24 * 60 : curMin
-                        
-                        if (adjustedBMin < adjustedCurMin) {
-                            const item = bucket.data.find(d => d.meat_type === proto)
-                            if (item) {
-                                totalProj += item.avg_lbs * intelligenceAcelerador
-                                if (item.real_lbs !== undefined) {
-                                    totalReal += item.real_lbs
-                                    count++
-                                }
-                            }
+                        // Solo bloques de 30 min ya COMPLETADOS (excluye bloque en curso)
+                        if (adjustedBMin + 30 <= adjustedCurMin) {
+                            totalProj += Number(item.avg_lbs || 0) * intelligenceAcelerador
                         }
                     })
 
-                    return {
-                        proto,
-                        totalProj,
-                        totalReal,
-                        hasRealData: count > 0
-                    }
+                    realMeatData.forEach((rm) => {
+                        if (rm.meat_type !== proto || !rm.interval_start) return
+                        const [bh, bm] = rm.interval_start.split(':').map(Number)
+                        if (!Number.isFinite(bh) || !Number.isFinite(bm)) return
+                        const bMin = bh * 60 + bm
+                        const adjustedBMin = bh < 6 ? bMin + 24 * 60 : bMin
+                        if (adjustedBMin + 30 <= adjustedCurMin) {
+                            totalReal += Number(rm.real_lbs || 0)
+                            count++
+                        }
+                    })
+
+                    return { proto, totalProj, totalReal, hasRealData: count > 0 }
                 })
-                setWasteData(stats)
-                setLoadingWasteData(false)
-            } else {
-                // Para días pasados: cargamos dinámicamente de la base de datos y la API
-                try {
-                    // A. Calcular el DOW de la fecha seleccionada
-                    const parts = selectedWasteDate.split('-').map(Number)
-                    const parsedDate = new Date(parts[0], parts[1] - 1, parts[2])
-                    const jsDow = parsedDate.getDay()
-                    const targetDOW = jsDow === 0 ? 7 : jsDow
-
-                    // B. Carga de proyecciones históricas (promedios) para ese DOW
-                    const resHistory = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDOW}`)
-                    const historyJson = await resHistory.json()
-
-                    // C. Carga de factor de inteligencia de ese día
-                    const resIntel = await fetch(`/api/preparador/intelligence?store_id=${storeId}&date=${selectedWasteDate}`)
-                    const intelJson = resIntel.ok ? await resIntel.json() : { growth_factor: 1.0 }
-                    const factor = intelJson.growth_factor || 1.0
-
-                    // D. Carga de consumos reales grabados en DB para ese día
-                    const { data: realData, error: dbErr } = await supabase
-                        .from('meat_consumption_history')
-                        .select('interval_start, meat_type, raw_lbs')
-                        .eq('store_id', storeId)
-                        .eq('business_date', selectedWasteDate)
-
-                    if (dbErr) throw dbErr
-
-                    const stats = proteins.map(proto => {
-                        let totalProj = 0
-                        let totalReal = 0
-                        let count = 0
-
-                        // El histórico tiene intervalos de 30 mins (igual que hoy)
-                        if (Array.isArray(historyJson)) {
-                            const filteredHist = historyJson.filter((m: any) => m.meat_type === proto)
-                            filteredHist.forEach((item: any) => {
-                                totalProj += item.avg_lbs * factor
-                            })
-                        }
-
-                        // Consumo real registrado
-                        if (Array.isArray(realData)) {
-                            const filteredReal = realData.filter((d: any) => d.meat_type === proto)
-                            filteredReal.forEach((item: any) => {
-                                totalReal += Number(item.raw_lbs || 0)
-                                count++
-                            })
-                        }
-
-                        return {
-                            proto,
-                            totalProj,
-                            totalReal,
-                            hasRealData: count > 0
-                        }
-                    })
+                if (!cancelled) {
                     setWasteData(stats)
-                } catch (e) {
-                    console.error("Error loading past waste data:", e)
-                    setWasteData([])
-                } finally {
                     setLoadingWasteData(false)
                 }
+                return
             }
-        }
 
-        loadData()
-    }, [showWasteModal, selectedWasteDate, storeId, carouselBuckets, intelligenceAcelerador, supabase])
-
-    // Wake Lock Effect to keep screen active on tablets
-    useEffect(() => {
-        let wakeLock: any = null;
-        async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await (navigator as any).wakeLock.request('screen');
-                    console.log("Wake Lock acquired successfully");
-                }
-            } catch (err) {
-                console.warn("Wake Lock failed:", err);
+                const targetDOW = getDowFromDate(selectedWasteDate)
+                const [resHistory, resIntel] = await Promise.all([
+                    fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDOW}`, { signal: AbortSignal.timeout(8000) }),
+                    fetch(`/api/preparador/intelligence?store_id=${storeId}&date=${selectedWasteDate}`, { signal: AbortSignal.timeout(8000) })
+                ])
+                const historyJson = resHistory.ok ? await resHistory.json() : []
+                const intelJson = resIntel.ok ? await resIntel.json() : { growth_factor: 1.0 }
+                const factor = Number(intelJson?.growth_factor || 1.0)
+
+                const { data: realData, error: dbErr } = await supabase
+                    .from('meat_consumption_history')
+                    .select('interval_start, meat_type, raw_lbs')
+                    .eq('store_id', storeId)
+                    .eq('business_date', selectedWasteDate)
+                if (dbErr) throw dbErr
+
+                const stats = proteins.map(proto => {
+                    let totalProj = 0
+                    let totalReal = 0
+                    let count = 0
+                    if (Array.isArray(historyJson)) {
+                        historyJson.forEach((item: any) => {
+                            if (item.meat_type === proto) totalProj += Number(item.avg_lbs || 0) * factor
+                        })
+                    }
+                    if (Array.isArray(realData)) {
+                        realData.forEach((item: any) => {
+                            if (item.meat_type === proto) {
+                                totalReal += Number(item.raw_lbs || 0)
+                                count++
+                            }
+                        })
+                    }
+                    return { proto, totalProj, totalReal, hasRealData: count > 0 }
+                })
+                if (!cancelled) setWasteData(stats)
+            } catch (e) {
+                console.error("Error loading waste data:", e)
+                if (!cancelled) setWasteData([])
+            } finally {
+                if (!cancelled) setLoadingWasteData(false)
             }
         }
-        requestWakeLock();
-        
-        const handleVisibilityChange = () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') {
-                requestWakeLock();
-            }
-        };
-        document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            if (wakeLock) {
-                wakeLock.release().then(() => {
-                    wakeLock = null;
-                });
-            }
-        };
-    }, []);
+        void loadData()
+        return () => { cancelled = true }
+    }, [showWasteModal, selectedWasteDate, storeId, isToday, meatData, realMeatData, intelligenceAcelerador, supabase])
 
     // Alarma de Cocción
     const [showCookAlert, setShowCookAlert] = useState(false)
@@ -2141,47 +2215,48 @@ export default function PreparadorPage() {
     const grillPanelRef = useRef<HTMLDivElement>(null)
     const carouselContainerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    isFullscreenRef.current = isFullscreen
     const wheelThrottleRef = useRef<number>(0)
-    const [scrollDirection, setScrollDirection] = useState<number>(1)
 
     useEffect(() => { setMounted(true) }, [])
 
-    // Listener nativo no-pasivo para el scroll de la rueda del ratón (mouse wheel)
-    // Previene el desplazamiento vertical del navegador (native scroll) y cambia de tarjeta limpiamente
+    // Medir desborde vertical real del contenedor de órdenes para activar pan-y scroll seguro con exactitud (3–4 órdenes en 10.9" incluidas)
+    useEffect(() => {
+        const scroller = ordersScrollContainerRef.current
+        if (!scroller) {
+            setOrdersHasOverflow(readyOrdersList.length >= 5)
+            return
+        }
+        const measure = () => {
+            setOrdersHasOverflow(scroller.scrollHeight > scroller.clientHeight + 12)
+        }
+        measure()
+        if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(measure)
+            ro.observe(scroller)
+            return () => ro.disconnect()
+        }
+    }, [readyOrdersList.length, activeTab, hideCookingPanel, isFullscreen])
+
+    // Listener nativo no-pasivo para el scroll de la rueda del ratón (se re-adjunta al mostrar/ocultar parrilla)
     useEffect(() => {
         const targetEl = carouselContainerRef.current
-        if (!targetEl) return
+        if (!targetEl || hideCookingPanel) return
 
         const handleWheel = (e: WheelEvent) => {
-            // Evitar que la página o el contenedor se desplacen verticalmente
             e.preventDefault()
             e.stopPropagation()
 
             const now = Date.now()
             if (now - wheelThrottleRef.current < 260) return
-
             if (Math.abs(e.deltaY) < 10) return
 
             if (e.deltaY > 0) {
-                // Rueda hacia abajo: Avanza al siguiente intervalo
-                setActiveIndex(prev => {
-                    if (prev < carouselBuckets.length - 1) {
-                        wheelThrottleRef.current = now
-                        setScrollDirection(1)
-                        return prev + 1
-                    }
-                    return prev
-                })
+                wheelThrottleRef.current = now
+                setActiveIndex(prev => (prev < carouselBuckets.length - 1 ? prev + 1 : prev))
             } else if (e.deltaY < 0) {
-                // Rueda hacia arriba: Retrocede al intervalo anterior
-                setActiveIndex(prev => {
-                    if (prev > 0) {
-                        wheelThrottleRef.current = now
-                        setScrollDirection(-1)
-                        return prev - 1
-                    }
-                    return prev
-                })
+                wheelThrottleRef.current = now
+                setActiveIndex(prev => (prev > 0 ? prev - 1 : prev))
             }
         }
 
@@ -2189,7 +2264,7 @@ export default function PreparadorPage() {
         return () => {
             targetEl.removeEventListener('wheel', handleWheel)
         }
-    }, [carouselBuckets.length])
+    }, [carouselBuckets.length, hideCookingPanel, mounted])
 
     // Reiniciar siempre el scroll hacia arriba cuando cambie el intervalo para evitar tarjetas cortadas
     useEffect(() => {
@@ -2256,75 +2331,82 @@ export default function PreparadorPage() {
                     const assignedStoreId = String(user.store_id)
                     setStoreId(assignedStoreId)
                     safeLocalStorageSet('teg_preparador_store', assignedStoreId)
-                } else {
-                    // Si es admin, recordamos su última selección en la tableta o tomamos la primera
+                } else if (sorted.length > 0) {
                     const saved = localStorage.getItem('teg_preparador_store')
-                    if (saved && data.find(s => String(s.id) === String(saved))) setStoreId(String(saved))
-                    else setStoreId(String(data[0].id))
+                    if (saved && sorted.find((s: any) => String(s.id) === String(saved))) setStoreId(String(saved))
+                    else setStoreId(String(sorted[0].id))
                 }
             }
         }
-        if (user !== undefined) fetchStores()
-    }, [supabase, user])
+        if (!authLoading && user) fetchStores()
+    }, [supabase, user, authLoading])
 
     // Load Meat Historial
     useEffect(() => {
         if (!storeId) return
+        let cancelled = false
         const fetchHistory = async (overrideDow?: number, overrideDate?: string) => {
             const targetDow = overrideDow || businessDow
-            const targetDate = overrideDate || selectedDate
             setFetchingMeat(true)
             try {
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDow}`, {
+                    signal: AbortSignal.timeout(8000)
+                })
+                if (!res.ok) throw new Error(`HTTP ${res.status}`)
                 const json = await res.json()
-                if (Array.isArray(json)) {
-                    // @businessRule: Solo se proyectan carnes de PARRILLA que necesitan anticipación.
+                if (!cancelled && Array.isArray(json)) {
                     const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
                     setMeatData(json.filter((m: any) => tablet1Proteins.includes(m.meat_type)))
+                    const todayLA = getLAEffectiveBusinessDate()
                     safeLocalStorageSet(`prep_meat_history_${storeId}_${targetDow}`, JSON.stringify(json), {
                         activeStoreId: storeId,
-                        activeDate: targetDate,
-                        activeDow: targetDow
+                        activeDate: overrideDate || todayLA,
+                        activeDow: getDowFromDate(todayLA)
                     })
                 }
             } catch (err) {
                 console.error(err)
-                const cached = localStorage.getItem(`prep_meat_history_${storeId}_${targetDow}`)
-                if (cached) {
-                    try {
-                        const json = JSON.parse(cached)
-                        const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
-                        setMeatData(json.filter((m: any) => tablet1Proteins.includes(m.meat_type)))
-                    } catch (e) {}
+                if (!cancelled) {
+                    const cached = localStorage.getItem(`prep_meat_history_${storeId}_${targetDow}`)
+                    if (cached) {
+                        try {
+                            const json = JSON.parse(cached)
+                            const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
+                            setMeatData(json.filter((m: any) => tablet1Proteins.includes(m.meat_type)))
+                        } catch (e) {}
+                    }
                 }
             } finally {
-                setFetchingMeat(false)
+                if (!cancelled) setFetchingMeat(false)
             }
         }
         fetchHistoryRef.current = fetchHistory
         fetchHistory()
-    }, [storeId, businessDow, selectedDate])
+        return () => { cancelled = true }
+    }, [storeId, businessDow])
 
     // Load Real Meat Consumptions (For TODAY or Selected Date)
     useEffect(() => {
         if (!storeId) return
+        let cancelled = false
         const fetchRealD = async (overrideDate?: string) => {
             const targetDate = overrideDate || selectedDate
             const targetIsToday = targetDate === getLAEffectiveBusinessDate()
+            const datedCacheKey = `prep_real_meat_${storeId}_${targetDate}`
             try {
-                const { data } = await supabase.from('meat_consumption_history')
+                const { data, error } = await supabase.from('meat_consumption_history')
                     .select('interval_start, meat_type, raw_lbs')
                     .eq('store_id', storeId)
                     .eq('business_date', targetDate)
-                    
-                if (data) {
+                if (error) throw error
+                if (!cancelled && data) {
                     setRealMeatData(data.map(d => ({
                         interval_start: d.interval_start,
                         meat_type: d.meat_type,
                         real_lbs: d.raw_lbs
                     })))
                     if (targetIsToday) {
-                        safeLocalStorageSet(`prep_real_meat_${storeId}`, JSON.stringify(data), {
+                        safeLocalStorageSet(datedCacheKey, JSON.stringify(data), {
                             activeStoreId: storeId,
                             activeDate: targetDate,
                             activeDow: getDowFromDate(targetDate)
@@ -2333,8 +2415,8 @@ export default function PreparadorPage() {
                 }
             } catch (err) {
                 console.error("Real meat fetch error:", err)
-                if (targetIsToday) {
-                    const cached = localStorage.getItem(`prep_real_meat_${storeId}`)
+                if (!cancelled && targetIsToday) {
+                    const cached = localStorage.getItem(datedCacheKey) || localStorage.getItem(`prep_real_meat_${storeId}`)
                     if (cached) {
                         try {
                             const data = JSON.parse(cached)
@@ -2356,9 +2438,10 @@ export default function PreparadorPage() {
                     fetchRealD()
                 }
             }, 5 * 60 * 1000)
-            return () => clearInterval(int)
+            return () => { cancelled = true; clearInterval(int) }
         }
-    }, [storeId, selectedDate, isToday, supabase, businessDow])
+        return () => { cancelled = true }
+    }, [storeId, selectedDate, isToday, supabase])
 
     // Intelligence Fetcher (Only active for TODAY)
     useEffect(() => {
@@ -2368,14 +2451,17 @@ export default function PreparadorPage() {
             setWeatherAlert(false)
             return
         }
+        let cancelled = false
         const fetchIntelligence = async (overrideDate?: string) => {
-            const targetDate = overrideDate || selectedDate
+            const targetDate = overrideDate || getLAEffectiveBusinessDate()
             try {
-                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`)
-                if (res.ok) {
+                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`, {
+                    signal: AbortSignal.timeout(8000)
+                })
+                if (res.ok && !cancelled) {
                     const data = await res.json()
                     setIntelligenceAcelerador(data.growth_factor || 1.0)
-                    setWeatherAlert(data.weather_adjustment || false)
+                    setWeatherAlert(Boolean(data.weather_adjustment))
                     safeLocalStorageSet(`prep_intelligence_${storeId}`, JSON.stringify(data), {
                         activeStoreId: storeId,
                         activeDate: targetDate,
@@ -2384,13 +2470,15 @@ export default function PreparadorPage() {
                 }
             } catch (err) {
                 console.error("Intelligence error:", err)
-                const cached = localStorage.getItem(`prep_intelligence_${storeId}`)
-                if (cached) {
-                    try {
-                        const data = JSON.parse(cached)
-                        setIntelligenceAcelerador(data.growth_factor || 1.0)
-                        setWeatherAlert(data.weather_adjustment || false)
-                    } catch (e) {}
+                if (!cancelled) {
+                    const cached = localStorage.getItem(`prep_intelligence_${storeId}`)
+                    if (cached) {
+                        try {
+                            const data = JSON.parse(cached)
+                            setIntelligenceAcelerador(data.growth_factor || 1.0)
+                            setWeatherAlert(Boolean(data.weather_adjustment))
+                        } catch (e) {}
+                    }
                 }
             }
         }
@@ -2401,8 +2489,8 @@ export default function PreparadorPage() {
                 fetchIntelligence()
             }
         }, 10 * 60 * 1000)
-        return () => clearInterval(int)
-    }, [storeId, isToday, selectedDate, businessDow])
+        return () => { cancelled = true; clearInterval(int) }
+    }, [storeId, isToday])
 
     // Sync Guide Modal DOW when opening
     useEffect(() => {
@@ -2417,17 +2505,23 @@ export default function PreparadorPage() {
         const fetchGuideHistory = async () => {
             setGuideModalLoading(true)
             try {
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${guideModalDow}&_t=${Date.now()}`, { cache: 'no-store' })
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${guideModalDow}&_t=${Date.now()}`, {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                })
+                if (!res.ok) return
                 const json = await res.json()
                 if (Array.isArray(json)) {
                     const PROTEINS = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
+                    // 48 bloques completos 06:00 -> 05:30 (día laboral Gavilán; el modal filtra Turno Principal 8a-1:30a o 24h)
                     const OPERATIONAL_TIMES: string[] = []
-                    for (let h = 8; h <= 23; h++) {
-                        const hh = h.toString().padStart(2, '0')
-                        OPERATIONAL_TIMES.push(`${hh}:00`)
-                        OPERATIONAL_TIMES.push(`${hh}:30`)
+                    let gh = 6
+                    let gm = 0
+                    for (let i = 0; i < 48; i++) {
+                        OPERATIONAL_TIMES.push(`${gh.toString().padStart(2, '0')}:${gm.toString().padStart(2, '0')}`)
+                        if (gm === 0) gm = 30
+                        else { gm = 0; gh = (gh + 1) % 24 }
                     }
-                    OPERATIONAL_TIMES.push('00:00', '00:30', '01:00', '01:30')
 
                     const intervalsMap: Record<string, any> = {}
                     json.forEach((d: any) => {
@@ -2544,6 +2638,12 @@ export default function PreparadorPage() {
                         if (cardDisplayMode === 'advanced') {
                             setNextBlockLabel(arr[foundCurrentIndex + 1]?.label || '')
                             setShowCookAlert(true)
+                            try {
+                                if (cookAlarmRef.current) {
+                                    cookAlarmRef.current.currentTime = 0
+                                    cookAlarmRef.current.play().catch(() => {})
+                                }
+                            } catch {}
                             if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([500, 200, 500])
                         }
                     }
@@ -2627,7 +2727,7 @@ export default function PreparadorPage() {
                         }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
                     }
 
-                    arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
+                    arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, startH: period.startH, endH: period.endH, duration: period.duration, label, isCurrent, data })
                 })
 
                 const bucketChanged = prevCurrentBucketIndexRef.current !== foundCurrentIndex
@@ -2645,7 +2745,7 @@ export default function PreparadorPage() {
         updateBuckets()
         const int = setInterval(updateBuckets, 15000)
         return () => clearInterval(int)
-    }, [meatData, realMeatData, viewMode, storeId])
+    }, [meatData, realMeatData, viewMode, storeId, cardDisplayMode])
 
     const addToCart = (item: string) => {
         setCart(prev => {
@@ -2667,10 +2767,15 @@ export default function PreparadorPage() {
         })
     }
 
+    const removeFromCart = (item: string) => {
+        setCart(prev => prev.filter(p => p.name !== item))
+    }
+
     const sendRequest = async () => {
         if (cart.length === 0 || !storeId) return
         setSending(true)
-        
+        setSupplyFeedback(null)
+
         const stringifiedItems = cart.map(c => c.qty > 1 ? `${c.qty}x ${c.name}` : c.name)
 
         const { error } = await supabase.from('preparador_requests').insert({
@@ -2679,15 +2784,82 @@ export default function PreparadorPage() {
             items: stringifiedItems,
             status: 'PENDING'
         })
-        
+
         if (error) {
             console.error("Error enviando alerta:", error)
+            setSupplyFeedback({ type: 'error', message: t('prep.requestSentError') })
         } else {
             setCart([])
-            const au = new Audio('/sounds/success.mp3')
-            au.play().catch(()=>{})
+            playTabletTick()
+            setSupplyFeedback({ type: 'success', message: t('prep.requestSentSuccess') })
         }
         setSending(false)
+        setTimeout(() => setSupplyFeedback(null), 4000)
+    }
+
+    // Guardar edición manual por bloque (soporta 30min exacto y expansión de Tramos a sus bloques HH:MM:00)
+    const handleSaveEditMeat = async () => {
+        if (!editingMeatItem) return
+        lastSaveTimeRef.current = Date.now()
+        if (editingMeatItem.isManualMode) {
+            const targetIntervals: string[] = []
+            if (
+                viewMode === 'tramos' &&
+                typeof editingMeatItem.periodStartH === 'number' &&
+                typeof editingMeatItem.periodEndH === 'number'
+            ) {
+                let hr = editingMeatItem.periodStartH
+                for (let step = 0; step < 24; step++) {
+                    if (step > 0 && hr === editingMeatItem.periodEndH) break
+                    const hh = hr.toString().padStart(2, '0')
+                    targetIntervals.push(`${hh}:00:00`, `${hh}:30:00`)
+                    hr = (hr + 1) % 24
+                }
+            } else if (editingMeatItem.intervalStart) {
+                targetIntervals.push(normTime(editingMeatItem.intervalStart))
+            }
+
+            if (targetIntervals.length > 0) {
+                const updatedMap = { ...manualWeeklySchedule }
+                for (const iv of targetIntervals) {
+                    updatedMap[`${iv}_${editingMeatItem.meatType}`] = tempEditValue
+                }
+                setManualWeeklySchedule(updatedMap)
+                const todayLA = getLAEffectiveBusinessDate()
+                safeLocalStorageSet(`teg_prep_manual_weekly_${storeId}_${businessDow}`, JSON.stringify(updatedMap), {
+                    activeStoreId: storeId,
+                    activeDate: todayLA,
+                    activeDow: getDowFromDate(todayLA)
+                })
+                try {
+                    // Guardar secuencial/acotado (concurrencia <= 2, Regla Protección de Servidores)
+                    for (const iv of targetIntervals) {
+                        await fetch('/api/inventory/preparador-manual-schedule', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json', ...getTabletNoCacheHeaders() },
+                            signal: AbortSignal.timeout(8000),
+                            body: JSON.stringify({
+                                storeId,
+                                dow: businessDow,
+                                intervalStart: iv,
+                                meatType: editingMeatItem.meatType,
+                                maxLbs: tempEditValue
+                            })
+                        })
+                    }
+                    void fetchManualScheduleRef.current?.(businessDow, selectedDate, true)
+                } catch (e) {
+                    console.error('Error saving manual schedule:', e)
+                }
+            }
+        } else {
+            persistManualOverrides({
+                ...manualOverrides,
+                [editingMeatItem.key]: tempEditValue
+            })
+        }
+        setEditingMeatItem(null)
     }
 
     if (!mounted || authLoading) return <div className="p-8 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
@@ -2696,2100 +2868,416 @@ export default function PreparadorPage() {
         return <div className="p-8 text-center text-red-500 text-2xl font-bold">{t('prep.accessDenied')}</div>
     }
 
+    const isSuper = ['admin', 'supervisor'].includes(user.role?.toLowerCase() || '')
+    const currentStoreObj = stores.find((s) => String(s.id) === String(storeId))
+    const currentStoreName = currentStoreObj?.name || ''
+    const numericStoreId = Number(storeId)
+    const cartTotalQty = cart.reduce((acc, item) => acc + item.qty, 0)
+
+    const { sortedHours, hourlyMap } = getHourlyData()
+    const hourlyRows = sortedHours.map((hourKey) => {
+        const vals = hourlyMap.get(hourKey)!
+        const hh = parseInt(hourKey.split(':')[0], 10)
+        const period = hh >= 12 ? 'PM' : 'AM'
+        const h12 = hh % 12 === 0 ? 12 : hh % 12
+        const total = vals.ASADA + vals.PASTOR + vals.POLLO + vals.CABEZA + vals.LENGUA
+        return {
+            hour: hourKey,
+            label: `${h12}:00 ${period}`,
+            ...vals,
+            total
+        }
+    })
+
+    const handleCarouselTouchStart = (e: React.TouchEvent) => {
+        touchEndRef.current = null
+        touchStartRef.current = e.targetTouches[0]?.clientY ?? null
+    }
+    const handleCarouselTouchMove = (e: React.TouchEvent) => {
+        touchEndRef.current = e.targetTouches[0]?.clientY ?? null
+    }
+    const handleCarouselTouchEnd = () => {
+        if (touchStartRef.current === null || touchEndRef.current === null) return
+        const diff = touchStartRef.current - touchEndRef.current
+        if (Math.abs(diff) < 22) return
+        if (diff > 0 && activeIndex < carouselBuckets.length - 1) {
+            setActiveIndex((i) => Math.min(carouselBuckets.length - 1, i + 1))
+        } else if (diff < 0 && activeIndex > 0) {
+            setActiveIndex((i) => Math.max(0, i - 1))
+        }
+        touchStartRef.current = null
+        touchEndRef.current = null
+    }
+
     return (
-        <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100dvh-64px)]'}`}>
+        <div
+            ref={containerRef}
+            className={`${isDark ? 'dark bg-[#111214] text-[#F5F2EB]' : 'bg-[#F3EFE7] text-[#171614]'} flex flex-col overflow-hidden transition-colors ${
+                isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100dvh-56px)] lg:h-[calc(100dvh-56px)]'
+            }`}
+        >
             <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" loop className="hidden" />
 
-            {/* Toast Alerta Despertar Tableta */}
-            <AnimatePresence>
-                {wakeToast && (
-                    <motion.div 
-                        initial={{ opacity: 0, y: -40, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -40, scale: 0.95 }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[999999] bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-5 sm:px-6 py-3 sm:py-3.5 rounded-2xl font-black text-xs sm:text-sm md:text-base shadow-2xl flex items-center gap-2.5 sm:gap-3 border-2 border-emerald-300 backdrop-blur-md max-w-[90vw]"
-                    >
-                        <CheckCircle2 size={22} className="text-emerald-200 shrink-0" />
-                        <span>{t('prep.tabletAwakeSuccess')}</span>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {/* 1. BARRA SUPERIOR INSTRUMENTAL ÚNICA (50px en Tableta/Desktop, 48px en Móvil) */}
+            <PreparadorTopRail
+                isDark={isDark}
+                isFullscreen={isFullscreen}
+                hideCookingPanel={hideCookingPanel}
+                activeTab={activeTab}
+                cartTotalQty={cartTotalQty}
+                storeName={currentStoreName}
+                cardDisplayMode={cardDisplayMode}
+                viewMode={viewMode}
+                isToday={isToday}
+                selectedDate={selectedDate}
+                loadingReadyOrders={loadingReadyOrders}
+                wakingUpTablet={wakingUpTablet}
+                liveClockText={liveClockText}
+                bindInstantTap={bindPrepInstantTap}
+                onToggleHideCooking={(next) => toggleHideCookingPanel(next)}
+                onOpenSuppliesQuick={() => {
+                    if (activeTab === 'alimentos') {
+                        setActiveTab('ordenes')
+                        fetchReadyOrders(false)
+                    } else {
+                        setActiveTab('alimentos')
+                    }
+                }}
+                onBackToToday={() => {
+                    const today = getLAEffectiveBusinessDate()
+                    setSelectedDate(today)
+                }}
+                onManualRefresh={() => void fetchReadyOrders(true)}
+                onWakeUpTablet={() => void handleWakeUpTablet()}
+                onOpenManagerSheet={() => setShowMobileSettingsDrawer(true)}
+                onToggleFullscreen={toggleFullscreen}
+            />
 
-            {/* Modal Despertar Tableta tras 3 Horas de Inactividad */}
-            <AnimatePresence>
-                {showWakeUpModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={handleWakeUpTablet}
-                        className="fixed inset-0 z-[999998] bg-slate-950/92 backdrop-blur-lg flex items-center justify-center p-4 sm:p-8 cursor-pointer select-none"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.92, y: 30 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.92, y: 30 }}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                handleWakeUpTablet()
-                            }}
-                            className="bg-slate-900 border-2 border-amber-500/70 max-w-2xl w-full rounded-[36px] shadow-[0_0_120px_rgba(245,158,11,0.35)] p-6 sm:p-10 md:p-12 flex flex-col items-center text-center relative overflow-hidden"
-                        >
-                            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-amber-500/15 border-2 border-amber-400/50 flex items-center justify-center mb-5 sm:mb-6 shadow-[0_0_40px_rgba(245,158,11,0.3)]">
-                                <Sun size={56} className="text-amber-400 animate-spin" style={{ animationDuration: '10s' }} />
-                            </div>
-
-                            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white uppercase tracking-tight leading-tight mb-3">
-                                {t('prep.wakeModalTitle')}
-                            </h2>
-                            <p className="text-slate-300 font-medium text-sm sm:text-base md:text-lg mb-6 max-w-xl">
-                                {t('prep.wakeModalSubtitle')}
-                            </p>
-
-                            <div className="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-4 sm:p-5 mb-6 sm:mb-8 text-left space-y-2.5">
-                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-emerald-300">
-                                    <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-                                    <span>{t('prep.wakeModalCheck1')}</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-amber-200">
-                                    <Clock size={18} className="text-amber-400 shrink-0" />
-                                    <span>{t('prep.wakeModalCheck2')}</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-xs sm:text-sm font-bold text-sky-200">
-                                    <RefreshCw size={18} className="text-sky-400 shrink-0" />
-                                    <span>{t('prep.wakeModalCheck3')}</span>
-                                </div>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleWakeUpTablet()
-                                }}
-                                disabled={wakingUpTablet}
-                                className="w-full py-5 sm:py-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-white font-black text-xl sm:text-2xl md:text-3xl uppercase tracking-wider shadow-[0_10px_40px_rgba(245,158,11,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3 cursor-pointer border border-amber-300/50"
-                            >
-                                {wakingUpTablet ? (
-                                    <>
-                                        <Loader2 size={28} className="animate-spin text-white" />
-                                        <span>{t('prep.wakingUpTablet')}</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Sun size={30} className="animate-spin text-amber-100" style={{ animationDuration: '10s' }} />
-                                        <span>{t('prep.wakeUpTablet')}</span>
-                                    </>
-                                )}
-                            </button>
-
-                            <p className="text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">
-                                {t('prep.wakeModalTapHint')}
-                            </p>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Modal Alerta de Cocción */}
-            <AnimatePresence>
-                {showCookAlert && (
-                    <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[99999] bg-red-950/90 backdrop-blur-md flex items-center justify-center p-4 xl:p-10"
-                    >
-                        <motion.div 
-                            initial={{ scale: 0.9, y: 50 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 50 }}
-                            className="bg-slate-900 border-2 border-red-500 max-w-4xl w-full rounded-[40px] shadow-[0_0_150px_rgba(239,68,68,0.4)] p-6 sm:p-8 md:p-16 flex flex-col items-center text-center"
-                        >
-                            <BellRing size={80} className="text-red-500 animate-bounce mb-6 sm:mb-8 sm:w-[120px] sm:h-[120px]" />
-                            <h2 className="text-2xl sm:text-4xl md:text-6xl font-black text-white px-2 sm:px-4 leading-tight uppercase mb-4 sm:mb-6 tracking-tighter">
-                                {t('prep.prepareNextBlock')}
-                            </h2>
-                            <p className="text-red-200 font-medium text-lg sm:text-2xl md:text-4xl mb-8 sm:mb-12 uppercase tracking-wide bg-red-950/50 py-3 sm:py-4 px-4 sm:px-8 rounded-2xl border border-red-500/30">
-                                {t('prep.nextSchedule')}<br/>
-                                <span className="text-white font-black">{nextBlockLabel}</span>
-                            </p>
-                            <button 
-                                onClick={() => {
-                                    setShowCookAlert(false)
-                                    if (cookAlarmRef.current) {
-                                        cookAlarmRef.current.pause()
-                                        cookAlarmRef.current.currentTime = 0
-                                    }
-                                }}
-                                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black py-4 sm:py-6 rounded-2xl text-lg sm:text-2xl uppercase tracking-wider shadow-2xl transition-transform active:scale-95 cursor-pointer"
-                            >
-                                {t('prep.understood')}
-                            </button>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* TOP BAR ULTRA-COMPACTO PARA TELÉFONOS MÓVILES (< lg) */}
-            <div className="lg:hidden bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-between shrink-0 shadow-xs z-30">
-                <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-black text-sm tracking-wider uppercase text-slate-800 dark:text-white flex items-center gap-1.5 truncate">
-                        <Flame size={18} className="text-orange-500 shrink-0" />
-                        <span>PREPARADOR</span>
-                    </span>
-                    <button 
-                        onClick={() => setShowMobileSettingsDrawer(true)}
-                        className="flex items-center gap-1 text-[11px] font-extrabold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full text-slate-700 dark:text-slate-300 truncate cursor-pointer active:scale-95 transition-transform"
-                    >
-                        <Store size={12} className="text-slate-400 shrink-0" />
-                        <span className="truncate max-w-[90px]">{stores.find(s => s.id === storeId)?.name || 'Tienda'}</span>
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <button 
-                        onClick={() => setShowMobileSettingsDrawer(true)}
-                        className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer active:scale-95 transition-transform"
-                        title={t('prep.ajustes')}
-                    >
-                        <SlidersHorizontal size={16} />
-                    </button>
-                </div>
-            </div>
-
-            {/* HEADER / NAVBAR COMPLETO PARA DESKTOP Y TABLETAS (>= lg) */}
-            <div className="hidden lg:flex bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 md:p-4 justify-between items-center shrink-0 shadow-sm relative">
-                <div className="flex items-center gap-3">
-                    <button 
-                        onClick={toggleFullscreen} 
-                        className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl font-bold text-xs transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 shadow-xs"
-                        title={t('prep.tabletMode')}
-                    >
-                        {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                        <span className="font-extrabold uppercase">{isFullscreen ? t('prep.exit') : t('prep.tablet')}</span>
-                    </button>
-                    <div>
-                        <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>
-                        {!isFullscreen && <p className="text-xs text-slate-500 font-medium hidden sm:block">{t('prep.subtitle')}</p>}
-                    </div>
-
-                    {/* Botón / Píldora Rápida para Ocultar Cocción y Ver Solo Órdenes (Visible siempre en Tableta / Pantalla Completa) */}
-                    <button
-                        type="button"
-                        {...bindPrepInstantTap('hdr:toggle-cooking', () => toggleHideCookingPanel())}
-                        title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
-                        className={`ml-1 flex items-center gap-2 px-3.5 py-2 rounded-xl font-black text-xs uppercase tracking-wider transition-all cursor-pointer select-none touch-manipulation border shadow-xs active:scale-95 ${
-                            hideCookingPanel
-                                ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500 shadow-blue-500/20'
-                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 dark:text-emerald-300 dark:border-emerald-800'
-                        }`}
-                    >
-                        {hideCookingPanel ? (
-                            <>
-                                <PanelLeftOpen size={16} className="shrink-0" />
-                                <span>{t('prep.showCookingPace')}</span>
-                            </>
-                        ) : (
-                            <>
-                                <PanelLeftClose size={16} className="shrink-0" />
-                                <span>{t('prep.onlyOrdersMode')}</span>
-                            </>
-                        )}
-                    </button>
-                </div>
-
-                {!isFullscreen && (
-                    <div className="flex items-center gap-3">
-                        {/* Card Display Mode Switcher (Manual | Básica | Avanzada) */}
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
-                            <button 
-                                onClick={() => setCardDisplayMode('manual')}
-                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'manual' ? 'bg-purple-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                            >
-                                {t('prep.manualMode')}
-                            </button>
-                            <button 
-                                onClick={() => setCardDisplayMode('basic')}
-                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                            >
-                                {t('prep.basicMode')}
-                            </button>
-                            <button 
-                                onClick={() => setCardDisplayMode('advanced')}
-                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                            >
-                                {t('prep.advancedMode')}
-                            </button>
-                        </div>
-
-                        {/* View Mode Switcher (30 Min vs Tramos) */}
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
-                            <button 
-                                onClick={() => setViewMode('30min')}
-                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                            >
-                                30 Min
-                            </button>
-                            <button 
-                                onClick={() => setViewMode('tramos')}
-                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                            >
-                                Tramos
-                            </button>
-                        </div>
-
-                        {/* Date Picker Selector */}
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <Calendar size={18} className="text-blue-500 shrink-0" />
-                            <input 
-                                type="date" 
-                                value={selectedDate}
-                                max={currentBusinessDate}
-                                onChange={e => {
-                                    setSelectedDate(e.target.value)
-                                    recordUserActivity()
-                                }}
-                                className="bg-transparent font-bold text-sm text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
-                            />
-                            {!isToday ? (
-                                <button 
-                                    onClick={() => {
-                                        setSelectedDate(currentBusinessDate)
-                                        recordUserActivity()
-                                    }}
-                                    className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded-md transition-colors shrink-0 cursor-pointer"
-                                >
-                                    {t('prep.today')}
-                                </button>
-                            ) : (
-                                <span className="flex items-center gap-1 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 px-2 py-0.5 rounded-full shrink-0">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                    {t('prep.today')}
-                                </span>
-                            )}
-                        </div>
-
-                        {(() => {
-                            const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
-                            return (
-                                <select 
-                                    value={storeId} 
-                                    onChange={e => {
-                                        const val = e.target.value
-                                        setStoreId(val)
-                                        try { localStorage.setItem('teg_preparador_store', val) } catch {}
-                                    }}
-                                    disabled={!isSuper}
-                                    className={`border-none rounded-lg p-2 font-bold focus:ring-2 focus:ring-red-500 outline-none relative z-50 ${!isSuper ? 'bg-slate-200 dark:bg-slate-900 text-slate-500 dark:text-slate-600 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'}`}
-                                >
-                                    {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                            )
-                        })()}
-                        
-                        <button 
-                            onClick={() => setShowWasteModal(true)} 
-                            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-red-900/20 cursor-pointer"
-                        >
-                            <TrendingDown size={16} />
-                            <span className="hidden sm:inline">{t('prep.wasteReportBtn')}</span>
-                        </button>
-
-                        <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
-                            <BellRing size={16} className="animate-pulse" />
-                            <span className="hidden sm:inline">{t('prep.openWarehouse')}</span>
-                        </a>
-                    </div>
-                )}
-            </div>
-
-            {/* ALERTA TEMPORAL DELIVERY ARMOR (Condimentos / Modificaciones de órdenes DoorDash, Uber Eats, Grubhub y Online — 0 px cuando no hay alertas activas) */}
+            {/* 2. BANNER DELIVERY ARMOR (STRICTLY FUERA DE data-orders-hit-zone, 0px en reposo) */}
             <DeliveryPhoneNotesAlertPanel
-                storeId={Number(storeId) || null}
-                ready={Boolean(storeId)}
-                soundEnabled={true}
+                storeId={Number.isInteger(numericStoreId) && numericStoreId > 0 ? numericStoreId : null}
+                storeCode={currentStoreCode || null}
+                ready={mounted && Boolean(storeId)}
                 variant="tablet"
             />
 
-            {/* CONTENEDOR PRINCIPAL: VISTA APP EN MÓVIL (< lg) / SPLIT SCREEN EN DESKTOP (>= lg) */}
-            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0 pb-16 lg:pb-0 relative">
-                
-                {/* 1. PANEL RITMO DE COCCIÓN / PARRILLA (Visible en móvil si mobileTab === 'parrilla', ocultable en desktop/tableta con hideCookingPanel) */}
-                <div ref={grillPanelRef} className={`w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4 md:p-6 xl:p-8 flex-col shrink-0 lg:shrink overflow-y-auto lg:overflow-y-hidden transition-all duration-300 ${mobileTab === 'parrilla' ? 'flex flex-1' : 'hidden'} ${hideCookingPanel ? 'lg:hidden' : 'lg:flex'}`}>
-                    
-                    {/* Header del Ritmo de Cocción */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-3 mb-3 sm:mb-6 bg-slate-50 dark:bg-slate-800/50 p-2.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-2 sm:gap-3">
-                            <Clock className="w-7 h-7 sm:w-10 sm:h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
-                            <div>
-                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-sm sm:text-lg lg:text-2xl flex items-center gap-2">
-                                    {t('prep.cookingPace')}
-                                    {intelligenceAcelerador !== 1.0 && (
-                                        <span className={`text-[11px] sm:text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
-                                            Pace {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
-                                        </span>
-                                    )}
-                                </h2>
-                                {cardDisplayMode === 'advanced' && (
-                                    <p className="text-xs sm:text-sm text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto justify-end">
-                            <button {...bindPrepInstantTap('pace:guide', () => setShowGuideModal(true))} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-2.5 rounded-xl text-xs sm:text-sm md:text-base font-black transition-colors shrink-0 shadow-sm flex items-center gap-1 cursor-pointer select-none touch-manipulation">
-                                <BookOpen size={14} />
-                                <span>{t('prep.viewGuide')}</span>
+            {/* 3. ESPACIO PRINCIPAL DIVIDIDO: PARRILLA (42%) + TIRADOR RETRÁCTIL + ÓRDENES/INSUMOS (58% / 100%) */}
+            <div className="relative flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+                <PreparadorGrillPanel
+                    isDark={isDark}
+                    isFullscreen={isFullscreen}
+                    hideCookingPanel={hideCookingPanel}
+                    mobileTab={mobileTab}
+                    fetchingMeat={fetchingMeat}
+                    carouselBuckets={carouselBuckets}
+                    activeIndex={activeIndex}
+                    currentBucketIndex={currentBucketIndex}
+                    viewMode={viewMode}
+                    cardDisplayMode={cardDisplayMode}
+                    intelligenceAcelerador={intelligenceAcelerador}
+                    weatherAlert={weatherAlert}
+                    manualOverrides={manualOverrides}
+                    manualWeeklySchedule={manualWeeklySchedule}
+                    carouselContainerRef={carouselContainerRef}
+                    grillPanelRef={grillPanelRef}
+                    onPrevBucket={() => setActiveIndex((i) => Math.max(0, i - 1))}
+                    onNextBucket={() => setActiveIndex((i) => Math.min(carouselBuckets.length - 1, i + 1))}
+                    onJumpToCurrent={() => setActiveIndex(currentBucketIndex)}
+                    onTouchStart={handleCarouselTouchStart}
+                    onTouchMove={handleCarouselTouchMove}
+                    onTouchEnd={handleCarouselTouchEnd}
+                    onEditMeat={(req) => {
+                        setEditingMeatItem(req)
+                        setTempEditValue(req.currentVal)
+                    }}
+                    onOpenGuide={() => setShowGuideModal(true)}
+                    onOpenDay={() => setShowDayModal(true)}
+                    onOpenWaste={() => {
+                        setSelectedWasteDate(getLAEffectiveBusinessDate())
+                        setShowWasteModal(true)
+                    }}
+                    onOpenInfo={() => setShowInfoModal(true)}
+                />
+
+                {/* Tirador vertical retráctil anclado en el flujo flex (0px) exactamente sobre la costura;
+                    dispara únicamente al soltar (onPointerUp táctil tolerante para guantes / onClick mouse) + escudo 500ms
+                    para jamás llamar la orden que se desliza debajo del dedo */}
+                <div className="hidden lg:block relative w-0 shrink-0 z-20">
+                    <button
+                        type="button"
+                        data-no-proximity="true"
+                        data-ultra-tap="true"
+                        data-tap-key="rail:seam-toggle"
+                        onPointerDown={(e) => {
+                            e.stopPropagation()
+                            suppressOrderCallsUntilRef.current = Math.max(suppressOrderCallsUntilRef.current, Date.now() + 550)
+                        }}
+                        onTouchStart={(e) => {
+                            e.stopPropagation()
+                            suppressOrderCallsUntilRef.current = Math.max(suppressOrderCallsUntilRef.current, Date.now() + 550)
+                        }}
+                        onMouseDown={(e) => {
+                            e.stopPropagation()
+                            suppressOrderCallsUntilRef.current = Math.max(suppressOrderCallsUntilRef.current, Date.now() + 550)
+                        }}
+                        onPointerUp={(e) => {
+                            if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerPrepDedupedAction('rail:seam-toggle', () => toggleHideCookingPanel(), 450)
+                        }}
+                        onContextMenu={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerPrepDedupedAction('rail:seam-toggle', () => toggleHideCookingPanel(), 450)
+                        }}
+                        title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
+                        aria-label={hideCookingPanel ? t('prep.showCookingPace') : t('prep.hideCookingPace')}
+                        className={`flex items-center justify-center absolute top-1/2 -translate-y-1/2 left-0 cursor-pointer transition-colors select-none touch-manipulation shadow-xs ${
+                            hideCookingPanel
+                                ? 'w-[18px] h-16 rounded-r-xl border border-l-0'
+                                : '-translate-x-1/2 w-[16px] h-14 rounded-full border'
+                        } ${
+                            isDark
+                                ? 'bg-[#1B1D21] hover:bg-[#2C3038] border-[#343944] text-[#D1D5DB]'
+                                : 'bg-white hover:bg-[#E8E2D6] border-[#BFB5A3] text-[#3F3B35]'
+                        }`}
+                    >
+                        {hideCookingPanel ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                    </button>
+                </div>
+
+                <PreparadorOrdersAndSupplies
+                    isDark={isDark}
+                    hideCookingPanel={hideCookingPanel}
+                    mobileTab={mobileTab}
+                    activeTab={activeTab}
+                    readyOrdersList={readyOrdersList}
+                    callingOrderIds={callingOrderIds}
+                    callSuccessOrderIds={callSuccessOrderIds}
+                    callErrorOrderIds={callErrorOrderIds}
+                    hideDrinks={hideDrinks}
+                    isSmartAutoVoiceStore={isSmartAutoVoiceStore}
+                    autoCallConfig={autoCallConfig}
+                    smartNowMs={smartNowMs}
+                    elapsedNowMs={elapsedNowMs}
+                    cart={cart}
+                    sending={sending}
+                    supplyFeedback={supplyFeedback}
+                    ordersScrollContainerRef={ordersScrollContainerRef}
+                    shouldUseScrollSafeOrderTouch={ordersHasOverflow || readyOrdersList.length >= 5}
+                    parseOrderItemsSummary={parseOrderItemsSummary}
+                    isDrinkItem={isDrinkItem}
+                    bindInstantTap={bindPrepInstantTap}
+                    bindForgivingTap={bindPrepForgivingTap}
+                    bindOrderCardTap={bindOrderCardTap}
+                    onSelectTab={(tab) => {
+                        setActiveTab(tab)
+                        if (tab === 'ordenes') void fetchReadyOrders(false)
+                    }}
+                    onToggleHideDrinks={toggleHideDrinks}
+                    onCallOrder={(ord) => void handleCallOrderImpulse(ord)}
+                    onProximityTouchStart={(e) => handleOrdersProximityTouchEvent(e, 'down')}
+                    onProximityTouchMove={(e) => handleOrdersProximityTouchEvent(e, 'move')}
+                    onProximityPointerDown={(e) => {
+                        if (e.pointerType === 'mouse' && e.button !== 0) return
+                        handleOrdersProximityRadar(
+                            e.clientX,
+                            e.clientY,
+                            e.currentTarget,
+                            'down',
+                            e.pointerType === 'mouse' ? 'mouse' : 'touch',
+                            e.target
+                        )
+                    }}
+                    onAddToCart={addToCart}
+                    onDecreaseItem={decreaseItem}
+                    onRemoveItem={removeFromCart}
+                    onSendRequest={() => void sendRequest()}
+                />
+
+                {/* VISTA MÓVIL RESUMEN (< lg cuando mobileTab === 'resumen') */}
+                {mobileTab === 'resumen' && (
+                    <div className="lg:hidden flex-1 overflow-y-auto p-3 space-y-3 pb-24">
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowGuideModal(true)}
+                                className={`h-14 rounded-xl font-black text-xs uppercase border ${
+                                    isDark ? 'bg-[#1B1D21] border-[#2C3038]' : 'bg-white border-[#D8D0C2]'
+                                }`}
+                            >
+                                {t('prep.viewGuide')}
                             </button>
-                            <button {...bindPrepInstantTap('pace:day', () => setShowDayModal(true))} className="hidden lg:flex bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-3.5 py-2 md:py-2.5 rounded-xl text-sm md:text-base font-black transition-colors shrink-0 shadow-sm cursor-pointer select-none touch-manipulation">
+                            <button
+                                type="button"
+                                onClick={() => setShowDayModal(true)}
+                                className={`h-14 rounded-xl font-black text-xs uppercase border ${
+                                    isDark ? 'bg-[#1B1D21] border-[#2C3038]' : 'bg-white border-[#D8D0C2]'
+                                }`}
+                            >
                                 {t('prep.viewDay')}
                             </button>
                             <button
                                 type="button"
-                                {...bindPrepInstantTap('pace:hide', () => toggleHideCookingPanel(true))}
-                                title={t('prep.hideCookingTooltip')}
-                                className="hidden lg:flex items-center gap-1.5 bg-slate-200/80 hover:bg-emerald-600 text-slate-700 hover:text-white dark:bg-slate-700 dark:hover:bg-emerald-600 dark:text-slate-200 px-3 py-2 md:py-2.5 rounded-xl text-xs md:text-sm font-black transition-all shrink-0 shadow-xs cursor-pointer select-none touch-manipulation active:scale-95"
+                                onClick={() => {
+                                    setSelectedWasteDate(getLAEffectiveBusinessDate())
+                                    setShowWasteModal(true)
+                                }}
+                                className={`h-14 rounded-xl font-black text-xs uppercase border ${
+                                    isDark ? 'bg-[#1B1D21] border-[#2C3038]' : 'bg-white border-[#D8D0C2]'
+                                }`}
                             >
-                                <PanelLeftClose size={17} />
-                                <span className="hidden xl:inline">{t('prep.hideCookingPace')}</span>
+                                {t('prep.wasteReportBtn')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => window.open('/inventory/preparador/bodega', '_blank')}
+                                className="h-14 rounded-xl font-black text-xs uppercase bg-[#171614] text-white"
+                            >
+                                {t('prep.openWarehouse')}
                             </button>
                         </div>
                     </div>
-
-                    {/* Stepper Rápido de Bloques de Horario */}
-                    <div className="flex items-center justify-between gap-2 w-full max-w-lg mx-auto mb-3 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <button
-                            {...bindPrepInstantTap('pace:prev', () => {
-                                if (activeIndex > 0) {
-                                    setScrollDirection(-1)
-                                    setActiveIndex(prev => prev - 1)
-                                }
-                            })}
-                            disabled={activeIndex === 0}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer select-none touch-manipulation transition-colors"
-                        >
-                            <ChevronLeft size={16} />
-                            <span>{t('prep.prevBlock')}</span>
-                        </button>
-
-                        <span className="font-extrabold text-xs sm:text-sm text-slate-700 dark:text-slate-200 tracking-tight text-center">
-                            {carouselBuckets[activeIndex]?.label || ''} <span className="opacity-50">({activeIndex + 1}/{carouselBuckets.length})</span>
-                        </span>
-
-                        <button
-                            {...bindPrepInstantTap('pace:next', () => {
-                                if (activeIndex < carouselBuckets.length - 1) {
-                                    setScrollDirection(1)
-                                    setActiveIndex(prev => prev + 1)
-                                }
-                            })}
-                            disabled={activeIndex >= carouselBuckets.length - 1}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-slate-600 cursor-pointer select-none touch-manipulation transition-colors"
-                        >
-                            <span>{t('prep.nextBlock')}</span>
-                            <ChevronRight size={16} />
-                        </button>
-                    </div>
-
-                    {fetchingMeat ? (
-                        <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-3 py-12">
-                            <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
-                            <p className="font-bold">{t('prep.calculatingHistory')}</p>
-                        </div>
-                    ) : (
-                        <div 
-                            ref={carouselContainerRef}
-                            className="flex-1 flex flex-col items-center justify-center gap-4 sm:gap-6 xl:gap-8 overflow-hidden py-1 sm:py-4 px-1 sm:px-2 w-full relative touch-manipulation select-none"
-                            onTouchStart={(e) => {
-                                touchEndRef.current = null
-                                touchStartRef.current = e.targetTouches[0].clientY
-                            }}
-                            onTouchMove={(e) => {
-                                touchEndRef.current = e.targetTouches[0].clientY
-                            }}
-                            onTouchEnd={() => {
-                                if (touchStartRef.current === null || touchEndRef.current === null) return
-                                const distance = touchStartRef.current - touchEndRef.current
-                                const isSwipeUp = distance > 18
-                                const isSwipeDown = distance < -18
-                                
-                                if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
-                                    setScrollDirection(1)
-                                    setActiveIndex(prev => prev + 1)
-                                }
-                                if (isSwipeDown && activeIndex > 0) {
-                                    setScrollDirection(-1)
-                                    setActiveIndex(prev => prev - 1)
-                                }
-                                touchStartRef.current = null
-                                touchEndRef.current = null
-                            }}
-                            onTouchCancel={() => {
-                                if (touchStartRef.current === null || touchEndRef.current === null) return
-                                const distance = touchStartRef.current - touchEndRef.current
-                                const isSwipeUp = distance > 18
-                                const isSwipeDown = distance < -18
-                                
-                                if (isSwipeUp && activeIndex < carouselBuckets.length - 1) {
-                                    setScrollDirection(1)
-                                    setActiveIndex(prev => prev + 1)
-                                }
-                                if (isSwipeDown && activeIndex > 0) {
-                                    setScrollDirection(-1)
-                                    setActiveIndex(prev => prev - 1)
-                                }
-                                touchStartRef.current = null
-                                touchEndRef.current = null
-                            }}
-                        >
-                            {(() => {
-                                const currentBucket = carouselBuckets[activeIndex]
-                                if (!currentBucket) return null
-                                const isRealCurrent = currentBucket.isCurrent
-
-                                return (
-                                    <AnimatePresence mode="wait" custom={scrollDirection}>
-                                        <motion.div 
-                                            key={currentBucket.id || activeIndex}
-                                            custom={scrollDirection}
-                                            initial={{ opacity: 0, y: scrollDirection > 0 ? 50 : -50, scale: 0.97 }}
-                                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                                            exit={{ opacity: 0, y: scrollDirection > 0 ? -50 : 50, scale: 0.97 }}
-                                            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                                            className="w-full max-w-full sm:max-w-[480px] lg:max-w-lg shrink-0 origin-center select-none"
-                                        >
-                                            <div 
-                                                onClick={() => { if (cardDisplayMode === 'advanced') setShowInfoModal(true) }}
-                                                className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-4 sm:p-6 xl:p-8 shadow-2xl transition-all duration-300 overflow-hidden relative bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 ${cardDisplayMode === 'advanced' ? 'cursor-pointer hover:ring-2 hover:ring-blue-500/50' : ''}`}
-                                            >
-                                                <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
-                                                
-                                                <div className="flex justify-between items-center mb-3 sm:mb-6 pb-2.5 sm:pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
-                                                    <div className="font-black tracking-tight flex items-center gap-2 sm:gap-3 text-blue-900 dark:text-blue-300">
-                                                        {isRealCurrent && <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse shrink-0" />}
-                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4">
-                                                            <span className="uppercase text-sm sm:text-xl md:text-2xl flex items-center gap-2 font-black">
-                                                                {currentBucket.name}
-                                                                {currentBucket.isPeak && (
-                                                                    <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-red-600 text-white font-black animate-pulse shadow-md">
-                                                                        PICO
-                                                                    </span>
-                                                                )}
-                                                                {cardDisplayMode === 'advanced' && <HelpCircle size={18} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
-                                                            </span>
-                                                            <span className="text-xs sm:text-lg md:text-2xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] opacity-90 text-blue-950 dark:text-blue-100">
-                                                                {currentBucket.label} {viewMode === 'tramos' ? `(${currentBucket.duration}h)` : ''}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:gap-4">
-                                                    {currentBucket.data.length > 0 ? currentBucket.data.map((m: any) => {
-                                                        const projectedLbs = m.avg_lbs * intelligenceAcelerador
-                                                        const displayVal = viewMode === '30min' ? projectedLbs : (projectedLbs / (m.duration || 1))
-                                                        const realVal = m.real_lbs !== undefined ? (viewMode === '30min' ? m.real_lbs : m.real_lbs / (m.elapsed_hours || m.duration || 1)) : undefined
-                                                        const maxTrayLbs = Math.max(1, Math.ceil(displayVal))
-
-                                                        const intervalStart = normTime(currentBucket.id || '00:00:00')
-                                                        const manualKey = `${intervalStart}_${m.meat_type}`
-                                                        const manualScheduledLbs = manualWeeklySchedule[manualKey] !== undefined ? manualWeeklySchedule[manualKey] : maxTrayLbs
-
-                                                        const overrideKey = `${currentBucket.id || currentBucket.label || activeIndex}_${m.meat_type}`
-                                                        const hasOverride = manualOverrides[overrideKey] !== undefined
-                                                        const effectiveMaxLbs = hasOverride ? manualOverrides[overrideKey] : maxTrayLbs
-
-                                                        return (
-                                                            <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-2 sm:p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-3 sm:py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-2.5 sm:py-4 xl:py-5'}`}>
-                                                                <div className="flex items-center gap-1 sm:gap-2 mb-0.5 sm:mb-2">
-                                                                    <span className={`uppercase tracking-widest ${m.meat_type === 'ASADA' ? 'text-lg sm:text-2xl md:text-3xl font-black text-blue-900 dark:text-blue-200' : 'text-sm sm:text-xl md:text-2xl font-black text-slate-800 dark:text-slate-200'}`}>{m.meat_type}</span>
-                                                                </div>
-                                                                
-                                                                {cardDisplayMode === 'manual' ? (
-                                                                    /* Modo Manual: Programado Semanal */
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            if (isFullscreen) return;
-                                                                            setEditingMeatItem({
-                                                                                key: manualKey,
-                                                                                meatType: m.meat_type,
-                                                                                bucketLabel: currentBucket.label,
-                                                                                intervalStart: intervalStart,
-                                                                                currentVal: manualScheduledLbs,
-                                                                                isManualMode: true
-                                                                            })
-                                                                            setTempEditValue(manualScheduledLbs)
-                                                                        }}
-                                                                        className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-purple-100/50 dark:hover:bg-purple-900/30'}`}
-                                                                        title={isFullscreen ? undefined : "Clic para fijar meta semanal permanente para este día"}
-                                                                    >
-                                                                        <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
-                                                                            <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-purple-700 dark:text-purple-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
-                                                                                {manualScheduledLbs}
-                                                                            </span>
-                                                                            <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
-                                                                        </div>
-                                                                    </button>
-                                                                ) : cardDisplayMode === 'basic' ? (
-                                                                    /* Modo Básico: Ultra-Simple */
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            if (isFullscreen) return;
-                                                                            setEditingMeatItem({
-                                                                                key: overrideKey,
-                                                                                meatType: m.meat_type,
-                                                                                bucketLabel: currentBucket.label,
-                                                                                currentVal: effectiveMaxLbs
-                                                                            })
-                                                                            setTempEditValue(effectiveMaxLbs)
-                                                                        }}
-                                                                        className={`flex flex-col items-center justify-center py-0.5 sm:py-2 group w-full rounded-2xl transition-all ${isFullscreen ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50'}`}
-                                                                        title={isFullscreen ? undefined : "Clic para modificar cantidad de libras"}
-                                                                    >
-                                                                        <div className="flex items-baseline gap-1 sm:gap-1.5 my-0.5 sm:my-1">
-                                                                            <span className={`font-black tracking-tighter leading-none transition-transform ${isFullscreen ? '' : 'group-hover:scale-105'} ${m.meat_type === 'ASADA' ? 'text-6xl sm:text-7xl md:text-8xl xl:text-9xl text-blue-700 dark:text-blue-400' : 'text-4xl sm:text-6xl md:text-7xl xl:text-8xl text-slate-900 dark:text-white'}`}>
-                                                                                {effectiveMaxLbs}
-                                                                            </span>
-                                                                            <span className="text-xl sm:text-3xl md:text-4xl font-black text-slate-400 dark:text-slate-500">lbs</span>
-                                                                        </div>
-                                                                        {hasOverride && (
-                                                                            <span className="text-[9px] sm:text-[10px] font-black uppercase bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 shadow-xs mt-0.5">
-                                                                                ✏️ Modificado
-                                                                            </span>
-                                                                        )}
-                                                                    </button>
-                                                                ) : (
-                                                                    /* Modo Avanzado: Vista Completa con Proyección, Real y Máximo */
-                                                                    <>
-                                                                        <div className="flex w-full items-center justify-center gap-1.5 sm:gap-4">
-                                                                            {/* Projected Column */}
-                                                                            <div className="flex flex-col items-center justify-center leading-none">
-                                                                                <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-3xl sm:text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-2xl sm:text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
-                                                                                    {displayVal.toFixed(1)}
-                                                                                </span>
-                                                                                <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
-                                                                                    {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
-                                                                                </span>
-                                                                            </div>
-                                                                            
-                                                                            {/* Real Consumed Column */}
-                                                                            {realVal !== undefined ? (
-                                                                                <>
-                                                                                    <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                                    <div className="flex flex-col items-center justify-center leading-none">
-                                                                                        <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-2xl sm:text-4xl xl:text-5xl' : 'text-xl sm:text-3xl xl:text-4xl'}`}>
-                                                                                            {realVal.toFixed(1)}
-                                                                                        </span>
-                                                                                        <span className="text-[9px] sm:text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-1 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
-                                                                                            {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                </>
-                                                                            ) : (activeIndex < currentBucketIndex) && (
-                                                                                <>
-                                                                                    <div className="h-8 sm:h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                                    <div className="flex flex-col items-center justify-center leading-none">
-                                                                                        <span className="text-[9px] sm:text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-1 bg-amber-500/10 px-1.5 py-0.5 rounded-md animate-pulse">
-                                                                                            {t('prep.syncing')}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                </>
-                                                                            )}
-                                                                        </div>
-
-                                                                        {/* Max Holding Tray Buffer Badge */}
-                                                                        <div className="mt-1.5 sm:mt-3 flex items-center gap-1 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-amber-900 dark:text-amber-200 text-[9px] sm:text-xs font-black shadow-xs">
-                                                                            <span>🔥</span>
-                                                                            <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
-                                                                        </div>
-                                                                    </>
-                                                                )}
-                                                            </div>
-                                                        )
-                                                    }) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    </AnimatePresence>
-                                )
-                            })()}
-                            
-                            {/* Indicadores de Paginación */}
-                            <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
-                                {carouselBuckets.map((b, i) => (
-                                    <div key={b.id || i} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-600 scale-150' : 'bg-slate-300 dark:bg-slate-700'}`} />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* ADORNO / PESTAÑA TÁCTIL DIVISORA LATERAL (Permite ocultar o desplegar el panel de cocción con un toque) */}
-                <div className="hidden lg:flex items-center justify-center relative z-30 shrink-0 w-0">
-                    <button
-                        type="button"
-                        {...bindPrepInstantTap('div:toggle-cooking', () => toggleHideCookingPanel())}
-                        title={hideCookingPanel ? t('prep.showCookingTooltip') : t('prep.hideCookingTooltip')}
-                        className={`group flex flex-col items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer select-none touch-manipulation active:scale-95 shadow-lg border ${
-                            hideCookingPanel
-                                ? 'translate-x-3.5 w-7 h-28 rounded-r-2xl bg-gradient-to-b from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white border-blue-400/60 shadow-[4px_0_20px_rgba(37,99,235,0.35)]'
-                                : 'w-6 h-24 rounded-full bg-white hover:bg-emerald-600 dark:bg-slate-800 dark:hover:bg-emerald-600 text-slate-500 hover:text-white dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
-                        }`}
-                    >
-                        {hideCookingPanel ? (
-                            <>
-                                <Flame size={14} className="text-amber-300 animate-pulse shrink-0" />
-                                <ChevronRight size={18} strokeWidth={3} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                            </>
-                        ) : (
-                            <>
-                                <div className="w-1 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-white/70 transition-colors" />
-                                <ChevronLeft size={16} strokeWidth={3} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
-                                <div className="w-1 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-white/70 transition-colors" />
-                            </>
-                        )}
-                    </button>
-                </div>
-
-                {/* 2. PANEL PEDIR INSUMOS / ÓRDENES (Visible en móvil si mobileTab === 'insumos', siempre en desktop) */}
-                <div className={`w-full lg:flex-1 flex-col bg-slate-100 dark:bg-slate-950 shrink-0 lg:shrink min-h-0 overflow-hidden ${mobileTab === 'insumos' ? 'flex flex-1' : 'hidden lg:flex'}`}>
-                    
-                    {/* TABS DE INSUMOS Y ÓRDENES LISTAS (Se ocultan en desktop cuando está activo el modo Solo Órdenes / hideCookingPanel) */}
-                    <div className={`p-2 sm:p-4 gap-2 sm:gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0 ${hideCookingPanel ? 'flex lg:hidden' : 'flex'}`}>
-                        <button 
-                            {...bindPrepInstantTap('tab:alimentos', () => setActiveTab('alimentos'))}
-                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer select-none touch-manipulation
-                                ${activeTab === 'alimentos' ? 'bg-orange-100 text-orange-700 border-2 border-orange-500 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
-                        >
-                            <UtensilsCrossed size={16} /> {t('prep.foodItems')}
-                        </button>
-                        <button 
-                            {...bindPrepInstantTap('tab:ordenes', () => {
-                                setActiveTab('ordenes')
-                                fetchReadyOrders(true)
-                            })}
-                            className={`flex-1 py-2.5 sm:py-4 font-black flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl transition-all shadow-sm text-xs sm:text-base cursor-pointer select-none touch-manipulation
-                                ${activeTab === 'ordenes' ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
-                        >
-                            <BellRing size={18} className={readyOrdersList.length > 0 ? "text-emerald-600 dark:text-emerald-400 animate-pulse" : ""} />
-                            <span>{t('prep.ordersTab')}</span>
-                            {readyOrdersList.length > 0 && (
-                                <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-black bg-emerald-600 text-white shadow-sm">
-                                    {readyOrdersList.length}
-                                </span>
-                            )}
-                        </button>
-                    </div>
-
-                    {/* CONTENIDO DEL PANEL (ALIMENTOS O LISTA DE ÓRDENES LISTAS) */}
-                    {activeTab === 'alimentos' ? (
-                        <div className="flex-1 overflow-y-auto p-2 sm:p-4 pb-24 lg:pb-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                                {ALIMENTOS.map(itemObj => {
-                                    const cartItem = cart.find(c => c.name === itemObj.name)
-                                    const isSelected = !!cartItem
-                                    
-                                    const baseStyle = isSelected 
-                                        ? `ring-[3px] ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900 scale-[0.97] opacity-100 shadow-[inset_0_8px_15px_rgba(0,0,0,0.2)] dark:shadow-[inset_0_8px_15px_rgba(0,0,0,0.6)] brightness-95 saturate-150 blur-[0.2px] ${itemObj.color}` 
-                                        : `border border-black/5 dark:border-white/5 hover:scale-[1.02] shadow-sm ${itemObj.color}`
-                                    
-                                    return (
-                                    <button
-                                        key={itemObj.name}
-                                        {...bindPrepForgivingTap(`alim:${itemObj.name}`, () => addToCart(itemObj.name))}
-                                        className={`relative h-14 sm:h-16 md:h-20 lg:h-[84px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center p-1.5 sm:p-2 active:scale-95 transition-all outline-none select-none touch-manipulation ${baseStyle} overflow-hidden cursor-pointer`}
-                                    >
-                                        <span className={`relative w-full px-1 text-center text-xs sm:text-sm md:text-lg lg:text-2xl leading-tight md:leading-snug font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
-                                            {itemObj.name}
-                                        </span>
-                                        {cartItem && cartItem.qty >= 1 && (
-                                            <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900 text-white text-[10px] sm:text-xs w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full font-black shadow-xl animate-in zoom-in duration-200 ring-2 ring-white/50 dark:ring-black/50 z-20">
-                                                {cartItem.qty}
-                                            </div>
-                                        )}
-                                    </button>
-                                )})}
-                            </div>
-                        </div>
-                    ) : (
-                        /* VISTA DE ÓRDENES EN PREPARACIÓN (ENVIADAS POR CAJERA) */
-                        <div
-                            className={`flex-1 flex flex-col overflow-hidden overscroll-y-contain p-2 sm:p-4 ${hideCookingPanel ? 'lg:pl-7' : ''}`}
-                        >
-                            {/* Cabecera del Panel de Órdenes (excluida del radar de proximidad) */}
-                            <div
-                                data-no-proximity="true"
-                                className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0"
-                            >
-                                <div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <h3 className="text-sm sm:text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">
-                                            {t('prep.readyOrdersTitle')}
-                                        </h3>
-                                        <span className="bg-emerald-600 text-white text-xs font-black px-2 py-0.5 rounded-full shadow-sm">
-                                            {readyOrdersList.length}
-                                        </span>
-                                        {isSmartAutoVoiceStore && (
-                                            <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-full border border-indigo-300 dark:border-indigo-700 shadow-sm">
-                                                <Bot size={13} className="shrink-0" />
-                                                <span>{t('prep.smartAutoVoiceActiveBadge')}</span>
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                        {isSmartAutoVoiceStore ? t('prep.smartAutoVoiceSubtitle') : t('prep.readyOrdersSubtitle')}
-                                    </p>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    {hideCookingPanel && (
-                                        <button
-                                            type="button"
-                                            {...bindPrepInstantTap('ord:show-cooking', () => toggleHideCookingPanel(false))}
-                                            title={t('prep.showCookingTooltip')}
-                                            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider shadow-sm transition active:scale-95 cursor-pointer select-none touch-manipulation"
-                                        >
-                                            <Flame size={14} className="text-amber-300 shrink-0" />
-                                            <span>{t('prep.showCookingPace')}</span>
-                                        </button>
-                                    )}
-                                    <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-300 dark:border-emerald-800">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                                        {t('prep.liveIndicator')}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        {...bindPrepInstantTap('ord:refresh', () => fetchReadyOrders(true))}
-                                        title={t('prep.refreshOrdersTooltip')}
-                                        className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition cursor-pointer select-none touch-manipulation shadow-sm"
-                                    >
-                                        <RefreshCw size={16} className={loadingReadyOrders ? 'animate-spin text-emerald-600' : ''} />
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Zona interactiva exclusiva para tarjetas de Voz y Órdenes (sin cabecera ni pulls de Chrome) */}
-                            <div
-                                data-orders-hit-zone="true"
-                                className="flex-1 flex flex-col min-h-0 overflow-hidden overscroll-y-contain"
-                                onPointerDownCapture={(e) => {
-                                    if (e.pointerType === 'mouse' && e.button !== 0) return
-                                    handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'down', e.pointerType === 'mouse' ? 'mouse' : 'touch', e.target)
-                                }}
-                                onTouchStartCapture={(e) => {
-                                    handleOrdersProximityTouchEvent(e, 'down')
-                                }}
-                                onPointerMoveCapture={(e) => {
-                                    if (e.pointerType === 'touch' || e.pointerType === 'pen' || e.buttons > 0) {
-                                        handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'move', e.pointerType === 'mouse' ? 'mouse' : 'touch', e.target)
-                                    }
-                                }}
-                                onTouchMoveCapture={(e) => {
-                                    handleOrdersProximityTouchEvent(e, 'move')
-                                }}
-                                onPointerUpCapture={(e) => {
-                                    if (e.pointerType === 'mouse' && e.button !== 0) return
-                                    handleOrdersProximityRadar(e.clientX, e.clientY, e.currentTarget, 'up', e.pointerType === 'mouse' ? 'mouse' : 'touch', e.target)
-                                }}
-                                onTouchEndCapture={(e) => {
-                                    handleOrdersProximityTouchEvent(e, 'up')
-                                }}
-                            >
-                            {/* Botones de Anuncio por Voz (Café, Champurrado y Orden Pendiente) junto a las órdenes */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
-                                {[
-                                    {
-                                        id: 'bev-cafe',
-                                        order_number: 'CAFE',
-                                        dining_option: 'TOGO',
-                                        label: t('prep.callCafeBtn'),
-                                        speech: t('prep.cafeReadySpeech'),
-                                        iconType: 'coffee' as const,
-                                        idleBg: 'border-amber-300 dark:border-amber-700/80 bg-gradient-to-br from-amber-50 to-orange-50/70 dark:from-amber-950/40 dark:to-slate-900 hover:border-amber-500 active:bg-emerald-100 active:border-emerald-500',
-                                        badgeBg: 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
-                                        btnBg: 'bg-amber-700 group-hover:bg-amber-800 text-white'
-                                    },
-                                    {
-                                        id: 'bev-champurrado',
-                                        order_number: 'CHAMPURRADO',
-                                        dining_option: 'TOGO',
-                                        label: t('prep.callChampurradoBtn'),
-                                        speech: t('prep.champurradoReadySpeech'),
-                                        iconType: 'coffee' as const,
-                                        idleBg: 'border-orange-300 dark:border-orange-700/80 bg-gradient-to-br from-orange-50 to-amber-50/70 dark:from-orange-950/40 dark:to-slate-900 hover:border-orange-500 active:bg-emerald-100 active:border-emerald-500',
-                                        badgeBg: 'bg-orange-100 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200',
-                                        btnBg: 'bg-orange-700 group-hover:bg-orange-800 text-white'
-                                    },
-                                    {
-                                        id: 'bev-orden-pendiente',
-                                        order_number: 'ORDEN_PENDIENTE',
-                                        dining_option: 'TOGO',
-                                        label: t('prep.callOrdenPendienteBtn'),
-                                        speech: t('prep.ordenPendienteReadySpeech'),
-                                        iconType: 'order' as const,
-                                        idleBg: 'border-teal-300 dark:border-teal-700/80 bg-gradient-to-br from-teal-50 to-emerald-50/70 dark:from-teal-950/40 dark:to-slate-900 hover:border-teal-500 active:bg-emerald-100 active:border-emerald-500',
-                                        badgeBg: 'bg-teal-100 text-teal-900 dark:bg-teal-900/60 dark:text-teal-200',
-                                        btnBg: 'bg-teal-700 group-hover:bg-teal-800 text-white'
-                                    }
-                                ].map((bev) => {
-                                    const isCalling = callingOrderIds.has(bev.id)
-                                    const isSuccess = callSuccessOrderIds.has(bev.id)
-                                    return (
-                                        <button
-                                            key={bev.id}
-                                            type="button"
-                                            data-order-tap-id={`bev:${bev.id}`}
-                                            data-ultra-tap="true"
-                                            aria-busy={isCalling}
-                                            style={{
-                                                touchAction: 'none',
-                                                WebkitTapHighlightColor: 'transparent',
-                                                WebkitTouchCallout: 'none',
-                                                userSelect: 'none'
-                                            }}
-                                            {...bindOrderCardUltraTap(`bev:${bev.id}`, () => handleCallOrderImpulse(bev))}
-                                            className={`group relative rounded-2xl px-3.5 sm:px-4 py-3 sm:py-3.5 text-left transition-[transform,border-color,background-color] duration-75 will-change-transform active:scale-[0.96] active:brightness-95 cursor-pointer flex flex-col justify-between select-none touch-none shadow-sm hover:shadow-md border-2 border-b-[5px] [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-2.5 before:rounded-3xl ${
-                                                isCalling
-                                                    ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
-                                                    : isSuccess
-                                                    ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/50 shadow-emerald-500/20'
-                                                    : bev.idleBg
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-2 w-full mb-1.5">
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-wider truncate ${bev.badgeBg}`}>
-                                                    {bev.iconType === 'order' ? (
-                                                        <BellRing size={13} className="shrink-0" />
-                                                    ) : (
-                                                        <Coffee size={13} className="shrink-0" />
-                                                    )}
-                                                    <span className="truncate">{t('prep.beverageVoiceCallBadge')}</span>
-                                                </span>
-                                            </div>
-                                            <div className="my-1.5 w-full min-w-0">
-                                                <div className={`text-2xl sm:text-2xl xl:text-3xl font-black tracking-tight leading-tight ${
-                                                    isCalling ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
-                                                }`}>
-                                                    {bev.label}
-                                                </div>
-                                                <p className="text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 truncate mt-0.5">
-                                                    &ldquo;{bev.speech}&rdquo;
-                                                </p>
-                                            </div>
-                                            <div className={`mt-2 w-full py-2.5 sm:py-3 px-3 rounded-xl flex items-center justify-center gap-2 font-black text-base sm:text-lg tracking-wide transition-all shadow-sm ${
-                                                isCalling
-                                                    ? 'bg-emerald-600 text-white animate-pulse shadow-md'
-                                                    : isSuccess
-                                                    ? 'bg-emerald-700 text-white'
-                                                    : bev.btnBg
-                                            }`}>
-                                                {isCalling ? (
-                                                    <>
-                                                        <Megaphone size={18} className="animate-bounce shrink-0" />
-                                                        <span className="truncate">{t('prep.callingOrder')}</span>
-                                                    </>
-                                                ) : isSuccess ? (
-                                                    <>
-                                                        <CheckCircle2 size={18} className="shrink-0" />
-                                                        <span className="truncate">{t('prep.orderCallSent')}</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Volume2 size={18} className="shrink-0" />
-                                                        <span className="truncate">{bev.label}</span>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </button>
-                                    )
-                                })}
-                            </div>
-
-                            {/* Contenedor con scroll para las tarjetas de órdenes */}
-                            <div
-                                ref={ordersScrollContainerRef}
-                                className="flex-1 overflow-y-auto pb-16 lg:pb-2 overscroll-y-contain"
-                                style={{ touchAction: 'pan-y' }}
-                                onScroll={() => {
-                                    cardRectsCacheRef.current = null
-                                }}
-                            >
-                                {readyOrdersList.length === 0 ? (
-                                    <div className="h-64 sm:h-80 flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
-                                        <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mb-3 text-emerald-600">
-                                            <CheckCircle2 size={32} />
-                                        </div>
-                                        <h4 className="text-base sm:text-lg font-black text-slate-700 dark:text-slate-200 mb-1">
-                                            {t('prep.readyOrdersEmpty')}
-                                        </h4>
-                                        <p className="text-xs sm:text-sm text-slate-400 max-w-md">
-                                            {t('prep.readyOrdersEmptySub')}
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className={`grid gap-2.5 sm:gap-3.5 ${
-                                        readyOrdersList.length === 1
-                                            ? 'grid-cols-1'
-                                            : readyOrdersList.length <= 4
-                                            ? 'grid-cols-1 sm:grid-cols-2'
-                                            : hideCookingPanel
-                                            ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5'
-                                            : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4'
-                                    }`}>
-                                        {readyOrdersList.map((order, queueIdx) => {
-                                            const isCalling = callingOrderIds.has(order.id)
-                                            const isSuccess = callSuccessOrderIds.has(order.id)
-                                            const isCallError = callErrorOrderIds.has(order.id)
-                                            const isAlreadyAnnounced = Boolean(order.announced_at)
-                                            const isSingleOrder = readyOrdersList.length === 1
-                                            const isCompactMultiOrder = readyOrdersList.length >= 5
-                                            const shouldUseScrollSafeOrderTouch = readyOrdersList.length >= 5
-                                            const smartPlan = isSmartAutoVoiceStore
-                                                ? computeSmartOrderAutoCallPlan(order, queueIdx, autoCallConfig, smartNowMs)
-                                                : null
-                                            const smartCountdownStr = smartPlan
-                                                ? formatCountdownMmSs(smartPlan.remainingSec)
-                                                : ''
-                                            
-                                            // Cálculo de tiempo transcurrido desde que se cobró/envió la orden
-                                            const orderMs = Date.parse(order.created_at)
-                                            const nowRefMs = isSmartAutoVoiceStore ? smartNowMs : Date.now()
-                                            const elapsedMin = !isNaN(orderMs) ? Math.max(0, Math.floor((nowRefMs - orderMs) / 60000)) : 0
-                                            const isWaitingLong = elapsedMin >= 5 && elapsedMin < 10
-                                            const isUrgent = elapsedMin >= 10
-                                            const elapsedText = elapsedMin === 0
-                                                ? t('prep.justNow')
-                                                : t('prep.agoMinutes').replace('{m}', String(elapsedMin))
-
-                                            // Dimensionamiento inteligente según longitud de dígitos y cantidad de órdenes activas
-                                            const orderNumStr = String(order.order_number || '').trim()
-                                            const numLen = orderNumStr.length
-                                            const numSizeClass = isSingleOrder
-                                                ? numLen <= 4
-                                                    ? 'text-7xl sm:text-8xl'
-                                                    : 'text-5xl sm:text-6xl'
-                                                : numLen <= 2
-                                                ? 'text-6xl sm:text-7xl'
-                                                : numLen === 3
-                                                ? 'text-5xl sm:text-6xl'
-                                                : numLen === 4
-                                                ? 'text-4xl sm:text-5xl'
-                                                : 'text-3xl sm:text-4xl'
-
-                                            return (
-                                                <button
-                                                    key={order.id}
-                                                    type="button"
-                                                    data-order-tap-id={`ord:${order.id}`}
-                                                    data-ultra-tap="true"
-                                                    aria-busy={isCalling}
-                                                    style={{
-                                                        touchAction: shouldUseScrollSafeOrderTouch ? 'pan-y' : 'none',
-                                                        WebkitTapHighlightColor: 'transparent',
-                                                        WebkitTouchCallout: 'none',
-                                                        userSelect: 'none'
-                                                    }}
-                                                    {...bindOrderCardTap(`ord:${order.id}`, () => handleCallOrderImpulse(order), shouldUseScrollSafeOrderTouch)}
-                                                    className={`group relative rounded-2xl sm:rounded-3xl px-3.5 sm:px-4 py-3 sm:py-3.5 text-left transition-[transform,border-color,background-color] duration-75 will-change-transform active:scale-[0.97] active:translate-y-[2px] active:bg-emerald-100 dark:active:bg-emerald-950/90 active:border-emerald-500 cursor-pointer flex flex-col justify-between select-none shadow-sm hover:shadow-lg border-2 sm:border-3 border-b-[6px] [&_*]:pointer-events-none before:content-[''] before:absolute before:-inset-3 before:rounded-3xl ${
-                                                        isSingleOrder
-                                                            ? 'min-h-[250px] sm:min-h-[295px]'
-                                                            : isCompactMultiOrder
-                                                            ? 'min-h-[136px] sm:min-h-[148px]'
-                                                            : 'min-h-[180px] sm:min-h-[200px]'
-                                                    } ${
-                                                        shouldUseScrollSafeOrderTouch ? 'touch-pan-y' : 'touch-none'
-                                                    } ${
-                                                        isCalling
-                                                            ? 'ring-4 ring-emerald-500 scale-[0.98] border-emerald-500 bg-emerald-50 dark:bg-emerald-950/80 shadow-lg'
-                                                            : isCallError
-                                                            ? 'ring-4 ring-red-500 border-red-500 bg-red-50 dark:bg-red-950/70 shadow-lg'
-                                                            : isSuccess
-                                                            ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 shadow-emerald-500/20'
-                                                            : isSmartAutoVoiceStore && isAlreadyAnnounced
-                                                            ? 'border-emerald-400/80 dark:border-emerald-700/80 bg-emerald-50/35 dark:bg-emerald-950/25 hover:border-emerald-500'
-                                                            : isUrgent
-                                                            ? 'border-rose-400 dark:border-rose-700 bg-rose-50/20 dark:bg-rose-950/20 hover:border-rose-500'
-                                                            : isWaitingLong
-                                                            ? 'border-amber-300 dark:border-amber-600/70 bg-amber-50/15 dark:bg-amber-950/15 hover:border-amber-400'
-                                                            : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400'
-                                                    }`}
-                                                >
-                                                    {/* Header de la tarjeta: Badge canal + Tiempo / Estado Auto-Voz */}
-                                                    <div className="flex items-center justify-between gap-1.5 w-full mb-1">
-                                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider whitespace-nowrap shrink-0 ${
-                                                            order.dining_option === 'FOR_HERE'
-                                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
-                                                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200'
-                                                        }`}>
-                                                            {order.dining_option === 'FOR_HERE' ? (
-                                                                <>
-                                                                    <Utensils size={13} className="shrink-0" />
-                                                                    <span>{t('orderReadyBoard.for_here_badge')}</span>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <ShoppingBag size={13} className="shrink-0" />
-                                                                    <span>{t('orderReadyBoard.to_go_badge')}</span>
-                                                                </>
-                                                            )}
-                                                        </span>
-
-                                                        {isSmartAutoVoiceStore && smartPlan ? (
-                                                            isAlreadyAnnounced ? (
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 whitespace-nowrap shrink-0">
-                                                                    <CheckCircle2 size={12} className="shrink-0" />
-                                                                    <span>{t('prep.autoCalledBadge')}</span>
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black font-mono bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 whitespace-nowrap shrink-0">
-                                                                    <Bot size={12} className="shrink-0" />
-                                                                    <span>{t('prep.autoCallIn').replace('{time}', smartCountdownStr)}</span>
-                                                                </span>
-                                                            )
-                                                        ) : (
-                                                            <span className={`inline-flex items-center gap-1 text-xs font-bold whitespace-nowrap shrink-0 ${
-                                                                isUrgent
-                                                                    ? 'text-rose-600 dark:text-rose-400 font-black animate-pulse'
-                                                                    : isWaitingLong
-                                                                    ? 'text-amber-600 dark:text-amber-400 font-black'
-                                                                    : 'text-slate-400'
-                                                            }`}>
-                                                                <Clock size={13} className="shrink-0" />
-                                                                <span>{elapsedText}</span>
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Número de Orden Adaptable y sin bold en el símbolo '#' */}
-                                                    <div className="my-1.5 sm:my-2 text-center flex-1 flex flex-col justify-center items-center w-full px-1 min-w-0 overflow-hidden">
-                                                        <div className={`tracking-tight leading-none transition-transform flex items-baseline justify-center max-w-full ${numSizeClass} ${
-                                                            isCalling ? 'scale-105 text-emerald-700 dark:text-emerald-300' : 'text-slate-900 dark:text-white'
-                                                        }`}>
-                                                            <span className="font-light text-slate-400 dark:text-slate-500 text-[0.55em] mr-1 select-none font-sans leading-none">#</span>
-                                                            <span className="font-black font-sans tracking-tight truncate leading-none">{orderNumStr}</span>
-                                                        </div>
-                                                        {order.customer_name && (
-                                                            <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 truncate max-w-full mx-auto mt-1 px-1">
-                                                                {order.customer_name}
-                                                            </p>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Botón de Acción Táctil Inferior */}
-                                                    <div className={`w-full px-3 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-black tracking-wide transition-colors shadow-sm ${
-                                                        isSingleOrder ? 'py-3.5 sm:py-4 text-base sm:text-xl' : 'py-2.5 sm:py-3 text-xs sm:text-sm'
-                                                    } ${
-                                                        isCalling
-                                                            ? 'bg-emerald-600 text-white animate-pulse shadow-md'
-                                                            : isCallError
-                                                            ? 'bg-red-600 text-white shadow-md'
-                                                            : isSuccess
-                                                            ? 'bg-emerald-700 text-white'
-                                                            : isSmartAutoVoiceStore && isAlreadyAnnounced
-                                                            ? 'bg-slate-700 group-hover:bg-slate-800 text-white active:scale-[0.98]'
-                                                            : isSmartAutoVoiceStore
-                                                            ? 'bg-indigo-600 group-hover:bg-indigo-700 text-white active:scale-[0.98]'
-                                                            : 'bg-emerald-500 group-hover:bg-emerald-600 text-white active:scale-[0.98]'
-                                                    }`}>
-                                                        {isCalling ? (
-                                                            <>
-                                                                <Megaphone size={17} className="animate-bounce shrink-0" />
-                                                                <span className="truncate">{t('prep.callingOrder')}</span>
-                                                            </>
-                                                        ) : isCallError ? (
-                                                            <>
-                                                                <AlertTriangle size={17} className="shrink-0" />
-                                                                <span className="truncate">{t('prep.orderCallError')}</span>
-                                                            </>
-                                                        ) : isSuccess ? (
-                                                            <>
-                                                                <CheckCircle2 size={17} className="shrink-0" />
-                                                                <span className="truncate">{t('prep.orderCallSent')}</span>
-                                                            </>
-                                                        ) : isSmartAutoVoiceStore && smartPlan ? (
-                                                            isAlreadyAnnounced ? (
-                                                                <>
-                                                                    <Volume2 size={17} className="shrink-0" />
-                                                                    <span className="truncate">{t('prep.repeatCallOrder')}</span>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Bot size={17} className="shrink-0" />
-                                                                    <span className="truncate">
-                                                                        {t('prep.autoCallButtonCountdown').replace('{time}', smartCountdownStr)}
-                                                                    </span>
-                                                                </>
-                                                            )
-                                                        ) : (
-                                                            <>
-                                                                <Volume2 size={17} className="shrink-0" />
-                                                                <span className="truncate">{t('prep.callOrder')}</span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* BARRA INFERIOR (CARRITO Y BOTÓN ENVIAR - SOLO EN ALIMENTOS) */}
-                    {cart.length > 0 && activeTab === 'alimentos' && (
-                        <div className="fixed lg:static bottom-14 lg:bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2 sm:p-4 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] animate-in slide-in-from-bottom-5 z-40">
-                            <div className="flex flex-col md:flex-row gap-2 sm:gap-4 max-w-[1400px] mx-auto">
-                                {/* ARTÍCULOS EN CARRITO */}
-                                <div className="flex-1 flex gap-2 overflow-x-auto py-1 sm:py-2 shrink-0 no-scrollbar">
-                                    {cart.map(c => (
-                                        <div 
-                                            key={c.name} 
-                                            {...bindPrepInstantTap(`cart:${c.name}`, () => decreaseItem(c.name))}
-                                            className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-2.5 py-1.5 sm:px-4 sm:py-3 md:px-5 md:py-4 rounded-xl flex items-center gap-1.5 sm:gap-3 shrink-0 group shadow-sm cursor-pointer select-none touch-manipulation active:scale-95 transition-transform"
-                                        >
-                                            <span className="bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-black w-5 h-5 sm:w-8 sm:h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm md:text-lg shadow-sm">
-                                                {c.qty}
-                                            </span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 text-xs sm:text-sm md:text-base whitespace-nowrap pr-2">{c.name}</span>
-                                            
-                                            <div className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 md:-top-3 md:-right-3 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 sm:p-1 border-2 border-white dark:border-slate-900 shadow-md transition-colors opacity-100">
-                                                <X size={12} strokeWidth={4} />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                
-                                {/* BOTÓN ENVIAR PEDIDO */}
-                                <button 
-                                    {...bindPrepInstantTap('cart:send', () => sendRequest())}
-                                    disabled={sending}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-black text-sm sm:text-lg md:text-2xl px-4 sm:px-8 py-2.5 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 sm:gap-3 shadow-[0_0_25px_rgba(220,38,38,0.5)] active:scale-95 transition-all disabled:opacity-50 h-[48px] sm:h-[70px] md:h-[80px] w-full md:w-[300px] shrink-0 cursor-pointer select-none touch-manipulation"
-                                >
-                                    {sending ? <Loader2 className="animate-spin w-5 h-5 sm:w-8 sm:h-8" /> : (
-                                        <>
-                                            <AlertTriangle size={20} className="animate-pulse sm:w-[30px] sm:h-[30px]" />
-                                            {t('prep.send')}
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* 3. VISTA RESUMEN DEL DÍA (Exclusiva para Móvil cuando mobileTab === 'resumen') */}
-                {mobileTab === 'resumen' && (() => {
-                    const { sortedHours, hourlyMap, dayTotals, grandTotal } = getHourlyData()
-                    return (
-                        <div className="lg:hidden flex-1 overflow-y-auto p-3 space-y-3 pb-24 bg-slate-100 dark:bg-slate-950">
-                            {/* Card Gran Total */}
-                            <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between border border-slate-700">
-                                <div>
-                                    <span className="text-[11px] uppercase font-extrabold text-blue-300 tracking-wider">{t('prep.dailyPaceTotal')}</span>
-                                    <h3 className="text-3xl font-black">{grandTotal.toFixed(1)} <span className="text-sm font-bold opacity-60">LBS</span></h3>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-[11px] text-slate-400 block font-bold">{selectedDate}</span>
-                                    <span className="text-xs font-black bg-blue-500/20 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded-full inline-block mt-1">{stores.find(s => s.id === storeId)?.name}</span>
-                                </div>
-                            </div>
-
-                            {/* Tarjetas de Totales por Carne */}
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="col-span-2 bg-blue-50 dark:bg-blue-900/30 p-3 rounded-xl border border-blue-200 dark:border-blue-800 flex justify-between items-center">
-                                    <span className="font-black text-sm uppercase text-blue-900 dark:text-blue-200">Total Asada</span>
-                                    <span className="text-2xl font-black text-blue-700 dark:text-blue-300">{dayTotals.ASADA.toFixed(1)} <span className="text-xs opacity-60">lbs</span></span>
-                                </div>
-                                {['POLLO', 'PASTOR', 'CABEZA', 'LENGUA'].map(meat => (
-                                    <div key={meat} className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center shadow-xs">
-                                        <span className="font-extrabold text-xs text-slate-600 dark:text-slate-400">{meat}</span>
-                                        <span className="text-base font-black text-slate-900 dark:text-white">{dayTotals[meat as keyof typeof dayTotals].toFixed(1)}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Tabla Desglose Horario */}
-                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                                    <h4 className="font-black text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">{t('prep.dayProjection')} (Por Hora)</h4>
-                                </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse text-xs">
-                                        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-extrabold">
-                                            <tr>
-                                                <th className="p-2 pl-3">{t('prep.hour')}</th>
-                                                <th className="p-2 text-blue-600 dark:text-blue-400">Asada</th>
-                                                <th className="p-2">Pollo</th>
-                                                <th className="p-2">Pastor</th>
-                                                <th className="p-2">Cabeza</th>
-                                                <th className="p-2">Lengua</th>
-                                                <th className="p-2 text-right pr-3">{t('prep.totalLabel')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                                            {sortedHours.map(hour => {
-                                                const data = hourlyMap.get(hour) || { ASADA: 0, CABEZA: 0, LENGUA: 0, PASTOR: 0, POLLO: 0 }
-                                                const hrTotal = data.ASADA + data.CABEZA + data.LENGUA + data.PASTOR + data.POLLO
-                                                if (hrTotal === 0) return null;
-                                                return (
-                                                    <tr key={hour} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                                                        <td className="p-2 pl-3 font-black text-slate-700 dark:text-slate-200 whitespace-nowrap">{hour}</td>
-                                                        <td className="p-2 font-black text-blue-600 dark:text-blue-400">{data.ASADA > 0 ? data.ASADA.toFixed(1) : '-'}</td>
-                                                        <td className="p-2">{data.POLLO > 0 ? data.POLLO.toFixed(1) : '-'}</td>
-                                                        <td className="p-2">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
-                                                        <td className="p-2">{data.CABEZA > 0 ? data.CABEZA.toFixed(1) : '-'}</td>
-                                                        <td className="p-2">{data.LENGUA > 0 ? data.LENGUA.toFixed(1) : '-'}</td>
-                                                        <td className="p-2 text-right pr-3 font-black text-slate-800 dark:text-white">{hrTotal.toFixed(1)}</td>
-                                                    </tr>
-                                                )
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    )
-                })()}
-
+                )}
             </div>
 
-            {/* BARRA DE NAVEGACIÓN INFERIOR FIJA PARA TELÉFONOS MÓVILES (< lg) */}
-            <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1 flex items-center justify-around shadow-2xl">
-                {/* Tab Parrilla */}
+            {/* 4. BARRA DE NAVEGACIÓN INFERIOR MÓVIL (< lg) */}
+            <nav
+                data-no-proximity="true"
+                className={`lg:hidden h-14 px-2 border-t grid grid-cols-4 gap-1 shrink-0 z-30 ${
+                    isDark ? 'bg-[#181A1F] border-[#2C3038]' : 'bg-white border-[#D8D0C2]'
+                }`}
+            >
                 <button
+                    type="button"
                     onClick={() => setMobileTab('parrilla')}
-                    className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-                        mobileTab === 'parrilla'
-                            ? 'text-blue-600 dark:text-blue-400 font-black'
-                            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold'
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-lg text-[10px] font-black uppercase ${
+                        mobileTab === 'parrilla' ? 'text-[#C8371A]' : 'opacity-60'
                     }`}
                 >
-                    <Flame size={22} className={mobileTab === 'parrilla' ? 'stroke-[2.5]' : ''} />
-                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.parrilla')}</span>
+                    <Flame className="w-4 h-4" />
+                    <span>{t('prep.parrilla')}</span>
                 </button>
-
-                {/* Tab Insumos */}
                 <button
+                    type="button"
                     onClick={() => setMobileTab('insumos')}
-                    className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all relative cursor-pointer ${
-                        mobileTab === 'insumos'
-                            ? 'text-orange-600 dark:text-orange-400 font-black'
-                            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold'
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-lg text-[10px] font-black uppercase ${
+                        mobileTab === 'insumos' ? 'text-[#15803D]' : 'opacity-60'
                     }`}
                 >
-                    <UtensilsCrossed size={22} className={mobileTab === 'insumos' ? 'stroke-[2.5]' : ''} />
-                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.insumos')}</span>
-                    {cart.length > 0 && (
-                        <span className="absolute top-0.5 right-2 bg-red-600 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-black animate-pulse shadow-sm">
-                            {cart.reduce((a, b) => a + b.qty, 0)}
-                        </span>
-                    )}
+                    <UtensilsCrossed className="w-4 h-4" />
+                    <span>{t('prep.insumos')}</span>
                 </button>
-
-                {/* Tab Resumen */}
                 <button
+                    type="button"
                     onClick={() => setMobileTab('resumen')}
-                    className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-                        mobileTab === 'resumen'
-                            ? 'text-purple-600 dark:text-purple-400 font-black'
-                            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold'
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-lg text-[10px] font-black uppercase ${
+                        mobileTab === 'resumen' ? 'text-[#1D4ED8]' : 'opacity-60'
                     }`}
                 >
-                    <BarChart3 size={22} className={mobileTab === 'resumen' ? 'stroke-[2.5]' : ''} />
-                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.resumen')}</span>
+                    <BarChart3 className="w-4 h-4" />
+                    <span>{t('prep.resumen')}</span>
                 </button>
-
-                {/* Tab Ajustes / Filtros (Abre Drawer) */}
                 <button
+                    type="button"
                     onClick={() => setShowMobileSettingsDrawer(true)}
-                    className="flex flex-col items-center justify-center py-1.5 px-3 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-bold transition-all cursor-pointer"
+                    className="flex flex-col items-center justify-center gap-0.5 rounded-lg text-[10px] font-black uppercase opacity-70"
                 >
-                    <SlidersHorizontal size={20} />
-                    <span className="text-[10px] mt-0.5 tracking-tight uppercase">{t('prep.ajustes')}</span>
+                    <SlidersHorizontal className="w-4 h-4" />
+                    <span>{t('prep.ajustes')}</span>
                 </button>
-            </div>
+            </nav>
 
-            {/* DRAWER DESLIZABLE DE AJUSTES Y FILTROS PARA MÓVILES */}
-            <AnimatePresence>
-                {showMobileSettingsDrawer && (
-                    <div className="fixed inset-0 z-[99999] flex flex-col justify-end lg:hidden">
-                        <motion.div 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setShowMobileSettingsDrawer(false)}
-                            className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"
-                        />
-                        <motion.div 
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 280 }}
-                            className="relative z-10 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-3xl p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto"
-                        >
-                            <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800">
-                                <div className="flex items-center gap-2">
-                                    <SlidersHorizontal size={18} className="text-blue-500" />
-                                    <h3 className="font-black text-base uppercase text-slate-800 dark:text-white">{t('prep.filtrosTitulo')}</h3>
-                                </div>
-                                <button 
-                                    onClick={() => setShowMobileSettingsDrawer(false)}
-                                    className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
+            {/* 5. MANAGER CONTROL SHEET (oculto automáticamente en Modo Tableta / Kiosco, regla U54) */}
+            <PreparadorManagerSheet
+                open={!isFullscreen && showMobileSettingsDrawer}
+                isDark={isDark}
+                isSuper={isSuper}
+                stores={stores}
+                storeId={storeId}
+                selectedDate={selectedDate}
+                currentBusinessDate={currentBusinessDate}
+                isToday={isToday}
+                cardDisplayMode={cardDisplayMode}
+                viewMode={viewMode}
+                wakingUpTablet={wakingUpTablet}
+                isSmartAutoVoiceStore={isSmartAutoVoiceStore}
+                onClose={() => setShowMobileSettingsDrawer(false)}
+                onChangeStore={(nextId) => {
+                    if (!isSuper) return
+                    setStoreId(nextId)
+                    safeLocalStorageSet('teg_preparador_store', nextId)
+                }}
+                onChangeDate={(nextDate) => setSelectedDate(nextDate)}
+                onSelectToday={() => setSelectedDate(getLAEffectiveBusinessDate())}
+                onChangeCardMode={(mode) => setCardDisplayMode(mode)}
+                onChangeViewMode={(mode) => setViewMode(mode)}
+                onToggleTheme={handleTogglePrepTheme}
+                onOpenGuide={() => setShowGuideModal(true)}
+                onOpenDay={() => setShowDayModal(true)}
+                onOpenWaste={() => {
+                    setSelectedWasteDate(getLAEffectiveBusinessDate())
+                    setShowWasteModal(true)
+                }}
+                onOpenInfo={() => setShowInfoModal(true)}
+                onOpenBackKitchen={() => window.open('/inventory/preparador/bodega', '_blank')}
+                onWakeUpTablet={() => void handleWakeUpTablet()}
+            />
 
-                            {/* Selector de Sucursal */}
-                            <div>
-                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.store') || 'Sucursal'}</label>
-                                <select 
-                                    value={storeId} 
-                                    onChange={e => {
-                                        const val = e.target.value
-                                        setStoreId(val)
-                                        try { localStorage.setItem('teg_preparador_store', val) } catch {}
-                                        setShowMobileSettingsDrawer(false)
-                                    }}
-                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 font-bold text-sm text-slate-800 dark:text-white outline-none cursor-pointer"
-                                >
-                                    {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                            </div>
-
-                            {/* Selector de Fecha */}
-                            <div>
-                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.selectDate')}</label>
-                                <div className="flex items-center gap-2">
-                                    <div className="flex-1 flex items-center gap-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5">
-                                        <Calendar size={18} className="text-blue-500 shrink-0" />
-                                        <input 
-                                            type="date" 
-                                            value={selectedDate}
-                                            max={currentBusinessDate}
-                                            onChange={e => {
-                                                setSelectedDate(e.target.value)
-                                                recordUserActivity()
-                                            }}
-                                            className="w-full bg-transparent font-bold text-sm text-slate-700 dark:text-slate-200 outline-none"
-                                        />
-                                    </div>
-                                    <button 
-                                        onClick={() => {
-                                            setSelectedDate(currentBusinessDate)
-                                            recordUserActivity()
-                                        }}
-                                        className={`px-3 py-2.5 rounded-xl font-black text-xs transition-colors shrink-0 cursor-pointer ${
-                                            isToday 
-                                                ? 'bg-emerald-600 text-white shadow-xs' 
-                                                : 'bg-blue-600 text-white hover:bg-blue-700'
-                                        }`}
-                                    >
-                                        {t('prep.today')}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Modo de Tarjeta (Manual | Básica | Avanzada) */}
-                            <div>
-                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.modoTarjeta')}</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <button 
-                                        onClick={() => setCardDisplayMode('manual')}
-                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${cardDisplayMode === 'manual' ? 'bg-purple-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
-                                    >
-                                        {t('prep.manualMode')}
-                                    </button>
-                                    <button 
-                                        onClick={() => setCardDisplayMode('basic')}
-                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
-                                    >
-                                        {t('prep.basicMode')}
-                                    </button>
-                                    <button 
-                                        onClick={() => setCardDisplayMode('advanced')}
-                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
-                                    >
-                                        {t('prep.advancedMode')}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Modo de Intervalo (30 Min vs Tramos) */}
-                            <div>
-                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">{t('prep.modoIntervalo')}</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button 
-                                        onClick={() => setViewMode('30min')}
-                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
-                                    >
-                                        30 Min
-                                    </button>
-                                    <button 
-                                        onClick={() => setViewMode('tramos')}
-                                        className={`py-2.5 rounded-xl font-black text-xs transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
-                                    >
-                                        Tramos
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Acciones Adicionales */}
-                            <div className="grid grid-cols-2 gap-2 pt-2">
-                                <button 
-                                    onClick={() => {
-                                        setShowMobileSettingsDrawer(false)
-                                        setShowWasteModal(true)
-                                    }}
-                                    className="flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white p-3 rounded-xl font-black text-xs shadow-sm cursor-pointer"
-                                >
-                                    <TrendingDown size={16} />
-                                    <span>{t('prep.wasteReportBtn')}</span>
-                                </button>
-                                <a 
-                                    href="/inventory/preparador/bodega" 
-                                    target="_blank"
-                                    className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-black text-white p-3 rounded-xl font-black text-xs shadow-sm cursor-pointer"
-                                >
-                                    <BellRing size={16} className="animate-pulse" />
-                                    <span>{t('prep.openWarehouse')}</span>
-                                </a>
-                            </div>
-
-                            {/* Botón Cerrar */}
-                            <button 
-                                onClick={() => setShowMobileSettingsDrawer(false)}
-                                className="w-full bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-extrabold py-3 rounded-xl text-xs uppercase cursor-pointer"
-                            >
-                                {t('prep.cerrar')}
-                            </button>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-            {/* Modal de Proyección del Día */}
-            {showDayModal && (() => {
-                const { sortedHours, hourlyMap, dayTotals, grandTotal } = getHourlyData()
-                return (
-                    <div className="fixed inset-0 z-[99999] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center p-4 xl:p-10 transition-all">
-                        <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-full max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800">
-                            {/* Header */}
-                            <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 shrink-0">
-                                <div>
-                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">{t('prep.dayProjection')}</h2>
-                                    <p className="text-slate-500 font-medium text-sm">{t('prep.dayProjectionDesc')}</p>
-                                </div>
-                                <button onClick={() => setShowDayModal(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white cursor-pointer dark:bg-slate-800 dark:hover:bg-red-600 text-slate-700 dark:text-slate-300 p-2 rounded-full transition-colors active:scale-95 shadow-sm">
-                                    <X size={28} />
-                                </button>
-                            </div>
-                            
-                            {/* Body (Tabla) */}
-                            <div className="flex-1 overflow-x-auto overflow-y-auto bg-slate-100 dark:bg-slate-950 custom-scrollbar">
-                                <table className="w-full text-left border-collapse">
-                                    <thead className="bg-white dark:bg-slate-800 sticky top-0 shadow-sm z-10">
-                                        <tr>
-                                            <th className="p-4 font-bold text-slate-400 text-sm tracking-widest pl-6">{t('prep.hour')}</th>
-                                            <th className="p-4 font-black text-blue-600 dark:text-blue-400 tracking-wider">ASADA</th>
-                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">POLLO</th>
-                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">PASTOR</th>
-                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">CABEZA</th>
-                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">LENGUA</th>
-                                            <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">{t('prep.hourTotal')}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {sortedHours.map(hour => {
-                                            const data = hourlyMap.get(hour) || { ASADA: 0, CABEZA: 0, LENGUA: 0, PASTOR: 0, POLLO: 0 }
-                                            const hrTotal = data.ASADA + data.CABEZA + data.LENGUA + data.PASTOR + data.POLLO
-                                            if (hrTotal === 0) return null;
-                                            return (
-                                                <tr key={hour} className="border-b border-slate-200 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-900 transition-colors">
-                                                    <td className="p-4 font-black text-slate-600 dark:text-slate-300 pl-6 text-lg">{hour}</td>
-                                                    <td className="p-4 font-black text-blue-700 dark:text-blue-400 text-xl">{data.ASADA > 0 ? data.ASADA.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.POLLO > 0 ? data.POLLO.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.CABEZA > 0 ? data.CABEZA.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.LENGUA > 0 ? data.LENGUA.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-black text-slate-800 dark:text-white text-right pr-6">{hrTotal.toFixed(1)} <span className="text-xs opacity-50 font-bold ml-1">{t('prep.lbs')}</span></td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {/* Footer (Totales) */}
-                            <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-6 flex flex-wrap gap-4 justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.05)] shrink-0 z-20">
-                                <div className="flex gap-3 overflow-x-auto pb-2 md:pb-0">
-                                    <div className="bg-blue-50 dark:bg-blue-900/30 px-6 py-3 flex flex-col items-center justify-center rounded-2xl border border-blue-200 dark:border-blue-800 shrink-0">
-                                        <span className="text-xs uppercase font-bold text-blue-600 dark:text-blue-400">{t('prep.totalLabel')} Asada</span>
-                                        <span className="font-black text-blue-700 dark:text-blue-300 text-3xl">{dayTotals.ASADA.toFixed(1)} <span className="text-sm font-bold opacity-50">{t('prep.lbs')}</span></span>
-                                    </div>
-                                    {['POLLO', 'PASTOR', 'CABEZA', 'LENGUA'].map(meat => (
-                                        <div key={meat} className="bg-slate-50 dark:bg-slate-800 px-5 py-3 flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0">
-                                            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{meat}</span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-300 text-xl">{dayTotals[meat as keyof typeof dayTotals].toFixed(1)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                                
-                                <div className="bg-slate-800 text-white dark:bg-white dark:text-slate-900 px-8 py-4 rounded-2xl flex flex-col items-center justify-center shadow-lg shrink-0">
-                                    <span className="text-xs uppercase font-bold text-blue-200 dark:text-blue-700 tracking-widest">{t('prep.dailyPaceTotal')}</span>
-                                    <span className="font-black text-4xl">{grandTotal.toFixed(1)} <span className="text-sm opacity-60 ml-1">{t('prep.lbs').toUpperCase()}</span></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )
-            })()}
-
-            {/* Manual Override Edit Modal (Desactivado en Modo Tableta Kiosco) */}
-            <AnimatePresence>
-                {!isFullscreen && editingMeatItem && (
-                    <motion.div 
-                        initial={{ opacity: 0 }} 
-                        animate={{ opacity: 1 }} 
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4"
-                        onClick={() => setEditingMeatItem(null)}
-                    >
-                        <motion.div 
-                            initial={{ scale: 0.9, opacity: 0 }} 
-                            animate={{ scale: 1, opacity: 1 }} 
-                            exit={{ scale: 0.9, opacity: 0 }} 
-                            onClick={e => e.stopPropagation()}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl flex flex-col items-center text-center space-y-6"
-                        >
-                            <div>
-                                <span className={`text-xs font-black uppercase tracking-wider ${editingMeatItem.isManualMode ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                                    {t('prep.block')}: {editingMeatItem.bucketLabel}
-                                </span>
-                                <h3 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white uppercase mt-1">
-                                    {editingMeatItem.isManualMode ? `📋 ${t('prep.editModalTitle')}` : `✏️ ${t('prep.meatProjection')}`} - {editingMeatItem.meatType}
-                                </h3>
-                                <p className="text-xs md:text-sm text-slate-500 font-bold mt-1">
-                                    {editingMeatItem.isManualMode 
-                                        ? `${t('prep.editModalSubtitle')}`
-                                        : `${t('prep.editModalSubtitle')}`}
-                                </p>
-                            </div>
-
-                            {/* Big Number Stepper */}
-                            <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 w-full justify-center">
-                                <button 
-                                    onClick={() => setTempEditValue(prev => Math.max(1, prev - 1))}
-                                    className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-3xl flex items-center justify-center cursor-pointer shadow-md active:scale-95 transition-transform"
-                                >
-                                    -
-                                </button>
-                                <div className="flex items-baseline gap-1 px-4">
-                                    <input 
-                                        type="number" 
-                                        value={tempEditValue}
-                                        onChange={e => setTempEditValue(Math.max(1, parseInt(e.target.value) || 1))}
-                                        className="text-5xl md:text-6xl font-black text-slate-900 dark:text-white text-center w-28 bg-transparent outline-none border-b-2 border-purple-500"
-                                    />
-                                    <span className="text-2xl font-bold text-slate-500">{t('prep.lbs')}</span>
-                                </div>
-                                <button 
-                                    onClick={() => setTempEditValue(prev => prev + 1)}
-                                    className="w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-3xl flex items-center justify-center cursor-pointer shadow-md active:scale-95 transition-transform"
-                                >
-                                    +
-                                </button>
-                            </div>
-
-                            {/* Preset Fast Tap Buttons */}
-                            <div className="w-full">
-                                <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider block mb-2">{t('prep.quickSelect')}:</label>
-                                <div className="grid grid-cols-5 gap-2">
-                                    {[1, 2, 3, 4, 5, 6, 8, 10, 12, 15].map(val => (
-                                        <button
-                                            key={val}
-                                            onClick={() => setTempEditValue(val)}
-                                            className={`py-2 rounded-xl font-black text-sm transition-all cursor-pointer ${tempEditValue === val ? 'bg-purple-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-                                        >
-                                            {val} {t('prep.lbs')}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Actions */}
-                            <div className="flex flex-col sm:flex-row gap-3 w-full pt-2">
-                                {!editingMeatItem.isManualMode && manualOverrides[editingMeatItem.key] !== undefined && (
-                                    <button 
-                                        onClick={() => {
-                                            const copy = { ...manualOverrides }
-                                            delete copy[editingMeatItem.key]
-                                            setManualOverrides(copy)
-                                            setEditingMeatItem(null)
-                                        }}
-                                        className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold py-3.5 rounded-xl text-xs uppercase cursor-pointer transition-colors border border-slate-200 dark:border-slate-700"
-                                    >
-                                        🔄 {t('prep.restoreAuto')}
-                                    </button>
-                                )}
-                                <button 
-                                    onClick={() => setEditingMeatItem(null)}
-                                    className="flex-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors"
-                                >
-                                    {t('prep.cancel')}
-                                </button>
-                                <button 
-                                    onClick={async () => {
-                                        lastSaveTimeRef.current = Date.now()
-                                        if (editingMeatItem.isManualMode && editingMeatItem.intervalStart) {
-                                            const key = `${editingMeatItem.intervalStart}_${editingMeatItem.meatType}`
-                                            const updatedMap = {
-                                                ...manualWeeklySchedule,
-                                                [key]: tempEditValue
-                                            }
-
-                                            setManualWeeklySchedule(updatedMap)
-                                            
-                                            const storageKey = `teg_prep_manual_weekly_${storeId}_${businessDow}`
-                                            localStorage.setItem(storageKey, JSON.stringify(updatedMap))
-
-                                            try {
-                                                const saveRes = await fetch('/api/inventory/preparador-manual-schedule', {
-                                                    method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({
-                                                        storeId,
-                                                        dow: businessDow,
-                                                        intervalStart: editingMeatItem.intervalStart,
-                                                        meatType: editingMeatItem.meatType,
-                                                        maxLbs: tempEditValue
-                                                    })
-                                                })
-                                                if (saveRes.ok) {
-                                                    void fetchManualScheduleRef.current?.(businessDow, selectedDate, true)
-                                                }
-                                            } catch (e) {
-                                                console.error('Error saving manual schedule:', e)
-                                            }
-                                        } else {
-                                            setManualOverrides(prev => ({
-                                                ...prev,
-                                                [editingMeatItem.key]: tempEditValue
-                                            }))
-                                        }
-                                        setEditingMeatItem(null)
-                                    }}
-                                    className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-extrabold py-3.5 rounded-xl text-sm uppercase cursor-pointer transition-colors shadow-lg shadow-purple-600/30"
-                                >
-                                    {t('prep.save')}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Guide & Table Modal */}
-            <AnimatePresence>
-                {showGuideModal && (
-                    <motion.div 
-                        initial={{ opacity: 0 }} 
-                        animate={{ opacity: 1 }} 
-                        exit={{ opacity: 0 }} 
-                        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-3 md:p-6"
-                        onClick={() => setShowGuideModal(false)}
-                    >
-                        <motion.div 
-                            initial={{ scale: 0.95, opacity: 0 }} 
-                            animate={{ scale: 1, opacity: 1 }} 
-                            exit={{ scale: 0.95, opacity: 0 }} 
-                            onClick={e => e.stopPropagation()}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-6xl max-h-[94vh] h-[92vh] flex flex-col shadow-2xl overflow-hidden"
-                        >
-                            {/* Modal Header */}
-                            <div className="p-4 md:p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950/50 shrink-0">
-                                <div>
-                                    <h3 className="font-black text-slate-800 dark:text-white text-lg md:text-2xl flex items-center gap-2">
-                                        <span>📖</span>
-                                        <span>{t('prep.guideModalTitle')}</span>
-                                    </h3>
-                                    <p className="text-xs md:text-sm text-slate-500 font-bold mt-1">Control de Ritmo & Máximos Sugeridos en Charola (8:00 AM – Cierre)</p>
-                                </div>
-                                <button 
-                                    onClick={() => setShowGuideModal(false)} 
-                                    className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 transition-colors cursor-pointer"
-                                >
-                                    <X size={24} />
-                                </button>
-                            </div>
-
-                            {/* Modal Body Scrollable */}
-                            <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1">
-                                {/* Operational Guide Summary */}
-                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 md:p-5 space-y-3 shadow-xs">
-                                    <h4 className="font-black text-slate-900 dark:text-white text-sm md:text-base flex items-center gap-2">
-                                        <span>💡</span> {t('prep.operationalGuideTitle')}
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 text-xs md:text-sm">
-                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                            <span className="font-black text-slate-900 dark:text-white block mb-1">{t('prep.step1Proj')}</span>
-                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial.</p>
-                                        </div>
-                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                            <span className="font-black text-slate-900 dark:text-white block mb-1">{t('prep.step2Max')}</span>
-                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</p>
-                                        </div>
-                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                            <span className="font-black text-slate-900 dark:text-white block mb-1">{t('prep.step3Quality')}</span>
-                                            <p className="text-slate-600 dark:text-slate-400 font-medium">Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* DOW Tabs */}
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black uppercase text-slate-500 tracking-wider block">{t('prep.selectDOW')}</label>
-                                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-                                        {[
-                                            { dow: 1, name: 'Lunes' },
-                                            { dow: 2, name: 'Martes' },
-                                            { dow: 3, name: 'Miércoles' },
-                                            { dow: 4, name: 'Jueves' },
-                                            { dow: 5, name: 'Viernes' },
-                                            { dow: 6, name: 'Sábado' },
-                                            { dow: 7, name: 'Domingo' }
-                                        ].map(item => (
-                                            <button 
-                                                key={item.dow}
-                                                onClick={() => setGuideModalDow(item.dow)}
-                                                className={`px-4 md:px-6 py-2.5 rounded-xl font-black text-xs md:text-sm whitespace-nowrap transition-all duration-200 cursor-pointer ${guideModalDow === item.dow ? 'bg-red-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
-                                            >
-                                                {item.name}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Table */}
-                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
-                                    <div className="overflow-x-auto max-h-[55vh] md:max-h-[60vh]">
-                                        <table className="w-full text-left text-xs md:text-sm">
-                                            <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-extrabold uppercase sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
-                                                <tr>
-                                                    <th className="p-3.5 md:p-4 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">{t('prep.hour')}</th>
-                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🥩 Asada</th>
-                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
-                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
-                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🐮 Cabeza</th>
-                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">👅 Lengua</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-semibold">
-                                                {guideModalLoading ? (
-                                                    <tr>
-                                                        <td colSpan={6} className="text-center py-12 text-slate-400">
-                                                            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
-                                                            <span>{t('prep.loadingTable')}</span>
-                                                        </td>
-                                                    </tr>
-                                                ) : guideModalData.map((r, idx) => {
-                                                    const isPeak = r.ASADA.avg >= 12.0 || r.POLLO.avg >= 3.0
-                                                    return (
-                                                        <tr key={r.time} className={`hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors ${idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/70 dark:bg-slate-900/60'} ${isPeak ? 'bg-amber-50/30 dark:bg-amber-950/10' : ''}`}>
-                                                            <td className="p-3 font-black text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-xs">{r.time}</td>
-                                                            {['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA'].map(proto => (
-                                                                <td key={proto} className="p-3">
-                                                                    <div className="font-extrabold text-slate-900 dark:text-white text-sm">{r[proto].avg} <span className="text-[10px] text-slate-500 font-normal">{t('prep.lbs')}</span></div>
-                                                                    <div className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md inline-block mt-0.5">🔥 {t('prep.tableMax')}: {r[proto].maxTray} {t('prep.lbs')}</div>
-                                                                </td>
-                                                            ))}
-                                                        </tr>
-                                                    )
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Tactile click audio synthesized in memory via Web Audio API (no external MP3 required) */}
-
-            {/* Info Modal */}
-            <AnimatePresence>
-                {cardDisplayMode === 'advanced' && showInfoModal && (
-                    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
-                        <motion.div 
-                            initial={{ opacity: 0 }} 
-                            animate={{ opacity: 1 }} 
-                            exit={{ opacity: 0 }} 
-                            className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm"
-                            onClick={() => setShowInfoModal(false)}
-                        />
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 w-[96vw] h-[96vh] rounded-3xl p-6 md:p-10 shadow-2xl relative z-10 flex flex-col"
-                        >
-                            <button 
-                                onClick={() => setShowInfoModal(false)}
-                                className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors"
-                            >
-                                <X size={24} />
-                            </button>
-                            
-                            <h2 className="text-3xl md:text-5xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
-                                {t('prep.meatProjection')}
-                            </h2>
-                            <p className="text-slate-500 mb-6 md:mb-8 border-b border-slate-200 dark:border-slate-800 pb-4 md:pb-6 text-lg md:text-2xl shrink-0">
-                                {t('prep.meatProjectionDesc')}
-                            </p>
-                            
-                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8 text-slate-600 dark:text-slate-300 overflow-y-auto shrink pb-2 pr-2">
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 dark:bg-red-500/10 rounded-full blur-3xl" />
-                                    <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        {t('prep.rawPoundsTitle')}
-                                    </h3>
-                                    <p className="mb-6 font-medium text-lg md:text-2xl" dangerouslySetInnerHTML={{ __html: t('prep.rawPoundsDesc') }} />
-                                    <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-emerald-600 dark:text-emerald-500 mt-1">1.</span> 
-                                            <span>{t('prep.rawPoundsStep1')}</span>
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-emerald-600 dark:text-emerald-500 mt-1">2.</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.rawPoundsStep2') }} />
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-emerald-600 dark:text-emerald-500 mt-1">3.</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.rawPoundsStep3') }} />
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl" />
-                                    <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        {t('prep.histAvgTitle')}
-                                    </h3>
-                                    <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        {t('prep.histAvgDesc')}
-                                    </p>
-                                    <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.histAvgPoint1') }} />
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.histAvgPoint2') }} />
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.histAvgPoint3') }} />
-                                        </li>
-                                    </ul>
-                                </div>
-                                
-                                <div className="xl:col-span-2 bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 dark:bg-amber-500/10 rounded-full blur-3xl" />
-                                    <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        {t('prep.livePaceTitle')}
-                                    </h3>
-                                    <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        {t('prep.livePaceDesc')}
-                                    </p>
-                                    <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.livePacePoint1') }} />
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.livePacePoint2') }} />
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span dangerouslySetInnerHTML={{ __html: t('prep.livePacePoint3') }} />
-                                        </li>
-                                    </ul>
-                                </div>
-                            </div>
-                            
-                            <div className="mt-6 md:mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 shrink-0">
-                                <button 
-                                    onClick={() => setShowInfoModal(false)}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-2xl tracking-widest py-5 md:py-6 rounded-2xl transition-all shadow-xl shadow-blue-500/30"
-                                >
-                                    {t('prep.understoodBtn')}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* Waste Dashboard Modal */}
-            <AnimatePresence>
-                {showWasteModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                        <motion.div 
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl p-6 md:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]"
-                        >
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4 shrink-0">
-                                <div>
-                                    <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-3">
-                                        <TrendingDown className="text-red-500 w-8 h-8" />
-                                        <span>{t('prep.wasteReport')}</span>
-                                        <button 
-                                            onClick={() => setShowWasteInfo(!showWasteInfo)} 
-                                            className="text-slate-400 hover:text-blue-500 transition-colors p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none cursor-pointer"
-                                            title="Información del cálculo"
-                                        >
-                                            <HelpCircle size={20} />
-                                        </button>
-                                    </h2>
-                                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-                                        {t('prep.wasteReportDesc')}
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3 w-full sm:w-auto">
-                                    <input 
-                                        type="date" 
-                                        value={selectedWasteDate}
-                                        onChange={(e) => setSelectedWasteDate(e.target.value)}
-                                        className="bg-slate-100 dark:bg-slate-800 border-none font-bold text-sm text-slate-700 dark:text-slate-300 rounded-xl p-3 focus:ring-2 focus:ring-red-500 outline-none cursor-pointer w-full sm:w-auto"
-                                    />
-                                    <button 
-                                        onClick={() => setShowWasteModal(false)}
-                                        className="p-3 hover:bg-slate-105 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer text-slate-500 hover:text-slate-700"
-                                    >
-                                        <X size={20} />
-                                    </button>
-                                </div>
-                            </div>
-
-                            <AnimatePresence>
-                                {showWasteInfo && (
-                                    <motion.div 
-                                        initial={{ height: 0, opacity: 0 }}
-                                        animate={{ height: 'auto', opacity: 1 }}
-                                        exit={{ height: 0, opacity: 0 }}
-                                        className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 p-4 rounded-2xl mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-300 shrink-0 overflow-hidden"
-                                    >
-                                        <h4 className="font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-2">
-                                            <HelpCircle size={16} />
-                                            {t('prep.meatProjection')}
-                                        </h4>
-                                        <ul className="list-disc pl-5 space-y-2 font-medium">
-                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoProj')}</span></li>
-                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoReal')}</span></li>
-                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoVar')}</span></li>
-                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoStatus')}</span></li>
-                                        </ul>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-
-                            <div className="overflow-y-auto pr-2 space-y-6 flex-1 flex flex-col justify-center min-h-[250px]">
-                                {loadingWasteData ? (
-                                    <div className="flex flex-col items-center justify-center py-12 gap-3">
-                                        <Loader2 className="animate-spin text-red-500 w-12 h-12" />
-                                        <span className="text-sm font-bold text-slate-500 dark:text-slate-400 animate-pulse">{t('prep.calculatingHistory')}</span>
-                                    </div>
-                                ) : (
-                                    (() => {
-                                        const stats = wasteData.map(s => {
-                                            const diff = s.totalReal - s.totalProj
-                                            const diffPct = s.totalProj > 0 ? (diff / s.totalProj) * 100 : 0
-
-                                            let statusKey = 'prep.onTrack'
-                                            let statusColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
-                                            
-                                            if (diffPct > 10) {
-                                                statusKey = 'prep.underPrep'
-                                                statusColor = 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-                                            } else if (diffPct < -10) {
-                                                statusKey = 'prep.overPrep'
-                                                statusColor = 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                                            }
-
-                                            return {
-                                                ...s,
-                                                diff,
-                                                diffPct,
-                                                statusKey,
-                                                statusColor
-                                            }
-                                        })
-
-                                        return (
-                                            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shrink-0">
-                                                <table className="w-full text-left border-collapse">
-                                                    <thead>
-                                                        <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-sm border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider">
-                                                            <th className="p-4">{t('prep.protein')}</th>
-                                                            <th className="p-4 text-center">{t('prep.projLbs')}</th>
-                                                            <th className="p-4 text-center">{t('prep.realLbs')}</th>
-                                                            <th className="p-4 text-center">{t('prep.variance')}</th>
-                                                            <th className="p-4 text-center">{t('prep.status')}</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-base font-semibold">
-                                                        {stats.map(s => (
-                                                            <tr key={s.proto} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                                                <td className="p-4 font-bold text-slate-800 dark:text-slate-200 uppercase">{s.proto}</td>
-                                                                <td className="p-4 text-center text-slate-600 dark:text-slate-400">{s.totalProj.toFixed(1)}</td>
-                                                                <td className="p-4 text-center text-slate-800 dark:text-slate-200">
-                                                                    {s.hasRealData ? s.totalReal.toFixed(1) : <span className="text-slate-400 dark:text-slate-600 italic">{t('prep.noData')}</span>}
-                                                                </td>
-                                                                <td className={`p-4 text-center font-black ${s.diff > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                                                                    {s.hasRealData ? (
-                                                                        <>
-                                                                            {s.diff > 0 ? '+' : ''}{s.diff.toFixed(1)} ({s.diffPct > 0 ? '+' : ''}{s.diffPct.toFixed(0)}%)
-                                                                        </>
-                                                                    ) : '-'}
-                                                                </td>
-                                                                <td className="p-4 text-center">
-                                                                    {s.hasRealData ? (
-                                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${s.statusColor}`}>
-                                                                            {t(s.statusKey)}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="text-xs text-slate-400 dark:text-slate-600 font-normal">{t('prep.pendingSync')}</span>
-                                                                    )}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        )
-                                    })()
-                                )}
-                            </div>
-
-                            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
-                                <button 
-                                    onClick={() => setShowWasteModal(false)}
-                                    className="w-full bg-slate-800 hover:bg-black dark:bg-slate-700 dark:hover:bg-slate-650 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider text-sm cursor-pointer"
-                                >
-                                    {t('prep.understood')}
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
+            {/* 6. MODALES OPERATIVOS (100% Paridad Funcional) */}
+            <PreparadorModals
+                isDark={isDark}
+                isFullscreen={isFullscreen}
+                viewMode={viewMode}
+                currentBusinessDate={currentBusinessDate}
+                wakeToast={wakeToast}
+                showWakeUpModal={showWakeUpModal}
+                wakingUpTablet={wakingUpTablet}
+                onWakeUpTablet={() => void handleWakeUpTablet()}
+                showCookAlert={showCookAlert}
+                nextBlockLabel={nextBlockLabel}
+                onDismissCookAlert={() => {
+                    setShowCookAlert(false)
+                    if (cookAlarmRef.current) {
+                        cookAlarmRef.current.pause()
+                        cookAlarmRef.current.currentTime = 0
+                    }
+                }}
+                editingMeatItem={editingMeatItem}
+                tempEditValue={tempEditValue}
+                hasDailyOverrideForEditing={Boolean(editingMeatItem && manualOverrides[editingMeatItem.key] !== undefined)}
+                onChangeTempEditValue={setTempEditValue}
+                onRestoreAutoOverride={() => {
+                    if (!editingMeatItem) return
+                    const copy = { ...manualOverrides }
+                    delete copy[editingMeatItem.key]
+                    persistManualOverrides(copy)
+                    setEditingMeatItem(null)
+                }}
+                onSaveEditMeat={() => void handleSaveEditMeat()}
+                onCloseEditMeat={() => setEditingMeatItem(null)}
+                showGuideModal={showGuideModal}
+                guideModalDow={guideModalDow}
+                guideModalData={guideModalData}
+                guideModalLoading={guideModalLoading}
+                onChangeGuideDow={setGuideModalDow}
+                onCloseGuideModal={() => setShowGuideModal(false)}
+                showDayModal={showDayModal}
+                hourlyData={hourlyRows}
+                onCloseDayModal={() => setShowDayModal(false)}
+                showWasteModal={showWasteModal}
+                selectedWasteDate={selectedWasteDate}
+                wasteData={wasteData}
+                loadingWasteData={loadingWasteData}
+                showWasteInfo={showWasteInfo}
+                onChangeWasteDate={setSelectedWasteDate}
+                onToggleWasteInfo={() => setShowWasteInfo((v) => !v)}
+                onCloseWasteModal={() => setShowWasteModal(false)}
+                showInfoModal={showInfoModal}
+                onCloseInfoModal={() => setShowInfoModal(false)}
+            />
         </div>
     )
 }
