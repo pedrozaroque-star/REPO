@@ -20,11 +20,23 @@
  * - Lee/actualiza credenciales OAuth de sistema en `public.integrations` (`service_name = 'system_gmail_oauth'`)
  *   y consulta `public.users` como respaldo.
  * - Despacha por HTTPS (`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`).
+ * @notes
+ * - [2026-11-25] Blindaje Centralizado Anti-Rebotes (`lib/email-recipient-guard.ts`): antes de compilar MIME,
+ *   `sendSystemEmail` canoniza alias administrativos (`yasmin@` -> `ap@`, `roque@` -> `carlos@`, `alejandro@` -> `alex@`),
+ *   traduce cuentas login-only `@tacosgavilan.com` de `asistente` a su correo personal real verificado en `toast_employees`,
+ *   y descarta correos no entregables (`@example.com`, `*.invalid`, cuentas `@tacosgavilan.com` inexistentes, o cuentas
+ *   externas bloqueadas por `550 NoSuchUser` / `452 OverQuotaTemp` en `employee_email_audit_state`).
  */
 
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import type Mail from 'nodemailer/lib/mailer'
+import { stripStoreNumberTokensInText } from '@/lib/store-display'
+import {
+    BlockedRecipientError,
+    loadEmailDeliverabilityContext,
+    sanitizeSystemMailRecipients,
+} from '@/lib/email-recipient-guard'
 
 export const OFFICIAL_NOREPLY_EMAIL = 'noreply@tacosgavilan.com'
 export const FALLBACK_SYSTEM_EMAIL = 'carlos@tacosgavilan.com'
@@ -66,6 +78,8 @@ export interface SystemMailOptions {
     text?: string
     attachments?: Mail.Attachment[]
     preferredUserId?: string | number | null
+    /** Solo para pruebas controladas de infraestructura; por defecto false (guard anti-rebotes siempre activo). */
+    skipRecipientGuard?: boolean
 }
 
 export interface SystemMailResult {
@@ -395,8 +409,66 @@ export async function getSystemMailerStatus(): Promise<{
 /**
  * Despacha un correo de sistema priorizando `noreply@tacosgavilan.com` con failover automático.
  */
-export async function sendSystemEmail(options: SystemMailOptions): Promise<SystemMailResult> {
+export async function sendSystemEmail(rawOptions: SystemMailOptions): Promise<SystemMailResult> {
     const supabase = getSupabaseAdmin()
+
+    // Blindaje centralizado anti-rebotes (canoniza alias, resuelve correos personales de asistentes y bloquea inválidos/llenos)
+    let effectiveTo: string | string[] = rawOptions.to
+    let effectiveCc: string | string[] | undefined = rawOptions.cc
+    let effectiveBcc: string | string[] | undefined = rawOptions.bcc
+    let effectiveReplyTo: string | undefined = rawOptions.replyTo
+
+    if (!rawOptions.skipRecipientGuard) {
+        const guardCtx = await loadEmailDeliverabilityContext(supabase)
+        const sanitized = sanitizeSystemMailRecipients(
+            {
+                to: rawOptions.to,
+                cc: rawOptions.cc,
+                bcc: rawOptions.bcc,
+                replyTo: rawOptions.replyTo,
+            },
+            guardCtx
+        )
+
+        if (sanitized.rewritten.length > 0) {
+            console.log(
+                `🔁 [SystemMailer][EmailGuard] Destinatarios redirigidos (${sanitized.rewritten
+                    .map((r) => `${r.from} -> ${r.to}`)
+                    .join(', ')})`
+            )
+        }
+        if (sanitized.dropped.length > 0) {
+            console.warn(
+                `🛡️ [SystemMailer][EmailGuard] Destinatarios omitidos para evitar rebote (${sanitized.dropped
+                    .map((d) => `${d.email} [${d.reason}]`)
+                    .join(', ')})`
+            )
+        }
+        if (sanitized.to.length === 0) {
+            throw new BlockedRecipientError(
+                `SystemMailer omitió el envío porque ningún destinatario en "To" es entregable (${sanitized.dropped
+                    .map((d) => `${d.email}:${d.reason}`)
+                    .join(', ')})`,
+                sanitized.dropped
+            )
+        }
+
+        effectiveTo = sanitized.to
+        effectiveCc = sanitized.cc.length > 0 ? sanitized.cc : undefined
+        effectiveBcc = sanitized.bcc.length > 0 ? sanitized.bcc : undefined
+        effectiveReplyTo = sanitized.replyTo
+    }
+
+    const options: SystemMailOptions = {
+        ...rawOptions,
+        to: effectiveTo,
+        cc: effectiveCc,
+        bcc: effectiveBcc,
+        replyTo: effectiveReplyTo,
+        subject: stripStoreNumberTokensInText(rawOptions.subject),
+        html: rawOptions.html ? stripStoreNumberTokensInText(rawOptions.html) : rawOptions.html,
+        text: rawOptions.text ? stripStoreNumberTokensInText(rawOptions.text) : rawOptions.text,
+    }
     const primaryEmail = resolveCanonicalPrimaryEmail()
     const errors: string[] = []
 

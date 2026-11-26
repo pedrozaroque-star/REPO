@@ -48,6 +48,11 @@ import nodemailer from 'nodemailer'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { syncToastEmployees } from '@/lib/toast-labor'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
+import {
+    buildVerifiedCorporateEmailSet,
+    KNOWN_BOUNCED_EXTERNAL_EMAILS,
+} from '@/lib/email-recipient-guard'
 
 export type EmailIssueType =
     | 'VALID'
@@ -541,7 +546,8 @@ function generateTypoCandidates(cleanEmail: string): string[] {
         if (local.includes('_') || local.includes('-')) {
             candidates.push(`${local.replace(/[_-]+/g, '')}@gmail.com`)
         }
-        if (local.includes('latorre') && !local.includes('delatorre')) {
+        if (local.includes('latorre') && !local.includes('alatorre') && !local.includes('delatorre')) {
+            candidates.push(`${local.replace('latorre', 'alatorre')}@gmail.com`)
             candidates.push(`${local.replace('latorre', 'delatorre')}@gmail.com`)
         }
     }
@@ -605,6 +611,7 @@ async function saveAuditState(
 }
 
 export function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: string): string {
+    const cleanGroupStoreName = formatStoreDisplayName({ id: group.storeId, code: group.storeCode, name: group.storeName }) || group.storeName
     const count = group.employees.length
     const plural = count > 1
 
@@ -655,7 +662,7 @@ export function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: str
                 Tacos Gavilan • Auditoría Semanal Automática (${escapeHtml(dateLA)})
             </div>
             <h1 style="margin: 0; font-size: 21px; font-weight: 800; line-height: 1.3;">
-                Acción Requerida en Toast POS — ${escapeHtml(group.storeName)}
+                Acción Requerida en Toast POS — ${escapeHtml(cleanGroupStoreName)}
             </h1>
         </div>
 
@@ -664,7 +671,7 @@ export function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: str
                 Hola <strong>${escapeHtml(group.managerName)}</strong>,
             </p>
             <p>
-                En la revisión automática semanal del padrón activo de <strong>${escapeHtml(group.storeName)}</strong> detectamos <strong>${count} ${plural ? 'empleados activos cuyos correos presentan' : 'empleado activo cuyo correo presenta'} error de entrega</strong> actualmente en <strong>Toast POS</strong>, lo cual impide que reciban sus horarios y notificaciones:
+                En la revisión automática semanal del padrón activo de <strong>${escapeHtml(cleanGroupStoreName)}</strong> detectamos <strong>${count} ${plural ? 'empleados activos cuyos correos presentan' : 'empleado activo cuyo correo presenta'} error de entrega</strong> actualmente en <strong>Toast POS</strong>, lo cual impide que reciban sus horarios y notificaciones:
             </p>
 
             <div style="background: #f8fafc; padding: 14px; border-radius: 12px; border: 1px solid #e2e8f0; margin: 18px 0;">
@@ -709,13 +716,20 @@ export function buildStoreManagerHtml(group: StoreManagerAuditGroup, dateLA: str
 export function buildExecutiveSummaryHtml(result: EmployeeEmailAuditResult): string {
     const allClean = result.flaggedEmployeesCount === 0
     const headerBg = allClean ? '#15803d' : '#1e293b'
+    const orderedGroups = sortStoresAlphabetically(result.storeGroups, (g) => g.storeName, { pinSpecialFirst: false })
+    const orderedCleanStores = sortStoresAlphabetically(
+        result.cleanStores.map((s) => formatStoreDisplayName(s) || s),
+        undefined,
+        { pinSpecialFirst: false }
+    )
 
-    const rowsHtml = result.storeGroups
-        .flatMap((g) =>
-            g.employees.map(
+    const rowsHtml = orderedGroups
+        .flatMap((g) => {
+            const cleanStore = formatStoreDisplayName({ id: g.storeId, code: g.storeCode, name: g.storeName }) || g.storeName
+            return g.employees.map(
                 (emp) => `
                 <tr>
-                    <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 700; color: #0f172a;">${escapeHtml(g.storeName)}</td>
+                    <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 700; color: #0f172a;">${escapeHtml(cleanStore)}</td>
                     <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; color: #334155;">${escapeHtml(g.managerName)}<br/><span style="font-size: 11px; color: #64748b;">${escapeHtml(g.managerEmail)}</span></td>
                     <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #1e293b;">${escapeHtml(emp.name)}<br/><span style="font-size: 11px; color: #64748b;">${escapeHtml(emp.phone)}</span></td>
                     <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0;"><code style="background: #fef2f2; color: #b91c1c; padding: 2px 5px; border-radius: 4px; font-size: 12px;">${escapeHtml(emp.currentEmail)}</code></td>
@@ -724,7 +738,7 @@ export function buildExecutiveSummaryHtml(result: EmployeeEmailAuditResult): str
                     </td>
                 </tr>`
             )
-        )
+        })
         .join('')
 
     return `<!DOCTYPE html>
@@ -782,7 +796,7 @@ export function buildExecutiveSummaryHtml(result: EmployeeEmailAuditResult): str
             }
 
             <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-                <strong>Sucursales 100% limpias (${result.cleanStores.length}):</strong> ${escapeHtml(result.cleanStores.join(', ') || 'Ninguna')}<br/>
+                <strong>Sucursales 100% limpias (${orderedCleanStores.length}):</strong> ${escapeHtml(orderedCleanStores.join(', ') || 'Ninguna')}<br/>
                 <strong>Modo de verificación:</strong> Toast Sync (${result.toastSyncedStores} tiendas) + Microsoft API + DNS MX + ${result.port25Available ? 'SMTP Puerto 25 en vivo' : 'Caché SMTP Supabase + Validación Estricta Cloud'}
             </div>
         </div>
@@ -843,7 +857,7 @@ export async function runEmployeeEmailAudit(
                 .order('name'),
             supabase
                 .from('users')
-                .select('id, full_name, email, role, is_active, store_id, store_scope'),
+                .select('id, full_name, email, google_email_connected, role, is_active, store_id, store_scope'),
         ])
 
     if (storesErr) throw new Error(`Error consultando stores: ${storesErr.message}`)
@@ -876,16 +890,17 @@ export async function runEmployeeEmailAudit(
         }
     }
 
-    // Build corporate directory & store manager/supervisor maps
-    const registeredCorporateEmails = new Set<string>(EXTRA_KNOWN_CORP_EMAILS)
+    // Build corporate directory (ONLY verified Google Workspace mailboxes — excludes login-only `asistente` accounts)
+    const registeredCorporateEmails = buildVerifiedCorporateEmailSet(allUsers)
+    for (const extra of EXTRA_KNOWN_CORP_EMAILS) registeredCorporateEmails.add(extra)
     const corpUsersByNormalizedName = new Map<string, string>()
     for (const u of allUsers) {
-        if (u.email) {
-            const lower = String(u.email).trim().toLowerCase()
-            registeredCorporateEmails.add(lower)
-            if (lower.endsWith('@tacosgavilan.com') && u.full_name) {
-                corpUsersByNormalizedName.set(normalizeAuditText(u.full_name), lower)
-            }
+        if (u.is_active === false) continue
+        const connected = u.google_email_connected ? String(u.google_email_connected).trim().toLowerCase() : ''
+        const emailLower = u.email ? String(u.email).trim().toLowerCase() : ''
+        const chosen = connected || emailLower
+        if (chosen && registeredCorporateEmails.has(chosen) && u.full_name) {
+            corpUsersByNormalizedName.set(normalizeAuditText(u.full_name), chosen)
         }
     }
 
@@ -1060,9 +1075,18 @@ export async function runEmployeeEmailAudit(
             } else {
                 outcomesByNorm.set(normKey, {
                     issueType: 'INVALID_CORPORATE_MISMATCH',
-                    detail: `El correo corporativo ${cleanEmail} no coincide con ninguna cuenta oficial registrada en el sistema TEG.`,
+                    detail: `El correo corporativo ${cleanEmail} es solo de acceso al portal TEG o no tiene buzón real en Google Workspace; debe cambiarse en Toast POS por el correo personal activo del empleado.`,
                 })
             }
+            continue
+        }
+
+        const knownBouncedExt = KNOWN_BOUNCED_EXTERNAL_EMAILS.get(cleanEmail)
+        if (knownBouncedExt) {
+            outcomesByNorm.set(normKey, {
+                issueType: knownBouncedExt.status,
+                detail: knownBouncedExt.detail,
+            })
             continue
         }
 
@@ -1285,7 +1309,7 @@ export async function runEmployeeEmailAudit(
             currentEmail: emp.rawEmail || '(vacío)',
             storeId: emp.store.id,
             storeCode: emp.store.code,
-            storeName: `${emp.store.name} #${emp.store.id}`,
+            storeName: formatStoreDisplayName(emp.store) || emp.store.name,
             issueType: outcome.issueType,
             issueBadge,
             issueColor,
@@ -1323,13 +1347,14 @@ export async function runEmployeeEmailAudit(
 
             const supervisorName = supervisor?.full_name || 'Supervisor de Zona'
             const supervisorEmail = supervisor?.email || 'noreply@tacosgavilan.com'
-            const managerName = storeManager?.full_name || `Manager ${store.name}`
+            const cleanStoreLabel = formatStoreDisplayName(store) || store.name
+            const managerName = storeManager?.full_name || `Manager ${cleanStoreLabel}`
             const managerEmail = storeManager?.email || supervisorEmail
 
             group = {
                 storeId: store.id,
                 storeCode: store.code,
-                storeName: `${store.name} #${store.id}`,
+                storeName: cleanStoreLabel,
                 managerName,
                 managerEmail,
                 supervisorName,
@@ -1341,18 +1366,23 @@ export async function runEmployeeEmailAudit(
         group.employees.push(issue)
     }
 
-    const storeGroups = Array.from(groupsByStoreId.values()).sort((a, b) =>
-        a.storeName.localeCompare(b.storeName)
+    const storeGroups = sortStoresAlphabetically(
+        Array.from(groupsByStoreId.values()),
+        (g) => g.storeName,
+        { pinSpecialFirst: false }
     )
     for (const g of storeGroups) {
         g.employees.sort((a, b) => a.name.localeCompare(b.name))
     }
 
     const affectedStoreIds = new Set(storeGroups.map((g) => g.storeId))
-    const cleanStores = activeStores
-        .filter((s: any) => !affectedStoreIds.has(s.id))
-        .map((s: any) => s.name)
-        .sort()
+    const cleanStores = sortStoresAlphabetically(
+        activeStores
+            .filter((s: any) => !affectedStoreIds.has(s.id))
+            .map((s: any) => formatStoreDisplayName(s) || s.name),
+        undefined,
+        { pinSpecialFirst: false }
+    )
 
     const result: EmployeeEmailAuditResult = {
         executedAt: now.toISOString(),

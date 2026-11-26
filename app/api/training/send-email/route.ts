@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendSystemEmail } from '@/lib/system-mailer';
+import { formatStoreDisplayName } from '@/lib/store-display';
 import { getServerUser } from '@/lib/auth-server';
 
 const ALLOWED_EMAIL_ROLES = new Set([
@@ -96,8 +97,9 @@ export async function POST(req: NextRequest) {
       String(storeId || 1)
     )}&emp=${encodeURIComponent(String(employeeId || ''))}`;
 
+    const cleanStoreLabel = formatStoreDisplayName({ id: storeId, name: storeName }) || 'Tacos Gavilan';
     const displayName = escapeHtml(String(employeeName || 'Integrante').trim());
-    const displayStore = escapeHtml(String(storeName || 'Tacos Gavilan').trim());
+    const displayStore = escapeHtml(cleanStoreLabel);
     const displayStation = escapeHtml(String(stationLabel || 'Puesto Operativo').trim());
     const displayTrainer = escapeHtml(String(trainerName || 'Gerente de Sucursal').trim());
     const safePortalUrl = escapeHtml(portalUrl);
@@ -182,7 +184,7 @@ export async function POST(req: NextRequest) {
     const mailRes = await sendSystemEmail({
       fromName: 'Sistema de Monitoreo',
       to: cleanEmail,
-      subject: `🎓 Tu Capacitación Oficial en Tacos Gavilan (${String(storeName || 'Tacos Gavilan').trim()})`,
+      subject: `🎓 Tu Capacitación Oficial en Tacos Gavilan (${cleanStoreLabel})`,
       html,
     });
 

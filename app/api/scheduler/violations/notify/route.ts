@@ -26,6 +26,8 @@ import {
     validateEmployeeViolationEmail,
 } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { loadEmailDeliverabilityContext } from '@/lib/email-recipient-guard'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import { authorizeStoreScope, getServerUser } from '@/lib/auth-server'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
@@ -92,10 +94,10 @@ export async function POST(req: Request) {
         }
 
         const resolvedStoreGuid = storeData.external_id
-        const storeName = (storeData.name || 'Tacos Gavilan').replace(/toast/i, '').trim()
+        const storeName = formatStoreDisplayName({ id: storeData.id, name: (storeData.name || '').replace(/toast/i, '').trim() }) || 'Tacos Gavilan'
         const supervisorEmail = normalizeCorporateEmail((storeData.users as any)?.email || null)
 
-        const [{ data: allUsers }, { data: emps }, { data: existingViolations }] = await Promise.all([
+        const [{ data: allUsers }, { data: emps }, { data: existingViolations }, deliverabilityCtx] = await Promise.all([
             supabase
                 .from('users')
                 .select('id, full_name, email, role, store_id, is_active, google_email_connected'),
@@ -110,15 +112,11 @@ export async function POST(req: Request) {
                 .from('punch_violations')
                 .select('employee_toast_guid, business_date, in_time')
                 .eq('store_id', resolvedStoreGuid),
+            loadEmailDeliverabilityContext(supabase),
         ])
 
-        const registeredCorporateEmails = new Set<string>()
-        for (const u of allUsers || []) {
-            if (u.email) registeredCorporateEmails.add(String(u.email).trim().toLowerCase())
-            if (u.google_email_connected) {
-                registeredCorporateEmails.add(String(u.google_email_connected).trim().toLowerCase())
-            }
-        }
+        const registeredCorporateEmails = deliverabilityCtx.verifiedCorporateEmails
+        const blockedExternalEmails = deliverabilityCtx.blockedExternalEmails
 
         const activeManagers = (allUsers || []).filter((u: any) => {
             if (!u.is_active) return false
@@ -197,7 +195,8 @@ export async function POST(req: Request) {
                     : 'Empleado')
             const emailValidation = validateEmployeeViolationEmail(
                 empDb?.email,
-                registeredCorporateEmails
+                registeredCorporateEmails,
+                blockedExternalEmails
             )
 
             validatedList.push({

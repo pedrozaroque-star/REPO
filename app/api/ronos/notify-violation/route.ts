@@ -35,6 +35,8 @@ import {
 } from '@/lib/ronos-attendance-policy'
 import { INTERNAL_LUNCH_MIN_VIOLATION_MINUTES } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { loadEmailDeliverabilityContext } from '@/lib/email-recipient-guard'
+import { formatStoreDisplayName } from '@/lib/store-display'
 
 export async function POST(req: Request) {
   try {
@@ -327,7 +329,14 @@ export async function POST(req: Request) {
       }
     }
 
-    const emailValidation = validateEmployeeViolationEmail(verifiedEmail, registeredCorporateEmails)
+    const deliverabilityCtx = await loadEmailDeliverabilityContext(supabaseAdmin)
+    const emailValidation = validateEmployeeViolationEmail(
+      verifiedEmail,
+      registeredCorporateEmails.size > 0
+        ? registeredCorporateEmails
+        : deliverabilityCtx.verifiedCorporateEmails,
+      deliverabilityCtx.blockedExternalEmails
+    )
     if (!emailValidation.deliverable || !emailValidation.cleanEmail) {
       return NextResponse.json(
         {
@@ -344,9 +353,7 @@ export async function POST(req: Request) {
     const storeFound =
       dynamicStores.find((s) => s.ronosCompanyId === targetCompanyId) ||
       RONOS_STORES_MAP.find((s) => s.ronosCompanyId === targetCompanyId)
-    const storeName = storeFound?.tegName
-      ? `Tacos Gavilan - ${storeFound.tegName}`
-      : 'Tacos Gavilan'
+    const storeName = formatStoreDisplayName(storeFound?.tegName) || 'Tacos Gavilan'
 
     const rawAuthEmail = String(auth.user?.email || '')
       .trim()

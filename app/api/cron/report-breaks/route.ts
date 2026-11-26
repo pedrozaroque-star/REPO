@@ -35,6 +35,7 @@ import {
     INTERNAL_LUNCH_MIN_VIOLATION_MINUTES,
 } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { compareStoreNamesAlphabetically, formatStoreDisplayName } from '@/lib/store-display'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -177,7 +178,7 @@ export async function GET(req: Request) {
                 const emp = emps.find((e) => e.toast_guid === p.employee_toast_guid)
                 violations.push({
                     supervisor: store.supervisor_name || 'Sin Asignar',
-                    storeName: store.name ? store.name.replace(/toast/i, '').trim() : 'Tienda',
+                    storeName: formatStoreDisplayName({ id: store.id, name: store.name ? store.name.replace(/toast/i, '').trim() : '' }) || 'Tienda',
                     empName: emp
                         ? `${emp.chosen_name || emp.first_name || ''} ${emp.last_name || ''}`.trim()
                         : 'Desconocido',
@@ -202,9 +203,10 @@ export async function GET(req: Request) {
 
         // 5. Ordenar por Supervisor -> Sucursal -> Empleado -> Fecha
         violations.sort((a, b) => {
-            if (a.supervisor !== b.supervisor) return a.supervisor.localeCompare(b.supervisor)
-            if (a.storeName !== b.storeName) return a.storeName.localeCompare(b.storeName)
-            if (a.empName !== b.empName) return a.empName.localeCompare(b.empName)
+            if (a.supervisor !== b.supervisor) return a.supervisor.localeCompare(b.supervisor, 'es', { sensitivity: 'base' })
+            const storeCmp = compareStoreNamesAlphabetically(a.storeName, b.storeName)
+            if (storeCmp !== 0) return storeCmp
+            if (a.empName !== b.empName) return a.empName.localeCompare(b.empName, 'es', { sensitivity: 'base' })
             return a.date.localeCompare(b.date)
         })
 

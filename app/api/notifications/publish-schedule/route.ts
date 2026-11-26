@@ -43,6 +43,7 @@ import autoTable from 'jspdf-autotable'
 import path from 'path'
 import fs from 'fs'
 import { generateSmartForecast } from '@/lib/intelligence'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import {
     scheduleBreaksWithDemand,
     LearnedPreference,
@@ -418,7 +419,7 @@ export async function POST(req: Request) {
         }
 
         const resolvedStoreGuid = store.external_id || String(store_id).trim()
-        const storeName = store.name || 'Tu Equipo'
+        const storeName = formatStoreDisplayName(store) || 'Tu Equipo'
         const hasDT = Boolean(store.has_drive_thru)
 
         // Validar pertenencia estricta de shift_ids antes de cualquier mutación (A17)

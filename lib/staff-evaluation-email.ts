@@ -18,6 +18,7 @@
  */
 
 import { sendSystemEmail } from './system-mailer'
+import { formatStoreDisplayName, getInternalStoreNameById } from './store-display'
 
 export interface StaffEvaluationEmailPayload {
   id?: number | string
@@ -84,9 +85,20 @@ function formatSafeEmailDate(dateStr?: string): { dateText: string; timeText: st
   }
 }
 
+function resolveEvaluationLocationLabel(
+  payload: StaffEvaluationEmailPayload,
+  defaultCorporateLabel: string
+): string {
+  const fromName = formatStoreDisplayName(payload.location_name || payload.answers?.location_name)
+  if (fromName) return fromName
+  const fromId = getInternalStoreNameById(payload.store_id)
+  if (fromId) return fromId
+  return defaultCorporateLabel
+}
+
 export function generateStaffEvaluationEmailHtml(payload: StaffEvaluationEmailPayload): string {
   const { dateText, timeText } = formatSafeEmailDate(payload.evaluation_date)
-  const location = payload.location_name || (payload.store_id ? `Tienda #${payload.store_id}` : 'Oficina Central / Corporativo')
+  const location = resolveEvaluationLocationLabel(payload, 'Oficina Central / Corporativo')
   const evaluator = payload.evaluator_name?.trim() || 'Evaluador en tienda (No especificado)'
   const score = typeof payload.desempeno_general === 'number' ? payload.desempeno_general : 10
   const isRecommended = (payload.recomendaria || '').toLowerCase() === 'si'
@@ -338,7 +350,7 @@ export async function sendStaffEvaluationEmail(
     ? customRecipients 
     : STAFF_EVALUATION_DIRECTORS
 
-  const location = payload.location_name || (payload.store_id ? `Tienda #${payload.store_id}` : 'Oficina Central')
+  const location = resolveEvaluationLocationLabel(payload, 'Oficina Central')
   const score = typeof payload.desempeno_general === 'number' ? payload.desempeno_general : 10
   
   // Asunto ejecutivo limpio

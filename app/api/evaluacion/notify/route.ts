@@ -25,6 +25,7 @@ import {
   STAFF_EVALUATION_DIRECTORS,
   StaffEvaluationEmailPayload
 } from '@/lib/staff-evaluation-email'
+import { formatStoreDisplayName, getInternalStoreNameById } from '@/lib/store-display'
 
 export const dynamic = 'force-dynamic'
 
@@ -251,10 +252,11 @@ export async function POST(request: NextRequest) {
     const src = dbEval
     const rawAnswers = (src.answers && typeof src.answers === 'object' ? src.answers : body.answers) || {}
 
-    const safeLocationName = escapeHtml(
-      src.location_name || rawAnswers.location_name || body.location_name || '',
-      140
-    )
+    const cleanedLocationRaw =
+      formatStoreDisplayName(src.location_name || rawAnswers.location_name || body.location_name || '') ||
+      getInternalStoreNameById(src.store_id) ||
+      ''
+    const safeLocationName = escapeHtml(cleanedLocationRaw, 140)
     const safeEvaluatorName = escapeHtml(src.evaluator_name ?? body.evaluator_name ?? '', 140)
     const safeEvaluatedName = escapeHtml(src.evaluated_name || rawEvaluatedName, 140)
     const safeEvaluatedRole = escapeHtml(src.evaluated_role || rawEvaluatedRole, 120)

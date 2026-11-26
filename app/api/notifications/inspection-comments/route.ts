@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import { verifyStaffAuth } from '@/lib/auth-server'
 
 function escapeHtml(raw: unknown): string {
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
         }
 
         // 4. Build HTML Email
-        const storeName = inspection.store?.name || 'Tacos Gavilan'
+        const storeName = formatStoreDisplayName({ id: inspection.store_id, name: inspection.store?.name }) || 'Tacos Gavilan'
         const inspectorName = inspection.inspector?.full_name || inspection.supervisor_name || 'Supervisor'
         const score = Number(inspection.overall_score) || 0
         const inspectionDate = new Date(inspection.inspection_date || inspection.created_at).toLocaleDateString('es-MX', {

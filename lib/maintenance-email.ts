@@ -21,7 +21,7 @@
  * - Diseñado en modo no bloqueante ante fallos de red SMTP para no interrumpir jamás el guardado en base de datos.
  */
 
-import { formatStoreName } from '@/lib/supabase'
+import { formatStoreDisplayName } from '@/lib/store-display'
 import { sendSystemEmail } from '@/lib/system-mailer'
 
 export const MAINTENANCE_NOTIFICATION_RECIPIENTS = [
@@ -199,7 +199,8 @@ function renderEvidenceGallery(title: string, urls: string[] = []): string {
 }
 
 export function generateMaintenanceServiceEmailHtml(payload: MaintenanceEmailPayload): string {
-  const cleanStore = formatStoreName(payload.store_name) || payload.store_name
+  const cleanStore =
+    formatStoreDisplayName({ id: payload.store_id, name: payload.store_name }) || 'Sucursal'
   const dateDisplay = formatServiceDateDisplay(payload.service_date)
   const timeDisplay = formatDurationLabel(payload.start_time, payload.end_time)
   const categoryLabel = CATEGORY_LABELS[payload.category] || payload.category
@@ -489,7 +490,8 @@ export async function sendMaintenanceServiceEmail(
       ? customRecipients
       : MAINTENANCE_NOTIFICATION_RECIPIENTS
 
-  const cleanStore = formatStoreName(payload.store_name) || payload.store_name
+  const cleanStore =
+    formatStoreDisplayName({ id: payload.store_id, name: payload.store_name }) || 'Sucursal'
   const costTag =
     typeof payload.cost_estimate === 'number' && !Number.isNaN(payload.cost_estimate)
       ? ` · $${payload.cost_estimate.toFixed(2)}`

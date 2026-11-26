@@ -37,6 +37,8 @@ import {
     validateEmployeeViolationEmail,
 } from '@/lib/break-violations-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { loadEmailDeliverabilityContext } from '@/lib/email-recipient-guard'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { verifyStaffAuth } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
@@ -159,12 +161,13 @@ async function handleSyncViolations(req: Request) {
             }
         }
 
-        const [{ data: stores, error: storesError }, { data: allUsers, error: usersError }] =
+        const [{ data: stores, error: storesError }, { data: allUsers, error: usersError }, deliverabilityCtx] =
             await Promise.all([
                 storeQuery,
                 supabase
                     .from('users')
                     .select('id, full_name, email, role, store_id, is_active, google_email_connected'),
+                loadEmailDeliverabilityContext(supabase),
             ])
 
         if (storesError) {
@@ -182,14 +185,9 @@ async function handleSyncViolations(req: Request) {
             return NextResponse.json({ message: 'No active stores found', targetDate })
         }
 
-        // Conjunto de correos corporativos válidos en `public.users`
-        const registeredCorporateEmails = new Set<string>()
-        for (const u of allUsers || []) {
-            if (u.email) registeredCorporateEmails.add(String(u.email).trim().toLowerCase())
-            if (u.google_email_connected) {
-                registeredCorporateEmails.add(String(u.google_email_connected).trim().toLowerCase())
-            }
-        }
+        // Conjunto estricto de buzones corporativos reales (excluye logins de asistente sin buzón Google Workspace)
+        const registeredCorporateEmails = deliverabilityCtx.verifiedCorporateEmails
+        const blockedExternalEmails = deliverabilityCtx.blockedExternalEmails
 
         const allowedStoreGuids = stores.map((s) => s.external_id).filter(Boolean)
 
@@ -313,14 +311,15 @@ async function handleSyncViolations(req: Request) {
 
                 const emailCheck = validateEmployeeViolationEmail(
                     emp?.email,
-                    registeredCorporateEmails
+                    registeredCorporateEmails,
+                    blockedExternalEmails
                 )
                 const rawSupEmail = (store.users as any)?.email || null
 
                 newViolations.push({
                     storeGuid: p.store_id,
                     storeNumericId: Number(store.id),
-                    storeName: store.name.replace(/toast/i, '').trim() || 'Tacos Gavilan',
+                    storeName: formatStoreDisplayName({ id: store.id, name: (store.name || '').replace(/toast/i, '').trim() }) || 'Tacos Gavilan',
                     supervisorEmail: normalizeCorporateEmail(rawSupEmail),
                     employeeRef: p.employee_toast_guid,
                     employeeName: empName,
@@ -361,7 +360,12 @@ async function handleSyncViolations(req: Request) {
         let totalRecordsInserted = 0
         const storeResults: any[] = []
 
-        for (const [storeGuid, storeViolations] of Object.entries(violationsByStore)) {
+        const sortedStoreEntries = sortStoresAlphabetically(
+            Object.entries(violationsByStore),
+            ([, list]) => list[0]?.storeName,
+            { pinSpecialFirst: false }
+        )
+        for (const [storeGuid, storeViolations] of sortedStoreEntries) {
             const first = storeViolations[0]
             const storeName = first.storeName
             const storeNumericId = first.storeNumericId
@@ -468,7 +472,13 @@ async function handleSyncViolations(req: Request) {
                                 statusLabel = `⚠️ Error al enviar (${v.validEmployeeEmail})`
                             }
                         } else if (v.rawEmployeeEmail) {
-                            statusLabel = `⚠️ Correo inválido en Toast (${v.rawEmployeeEmail})`
+                            statusLabel =
+                                v.emailInvalidReason === 'inbox_full_overquota'
+                                    ? `⚠️ Buzón lleno 100% (${v.rawEmployeeEmail} — Notificar en persona)`
+                                    : v.emailInvalidReason === 'bounced_nonexistent' ||
+                                        v.emailInvalidReason === 'unregistered_corporate'
+                                      ? `⚠️ Correo no existe en Toast (${v.rawEmployeeEmail} — Corregir en Toast)`
+                                      : `⚠️ Correo inválido en Toast (${v.rawEmployeeEmail})`
                         }
 
                         return {

@@ -48,6 +48,7 @@
 import crypto from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { stripStoreNumberTokensInText } from '@/lib/store-display'
 import { getValidToken, assertSafeBasecampApiUrl } from '@/lib/basecamp-api'
 import {
   canonicalizeBasecampEmail,
@@ -57,6 +58,10 @@ import {
   stripTegAuthorBanner,
 } from '@/lib/basecamp-person-resolver'
 import { sanitizeBasecampHtml, safeDecodeFilename } from '@/lib/basecamp-html'
+import {
+  loadEmailDeliverabilityContext,
+  resolveSingleRecipientEmail,
+} from '@/lib/email-recipient-guard'
 
 export type BasecampTodoEmailEvent = 'assigned' | 'commented' | 'completed' | 'reopened' | 'updated'
 export type BasecampMessageEmailEvent = 'published' | 'updated' | 'commented'
@@ -1552,16 +1557,18 @@ export async function sendBasecampTodoNotificationEmail(
       creatorObj = personByUuid.get(todo.created_by_person_id) || null
     }
 
-    // Build name -> active user email fallback map (always canonicalized so alias mailboxes like roque@ never leak)
+    // Build name -> active user email fallback map (always canonicalized + deliverable so login-only mailboxes never bounce)
+    const emailGuardCtx = await loadEmailDeliverabilityContext(supabaseAdmin)
     const userEmailByNormName = new Map<string, string>()
     for (const u of activeUsersRes.data || []) {
-      const em = canonicalizeBasecampEmail(u.email)
-      if (em && VALID_EMAIL_REGEX.test(em)) {
+      const rawEm = canonicalizeBasecampEmail(u.email)
+      const checked = rawEm ? resolveSingleRecipientEmail(rawEm, emailGuardCtx) : null
+      if (checked?.deliverable && checked.resolvedEmail) {
         const nk = normalizePersonName(u.full_name)
-        if (nk) userEmailByNormName.set(nk, em)
+        if (nk) userEmailByNormName.set(nk, checked.resolvedEmail)
         if (nk === 'roque') {
-          userEmailByNormName.set('carlos roque velasquez', em)
-          userEmailByNormName.set('carlos roque', em)
+          userEmailByNormName.set('carlos roque velasquez', checked.resolvedEmail)
+          userEmailByNormName.set('carlos roque', checked.resolvedEmail)
         }
       }
     }
@@ -1570,7 +1577,10 @@ export async function sendBasecampTodoNotificationEmail(
       if (!person || person.is_active === false) return null
       const raw = !isMaskedOrEmptyEmail(person.email) ? canonicalizeBasecampEmail(person.email) : ''
       if (raw && VALID_EMAIL_REGEX.test(raw)) {
-        return raw
+        const checked = resolveSingleRecipientEmail(raw, emailGuardCtx)
+        if (checked.deliverable && checked.resolvedEmail) {
+          return checked.resolvedEmail
+        }
       }
       const nk = normalizePersonName(person.name)
       if (nk && userEmailByNormName.has(nk)) {
@@ -1715,7 +1725,9 @@ export async function sendBasecampTodoNotificationEmail(
            </div>`
         : ''
 
-    const subject = `${meta.subjectPrefix}: ${todoTitle} (${listName} · ${projectName})`
+    const cleanListName = stripStoreNumberTokensInText(listName)
+    const cleanProjectName = stripStoreNumberTokensInText(projectName)
+    const subject = `${meta.subjectPrefix}: ${todoTitle} (${cleanListName} · ${cleanProjectName})`
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -1735,7 +1747,7 @@ export async function sendBasecampTodoNotificationEmail(
                 ${escapeHtml(meta.badge)}
               </div>
               <div style="margin-top:10px;font-size:13px;color:#cbd5e1;font-weight:600;">
-                Tacos Gavilan · ${escapeHtml(projectName)} › ${escapeHtml(listName)}
+                Tacos Gavilan · ${escapeHtml(cleanProjectName)} › ${escapeHtml(cleanListName)}
               </div>
               <h1 style="margin:6px 0 0;font-size:21px;line-height:1.35;color:#ffffff;font-weight:800;">
                 ${escapeHtml(todoTitle)}
@@ -1794,7 +1806,7 @@ export async function sendBasecampTodoNotificationEmail(
                 }
                 <tr>
                   <td style="padding:6px 0;color:#64748b;font-weight:600;">Lista / Área:</td>
-                  <td style="padding:6px 0;color:#0f172a;">${escapeHtml(projectName)} — <strong>${escapeHtml(listName)}</strong></td>
+                  <td style="padding:6px 0;color:#0f172a;">${escapeHtml(cleanProjectName)} — <strong>${escapeHtml(cleanListName)}</strong></td>
                 </tr>
               </table>
             </td>
@@ -2009,15 +2021,17 @@ export async function sendBasecampMessageNotificationEmail(
       }
     }
 
+    const emailGuardCtx = await loadEmailDeliverabilityContext(supabaseAdmin)
     const userEmailByNormName = new Map<string, string>()
     for (const u of activeUsersRes.data || []) {
-      const em = canonicalizeBasecampEmail(u.email)
-      if (em && VALID_EMAIL_REGEX.test(em)) {
+      const rawEm = canonicalizeBasecampEmail(u.email)
+      const checked = rawEm ? resolveSingleRecipientEmail(rawEm, emailGuardCtx) : null
+      if (checked?.deliverable && checked.resolvedEmail) {
         const nk = normalizePersonName(u.full_name)
-        if (nk) userEmailByNormName.set(nk, em)
+        if (nk) userEmailByNormName.set(nk, checked.resolvedEmail)
         if (nk === 'roque') {
-          userEmailByNormName.set('carlos roque velasquez', em)
-          userEmailByNormName.set('carlos roque', em)
+          userEmailByNormName.set('carlos roque velasquez', checked.resolvedEmail)
+          userEmailByNormName.set('carlos roque', checked.resolvedEmail)
         }
       }
     }
@@ -2026,7 +2040,10 @@ export async function sendBasecampMessageNotificationEmail(
       if (!person || person.is_active === false) return null
       const raw = !isMaskedOrEmptyEmail(person.email) ? canonicalizeBasecampEmail(person.email) : ''
       if (raw && VALID_EMAIL_REGEX.test(raw)) {
-        return raw
+        const checked = resolveSingleRecipientEmail(raw, emailGuardCtx)
+        if (checked.deliverable && checked.resolvedEmail) {
+          return checked.resolvedEmail
+        }
       }
       const nk = normalizePersonName(person.name)
       if (nk && userEmailByNormName.has(nk)) {
@@ -2252,12 +2269,13 @@ export async function sendBasecampMessageNotificationEmail(
         ? 'actualizó este anuncio'
         : 'publicó un nuevo anuncio'
 
+    const cleanMsgProjectName = stripStoreNumberTokensInText(projectName)
     const subject =
       event === 'commented'
-        ? `💬 Re: ${msgTitle} (${projectName})`
+        ? `💬 Re: ${msgTitle} (${cleanMsgProjectName})`
         : event === 'updated'
-        ? `🔔 ${catMeta.emoji} ${msgTitle} (${projectName})`
-        : `${catMeta.emoji} ${catMeta.label}: ${msgTitle} (${projectName})`
+        ? `🔔 ${catMeta.emoji} ${msgTitle} (${cleanMsgProjectName})`
+        : `${catMeta.emoji} ${catMeta.label}: ${msgTitle} (${cleanMsgProjectName})`
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -2277,7 +2295,7 @@ export async function sendBasecampMessageNotificationEmail(
                 ${escapeHtml(headerBadge)}
               </div>
               <div style="margin-top:10px;font-size:13px;color:#cbd5e1;font-weight:600;">
-                Tacos Gavilan · ${escapeHtml(projectName)} › Tablón de Anuncios
+                Tacos Gavilan · ${escapeHtml(cleanMsgProjectName)} › Tablón de Anuncios
               </div>
               <h1 style="margin:6px 0 0;font-size:21px;line-height:1.35;color:#ffffff;font-weight:800;">
                 ${escapeHtml(msgTitle)}
@@ -2324,7 +2342,7 @@ export async function sendBasecampMessageNotificationEmail(
                 </tr>
                 <tr>
                   <td style="padding:6px 0;color:#64748b;font-weight:600;">Proyecto:</td>
-                  <td style="padding:6px 0;color:#0f172a;">${escapeHtml(projectName)} — <strong>Tablón de Anuncios</strong></td>
+                  <td style="padding:6px 0;color:#0f172a;">${escapeHtml(cleanMsgProjectName)} — <strong>Tablón de Anuncios</strong></td>
                 </tr>
               </table>
             </td>

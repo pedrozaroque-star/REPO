@@ -17,6 +17,7 @@ import { verifyStaffAuth } from '@/lib/auth-server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 import { generateSupervisorMileagePdf, formatUsaDate } from '@/lib/miles-pdf'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { stripStoreNumberTokensInText } from '@/lib/store-display'
 
 function normalizeMilesMailbox(raw?: string | null): string {
   const clean = (raw || '').toLowerCase().trim()
@@ -184,7 +185,10 @@ export async function POST(req: NextRequest) {
     const supervisorCount = Object.keys(summaryBySupervisor).length
 
     // 4. Summary rows for executive table (accumulated total per supervisor)
-    const rowsHtml = Object.values(summaryBySupervisor).map(s => `
+    const orderedSupervisorEntries = Object.entries(summaryBySupervisor).sort(([, a], [, b]) =>
+      a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })
+    )
+    const rowsHtml = orderedSupervisorEntries.map(([, s]) => `
       <tr style="border-bottom: 1px solid #e2e8f0;">
         <td style="padding: 12px; font-weight: bold; color: #1e293b;">${s.name}</td>
         <td style="padding: 12px; text-align: center; color: #64748b;">${s.trip_count}</td>
@@ -196,7 +200,7 @@ export async function POST(req: NextRequest) {
     `).join('')
 
     // 4b. Build detailed trip rows per supervisor (grouped and sorted by date)
-    const detailedRowsHtml = Object.entries(summaryBySupervisor).map(([supKey, s]) => {
+    const detailedRowsHtml = orderedSupervisorEntries.map(([supKey, s]) => {
       // Get all trips for this supervisor, sorted by date
       const supTrips = targetTrips
         .filter(t => (t.supervisor_id || t.supervisor_email || t.supervisor_name) === supKey)
@@ -208,7 +212,9 @@ export async function POST(req: NextRequest) {
         const parking = Number(t.parking_amount) || 0
         const tolls = Number(t.tolls_amount) || 0
         const total = (miles * rate) + parking + tolls
-        const route = `${(t.origin_name || '').replace('Tacos Gavilan ', '')} → ${(t.destination_name || '').replace('Tacos Gavilan ', '')}`
+        const cleanOrigin = stripStoreNumberTokensInText(t.origin_name || '').replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-–—:]?\s*/i, '').trim()
+        const cleanDest = stripStoreNumberTokensInText(t.destination_name || '').replace(/^Tacos\s+(?:El\s+)?Gavil[aá]n\s*[-–—:]?\s*/i, '').trim()
+        const route = `${cleanOrigin} → ${cleanDest}`
         const roundTrip = t.is_round_trip ? ' 🔄' : ''
 
         return `
@@ -251,7 +257,7 @@ export async function POST(req: NextRequest) {
       stats: { totalTrips: number; totalMiles: number; totalParking: number; totalTolls: number; totalReimbursement: number }
     }[] = []
 
-    Object.entries(summaryBySupervisor).forEach(([supKey, s]) => {
+    orderedSupervisorEntries.forEach(([supKey, s]) => {
       const supTrips = targetTrips.filter(
         t => (t.supervisor_id || t.supervisor_email || t.supervisor_name) === supKey
       )

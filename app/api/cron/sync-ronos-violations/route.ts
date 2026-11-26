@@ -66,6 +66,8 @@ import {
   type RonosPolicyViolationItem,
 } from '@/lib/ronos-attendance-policy'
 import { sendSystemEmail } from '@/lib/system-mailer'
+import { loadEmailDeliverabilityContext } from '@/lib/email-recipient-guard'
+import { compareStoreNamesAlphabetically, formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -293,13 +295,9 @@ async function handleSyncRonosViolations(req: Request) {
       console.warn('Warning fetching existing ronos_violation_notifications:', existingErr)
     }
 
-    const registeredCorporateEmails = new Set<string>()
-    for (const u of allUsers || []) {
-      if (u.email) registeredCorporateEmails.add(String(u.email).trim().toLowerCase())
-      if (u.google_email_connected) {
-        registeredCorporateEmails.add(String(u.google_email_connected).trim().toLowerCase())
-      }
-    }
+    const deliverabilityCtx = await loadEmailDeliverabilityContext(supabaseAdmin)
+    const registeredCorporateEmails = deliverabilityCtx.verifiedCorporateEmails
+    const blockedExternalEmails = deliverabilityCtx.blockedExternalEmails
 
     const existingDedupeKeys = new Set<string>()
     for (const row of existingNotifs || []) {
@@ -322,8 +320,8 @@ async function handleSyncRonosViolations(req: Request) {
     const matchedCompanyIds = new Set<number>()
 
     for (const s of dbStores || []) {
-      const cleanName = (s.name || 'Tacos Gavilan').replace(/toast/i, '').trim()
-      const cleanMatchName = cleanName.replace(/^Tacos Gavilan\s+/i, '').trim().toLowerCase()
+      const cleanName = formatStoreDisplayName({ id: s.id, code: s.code, name: (s.name || '').replace(/toast/i, '').trim() })
+      const cleanMatchName = cleanName.toLowerCase()
       const mapEntry = RONOS_STORES_MAP.find(
         (r) =>
           r.tegStoreId === Number(s.id) ||
@@ -338,7 +336,7 @@ async function handleSyncRonosViolations(req: Request) {
       candidateStores.push({
         tegStoreId: Number(s.id),
         storeCode: mapEntry.tegCode,
-        storeName: cleanName || mapEntry.tegName,
+        storeName: cleanName || formatStoreDisplayName(mapEntry.tegName) || mapEntry.tegName,
         storeExternalId: s.external_id || null,
         ronosCompanyId: mapEntry.ronosCompanyId,
         supervisorName: rawSupName ? String(rawSupName).trim() : null,
@@ -355,7 +353,7 @@ async function handleSyncRonosViolations(req: Request) {
         candidateStores.push({
           tegStoreId: r.tegStoreId,
           storeCode: r.tegCode,
-          storeName: r.tegName,
+          storeName: formatStoreDisplayName(r.tegName) || r.tegName,
           storeExternalId: null,
           ronosCompanyId: r.ronosCompanyId,
           supervisorName: null,
@@ -380,7 +378,7 @@ async function handleSyncRonosViolations(req: Request) {
         }
         return true
       })
-      .sort((a, b) => a.storeName.localeCompare(b.storeName))
+      .sort((a, b) => compareStoreNamesAlphabetically(a.storeName, b.storeName))
 
     if (storesToAudit.length === 0) {
       return NextResponse.json({
@@ -589,12 +587,21 @@ async function handleSyncRonosViolations(req: Request) {
           if (activeViolations.length === 0) continue
 
           const rawEmail = emp.toastEmail || null
-          const emailCheck = validateEmployeeViolationEmail(rawEmail, registeredCorporateEmails)
+          const emailCheck = validateEmployeeViolationEmail(
+            rawEmail,
+            registeredCorporateEmails,
+            blockedExternalEmails
+          )
 
           const simulatedDeliveryLabel = emailCheck.cleanEmail
             ? `Se enviaría a ${emailCheck.cleanEmail}`
             : rawEmail
-              ? `⚠️ Correo inválido en Toast (${rawEmail})`
+              ? emailCheck.reason === 'inbox_full_overquota'
+                ? `⚠️ Buzón lleno 100% (${rawEmail} — Notificar en persona)`
+                : emailCheck.reason === 'bounced_nonexistent' ||
+                    emailCheck.reason === 'unregistered_corporate'
+                  ? `⚠️ Correo no existe en Toast (${rawEmail} — Corregir en Toast)`
+                  : `⚠️ Correo inválido en Toast (${rawEmail})`
               : '⚠️ Sin correo en Toast POS'
 
           allStoreViolatingItemsForGeneral.push({
@@ -805,7 +812,13 @@ async function handleSyncRonosViolations(req: Request) {
                   statusLabel = `⚠️ Error al enviar (${notice.validEmployeeEmail})`
                 }
               } else if (notice.rawEmployeeEmail) {
-                statusLabel = `⚠️ Correo inválido en Toast (${notice.rawEmployeeEmail})`
+                statusLabel =
+                  notice.emailInvalidReason === 'inbox_full_overquota'
+                    ? `⚠️ Buzón lleno 100% (${notice.rawEmployeeEmail} — Notificar en persona)`
+                    : notice.emailInvalidReason === 'bounced_nonexistent' ||
+                        notice.emailInvalidReason === 'unregistered_corporate'
+                      ? `⚠️ Correo no existe en Toast (${notice.rawEmployeeEmail} — Corregir en Toast)`
+                      : `⚠️ Correo inválido en Toast (${notice.rawEmployeeEmail})`
               }
 
               return {
@@ -1107,9 +1120,10 @@ async function handleSyncRonosViolations(req: Request) {
       const simulationTag = isSimulationMode
         ? `${String(laHour).padStart(2, '0')}:${String(laMinute).padStart(2, '0')}`
         : null
+      const sortedGeneralStoreInputs = sortStoresAlphabetically(generalStoreInputs, (st) => st.storeName, { pinSpecialFirst: false })
       const { subject: genSubject, html: genHtml } = buildChainDailyRonosGeneralReportHtml({
         businessDate: targetDate,
-        stores: generalStoreInputs,
+        stores: sortedGeneralStoreInputs,
         intendedTo,
         intendedCc,
         isSimulation: isSimulationMode,

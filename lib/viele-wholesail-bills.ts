@@ -31,6 +31,8 @@
  *
  * @notes
  * - [2026-10-22] Validado contra 65 facturas históricas de LA Broadway en QBO con 100% de exactitud en cuentas GL y centavos.
+ * - [2026-11-23] Remediación de seguridad: eliminado el JWT RS256 hardcodeado en código fuente; las credenciales de Wholesail
+ *   se leen desde `public.integrations` en Supabase (con siembra opcional solo cuando `WHOLESAIL_API_TOKEN` o `WHOLESAIL_BROADWAY_TOKEN` está presente en entorno).
  */
 
 import { getQuickBooksClient } from '@/lib/quickbooks';
@@ -84,16 +86,11 @@ export const KNOWN_SEP_OCT_50X_BY_STORE: Record<number, string[]> = {
 };
 
 /**
- * Token semilla de 2 años para LA Broadway (#5 - EL GAVILAN #2 BRDWY, CustomerID: ELG4 / 00ELG4)
- * provisto en el enlace oficial de Buyer Statement de Wholesail.
+ * Metadatos públicos no sensibles de la cuenta Wholesail de LA Broadway (#5 - EL GAVILAN #2 BRDWY, CustomerID: ELG4 / 00ELG4).
+ * El token real vive exclusivamente en `public.integrations` (`service_name = 'wholesail_viele'`) o en variables de entorno.
  */
-const DEFAULT_BROADWAY_WHOLESAIL_CONNECTION = {
-    storeId: 5,
-    buyerId: '961d726f-b56e-53e9-93fd-b257478175db',
-    token: 'eyJraWQiOiIxIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJBQjcvR1BOdFMxS2NwS213Z0c5OWdRPT0iLCJpYXQiOjE3OTI2NzIyNzIsImV4cCI6MTg1NTc0NDI3MiwicCI6IlIiLCJnIjp7Imc5QWxkbGZ0RWZHeW4wSUJDaHpnTFE9PSI6WyJSIl0sImxoMXliN1Z1VSttVC9iSlhSNEYxMnc9PSI6WyJMIl0sInBBYUxDOXd1Um5hRXRrczNRTWM3T3c9PSI6WyJSIl0sIm9vd3lhbndrV2RLVWhFTTJTZjJnMHc9PSI6WyJSIl19LCJ1IjoiYTI4YzMyNmEtN2MyNC01OWQyLTk0ODQtNDMzNjQ5ZmRhMGQzIn0.hTkDyEbkwOBwwzl_HnBFWVl0cUcfFXdMYthacKXHCtGVRcaQtXOtD1F6R2waQznRZYCRqIW4giSBK_jevkz57_aguFT1qvKFL6cOLMc5mfY5V2QJWyad2kLnA_qKEtpg07G0RWku91o48qFcxJ9v_SX4lf455wQVNAgROlULGRGzOp2QiAOgo_i8jKfAZO9gp-SzFL5VoYaMNlbjhULFr4D2FbPSJ56FBc5iFd7QQZpyzMYg1IwDIWwA4MdcoLKsstRQRkd-b-nd9JTfexi0L976UstzceY930hkiGOi4d3_brM2S2IX-0eTFZ2j4f75-3ZqZ09dECRaPtZUcU6wEQ',
-    tokenType: 'RESTRICTED',
-    expiresAt: '2028-10-21T12:31:12.000Z'
-};
+const BROADWAY_WHOLESAIL_BUYER_ID = '961d726f-b56e-53e9-93fd-b257478175db';
+const DEFAULT_WHOLESAIL_EXPIRES_AT = '2028-10-21T12:31:12.000Z';
 
 export interface StoredWholesailConnection {
     storeId: number;
@@ -250,10 +247,18 @@ export async function getWholesailStoreConnections(): Promise<{
     const connectionsByStoreId = new Map<number, StoredWholesailConnection>();
     const cachedInvoicesByStoreId = new Map<number, VieleWholesailInvoiceRecord[]>();
 
-    // Always seed default Broadway connection in memory first
-    connectionsByStoreId.set(DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.storeId, {
-        ...DEFAULT_BROADWAY_WHOLESAIL_CONNECTION
-    });
+    // Optional environment seed for Broadway (#5) only when explicitly configured via env var
+    const envSeedToken = (process.env.WHOLESAIL_API_TOKEN || process.env.WHOLESAIL_BROADWAY_TOKEN || '').trim();
+    if (envSeedToken) {
+        const seedMeta = envSeedToken.includes('.') ? decodeWholesailJwtMeta(envSeedToken) : null;
+        connectionsByStoreId.set(5, {
+            storeId: 5,
+            buyerId: BROADWAY_WHOLESAIL_BUYER_ID,
+            token: envSeedToken,
+            tokenType: seedMeta?.tokenType || 'RESTRICTED',
+            expiresAt: seedMeta?.expiresAt || DEFAULT_WHOLESAIL_EXPIRES_AT
+        });
+    }
 
     try {
         const { data: rows, error } = await supabaseAdmin
@@ -279,7 +284,7 @@ export async function getWholesailStoreConnections(): Promise<{
                                         buyerId: String(v.buyerId),
                                         token: String(v.token),
                                         tokenType: String(v.tokenType || 'RESTRICTED'),
-                                        expiresAt: v.expiresAt || DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.expiresAt
+                                        expiresAt: v.expiresAt || DEFAULT_WHOLESAIL_EXPIRES_AT
                                     });
                                 }
                             }
@@ -295,7 +300,7 @@ export async function getWholesailStoreConnections(): Promise<{
                                 buyerId: String(row.refresh_token).trim(),
                                 token: rawToken,
                                 tokenType: String(row.token_type || 'RESTRICTED'),
-                                expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.expiresAt
+                                expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : DEFAULT_WHOLESAIL_EXPIRES_AT
                             });
                         }
                     }
@@ -321,14 +326,15 @@ export async function getWholesailStoreConnections(): Promise<{
                 }
             }
 
-            if (!hasBroadwayInDb) {
+            if (!hasBroadwayInDb && envSeedToken) {
+                const seedConn = connectionsByStoreId.get(5);
                 await supabaseAdmin.from('integrations').insert({
                     service_name: WHOLESAIL_SERVICE_NAME,
-                    realm_id: String(DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.storeId),
-                    access_token: DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.token,
-                    refresh_token: DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.buyerId,
-                    token_type: DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.tokenType,
-                    expires_at: DEFAULT_BROADWAY_WHOLESAIL_CONNECTION.expiresAt,
+                    realm_id: '5',
+                    access_token: envSeedToken,
+                    refresh_token: BROADWAY_WHOLESAIL_BUYER_ID,
+                    token_type: seedConn?.tokenType || 'RESTRICTED',
+                    expires_at: seedConn?.expiresAt || DEFAULT_WHOLESAIL_EXPIRES_AT,
                     updated_at: new Date().toISOString()
                 });
             }
