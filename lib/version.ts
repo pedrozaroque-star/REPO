@@ -20,20 +20,40 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.33.0',
-    versionNumber: '2.33.0',
+    version: 'v2.34.0',
+    versionNumber: '2.34.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.33.0',
-    labelEn: 'November 2026 • SM TEG v2.33.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.34.0',
+    labelEn: 'November 2026 • SM TEG v2.34.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-21'
+    lastUpdated: '2026-11-25'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.34.0',
+        date: '25-Nov-2026',
+        titleEs: 'Food Cost Shield 5-Capas & Reporte Ejecutivo Teórico vs Físico, Nuevo Centro de Control Remoto (/admin/control-remoto), Telefonía Kore v22 & Drive-Thru Fase 28 (-56% Costo Live), Estándar Global A–Z Sucursales (698 Archivos), Blindaje Anti-Rebotes Correo, Actividades Kiosko 24/7, RONOS Visual y App V2',
+        titleEn: '5-Layer Food Cost Shield & Executive Theoretical vs. Physical Report, New Remote Branch Control Center (/admin/control-remoto), Kore Live Phone v22 & Drive-Thru Phase 28 (-56% Live Cost), Chain-Wide A–Z Store Naming (698 Files), Anti-Bounce Email Guard, 24/7 Kiosk Activities, RONOS Visual Identity & App V2',
+        highlightsEs: [
+            'Food Cost Shield 5-Capas + Resiliencia de Servidores (commits 833b3177 y c23e7592) + Reporte Ejecutivo Teórico vs Físico (1296df1f) + Sobrantes shadow_blind y Calibración Empírica (19ad3863, 5da13048, e03d1e79): 10 índices estratégicos y timeouts service_role contra OOM/522, tablero ejecutivo de 10 familias de platillos y ~45 insumos en 15 sucursales, control diario de sobrantes post-cierre, alertas de modificadores de carne y traspasos entre tiendas',
+            'Nuevo Centro de Control Remoto de Sucursales (/admin/control-remoto + migración 20261125002403): arquitectura híbrida (Action1 + SM TEG Watchdog + Android Web Bridge + TV Bridge) con 3 tablas RLS exclusivas, 15 PCs pre-registradas A–Z y colas de comandos con expiración automática',
+            'Kore Voz Omnicanal (Telefonía Live v13–v22 + Drive-Thru Fases 26–28, commits 198aac4b, 78ef55c0, 86b02093 y 9017f83a): reducción -56% en costo Gemini Live con reciclaje SILENT de voz, alertas rojas parpadeantes en Delivery Armor y Preparador, saludos festivos 24h ES/EN, herramientas en vivo de cocina (cambio de horario Toast, alerta doble por sucursal equivocada y Fiesta Platters), Café de Olla y Burritos 50/50 (West Covina 8/8 PASS) y paridad bilingüe 100%',
+            'Estandarización Global A–Z de Sucursales sin Prefijos # (698 archivos + Blindaje Delivery 15 tiendas + tacosgavilan-web/api/contact.js), Blindaje Centralizado Anti-Rebotes de Correo (lib/email-recipient-guard.ts — 21 reenvíos, 0 rebotes), Módulo Usuarios PC/Chrome (1-clic) y Auditoría Profunda de Ventas (1d84761a)',
+            'Blindaje Actividades Kiosko 24/7 (31686169 + rescate 24/24 Slauson), Identidad Visual Oficial RONOS Gmail-Safe (fdbd18cf), Recuperación Order Ready 15 Tiendas (07f28c46), App V2 (Centro Legal In-App, Home limpio, Mapa/Near Me y fix Dynamic Island) y 216/216 tablas públicas con RLS activo (40 crons en vercel.json, 170.8h Noviembre 2026)'
+        ],
+        highlightsEn: [
+            '5-Layer Food Cost Shield + Server Resilience (commits 833b3177 & c23e7592) + Executive Theoretical vs. Physical Report (1296df1f) + 15-Store shadow_blind Leftovers & Empirical Calibration (19ad3863, 5da13048, e03d1e79): 10 strategic DB indexes & service_role timeouts preventing OOM/522 outages, executive report across 10 dish families and ~45 food items, post-closing leftover tracking, missing-meat cashier alerts, and inter-store transfers',
+            'New Remote Branch Control Center (/admin/control-remoto + migration 20261125002403): hybrid fleet control (Action1 + SM TEG Watchdog + Android Web Bridge + TV Bridge) backed by 3 service_role RLS tables, 15 pre-registered store PCs (A–Z), and expiring remote command queues',
+            'Omnichannel Kore Voice (Live Phone v13–v22 + Drive-Thru Phases 26–28, commits 198aac4b, 78ef55c0, 86b02093 & 9017f83a): -56% Gemini Live cost optimization via SILENT voice cache recycling, flashing red Delivery Armor & Preparador alerts, 24h ES/EN holiday greetings, live kitchen alerts (Toast pickup time changes, dual-store wrong-branch alerts, Fiesta Platter breakdown), Café de Olla & 50/50 Burritos (West Covina 8/8 PASS), and 100% bilingual learning parity',
+            'Chain-Wide A–Z Store Naming Standardization Without # Prefixes (698 files + 15-store Delivery Armor + tacosgavilan-web/api/contact.js), Centralized Anti-Bounce Email Guard (lib/email-recipient-guard.ts — 21 emails resent, 0 bounces), Users Desktop/Chrome Fix, and Deep Sales Audit (1d84761a)',
+            '24/7 Kiosk Activities Hardening (31686169 + 24/24 Slauson restore), Official Gmail-Safe RONOS Visual Identity (fdbd18cf), 15-Store Order Ready Live Recovery (07f28c46), App V2 (In-App Legal Center, clean Home, Map/Near Me & Dynamic Island fix), and 216/216 public RLS tables (40 active crons, 170.8h November 2026)'
+        ]
+    },
     {
         version: 'v2.33.0',
         date: '21-Nov-2026',
