@@ -40,6 +40,11 @@ import {
 
 const DELIVERY_ENABLED = process.env.ENABLE_MOBILE_DELIVERY === 'true'
 
+function pickQuoteLang(request: NextRequest): 'en' | 'es' {
+  const header = (request.headers.get('accept-language') || '').toLowerCase()
+  return header.startsWith('es') ? 'es' : 'en'
+}
+
 function quoteError(
   message: string,
   status: number,
@@ -128,6 +133,7 @@ interface QuoteRequestBody {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const lang = pickQuoteLang(request)
   try {
     const authUser = await getAuthUser(request)
     const rateKey = isAuthSuccess(authUser)
@@ -178,7 +184,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (channel === 'DELIVERY' && !DELIVERY_ENABLED) {
       return quoteError(
-        'El servicio de Delivery nativo se encuentra temporalmente deshabilitado hasta confirmar la configuración contractual oficial con Toast / DoorDash. Por favor selecciona Pickup.',
+        lang === 'es'
+          ? 'Los pedidos de Delivery se completan directamente en el portal oficial de tu sucursal Tacos Gavilan.'
+          : 'Delivery orders are completed directly at your selected Tacos Gavilan branch ordering portal.',
         409,
         'DELIVERY_DISABLED',
         { retryable: false }
@@ -435,7 +443,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           currency: 'USD',
           nonPayableEstimate: true,
           disclaimer:
-            'Subtotal informativo de catálogo (no pagable). Los impuestos, recargos y total comprable se calculan exclusivamente en Toast POS (/orders/v2/prices) cuando se habiliten los permisos de escritura.',
+            lang === 'es'
+              ? 'Subtotal estimado según el menú de la sucursal. Los impuestos y el total final se confirman al completar tu pedido en el portal oficial.'
+              : 'Estimated branch menu subtotal. Final taxes and order total are confirmed before authorizing payment at the official branch portal.',
         },
       })
     }

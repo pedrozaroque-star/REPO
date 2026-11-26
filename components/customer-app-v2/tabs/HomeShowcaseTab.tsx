@@ -1,33 +1,35 @@
 /**
  * @module components/customer-app-v2/tabs/HomeShowcaseTab
- * @description Pestaña Inicio de Tacos Gavilan App V2: saludo dinámico en LA, póster Hero oficial,
- * acciones rápidas de Pickup/Delivery/Llamar/Mapa/GPS, carrusel de Especialidades Tradicionales,
- * Menú en Vivo conectado a `/api/mobile/menu` con personalizador de modificadores (y respaldo del
- * catálogo fotográfico oficial de 23 platillos) y sección Fiesta Platters.
+ * @description Pestaña Inicio de Tacos Gavilan App V2: saludo dinámico en `America/Los_Angeles`,
+ * póster Hero oficial, selector Pickup/Delivery con botón directo de pedido verificado a la sucursal
+ * activa, acciones rápidas (Llamar/Mapa/GPS), carrusel de Especialidades Tradicionales, Explorador de
+ * Menú en Vivo conectado a `/api/mobile/menu` con precios reales de sucursal y hoja de detalle de
+ * modificadores, catálogo oficial de 23 platillos y sección Fiesta Platters.
  *
  * @businessRules
- * - Cuando `/api/mobile/menu` entrega ítems reales con precios Toast, habilita agregado directo
- *   o apertura de `ProductCustomizerModal` respetando modificadores requeridos.
- * - Muestra claramente cuando los precios son en vivo vs catálogo destacado de respaldo.
+ * - Muestra precios en vivo del menú de la sucursal con transparencia ("Menú de Sucursal · Precios Reales").
+ * - Cero bolsas locales sin salida: tocar un platillo abre su vista de detalle/modificadores con enlace directo
+ *   verificado `<a target="_blank" rel="noopener noreferrer">` al portal oficial de la sucursal.
+ * - Sucursales #5, #6 y #7 de Los Ángeles siempre nombradas con `formatCustomerStoreName(currentStore, lang)`.
  * - Textos 100% bilingües vía `t('mobile_legal.*')`.
  *
  * @dataFlow
- * - Lee `liveCategories`, `liveCategoryOrder`, `catalogMetadata` de `CustomerAppV2Controller`.
+ * - Lee `liveCategories`, `liveCategoryOrder`, `currentStore`, `currentOrderOnlineUrl` de `CustomerAppV2Controller`.
  *
  * @notes
- * - Conecta finalmente `greetingText` (`getLaTimeGreeting`) en el encabezado del feed.
- * - Banner Fiesta Platters restaurado a `/tacosgavilan-web/img/party-tray-dark.webp?v=49` tras detectar 404 en `v2-slide3-feast.jpg`.
+ * - 2026-11-24: Removido flujo de carrito muerto; agregado botón directo de pedido con nombre canónico LA.
  */
 
 'use client'
 
 import React, { useMemo } from 'react'
 import {
+  ArrowRight,
+  ExternalLink,
   Heart,
   LocateFixed,
   Navigation,
   Phone,
-  Plus,
   ShoppingBag,
   SlidersHorizontal,
   Sparkles,
@@ -42,6 +44,7 @@ import {
 import { renderWebsiteLockup } from '../styles/V2BrandChrome'
 import type { CustomerAppV2Controller } from '../hooks/useCustomerAppV2'
 import type { LiveMenuItem, WebsiteMenuCategory } from '../types'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 
 export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
   const {
@@ -62,16 +65,14 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
     menuError,
     liveCategories,
     liveCategoryOrder,
-    catalogMetadata,
     setCustomizingItem,
-    addLineToBag,
     favoriteDishIds,
     toggleFavoriteDish,
     saveLiveItemToServerFavorites,
     v2AccessToken,
     handleSelectShowcaseDish,
-    launchWrappedOrderOnline,
-    setActiveTab,
+    currentOrderOnlineUrl,
+    recordOrderHandoff,
   } = ctrl
 
   const allLiveItems = useMemo(() => {
@@ -117,32 +118,27 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
       : 'tacos'
   }, [selectedMenuCategory])
 
-  const handleTapLiveItem = (item: LiveMenuItem) => {
-    const hasRequiredMods = (item.modifierGroups || []).some((g) => g.minSelections > 0)
-    if (hasRequiredMods || (item.modifierGroups && item.modifierGroups.length > 0)) {
-      setCustomizingItem(item)
-      return
-    }
-    addLineToBag({
-      itemGuid: item.guid,
-      name: item.name,
-      unitPrice: Number(item.price || 0),
-      quantity: 1,
-      modifiers: [],
-      imageUrl: item.imageUrl || matchShowcaseDishForLiveItem(item.name)?.image || null,
-    })
-  }
+  const branchDisplayName = formatCustomerStoreName(currentStore, lang)
+  const branchCrossStreets = ![5, 6, 7].includes(currentStore.id)
+    ? getCustomerStoreCrossStreets(currentStore, lang) || currentStore.crossStreets
+    : null
+
+  const quickOrderLabel =
+    fulfillmentMode === 'delivery'
+      ? `${t('mobile_legal.v2_home_quick_order_delivery')} ${branchDisplayName}`
+      : `${t('mobile_legal.v2_home_quick_order_pickup')} ${branchDisplayName}`
 
   return (
     <div className="pb-12">
-      {/* Greeting Strip (wires getLaTimeGreeting + Screen #12 preview badge) */}
+      {/* Greeting Strip */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2 bg-[#121212]">
         <div className="min-w-0">
           <p className="text-[11px] font-bold text-[#FFC72C] uppercase tracking-wider truncate">
             {greetingText}, {loggedUser ? loggedUser.firstName : t('mobile_legal.v2_guest_label')}
           </p>
-          <p className="text-xs font-extrabold text-white/80 truncate">
-            {currentStore.cityTitle} · {currentStore.crossStreets}
+          <p className="text-xs font-extrabold text-white/85 truncate">
+            {branchDisplayName}
+            {branchCrossStreets ? ` · ${branchCrossStreets}` : ''}
           </p>
         </div>
         {isDemoPreview && (
@@ -180,8 +176,8 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
         </div>
       </div>
 
-      {/* Mode Switcher + Store Quick Actions */}
-      <div className="px-4 mt-3">
+      {/* Mode Switcher + Store Quick Actions + Primary Direct Order CTA */}
+      <div className="px-4 mt-3 space-y-2.5">
         <div className="p-2 rounded-2xl bg-[#18181b] border border-white/10 shadow-lg flex items-center justify-between gap-2">
           <div className="inline-flex rounded-xl bg-black/60 p-1 border border-white/10 shrink-0">
             <button
@@ -237,6 +233,18 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
             </button>
           </div>
         </div>
+
+        {/* Branded 1-Tap Direct Order CTA */}
+        <a
+          href={currentOrderOnlineUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => recordOrderHandoff(currentStore, fulfillmentMode)}
+          className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#DA291C] to-[#b81d13] hover:from-[#e63225] hover:to-[#c92015] text-white text-xs font-black uppercase tracking-wider border border-[#FFC72C]/55 shadow-lg flex items-center justify-between gap-2 transition-all"
+        >
+          <span className="truncate">{quickOrderLabel}</span>
+          <ArrowRight size={14} className="text-[#FFC72C] shrink-0" />
+        </a>
       </div>
 
       {/* Section A: Traditional Specialties Carousel */}
@@ -286,7 +294,7 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
         </div>
       </div>
 
-      {/* Section B: Full Live Store Menu (or Showcase Catalog Fallback) */}
+      {/* Section B: Full Live Store Menu Explorer (or Showcase Catalog Fallback) */}
       <div className="mt-6 px-4">
         <div className="flex items-center justify-between gap-2 mb-3">
           <div>
@@ -295,14 +303,14 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
             </h3>
             <span
               className={`inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                hasLiveMenu && catalogMetadata?.purchasable
+                hasLiveMenu
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                   : 'bg-[#FFC72C]/15 border-[#FFC72C]/40 text-[#FFC72C]'
               }`}
             >
               <Sparkles size={10} />
               <span>
-                {hasLiveMenu && catalogMetadata?.purchasable
+                {hasLiveMenu
                   ? t('mobile_legal.v2_home_menu_live_badge')
                   : t('mobile_legal.v2_home_menu_showcase_badge')}
               </span>
@@ -356,7 +364,7 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
               })}
             </div>
 
-            {/* Live Priced Toast Menu Cards */}
+            {/* Live Priced Store Menu Cards */}
             <div className="grid grid-cols-2 gap-3">
               {filteredLiveItems.map((item) => {
                 const matchedDish = matchShowcaseDishForLiveItem(item.name)
@@ -415,10 +423,9 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
                         )}
                         <button
                           type="button"
-                          onClick={() => handleTapLiveItem(item)}
+                          onClick={() => setCustomizingItem(item)}
                           className="ml-auto inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#DA291C] hover:bg-[#b81d13] text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"
                         >
-                          <Plus size={11} />
                           <span>{t('mobile_legal.v2_home_menu_add')}</span>
                         </button>
                       </div>
@@ -536,16 +543,16 @@ export function HomeShowcaseTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
             <p className="text-xs text-white/75 leading-relaxed">
               {t('mobile_legal.v2_home_catering_sub')}
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                launchWrappedOrderOnline(currentStore, fulfillmentMode)
-                setActiveTab('order')
-              }}
-              className="w-full py-2.5 rounded-xl bg-[#DA291C] hover:bg-[#b81d13] text-white text-xs font-black uppercase tracking-wider border border-[#FDC82F]/50 cursor-pointer transition-colors"
+            <a
+              href={currentOrderOnlineUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => recordOrderHandoff(currentStore, fulfillmentMode)}
+              className="w-full py-2.5 rounded-xl bg-[#DA291C] hover:bg-[#b81d13] text-white text-xs font-black uppercase tracking-wider border border-[#FDC82F]/50 flex items-center justify-center gap-1.5 transition-colors"
             >
-              {t('mobile_legal.v2_home_catering_cta')}
-            </button>
+              <span>{t('mobile_legal.v2_home_catering_cta')}</span>
+              <ExternalLink size={12} className="text-[#FFC72C]" />
+            </a>
           </div>
         </div>
       </div>

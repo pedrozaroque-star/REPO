@@ -44,7 +44,6 @@ export function WelcomeGateStage({
     setOtpStep,
     setAuthError,
     setAuthSheet,
-    triggerBrandTransition,
   } = ctrl
 
   const topPad = fullscreenNative
@@ -114,12 +113,10 @@ export function WelcomeGateStage({
         <div className="space-y-3 pt-2">
           <button
             type="button"
-            onClick={() =>
-              triggerBrandTransition(t('mobile_legal.v2_home_menu_loading'), () => {
-                setStage('main')
-                setActiveTab('home')
-              })
-            }
+            onClick={() => {
+              setStage('main')
+              setActiveTab('home')
+            }}
             className="w-full py-4 px-4 rounded-2xl bg-gradient-to-r from-[#DA291C] via-[#b81d13] to-[#DA291C] hover:from-[#e63225] hover:to-[#c92015] text-white font-black text-xs uppercase tracking-[0.12em] shadow-[0_12px_35px_rgba(218,41,28,0.5)] border border-[#FDC82F]/60 flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
           >
             <ShoppingBag size={16} className="text-[#FDC82F]" />

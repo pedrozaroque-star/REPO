@@ -29,7 +29,9 @@ export default function MobileCustomerAppV1Page() {
 
   React.useEffect(() => {
     try {
-      localStorage.setItem('gavilan_app_lang', 'en')
+      if (!localStorage.getItem('gavilan_app_lang')) {
+        localStorage.setItem('gavilan_app_lang', 'en')
+      }
     } catch {
       // Ignore storage errors
     }

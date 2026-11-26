@@ -17,6 +17,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { formatStoreDisplayName, sortStoresAlphabetically } from '@/lib/store-display'
 import { corsResponse, jsonOk, jsonError, PUBLIC_CACHE_HEADERS } from '../_helpers'
 
 /** Columnas seleccionadas de la tabla stores */
@@ -201,10 +202,16 @@ export async function GET(): Promise<NextResponse> {
       return jsonError('Error al obtener las sucursales', 500)
     }
 
-    const enrichedStores = (data ?? [])
-      .map((row) => {
+    const enrichedStores = sortStoresAlphabetically(
+      (data ?? []).map((row) => {
         const canonical = CANONICAL_WEB_STORES[Number(row.id)]
-        if (!canonical) return { ...row, orderIndex: 999 }
+        if (!canonical) {
+          return {
+            ...row,
+            name: formatStoreDisplayName(row) || row.name,
+            orderIndex: 999,
+          }
+        }
         return {
           ...row,
           orderIndex: canonical.orderIndex,
@@ -216,8 +223,10 @@ export async function GET(): Promise<NextResponse> {
           phone: canonical.phone,
           toastOrderingUrl: canonical.toastOrderingUrl,
         }
-      })
-      .sort((a, b) => a.orderIndex - b.orderIndex)
+      }),
+      (s) => s.name,
+      { pinSpecialFirst: false }
+    )
 
     return jsonOk({ stores: enrichedStores }, 200, PUBLIC_CACHE_HEADERS)
   } catch (err) {

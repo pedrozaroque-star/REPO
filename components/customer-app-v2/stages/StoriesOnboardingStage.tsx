@@ -34,6 +34,7 @@ import { SIGNATURE_DISHES, STORY_SLIDE_VISUALS } from '../data/catalog'
 import { GavilanBrandStandardsWordmark, renderWebsiteLockup } from '../styles/V2BrandChrome'
 import type { CustomerAppV2Controller } from '../hooks/useCustomerAppV2'
 import type { SignatureDish } from '../types'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 
 export function StoriesOnboardingStage({
   ctrl,
@@ -194,7 +195,9 @@ export function StoriesOnboardingStage({
                       </span>
                     </div>
                     <p className="text-xs font-extrabold text-white mt-0.5 truncate">
-                      {currentStore.cityTitle} · {currentStore.crossStreets}
+                      {formatCustomerStoreName(currentStore, lang)}
+                      {![5, 6, 7].includes(currentStore.id) &&
+                        ` · ${getCustomerStoreCrossStreets(currentStore, lang) || currentStore.crossStreets}`}
                     </p>
                   </div>
                 </motion.div>
@@ -213,7 +216,7 @@ export function StoriesOnboardingStage({
                       {t('mobile_legal.wrapper_delivery_mode')}
                     </span>
                     <p className="text-xs font-bold text-white/90 mt-0.5 truncate">
-                      order.online · Storefront
+                      {t('mobile_legal.v2_story_delivery_sub')}
                     </p>
                   </div>
                 </motion.div>
@@ -239,7 +242,7 @@ export function StoriesOnboardingStage({
                         : t('mobile_legal.wrapper_active_store_label')}
                     </span>
                     <p className="text-sm font-black text-white truncate">
-                      Tacos Gavilan — {currentStore.name}
+                      Tacos Gavilan — {formatCustomerStoreName(currentStore, lang)}
                     </p>
                     <p className="text-[11px] text-white/75 truncate">{currentStore.address}</p>
                   </div>

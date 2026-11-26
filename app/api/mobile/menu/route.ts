@@ -368,7 +368,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       channel: channelParam,
       lastSyncedAt: latestSyncedAt,
       warning:
-        'Catálogo de sucursal sincronizado con el orden, fotografías y modificadores de Toast Online Ordering. El cierre de orden nativa permanece en espera de habilitación de scopes de escritura Toast POS.',
+        'Catálogo oficial sincronizado por sucursal. Los pedidos y pagos en línea se completan de forma segura en el portal oficial de cada restaurante Tacos Gavilan.',
     }
 
     return jsonOk({ categories, categoryOrder, modifierGroups, catalogMetadata }, 200, PUBLIC_CACHE_HEADERS)

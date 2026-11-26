@@ -5,11 +5,13 @@
  * accessible dialog overlays (WCAG 2.2 AA compliant focus traps), and live serverless contact pipeline.
  *
  * @businessRules
- *   1. Toast POS (order.online) is the exclusive transactional ordering system for Tacos Gavilan.
- *      All corporate CTAs (Header, Hero, Mobile Drawer, Sticky Bottom Bar, Footer) route to the
- *      corporate selector: https://order.online/business/-137616.
- *   2. Exactly 15 active Southern California locations. Slauson maps to Store ID 23989119, LA Broadway
- *      to 260769, and West Covina to canonical 725035.
+ *   1. DoorDash Storefront (order.online synced to Toast POS) is the exclusive transactional ordering
+ *      destination for Tacos Gavilan. Progressive-enhancement corporate CTAs open our branded 15-store
+ *      Order Online selector modal (Pickup/Delivery toggle, GPS nearest sort, live America/Los_Angeles
+ *      hours, canonical customer-facing LA cross-street names) linking via target="_blank" rel="noopener noreferrer"
+ *      with ?hideModal=true&pickup=true or &delivery=true.
+ *   2. Exactly 15 active Southern California locations (including Norwalk 1327857, Slauson 23989119,
+ *      Los Angeles Vernon & Broadway 260769, Los Angeles Central & Washington 260847, West Covina 725035).
  *   3. Strict brand name: strictly "Tacos Gavilan" (zero "El Gavilan", zero emojis).
  *   4. Full bilingual support (EN/ES) persisted via safeStorage['tacosgavilan_lang'].
  *   5. Contact form routes asynchronously to Vercel Serverless /api/contact, guarded with
@@ -57,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const savedLang = safeStorage.getItem('tacosgavilan_lang');
     let currentLang = (savedLang === 'es' || savedLang === 'en') ? savedLang : 'en';
+    let syncOrderExperienceUI = null;
     const isDesktop = window.matchMedia('(pointer: fine)').matches;
 
     // Focus trap manager for WCAG 2.2 AA modal and drawer compliance
@@ -946,6 +949,21 @@ document.addEventListener('DOMContentLoaded', () => {
             'locations.hoursBadge':   '15 Southern California Locations',
             'locations.hoursOpenDaily': 'Open Daily',
             'locations.searchPlaceholder': 'Search by city, address or zip...',
+            'order.pickup':           'Pickup',
+            'order.delivery':         'Delivery',
+            'order.modalKicker':      'TACOS GAVILAN · 15 LOCATIONS',
+            'order.modalTitle':       'Order Online',
+            'order.modalSubtitle':    'Choose Pickup or Delivery and select your restaurant.',
+            'order.searchPlaceholder': 'Search by city, cross streets, or ZIP...',
+            'order.nearestBtn':       'Nearest Location',
+            'order.locating':         'Locating...',
+            'order.orderPickup':      'Order Pickup',
+            'order.orderDelivery':    'Order Delivery',
+            'order.openUntil':        'Open until',
+            'order.opensAt':          'Opens at',
+            'order.opensTomorrowAt':  'Opens tomorrow at',
+            'order.noMatches':        'No locations match your search.',
+            'order.geoUnavailable':   'Location unavailable — select any restaurant below.',
 
             // Interactive Map
             'map.findMe':          'Find Me',
@@ -1373,6 +1391,21 @@ document.addEventListener('DOMContentLoaded', () => {
             'locations.hoursBadge':   '15 Sucursales en el Sur de California',
             'locations.hoursOpenDaily': 'Abierto Diario',
             'locations.searchPlaceholder': 'Buscar por ciudad, dirección o código postal...',
+            'order.pickup':           'Para Recoger',
+            'order.delivery':         'A Domicilio',
+            'order.modalKicker':      'TACOS GAVILAN · 15 SUCURSALES',
+            'order.modalTitle':       'Ordenar en Línea',
+            'order.modalSubtitle':    'Elige Para Recoger o A Domicilio y selecciona tu sucursal.',
+            'order.searchPlaceholder': 'Buscar por ciudad, entrecalles o código postal...',
+            'order.nearestBtn':       'Sucursal Más Cercana',
+            'order.locating':         'Ubicando...',
+            'order.orderPickup':      'Ordenar Pickup',
+            'order.orderDelivery':    'Ordenar Delivery',
+            'order.openUntil':        'Abierto hasta',
+            'order.opensAt':          'Abre a las',
+            'order.opensTomorrowAt':  'Abre mañana a las',
+            'order.noMatches':        'No encontramos sucursales con esa búsqueda.',
+            'order.geoUnavailable':   'Ubicación no disponible — elige cualquier sucursal abajo.',
 
             // Mapa Interactivo
             'map.findMe':          'Ubicarme',
@@ -1635,6 +1668,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.querySelector('.map-fallback-card') && typeof renderMapFallback === 'function') {
             renderMapFallback();
         }
+
+        // Live sync branded order controls, live Open/Closed badges, and Order Online modal
+        if (typeof syncOrderExperienceUI === 'function') {
+            syncOrderExperienceUI();
+        }
     };
 
     const langToggleBtn = document.getElementById('lang-toggle');
@@ -1896,6 +1934,178 @@ document.addEventListener('DOMContentLoaded', () => {
             }
     ];
 
+    /* ==========================================================
+       12a. CANONICAL ORDERING ENGINE (URLs, LA CROSS-STREETS, LIVE HOURS & FULFILLMENT)
+       ========================================================== */
+    const ORDER_MODE_STORAGE_KEY = 'tacosgavilan_order_mode';
+    const savedOrderMode = safeStorage.getItem(ORDER_MODE_STORAGE_KEY);
+    let currentOrderMode = (savedOrderMode === 'delivery' || savedOrderMode === 'pickup') ? savedOrderMode : 'pickup';
+    let userSortedByDistance = false;
+    let lastUserCoords = null;
+
+    const STORE_CUSTOMER_NAMES_MAP = {
+        'la-central':      { cityEn: 'Los Angeles',     cityEs: 'Los Ángeles',     crossEn: 'Central & Washington',    crossEs: 'Central y Washington',    isLA: true },
+        'lynwood':         { cityEn: 'Lynwood',         cityEs: 'Lynwood',         crossEn: 'Imperial & Long Beach',   crossEs: 'Imperial y Long Beach',   isLA: false },
+        'la-broadway':     { cityEn: 'Los Angeles',     cityEs: 'Los Ángeles',     crossEn: 'Vernon & Broadway',       crossEs: 'Vernon y Broadway',       isLA: true },
+        'norwalk':         { cityEn: 'Norwalk',         cityEs: 'Norwalk',         crossEn: 'Rosecrans & Studebaker',  crossEs: 'Rosecrans y Studebaker',  isLA: false },
+        'slauson':         { cityEn: 'Los Angeles',     cityEs: 'Los Ángeles',     crossEn: 'Slauson & Broadway',      crossEs: 'Slauson y Broadway',      isLA: true },
+        'west-covina':     { cityEn: 'West Covina',     cityEs: 'West Covina',     crossEn: '10 FWY & Azusa',          crossEs: '10 Freeway y Azusa',      isLA: false },
+        'rialto':          { cityEn: 'Rialto',          cityEs: 'Rialto',          crossEn: 'Baseline & Riverside',    crossEs: 'Baseline y Riverside',    isLA: false },
+        'south-gate':      { cityEn: 'South Gate',      cityEs: 'South Gate',      crossEn: 'Firestone & Garfield',    crossEs: 'Firestone y Garfield',    isLA: false },
+        'downey':          { cityEn: 'Downey',          cityEs: 'Downey',          crossEn: 'Florence & Paramount',    crossEs: 'Florence y Paramount',    isLA: false },
+        'hollywood':       { cityEn: 'Hollywood',       cityEs: 'Hollywood',       crossEn: 'Sunset & La Brea',        crossEs: 'Sunset y La Brea',        isLA: false },
+        'santa-ana':       { cityEn: 'Santa Ana',       cityEs: 'Santa Ana',       crossEn: '17th & Grand',            crossEs: '17th y Grand',            isLA: false },
+        'huntington-park': { cityEn: 'Huntington Park', cityEs: 'Huntington Park', crossEn: 'Florence & Santa Fe',     crossEs: 'Florence y Santa Fe',     isLA: false },
+        'la-puente':       { cityEn: 'La Puente',       cityEs: 'La Puente',       crossEn: '605 FWY & Valley',        crossEs: '605 Freeway y Valley',    isLA: false },
+        'azusa':           { cityEn: 'Azusa',           cityEs: 'Azusa',           crossEn: 'Azusa & Arrow',           crossEs: 'Azusa y Arrow',           isLA: false },
+        'bell':            { cityEn: 'Bell',            cityEs: 'Bell',            crossEn: 'Florence & Atlantic',     crossEs: 'Florence y Atlantic',     isLA: false }
+    };
+
+    // Weekly hours (0=Sun .. 6=Sat) in America/Los_Angeles; closeHour > 24 = next-day AM closing
+    const STORE_WEEKLY_SCHEDULES = {
+        'la-central':      { 0:[8,26], 1:[8,26], 2:[8,26], 3:[8,26], 4:[8,27], 5:[8,28], 6:[8,28] },
+        'lynwood':         { 0:[10,25],1:[10,25],2:[10,25],3:[10,25],4:[10,26],5:[10,27],6:[10,27] },
+        'la-broadway':     { 0:[8,26], 1:[8,25], 2:[8,25], 3:[8,25], 4:[8,26], 5:[8,28], 6:[8,28] },
+        'norwalk':         { 0:[10,25],1:[10,25],2:[10,25],3:[10,25],4:[10,25],5:[10,27],6:[10,27] },
+        'slauson':         { 0:[10,25],1:[10,25],2:[10,25],3:[10,25],4:[10,25],5:[10,27],6:[10,27] },
+        'west-covina':     { 0:[10,25],1:[10,25],2:[10,25],3:[10,25],4:[10,25],5:[10,27],6:[10,27] },
+        'rialto':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
+        'south-gate':      { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,27],6:[10,27] },
+        'downey':          { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,27],6:[10,27] },
+        'hollywood':       { 0:[9,24], 1:[9,24], 2:[9,24], 3:[9,24], 4:[9,24], 5:[9,27], 6:[9,27] },
+        'santa-ana':       { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
+        'huntington-park': { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,26],5:[10,27],6:[10,27] },
+        'la-puente':       { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] },
+        'azusa':           { 0:[10,23],1:[10,23],2:[10,23],3:[10,23],4:[10,23],5:[10,24],6:[10,24] },
+        'bell':            { 0:[10,24],1:[10,24],2:[10,24],3:[10,24],4:[10,24],5:[10,26],6:[10,26] }
+    };
+
+    const haversineMiles = (lat1, lon1, lat2, lon2) => {
+        const R = 3958.8;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    const buildStorefrontOrderUrl = (baseUrl, mode = currentOrderMode) => {
+        const raw = String(baseUrl || '').split('?')[0].replace(/\/+$/, '');
+        if (!raw) return 'https://order.online/business/-137616';
+        const param = mode === 'delivery' ? 'delivery=true' : 'pickup=true';
+        return raw + '/?hideModal=true&' + param;
+    };
+
+    const getLocalizedStoreParts = (locOrSlug, lang = currentLang) => {
+        const slug = typeof locOrSlug === 'string' ? locOrSlug : (locOrSlug && locOrSlug.slug);
+        const isEs = lang === 'es';
+        const mapped = (slug && Object.prototype.hasOwnProperty.call(STORE_CUSTOMER_NAMES_MAP, slug))
+            ? STORE_CUSTOMER_NAMES_MAP[slug]
+            : null;
+        if (mapped) {
+            const city = isEs ? mapped.cityEs : mapped.cityEn;
+            const cross = isEs ? mapped.crossEs : mapped.crossEn;
+            const full = mapped.isLA ? (city + ' (' + cross + ')') : (city + ' · ' + cross);
+            return { city, cross, full, isLA: mapped.isLA };
+        }
+        const city = (locOrSlug && (locOrSlug.city || locOrSlug.name)) || '';
+        const cross = (locOrSlug && locOrSlug.crossStreets) || '';
+        return { city, cross, full: cross ? (city + ' (' + cross + ')') : city, isLA: false };
+    };
+
+    const formatHour12 = (hour24) => {
+        const h = ((hour24 % 24) + 24) % 24;
+        if (h === 0) return '12:00 AM';
+        if (h === 12) return '12:00 PM';
+        if (h < 12) return h + ':00 AM';
+        return (h - 12) + ':00 PM';
+    };
+
+    const getStoreLiveStatusLA = (slug, lang = currentLang, nowDate = new Date()) => {
+        const sched = (slug && Object.prototype.hasOwnProperty.call(STORE_WEEKLY_SCHEDULES, slug))
+            ? STORE_WEEKLY_SCHEDULES[slug]
+            : null;
+        if (!sched) return null;
+
+        const isEs = lang === 'es';
+        const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles',
+            weekday: 'short',
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false
+        }).formatToParts(nowDate);
+
+        const wdStr = parts.find(p => p.type === 'weekday')?.value || 'Mon';
+        const rawHour = Number(parts.find(p => p.type === 'hour')?.value ?? '12');
+        const minute = Number(parts.find(p => p.type === 'minute')?.value ?? '0');
+        const hour = rawHour === 24 ? 0 : rawHour;
+        const dayIdx = Object.prototype.hasOwnProperty.call(weekdayMap, wdStr) ? weekdayMap[wdStr] : 1;
+        const prevIdx = (dayIdx + 6) % 7;
+        const nextIdx = (dayIdx + 1) % 7;
+        const nowMins = hour * 60 + minute;
+
+        const prevWin = sched[prevIdx];
+        const todayWin = sched[dayIdx];
+        const nextWin = sched[nextIdx];
+
+        // 1. Check previous day's overnight shift first (e.g., 1:30 AM Saturday during Fri 8 AM - 4 AM shift)
+        if (prevWin[1] > 24 && nowMins < (prevWin[1] - 24) * 60) {
+            const closeStr = formatHour12(prevWin[1]);
+            return {
+                isOpen: true,
+                label: isEs ? ('Abierto hasta ' + closeStr) : ('Open until ' + closeStr),
+                activeHours: formatHour12(prevWin[0]) + ' – ' + closeStr
+            };
+        }
+
+        // 2. Check today's regular/overnight shift
+        if (nowMins >= todayWin[0] * 60 && nowMins < todayWin[1] * 60) {
+            const closeStr = formatHour12(todayWin[1]);
+            return {
+                isOpen: true,
+                label: isEs ? ('Abierto hasta ' + closeStr) : ('Open until ' + closeStr),
+                activeHours: formatHour12(todayWin[0]) + ' – ' + closeStr
+            };
+        }
+
+        // 3. Closed: either opens later today or tomorrow
+        if (nowMins < todayWin[0] * 60) {
+            const openStr = formatHour12(todayWin[0]);
+            return {
+                isOpen: false,
+                label: isEs ? ('Abre a las ' + openStr) : ('Opens at ' + openStr),
+                activeHours: openStr + ' – ' + formatHour12(todayWin[1])
+            };
+        }
+
+        const nextOpenStr = formatHour12(nextWin[0]);
+        return {
+            isOpen: false,
+            label: isEs ? ('Abre mañana ' + nextOpenStr) : ('Opens tomorrow ' + nextOpenStr),
+            activeHours: nextOpenStr + ' – ' + formatHour12(nextWin[1])
+        };
+    };
+
+    const getOrderCtaLabel = (mode = currentOrderMode, lang = currentLang) => {
+        const isEs = lang === 'es';
+        if (mode === 'delivery') {
+            return isEs ? 'Ordenar Delivery' : 'Order Delivery';
+        }
+        return isEs ? 'Ordenar Pickup' : 'Order Pickup';
+    };
+
+    const setOrderFulfillmentMode = (mode) => {
+        const next = mode === 'delivery' ? 'delivery' : 'pickup';
+        currentOrderMode = next;
+        safeStorage.setItem(ORDER_MODE_STORAGE_KEY, next);
+        if (typeof syncOrderExperienceUI === 'function') {
+            syncOrderExperienceUI();
+        }
+    };
+
     const buildPopupContent = (loc, distance) => {
         const isEs = currentLang === 'es';
         const hasDist = (distance !== null && distance !== undefined && !isNaN(distance));
@@ -1919,8 +2129,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
-        const orderUrl = loc.order.includes('?') ? loc.order : `${loc.order}/?hideModal=true&pickup=true`;
-        const orderText = isEs ? 'Ordenar Ahora' : 'Order Online';
+        const orderUrl = buildStorefrontOrderUrl(loc.order, currentOrderMode);
+        const orderText = getOrderCtaLabel(currentOrderMode, currentLang);
+        const liveStatus = getStoreLiveStatusLA(loc.slug, currentLang);
+        const statusHtml = liveStatus
+            ? `<div style="margin:0.35rem 0 0.45rem;"><span class="tg-live-status-pill ${liveStatus.isOpen ? 'is-open' : 'is-closed'}"><span class="tg-live-status-dot" aria-hidden="true"></span><span>${liveStatus.label}</span></span></div>`
+            : '';
         const dirText = isEs ? 'Cómo llegar' : 'Directions';
         const phoneE164 = loc.phone ? `+1${loc.phone.replace(/\D/g, '')}` : '';
 
@@ -1951,18 +2165,20 @@ document.addEventListener('DOMContentLoaded', () => {
                </div>`
             : '';
 
-        const titleHtml = loc.crossStreets
+        const localizedParts = getLocalizedStoreParts(loc, currentLang);
+        const titleHtml = localizedParts.cross
             ? `<div class="map-popup-header">
-                <div class="map-popup-city">${loc.city || loc.name}</div>
-                <div class="map-popup-cross">${loc.crossStreets}</div>
+                <div class="map-popup-city">${localizedParts.city}</div>
+                <div class="map-popup-cross">${localizedParts.cross}</div>
                </div>`
-            : `<div class="map-popup-header"><div class="map-popup-city">${loc.name}</div></div>`;
+            : `<div class="map-popup-header"><div class="map-popup-city">${localizedParts.city}</div></div>`;
 
         return `<div class="map-popup">
             <div class="map-popup-top">
                 ${badgeHtml}
             </div>
             ${titleHtml}
+            ${statusHtml}
             <div class="map-popup-meta">
                 <div class="map-popup-row">
                     <svg class="map-popup-row-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -1995,26 +2211,33 @@ document.addEventListener('DOMContentLoaded', () => {
             : 'We were unable to load the interactive map right now. You can still access direct directions and online ordering for all 15 locations below.';
         const retryText = isEs ? 'Intentar de nuevo' : 'Try Again';
         const dirText = isEs ? 'Cómo llegar' : 'Directions';
-        const orderText = isEs ? 'Ordenar en Línea' : 'Order Online';
+        const orderText = getOrderCtaLabel(currentOrderMode, currentLang);
 
         const itemsHtml = gavilanLocations.map(loc => {
             const dest = encodeURIComponent(loc.address);
             const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
-            const headerHtml = loc.crossStreets
-                ? `<h4>${loc.city || loc.name} <span style="color: #FFC72C; font-weight: 700; font-size: 0.88em;">${loc.crossStreets}</span></h4>`
-                : `<h4>${loc.name}</h4>`;
+            const orderUrl = buildStorefrontOrderUrl(loc.order, currentOrderMode);
+            const localizedParts = getLocalizedStoreParts(loc, currentLang);
+            const liveStatus = getStoreLiveStatusLA(loc.slug, currentLang);
+            const statusPill = liveStatus
+                ? `<span class="tg-live-status-pill ${liveStatus.isOpen ? 'is-open' : 'is-closed'}" style="margin-top:0.25rem;"><span class="tg-live-status-dot" aria-hidden="true"></span><span>${liveStatus.label}</span></span>`
+                : '';
+            const headerHtml = localizedParts.cross
+                ? `<h4>${localizedParts.city} <span style="color: #FFC72C; font-weight: 700; font-size: 0.88em;">${localizedParts.cross}</span></h4>`
+                : `<h4>${localizedParts.city}</h4>`;
             return `
                 <div class="map-fallback-item">
                     <div class="map-fallback-item-info">
                         ${headerHtml}
                         <p>${loc.address} · ${loc.phone}</p>
+                        ${statusPill}
                     </div>
                     <div class="map-fallback-item-actions">
                         <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="map-fallback-btn-dir">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                             ${dirText}
                         </a>
-                        <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="map-fallback-btn-order">
+                        <a href="${orderUrl}" target="_blank" rel="noopener noreferrer" class="map-fallback-btn-order">
                             ${orderText}
                         </a>
                     </div>
@@ -2781,7 +3004,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const isMenuOpen = document.body.classList.contains('menu-open');
         const isCookieOpen = document.body.classList.contains('has-cookie-banner');
-        const isModalOpen = document.querySelector('.map-modal-overlay.is-open, .lightbox-modal-overlay.is-open, .privacy-modal-overlay.is-open');
+        const isModalOpen = document.querySelector('.map-modal-overlay.is-open, .lightbox-modal-overlay.is-open, .privacy-modal-overlay.is-open, .store-details-modal-overlay.is-open, .tg-order-modal-overlay.is-open');
 
         if (isMenuOpen || isModalOpen || isCookieOpen) {
             mobileStickyBar.classList.remove('is-visible');
@@ -3664,11 +3887,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const isEs = currentLang === 'es';
         const phoneE164 = `+1${loc.phone.replace(/\D/g, '')}`;
         const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc.address)}`;
+        const orderUrl = buildStorefrontOrderUrl(loc.order, currentOrderMode);
+        const localizedParts = getLocalizedStoreParts(loc, currentLang);
+        const liveStatus = getStoreLiveStatusLA(loc.slug, currentLang);
         const tagText = isEs ? 'Tacos Gavilan · Detalles de Sucursal' : 'Tacos Gavilan · Store Details';
         const hoursTitle = isEs ? 'Horarios' : 'Hours';
-        const orderBtnText = isEs ? 'Ordenar en Línea' : 'Order Online';
+        const orderBtnText = getOrderCtaLabel(currentOrderMode, currentLang);
+        const pickupLabel = isEs ? 'Para Recoger' : 'Pickup';
+        const deliveryLabel = isEs ? 'A Domicilio' : 'Delivery';
         const dirBtnText = isEs ? 'Cómo llegar en Google Maps' : 'Get Directions in Google Maps';
         const closeLabel = isEs ? 'Cerrar detalles de sucursal' : 'Close store details';
+        const livePillHtml = liveStatus
+            ? `<span class="tg-live-status-pill ${liveStatus.isOpen ? 'is-open' : 'is-closed'}"><span class="tg-live-status-dot" aria-hidden="true"></span><span>${liveStatus.label}</span></span>`
+            : '';
 
         const scheduleRowsHtml = meta.rows.map(r => `
             <div class="store-modal-schedule-row${r.highlight ? ' is-highlight' : ''}">
@@ -3690,9 +3921,16 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="store-modal-body">
                 <span class="store-modal-tag">${tagText}</span>
                 <h2 class="store-modal-title" id="store-modal-title">
-                    <span class="store-modal-city">${loc.city}</span>
-                    <span class="store-modal-cross">${loc.crossStreets}</span>
+                    <span class="store-modal-city">${localizedParts.city}</span>
+                    <span class="store-modal-cross">${localizedParts.cross}</span>
                 </h2>
+                <div class="store-modal-mode-wrap">
+                    ${livePillHtml}
+                    <div class="tg-fulfillment-toggle" role="radiogroup" aria-label="${isEs ? 'Modalidad de pedido' : 'Order type'}">
+                        <button type="button" class="tg-mode-btn ${currentOrderMode === 'pickup' ? 'is-active' : ''}" data-tg-mode="pickup" role="radio" aria-checked="${currentOrderMode === 'pickup'}">${pickupLabel}</button>
+                        <button type="button" class="tg-mode-btn ${currentOrderMode === 'delivery' ? 'is-active' : ''}" data-tg-mode="delivery" role="radio" aria-checked="${currentOrderMode === 'delivery'}">${deliveryLabel}</button>
+                    </div>
+                </div>
                 <div class="store-modal-info-list">
                     <div class="store-modal-info-item">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -3713,7 +3951,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
                 <div class="store-modal-actions">
-                    <a href="${loc.order}" target="_blank" rel="noopener noreferrer" class="store-modal-btn-order">${orderBtnText}</a>
+                    <a href="${orderUrl}" target="_blank" rel="noopener noreferrer" class="store-modal-btn-order" data-tg-store-slug="${loc.slug}">${orderBtnText}</a>
                     <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="store-modal-btn-directions">${dirBtnText}</a>
                 </div>
             </div>
@@ -3850,6 +4088,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const applyStoreOrderToDom = (orderedSlugs) => {
         if (!Array.isArray(orderedSlugs) || orderedSlugs.length === 0) return false;
+        if (userSortedByDistance) return false;
 
         const rankMap = {};
         orderedSlugs.forEach((slug, idx) => {
@@ -3942,6 +4181,447 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     initLiveStoreRanking();
+
+    /* ==========================================================
+       20. BRANDED ORDER ONLINE EXPERIENCE (15-STORE MODAL,
+           PICKUP / DELIVERY TOGGLE, GPS SORT & LIVE LA HOURS)
+       ========================================================== */
+    const getStoreBaseOrderUrlBySlug = (slug) => {
+        const found = gavilanLocations.find(l => l.slug === slug);
+        return found ? found.order : null;
+    };
+
+    const requestCustomerCoordsInRam = async () => {
+        const tryGeo = (opts) => new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject(new Error('Geolocation unavailable'));
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: 'gps' }),
+                reject,
+                opts
+            );
+        });
+
+        try {
+            return await tryGeo({ enableHighAccuracy: false, timeout: 6000, maximumAge: 180000 });
+        } catch (_) {
+            try {
+                const ctrl = new AbortController();
+                const tid = setTimeout(() => ctrl.abort(), 3500);
+                const r = await fetch('/api/geo/', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    signal: ctrl.signal,
+                    headers: { 'Accept': 'application/json' }
+                });
+                clearTimeout(tid);
+                if (r.ok) {
+                    const d = await r.json();
+                    const lat = parseFloat(d && d.lat);
+                    const lng = parseFloat(d && d.lng);
+                    if (d && d.ok === true && Number.isFinite(lat) && Number.isFinite(lng)) {
+                        return { lat, lng, source: 'ip' };
+                    }
+                }
+            } catch (_) {}
+            return null;
+        }
+    };
+
+    const applyDistanceSortingToStores = (coords) => {
+        if (!coords || !Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) return null;
+        lastUserCoords = coords;
+        userSortedByDistance = true;
+
+        let nearestLoc = null;
+        let minDist = Infinity;
+        gavilanLocations.forEach(loc => {
+            const dist = haversineMiles(coords.lat, coords.lng, loc.lat, loc.lng);
+            loc._lastDistance = dist;
+            loc._isNearest = false;
+            if (dist < minDist) {
+                minDist = dist;
+                nearestLoc = loc;
+            }
+        });
+        if (nearestLoc) nearestLoc._isNearest = true;
+
+        gavilanLocations.sort((a, b) => (a._lastDistance ?? 999) - (b._lastDistance ?? 999));
+
+        const rankMap = {};
+        gavilanLocations.forEach((loc, idx) => {
+            rankMap[loc.slug] = idx;
+        });
+
+        reorderContainerBySlug(document.getElementById('locations-grid'), '.location-card[data-store]', rankMap);
+        reorderContainerBySlug(document.getElementById('locations-list'), '.store-card[data-store]', rankMap);
+        reorderSelectOptionsBySlug(document.getElementById('store'), rankMap);
+        reorderSelectOptionsBySlug(document.getElementById('contact-store'), rankMap);
+
+        return nearestLoc;
+    };
+
+    const mountInlineLocationControls = (gridEl) => {
+        if (!gridEl || gridEl.previousElementSibling?.classList.contains('tg-order-controls-bar')) return;
+        const bar = document.createElement('div');
+        bar.className = 'tg-order-controls-bar';
+        bar.setAttribute('data-tg-order-bar', 'true');
+        bar.innerHTML = `
+            <div class="tg-fulfillment-toggle" role="radiogroup" aria-label="Order Type">
+                <button type="button" class="tg-mode-btn" data-tg-mode="pickup" role="radio" aria-checked="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                    <span data-tg-mode-label="pickup">Pickup</span>
+                </button>
+                <button type="button" class="tg-mode-btn" data-tg-mode="delivery" role="radio" aria-checked="false">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                    <span data-tg-mode-label="delivery">Delivery</span>
+                </button>
+            </div>
+            <button type="button" class="tg-locate-stores-btn" data-tg-locate-stores="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+                <span data-tg-locate-label="true">Nearest Location</span>
+            </button>
+            <div class="tg-order-controls-status" data-tg-geo-status="true" role="status" aria-live="polite"></div>
+        `;
+        gridEl.parentNode.insertBefore(bar, gridEl);
+    };
+
+    const ensureOrderOnlineModalDom = () => {
+        let overlay = document.getElementById('tg-order-modal-overlay');
+        if (overlay) return overlay;
+
+        overlay = document.createElement('div');
+        overlay.id = 'tg-order-modal-overlay';
+        overlay.className = 'tg-order-modal-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'tg-order-modal-title');
+        overlay.innerHTML = `
+            <div class="tg-order-modal">
+                <div class="tg-order-modal-header">
+                    <div class="tg-order-modal-heading-wrap">
+                        <span class="tg-order-modal-kicker" id="tg-order-modal-kicker">TACOS GAVILAN · 15 LOCATIONS</span>
+                        <h2 class="tg-order-modal-title" id="tg-order-modal-title">Order Online</h2>
+                        <p class="tg-order-modal-subtitle" id="tg-order-modal-subtitle">Choose Pickup or Delivery and select your restaurant.</p>
+                    </div>
+                    <button type="button" class="tg-order-modal-close" id="tg-order-modal-close" aria-label="Close order dialog">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="tg-order-modal-toolbar">
+                    <div class="tg-order-modal-toolbar-row">
+                        <div class="tg-fulfillment-toggle" role="radiogroup" aria-label="Order Type">
+                            <button type="button" class="tg-mode-btn" data-tg-mode="pickup" role="radio" aria-checked="true">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                                <span data-tg-mode-label="pickup">Pickup</span>
+                            </button>
+                            <button type="button" class="tg-mode-btn" data-tg-mode="delivery" role="radio" aria-checked="false">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                                <span data-tg-mode-label="delivery">Delivery</span>
+                            </button>
+                        </div>
+                        <button type="button" class="tg-locate-stores-btn" data-tg-locate-stores="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+                            <span data-tg-locate-label="true">Nearest Location</span>
+                        </button>
+                    </div>
+                    <div class="tg-order-modal-search-wrap">
+                        <svg class="tg-order-modal-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="search" id="tg-order-modal-search" class="tg-order-modal-search" autocomplete="off" placeholder="Search by city, cross streets, or ZIP..." aria-label="Search locations">
+                    </div>
+                    <div class="tg-order-modal-geo-status" data-tg-geo-status="true" role="status" aria-live="polite"></div>
+                </div>
+                <div class="tg-order-modal-list" id="tg-order-modal-list"></div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeOrderOnlineModal();
+        });
+
+        const closeBtn = document.getElementById('tg-order-modal-close');
+        if (closeBtn) closeBtn.addEventListener('click', closeOrderOnlineModal);
+
+        const searchInput = document.getElementById('tg-order-modal-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', () => renderOrderOnlineModalList());
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && overlay.classList.contains('is-open')) {
+                closeOrderOnlineModal();
+            }
+        });
+
+        return overlay;
+    };
+
+    const renderOrderOnlineModalList = () => {
+        const listEl = document.getElementById('tg-order-modal-list');
+        if (!listEl) return;
+
+        const isEs = currentLang === 'es';
+        const searchInput = document.getElementById('tg-order-modal-search');
+        const q = (searchInput ? searchInput.value : '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        const filtered = gavilanLocations.filter(loc => {
+            if (!q) return true;
+            const parts = getLocalizedStoreParts(loc, currentLang);
+            const haystack = [loc.city, loc.crossStreets, loc.name, loc.address, parts.city, parts.cross, parts.full]
+                .join(' ')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+            return haystack.includes(q);
+        });
+
+        if (filtered.length === 0) {
+            listEl.innerHTML = `<div class="tg-order-modal-empty">${isEs ? 'No encontramos sucursales con esa búsqueda.' : 'No locations match your search.'}</div>`;
+            return;
+        }
+
+        const ctaLabel = getOrderCtaLabel(currentOrderMode, currentLang);
+        listEl.innerHTML = filtered.map(loc => {
+            const parts = getLocalizedStoreParts(loc, currentLang);
+            const liveStatus = getStoreLiveStatusLA(loc.slug, currentLang);
+            const orderUrl = buildStorefrontOrderUrl(loc.order, currentOrderMode);
+            const phoneE164 = '+1' + String(loc.phone || '').replace(/\D/g, '');
+            const hasDist = Number.isFinite(loc._lastDistance);
+            const isNearest = Boolean(loc._isNearest && hasDist);
+
+            const statusPill = liveStatus
+                ? `<span class="tg-live-status-pill ${liveStatus.isOpen ? 'is-open' : 'is-closed'}"><span class="tg-live-status-dot" aria-hidden="true"></span><span>${liveStatus.label}</span></span>`
+                : '';
+
+            const distPill = hasDist
+                ? `<span class="tg-distance-pill ${isNearest ? 'is-nearest' : ''}">${isNearest ? (isEs ? 'MÁS CERCANA · ' : 'NEAREST · ') : ''}${loc._lastDistance.toFixed(1)} mi</span>`
+                : '';
+
+            return `
+                <div class="tg-order-store-row ${isNearest ? 'is-nearest' : ''}" data-store="${loc.slug}">
+                    <div class="tg-order-store-info">
+                        <h3 class="tg-order-store-name">
+                            ${parts.city}
+                            <span class="tg-order-store-cross"> · ${parts.cross}</span>
+                        </h3>
+                        <div class="tg-card-status-row" style="margin:0.15rem 0 0.25rem;">
+                            ${statusPill}
+                            ${distPill}
+                        </div>
+                        <div class="tg-order-store-meta">
+                            ${loc.address} · <a href="tel:${phoneE164}">${loc.phone}</a>
+                        </div>
+                    </div>
+                    <a href="${orderUrl}" target="_blank" rel="noopener noreferrer" class="tg-order-store-cta" data-tg-store-slug="${loc.slug}">
+                        <span>${ctaLabel}</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </a>
+                </div>
+            `;
+        }).join('');
+    };
+
+    const openOrderOnlineModal = () => {
+        const overlay = ensureOrderOnlineModalDom();
+        if (typeof syncOrderExperienceUI === 'function') syncOrderExperienceUI();
+        overlay.style.display = 'flex';
+        overlay.offsetHeight;
+        overlay.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+        if (typeof updateStickyBar === 'function') updateStickyBar();
+        trapFocus(overlay);
+    };
+
+    const closeOrderOnlineModal = () => {
+        const overlay = document.getElementById('tg-order-modal-overlay');
+        if (!overlay || !overlay.classList.contains('is-open')) return;
+        overlay.classList.remove('is-open');
+        setTimeout(() => {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+            if (typeof updateStickyBar === 'function') updateStickyBar();
+        }, 240);
+        releaseFocus();
+    };
+
+    syncOrderExperienceUI = () => {
+        const isEs = currentLang === 'es';
+        const pickupText = isEs ? 'Para Recoger' : 'Pickup';
+        const deliveryText = isEs ? 'A Domicilio' : 'Delivery';
+        const nearestBtnText = isEs ? 'Sucursal Más Cercana' : 'Nearest Location';
+        const ctaLabel = getOrderCtaLabel(currentOrderMode, currentLang);
+
+        // 1. Update all Pickup / Delivery toggle buttons across page & modals
+        document.querySelectorAll('.tg-mode-btn[data-tg-mode]').forEach(btn => {
+            const btnMode = btn.getAttribute('data-tg-mode');
+            const active = btnMode === currentOrderMode;
+            btn.classList.toggle('is-active', active);
+            btn.setAttribute('aria-checked', active ? 'true' : 'false');
+            const labelEl = btn.querySelector('[data-tg-mode-label]');
+            if (labelEl) {
+                labelEl.textContent = btnMode === 'delivery' ? deliveryText : pickupText;
+            }
+        });
+
+        // 2. Update Locate Nearest buttons
+        document.querySelectorAll('.tg-locate-stores-btn').forEach(btn => {
+            btn.classList.toggle('is-active', userSortedByDistance);
+            const labelEl = btn.querySelector('[data-tg-locate-label]');
+            if (labelEl && !btn.disabled) {
+                labelEl.textContent = nearestBtnText;
+            }
+        });
+
+        // 3. Update Order Online modal static header/placeholder copy
+        const kickerEl = document.getElementById('tg-order-modal-kicker');
+        const titleEl = document.getElementById('tg-order-modal-title');
+        const subEl = document.getElementById('tg-order-modal-subtitle');
+        const searchEl = document.getElementById('tg-order-modal-search');
+        const closeEl = document.getElementById('tg-order-modal-close');
+        if (kickerEl) kickerEl.textContent = isEs ? 'TACOS GAVILAN · 15 SUCURSALES' : 'TACOS GAVILAN · 15 LOCATIONS';
+        if (titleEl) titleEl.textContent = isEs ? 'Ordenar en Línea' : 'Order Online';
+        if (subEl) subEl.textContent = isEs ? 'Elige Para Recoger o A Domicilio y selecciona tu sucursal.' : 'Choose Pickup or Delivery and select your restaurant.';
+        if (searchEl) {
+            searchEl.placeholder = isEs ? 'Buscar por ciudad, entrecalles o código postal...' : 'Search by city, cross streets, or ZIP...';
+            searchEl.setAttribute('aria-label', isEs ? 'Buscar sucursales' : 'Search locations');
+        }
+        if (closeEl) closeEl.setAttribute('aria-label', isEs ? 'Cerrar selector de pedidos' : 'Close order dialog');
+
+        // 4. Update all static location cards (.location-card & .store-card) with live Open/Closed status, distance pills & dynamic order URLs
+        document.querySelectorAll('.location-card[data-store], .store-card[data-store]').forEach(card => {
+            const slug = card.getAttribute('data-store');
+            const baseOrder = getStoreBaseOrderUrlBySlug(slug);
+            const loc = gavilanLocations.find(l => l.slug === slug);
+            if (!slug || !baseOrder) return;
+
+            // Update card Order Online <a> link & label
+            const orderLink = card.querySelector('a.btn-location-order, a.btn-store-order, a[href*="order.online/store/"]');
+            if (orderLink) {
+                orderLink.href = buildStorefrontOrderUrl(baseOrder, currentOrderMode);
+                const innerSpan = orderLink.querySelector('span');
+                if (innerSpan) innerSpan.textContent = ctaLabel;
+                else orderLink.textContent = ctaLabel;
+            }
+
+            // Inject or update live status + distance row
+            const liveStatus = getStoreLiveStatusLA(slug, currentLang);
+            const hasDist = loc && Number.isFinite(loc._lastDistance);
+            const isNearest = Boolean(loc && loc._isNearest && hasDist);
+            let statusRow = card.querySelector('.tg-card-status-row');
+            if (!statusRow) {
+                statusRow = document.createElement('div');
+                statusRow.className = 'tg-card-status-row';
+                const heading = card.querySelector('.location-name, .store-card-name');
+                if (heading && heading.parentNode) {
+                    heading.parentNode.insertBefore(statusRow, heading.nextSibling);
+                }
+            }
+            if (statusRow) {
+                const statusHtml = liveStatus
+                    ? `<span class="tg-live-status-pill ${liveStatus.isOpen ? 'is-open' : 'is-closed'}"><span class="tg-live-status-dot" aria-hidden="true"></span><span>${liveStatus.label}</span></span>`
+                    : '';
+                const distHtml = hasDist
+                    ? `<span class="tg-distance-pill ${isNearest ? 'is-nearest' : ''}">${isNearest ? (isEs ? 'MÁS CERCANA · ' : 'NEAREST · ') : ''}${loc._lastDistance.toFixed(1)} mi</span>`
+                    : '';
+                statusRow.innerHTML = statusHtml + distHtml;
+            }
+        });
+
+        // 5. Update active Map popup / Map fallback / Store Details Modal / Order Online Modal
+        if (window._gavilanInfoWindow && window._activeGavilanMarker && window._activeGavilanMarker._gavilanData) {
+            const loc = window._activeGavilanMarker._gavilanData;
+            window._gavilanInfoWindow.setContent(buildPopupContent(loc, loc._lastDistance || null));
+        }
+        if (document.querySelector('.map-fallback-card')) {
+            renderMapFallback();
+        }
+        if (activeStoreSlug) {
+            renderStoreDetailsModalContent(activeStoreSlug);
+        }
+        renderOrderOnlineModalList();
+    };
+
+    // Global click delegation for Pickup/Delivery toggle, Nearest Location GPS sort, and Corporate Order CTAs
+    document.addEventListener('click', async (e) => {
+        const modeBtn = e.target.closest('.tg-mode-btn[data-tg-mode]');
+        if (modeBtn) {
+            e.preventDefault();
+            setOrderFulfillmentMode(modeBtn.getAttribute('data-tg-mode'));
+            return;
+        }
+
+        const locateBtn = e.target.closest('.tg-locate-stores-btn[data-tg-locate-stores]');
+        if (locateBtn) {
+            e.preventDefault();
+            const isEs = currentLang === 'es';
+            const allLocateBtns = document.querySelectorAll('.tg-locate-stores-btn');
+            const allStatusEls = document.querySelectorAll('[data-tg-geo-status]');
+            allLocateBtns.forEach(b => {
+                b.disabled = true;
+                const sp = b.querySelector('[data-tg-locate-label]');
+                if (sp) sp.textContent = isEs ? 'Ubicando...' : 'Locating...';
+            });
+
+            const coords = await requestCustomerCoordsInRam();
+            allLocateBtns.forEach(b => { b.disabled = false; });
+
+            if (coords) {
+                const nearest = applyDistanceSortingToStores(coords);
+                if (nearest) {
+                    const parts = getLocalizedStoreParts(nearest, currentLang);
+                    const msg = isEs
+                        ? `Más cercana: ${parts.full} (${nearest._lastDistance.toFixed(1)} mi)`
+                        : `Nearest: ${parts.full} (${nearest._lastDistance.toFixed(1)} mi)`;
+                    allStatusEls.forEach(el => { el.textContent = msg; });
+                }
+            } else {
+                const errMsg = isEs
+                    ? 'Ubicación no disponible — elige cualquier sucursal abajo.'
+                    : 'Location unavailable — select any restaurant below.';
+                allStatusEls.forEach(el => { el.textContent = errMsg; });
+            }
+            syncOrderExperienceUI();
+            return;
+        }
+
+        // Intercept corporate business order CTAs (excluding legal disclosures) to open our branded 15-store selector
+        const bizLink = e.target.closest('a[href*="order.online/business/-137616"]');
+        if (bizLink && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+            if (bizLink.closest('.privacy-modal-body, .legal-page, .privacy-section')) return;
+            e.preventDefault();
+            // Close mobile nav drawer or lightbox cleanly before opening Order modal
+            if (typeof closeLightbox === 'function') {
+                const lb = document.getElementById('lightbox-modal-overlay');
+                if (lb && lb.classList.contains('is-open')) closeLightbox();
+            }
+            openOrderOnlineModal();
+        }
+    });
+
+    // Mount inline controls above homepage #locations-grid and /locations/ #locations-list
+    mountInlineLocationControls(document.getElementById('locations-grid'));
+    mountInlineLocationControls(document.getElementById('locations-list'));
+    syncOrderExperienceUI();
+
+    // Refresh live Open/Closed badges every 60 seconds
+    setInterval(() => {
+        if (!document.hidden) syncOrderExperienceUI();
+    }, 60000);
+
+    // Expose pure engine helpers for verification & diagnostics
+    window.__tgOrderEngine = {
+        buildStorefrontOrderUrl,
+        getLocalizedStoreParts,
+        getStoreLiveStatusLA,
+        haversineMiles,
+        getFulfillmentMode: () => currentOrderMode,
+        setFulfillmentMode: setOrderFulfillmentMode,
+        openOrderOnlineModal,
+        locations: gavilanLocations
+    };
 
 });
 

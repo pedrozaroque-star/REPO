@@ -18,10 +18,12 @@
 
 'use client'
 
-import React from 'react'
+import React, { useMemo } from 'react'
 import { PhoneCall, MapPin, Clock, ExternalLink, HelpCircle } from 'lucide-react'
 import MobileLegalShell from '@/components/mobile-legal/MobileLegalShell'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 import { useLanguage } from '@/lib/i18n'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 interface VerifiedBranchRow {
   id: string
@@ -205,6 +207,14 @@ const VERIFIED_15_BRANCHES: VerifiedBranchRow[] = [
 
 export default function MobileSupportPage(): React.JSX.Element {
   const { language, t } = useLanguage()
+  const custLang = language === 'en' ? 'en' : 'es'
+  const sortedBranches = useMemo(
+    () =>
+      sortStoresAlphabetically(VERIFIED_15_BRANCHES, (b) =>
+        formatCustomerStoreName(Number(b.id), custLang)
+      ),
+    [custLang]
+  )
 
   return (
     <MobileLegalShell
@@ -225,9 +235,14 @@ export default function MobileSupportPage(): React.JSX.Element {
 
         {/* 15 Verified Branches Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {VERIFIED_15_BRANCHES.map((branch) => {
+          {sortedBranches.map((branch) => {
             const digits = branch.phone.replace(/\D/g, '')
             const telHref = digits.length === 10 ? `tel:+1${digits}` : `tel:${digits}`
+            const numId = Number(branch.id)
+            const displayTitle = formatCustomerStoreName(numId, custLang) || branch.cityTitle
+            const subCross = ![5, 6, 7].includes(numId)
+              ? getCustomerStoreCrossStreets(numId, custLang) || branch.crossStreets
+              : null
             return (
               <div
                 key={branch.id}
@@ -237,15 +252,14 @@ export default function MobileSupportPage(): React.JSX.Element {
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div>
                       <h3 className="text-base font-black text-slate-900 leading-tight">
-                        {branch.cityTitle}
+                        {displayTitle}
                       </h3>
-                      <p className="text-xs font-extrabold text-amber-600 font-sans tracking-wide mt-0.5">
-                        {branch.crossStreets}
-                      </p>
+                      {subCross && (
+                        <p className="text-xs font-extrabold text-amber-600 font-sans tracking-wide mt-0.5">
+                          {subCross}
+                        </p>
+                      )}
                     </div>
-                    <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-red-50 text-[#DA291C] border border-red-200">
-                      #{branch.id}
-                    </span>
                   </div>
 
                   <div className="space-y-1.5 text-xs text-slate-600">

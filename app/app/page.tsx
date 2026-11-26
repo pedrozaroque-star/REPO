@@ -173,8 +173,10 @@ function AppClientesWorkspaceContent() {
 
   useEffect(() => {
     try {
-      // Ensure Version 1 (/app/index.html) also boots in English ('en') by default
-      localStorage.setItem('gavilan_app_lang', 'en')
+      // Default Version 1 (/app/index.html) to English ('en') only if user has not already selected a language
+      if (!localStorage.getItem('gavilan_app_lang')) {
+        localStorage.setItem('gavilan_app_lang', 'en')
+      }
     } catch {
       // Ignore storage errors
     }
@@ -439,7 +441,7 @@ function AppClientesWorkspaceContent() {
                     onClick={() => jumpToV2State('main', 0, 'order', null, false)}
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                   >
-                    <span>{isEn ? '9. Order Tab (Bag & order.online Storefront)' : '9. Pestaña Ordenar (Bolsa y order.online)'}</span>
+                    <span>{isEn ? '9. Order Tab (Direct Branch Ordering)' : '9. Pestaña Ordenar (Pedido Directo)'}</span>
                     <span className="text-[10px] text-white/60 font-mono">Order</span>
                   </button>
                   <button
@@ -966,8 +968,8 @@ function AppClientesWorkspaceContent() {
                   <ShoppingBag size={13} className="text-emerald-600" />
                   <span>
                     {isEn
-                      ? '9. Order Tab (Bag & order.online Storefront)'
-                      : '9. Pestaña Ordenar (Bolsa y order.online)'}
+                      ? '9. Order Tab (Direct Branch Ordering)'
+                      : '9. Pestaña Ordenar (Pedido Directo)'}
                   </span>
                 </span>
                 <span className="text-[10px] font-mono text-slate-400">Order</span>

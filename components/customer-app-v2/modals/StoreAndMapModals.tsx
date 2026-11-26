@@ -79,8 +79,8 @@ export function StoreAndMapModals({
     isLocating,
     handleLocateGps,
     fulfillmentMode,
-    launchWrappedOrderOnline,
-    setActiveTab,
+    buildBranchOrderUrl,
+    recordOrderHandoff,
   } = ctrl
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
@@ -515,19 +515,20 @@ export function StoreAndMapModals({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 pt-1 pb-2">
-                  <button
-                    type="button"
+                  <a
+                    href={buildBranchOrderUrl(mapFocusedStore, fulfillmentMode)}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     onClick={() => {
                       selectStoreSafely(mapFocusedStore.id)
+                      recordOrderHandoff(mapFocusedStore, fulfillmentMode)
                       setMapModalOpen(false)
-                      launchWrappedOrderOnline(mapFocusedStore, fulfillmentMode)
-                      setActiveTab('order')
                     }}
                     className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#DA291C] to-[#b81d13] text-white text-xs font-black uppercase tracking-wider border border-[#FFC72C]/50 flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <span>{t('mobile_legal.support_order_btn')}</span>
                     <ChevronRight size={14} />
-                  </button>
+                  </a>
 
                   <a
                     href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(

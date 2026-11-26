@@ -22,6 +22,8 @@ import type {
   DayOfWeekIndex,
   V2AuthoritativeStore,
 } from '../types'
+import { formatCustomerStoreName } from '@/lib/customer-store-names'
+import { sortStoresAlphabetically } from '@/lib/store-display'
 
 export function buildSchedule(
   days: Record<DayOfWeekIndex, [number, number, string, string]>
@@ -46,7 +48,7 @@ const W_8AM_2AM: [number, number, string, string] = [8, 26, '8:00 AM – 2:00 AM
 const W_8AM_3AM: [number, number, string, string] = [8, 27, '8:00 AM – 3:00 AM', '8:00 AM – 3:00 AM']
 const W_8AM_4AM: [number, number, string, string] = [8, 28, '8:00 AM – 4:00 AM', '8:00 AM – 4:00 AM']
 
-export const V2_STORES: V2AuthoritativeStore[] = [
+const RAW_V2_STORES: V2AuthoritativeStore[] = [
   {
     id: 6,
     cityTitle: 'Los Angeles',
@@ -348,6 +350,11 @@ export const V2_STORES: V2AuthoritativeStore[] = [
     }),
   },
 ]
+
+export const V2_STORES: V2AuthoritativeStore[] = sortStoresAlphabetically(
+  RAW_V2_STORES,
+  (s) => formatCustomerStoreName(s, 'es')
+)
 
 const WEEKDAY_SHORT_MAP: Record<string, DayOfWeekIndex> = {
   Sun: 0,

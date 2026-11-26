@@ -1,20 +1,23 @@
 /**
  * @module scripts/test-toast-webview-hardening-compliance
- * @description Suite automatizada de pruebas de cumplimiento, seguridad WebView (ALLOW_IN_WEBVIEW,
- * OPEN_EXTERNAL, BLOCK), prueba de no-escape de Linking.openURL en react-native-webview,
+ * @description Suite automatizada de pruebas de cumplimiento, seguridad WebView Dual-WebView Opción B
+ * (ALLOW_IN_WEBVIEW, OPEN_EXTERNAL, BLOCK, separación estricta entre WebView #1 de menú con tema CSS
+ * cosmético `#DA291C` main-frame-only y WebView #2 Checkout Modal limpio con cero scripts inyectados
+ * para Apple Pay / Google Pay), prueba de no-escape de Linking.openURL en react-native-webview,
  * interceptación de popups onOpenWindow, consistencia legal de GPS en primer plano,
  * catálogo autoritativo de 15 sucursales (IDs 1, 3..16), horarios en America/Los_Angeles,
  * configuración EAS/Expo (Android API 36, Project ID vinculado), JSDoc obligatorio,
  * rutas legales HTTP 200 y prueba real de mutación/eliminación de cuenta en Supabase.
  *
  * @businessRules
- * - Valida exhaustivamente todas las reglas de las Fases 1 a 16 de la Continuación Oficial
- *   "Tacos Gavilan App — Fase de Corrección, Build Nativo y Validación Real para App Store / Google Play".
+ * - Valida exhaustivamente todas las reglas de las Fases 1 a 16 y el contrato Dual-WebView Opción B
+ *   de "Tacos Gavilan App — Fase de Corrección, Build Nativo y Validación Real para App Store / Google Play".
  * - Cero mocks de lógica de negocio: importa directamente los módulos reales de `gavilan-app` y ejecuta
  *   peticiones HTTP y mutaciones reales contra el servidor local y Supabase.
  *
  * @dataFlow
- * - Importa `lib/webview-security.ts`, `lib/constants.ts`, `lib/toast-ordering.ts` desde `C:\Users\pedro\Desktop\gavilan-app`.
+ * - Importa `lib/webview-security.ts`, `lib/storefront-theme-css.ts`, `lib/constants.ts`, `lib/toast-ordering.ts`
+ *   desde `C:\Users\pedro\Desktop\gavilan-app`.
  * - Consulta `public.stores` y ejecuta smoke test de creación/eliminación en `public.app_users` / Supabase Auth.
  *
  * @notes
@@ -36,7 +39,15 @@ import {
   WEBVIEW_INTERCEPTION_ORIGIN_WHITELIST,
   ALLOWED_WEBVIEW_HTTPS_HOSTS,
   WEBVIEW_SECURITY_CONFIG,
+  WEBVIEW_THEMED_MENU_SECURITY_CONFIG,
+  isStorefrontCheckoutUrl,
+  isStorefrontMenuUrl,
 } from '../../gavilan-app/lib/webview-security'
+import {
+  STOREFRONT_THEME_STYLE_ID,
+  STOREFRONT_BRAND_CSS,
+  STOREFRONT_THEME_INJECTION_SCRIPT,
+} from '../../gavilan-app/lib/storefront-theme-css'
 
 // Registro de llamadas a Linking.openURL para demostrar que URLs bloqueadas NUNCA abren el navegador externo
 const openedExternalUrls: string[] = []
@@ -319,15 +330,27 @@ async function runComplianceSuite(): Promise<void> {
     'El registro sanitizado de hosts NUNCA debe incluir query strings, rutas, tokens ni PII'
   )
 
-  // 1.9 Verificación de configuración de cookies/popups y ausencia de injectedJavaScript/onMessage en menu.tsx
+  // 1.9 Verificación Dual-WebView Opción B: WebView #1 (Menú con Tema CSS) + WebView #2 (Checkout Modal Cero-Inyección)
   check(
     WEBVIEW_SECURITY_CONFIG.sharedCookiesEnabled === true &&
       WEBVIEW_SECURITY_CONFIG.thirdPartyCookiesEnabled === true &&
       WEBVIEW_SECURITY_CONFIG.setSupportMultipleWindows === true &&
       WEBVIEW_SECURITY_CONFIG.javaScriptCanOpenWindowsAutomatically === false &&
       WEBVIEW_SECURITY_CONFIG.allowFileAccess === false &&
-      WEBVIEW_SECURITY_CONFIG.mixedContentMode === 'never',
-    'WEBVIEW_SECURITY_CONFIG debe habilitar cookies requeridas por Toast/DoorDash/3DS y bloquear acceso a archivos y contenido mixto'
+      WEBVIEW_SECURITY_CONFIG.mixedContentMode === 'never' &&
+      WEBVIEW_SECURITY_CONFIG.enableApplePay === true &&
+      WEBVIEW_SECURITY_CONFIG.paymentRequestEnabled === true,
+    'WEBVIEW_SECURITY_CONFIG (Checkout Modal WebView #2) debe habilitar cookies compartidas, Apple Pay / Google Pay y bloquear archivos y contenido mixto'
+  )
+  check(
+    WEBVIEW_THEMED_MENU_SECURITY_CONFIG.enableApplePay === false &&
+      WEBVIEW_THEMED_MENU_SECURITY_CONFIG.sharedCookiesEnabled === true &&
+      WEBVIEW_THEMED_MENU_SECURITY_CONFIG.thirdPartyCookiesEnabled === true &&
+      WEBVIEW_THEMED_MENU_SECURITY_CONFIG.setSupportMultipleWindows === true &&
+      WEBVIEW_THEMED_MENU_SECURITY_CONFIG.javaScriptCanOpenWindowsAutomatically === false &&
+      WEBVIEW_THEMED_MENU_SECURITY_CONFIG.allowFileAccess === false &&
+      WEBVIEW_THEMED_MENU_SECURITY_CONFIG.mixedContentMode === 'never',
+    'WEBVIEW_THEMED_MENU_SECURITY_CONFIG (Menú WebView #1) debe desactivar enableApplePay para permitir WKUserScript CSS en iOS manteniendo cookies compartidas y hardening intactos'
   )
 
   const menuTsxContent = fs.readFileSync(
@@ -346,16 +369,244 @@ async function runComplianceSuite(): Promise<void> {
       menuTsxContent.includes('incognito={isPurgingCookies}'),
     'menu.tsx debe ejecutar limpieza real de caché, historial y cookies nativas (ciclo incognito)'
   )
-  check(
-    !menuTsxContent.includes('injectedJavaScript'),
-    'menu.tsx no debe contener injectedJavaScript'
-  )
+  // (a) CERO onMessage en todo menu.tsx
   check(
     !menuTsxContent.includes('onMessage'),
-    'menu.tsx no debe contener onMessage bridge'
+    'menu.tsx no debe contener onMessage bridge en ningún WebView'
   )
 
-  console.log('   ✅ Seguridad WebView, no-escape Linking.openURL, onOpenWindow y purga de sesión verificados.\n')
+  // (b) & (c) Arquitectura Single Live WebView verificada en iPhone físico (25 nov 2026):
+  // Todo el flujo (Menú + Carrito + Checkout) vive en un único <NativeWebView> para no perder
+  // sessionStorage ni el estado SPA de order.online, con barra nativa in-flow para salir de checkout
+  // y CERO botones de abrir fuera de la app (ExternalLink).
+  const nativeWebViewCount = (menuTsxContent.match(/<NativeWebView\b/g) || []).length
+  check(
+    nativeWebViewCount === 1,
+    `menu.tsx debe declarar exactamente 1 instancia <NativeWebView> en vivo (sin segundo Modal WebView en frío; encontradas: ${nativeWebViewCount})`
+  )
+  const menuWebViewMatch = menuTsxContent.match(/<NativeWebView\b[\s\S]*?\/>/)
+  check(Boolean(menuWebViewMatch), 'El único <NativeWebView> en vivo debe existir en menu.tsx')
+  const menuWebViewBlock = menuWebViewMatch![0]
+
+  // (b) WebView único con tema cosmético CSS solo en marco principal y CERO onMessage
+  check(
+    menuWebViewBlock.includes('{...WEBVIEW_THEMED_MENU_SECURITY_CONFIG}'),
+    'El WebView en vivo debe usar {...WEBVIEW_THEMED_MENU_SECURITY_CONFIG} (cookies compartidas + hardening + CSS cosmético)'
+  )
+  check(
+    /injectedJavaScriptBeforeContentLoaded=\{\s*STOREFRONT_THEME_INJECTION_SCRIPT\s*\}/.test(
+      menuWebViewBlock
+    ) &&
+      /injectedJavaScript=\{\s*STOREFRONT_THEME_INJECTION_SCRIPT\s*\}/.test(menuWebViewBlock),
+    'El WebView en vivo debe conectar STOREFRONT_THEME_INJECTION_SCRIPT en injectedJavaScriptBeforeContentLoaded e injectedJavaScript'
+  )
+  check(
+    menuWebViewBlock.includes('injectedJavaScriptBeforeContentLoadedForMainFrameOnly={true}') &&
+      menuWebViewBlock.includes('injectedJavaScriptForMainFrameOnly={true}'),
+    'El WebView en vivo debe restringir ambos scripts cosméticos con ForMainFrameOnly={true}'
+  )
+
+  // (c) Barra nativa in-flow de salida de Checkout y CERO links externos fuera de la app en Checkout
+  check(
+    menuTsxContent.includes('isInCheckoutFlow') &&
+      menuTsxContent.includes('handleExitCheckout') &&
+      menuTsxContent.includes('styles.checkoutInFlowBar') &&
+      menuTsxContent.includes('isStorefrontCheckoutUrl'),
+    'menu.tsx debe mostrar la barra in-flow de Pago Seguro (checkoutInFlowBar) con salida limpia al Menú (handleExitCheckout) debajo de TabsHeader'
+  )
+  check(
+    !menuTsxContent.includes('handleCheckoutOpenBrowser') &&
+      !menuTsxContent.includes('ExternalLink') &&
+      !menuTsxContent.includes('checkoutModalUrl'),
+    'menu.tsx no debe incluir botones de abrir checkout fuera de la app (ExternalLink) ni un segundo Modal WebView en frío'
+  )
+  const tabsLayoutContent = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/(tabs)/_layout.tsx'),
+    'utf8'
+  )
+  check(
+    !tabsLayoutContent.includes('handleOpenInBrowserRecovery') &&
+      !tabsLayoutContent.includes('ExternalLink'),
+    'app/(tabs)/_layout.tsx no debe ofrecer botón de abrir el menú fuera de la app'
+  )
+  const rootLayoutContent = fs.readFileSync(
+    path.join(GAVILAN_APP_ROOT, 'app/_layout.tsx'),
+    'utf8'
+  )
+  check(
+    rootLayoutContent.includes('SafeAreaProvider'),
+    'app/_layout.tsx debe envolver la aplicación en SafeAreaProvider para proteger SafeArea en iOS (Dynamic Island / Status Bar)'
+  )
+
+  // (d) Contrato estricto de gavilan-app/lib/storefront-theme-css.ts
+  const storefrontThemeCssPath = path.join(GAVILAN_APP_ROOT, 'lib/storefront-theme-css.ts')
+  check(
+    fs.existsSync(storefrontThemeCssPath),
+    'gavilan-app/lib/storefront-theme-css.ts debe existir'
+  )
+  const storefrontThemeTsContent = fs.readFileSync(storefrontThemeCssPath, 'utf8')
+  for (const tag of ['@module', '@description', '@businessRules', '@dataFlow', '@notes']) {
+    check(
+      storefrontThemeTsContent.includes(tag),
+      `gavilan-app/lib/storefront-theme-css.ts debe incluir la etiqueta JSDoc obligatoria ${tag}`
+    )
+  }
+  check(
+    STOREFRONT_THEME_STYLE_ID === 'tg-storefront-brand-theme',
+    `STOREFRONT_THEME_STYLE_ID debe ser "tg-storefront-brand-theme" (actual: ${STOREFRONT_THEME_STYLE_ID})`
+  )
+
+  // Las 16 variables CSS Prism que venían en naranja #EC731D en order.online deben quedar sobreescritas con !important
+  const requiredRedPrismVars = [
+    '--usage-color-background-selected',
+    '--usage-color-border-selected',
+    '--usage-color-action-primary-default',
+    '--usage-color-brand-primary',
+    '--usage-color-highlight-default',
+    '--usage-color-positive-strong-default',
+    '--comp-color-button-flat-primary-text-default',
+    '--comp-color-button-flat-primary-icon-default',
+    '--comp-color-button-primary-background-default',
+    '--comp-color-button-tertiary-background-selected',
+    '--comp-color-button-tertiary-border-selected',
+    '--comp-color-button-toggle-group-background-selected',
+    '--comp-color-button-toggle-group-border-selected',
+    '--comp-color-tag-text-positive',
+    '--comp-color-tag-icon-positive',
+  ]
+  for (const cssVar of requiredRedPrismVars) {
+    check(
+      STOREFRONT_BRAND_CSS.includes(`${cssVar}: #DA291C !important;`),
+      `STOREFRONT_BRAND_CSS debe sobreescribir ${cssVar} a #DA291C !important`
+    )
+  }
+  check(
+    STOREFRONT_BRAND_CSS.includes('--usage-color-brand-secondary: #50050A !important;') ||
+      STOREFRONT_BRAND_CSS.includes('--usage-color-brand-secondary: #DA291C !important;'),
+    'STOREFRONT_BRAND_CSS debe sobreescribir la 16ª variable #EC731D (--usage-color-brand-secondary) a la paleta oficial Tacos Gavilan (#50050A / #DA291C !important)'
+  )
+  check(
+    !/#ec731d/i.test(STOREFRONT_BRAND_CSS),
+    'STOREFRONT_BRAND_CSS no debe contener el naranja genérico #EC731D'
+  )
+
+  const forbiddenThemeApis = [
+    'postMessage',
+    'ReactNativeWebView',
+    'document.cookie',
+    'localStorage',
+    'sessionStorage',
+    'fetch(',
+    'XMLHttpRequest',
+  ]
+  for (const api of forbiddenThemeApis) {
+    check(
+      !storefrontThemeTsContent.includes(api) &&
+        !STOREFRONT_THEME_INJECTION_SCRIPT.includes(api),
+      `storefront-theme-css.ts y STOREFRONT_THEME_INJECTION_SCRIPT deben tener CERO referencias a "${api}"`
+    )
+  }
+  check(
+    !/\.sc-[a-z0-9_-]*/i.test(STOREFRONT_BRAND_CSS) &&
+      !STOREFRONT_THEME_INJECTION_SCRIPT.includes('.sc-'),
+    'STOREFRONT_BRAND_CSS y STOREFRONT_THEME_INJECTION_SCRIPT no deben usar selectores hasheados .sc-*'
+  )
+
+  const protectedDomTokens = [
+    'turnstile/overlay',
+    'turnstile/banner',
+    'turnstile/widget',
+    'Powered by',
+    'DoorDashStorefront',
+    'Copyright',
+    'AccessibilityStatement',
+  ]
+  for (const protectedToken of protectedDomTokens) {
+    check(
+      !STOREFRONT_BRAND_CSS.includes(protectedToken),
+      `STOREFRONT_BRAND_CSS jamás debe ocultar ni estilar "${protectedToken}"`
+    )
+  }
+  check(
+    !STOREFRONT_THEME_INJECTION_SCRIPT.includes('Powered by') &&
+      !STOREFRONT_THEME_INJECTION_SCRIPT.includes('DoorDashStorefront') &&
+      !STOREFRONT_THEME_INJECTION_SCRIPT.includes('Copyright') &&
+      STOREFRONT_THEME_INJECTION_SCRIPT.includes('isTurnstileOverlayVisible') &&
+      STOREFRONT_THEME_INJECTION_SCRIPT.includes('removeTheme()') &&
+      STOREFRONT_THEME_INJECTION_SCRIPT.trim().endsWith('true;'),
+    'STOREFRONT_THEME_INJECTION_SCRIPT debe proteger Turnstile, no ocultar avisos legales, auto-removerse en checkout y terminar con true;'
+  )
+
+  // (e) Pruebas unitarias en vivo de isStorefrontCheckoutUrl() e isStorefrontMenuUrl()
+  const checkoutPositiveCases = [
+    'https://order.online/checkout',
+    'https://order.online/store/tacos-gavilan-lynwood-727877/checkout',
+    'https://www.order.online/checkout?cartId=tg_test',
+    'https://order.online/payment',
+    'https://order.online/pay',
+    'https://order.online/pay/confirm',
+    'https://order.online/cart/checkout',
+    'https://order.online/consumer/checkout',
+    'https://order.online/order-checkout',
+    'https://checkout.stripe.com/c/pay/cs_live_test123',
+    'https://pay.google.com/gp/p/ui/pay',
+    'https://applepay.cdn-apple.com/jsapi/v1/apple-pay-sdk.js',
+  ]
+  for (const url of checkoutPositiveCases) {
+    check(
+      isStorefrontCheckoutUrl(url) === true,
+      `isStorefrontCheckoutUrl("${url}") debe devolver true`
+    )
+  }
+
+  const checkoutNegativeCases = [
+    'https://order.online/store/tacos-gavilan-lynwood-727877/?hideModal=true&pickup=true',
+    'https://order.online/store/tacos-gavilan-slauson-broadway-23989119/?hideModal=true&delivery=true',
+    'https://order.online/business/-137616',
+    'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/orchestrate',
+    'https://identity.doordash.com/auth/user/login',
+    'http://order.online/checkout',
+    'http://checkout.stripe.com/c/pay/cs_test',
+    'javascript:alert(1)',
+    '',
+    'not-a-valid-url',
+  ]
+  for (const url of checkoutNegativeCases) {
+    check(
+      isStorefrontCheckoutUrl(url) === false,
+      `isStorefrontCheckoutUrl("${url}") debe devolver false`
+    )
+  }
+
+  const menuPositiveCases = [
+    'https://order.online/store/tacos-gavilan-lynwood-727877/?hideModal=true&pickup=true',
+    'https://www.order.online/store/tacos-gavilan-norwalk-1327857',
+    'https://order.online/store/tacos-gavilan-slauson-broadway-23989119/?hideModal=true&delivery=true',
+  ]
+  for (const url of menuPositiveCases) {
+    check(
+      isStorefrontMenuUrl(url) === true,
+      `isStorefrontMenuUrl("${url}") debe devolver true`
+    )
+  }
+
+  const menuNegativeCases = [
+    'https://order.online/store/tacos-gavilan-lynwood-727877/checkout',
+    'https://order.online/checkout',
+    'https://order.online/business/-137616',
+    'https://checkout.stripe.com/c/pay/cs_live_test123',
+    'https://challenges.cloudflare.com/cdn-cgi/challenge-platform',
+    'http://order.online/store/tacos-gavilan-lynwood-727877',
+    '',
+  ]
+  for (const url of menuNegativeCases) {
+    check(
+      isStorefrontMenuUrl(url) === false,
+      `isStorefrontMenuUrl("${url}") debe devolver false`
+    )
+  }
+
+  console.log('   ✅ Seguridad Dual-WebView, tema CSS seguro, no-escape Linking.openURL, onOpenWindow y purga de sesión verificados.\n')
 
   // =========================================================================
   // 2. PRIVACIDAD Y CONSISTENCIA DE GPS EN PRIMER PLANO (FASE 2)
@@ -731,9 +982,9 @@ async function runComplianceSuite(): Promise<void> {
   )
   check(
     tabsLayoutTsx.includes("route.name === 'menu'") &&
-      tabsLayoutTsx.includes('openToastOnlineStore(currentStore.id') &&
-      tabsLayoutTsx.includes('recordOrderSession(currentStore.id'),
-    'app/(tabs)/_layout.tsx debe abrir de inmediato (de un solo) la tienda seleccionada y registrar la sesión al tocar la pestaña Menú'
+      tabsLayoutTsx.includes('recordOrderSession(currentStore.id') &&
+      !tabsLayoutTsx.includes('openToastOnlineStore'),
+    'app/(tabs)/_layout.tsx debe abrir la pestaña Menú dentro de la app y registrar la sesión sin enlaces para salir al navegador externo'
   )
   check(
     trackerTabTsx.includes('recentOrderSessions') &&
@@ -817,7 +1068,7 @@ async function runComplianceSuite(): Promise<void> {
     '/api/mobile/stores',
   ]
 
-  const protectedAppRoutes = ['/app', '/app/v1', '/app/v2', '/ordenar']
+  const protectedAppRoutes = ['/app', '/app/v1', '/app/v2']
 
   try {
     const probe = await fetch(`${LOCAL_WEB_BASE}/api/mobile/stores`, { signal: AbortSignal.timeout(2500) })
@@ -837,6 +1088,15 @@ async function runComplianceSuite(): Promise<void> {
   }
 
   if (LOCAL_WEB_BASE.startsWith('http://localhost')) {
+    const ordenarRes = await fetch(`${LOCAL_WEB_BASE}/ordenar`, { redirect: 'manual' })
+    const ordenarHtml = await ordenarRes.text()
+    check(
+      ordenarRes.status === 200 &&
+        ordenarHtml.includes('Tacos Gavilan') &&
+        !ordenarHtml.includes('__next_error__'),
+      `Ruta pública de pedidos /ordenar sin sesión debe responder HTTP 200 con hub oficial Tacos Gavilan (recibido: ${ordenarRes.status})`
+    )
+
     for (const protectedRoute of protectedAppRoutes) {
       const res = await fetch(`${LOCAL_WEB_BASE}${protectedRoute}`, { redirect: 'manual' })
       const location = res.headers.get('location') || ''

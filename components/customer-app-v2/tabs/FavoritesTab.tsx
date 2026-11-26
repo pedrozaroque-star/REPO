@@ -19,7 +19,7 @@
 'use client'
 
 import React from 'react'
-import { AlertTriangle, Heart, Plus, ShoppingBag, Trash2 } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Heart, ShoppingBag, Trash2 } from 'lucide-react'
 import { SIGNATURE_DISHES } from '../data/catalog'
 import { renderWebsiteLockup } from '../styles/V2BrandChrome'
 import type { CustomerAppV2Controller } from '../hooks/useCustomerAppV2'
@@ -36,11 +36,13 @@ export function FavoritesTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
     favoritesSyncing,
     favoritesError,
     deleteServerFavorite,
-    addLineToBag,
+    currentStore,
+    fulfillmentMode,
+    currentOrderOnlineUrl,
+    recordOrderHandoff,
     v2AccessToken,
     isDemoPreview,
     handleSelectShowcaseDish,
-    setActiveTab,
     setAuthSheet,
     setOtpStep,
   } = ctrl
@@ -139,30 +141,16 @@ export function FavoritesTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    for (const item of fav.items) {
-                      addLineToBag({
-                        itemGuid: item.itemGuid,
-                        name: item.name,
-                        unitPrice: Number(item.price || 0),
-                        quantity: item.quantity,
-                        modifiers: (item.modifiers || []).map((m) => ({
-                          optionGroupGuid: '',
-                          guid: m.guid,
-                          name: m.name,
-                          price: Number(m.price || 0),
-                        })),
-                      })
-                    }
-                    setActiveTab('order')
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-[#DA291C] text-white text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer"
+                <a
+                  href={currentOrderOnlineUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => recordOrderHandoff(currentStore, fulfillmentMode)}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#DA291C] hover:bg-[#b81d13] text-white text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer"
                 >
-                  <Plus size={11} />
-                  <span>{t('mobile_legal.v2_home_menu_add')}</span>
-                </button>
+                  <span>{t('mobile_legal.v2_tab_order')}</span>
+                  <ExternalLink size={10} />
+                </a>
                 <button
                   type="button"
                   onClick={() => deleteServerFavorite(fav.id)}

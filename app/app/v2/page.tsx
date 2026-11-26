@@ -208,7 +208,7 @@ export default function MobileCustomerAppV2Page() {
                   onClick={() => jumpToV2State('main', 0, 'order', null, false)}
                   className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs font-bold"
                 >
-                  <span>9. Pestaña Ordenar (Bolsa y order.online)</span>
+                  <span>9. Pestaña Ordenar (Pedido Directo en Sucursal)</span>
                   <span className="text-[10px] text-white/60 font-mono">Order</span>
                 </button>
                 <button

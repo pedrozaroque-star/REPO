@@ -37,7 +37,6 @@ import { V2_STORES } from './customer-app-v2/data/stores'
 import { useCustomerAppV2 } from './customer-app-v2/hooks/useCustomerAppV2'
 import {
   BottomTabBar,
-  BrandTransitionLoader,
   IosHomeIndicator,
   IosStatusBar,
   TopStoreBar,
@@ -80,10 +79,8 @@ export default function CustomerAppV2Pro(props: CustomerAppV2ProProps) {
   return (
     <div
       className={
-        fullscreenNative
+        fullscreenNative || embedded
           ? 'w-full h-full flex items-center justify-center bg-black'
-          : embedded
-          ? 'w-full flex flex-col items-center justify-center py-2'
           : 'min-h-screen w-full flex flex-col items-center justify-center bg-[#09090b] p-4 sm:p-6'
       }
     >
@@ -91,7 +88,7 @@ export default function CustomerAppV2Pro(props: CustomerAppV2ProProps) {
 
       <div
         className={`relative bg-[#121212] text-white overflow-hidden select-none flex flex-col ${
-          fullscreenNative
+          fullscreenNative || embedded
             ? 'w-full h-full'
             : 'w-[412px] max-w-full h-[848px] max-h-[88vh] rounded-[46px] shadow-[0_35px_90px_-15px_rgba(0,0,0,0.85),0_0_0_11px_#1c1c1e,0_0_0_13px_#3f3f46]'
         }`}
@@ -152,7 +149,7 @@ export default function CustomerAppV2Pro(props: CustomerAppV2ProProps) {
 
               <BottomTabBar
                 activeTab={ctrl.activeTab}
-                bagCount={ctrl.bagItemCount}
+                bagCount={0}
                 favoritesCount={ctrl.favoriteDishIds.length + ctrl.serverFavorites.length}
                 fullscreenNative={fullscreenNative}
                 labels={tabLabels}
@@ -161,12 +158,6 @@ export default function CustomerAppV2Pro(props: CustomerAppV2ProProps) {
             </motion.div>
           )}
         </AnimatePresence>
-
-        <BrandTransitionLoader
-          visible={ctrl.brandLoader.visible}
-          label={ctrl.brandLoader.label}
-          done={ctrl.brandLoader.done}
-        />
 
         <ProductCustomizerModal ctrl={ctrl} />
         <AuthAndSupportModal ctrl={ctrl} />

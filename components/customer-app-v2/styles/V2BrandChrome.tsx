@@ -20,9 +20,7 @@
 'use client'
 
 import React from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Check,
   ChevronDown,
   Heart,
   Home,
@@ -30,6 +28,7 @@ import {
   ShoppingBag,
   User,
 } from 'lucide-react'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 import type {
   LockupVariant,
   MainTab,
@@ -361,10 +360,12 @@ export function TopStoreBar({
             </div>
             <div className="flex items-center gap-1 text-xs font-black text-white truncate">
               <MapPin size={12} className="text-[#FFC72C] shrink-0" />
-              <span className="truncate">{currentStore.cityTitle}</span>
-              <span className="text-[11px] font-bold text-[#FFC72C] truncate">
-                ({currentStore.crossStreets})
-              </span>
+              <span className="truncate">{formatCustomerStoreName(currentStore, lang)}</span>
+              {![5, 6, 7].includes(currentStore.id) && (
+                <span className="text-[11px] font-bold text-[#FFC72C] truncate">
+                  ({getCustomerStoreCrossStreets(currentStore, lang) || currentStore.crossStreets})
+                </span>
+              )}
               <ChevronDown
                 size={13}
                 className="text-[#FFC72C] shrink-0 group-hover:translate-y-0.5 transition-transform"
@@ -471,63 +472,6 @@ export function BottomTabBar({
         })}
       </div>
     </div>
-  )
-}
-
-/**
- * Overlay de transición con isotipo animado de Tacos Gavilan.
- */
-export function BrandTransitionLoader({
-  visible,
-  label,
-  done,
-}: {
-  visible: boolean
-  label: string
-  done: boolean
-}) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          key="v2-brand-loader"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="absolute inset-0 z-50 bg-black/65 backdrop-blur-sm flex flex-col items-center justify-center"
-        >
-          <motion.div
-            initial={{ scale: 0.75, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.85, opacity: 0 }}
-            transition={{ type: 'spring', damping: 16, stiffness: 240 }}
-            className="w-28 h-28 rounded-3xl bg-white shadow-[0_25px_60px_rgba(0,0,0,0.65)] flex flex-col items-center justify-center p-3 relative"
-          >
-            <motion.img
-              src="/logo.png?v=75"
-              alt="Tacos Gavilan"
-              animate={{ rotate: done ? 0 : [0, -8, 8, 0] }}
-              transition={{ duration: 0.45 }}
-              className="w-18 h-18 object-contain"
-            />
-            {done && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg border-2 border-white"
-              >
-                <Check size={16} strokeWidth={3} />
-              </motion.div>
-            )}
-          </motion.div>
-          {label && (
-            <p className="mt-3 text-xs font-black uppercase tracking-widest text-white drop-shadow">
-              {label}
-            </p>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
   )
 }
 

@@ -30,11 +30,11 @@ import {
   LogOut,
   Mail,
   MapPin,
-  RotateCcw,
   Shield,
   Trash2,
 } from 'lucide-react'
 import type { CustomerAppV2Controller } from '../hooks/useCustomerAppV2'
+import { formatCustomerStoreName, getCustomerStoreCrossStreets } from '@/lib/customer-store-names'
 
 export function AccountTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
   const {
@@ -66,7 +66,6 @@ export function AccountTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
     handleSelectOrderMode,
     currentStore,
     setStoreModalOpen,
-    setWrapperResetModalOpen,
     handleClearRecentOrderSessions,
     setDeleteAccountError,
     setV2DeleteModalOpen,
@@ -298,8 +297,10 @@ export function AccountTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
             </p>
             <p className="text-xs font-black text-white truncate flex items-center gap-1">
               <MapPin size={12} className="text-[#FFC72C] shrink-0" />
-              <span>
-                {currentStore.cityTitle} · {currentStore.crossStreets}
+              <span className="truncate">
+                {formatCustomerStoreName(currentStore, lang)}
+                {![5, 6, 7].includes(currentStore.id) &&
+                  ` · ${getCustomerStoreCrossStreets(currentStore, lang) || currentStore.crossStreets}`}
               </span>
             </p>
           </div>
@@ -314,17 +315,8 @@ export function AccountTab({ ctrl }: { ctrl: CustomerAppV2Controller }) {
 
         <button
           type="button"
-          onClick={() => setWrapperResetModalOpen(true)}
-          className="w-full py-2.5 rounded-xl bg-white/8 hover:bg-white/12 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <RotateCcw size={13} className="text-[#FFC72C]" />
-          <span>{t('mobile_legal.v2_reset_session_btn')}</span>
-        </button>
-
-        <button
-          type="button"
           onClick={handleClearRecentOrderSessions}
-          className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/75 text-xs font-bold cursor-pointer"
+          className="w-full py-2.5 rounded-xl bg-white/8 hover:bg-white/12 text-white/80 text-xs font-bold cursor-pointer"
         >
           {t('mobile_legal.v2_clear_recent_locations_btn')}
         </button>

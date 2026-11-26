@@ -166,3 +166,24 @@ Tacos Gavilan Inc.
 - **Para (`To`):** `storefront-api-support@doordash.com`
 - **Asunto (`Subject`):** `Storefront API V1 Access Request (JWT Credentials) & Mobile App Checkout Integration — Tacos Gavilan (Business ID: 137616 / 15 Locations)`
 
+---
+
+## 9. Addendum (24 de noviembre de 2026) — Arquitectura Dual-WebView Aprobada (Opción B: Tema Cosmético CSS en Menú + Checkout Modal Cero-Inyección)
+
+### Contexto Operativo y Técnico
+- El **23 de noviembre de 2026**, DoorDash declinó formalmente habilitar `Storefront V1 API (order_session)` para carritos externos en apps de terceros, y Tacos Gavilan no utiliza Stripe propio en la app móvil de clientes.
+- Asimismo, en `react-native-webview` v13.16.1 (`apple/RNCWebViewImpl.m`, líneas `1834–1840` y `1519–1522`), activar `enableApplePay={true}` hace que iOS `WKWebView` retorne anticipadamente en `resetupScripts:` y omita `evaluateJS:`, bloqueando cualquier estilizado CSS mientras Apple Pay esté activo en esa misma instancia de WebView.
+
+### Separación Formal Dual-WebView Implementada (`gavilan-app` v2.1.0)
+Para entregar una apariencia 100% de marca **Tacos Gavilan** al explorar el menú **sin comprometer Apple Pay, Google Pay, PCI-DSS ni Cloudflare Turnstile**, `gavilan-app/app/(tabs)/menu.tsx` opera ahora dos instancias estrictamente separadas con sesión compartida:
+
+1. **WebView #1 — Menú de Sucursal (`/store/*`, `WEBVIEW_THEMED_MENU_SECURITY_CONFIG`)**:
+   - Configura `enableApplePay: false` manteniendo intactas todas las protecciones de `WEBVIEW_SECURITY_CONFIG` (`originWhitelist={['*']}` con filtro `deny-by-default` en `onShouldStartLoadWithRequest` y `onOpenWindow`, `allowFileAccess: false`, `mixedContentMode: 'never'`, `sharedCookiesEnabled: true`).
+   - Aplica únicamente cosmética visual idempotente vía `gavilan-app/lib/storefront-theme-css.ts` (`STOREFRONT_THEME_INJECTION_SCRIPT`) en `injectedJavaScriptBeforeContentLoaded` e `injectedJavaScript`, ambos restringidos con `ForMainFrameOnly={true}` y **CERO `onMessage`**.
+   - Reemplaza las 16 variables CSS Prism naranjas (`#EC731D`) por la paleta oficial Tacos Gavilan (`#DA291C` Pantone 485 C y `#50050A` burgundy), redondea radios (`10px–16px`) y oculta exclusivamente el logo duplicado `[data-testid="StoreLogoImageContainer"]`, sin usar selectores hasheados `.sc-*`, sin leer cookies/formularios/storage, sin `fetch`/`XMLHttpRequest`, sin tocar `turnstile/overlay` ni ocultar avisos legales (`Powered by`, `DoorDashStorefront`, `Copyright`), y con auto-remoción inmediata de `<style id="tg-storefront-brand-theme">` en rutas de pago o autenticación.
+2. **WebView #2 — Checkout Modal Seguro (`/checkout`, `/payment`, `/pay`, `checkout.stripe.com`, `pay.google.com`, `applepay.cdn-apple.com`)**:
+   - Al detectar una navegación de pago mediante `isStorefrontCheckoutUrl()` (`gavilan-app/lib/webview-security.ts`), el flujo transfiere automáticamente la sesión a un `<Modal>` dedicado con `WEBVIEW_SECURITY_CONFIG` (`enableApplePay: true`, `paymentRequestEnabled: true`, `sharedCookiesEnabled: true`, `thirdPartyCookiesEnabled: true`, `incognito={false}`).
+   - Mantiene **CERO `injectedJavaScript`**, **CERO `injectedJavaScriptBeforeContentLoaded`** y **CERO `onMessage`**, preservando el carrito íntegro a través del almacenamiento compartido nativo (`WKWebsiteDataStore.default()` en iOS y `CookieManager` en Android).
+   - Verificado automáticamente por la suite endurecida `scripts/test-toast-webview-hardening-compliance.ts` (contrato Dual-WebView, 16 variables CSS, ausencia de APIs prohibidas y pruebas unitarias en vivo de `isStorefrontCheckoutUrl()` / `isStorefrontMenuUrl()`).
+
+
