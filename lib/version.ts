@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.36.0',
-    versionNumber: '2.36.0',
+    version: 'v2.37.0',
+    versionNumber: '2.37.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.36.0',
-    labelEn: 'November 2026 • SM TEG v2.36.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.37.0',
+    labelEn: 'November 2026 • SM TEG v2.37.0',
     brand: 'SM TEG',
     lastUpdated: '2026-11-26'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.37.0',
+        date: '26-Nov-2026',
+        titleEs: 'Control Remoto Realtime Broadcast (-85–90% Cuotas / <500ms), RPC SQL Delivery & Índices Parciales bc_todos, Telefonía Kore Live v23 (Deploy v26) + Guardias Paid-Swap y Eliminación OOM 8GB en Builds de Vercel (Node 24.x)',
+        titleEn: 'Realtime Broadcast Remote Control (-85–90% Quotas / <500ms), Delivery SQL RPC & bc_todos Partial Indexes, Kore Live Phone v23 (Deploy v26) + Paid-Swap Guards & Vercel 8GB Build OOM Fix (Node 24.x)',
+        highlightsEs: [
+            'Optimización de Cuotas y Velocidad en Control Remoto y Base de Datos (14 archivos + migraciones 20261127000649 y 20261127003101): despertar instantáneo vía Supabase Realtime Broadcast (< 500 ms con 85–90% menos invocaciones Vercel/Supabase), polling adaptativo 180s/300s con backoff 401/403, función RPC SQL get_delivery_orders_sync_summary, índices parciales en bc_todos y refinamientos 24/7 en BeanCookingTimerTFS4, tablet-cache-cleaner y NotificationBell',
+            'Telefonía Kore Live v23 / Deploy v26 y Guardias Paid-Swap (commit b732d26d): auditoría forense de transcripciones en vivo, endurecimiento del piloto automático de aprendizaje y protección estricta contra cambios con costo en órdenes pagadas de Delivery Armor',
+            'Eliminación Definitiva de OOM 8GB en Vercel Builds (commit 7fe92c31): ejecución secuencial de tsc --noEmit previo a next build, caché incremental tsbuildinfo y fijación de Node 24.x para builds rápidos y estables',
+            'Verificación en vivo 45/45 del cierre festivo de Thanksgiving en DoorDash, Uber Eats y Grubhub (reapertura viernes 11:00 AM PT) y consolidación de Noviembre 2026 en 185.6h (216/216 RLS, 40 crons sin colisiones)'
+        ],
+        highlightsEn: [
+            'Remote Control & Database Quota/Speed Optimization (14 files + migrations 20261127000649 & 20261127003101): instant Supabase Realtime Broadcast wake-up (< 500 ms with 85–90% fewer Vercel/Supabase invocations), adaptive 180s/300s polling with 401/403 backoff, SQL RPC get_delivery_orders_sync_summary, partial completed indexes on bc_todos, and 24/7 tablet refinements in BeanCookingTimerTFS4, tablet-cache-cleaner, and NotificationBell',
+            'Kore Live Phone v23 / Deploy v26 & Paid-Swap Guards (commit b732d26d): forensic live transcript audit, hardened learning autopilot, and strict paid-swap guards on Delivery Armor orders',
+            'Permanent Vercel 8GB Build OOM Fix (commit 7fe92c31): sequenced tsc --noEmit ahead of next build, incremental tsbuildinfo caching, and Node 24.x pinning for fast, reliable deployments',
+            'Live 45/45 Thanksgiving closure verification across DoorDash, Uber Eats & Grubhub (Friday 11:00 AM PT reopening confirmed) and November 2026 consolidation at 185.6h (216/216 RLS, 40 collision-free crons)'
+        ]
+    },
     {
         version: 'v2.36.0',
         date: '26-Nov-2026',
