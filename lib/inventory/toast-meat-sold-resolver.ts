@@ -238,6 +238,8 @@ export interface StoreFridgeVsToastSummary {
   storeId: number
   storeName: string
   storeCode: string
+  supervisorId: number | null
+  supervisorName: string | null
   hasMeasuredSpan: boolean
   t0: string | null
   t1: string | null
@@ -1363,6 +1365,8 @@ export async function computeToastVsFridgeForIngredient(params: {
         storeId: store.id,
         storeName: store.name,
         storeCode: store.code,
+        supervisorId: store.supervisor_id ?? null,
+        supervisorName: store.supervisor_name ?? null,
         hasMeasuredSpan: false,
         t0: null,
         t1: null,
@@ -1450,6 +1454,8 @@ export async function computeToastVsFridgeForIngredient(params: {
       storeId: store.id,
       storeName: store.name,
       storeCode: store.code,
+      supervisorId: store.supervisor_id ?? null,
+      supervisorName: store.supervisor_name ?? null,
       hasMeasuredSpan: true,
       t0: pair.t0,
       t1: pair.t1,

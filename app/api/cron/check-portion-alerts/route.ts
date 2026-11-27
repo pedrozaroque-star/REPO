@@ -17,6 +17,8 @@
  *
  * @notes
  *   - Protegido con `verifyStaffAuth(..., { allowedRoles: ['admin', 'supervisor'], allowCron: true })`.
+ *   - [2026-11-27] El correo ejecutivo "Resumen Semanal de Sobrantes" (Lunes–Domingo, desglose Supervisor/Sucursal/Día)
+ *     se movió a su propio cron semanal `/api/cron/weekly-sobrantes-digest` (lunes 10:00 AM hora California).
  */
 
 import { NextResponse } from 'next/server'
@@ -27,13 +29,8 @@ import {
   validateTestToEmail,
 } from '@/lib/inventory/portion-control-alerts'
 import { enforceOverduePortionAlerts } from '@/lib/inventory/portion-discipline-policy'
-import { ACTIVE_PROTEIN_IDS } from '@/lib/inventory/meat-allocation'
-import {
-  computeToastVsFridgeForIngredient,
-  loadToastMeatContext,
-} from '@/lib/inventory/toast-meat-sold-resolver'
+import { loadToastMeatContext } from '@/lib/inventory/toast-meat-sold-resolver'
 import { addDaysIso, getBusinessDateLA, isValidIsoDate } from '@/lib/inventory/food-cost-sales-resolver'
-import { sendSobrantesExecutiveDigest } from '@/lib/inventory/sobrantes-executive-email'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -95,25 +92,6 @@ async function handleCheckPortionAlerts(req: Request) {
       reconcileQbInvoices: false,
     })
 
-    let executiveDigestSent = false
-    if (weeklyTestMode && sendEmails && !dryRun) {
-      const asadaMeter = await computeToastVsFridgeForIngredient({
-        inventoryItemId: ACTIVE_PROTEIN_IDS.asada,
-        proteinKey: 'asada',
-        startDate: result.periodStart,
-        endDate: result.periodEnd,
-        ctx: sharedToastMeatCtx,
-      })
-      await sendSobrantesExecutiveDigest({
-        ingredientName: 'Carne Asada',
-        startDate: result.periodStart,
-        endDate: result.periodEnd,
-        meter: asadaMeter,
-        rawTestTo: testCheck.email,
-      })
-      executiveDigestSent = true
-    }
-
     const overdueEnforcement = await enforceOverduePortionAlerts({
       dryRun,
       sendEmails: weeklyTestMode ? false : sendEmails,
@@ -121,7 +99,7 @@ async function handleCheckPortionAlerts(req: Request) {
       testTo: testCheck.email,
     })
 
-    const sentCount = result.emailsDispatched.filter((e) => e.sent).length + (executiveDigestSent ? 1 : 0)
+    const sentCount = result.emailsDispatched.filter((e) => e.sent).length
     const skippedDuplicates = result.emailsDispatched.filter((e) => e.skippedDuplicate).length
     const overdueEmailsSentCount = overdueEnforcement.emailsDispatched.filter((e) => e.sent).length
 

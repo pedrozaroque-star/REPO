@@ -44,6 +44,14 @@
             "schedule": "53 17 * * *"
         },
         {
+            "path": "/api/cron/weekly-sobrantes-digest",
+            "schedule": "23 17 * * 1"
+        },
+        {
+            "path": "/api/cron/weekly-sobrantes-digest",
+            "schedule": "3 18 * * 1"
+        },
+        {
             "path": "/api/cron/sync-food-cost-today",
             "schedule": "9,39 * * * *"
         },
