@@ -21,10 +21,32 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { BellRing, X } from 'lucide-react'
-import { isSafeInternalRoute, normalizeRemoteStoreCode } from '@/lib/remote-control'
+import { getRemoteBroadcastTopic, isSafeInternalRoute, normalizeRemoteStoreCode } from '@/lib/remote-control'
 import { purgeTabletStaleCaches } from '@/lib/tablet-cache-cleaner'
+import { getSupabaseClient, getValidBrowserTegToken } from '@/lib/supabase'
 
-const BRIDGE_POLL_INTERVAL_MS = 45_000
+const BRIDGE_POLL_SUBSCRIBED_MS = 180_000 // 3 min cuando Realtime Broadcast está SUBSCRIBED (<500 ms en comandos)
+const BRIDGE_POLL_FALLBACK_MS = 90_000    // 90 s si Realtime aún no está suscrito
+const BRIDGE_POLL_DEAD_HOURS_MS = 300_000 // 5 min en madrugada 04:15–06:59 AM PT
+const BRIDGE_AUTH_BACKOFF_MS = 600_000    // 10 min backoff ante 401/403 (sesión expirada)
+
+function getAdaptiveBridgePollMs(isRealtimeSubscribed: boolean): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date())
+    const hh = parseInt(parts.find((p) => p.type === 'hour')?.value || '12', 10)
+    const mm = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+    const mins = (hh === 24 ? 0 : hh) * 60 + mm
+    if (mins >= 255 && mins < 420) return BRIDGE_POLL_DEAD_HOURS_MS
+  } catch {
+    // ignore Intl errors
+  }
+  return isRealtimeSubscribed ? BRIDGE_POLL_SUBSCRIBED_MS : BRIDGE_POLL_FALLBACK_MS
+}
 
 interface RemoteBannerState {
   message: string
@@ -162,16 +184,69 @@ export default function RemoteDeviceBridge() {
   useEffect(() => {
     if (!role || !pathname) return
     let cancelled = false
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+    let activeAbort: AbortController | null = null
+    let realtimeSubscribed = false
+    let authBlockedUntil = 0
+    let blockedTokenSnapshot: string | null = null
+    let subscribedTopic: string | null = null
+    let realtimeCleanup: (() => void) | null = null
 
     const buildHeaders = (): Record<string, string> => {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       try {
-        const tok = localStorage.getItem('teg_token')
-        if (tok && tok !== 'null' && tok !== 'undefined') {
+        const tok = getValidBrowserTegToken()
+        if (tok) {
           headers['Authorization'] = `Bearer ${tok}`
         }
       } catch {}
       return headers
+    }
+
+    const scheduleNextPoll = () => {
+      if (cancelled) return
+      if (pollTimer) clearTimeout(pollTimer)
+      const nowMs = Date.now()
+      const delayMs =
+        authBlockedUntil > nowMs
+          ? Math.max(30_000, authBlockedUntil - nowMs)
+          : getAdaptiveBridgePollMs(realtimeSubscribed)
+      pollTimer = setTimeout(() => {
+        void runSync(false)
+      }, delayMs)
+    }
+
+    const ensureRealtimeChannel = (storeCode: string) => {
+      const topic = getRemoteBroadcastTopic(storeCode, role)
+      if (subscribedTopic === topic) return
+      if (realtimeCleanup) {
+        realtimeCleanup()
+        realtimeCleanup = null
+      }
+      subscribedTopic = topic
+      void (async () => {
+        try {
+          const client = await getSupabaseClient()
+          if (cancelled || subscribedTopic !== topic) return
+          const channel = client
+            .channel(topic, { config: { broadcast: { self: false } } })
+            .on('broadcast', { event: 'command_queued' }, () => {
+              if (!cancelled) {
+                void runSync(true)
+              }
+            })
+            .subscribe((status) => {
+              if (cancelled || subscribedTopic !== topic) return
+              realtimeSubscribed = status === 'SUBSCRIBED'
+            })
+          realtimeCleanup = () => {
+            realtimeSubscribed = false
+            void client.removeChannel(channel)
+          }
+        } catch {
+          realtimeSubscribed = false
+        }
+      })()
     }
 
     const sendAck = async (
@@ -294,12 +369,50 @@ export default function RemoteDeviceBridge() {
       }
     }
 
-    const runSync = async () => {
-      if (cancelled || inFlightRef.current) return
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+    const runSync = async (isWakeup = false) => {
+      if (cancelled || inFlightRef.current) {
+        if (!isWakeup) scheduleNextPoll()
+        return
+      }
+      if (!isWakeup && typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        scheduleNextPoll()
+        return
+      }
 
       const storeCode = resolveCurrentTabletStoreCode(role)
-      if (!storeCode) return
+      if (!storeCode) {
+        scheduleNextPoll()
+        return
+      }
+
+      ensureRealtimeChannel(storeCode)
+
+      // Si prep_tablet tiene sesión vencida, no desperdiciar invocaciones en Vercel hasta que renueve token
+      if (role === 'prep_tablet') {
+        const currentTok = (() => {
+          try {
+            return localStorage.getItem('teg_token')
+          } catch {
+            return null
+          }
+        })()
+        if (authBlockedUntil > Date.now() && currentTok === blockedTokenSnapshot) {
+          scheduleNextPoll()
+          return
+        }
+        if (currentTok !== blockedTokenSnapshot) {
+          authBlockedUntil = 0
+          blockedTokenSnapshot = null
+        }
+        if (!getValidBrowserTegToken()) {
+          scheduleNextPoll()
+          return
+        }
+      }
+
+      if (activeAbort) activeAbort.abort()
+      const controller = new AbortController()
+      activeAbort = controller
 
       inFlightRef.current = true
       try {
@@ -309,6 +422,7 @@ export default function RemoteDeviceBridge() {
           headers: buildHeaders(),
           credentials: 'include',
           cache: 'no-store',
+          signal: controller.signal,
           body: JSON.stringify({
             action: 'sync',
             storeCode,
@@ -316,7 +430,18 @@ export default function RemoteDeviceBridge() {
             telemetry,
           }),
         })
+        if (res.status === 401 || res.status === 403) {
+          authBlockedUntil = Date.now() + BRIDGE_AUTH_BACKOFF_MS
+          try {
+            blockedTokenSnapshot = localStorage.getItem('teg_token')
+          } catch {
+            blockedTokenSnapshot = null
+          }
+          return
+        }
         if (!res.ok) return
+        authBlockedUntil = 0
+        blockedTokenSnapshot = null
         const data = await res.json().catch(() => null)
         if (data?.success && Array.isArray(data.commands)) {
           for (const cmd of data.commands) {
@@ -324,18 +449,23 @@ export default function RemoteDeviceBridge() {
           }
         }
       } catch {
-        // silent offline resilience
+        // silent offline resilience / AbortError
       } finally {
+        if (activeAbort === controller) {
+          activeAbort = null
+        }
         inFlightRef.current = false
+        scheduleNextPoll()
       }
     }
 
     // Sincronización inicial tras 4s para permitir que la vista cargue su storeCode
-    const initTimer = setTimeout(runSync, 4000)
-    const interval = setInterval(runSync, BRIDGE_POLL_INTERVAL_MS)
+    const initTimer = setTimeout(() => {
+      void runSync(false)
+    }, 4000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        void runSync()
+        void runSync(false)
       }
     }
     document.addEventListener('visibilitychange', onVisible)
@@ -343,7 +473,9 @@ export default function RemoteDeviceBridge() {
     return () => {
       cancelled = true
       clearTimeout(initTimer)
-      clearInterval(interval)
+      if (pollTimer) clearTimeout(pollTimer)
+      if (activeAbort) activeAbort.abort()
+      if (realtimeCleanup) realtimeCleanup()
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [role, pathname])

@@ -26,7 +26,6 @@ import {
   TV_COMMANDS,
 } from '@/lib/remote-control'
 import {
-  expireStaleCommands,
   extractClientIp,
   truncateCommandOutput,
 } from '@/lib/remote-control-server'
@@ -63,7 +62,7 @@ export async function POST(request: Request) {
 
     let { data: device, error: findErr } = await supabaseAdmin
       .from('remote_fleet_devices')
-      .select('*')
+      .select('id, enrollment_status, telemetry, desired_config, last_heartbeat_at')
       .eq('device_key', deviceKey)
       .maybeSingle()
 
@@ -98,7 +97,7 @@ export async function POST(request: Request) {
           last_ip: ip,
           updated_at: nowIso,
         })
-        .select('*')
+        .select('id, enrollment_status, telemetry, desired_config, last_heartbeat_at')
         .single()
 
       if (insErr) throw insErr
@@ -149,8 +148,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true })
     }
 
-    await expireStaleCommands(device.id)
-
+    // `.gt('expires_at', nowIso)` ya filtra comandos expirados sin ejecutar UPDATE en cada latido
     const { data: pending, error: cmdErr } = await supabaseAdmin
       .from('remote_fleet_commands')
       .select('id, command_type, payload, created_at, expires_at')

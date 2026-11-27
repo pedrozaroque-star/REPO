@@ -587,19 +587,25 @@ if ($Config.watchdog -and $Config.watchdog.preventSleep) {
 
 $lastHeartbeat = [DateTime]::MinValue
 $lastWatchdog  = [DateTime]::MinValue
+$lastPoll      = [DateTime]::MinValue
 
 while ($true) {
     try {
         $now = Get-Date
+        # Horario de baja actividad (04:15 - 06:59 AM hora local tienda): espaciar red para cuidar cuotas
+        $minsOfDay = ($now.Hour * 60) + $now.Minute
+        $isDeadHours = ($minsOfDay -ge 255 -and $minsOfDay -lt 420)
+        $hbIntervalSec   = if ($isDeadHours) { 300 } else { 180 }
+        $pollIntervalSec = if ($isDeadHours) { 180 } else { 60 }
 
-        # 1. Watchdog local cada 30 segundos
+        # 1. Watchdog local cada 30 segundos (100% local, cero consumo de red/Vercel)
         if (($now - $lastWatchdog).TotalSeconds -ge 30) {
             Invoke-WatchdogCheck -Cfg $Config
             $lastWatchdog = $now
         }
 
-        # 2. Heartbeat completo cada 60 segundos
-        if (($now - $lastHeartbeat).TotalSeconds -ge 60) {
+        # 2. Heartbeat completo cada 180s (300s en madrugada)
+        if (($now - $lastHeartbeat).TotalSeconds -ge $hbIntervalSec) {
             $hbPayload = @{
                 agentVersion = $AgentVersion
                 telemetry    = (Get-SystemTelemetry)
@@ -612,18 +618,21 @@ while ($true) {
             $lastHeartbeat = $now
         }
 
-        # 3. Polling rapido de comandos pendientes cada 15 segundos
-        $pollRes = Invoke-RestMethod -Uri "$($Config.baseUrl.TrimEnd('/'))/api/remote-control/agent/poll" -Method Get -Headers $Headers -TimeoutSec 20
-        if ($pollRes -and $pollRes.commands) {
-            foreach ($cmd in $pollRes.commands) {
-                Invoke-RemoteCommand -Cmd $cmd
+        # 3. Polling de comandos pendientes cada 60s (180s en madrugada)
+        if (($now - $lastPoll).TotalSeconds -ge $pollIntervalSec) {
+            $pollRes = Invoke-RestMethod -Uri "$($Config.baseUrl.TrimEnd('/'))/api/remote-control/agent/poll" -Method Get -Headers $Headers -TimeoutSec 20
+            if ($pollRes -and $pollRes.commands) {
+                foreach ($cmd in $pollRes.commands) {
+                    Invoke-RemoteCommand -Cmd $cmd
+                }
             }
+            $lastPoll = $now
         }
     } catch {
         Write-TegLog "Error en ciclo principal: $($_.Exception.Message)" 'WARN'
     }
 
-    Start-Sleep -Seconds 15
+    Start-Sleep -Seconds 30
 }
 `
 }

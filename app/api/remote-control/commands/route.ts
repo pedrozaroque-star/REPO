@@ -28,7 +28,7 @@ import {
   sanitizePlainOverlayText,
   type RemoteDeviceType,
 } from '@/lib/remote-control'
-import { expireStaleCommands, requireActiveAdmin } from '@/lib/remote-control-server'
+import { broadcastRemoteControlWakeup, expireStaleCommands, requireActiveAdmin } from '@/lib/remote-control-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -301,6 +301,9 @@ export async function POST(request: Request) {
           })
       )
     }
+
+    // Despertar en < 500 ms vía Supabase Realtime Broadcast a tabletas/TVs destino
+    await broadcastRemoteControlWakeup(validTargets, commandType)
 
     return NextResponse.json(
       {

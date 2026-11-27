@@ -13,7 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { authenticateWindowsAgent, expireStaleCommands } from '@/lib/remote-control-server'
+import { authenticateWindowsAgent } from '@/lib/remote-control-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,8 +22,7 @@ export async function GET(request: Request) {
   if (!auth.authenticated || !auth.device) return auth.response!
 
   try {
-    await expireStaleCommands(auth.device.id)
-
+    // `.gt('expires_at', nowIso)` ya excluye comandos vencidos sin ejecutar un UPDATE innecesario en cada latido
     const nowIso = new Date().toISOString()
     const { data: pending, error } = await supabaseAdmin
       .from('remote_fleet_commands')

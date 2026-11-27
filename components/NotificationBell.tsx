@@ -30,7 +30,7 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createPortal } from 'react-dom'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, getValidBrowserTegToken } from '@/lib/supabase'
 
 interface Notification {
   id: number
@@ -56,6 +56,8 @@ interface NotificationStoreSnapshot {
 }
 
 const POLL_INTERVAL_MS = 180_000
+const DEAD_HOURS_MIN_GAP_MS = 360_000 // 6 min en madrugada 04:15–06:59 AM PT
+const AUTH_BACKOFF_MS = 600_000       // 10 min backoff tras 401 / JWT expirado
 const MIN_DEDUP_GAP_MS = 3_000
 
 const EMPTY_SNAPSHOT: NotificationStoreSnapshot = {
@@ -73,6 +75,40 @@ let hasShownEntranceAnimation = false
 let inFlightFetch: Promise<void> | null = null
 let lastFetchCompletedAt = 0
 let visibilityListenerAttached = false
+let authBlockedUntil = 0
+let blockedTokenSnapshot: string | null = null
+
+function isDeadHoursLA(): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date())
+    const hh = parseInt(parts.find((p) => p.type === 'hour')?.value || '12', 10)
+    const mm = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+    const mins = (hh === 24 ? 0 : hh) * 60 + mm
+    return mins >= 255 && mins < 420
+  } catch {
+    return false
+  }
+}
+
+function isAuth401Error(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const obj = err as { status?: unknown; code?: unknown; message?: unknown }
+  const status = Number(obj.status)
+  const code = typeof obj.code === 'string' ? obj.code : ''
+  const msg = typeof obj.message === 'string' ? obj.message : ''
+  return (
+    status === 401 ||
+    status === 403 ||
+    code === 'PGRST301' ||
+    code === 'PGRST302' ||
+    /jwt|expired|unauthorized|invalid claim/i.test(msg)
+  )
+}
 
 export function isNotificationKioskRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false
@@ -185,7 +221,30 @@ async function fetchNotificationsShared(force = false): Promise<void> {
   if (inFlightFetch) {
     return inFlightFetch
   }
-  if (!force && lastFetchCompletedAt > 0 && Date.now() - lastFetchCompletedAt < MIN_DEDUP_GAP_MS) {
+  const nowMs = Date.now()
+  if (!force && lastFetchCompletedAt > 0) {
+    const minGap = isDeadHoursLA() ? DEAD_HOURS_MIN_GAP_MS : MIN_DEDUP_GAP_MS
+    if (nowMs - lastFetchCompletedAt < minGap) {
+      return
+    }
+  }
+
+  // Cortacircuito anti-401: si el JWT expiró o falta, no bombardear Supabase hasta que se renueve la sesión
+  const rawToken = (() => {
+    try {
+      return localStorage.getItem('teg_token')
+    } catch {
+      return null
+    }
+  })()
+  if (rawToken !== blockedTokenSnapshot) {
+    authBlockedUntil = 0
+    blockedTokenSnapshot = null
+  }
+  if (authBlockedUntil > nowMs) {
+    return
+  }
+  if (!getValidBrowserTegToken()) {
     return
   }
 
@@ -210,6 +269,9 @@ async function fetchNotificationsShared(force = false): Promise<void> {
         .limit(20)
 
       if (error) throw error
+
+      authBlockedUntil = 0
+      blockedTokenSnapshot = null
 
       if (data) {
         const rawNotifs = data as unknown as Notification[]
@@ -239,6 +301,15 @@ async function fetchNotificationsShared(force = false): Promise<void> {
       }
       lastFetchCompletedAt = Date.now()
     } catch (error: unknown) {
+      if (isAuth401Error(error)) {
+        authBlockedUntil = Date.now() + AUTH_BACKOFF_MS
+        try {
+          blockedTokenSnapshot = localStorage.getItem('teg_token')
+        } catch {
+          blockedTokenSnapshot = null
+        }
+        return
+      }
       // 🛡️ Manejo de errores de red y PostgREST (incluye objetos planos sin prototype Error)
       const errObj =
         error && typeof error === 'object'

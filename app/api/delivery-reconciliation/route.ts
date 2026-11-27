@@ -1002,17 +1002,11 @@ export async function GET(req: NextRequest) {
               DELIVERY_PAGE_SIZE,
               DELIVERY_MAX_ROWS
             ),
-      () => fetchAllSupabaseRows<any>(
-        (from, to) =>
-          supabaseAdmin
-            .from('delivery_platform_orders')
-            .select('store_id, platform, business_date, match_confidence, toast_order_guid, payout_reference_id, updated_at')
-            .neq('match_confidence', 'TOAST_ONLY')
-            .order('id', { ascending: true })
-            .range(from, to),
-        DELIVERY_PAGE_SIZE,
-        DELIVERY_MAX_ROWS
-      ),
+      async () => {
+        const { data, error } = await supabaseAdmin.rpc('get_delivery_orders_sync_summary')
+        if (error) throw new Error(`Error en RPC get_delivery_orders_sync_summary: ${error.message}`)
+        return data || { by_store_platform: [], explicit_payout_counts: [], unlinked_by_day: [] }
+      },
       () => fetchAllSupabaseRows<any>(
         (from, to) =>
           supabaseAdmin
@@ -1035,7 +1029,7 @@ export async function GET(req: NextRequest) {
       rawOrdersRange,
       disputedOrdersAll,
       rawPayouts,
-      allSyncOrders,
+      ordersSyncSummaryRaw,
       allSyncPayouts,
       quarantinedUnassigned,
       integrationsRes,
@@ -1221,24 +1215,8 @@ export async function GET(req: NextRequest) {
         }
       }
     }
-    for (const so of allSyncOrders || []) {
-      if (!so || so.match_confidence === 'TOAST_ONLY' || Number(so.store_id) <= 0 || so.payout_reference_id || !so.business_date) {
-        continue
-      }
-      const candidatePayouts = (allSyncPayouts || []).filter(
-        (sp: any) =>
-          Number(sp.store_id) === Number(so.store_id) &&
-          sp.platform === so.platform &&
-          sp.payout_reference_id &&
-          sp.period_start &&
-          sp.period_end &&
-          so.business_date >= sp.period_start &&
-          so.business_date <= sp.period_end
-      )
-      if (candidatePayouts.length === 1) {
-        so.payout_reference_id = candidatePayouts[0].payout_reference_id
-      }
-    }
+    // Nota: el conteo histórico de órdenes vinculadas por payout (explícitas + inferidas por fecha única)
+    // se resuelve mediante el resumen agregado de get_delivery_orders_sync_summary() sin escanear 61k+ filas en Node.
     if (autoLinkUpdates.length > 0 && autoLinkUpdates.length <= MAX_AUTO_LINK_UPDATES_PER_GET) {
       const nowIso = new Date().toISOString()
       await runWithConcurrency(autoLinkUpdates, DELIVERY_DB_CONCURRENCY, async (u) => {
@@ -1360,53 +1338,110 @@ export async function GET(req: NextRequest) {
 
     // Track linked order counts per payout reference key (platform:store_id:payout_reference_id)
     const linkedOrdersByPayoutKey = new Map<string, number>()
+    const ordersSyncSummary = (ordersSyncSummaryRaw && typeof ordersSyncSummaryRaw === 'object'
+      ? ordersSyncSummaryRaw
+      : {}) as {
+      by_store_platform?: Array<{
+        store_id: number
+        platform: string
+        orders_count: number
+        last_synced_at: string | null
+        latest_business_date: string | null
+        toast_orders_count: number
+        toast_last_synced_at: string | null
+        toast_latest_business_date: string | null
+      }>
+      explicit_payout_counts?: Array<{
+        store_id: number
+        platform: string
+        payout_reference_id: string
+        orders_count: number
+      }>
+      unlinked_by_day?: Array<{
+        store_id: number
+        platform: string
+        business_date: string
+        orders_count: number
+      }>
+    }
 
-    for (const so of allSyncOrders || []) {
-      const sId = Number(so.store_id)
-      const plat = (so.platform as DeliveryPlatformCode) || 'DOORDASH'
-      const upd = so.updated_at || null
-      const bDate = so.business_date || null
+    for (const ep of ordersSyncSummary.explicit_payout_counts || []) {
+      const sId = Number(ep.store_id)
+      const plat = (ep.platform as DeliveryPlatformCode) || 'DOORDASH'
+      const cnt = Number(ep.orders_count || 0)
+      if (ep.payout_reference_id && cnt > 0) {
+        const pKey = `${plat}:${sId}:${ep.payout_reference_id}`
+        linkedOrdersByPayoutKey.set(pKey, (linkedOrdersByPayoutKey.get(pKey) || 0) + cnt)
+      }
+    }
+
+    for (const ub of ordersSyncSummary.unlinked_by_day || []) {
+      const sId = Number(ub.store_id)
+      const plat = (ub.platform as DeliveryPlatformCode) || 'DOORDASH'
+      const bDate = ub.business_date || ''
+      const cnt = Number(ub.orders_count || 0)
+      if (sId <= 0 || !bDate || cnt <= 0) continue
+      const candidatePayouts = (allSyncPayouts || []).filter(
+        (sp: any) =>
+          Number(sp.store_id) === sId &&
+          sp.platform === plat &&
+          sp.payout_reference_id &&
+          sp.period_start &&
+          sp.period_end &&
+          bDate >= sp.period_start &&
+          bDate <= sp.period_end
+      )
+      if (candidatePayouts.length === 1) {
+        const pKey = `${plat}:${sId}:${candidatePayouts[0].payout_reference_id}`
+        linkedOrdersByPayoutKey.set(pKey, (linkedOrdersByPayoutKey.get(pKey) || 0) + cnt)
+      }
+    }
+
+    for (const grp of ordersSyncSummary.by_store_platform || []) {
+      const sId = Number(grp.store_id)
+      const plat = (grp.platform as DeliveryPlatformCode) || 'DOORDASH'
+      const ordCnt = Number(grp.orders_count || 0)
+      const upd = grp.last_synced_at || null
+      const bDate = grp.latest_business_date || null
+      const toastCnt = Number(grp.toast_orders_count || 0)
+      const toastUpd = grp.toast_last_synced_at || null
+      const toastBDate = grp.toast_latest_business_date || null
       const isSelectedStore = selectedStoreNum === null || sId === selectedStoreNum
       const stEntry = syncStatus.byStore[sId]
 
-      if (so.payout_reference_id) {
-        const pKey = `${plat}:${sId}:${so.payout_reference_id}`
-        linkedOrdersByPayoutKey.set(pKey, (linkedOrdersByPayoutKey.get(pKey) || 0) + 1)
-      }
-
-      if (so.toast_order_guid) {
-        syncStatus.TOAST.globalOrdersCount++
-        syncStatus.TOAST.globalLastSyncedAt = maxIso(syncStatus.TOAST.globalLastSyncedAt, upd)
-        syncStatus.TOAST.globalLatestBusinessDate = maxIso(syncStatus.TOAST.globalLatestBusinessDate, bDate)
+      if (toastCnt > 0) {
+        syncStatus.TOAST.globalOrdersCount += toastCnt
+        syncStatus.TOAST.globalLastSyncedAt = maxIso(syncStatus.TOAST.globalLastSyncedAt, toastUpd)
+        syncStatus.TOAST.globalLatestBusinessDate = maxIso(syncStatus.TOAST.globalLatestBusinessDate, toastBDate)
         if (isSelectedStore) {
-          syncStatus.TOAST.ordersCount++
-          syncStatus.TOAST.lastSyncedAt = maxIso(syncStatus.TOAST.lastSyncedAt, upd)
-          syncStatus.TOAST.latestBusinessDate = maxIso(syncStatus.TOAST.latestBusinessDate, bDate)
+          syncStatus.TOAST.ordersCount += toastCnt
+          syncStatus.TOAST.lastSyncedAt = maxIso(syncStatus.TOAST.lastSyncedAt, toastUpd)
+          syncStatus.TOAST.latestBusinessDate = maxIso(syncStatus.TOAST.latestBusinessDate, toastBDate)
         }
         if (stEntry) {
-          stEntry.toastOrders++
-          stEntry.toastLastSync = maxIso(stEntry.toastLastSync, upd)
+          stEntry.toastOrders += toastCnt
+          stEntry.toastLastSync = maxIso(stEntry.toastLastSync, toastUpd)
         }
       }
 
-      if (so.match_confidence !== 'TOAST_ONLY' && syncStatus[plat]) {
-        syncStatus[plat].globalOrdersCount++
+      if (ordCnt > 0 && syncStatus[plat]) {
+        syncStatus[plat].globalOrdersCount += ordCnt
         syncStatus[plat].globalLastSyncedAt = maxIso(syncStatus[plat].globalLastSyncedAt, upd)
         syncStatus[plat].globalLatestBusinessDate = maxIso(syncStatus[plat].globalLatestBusinessDate, bDate)
         if (isSelectedStore) {
-          syncStatus[plat].ordersCount++
+          syncStatus[plat].ordersCount += ordCnt
           syncStatus[plat].lastSyncedAt = maxIso(syncStatus[plat].lastSyncedAt, upd)
           syncStatus[plat].latestBusinessDate = maxIso(syncStatus[plat].latestBusinessDate, bDate)
         }
         if (stEntry) {
           if (plat === 'DOORDASH') {
-            stEntry.ddOrders++
+            stEntry.ddOrders += ordCnt
             stEntry.ddLastSync = maxIso(stEntry.ddLastSync, upd)
           } else if (plat === 'GRUBHUB') {
-            stEntry.ghOrders++
+            stEntry.ghOrders += ordCnt
             stEntry.ghLastSync = maxIso(stEntry.ghLastSync, upd)
           } else if (plat === 'UBER_EATS') {
-            stEntry.ueOrders++
+            stEntry.ueOrders += ordCnt
             stEntry.ueLastSync = maxIso(stEntry.ueLastSync, upd)
           }
         }

@@ -339,7 +339,7 @@ export default function BeanCookingTimerTFS4({
         void loadKoreVoiceClip(prod, activeLang)
       }
       const allKoreCached = BEAN_PRODUCT_KEYS.every((prod) =>
-        koreBufferCacheRef.current.has(`${prod}_${activeLang}`)
+        koreBufferCacheRef.current.has(`${prod}:${activeLang}`)
       )
       if (ctx?.state === 'running' && alarmBufferRef.current && allKoreCached) {
         detachListeners()

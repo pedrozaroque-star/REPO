@@ -28,7 +28,6 @@ import {
   TABLET_COMMANDS,
 } from '@/lib/remote-control'
 import {
-  expireStaleCommands,
   extractClientIp,
   truncateCommandOutput,
 } from '@/lib/remote-control-server'
@@ -84,10 +83,10 @@ export async function POST(request: Request) {
     const deviceKey = buildDeviceKey(storeCode, 'android_tablet', deviceRole)
     const nowIso = new Date().toISOString()
 
-    // Buscar o crear el registro preservando configuraciones administrativas existentes
+    // Buscar o crear el registro preservando configuraciones administrativas existentes (proyección explícita, cero SELECT *)
     let { data: device, error: findErr } = await supabaseAdmin
       .from('remote_fleet_devices')
-      .select('*')
+      .select('id, enrollment_status, telemetry, last_heartbeat_at')
       .eq('device_key', deviceKey)
       .maybeSingle()
 
@@ -135,7 +134,7 @@ export async function POST(request: Request) {
           last_ip: ip,
           updated_at: nowIso,
         })
-        .select('*')
+        .select('id, enrollment_status, telemetry, last_heartbeat_at')
         .single()
 
       if (insErr) throw insErr
@@ -143,15 +142,26 @@ export async function POST(request: Request) {
     } else if (device.enrollment_status === 'revoked') {
       return NextResponse.json({ success: true, commands: [], revoked: true })
     } else if (action === 'sync') {
-      await supabaseAdmin
-        .from('remote_fleet_devices')
-        .update({
-          telemetry: { ...(device.telemetry || {}), ...safeTelemetry },
-          last_heartbeat_at: nowIso,
-          last_ip: ip,
-          updated_at: nowIso,
-        })
-        .eq('id', device.id)
+      const prevHbMs = device.last_heartbeat_at ? Date.parse(device.last_heartbeat_at) : 0
+      const prevTel = (device.telemetry && typeof device.telemetry === 'object' ? device.telemetry : {}) as Record<string, any>
+      const telemetryChanged =
+        prevTel.route !== safeTelemetry.route ||
+        prevTel.batteryPct !== safeTelemetry.batteryPct ||
+        prevTel.isCharging !== safeTelemetry.isCharging ||
+        prevTel.isFullscreen !== safeTelemetry.isFullscreen
+      const heartbeatStale = !Number.isFinite(prevHbMs) || Date.now() - prevHbMs >= 110_000
+
+      if (heartbeatStale || telemetryChanged) {
+        await supabaseAdmin
+          .from('remote_fleet_devices')
+          .update({
+            telemetry: { ...prevTel, ...safeTelemetry },
+            last_heartbeat_at: nowIso,
+            last_ip: ip,
+            updated_at: nowIso,
+          })
+          .eq('id', device.id)
+      }
     }
 
     if (action === 'ack') {
@@ -186,9 +196,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true })
     }
 
-    // action === 'sync': expirar vencidos y entregar comandos pendientes
-    await expireStaleCommands(device.id)
-
+    // action === 'sync': entregar comandos pendientes vigentes (`.gt('expires_at', nowIso)` ya excluye vencidos sin requerir UPDATE por latido)
     const { data: pending, error: cmdErr } = await supabaseAdmin
       .from('remote_fleet_commands')
       .select('id, command_type, payload, created_at, expires_at')

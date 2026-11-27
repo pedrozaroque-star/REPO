@@ -20,10 +20,12 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { checkRateLimit, getServerUser, safeTimingEqual, verifyAdminAuth } from '@/lib/auth-server'
-import type { RemoteFleetDevice } from '@/lib/remote-control'
+import { getRemoteBroadcastTopic, type RemoteFleetDevice } from '@/lib/remote-control'
 
 export const AGENT_TOKEN_PREFIX_TAG = 'teg_dev_'
 export const MAX_COMMAND_OUTPUT_CHARS = 16_000
+const EXPIRE_SWEEP_THROTTLE_MS = 60_000
+const lastExpireSweepByScope = new Map<string, number>()
 
 export function generateDeviceAgentToken(): {
   plainToken: string
@@ -140,7 +142,9 @@ export async function authenticateWindowsAgent(request: Request): Promise<AgentA
 
   const { data: device, error } = await supabaseAdmin
     .from('remote_fleet_devices')
-    .select('*')
+    .select(
+      'id, store_code, device_type, device_role, device_key, display_name, agent_token_hash, enrollment_status, desired_config, telemetry, agent_version'
+    )
     .eq('agent_token_hash', candidateHash)
     .maybeSingle()
 
@@ -167,15 +171,33 @@ export async function authenticateWindowsAgent(request: Request): Promise<AgentA
 
   return {
     authenticated: true,
-    device: device as RemoteFleetDevice,
+    device: device as unknown as RemoteFleetDevice,
   }
 }
 
 /**
  * Marca como `expired` cualquier comando pendiente cuyo `expires_at` ya venció.
+ * Incluye throttle en memoria (60s global / 5 min por dispositivo) para evitar UPDATEs
+ * redundantes en tablas vacías desde heartbeats de dispositivos.
  */
-export async function expireStaleCommands(deviceId?: string): Promise<void> {
-  const nowIso = new Date().toISOString()
+export async function expireStaleCommands(
+  deviceId?: string,
+  options?: { force?: boolean }
+): Promise<void> {
+  const scopeKey = deviceId || '__all__'
+  const nowMs = Date.now()
+  const ttlMs = deviceId ? 300_000 : EXPIRE_SWEEP_THROTTLE_MS
+  if (!options?.force) {
+    const lastRun = lastExpireSweepByScope.get(scopeKey) || 0
+    if (nowMs - lastRun < ttlMs) return
+  }
+  lastExpireSweepByScope.set(scopeKey, nowMs)
+  if (lastExpireSweepByScope.size > 200) {
+    lastExpireSweepByScope.clear()
+    lastExpireSweepByScope.set(scopeKey, nowMs)
+  }
+
+  const nowIso = new Date(nowMs).toISOString()
   let query = supabaseAdmin
     .from('remote_fleet_commands')
     .update({
@@ -191,6 +213,61 @@ export async function expireStaleCommands(deviceId?: string): Promise<void> {
   }
 
   await query
+}
+
+/**
+ * Emite un ping ligero vía Supabase Realtime Broadcast hacia las tabletas/TVs destino
+ * para que ejecuten comandos remotos en < 500 ms sin requerir polling agresivo.
+ */
+export async function broadcastRemoteControlWakeup(
+  targets: Array<{ store_code: string; device_role: string; device_type: string; id: string }>,
+  commandType: string
+): Promise<void> {
+  const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/+$/, '')
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  if (!baseUrl || !serviceKey) return
+
+  const webTargets = targets.filter(
+    (d) => d.device_type === 'android_tablet' || d.device_type === 'tv_display'
+  )
+  if (webTargets.length === 0) return
+
+  const seenTopics = new Set<string>()
+  const messages: Array<{ topic: string; event: string; payload: Record<string, unknown> }> = []
+  const nowIso = new Date().toISOString()
+
+  for (const d of webTargets) {
+    const topic = getRemoteBroadcastTopic(d.store_code, d.device_role)
+    if (seenTopics.has(topic)) continue
+    seenTopics.add(topic)
+    messages.push({
+      topic,
+      event: 'command_queued',
+      payload: {
+        storeCode: d.store_code,
+        deviceRole: d.device_role,
+        commandType,
+        sentAt: nowIso,
+      },
+    })
+  }
+
+  if (messages.length === 0) return
+
+  try {
+    await fetch(`${baseUrl}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(2_000),
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({ messages }),
+    })
+  } catch {
+    // Non-blocking: fallback polling guarantees delivery even if broadcast fails
+  }
 }
 
 /**

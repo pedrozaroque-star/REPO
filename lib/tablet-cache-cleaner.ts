@@ -162,7 +162,8 @@ export async function ensureFreshTabletAuth(force = false): Promise<string | nul
           Pragma: 'no-cache'
         },
         body: JSON.stringify({ token }),
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8_000)
       })
 
       if (res.ok) {
@@ -279,10 +280,16 @@ export async function purgeTabletStaleCaches(options: CacheCleanerOptions = {}):
         continue
       }
 
-      // d) Consumos reales e inteligencia intradía de otras tiendas
+      // d) Consumos reales e inteligencia intradía de otras tiendas o fechas pasadas
       if (key.startsWith('prep_real_meat_')) {
-        const expected = activeStoreId ? `prep_real_meat_${activeStoreId}` : null
-        if (!expected || key !== expected) {
+        const expectedLegacy = activeStoreId ? `prep_real_meat_${activeStoreId}` : null
+        const expectedDated =
+          activeStoreId && activeDate ? `prep_real_meat_${activeStoreId}_${activeDate}` : null
+        const keep =
+          (expectedDated && key === expectedDated) ||
+          (!activeDate && expectedLegacy && key.startsWith(`${expectedLegacy}_`)) ||
+          (expectedLegacy && key === expectedLegacy)
+        if (!keep) {
           keysToRemove.push(key)
         }
         continue

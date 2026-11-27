@@ -40,9 +40,19 @@ export type RemoteCommandStatus =
 export const REMOTE_AGENT_LATEST_VERSION = '1.0.0'
 
 export const REMOTE_ONLINE_THRESHOLDS_MS: Record<RemoteDeviceType, number> = {
-  windows_pc: 180_000,
-  android_tablet: 180_000,
-  tv_display: 420_000,
+  windows_pc: 420_000,
+  android_tablet: 420_000,
+  tv_display: 480_000,
+}
+
+/**
+ * Tópico canónico de Supabase Realtime Broadcast para despertar tabletas/TVs al instante
+ * (< 500 ms) cuando Admin encola un comando remoto, permitiendo espaciar el polling de respaldo.
+ */
+export function getRemoteBroadcastTopic(storeCode: string, deviceRole: string): string {
+  const cleanStore = String(storeCode || '').trim().toUpperCase()
+  const cleanRole = String(deviceRole || '').trim().toLowerCase()
+  return `remote-control-${cleanStore}-${cleanRole}`
 }
 
 export const WINDOWS_COMMANDS = [
