@@ -252,9 +252,16 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
     .replace(/\blinguas?\b/gi, (m) => (/s$/i.test(m) ? 'lenguas' : 'lengua'))
     // Plataformas de delivery con colisión STT ("Dortmund" / "Door Dash" -> "DoorDash")
     .replace(/\b(?:dortmund|door\s+dash|dordash|ordash)\b/gi, 'DoorDash')
-    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata", "una chata" / "agua de chata", "fe de la hoya" -> "café de olla")
+    // Variantes STT reales auditadas en 249 llamadas (molita, fiesta plarer, super boleto, Centralia Washington)
+    .replace(/\bmolita(s?)\b/gi, 'mulita$1')
+    .replace(/\bfiesta\s+plarer(s?)\b/gi, 'fiesta platter$1')
+    .replace(/\bparty\s+packet(s?)\b/gi, 'party tray$1')
+    .replace(/\bs[uú]per\s+boleto(s?)\b/gi, 'super burrito$1')
+    .replace(/\bcentralia,?\s+washington\b/gi, 'Central y Washington')
+    // Bebidas ("whore chata", "or chata", "hor chatta", "orchata", "una chata" / "agua de chata", "fe de la hoya" / "cafe hoy" -> "café de olla")
     .replace(/\bcaf[eé]\s+de\s+(?:la\s+)?hoya(s?)\b/gi, 'café de olla$1')
     .replace(/(?<!\bsanta\s+)\bfe\s+de\s+(?:la\s+)?(?:hoya|olla)(s?)\b/gi, 'café de olla$1')
+    .replace(/\b(?:tienen|hay|venden|quiero|un)\s+caf[eé]\s+hoy\b/gi, (m) => m.replace(/caf[eé]\s+hoy/i, 'café de olla'))
     .replace(/\bolla\s+coffee(s?)\b/gi, 'café de olla$1')
     .replace(/\bch[ao]mpur{1,2}ado(s?)\b/gi, 'champurrado$1')
     .replace(/\b(?:chapurrado|champorado)(s?)\b/gi, 'champurrado$1')
@@ -292,31 +299,39 @@ export function normalizeKoreCustomerSpeech(rawText: string, opts?: NormalizeKor
   }
 
   if (!hasDeliveryDriverContext) {
-    out = out.replace(
-      /\b(tienen?|con|hay|por\s+el|en\s+el|al|del)\s+drivers?\b(?!\s+(?:de|for|from|assigned|is|was|never|has|did))/gi,
-      '$1 drive-thru'
-    )
+    out = out
+      .replace(
+        /\b(tienen?|con|hay|por\s+el|en\s+el|al|del)\s+drivers?\b(?!\s+(?:de|for|from|assigned|is|was|never|has|did))/gi,
+        '$1 drive-thru'
+      )
+      .replace(
+        /\b(have|has|got|a)\s+driver\b(?!\s+(?:for|from|assigned|is|was|never|has|did|license|pick))/gi,
+        '$1 drive-thru'
+      )
   }
 
-  // "un plan" / "el plan" / "a plan" / "one plan" / "another plan" -> "flan" en contexto de comida/postre/orden (excluyendo planes telefónicos/comerciales)
+  // "un plan" / "el plan" / "a plan" / "sell plans" -> "flan" en contexto de comida/postre/orden (excluyendo planes telefónicos/comerciales)
   const hasTelecomOrBusinessPlanContext =
     /\b(datos|celular|telef[oó]nico|m[oó]vil|internet|pago\s+mensual|negocio|marketing|seguro|data\s+plan|phone\s+plan|cell\s+plan|mobile\s+plan|payment\s+plan|business\s+plan|insurance\s+plan|health\s+plan|floor\s+plan|meal\s+plan)\b/i.test(
       out
     )
   const hasFoodDessertOrOrderContext =
-    /\b(?:cheesecakes?|postres?|desserts?|dulces?|falt[oó]|faltaron|pusieron|ped[ií]|cu[aá]nto|cuesta|cuestan|precio|precios|how\s+much|prices?|costs?|venden|quiero|dame|deme|me\s+da(?:s)?|agr[eé]ga(?:le|me)?|pon(?:le|me)?|orden(?:ar)?|orders?|want|would\s+like|give\s+me|tacos?|burritos?|tortas?|quesadillas?|mulitas?|sopes?|platos?|plates?|nachos?|horchatas?|jamaicas?|aguas?|waters?|drinks?|champurrados?|caf[eé]s?|coffees?|sodas?|refrescos?|para\s+llevar|for\s+dessert|to\s+go)\b/i.test(
+    /\b(?:cheesecakes?|postres?|desserts?|dulces?|falt[oó]|faltaron|pusieron|ped[ií]|cu[aá]nto|cuesta|cuestan|precio|precios|how\s+much|prices?|costs?|venden|sell|have|quiero|dame|deme|me\s+da(?:s)?|agr[eé]ga(?:le|me)?|pon(?:le|me)?|orden(?:ar)?|orders?|want|would\s+like|give\s+me|tacos?|burritos?|tortas?|quesadillas?|mulitas?|sopes?|platos?|plates?|nachos?|horchatas?|jamaicas?|aguas?|waters?|drinks?|champurrados?|caf[eé]s?|coffees?|sodas?|refrescos?|para\s+llevar|for\s+dessert|to\s+go)\b/i.test(
       out
     ) ||
     (mode === 'drive_thru' &&
       /^\s*(?:un|el|otro|a|one|another)\s+plan(?:\s*,?\s*(?:please|por\s+favor))?\s*[.!?]*\s*$/i.test(out))
 
   if (!hasTelecomOrBusinessPlanContext && hasFoodDessertOrOrderContext) {
-    out = out.replace(/\b(un|el|mi|del|otro|a|one|another|the|my)\s+plan\b/gi, '$1 flan')
+    out = out
+      .replace(/\b(un|el|mi|del|otro|a|one|another|the|my)\s+plan\b/gi, '$1 flan')
+      .replace(/\b(sell|have|venden|tienen|hay)\s+(?:plans|planes)\b/gi, '$1 flan')
   }
 
-  // En modo teléfono (cotización informativa de precios): "tacos/burritos/... de nada" y "quiero dos nada" -> "de asada"
+  // En modo teléfono: cierre fonético "costado" -> "es todo" + "tacos/burritos/... de nada" -> "de asada"
   if (mode === 'phone') {
     out = out
+      .replace(/(^|\b(?:no|ya|pues|bueno)[,\s]+)\bcostado(?=\s*(?:[,.;!?]|gracias|muchas\s+gracias|adi[oó]s|bye|$))/gi, '$1es todo')
       .replace(
         /\b(tacos?|burritos?|tortas?|mulitas?|quesadillas?|sopes?|platos?)\s+(?:de\s+)?nada\b(?!\s+(?:m[aá]s|de)\b)/gi,
         '$1 de asada'
@@ -1846,9 +1861,9 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
     return true
   }
 
-  // b.10 Prohibición sagrada: cobrar, procesar pagos o tomar órdenes por teléfono
+  // b.10 Prohibición sagrada: cobrar, procesar pagos o tomar órdenes/pedidos por teléfono o voz (en vez de tacosgavilan.com / mostrador)
   if (
-    /\b(?:procesar\s+el\s+pago[^.!?]{0,60}por\s+telefono|cobrar[^.!?]{0,40}por\s+telefono|pago\s+(?:de\s+(?:los\s+)?articulos?\s+extra\s+)?por\s+telefono|tomar\s+(?:la\s+)?tarjeta\s+por\s+telefono|process\s+(?:the\s+)?payment[^.!?]{0,50}(?:by|over\s+the)\s+phone|take\s+(?:orders?|payments?)\s+over\s+the\s+phone)\b/.test(
+    /\b(?:procesar\s+el\s+pago[^.!?]{0,60}por\s+telefono|cobrar[^.!?]{0,40}por\s+telefono|pago\s+(?:de\s+(?:los\s+)?articulos?\s+extra\s+)?por\s+telefono|tomar\s+(?:la\s+)?tarjeta\s+por\s+telefono|toma\s+de\s+pedidos?\s+por\s+voz|iniciar\s+el\s+flujo\s+de\s+toma\s+de\s+pedidos?|intentar\s+tomar\s+el\s+pedido|tomar\s+el\s+pedido\s+(?:o|en\s+lugar|para\s+recoger)|en\s+lugar\s+de\s+(?:redirigir|enviar\s+al\s+cliente)\s+a\s+la\s+(?:pagina\s+)?web|process\s+(?:the\s+)?payment[^.!?]{0,50}(?:by|over\s+the)\s+phone|take\s+(?:orders?|payments?|the\s+pickup\s+order)\s+(?:over\s+the\s+phone|by\s+voice)|voice\s+order\s+flow)\b/.test(
       normRule
     )
   ) {
@@ -1864,18 +1879,29 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
     return true
   }
 
-  // b.12 Prohibición de transferir a celulares personales, ofrecer descuentos por volumen, pasteles o prometer reembolsos
-  if (
-    /\b(?:transferir\s+(?:la\s+llamada\s+)?al\s+(?:celular|telefono\s+personal)|descuento(?:s)?\s+por\s+volumen|vender\s+pasteles|prometer\s+(?:reembolso|reposicion)|transfer\s+to\s+(?:the\s+)?manager(?:'s)?\s+(?:cell|personal)\s+phone|promise\s+a\s+refund)\b/.test(
+  // b.12 Prohibición absoluta de transferencias en vivo (sucursal/gerente/empleado/celular), descuentos por volumen afirmativos, pasteles o prometer reembolsos
+  const hasAffirmativeLiveTransfer =
+    /(?<!\bno\s+(?:se\s+pueden\s+|se\s+puede\s+|podemos\s+|puede\s+|puedes\s+|debe\s+)?)\b(?:(?:ofrecer|intentar|debe)\s+)?(?:transferir|desviar|conectar)\s+(?:la\s+llamada\s+)?(?:inmediatamente\s+)?(?:a\s+(?:un\s+|una\s+|el\s+|la\s+)?(?:gerente|manager|supervisor|representante|empleado|sucursal|tienda|celular|telefono\s+personal)|al\s+(?:gerente|manager|supervisor|celular|telefono\s+personal))\b/.test(
       normRule
-    )
-  ) {
+    ) ||
+    /(?<!\b(?:not|never|cannot|can't|don't)\s+)\btransfer\s+(?:the\s+)?call\s+to\s+(?:a\s+|the\s+)?(?:manager|store|branch|employee|representative|supervisor|cell|personal\s+phone)\b/.test(
+      normRule
+    ) ||
+    /\bencargado\s+de\s+catering\b/.test(normRule)
+  const hasAffirmativeForbiddenOffer =
+    (/\bdescuento(?:s)?\s+por\s+volumen\b/.test(normRule) &&
+      !/\b(?:no\s+(?:manejamos|ofrecemos|hacemos|damos|hay|existen|aplican)|sin|do\s+not\s+offer|no\s+volume\s+discounts?)\b[^.!?]{0,35}\bdescuento(?:s)?\s+por\s+volumen\b/.test(
+        normRule
+      )) ||
+    (/\bvender\s+pasteles\b/.test(normRule) && !/\bno\s+(?:vendemos|se\s+pueden\s+vender)\s+pasteles\b/.test(normRule)) ||
+    /\b(?:prometer\s+(?:reembolso|reposicion)|promise\s+a\s+refund)\b/.test(normRule)
+  if (hasAffirmativeLiveTransfer || hasAffirmativeForbiddenOffer) {
     return true
   }
 
-  // b.13 Meta-propuestas de ingeniería de audio/DSP/VAD o ruido STT irrelevante fuera del menú
+  // b.13 Meta-propuestas de ingeniería de audio/DSP/VAD/DB o ruido STT irrelevante fuera del menú
   if (
-    /\b(?:implementar\s+un\s+filtro\s+de\s+deteccion\s+de\s+silencio|esperar\s+a\s+que\s+el\s+cliente\s+termine\s+de\s+hablar|my\s+tree|tua\s+orden)\b/.test(
+    /\b(?:implementar\s+un\s+filtro\s+de\s+deteccion\s+de\s+silencio|esperar\s+a\s+que\s+el\s+cliente\s+termine\s+de\s+hablar|kore\s+debe\s+tener\s+una\s+base\s+de\s+datos|verificar\s+y\s+estandarizar[^.!?]{0,60}base\s+de\s+datos|palabra\s+aislada\s+que\s+no\s+es\s+una\s+despedida|paprika|my\s+tree|tua\s+orden)\b/.test(
       normAll
     )
   ) {
@@ -1891,6 +1917,7 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
   }
 
   // b.15 Blindaje contra negaciones falsas de capacidades oficiales (Delivery Armor, Café de Olla, Burritos Mitad y Mitad, Horarios) y meta-directivas NLU
+  const isSttSynonymItem = itemKind === 'stt_synonym' || itemKind === 'synonym_fix'
   if (
     (/\b(?:doordash|uber\s*eats|grubhub|repartidor|driver|pickup|orden(?:es)?)\b/.test(normAll) &&
       /\b(?:no\s+tiene\s+acceso\s+a\s+la\s+orden|does\s+not\s+have\s+access\s+to\s+the\s+order|exclusivamente\s+a\s+traves\s+de\s+la\s+aplicacion|exclusively\s+through\s+the\s+app)\b/.test(
@@ -1905,8 +1932,39 @@ export function shouldRejectCandidateLearningFinding(candidate: KoreCandidateQua
     /\bno\s+(?:cuenta|contamos|tengo|tenemos)\s+con\s+(?:la\s+)?informacion\s+de\s+(?:los\s+)?horarios\b|\bdo(?:es)?\s+not\s+have\s+(?:store\s+)?hours\s+information\b/.test(
       normRule
     ) ||
-    /\b(?:configurar\s+el\s+(?:nlu|motor\s+de\s+reconocimiento|modelo|prompt)|ajustar\s+el\s+(?:nlu|prompt|modelo)|entrenar\s+el\s+modelo|goodbye\s+intent|intent\s+detection)\b/.test(
-      normAll
+    (!isSttSynonymItem &&
+      /\b(?:configurar\s+(?:el\s+(?:nlu|sistema|motor\s+de\s+reconocimiento|motor\s+de\s+stt|modelo|prompt)|['"]?okay['"]?)|ajustar\s+el\s+(?:nlu|prompt|modelo)|entrenar\s+el\s+modelo|goodbye\s+intent|intent\s+detection)\b/.test(
+        normAll
+      ))
+  ) {
+    return true
+  }
+
+  // b.16 Prohibición de colgar automáticamente en acuses/agradecimientos ("Okay", "Gracias", "Thank you", "Okay, gracias", "solamente")
+  if (
+    /(?:evitando|sin\s+(?:necesidad\s+de\s+)?)\bpreguntar\s+si\s+(?:hay|necesita|te\s+puedo\s+ayudar\s+con)\s+algo\s+mas\b/.test(
+      normRule
+    ) ||
+    /(?:['"]?(?:okay|ok|thank\s+you|gracias|muchas\s+gracias|okay,\s*gracias|solamente)['"]?)[^.!?]{0,75}(?:cierre\s+de\s+llamada|finalizar\s+la\s+(?:llamada|interaccion)|comandos?\s+de\s+cierre|senales?\s+de\s+cierre)/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.17 Prohibición de rechazar recados al gerente o inventar "opción de escalamiento" sin nombre/teléfono
+  if (
+    /\b(?:en\s+lugar\s+de\s+solicitar\s+datos\s+personales|sin\s+condicionar\s+la\s+atencion\s+a\s+la\s+entrega\s+de\s+datos\s+personales|tomara\s+el\s+mensaje\s+sin[^.!?]{0,40}datos\s+personales|opcion\s+de\s+escalamiento|ofrecer\s+la\s+direccion\s+o\s+sitio\s+web,?\s+en\s+lugar\s+de\s+solicitar\s+datos)\b/.test(
+      normRule
+    )
+  ) {
+    return true
+  }
+
+  // b.18 Prohibición de contradecir las herramientas en vivo de cocina (cambio de horario Toast, sucursal equivocada, Fiesta Platters)
+  if (
+    /\b(?:no\s+puedes?\s+modificar\s+la\s+fecha\s+(?:directamente|ni\s+la\s+hora)|no\s+puede\s+cambiar\s+la\s+hora\s+de\s+recoleccion|no\s+puede\s+coordinar\s+sucursal\s+equivocada|no\s+puede\s+personalizar\s+fiesta\s+platter)\b/.test(
+      normRule
     )
   ) {
     return true
@@ -1925,14 +1983,15 @@ const HIGH_RISK_OWNER_ONLY_POLICY_RE =
   /\b(?:nuevo\s+descuento|descuento\s+especial|cambiar\s+el\s+precio|nuevo\s+precio|modificar\s+precios?|nuevo\s+horario\s+oficial|abrir\s+(?:mas\s+temprano|mas\s+tarde)|cerrar\s+(?:mas\s+temprano|mas\s+tarde)|aceptar\s+ebt\s+en\s+(?:rialto|santa\s+ana|drive[\s-]*thru)|vender\s+nuevo\s+producto|reembolso\s+automatico|new\s+discount|change\s+prices?|accept\s+ebt\s+at\s+(?:rialto|santa\s+ana|drive[\s-]*thru))\b/
 
 const VALID_MENU_OR_OPS_INTENDED_TERM_RE =
-  /\b(?:taco|burrito|quesadilla|mulita|torta|sope|nacho|plato|plate|flan|cheesecake|horchata|jamaica|tamarindo|pina|pineapple|limonada|lemonade|champurrado|cafe|coffee|agua|soda|coca|coke|asada|pastor|adobada|pollo|chicken|cabeza|lengua|buche|chorizo|carnitas|milanesa|cubana|frijol|beans|arroz|rice|salsa|cebolla|cilantro|guacamole|crema|queso|cotija|fresco|monterey|ebt|calfresh|drive[\s-]*thru|doordash|uber|grubhub|fiesta|platter|catering|pickup|delivery|regular|super|mediana|grande|galon|desayuno|breakfast|huevo|egg|thanksgiving|navidad|christmas)\b/
+  /\b(?:taco|burrito|quesadilla|mulita|torta|sope|nacho|plato|plate|flan|cheesecake|horchata|jamaica|tamarindo|pina|pineapple|limonada|lemonade|champurrado|cafe|coffee|agua|soda|coca|coke|asada|pastor|adobada|pollo|chicken|cabeza|lengua|buche|chorizo|carnitas|milanesa|cubana|frijol|beans|arroz|rice|salsa|cebolla|cilantro|guacamole|crema|queso|cotija|fresco|monterey|ebt|calfresh|drive[\s-]*thru|doordash|uber|grubhub|toast|fiesta|platter|catering|pickup|delivery|regular|super|mediana|grande|galon|desayuno|breakfast|huevo|egg|thanksgiving|navidad|christmas|es\s+todo|nada\s+mas|gerente|ticket|recibo|horario|central|washington|vernon|slauson|broadway)\b/
 
 /**
- * Autopiloto Blindado (*Guarded Autopilot*) compartido entre Teléfono y Drive-Thru:
- * - Descarta automáticamente spam, robocalls, ruido STT y propuestas que contradigan políticas oficiales.
- * - Auto-aplica (`auto_apply`) sin intervención manual los sinónimos STT válidos del menú/operación y
- *   las reglas operativas de servicio seguras y accionables (regla clara >= 28 chars, sin alterar precios/EBT/horarios).
- * - Reserva `needs_owner_input` estrictamente para cambios financieros o estratégicos inéditos de alto riesgo.
+ * Autopiloto Blindado (*Guarded Autopilot*) compartido entre Teléfono y Drive-Thru (v23):
+ * - Descarta automáticamente spam, robocalls, ruido STT, meta-notas de ingeniería y propuestas que contradigan políticas oficiales.
+ * - Auto-aplica (`auto_apply`) SOLO: manual_owner, telemetría (`latency_insight` / `audio_prewarm`), reglas deterministas `rule:*`
+ *   y sinónimos STT seguros del menú/operación (`stt_synonym` / `synonym_fix`).
+ * - Toda duda o regla nueva generada por LLM (`doubt:llm_phone:*`, `doubt:llm:*`, o `itemKind === 'doubt_for_owner'`) nace en
+ *   `needs_owner_input` para aprobación explícita del dueño en `/admin/llamadas` — garantizando aprendizaje continuo sin envenenar producción.
  */
 export function evaluateLearningAutopilotDecision(
   candidate: KoreCandidateQualityInput | null | undefined
@@ -1942,6 +2001,7 @@ export function evaluateLearningAutopilotDecision(
     return { decision: 'reject', promotedItemKind: itemKind, reason: 'empty_candidate' }
   }
   const sourceType = String(candidate.sourceType ?? candidate.source_type ?? '').trim()
+  const dedupeKey = String(candidate.dedupeKey ?? candidate.dedupe_key ?? '').trim()
   if (sourceType === 'manual_owner' || sourceType === 'manual') {
     return { decision: 'auto_apply', promotedItemKind: itemKind, reason: 'manual_owner' }
   }
@@ -1966,17 +2026,28 @@ export function evaluateLearningAutopilotDecision(
     return { decision: 'auto_apply', promotedItemKind: itemKind, reason: 'safe_domain_stt_synonym' }
   }
 
+  // Reglas deterministas codificadas (`rule:*`): seguras para auto-aplicación
+  if (/^rule:/.test(dedupeKey)) {
+    return { decision: 'auto_apply', promotedItemKind: 'learned_rule', reason: 'deterministic_canonical_rule' }
+  }
+
   // Descartar dudas vagas sin una regla operativa accionable (para nunca llenar la bandeja con basura)
   if (rawRuleEs.length < 28) {
     return { decision: 'reject', promotedItemKind: itemKind, reason: 'vague_without_actionable_rule' }
   }
 
-  // Solo escalar al dueño cambios estratégicos/financieros de alto impacto (precios, nuevos descuentos, EBT, nuevos horarios)
-  if (HIGH_RISK_OWNER_ONLY_POLICY_RE.test(normRule)) {
-    return { decision: 'needs_owner_input', promotedItemKind: 'doubt_for_owner', reason: 'high_risk_owner_policy' }
+  // Cambios estratégicos/financieros o dudas nuevas propuestas por LLM -> SIEMPRE revisión del dueño (`needs_owner_input`)
+  if (
+    HIGH_RISK_OWNER_ONLY_POLICY_RE.test(normRule) ||
+    /^doubt:llm/.test(dedupeKey) ||
+    itemKind === 'doubt_for_owner'
+  ) {
+    return {
+      decision: 'needs_owner_input',
+      promotedItemKind: 'doubt_for_owner',
+      reason: HIGH_RISK_OWNER_ONLY_POLICY_RE.test(normRule) ? 'high_risk_owner_policy' : 'llm_doubt_requires_owner_review'
+    }
   }
 
-  // Todo lo demás (reglas operativas seguras de atención al cliente ya filtradas por los candados b.1-b.14) -> AUTO-APLICAR
-  const promotedKind = itemKind === 'doubt_for_owner' ? 'learned_rule' : itemKind
-  return { decision: 'auto_apply', promotedItemKind: promotedKind, reason: 'safe_operational_autopilot' }
+  return { decision: 'auto_apply', promotedItemKind: itemKind, reason: 'safe_operational_autopilot' }
 }

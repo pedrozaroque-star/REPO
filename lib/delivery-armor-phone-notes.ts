@@ -160,6 +160,7 @@ export interface CreateDeliveryArmorPhoneNoteResult {
     | 'SENT_CONDIMENTS_ONLY_ALREADY_PREPARED'
     | 'SENT_UNMATCHED_BANNER'
     | 'ALREADY_PREPARED_NO_ITEM_MOD'
+    | 'PAID_ITEM_CHANGE_BLOCKED'
     | 'ALREADY_DELIVERED'
     | 'AMBIGUOUS'
     | 'NOT_FOUND'
@@ -782,6 +783,58 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
       .filter(Boolean)
       .join(' | ')
 
+  // Blindaje determinista contra cambios de platillo con costo (ej. Burrito -> Taco Plate, Taco -> Taco Plate, Regular -> Super, agregar platillos/bebidas pagadas)
+  const combinedModIntent = foldAscii([noteSummaryEs, noteSummaryEn || '', ...modifications].join(' '))
+  const DISH_SWAP_FAMILIES_RE =
+    /(?:taco\s+plates?|fiesta\s+platters?|burritos?|tacos?|platos?|plates?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|charolas?|aguas?\s+frescas?|horchatas?|jamaicas?|champurrados?|flan(?:es)?|cheesecakes?|sodas?|bebidas?|drinks?)/
+  const swapMatch =
+    combinedModIntent.match(
+      /\b(?:cambiar|cambia|change|swap|switch|replace|convertir|convert)\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+|my\s+|the\s+|one\s+|a\s+)?([a-z0-9\s]{2,36}?)\s+(?:por|a|para|to|for|into|with)\s+(?:un\s+|una\s+|el\s+|la\s+|a\s+|an\s+|the\s+)?([a-z0-9\s]{2,36})\b/
+    ) ||
+    combinedModIntent.match(
+      /\b(?:en\s+vez\s+de|en\s+lugar\s+de|instead\s+of)\s+(?:el\s+|la\s+|un\s+|una\s+|the\s+|a\s+|an\s+)?([a-z0-9\s]{2,36}?)\s+(?:quiere|quiero|poner|pon|dar|make\s+it|wants?|give\s+me|send)?\s*(?:un\s+|una\s+|el\s+|la\s+|a\s+|an\s+|the\s+)?([a-z0-9\s]{2,36})\b/
+    )
+  let isPaidDishSwap = false
+  if (swapMatch) {
+    const left = swapMatch[1].trim()
+    const right = swapMatch[2].trim()
+    const leftDish = left.match(DISH_SWAP_FAMILIES_RE)?.[0] || ''
+    const rightDish = right.match(DISH_SWAP_FAMILIES_RE)?.[0] || ''
+    const normalizeFamily = (d: string) => {
+      if (/taco\s+plate/.test(d)) return 'taco_plate'
+      if (/^taco/.test(d)) return 'taco'
+      if (/^burrito/.test(d)) return 'burrito'
+      if (/^plato|^plate/.test(d)) return 'plate'
+      if (/^quesadilla/.test(d)) return 'quesadilla'
+      if (/^mulita/.test(d)) return 'mulita'
+      if (/^torta/.test(d)) return 'torta'
+      if (/^sope/.test(d)) return 'sope'
+      if (/^nacho/.test(d)) return 'nachos'
+      if (/fiesta|charola/.test(d)) return 'platter'
+      if (/agua|horchata|jamaica|champurrado|soda|bebida|drink/.test(d)) return 'drink'
+      if (/flan|cheesecake/.test(d)) return 'dessert'
+      return d
+    }
+    if (leftDish && rightDish && normalizeFamily(leftDish) !== normalizeFamily(rightDish)) {
+      isPaidDishSwap = true
+    }
+  }
+  const isPaidUpgradeOrAdd =
+    /\b(?:hacerlo\s+super|cambiar(?:lo)?\s+a\s+super|upgrade\s+(?:to\s+)?super|make\s+(?:it|the\s+\w+)\s+super|extra\s+(?:carne|meat|asada|pastor|pollo|queso|cheese|guacamole|aguacate|avocado|crema|sour\s+cream|arroz|rice)|(?:agregar|anadir|add)\s+(?:un|una|unos|unas|dos|tres|\d+|a|an|one|two|extra)\s+(?:burrito|taco|torta|quesadilla|mulita|sope|plato|plate|nacho|bebida|drink|horchata|jamaica|champurrado|flan|cheesecake|arroz|rice|guacamole|queso))\b/.test(
+      combinedModIntent
+    )
+
+  if (isPaidDishSwap || isPaidUpgradeOrAdd) {
+    return {
+      ok: false,
+      outcome: 'PAID_ITEM_CHANGE_BLOCKED',
+      messageEs:
+        'No podemos cambiar un platillo por otro distinto, subir de Regular a Super ni agregar comida, bebidas o extras con costo por teléfono en una orden pagada. Esos cambios deben hacerse directamente en la sección de Ayuda (Help) de tu aplicación de delivery (DoorDash, Uber Eats o Grubhub). Por teléfono solo podemos quitar ingredientes sin costo si sigue en preparación o agregar condimentos gratis (salsas, chiles, limones, servilletas).',
+      messageEn:
+        'We cannot swap one dish for a different menu item, upgrade Regular to Super, or add paid food, drinks, or paid extras over the phone on an already-paid order. Please make paid item changes or cancellations directly in the Help section of your delivery app (DoorDash, Uber Eats, or Grubhub). By phone we can only remove no-cost ingredients while still in kitchen prep or add free condiments (salsas, jalapeños, limes, napkins).'
+    }
+  }
+
   const requestType = normalizeRequestType(params.requestType, condiments, modifications)
   const requestedPlatform = normalizeDeliveryPlatformInput(params.platform)
   const source = params.source || 'twilio'
@@ -878,7 +931,14 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
   // - Cuando la orden YA salió de cocina (`READY` = EMPACANDO o `PACKED_AND_SEALED` = LISTA):
   //   ya NO se pueden quitar ingredientes de un platillo ya cocinado, pero SÍ se pueden agregar/editar condimentos gratis.
   const isPastPreparationStage = Boolean(matched && (finalStage === 'READY' || finalStage === 'PACKED_AND_SEALED'))
-  const askedForItemModification = modifications.length > 0 || requestType === 'item_modification'
+  const DISALLOWED_KITCHEN_PREP_AS_CONDIMENT_RE =
+    /\b(?:lechuga|lettuce|tomate|tomato(?:es)?|queso|cheese|guacamole|aguacate|avocado|crema|sour\s+cream|arroz|rice|carne|meat|asada|pastor|pollo|chicken|carnitas|cabeza|lengua|buche|chorizo|mayonesa|mayo|tortillas?\s+extra)\b/
+  const effectiveCondiments = isPastPreparationStage
+    ? condiments.filter((c) => !DISALLOWED_KITCHEN_PREP_AS_CONDIMENT_RE.test(foldAscii(c)))
+    : condiments
+  const droppedKitchenIngredientFromCondiments = isPastPreparationStage && effectiveCondiments.length < condiments.length
+  const askedForItemModification =
+    modifications.length > 0 || requestType === 'item_modification' || droppedKitchenIngredientFromCondiments
   let droppedItemModsDueToPrepared = false
   let effectiveModifications = modifications
   let effectiveRequestType = requestType
@@ -891,7 +951,7 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
     const stageLabelEs = finalStage === 'PACKED_AND_SEALED' ? 'ya está empacada y sellada' : 'ya salió de cocina a empaque'
     const stageLabelEn = finalStage === 'PACKED_AND_SEALED' ? 'is already packed and sealed' : 'has already left the kitchen for packing'
 
-    if (condiments.length === 0) {
+    if (effectiveCondiments.length === 0) {
       return {
         ok: false,
         outcome: 'ALREADY_PREPARED_NO_ITEM_MOD',
@@ -904,17 +964,17 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
           customerName: matched.customerName,
           stage: finalStage
         },
-        messageEs: `Localizamos la orden de ${platName} (${orderRef}, ${matched.customerName}), pero ${stageLabelEs}, por lo que ya no es posible quitar o modificar ingredientes dentro del platillo (como quitar frijol, queso o cebolla). Si deseas agregar o cambiar condimentos aparte gratis (salsas roja/verde, limones, chiles, servilletas), con gusto podemos enviarlos antes de que salga con el repartidor.`,
-        messageEn: `We located the ${platName} order (${orderRef}, ${matched.customerName}), however it ${stageLabelEn}, so we can no longer remove or change ingredients inside the dish. If you would like to add or edit free side condiments (red/green salsa, limes, jalapeños, napkins), we can still send those to packing before driver handoff.`
+        messageEs: `Localizamos la orden de ${platName} (${orderRef}, ${matched.customerName}), pero ${stageLabelEs}, por lo que ya no es posible modificar ingredientes de cocina del platillo (como quitar frijol o agregar lechuga, queso o guacamole). Si deseas agregar o cambiar condimentos gratis de estación de empaque (salsas roja/verde, limones, chiles, rábanos, servilletas), con gusto podemos enviarlos antes de que salga con el repartidor.`,
+        messageEn: `We located the ${platName} order (${orderRef}, ${matched.customerName}), however it ${stageLabelEn}, so we can no longer modify kitchen ingredients (such as removing beans or adding lettuce, cheese, or guacamole). If you would like free packing-station condiments (red/green salsa, limes, jalapeños, radishes, napkins), we can still send those before driver handoff.`
       }
     }
 
-    // Pidió ambos (quitar ingrediente + condimentos): enviar SOLO los condimentos gratis e informar con honestidad
+    // Pidió ambos (ingrediente de cocina + condimentos gratis): enviar SOLO los condimentos gratis permitidos e informar con honestidad
     droppedItemModsDueToPrepared = true
     effectiveModifications = []
     effectiveRequestType = 'condiments'
-    effectiveSummaryEs = `Condimentos gratis: ${condiments.join(', ')}`
-    effectiveSummaryEn = `Free condiments: ${condiments.join(', ')}`
+    effectiveSummaryEs = `Condimentos gratis: ${effectiveCondiments.join(', ')}`
+    effectiveSummaryEn = `Free condiments: ${effectiveCondiments.join(', ')}`
   }
 
   const matchedItemsSummary =
@@ -972,10 +1032,10 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
 
   if (existingRow) {
     const mergedCondiments = params.replaceCondiments
-      ? dedupeStringArray(condiments)
+      ? dedupeStringArray(effectiveCondiments)
       : dedupeStringArray([
           ...(Array.isArray(existingRow.requested_condiments) ? existingRow.requested_condiments : []),
-          ...condiments
+          ...effectiveCondiments
         ])
     const mergedMods = dedupeStringArray([
       ...(Array.isArray(existingRow.item_modifications) ? existingRow.item_modifications : []),
@@ -1057,7 +1117,7 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
       request_type: effectiveRequestType,
       note_summary_es: effectiveSummaryEs,
       note_summary_en: effectiveSummaryEn,
-      requested_condiments: condiments,
+      requested_condiments: effectiveCondiments,
       item_modifications: effectiveModifications,
       ordered_items_hint: resolvedOrderedItemsHint,
       status: 'pending'
@@ -1105,8 +1165,8 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
         customerName: matched.customerName,
         stage: finalStage
       },
-      messageEs: `Tu orden de ${platLabel} (${orderRef}, ${matched.customerName}) ${stageLabelEs}, así que ya no fue posible quitar o modificar ingredientes dentro del platillo; sin embargo, SÍ enviamos la alerta parpadeante a empaque para agregar tus condimentos gratis (${condiments.join(', ')}) antes de entregarla al repartidor.`,
-      messageEn: `Your ${platLabel} order (${orderRef}, ${matched.customerName}) ${stageLabelEn}, so we could no longer modify ingredients inside the dish; however, we DID send a flashing alert to packing to include your free condiments (${condiments.join(', ')}) before driver handoff.`
+      messageEs: `Tu orden de ${platLabel} (${orderRef}, ${matched.customerName}) ${stageLabelEs}, así que ya no fue posible modificar ingredientes de cocina del platillo; sin embargo, SÍ enviamos la alerta parpadeante a empaque para agregar tus condimentos gratis (${effectiveCondiments.join(', ')}) antes de entregarla al repartidor.`,
+      messageEn: `Your ${platLabel} order (${orderRef}, ${matched.customerName}) ${stageLabelEn}, so we could no longer modify kitchen ingredients; however, we DID send a flashing alert to packing to include your free condiments (${effectiveCondiments.join(', ')}) before driver handoff.`
     }
   }
 

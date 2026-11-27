@@ -317,9 +317,9 @@ export function inferAppliesToChannels(
     /\b(?:desvio\s+condicional|spectrum\s+landline|att\s+wireless|at\s+t\s+wireless|forwardedfrom|ring\s+timeout|numero\s+twilio)\b/.test(
       norm
     ) ||
-    /\b(?:colgar\s+(?:la\s+)?llamada|terminar\s+(?:la\s+)?llamada|finalizar\s+(?:la\s+)?llamada|cerrar\s+(?:la\s+)?llamada|cierre\s+de\s+(?:la\s+)?llamada|despedir\s+(?:la\s+)?llamada|hang\s+up\s+the\s+call|end\s+the\s+call|close\s+the\s+call|goodbye\s+intent)\b/.test(norm) ||
-    (/\bhablar\s+con\s+el\s+(?:manager|gerente)\b/.test(norm) &&
-      /\b(?:ticket|recado|10\s+digitos|motivo|avise\s+al\s+gerente)\b/.test(norm))
+    /\b(?:colgar\s+(?:la\s+)?llamada|terminar\s+(?:la\s+)?llamada|finalizar\s+(?:la\s+)?llamada|cerrar\s+(?:la\s+)?llamada|cierre\s+de\s+(?:la\s+)?llamada|despedir\s+(?:la\s+)?llamada|transferir\s+(?:la\s+)?llamada|llamada\s+de\s+vuelta|contactar\s+a\s+alguien\s+en\s+la\s+tienda|toma\s+de\s+pedido\s+por\s+voz|encargado\s+de\s+catering|caller\s+id|ultimos\s+4\s+digitos|hang\s+up\s+the\s+call|end\s+the\s+call|close\s+the\s+call|goodbye\s+intent)\b/.test(norm) ||
+    (/\bhablar\s+con\s+(?:el\s+|un\s+)?(?:manager|gerente|representante|persona)\b/.test(norm) &&
+      /\b(?:ticket|recado|10\s+digitos|motivo|avise\s+al\s+gerente|transferir|datos\s+personales)\b/.test(norm))
   if (isPhoneOnly) return 'phone_only'
 
   return 'both'
@@ -464,6 +464,8 @@ async function fetchActiveRulesFromDb(storeKeyNum: number): Promise<ActivePhoneL
 
   const rules: ActivePhoneLearnedRule[] = []
   for (const r of data as any[]) {
+    // Defensa en profundidad: nunca inyectar filas auto_applied que ahora violen los candados de seguridad
+    if (r.status === 'auto_applied' && shouldRejectCandidateLearningFinding(r)) continue
     const ruleEs = sanitizePhoneLearningText(r.proposed_rule_es || r.owner_instruction || r.fast_reply_es || '', 400, 'es')
     const ruleEn = sanitizePhoneLearningText(r.proposed_rule_en || r.fast_reply_en || ruleEs, 400, 'en')
     const fastEs = r.fast_reply_es ? sanitizePhoneLearningText(r.fast_reply_es, 220, 'es') : null
@@ -1486,21 +1488,31 @@ async function extractLlmPhoneCallDoubts(
   try {
     const transcriptCompact = pairs
       .slice(0, 22)
-      .map((p) => `CLIENTE: ${p.userText.slice(0, 180)}\nKORE: ${p.assistantText.slice(0, 240)}`)
+      .map((p) => {
+        const toolLine = p.toolText ? `\nHERRAMIENTA: ${String(p.toolText).slice(0, 180)}` : ''
+        return `CLIENTE: ${p.userText.slice(0, 180)}${toolLine}\nKORE: ${p.assistantText.slice(0, 240)}`
+      })
       .join('\n---\n')
 
     const coveredSnippet = alreadyCoveredTriggers.slice(0, 35).join(' | ') || 'ninguno'
     const prompt = [
       'Audita esta llamada telefónica real o simulación Kore 3.8 Live de Tacos Gavilan en California (cada llamada ya entra en la línea directa de una sucursal específica).',
-      'Si Kore respondió correctamente con datos reales (horario de esa tienda, lista de 6 Drive-Thru, regla de desayunos hasta 2 PM, precios USD) y el cliente no reportó error, DEVUELVE {"items":[]} obligatoriamente.',
+      'POLÍTICAS INQUEBRANTABLES DE TACOS GAVILAN (NUNCA REPORTES ESTO COMO ERROR NI PROPONGAS LO CONTRARIO):',
+      '  1) CERO PEDIDOS POR TELÉFONO: Kore NUNCA toma pedidos por voz/teléfono. Redirigir a tacosgavilan.com, mostrador o Drive-Thru para ordenar (o Fiesta Platters) es OBLIGATORIO, JAMÁS un error. (Solo es error mandar a la web cuando el cliente únicamente preguntó qué hay en el menú/precios.)',
+      '  2) CERO TRANSFERENCIAS EN VIVO: La línea Twilio NO transfiere llamadas a sucursales, gerentes ni empleados. Ofrecer create_manager_callback pidiendo nombre + confirmación de últimos 4 dígitos del Caller ID (o teléfono de 10 dígitos) es el flujo OFICIAL y OBLIGATORIO (no existe "encargado de catering").',
+      '  3) PROHIBIDO COLGAR EN "OKAY" / "GRACIAS" / "THANK YOU" / "OKAY, GRACIAS" / "SOLAMENTE": Preguntar "¿Te puedo ayudar con algo más?" tras un agradecimiento o acuse breve es OBLIGATORIO; JAMÁS propongas cerrar la llamada automáticamente con esas palabras.',
+      '  4) HERRAMIENTAS EN VIVO EXISTENTES: Kore ya tiene herramientas activas para validar tickets (validate_order_ticket), condimentos/modificaciones sin costo en apps (send_delivery_armor_order_note), cambiar hora de recolección Toast (request_toast_pickup_time_change), sucursal equivocada dual (coordinate_wrong_store_order), Fiesta Platters a cocina (send_fiesta_platter_prep_alert) y calendario real de festivos. JAMÁS propongas negarle estas herramientas ni pedir "crear bases de datos" ya existentes.',
+      '  5) RECLAMOS DE ORDEN INCOMPLETA/EQUIVOCADA: Pedir los 4 datos (qué faltó + ticket, fecha, nombre, teléfono/Caller ID) con advertencia de SIN TICKET es OBLIGATORIO.',
+      '  6) CERO META-NOTAS DE INGENIERÍA NI RUIDO 1-OFF: PROHIBIDO redactar reglas tipo "Configurar el sistema/modelo/STT...", "Kore debe tener una base de datos...", "Verificar y estandarizar...", "Definir criterio oficial..." ni reportar palabras sueltas de ruido (ej. "Paprika"). Toda proposedRuleEs debe ser una instrucción directa hablada para Kore.',
+      'Si Kore cumplió correctamente las políticas y dio datos reales sin que el cliente reportara un error real, DEVUELVE {"items":[]} obligatoriamente.',
       'Solo reporta MÁXIMO 1 hallazgo genuino NO cubierto:',
-      '  A) itemKind="stt_synonym": cuando el audio/transcripción deformó una palabra real (ej. "ibt"->"EBT", "hadas"->"asada", "sasada"->"asada", "dritro"->"Drive-Thru") generando confusión o repetición.',
-      '  B) itemKind="doubt_for_owner": cuando Kore dio una respuesta falsa, fuera de tema (ej. responder cancelación cuando preguntan ubicaciones), mandó al cliente a tacosgavilan.com en vez de recitar el menú por voz, omitió categorías/carnes, o intentó despedirse antes de tiempo ante un simple "okay, gracias".',
+      '  A) itemKind="stt_synonym": cuando el audio/transcripción deformó una palabra real del menú/operación (ej. "ibt"->"EBT", "molita"->"mulita", "fe de la hoya"->"café de olla") generando confusión o repetición.',
+      '  B) itemKind="doubt_for_owner": cuando Kore dio un dato FALSO (precio/horario/festivo/estatus equivocado), se saltó una herramienta oficial, alucinó confirmar algo sin llamar herramienta, o violó una política real de Tacos Gavilan.',
       `Temas ya cubiertos en sistema/bandeja (NO repetir ni duplicar): ${coveredSnippet}.`,
-      'PROHIBIDO reportar: tecla "9" (es nuestro comando DTMF oficial para cambiar Español/Inglés), preguntar por horario o ubicación cuando Kore ya contestó con los datos de su tienda, preguntas sobre el modelo de IA, ruido suelto ("it", "3177") o spam.',
+      'PROHIBIDO reportar: tecla "9" (comando DTMF oficial ES/EN), preguntas ya bien contestadas, preguntas sobre el modelo IA, ruido suelto ("it", "3177", "Paprika") o spam/robocalls.',
       'Reglas de marca obligatorias: usa "Tacos Gavilan" (jamás "El"), precios en dólares USD (jamás pesos).',
-      'Devuelve SOLO JSON válido usando exactamente "doubt_for_owner" o "stt_synonym" en itemKind (sin barra "|"): {"items":[{"itemKind":"doubt_for_owner","category":"menu|hours|policies|catering|payments|general","spokenVariant":"solo si stt_synonym, ej: ibt","intendedTerm":"solo si stt_synonym, ej: EBT","questionOrTrigger":"...","questionOrTriggerEn":"English title/trigger","customerQuote":"...","koreQuote":"...","doubtForOwner":"Explicación clara en español para Carlos","doubtForOwnerEn":"Clear explanation in English for the owner","proposedRuleEs":"Regla operativa clara para Kore ES","proposedRuleEn":"Clear operational rule for Kore EN"}]}',
-      'Si itemKind="stt_synonym", redacta proposedRuleEs exactamente indicando qué palabra deformada escuchar e interpretar como cuál término oficial.',
+      'Devuelve SOLO JSON válido usando exactamente "doubt_for_owner" o "stt_synonym" en itemKind (sin barra "|"): {"items":[{"itemKind":"doubt_for_owner","category":"menu|hours|policies|catering|payments|general","spokenVariant":"solo si stt_synonym, ej: ibt","intendedTerm":"solo si stt_synonym, ej: EBT","questionOrTrigger":"...","questionOrTriggerEn":"English title/trigger","customerQuote":"...","koreQuote":"...","doubtForOwner":"Explicación clara en español para Carlos","doubtForOwnerEn":"Clear explanation in English for the owner","proposedRuleEs":"Regla operativa clara hablada para Kore ES","proposedRuleEn":"Clear spoken operational rule for Kore EN"}]}',
+      'Si itemKind="stt_synonym", redacta proposedRuleEs indicando de forma natural: "Cuando el cliente diga <spokenVariant>, interprétalo como <intendedTerm>." (sin decir "Configurar el motor...").',
       transcriptCompact
     ].join('\n')
 
@@ -1559,7 +1571,6 @@ async function extractLlmPhoneCallDoubts(
         sourceType,
         itemKind: rawKind,
         status: 'needs_owner_input',
-        appliesToChannels: 'both',
         category: String(it?.category || 'general').slice(0, 40),
         questionOrTrigger: trigger,
         questionOrTriggerEn: sanitizePhoneLearningText(it?.questionOrTriggerEn, 180, 'en') || trigger,

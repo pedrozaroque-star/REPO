@@ -8622,7 +8622,7 @@ export function getStaticCanonicalWarmPhrases(): Array<{ text: string; lang: Pho
     ['El traslado depende del repartidor en tu app. Si lleva mucho tiempo esperando repartidor, ¿me das tu nombre, teléfono de 10 dígitos y código de orden para revisar en mostrador si sigue aquí?', 'Delivery transit is handled by your app driver. If it has been waiting too long for pickup, may I have your name, 10-digit phone, and order code so we can check the counter?'],
     ['Lamento el inconveniente. Por favor repórtalo en la sección Ayuda de tu app para tu reembolso o crédito. Si gustas avisar al gerente, ¿me das tu nombre, teléfono de 10 dígitos y código de orden?', 'I apologize for that. Please report it in the Help section of your app for your refund or credit. If you also want to alert the manager, may I have your name, 10-digit phone, and order code?'],
     ['Con gusto envío nota de empaque para incluirlos siempre que tu orden aún no haya salido. ¿Me das tu nombre, número de orden, qué condimentos deseas y tu teléfono de 10 dígitos?', 'I can send a packing note to include them as long as your order has not left yet. May I have your name, order number, which condiments you need, and your 10-digit phone number?'],
-    ['No podemos mover órdenes pagadas entre tiendas. Si fue por app, cancélala de inmediato en tu app; si fue en tacosgavilan.com, ¿en qué sucursal cayó y cuál es tu nombre, teléfono y número de orden?', 'Paid orders cannot be moved between stores. For app orders please cancel right away in the app; for tacosgavilan.com pickup, which store did it go to, and what is your name, phone, and order number?'],
+    ['Con gusto coordinamos alerta simultánea a ambas sucursales para que te la preparen donde quieres recoger. ¿En qué sucursal cayó por error, en cuál quieres recoger, y cuál es tu nombre, número de orden y teléfono?', 'I can gladly coordinate simultaneous alerts to both locations so it is prepared where you want to pick up. Which store did it go to by mistake, which location do you want to pick up from, and what is your name, order number, and phone?'],
     ['Tenemos aguas frescas naturales de Horchata, Jamaica, Piña y Tamarindo en 22 onzas, 32 onzas y galón de 128 onzas, además de Café de Olla, Café Regular y Champurrado en 16 onzas y caja de 96 onzas. ¿Algo más?', 'We serve fresh Horchata, Jamaica, Pineapple, and Tamarind aguas frescas in 22, 32, and 128 oz gallons, plus 16 oz Café de Olla, regular coffee, and Champurrado, and a 96 oz Champurrado box. Anything else?'],
     ['En todas nuestras sucursales manejamos tanto Café de Olla tradicional como Café Regular en vaso térmico de 16 onzas durante todo el día ($2.59 dólares más impuestos). ¿Algo más?', 'At all our locations we serve both traditional spiced Café de Olla and regular coffee in a 16-ounce cup all day ($2.59 plus tax). Can I help with anything else?'],
     ['En burritos Regular, Super y Meat Only sí puedes pedir la carne mitad y mitad de dos carnes sin cargo extra, directamente en caja o por el Drive-Thru. ¿Algo más?', 'On Regular, Super, and Meat Only burritos you can order half-and-half with any two meats at no extra charge, directly at the counter or Drive-Thru. Anything else?'],
@@ -10887,6 +10887,20 @@ ${postOrderRulesBlock}
           turnLangGuess === 'en'
             ? 'We serve tacos, burritos, quesadillas, mulitas, tortas, sopes, Super Nachos, our Taco Plate with 3 tacos, rice, and beans, full combo plates with rice, beans, guacamole, salad, and tortillas, breakfast until 2:00 PM, aguas frescas, sodas, coffee, champurrado, flan, and cheesecake. Would you like any prices?'
             : 'Manejamos tacos, burritos, quesadillas, mulitas, tortas, sopes, Super Nachos, Taco Plate de 3 tacos con arroz y frijoles, platos completos con arroz, frijoles, guacamole, ensalada y tortillas, desayunos hasta las 2:00 PM, aguas frescas, sodas, café, champurrado, flan y cheesecake. ¿Gustas algún precio?'
+      } else if (/\b(hablar\s+con|comunicar(?:me)?\s+con|representante|trabajador|gerente|manager|encargado|alguien|persona|humano|speak\s+to|talk\s+to|someone|representative|customer\s+service)\b/i.test(normUser)) {
+        replyText =
+          turnLangGuess === 'en'
+            ? 'This automated line does not transfer calls directly to the counter, but I can send a priority alert to the manager on duty. May I have your name, phone number, and how we can help?'
+            : 'Esta línea no transfiere llamadas directo al mostrador, pero con gusto envío una alerta prioritaria a la pantalla del gerente en turno. ¿Me compartes tu nombre, tu teléfono y brevemente en qué te ayudamos?'
+      } else if (/\b(hacer\s+una\s+orden|ordenar\s+por\s+telefono|tomar\s+(?:mi\s+)?orden|place\s+an\s+order|order\s+over\s+the\s+phone)\b/i.test(normUser)) {
+        replyText =
+          turnLangGuess === 'en'
+            ? scheduleEval.isOpenNow
+              ? `We do not take orders over the phone. You can order at tacosgavilan.com or directly at the counter${store.has_drive_thru ? ' or Drive-Thru' : ''}.`
+              : `We are currently closed right now (${scheduleEval.statusMessageEn}). You can order at tacosgavilan.com or in store once we reopen.`
+            : scheduleEval.isOpenNow
+              ? `No tomamos órdenes por teléfono; puedes ordenar en tacosgavilan.com o directamente en caja${store.has_drive_thru ? ' o Drive-Thru' : ''}.`
+              : `En este momento estamos cerrados (${scheduleEval.statusMessageEs}). Podrás ordenar en tacosgavilan.com o en tienda en cuanto reabramos.`
       } else if (/\b(hora|horario|abierto|abiertos|cerrado|abren|cierran|open|close|hours|direccion|ubicacion|address)\b/i.test(normUser)) {
         replyText =
           turnLangGuess === 'en'

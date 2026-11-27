@@ -174,19 +174,18 @@ function extractCleanTenDigitUsPhone(raw: string, allowDev555 = false): { valid:
   return { valid: true, e164: `+1${ten}`, ten }
 }
 
-/** Declaraciones `BLOCKING` de herramientas para `gemini-3.8-live` en modo Recepcionista Telefónica. */
+/** Declaraciones `BLOCKING` compactas para `gemini-3.8-live` en modo Recepcionista Telefónica (100% paridad con `phone-live-bridge`). */
 export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
   {
     name: 'get_store_hours_and_status',
     behavior: 'BLOCKING',
-    description:
-      'Consulta en vivo el estado abierto/cerrado, el calendario real de los próximos 7 días (HOY, MAÑANA, PASADO MAÑANA con festivos ya aplicados), próximos festivos con fechas exactas y horario semanal regular de esta sucursal.',
+    description: 'Estado abierto/cerrado, calendario real de próximos 7 días (con festivos), festivos próximos y horario regular de esta sucursal.',
     parameters: {
       type: 'OBJECT',
       properties: {
         requested_date: {
           type: 'STRING',
-          description: "Opcional: 'today', 'tomorrow', 'day_after_tomorrow', día ('jueves'/'viernes'), festivo ('thanksgiving'/'black friday') o 'YYYY-MM-DD'."
+          description: "'today', 'tomorrow', 'day_after_tomorrow', día ('jueves'), festivo ('thanksgiving') o 'YYYY-MM-DD'."
         }
       }
     }
@@ -194,15 +193,11 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
   {
     name: 'search_menu_item_price',
     behavior: 'BLOCKING',
-    description:
-      'Busca en <1ms precios exactos en USD, ingredientes, desayunos, historia (1992), empleo o políticas oficiales en el menú y base de conocimiento en vivo de la sucursal.',
+    description: 'Busca en <1ms precios USD, ingredientes, desayunos, historia (1992), empleo o políticas oficiales de esta sucursal.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        query: {
-          type: 'STRING',
-          description: 'Platillo(s) o bebida(s) a consultar (ej. "dos tacos de asada y una horchata grande", "torta cubana", "flan").'
-        }
+        query: { type: 'STRING', description: 'Platillo, bebida, ingrediente o tema.' }
       },
       required: ['query']
     }
@@ -210,15 +205,11 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
   {
     name: 'get_fiesta_platter_packages',
     behavior: 'BLOCKING',
-    description:
-      'Calcula la recomendación y precio exacto en USD de charolas Fiesta Platter (Party Trays) según el número de invitados.',
+    description: 'Recomienda combinación y precio USD de charolas Fiesta Platter según número de invitados.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        guest_count: {
-          type: 'INTEGER',
-          description: 'Número estimado de personas o invitados (ej. 20, 35, 60, 100).'
-        }
+        guest_count: { type: 'INTEGER', description: 'Número de invitados.' }
       },
       required: ['guest_count']
     }
@@ -226,15 +217,11 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
   {
     name: 'find_other_stores',
     behavior: 'BLOCKING',
-    description:
-      'Busca ubicaciones, entrecalles, teléfonos, Drive-Thru y horarios en vivo de cualquiera de las 15 sucursales de Tacos Gavilan.',
+    description: 'Ubicaciones, entrecalles, teléfonos, Drive-Thru y horarios en vivo de las 15 sucursales.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        search_city_or_filter: {
-          type: 'STRING',
-          description: 'Ciudad, zona o "drive_thru" para filtrar sucursales con Drive-Thru; vacío para ver las 15.'
-        }
+        search_city_or_filter: { type: 'STRING', description: 'Ciudad, zona o "drive_thru"; vacío para las 15.' }
       }
     }
   },
@@ -242,26 +229,14 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'validate_order_ticket',
     behavior: 'BLOCKING',
     description:
-      'Valida en tiempo real en el sistema POS/Supabase de la sucursal si un número de ticket, orden Drive-Thru o pedido de entrega (por ticket o customer_name) existe realmente para la fecha de compra indicada. Invócala DE INMEDIATO en cuanto el cliente dé un número/código o pregunte el estatus de un pedido existente (ej. Uber/DoorDash/pickup), ANTES de darlo por válido, inventar estatus o registrar create_manager_callback.',
+      'Valida en vivo en POS/Supabase si existe un ticket, orden DT o entrega (por código o customer_name). Invócala DE INMEDIATO al recibir número/código o consulta de estatus antes de confirmar o llamar create_manager_callback.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        ticket_or_order_number: {
-          type: 'STRING',
-          description: 'Número de ticket, orden o código dicho por el cliente (ej. "1600", "#983", "012234", "SIN TICKET").'
-        },
-        customer_name: {
-          type: 'STRING',
-          description: 'Nombre del cliente cuando consulta orden de Uber Eats, DoorDash, Grubhub o pickup por nombre (ej. "Enrique").'
-        },
-        purchase_date: {
-          type: 'STRING',
-          description: 'Fecha o momento de compra indicado por el cliente (ej. "hoy", "el día de hoy", "ayer", "2026-11-21").'
-        },
-        target_store_id: {
-          type: 'INTEGER',
-          description: 'ID de la sucursal (1, 3..16) si el cliente indicó que compró en otra tienda distinta; omítelo si fue en esta sucursal.'
-        }
+        ticket_or_order_number: { type: 'STRING', description: 'Número/código o "SIN TICKET".' },
+        customer_name: { type: 'STRING', description: 'Nombre en orden Uber/DoorDash/Grubhub/pickup.' },
+        purchase_date: { type: 'STRING', description: 'Fecha de compra ("hoy", "ayer", "YYYY-MM-DD").' },
+        target_store_id: { type: 'INTEGER', description: 'ID sucursal (1, 3..16) si compró en otra tienda.' }
       },
       required: []
     }
@@ -270,23 +245,23 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'send_delivery_armor_order_note',
     behavior: 'BLOCKING',
     description:
-      'Envía una ALERTA PARPADEANTE en vivo a la tableta Delivery Armor de empaque para que la cajera agregue condimentos gratuitos (salsas, chiles, limones, cebollas, servilletas, utensilios) o aplique una modificación sin costo a un platillo (sin queso, sin cebolla, sin cilantro, sin crema, salsa aparte, tortillas de harina/maíz) en una orden de DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online. PROHIBIDO para artículos pagados extra. Pide antes: plataforma, nombre en la orden, código de la app o 1–2 platillos, y el detalle exacto.',
+      'Alerta en vivo a tableta Delivery Armor/PREPARADOR para condimentos gratis o ajuste sin costo en platillo (IN_KITCHEN permite ambos; READY/PACKED solo condimentos gratis; prohibido ítems pagados) en DoorDash, Uber Eats, Grubhub o Online.',
     parameters: {
       type: 'OBJECT',
       properties: {
         platform: { type: 'STRING', description: "'DOORDASH', 'UBER_EATS', 'GRUBHUB' o 'TOAST_ONLINE'." },
-        customer_name: { type: 'STRING', description: 'Nombre exacto en la orden de la aplicación.' },
-        order_code: { type: 'STRING', description: 'Código de la orden o últimos dígitos si el cliente los tiene.' },
-        ordered_items: { type: 'STRING', description: '1 o 2 platillos pedidos para identificar la orden si no tiene código o hay homónimos.' },
+        customer_name: { type: 'STRING', description: 'Nombre en la orden.' },
+        order_code: { type: 'STRING', description: 'Código de la orden si lo tiene.' },
+        ordered_items: { type: 'STRING', description: '1-2 platillos para ubicar la orden.' },
         request_type: { type: 'STRING', description: "'condiments', 'item_modification' o 'both'." },
         requested_condiments: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Condimentos gratis EN ESPAÑOL.' },
-        item_modifications: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Modificaciones sin costo por platillo EN ESPAÑOL.' },
-        note_summary_es: { type: 'STRING', description: 'Resumen claro SIEMPRE EN ESPAÑOL para la cajera en la tableta.' },
+        item_modifications: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Ajustes sin costo por platillo EN ESPAÑOL.' },
+        note_summary_es: { type: 'STRING', description: 'Resumen claro SIEMPRE EN ESPAÑOL.' },
         note_summary_en: { type: 'STRING', description: 'Resumen corto en inglés opcional.' },
-        caller_phone: { type: 'STRING', description: "'CALLER_ID' o teléfono de 10 dígitos." },
-        target_store_id: { type: 'INTEGER', description: 'ID de sucursal destino (1, 3..16) solo si ordenó en otra tienda.' },
-        replace_condiments: { type: 'BOOLEAN', description: 'true si el cliente está editando/cambiando condimentos que había pedido antes (reemplaza la lista previa).' },
-        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no baja a Toast y confirmó que la acaba de enviar hace segundos.' }
+        caller_phone: { type: 'STRING', description: "'CALLER_ID' o 10 dígitos." },
+        target_store_id: { type: 'INTEGER', description: 'ID sucursal (1, 3..16) si es otra tienda.' },
+        replace_condiments: { type: 'BOOLEAN', description: 'true si edita condimentos previos.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true si aún no baja a Toast y acaba de enviarla.' }
       },
       required: ['platform', 'customer_name', 'note_summary_es']
     }
@@ -295,19 +270,19 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'request_toast_pickup_time_change',
     behavior: 'BLOCKING',
     description:
-      'Ayuda a un cliente con una orden de Toast / tacosgavilan.com que llama para cambiar el horario para recoger su pedido (más tarde o más temprano). Valida que la nueva hora esté dentro del horario real de la sucursal y envía alerta parpadeante en vivo a la tableta PREPARADOR de cocina y mostrador para que tengan su orden fresca a la hora exacta que especificó.',
+      'Cambia hora de recolección de orden Toast / tacosgavilan.com validando horario real de tienda y alertando en vivo a tableta PREPARADOR.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        customer_name: { type: 'STRING', description: 'Nombre en la orden de Toast / tacosgavilan.com.' },
-        order_code: { type: 'STRING', description: 'Número de orden o confirmación de Toast si el cliente lo tiene.' },
-        requested_pickup_time: { type: 'STRING', description: 'Nueva hora exacta solicitada para recoger (ej. "2:30 PM", "6:00 PM", "en 1 hora").' },
-        requested_date: { type: 'STRING', description: 'Opcional: "today", "tomorrow" o fecha YYYY-MM-DD si no es hoy.' },
-        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono de 10 dígitos.' },
-        ordered_items: { type: 'STRING', description: 'Platillos de la orden si el cliente los menciona.' },
-        extra_notes: { type: 'STRING', description: 'Nota adicional en español para cocina (opcional).' },
-        target_store_id: { type: 'INTEGER', description: 'ID de sucursal (1, 3..16) solo si ordenó en otra tienda.' },
-        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no aparece en Toast y el cliente confirmó la sucursal.' }
+        customer_name: { type: 'STRING', description: 'Nombre en la orden.' },
+        order_code: { type: 'STRING', description: 'Número/código de orden Toast.' },
+        requested_pickup_time: { type: 'STRING', description: 'Nueva hora exacta (ej. "2:30 PM", "6:00 PM").' },
+        requested_date: { type: 'STRING', description: '"today", "tomorrow" o YYYY-MM-DD.' },
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o 10 dígitos.' },
+        ordered_items: { type: 'STRING', description: 'Platillos mencionados.' },
+        extra_notes: { type: 'STRING', description: 'Nota adicional en español.' },
+        target_store_id: { type: 'INTEGER', description: 'ID sucursal (1, 3..16) si es otra tienda.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true si aún no baja a Toast y confirmó tienda.' }
       },
       required: ['customer_name', 'requested_pickup_time']
     }
@@ -316,20 +291,20 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'coordinate_wrong_store_order',
     behavior: 'BLOCKING',
     description:
-      'Cuando un cliente se equivocó de sucursal al hacer su orden, envía una ALERTA EN VIVO SIMULTÁNEA a las 2 sucursales involucradas: (1) a la sucursal donde cayó el pedido por error (`paid_store_id`) le avisa NO PREPARAR, y (2) a la sucursal donde el cliente quiere recoger (`prepare_store_id`) le avisa PREPARAR AQUÍ con los platillos exactos y datos de la orden ya pagada.',
+      'Envía alerta dual simultánea cuando pidió en sucursal equivocada: NO PREPARAR en paid_store_id y PREPARAR AQUÍ con platillos pagados en prepare_store_id.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        paid_store_id: { type: 'INTEGER', description: 'ID de la sucursal (1, 3..16) donde cayó / se pagó el pedido por error.' },
-        prepare_store_id: { type: 'INTEGER', description: 'ID de la sucursal (1, 3..16) donde el cliente QUIERE recoger y donde debe prepararse.' },
-        customer_name: { type: 'STRING', description: 'Nombre del cliente en la orden.' },
-        order_code: { type: 'STRING', description: 'Número o código de la orden.' },
+        paid_store_id: { type: 'INTEGER', description: 'ID sucursal (1, 3..16) donde cayó por error.' },
+        prepare_store_id: { type: 'INTEGER', description: 'ID sucursal (1, 3..16) donde quiere recoger.' },
+        customer_name: { type: 'STRING', description: 'Nombre en la orden.' },
+        order_code: { type: 'STRING', description: 'Número/código de orden.' },
         platform: { type: 'STRING', description: "'TOAST_ONLINE', 'DOORDASH', 'UBER_EATS' o 'GRUBHUB'." },
-        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono de 10 dígitos.' },
-        ordered_items: { type: 'STRING', description: 'Platillos ordenados (útil si aún no baja a Toast para que la tienda destino sepa qué cocinar).' },
-        requested_pickup_time: { type: 'STRING', description: 'Hora estimada a la que pasará a recoger (opcional).' },
-        extra_notes: { type: 'STRING', description: 'Nota adicional en español (opcional).' },
-        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true si ya tienes los platillos confirmados por el cliente aunque Toast no haya empatado aún.' }
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o 10 dígitos.' },
+        ordered_items: { type: 'STRING', description: 'Platillos ordenados.' },
+        requested_pickup_time: { type: 'STRING', description: 'Hora estimada de recolección.' },
+        extra_notes: { type: 'STRING', description: 'Nota adicional en español.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true si confirmó platillos aunque aún no baje a Toast.' }
       },
       required: ['paid_store_id', 'prepare_store_id', 'customer_name']
     }
@@ -338,45 +313,39 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'send_fiesta_platter_prep_alert',
     behavior: 'BLOCKING',
     description:
-      'Cuando un cliente pidió un Fiesta Platter / Party Tray en DoorDash, Uber Eats, Grubhub o Tacos Gavilan Online y la plataforma no le permitió seleccionar todas las carnes, aguas frescas o tortillas que desea, valida el reparto contra las libras/galones oficiales del paquete (1 sola carne o varias, ej. 12 lbs = 4 Asada, 4 Pollo, 4 Pastor) y envía alerta directa en vivo a los cocineros en la tableta PREPARADOR.',
+      'Alerta en vivo a cocineros en PREPARADOR con el reparto exacto de carnes, aguas o tortillas de un Fiesta Platter pedido en app/web (15-20=6lb, 20-25=7.5lb, 25-30=10lb, 30-40=12lb).',
     parameters: {
       type: 'OBJECT',
       properties: {
         platform: { type: 'STRING', description: "'DOORDASH', 'UBER_EATS', 'GRUBHUB' o 'TOAST_ONLINE'." },
-        customer_name: { type: 'STRING', description: 'Nombre del cliente en la orden.' },
-        order_code: { type: 'STRING', description: 'Código o número de orden.' },
-        package_size: { type: 'STRING', description: "Tamaño del Fiesta Platter: '15-20' (6 lb), '20-25' (7.5 lb), '25-30' (10 lb) o '30-40' (12 lb)." },
+        customer_name: { type: 'STRING', description: 'Nombre en la orden.' },
+        order_code: { type: 'STRING', description: 'Código de orden.' },
+        package_size: { type: 'STRING', description: "'15-20', '20-25', '25-30' o '30-40'." },
         meat_breakdown: {
           type: 'ARRAY',
-          description: 'Lista de carnes solicitadas (1 sola carne o varias). Cada elemento: { meat: "Asada"|"Pollo"|"Al Pastor"|"Carnitas"|"Cabeza"|"Lengua"|"Buche"|"Chorizo", lbs?: número }.',
+          description: 'Carnes ({ meat: "Asada"|"Pollo"|"Al Pastor"|"Carnitas"|"Cabeza"|"Lengua"|"Buche"|"Chorizo", lbs?: número }).',
           items: {
             type: 'OBJECT',
-            properties: {
-              meat: { type: 'STRING' },
-              lbs: { type: 'NUMBER' }
-            },
+            properties: { meat: { type: 'STRING' }, lbs: { type: 'NUMBER' } },
             required: ['meat']
           }
         },
         aguas_breakdown: {
           type: 'ARRAY',
-          description: 'Opcional: sabores de agua fresca ({ flavor: "Horchata"|"Jamaica"|"Piña"|"Tamarindo", gallons?: número }).',
+          description: 'Sabores ({ flavor: "Horchata"|"Jamaica"|"Piña"|"Tamarindo", gallons?: número }).',
           items: {
             type: 'OBJECT',
-            properties: {
-              flavor: { type: 'STRING' },
-              gallons: { type: 'NUMBER' }
-            },
+            properties: { flavor: { type: 'STRING' }, gallons: { type: 'NUMBER' } },
             required: ['flavor']
           }
         },
-        tortillas_preference: { type: 'STRING', description: 'Opcional: "Maíz", "Harina" o "Mitad Maíz y Mitad Harina".' },
-        requested_condiments: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Condimentos gratis extra opcionales EN ESPAÑOL.' },
-        extra_notes: { type: 'STRING', description: 'Notas adicionales para cocina EN ESPAÑOL (opcional).' },
-        requested_pickup_time: { type: 'STRING', description: 'Hora programada de recolección si la mencionó (opcional).' },
-        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono de 10 dígitos.' },
-        target_store_id: { type: 'INTEGER', description: 'ID de sucursal (1, 3..16) solo si ordenó en otra tienda.' },
-        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true solo si aún no baja a Toast y confirmó que la acaba de enviar o está programada.' }
+        tortillas_preference: { type: 'STRING', description: '"Maíz", "Harina" o "Mitad Maíz y Mitad Harina".' },
+        requested_condiments: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Condimentos gratis EN ESPAÑOL.' },
+        extra_notes: { type: 'STRING', description: 'Notas cocina EN ESPAÑOL.' },
+        requested_pickup_time: { type: 'STRING', description: 'Hora de recolección.' },
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o 10 dígitos.' },
+        target_store_id: { type: 'INTEGER', description: 'ID sucursal (1, 3..16) si es otra tienda.' },
+        confirm_save_unmatched: { type: 'BOOLEAN', description: 'true si aún no baja a Toast.' }
       },
       required: ['platform', 'customer_name']
     }
@@ -385,48 +354,22 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'create_manager_callback',
     behavior: 'BLOCKING',
     description:
-      'Registra o ACTUALIZA un Recado Prioritario para el Gerente o una Nota de Empaque (condimentos gratis) en la pantalla de la sucursal. Antes de invocarlo, conoce el detalle/cambio concreto del cliente, confirma su nombre y confirma si usamos el número del que llama ("CALLER_ID") u otro de 10 dígitos (en reclamos en tienda/Drive-Thru también ticket VALIDADO con validate_order_ticket o confirmación explícita de SIN TICKET + fecha de compra). OBLIGATORIO: si después de crear el recado el cliente agrega cualquier detalle nuevo (ej. "sin queso", "Taco Plate", código o aclaración), VUELVE A INVOCAR esta herramienta con el reason_summary completo en español ANTES de decirle que ya lo agregaste.',
+      'Registra o ACTUALIZA Recado Prioritario al Gerente o Nota de Empaque. Conoce primero el detalle concreto, nombre y teléfono ("CALLER_ID" o 10 dígitos; en reclamo tienda/DT también ticket validado o SIN TICKET + fecha). Si tras guardar el cliente añade cualquier dato nuevo, RE-INVOCA esta herramienta con todo acumulado en español antes de confirmar.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        caller_name: {
-          type: 'STRING',
-          description: 'Nombre real proporcionado o confirmado por la persona que llama.'
-        },
-        caller_phone: {
-          type: 'STRING',
-          description: 'Envía "CALLER_ID" si en llamada real confirmó usar el mismo número del que llama (preferido cuando Twilio entregó Caller ID), o el teléfono alternativo real de 10 dígitos.'
-        },
-        caller_type: {
-          type: 'STRING',
-          description: 'Tipo: "customer", "employee", "vendor", "delivery_driver", o "corporate".'
-        },
-        urgency: {
-          type: 'STRING',
-          description: 'Urgencia: "high", "critical", o "normal" (usa SIEMPRE "normal" para "condiments_note").'
-        },
+        caller_name: { type: 'STRING', description: 'Nombre real.' },
+        caller_phone: { type: 'STRING', description: '"CALLER_ID" o teléfono real de 10 dígitos.' },
+        caller_type: { type: 'STRING', description: "'customer', 'employee', 'vendor', 'delivery_driver' o 'corporate'." },
+        urgency: { type: 'STRING', description: "'high', 'critical' o 'normal' ('normal' en 'condiments_note')." },
         reason_category: {
           type: 'STRING',
-          description:
-            'Categoría: "condiments_note", "wrong_store_order", "delivery_issue", "missing_or_wrong_item" (o "wrong_or_missing_order"), "lost_item", "employee_callout", "vendor_arrival", "billing_refund", u "other".'
+          description: "'condiments_note', 'wrong_store_order', 'delivery_issue', 'missing_or_wrong_item', 'lost_item', 'employee_callout', 'vendor_arrival', 'billing_refund' u 'other'."
         },
-        reason_summary: {
-          type: 'STRING',
-          description:
-            'Resumen completo y claro SIEMPRE EN ESPAÑOL para el gerente en pantalla de tienda (ej. "Solicita hablar con el gerente en turno sobre [asunto]"; PROHIBIDO redactarlo en inglés incluso si el cliente habló en inglés).'
-        },
-        ticket_or_order_number: {
-          type: 'STRING',
-          description: 'Número de ticket u orden validado (o "SIN TICKET" si el cliente confirmó explícitamente que ya no conserva el ticket).'
-        },
-        order_date: {
-          type: 'STRING',
-          description: 'Fecha o momento de compra indicado por el cliente (ej. "Hoy", "Ayer", "Viernes 15 Nov").'
-        },
-        target_store_id: {
-          type: 'INTEGER',
-          description: 'ID de la sucursal destino (1, 3..16) solo cuando la orden cayó por error en otra tienda distinta.'
-        }
+        reason_summary: { type: 'STRING', description: 'Resumen completo SIEMPRE EN ESPAÑOL para el gerente.' },
+        ticket_or_order_number: { type: 'STRING', description: 'Ticket validado o "SIN TICKET".' },
+        order_date: { type: 'STRING', description: 'Fecha de compra.' },
+        target_store_id: { type: 'INTEGER', description: 'ID sucursal destino (1, 3..16) si es otra tienda.' }
       },
       required: ['caller_name', 'caller_phone', 'reason_category', 'reason_summary']
     }
@@ -434,15 +377,11 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
   {
     name: 'flag_unanswered_question',
     behavior: 'BLOCKING',
-    description:
-      'Registra una duda legítima del negocio (políticas administrativas, convenios o eventos) que no tenga respuesta oficial en tu contexto. NUNCA la uses por productos que no vendemos ni bromas.',
+    description: 'Registra duda legítima de negocio sin respuesta oficial en contexto (no usar para bromas ni ítems no vendidos).',
     parameters: {
       type: 'OBJECT',
       properties: {
-        question_text: {
-          type: 'STRING',
-          description: 'Pregunta exacta que no contaba con respuesta oficial.'
-        }
+        question_text: { type: 'STRING', description: 'Pregunta exacta.' }
       },
       required: ['question_text']
     }
@@ -451,14 +390,11 @@ export const PHONE_KORE_LIVE_TOOL_DECLARATIONS = [
     name: 'end_call',
     behavior: 'BLOCKING',
     description:
-      'Invócala ÚNICAMENTE al final cuando el cliente confirme explícitamente que ya terminó o se despide ("es todo, gracias", "no gracias, bye", "adiós", "hasta luego", "eso es todo, gracias", "that is all, thank you"). ESTRICTAMENTE PROHIBIDO invocarla si el cliente solo dijo "okay, gracias", o si expresó frustración, queja o dijo "me voy con la competencia" / "¿por qué me cuelgas?" sin despedirse explícitamente.',
+      'Invócala SOLO tras despedida explícita ("es todo, gracias", "adiós", "bye", "that is all, thank you"). PROHIBIDO en simple "okay, gracias" o ante frustración/queja ("me voy con la competencia", "¿por qué me cuelgas?").',
     parameters: {
       type: 'OBJECT',
       properties: {
-        farewell_reason: {
-          type: 'STRING',
-          description: 'Motivo breve de cierre (ej. "resolved", "callback_saved").'
-        }
+        farewell_reason: { type: 'STRING', description: 'Motivo breve de cierre.' }
       }
     }
   }
@@ -661,7 +597,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     '',
     `Eres Kore, la recepcionista telefónica en vivo de **Tacos Gavilan** en **${customerBranchSpoken}** (Sucursal #${store.id}${customerBranchCrossStreets ? `, esquina oficial: ${customerBranchCrossStreets}` : ''}), California, EE. UU. CONCORDANCIA DE GÉNERO FEMENINO EN ESPAÑOL: Tienes voz e identidad femenina; al referirte a ti misma en español usa SIEMPRE adjetivos femeninos ("aquí sigo lista", "estoy lista", "quedo atenta", "segura"; PROHIBIDO decirte "listo" o "atento" en masculino), y para el cliente usa fórmulas corteses neutras sin repetir palabras ("cuando guste", "tómese su tiempo", jamás "lista para cuando esté listo").`,
     `REGLAS INQUEBRANTABLES DE IDENTIDAD, VOZ Y NEGOCIO:`,
-    `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO INMEDIATO EN TU PRIMERA ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos, armamos ni procesamos órdenes nuevas de comida por teléfono. Si el cliente dice frases de intención de compra como 'quiero dos tacos y dos burritos', 'voy a querer...', 'dame...', 'me das...', 'puedo pedir...', 'me tomas la orden', 'I want two tacos...', 'can I order...':\n   - EN TU PRIMERA ORACIÓN dile con amabilidad que **no tomamos órdenes por teléfono** e invítalo a ordenar fácilmente en **tacosgavilan.com** para pasar a recoger${store.has_drive_thru ? ' o directamente en caja o por el Drive-Thru' : ' o directamente en caja'}.\n   - ESTRICTAMENTE PROHIBIDO actuar como cajera o preguntar '¿Regular o Super?', '¿qué carne?', '¿con todo?' o '¿algo más de tu orden?'.\n   - Si mencionan platillos, solo si aporta utilidad informativa da sus precios unitarios directos en USD (y para burrito/quesadilla/mulita sin especificar Super, informa ambos precios Regular y Super sin preguntar cuál prefiere ni decir "tamaño"), cerrando sin tomar pedido. Excepción única: reclamos o condimentos de un pedido YA realizado (Regla #8).\n   - PROHIBIDO usar las palabras "política", "políticas", "reglamentos" o "policy".`,
+    `0. CERO PEDIDOS POR TELÉFONO (SOLO cuando intenten hacer un pedido NUEVO): NUNCA tomamos órdenes nuevas de comida por teléfono. Aplica este rechazo ÚNICAMENTE si el cliente realmente intenta pedir comida nueva por teléfono ('quiero dos tacos...', 'dame...', 'puedo pedir...', 'can I order...') — NO lo dispares ante saludos ('Hola'/'Hello'), preguntas de precio/horario, quejas o notas de órdenes ya pagadas.\n   - ${scheduleEval.isOpenNow ? `Dile con amabilidad (sin decir "por el momento" ni "políticas"/"policy") que **no tomamos órdenes por teléfono** e invítalo a ordenar en **tacosgavilan.com** (para recoger o delivery vía order.online)${store.has_drive_thru ? ' o directamente en caja o Drive-Thru' : ' o directamente en caja'}.` : `Aclara PRIMERO que **en este momento estamos cerrados** (no le pidas ordenar ahorita en tacosgavilan.com como si estuviéramos abiertos; indícale cuándo reabrimos para ordenar en tacosgavilan.com${store.has_drive_thru ? ', caja o Drive-Thru' : ' o caja'}).`}\n   - ESTRICTAMENTE PROHIBIDO actuar como cajera ('¿Regular o Super?', '¿qué carne?') o usar las palabras "política", "políticas", "reglamentos" o "policy". Si mencionan platillos, da sus precios unitarios en USD (Regular y Super sin preguntar preferencia).`,
     `1. MARCA Y MONEDA: El nombre oficial es estrictamente **Tacos Gavilan** (JAMÁS digas "Tacos El Gavilan"). Todos los precios son exclusivamente en **dólares y centavos estadounidenses (USD)** (ej. "dos dólares con veintinueve centavos" / "$2.29 dollars"; PROHIBIDO decir "pesos" o "MXN").`,
     `2. ESTILO DE VOZ EN VIVO (IGUAL QUE DRIVE-THRU HME): Tono cálido, ágil, humano, amable y seguro. CERO muletillas al inicio (NO empieces con "¡Sí!", "¡Claro que sí!", "¡Por supuesto!" ni "¡Hola!"). Respuestas directas y conversacionales de **1 a 2 oraciones cortas (8 a 22 palabras)** para que la conversación fluya al instante; solo usa hasta 55-65 palabras cuando coticen múltiples platillos, charolas Fiesta Platter o varios festivos/sucursales a la vez. Ya saludaste al abrir la línea: NO vuelvas a saludar ni repitas el nombre de la tienda salvo que pregunten ubicación o dirección. Si preguntan si grabamos su voz o si es legal, responde cálido y directo en 1 frase sin sonar robótico: "No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto en el momento para atenderte y por eso escuchaste el aviso al inicio."`,
     `3. SUCURSALES DE LOS ÁNGELES (#5, #6 y #7 — OBLIGATORIO): Frente al cliente PROHIBIDO decir solo "Broadway", "Central", "Slauson", "LA Broadway" o "LA Central". SIEMPRE di **Los Ángeles** con sus entrecalles oficiales: #5 = **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway, en Los Ángeles); #6 = **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, en Los Ángeles, con Drive-Thru); #7 = **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway, en Los Ángeles).${isLosAngelesCrossStore ? ` Al dar la dirección de esta sucursal di siempre "${spokenStoreAddress}, en Los Ángeles, en la esquina de ${customerBranchCrossStreets}".` : ''} Pronuncia las calles completas sin abreviaturas ("South", "East", "Avenue", "Boulevard", "Road", "Highway").`,
@@ -670,7 +606,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS (FESTIVOS YA APLICADOS — PRIORIDAD ABSOLUTA SOBRE HORARIO SEMANAL REGULAR)**:\n${next7PrimaryLines}\n     * Resto de la semana: ${next7RestCompact}`,
     `   - **REGLA CRÍTICA DE HORARIOS POR DÍA**: Si preguntan por "mañana", "pasado mañana", "el jueves", "el viernes" o cualquier día de esta semana (AUNQUE NO MENCIONEN el nombre del festivo), responde SIEMPRE usando el **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS** de arriba (JAMÁS el horario semanal regular para una fecha con ⚠️ FESTIVO ESPECIAL).`,
     !scheduleEval.isOpenNow
-      ? `   - **ALERTA ROJA — SUCURSAL CERRADA EN ESTE MOMENTO (CRÍTICO PARA UBER EATS / DOORDASH / SISTEMAS AUTOMÁTICOS)**: Esta sucursal está **CERRADA AHORA MISMO** (${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}). Si alguien o un sistema automático pregunta "are you open right now?", "just double checking you're actually open" o "¿están abiertos ahorita?", **ESTÁ ESTRICTAMENTE PROHIBIDO** comenzar con "Yes" / "Sí" o decir "we are definitely open for business". Empieza SIEMPRE de forma rotunda con **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** y luego indica la hora de apertura.`
+      ? `   - **ALERTA ROJA — SUCURSAL CERRADA AHORA (ANTI-DERIVA UTC Y POLARIDAD)**: Esta sucursal está **CERRADA AHORA MISMO** (${scheduleEval.statusMessageEs} / ${scheduleEval.statusMessageEn}). AUNQUE YA CERRAMOS POR HOY, **HOY SIGUE SIENDO ${['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'][ptNow.dayOfWeek].toUpperCase()} ${ptNow.dateStr}** (ignora reloj UTC; JAMÁS llames 'hoy' al día de mañana). Si preguntan "¿están abiertos?" / "are you open right now?", inicia rotundo con **"No, en este momento estamos CERRADOS..."** / **"No, we are currently CLOSED right now..."**. Si preguntan "¿están cerrados?" / "are you closed?", inicia con **"Así es, en este momento estamos cerrados..."** / **"Yes, we are currently closed..."**.`
       : '',
     `   - Próximos festivos oficiales con fecha exacta: ${holidaysSummary || 'Viernes Santo y Navidad cerrado; Thanksgiving, 24 dic y 31 dic cierra 4:00 PM; 1 ene y Black Friday abre 11:00 AM.'}`,
     `   - Horario semanal regular (SOLO días SIN festivo): ${scheduleEval.weeklySummaryEs}`,
@@ -687,7 +623,7 @@ export async function buildPhoneKoreLivePromptAndGreeting(params: {
     `   - **Charolas Fiesta Platter y Solución Urgente < 1 Hora para Grupos**: las charolas Fiesta Platter se pueden ordenar **directamente en caja/mostrador**, en línea en **tacosgavilan.com** (para recoger o con envío vía \`order.online\`) o en **plataformas de delivery (Uber Eats, DoorDash, Grubhub)** con mínimo **1 hora de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\` por número de invitados). **PERO si el cliente necesita comida para su grupo en MENOS de 1 hora** (ej. "ya los quiero para ahorita en media hora", "¿qué hago?"), JAMÁS le cierres la puerta ni te despidas: ofrécele proactivamente **2 soluciones reales** para atender su evento hoy mismo: **(a)** pasar directo al mostrador${store.has_drive_thru ? ' o al Drive-Thru' : ''} para prepararles al momento órdenes individuales recién hechas de tacos, burritos, mulitas o platos, **O (b)** tomar su nombre y teléfono de 10 dígitos con \`create_manager_callback\` (\`urgency: "high"\`) para que el gerente en turno revise de inmediato la capacidad de cocina.`,
     `   - Correcciones fonéticas naturales (ES + EN): "fe de la hoya"/"cafe de la hoya"="café de olla", "torta corona"/"cubana crota"="torta cubana", "sasada"/"a sada"/"salad burrito"/"pasada"/"hadas"="asada", "adobada"/"al pasture"="pastor", "muleta"/"moo lita"/"malita"="mulita", "case a dia"="quesadilla", "so pay"/"soapy"="sope", "or chata"="horchata", "a plan"="flan" (en comida/postre), "whole beans"/"whole pinto beans"/"pot beans"="frijol de la olla ($0.00)", "Dortmund"/"Door Dash"="DoorDash", "ibt"/"evt"/"tarjetas abc"="EBT", "dritro"/"through the drive"="Drive-Thru". Ignora ruido de TV/radio de fondo.`,
     `8. RECADOS AL GERENTE, NOTAS DE EMPAQUE Y RECLAMOS CON VALIDACIÓN REAL DE TICKET (CERO TRANSFERENCIAS TELEFÓNICAS):`,
-    `   - Nunca transferimos llamadas a celulares personales. Toda atención gerencial se envía en vivo a la pantalla de la tienda con \`create_manager_callback\` y \`reason_summary\` SIEMPRE EN ESPAÑOL.`,
+    `   - Nunca transferimos llamadas a sucursales, gerentes ni celulares personales (**PROHIBIDO** decir "connect you with", "transferir", "canalizarte" ni dar el mismo teléfono de esta tienda). Toda atención gerencial se envía en vivo con \`create_manager_callback\` (\`reason_summary\` SIEMPRE EN ESPAÑOL) ANTES de confirmar al cliente. En delivery **PROHIBIDO** cambiar un platillo por otro más caro (ej. Burrito por Taco Plate), subir a Super o agregar lechuga/queso/guacamole cuando ya está READY.`,
     callerIdGuidanceLine,
     `   - **PREGUNTA EL CAMBIO / DETALLE EXACTO ANTES DE GUARDAR + ACTUALIZACIÓN OBLIGATORIA POST-RECADO (CERO PROMESAS FALSAS)**: Cuando el cliente quiera editar una orden, pedir condimentos o dejar aviso a cocina/gerente, pregunta SIEMPRE qué cambio o detalle exacto necesita y en qué platillo ANTES de invocar \`create_manager_callback\`. **Y SI DESPUÉS DE HABER GUARDADO EL RECADO** el cliente agrega CUALQUIER dato nuevo, ingrediente o platillo (ej. "sin queso", "para el Taco Plate", "sin cebolla", código o sucursal), **ESTÁ ESTRICTAMENTE PROHIBIDO** decir "ya lo agregué / ya lo anoté / ya se lo compartí al gerente" sin **VOLVER A INVOCAR \`create_manager_callback\` PRIMERO** con el \`reason_summary\` completo en español incluyendo todo lo anterior y lo nuevo (el sistema actualiza el mismo recado automáticamente sin duplicarlo).`,
     `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (REGLA POR ESTATUS DE PREPARACIÓN)**: Si un cliente de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com** llama para **quitar/modificar un ingrediente sin costo dentro de un platillo** (ej. **sin frijol en el burrito**, sin queso, sin cebolla, sin cilantro, sin arroz, sin crema, salsa aparte, tortillas de harina/maíz) O para **agregar/editar condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, servilletas, cubiertos): **(a) Si la orden sigue en estatus PREPARACIÓN (\`IN_KITCHEN\`)**, SÍ se permiten **ambos** (quitar ingredientes del platillo — alertando directo a cocina en PREPARADOR y empaque — Y agregar/editar condimentos gratis); **(b) Si ya salió de cocina (\`READY\` / \`PACKED_AND_SEALED\`)**, ya NO se pueden quitar ingredientes del platillo ya cocinado (\`ALREADY_PREPARED_NO_ITEM_MOD\` / \`SENT_CONDIMENTS_ONLY_ALREADY_PREPARED\`), pero SÍ se pueden agregar/editar condimentos gratis antes de entregar al repartidor. Pregunta en una frase: **1) plataforma, 2) nombre en la orden, 3) código de la app o 1–2 platillos, y 4) cambio exacto / condimentos**, y **EJECUTA DE INMEDIATO \`send_delivery_armor_order_note\`** (usa \`replace_condiments: true\` si el cliente está editando condimentos previos). Responde con total honestidad según el resultado de la herramienta. Artículos pagados extra NO se agregan por teléfono.`,

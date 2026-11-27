@@ -70,6 +70,12 @@
  *   exactas y horas 12h AM/PM inyectados en el prompt y en `get_store_hours_and_status` / `find_other_stores` (incluyendo cierre conjunto 4:00 PM
  *   de Comedor y Drive-Thru en #6 en Thanksgiving/24 dic/31 dic y apertura tarde 11:00 AM en Black Friday/1 ene) para que jamás dé horario regular
  *   cuando un cliente pregunta por "mañana" o un día de la semana sin decir el nombre del festivo.
+ * - v23 (2026-11-26, Auditoría Forense 249 llamadas): hora actual en 12h AM/PM (jamás 24h '14:33'), ancla anti-deriva UTC al cerrar el día,
+ *   estado explícito de #6 Comedor cerrado / solo Drive-Thru en última hora nocturna y madrugada 00:00-05:59 AM, Regla 0 consciente de tienda cerrada
+ *   (!isOpenNow) y polaridad neutra en ALERTA ROJA, bloqueo de cambio de platillo con costo en delivery, parseo de meses ES/EN + cero fuga de PII
+ *   en validate_order_ticket + búsqueda por nombre en SIN TICKET, teléfono alterno estricto de 10 dígitos sin caer al Caller ID, port de
+ *   userExplicitWrongOrderEvidence + FECHA NO RECORDADA, anti-spam en flag_unanswered_question, cierre limpio sin latigazos (todo gracias, happy holidays,
+ *   costado, não, one star/yelp en frustración), sanitizador de <speech>{pause} y prefijos Devanagari mixtos, y bloqueo anti-salto a portugués/inglés.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -710,11 +716,26 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
       if (closeM <= 359 && closeM <= openM) {
         const closeFmt = fmt12h(prevSched.close)
         if (closeM > 0 && pt.totalMin < closeM) {
+          const isStore6LastHourDtOnly =
+            storeIdNum === 6 &&
+            !(prevSched.holidayKey === "thanksgiving" || prevSched.holidayKey === "christmas_eve" || prevSched.holidayKey === "new_years_eve") &&
+            closeM - pt.totalMin <= 60
+          const drCloseFmt = fmt12h(subtractOneHourBridge(prevSched.close))
           return {
             isOpenNow: true,
+            isSpilloverActive: true,
+            isStore6DriveThruOnlyNow: isStore6LastHourDtOnly,
             todayCloseFmt: closeFmt,
-            statusEs: `Abierto ahora en ${dispEs}: el turno nocturno de ${prevDayEs} cierra esta madrugada ${atTimeEsBridge(closeFmt)}.`,
-            statusEn: `Currently open at ${dispEn}: our ${prevDayEn} late-night shift closes at ${closeFmt}.`,
+            statusEs: isStore6LastHourDtOnly
+              ? `Abierto ahora SOLO DRIVE-THRU en ${dispEs}: el salón comedor de ${prevDayEs} YA CERRÓ ${atTimeEsBridge(drCloseFmt)}, y únicamente el Drive-Thru permanece abierto hasta ${atTimeEsBridge(closeFmt)} de esta madrugada.`
+              : storeIdNum === 6
+                ? `Abierto ahora en ${dispEs}: el turno nocturno de ${prevDayEs} cierra esta madrugada (Comedor ${atTimeEsBridge(drCloseFmt)}, Drive-Thru ${atTimeEsBridge(closeFmt)}).`
+                : `Abierto ahora en ${dispEs}: el turno nocturno de ${prevDayEs} cierra esta madrugada ${atTimeEsBridge(closeFmt)}.`,
+            statusEn: isStore6LastHourDtOnly
+              ? `Currently open DRIVE-THRU ONLY at ${dispEn}: our ${prevDayEn} dining room ALREADY CLOSED at ${drCloseFmt}, and ONLY the Drive-Thru remains open until ${closeFmt}.`
+              : storeIdNum === 6
+                ? `Currently open at ${dispEn}: our ${prevDayEn} late-night shift closes tonight (Dining Room at ${drCloseFmt}, Drive-Thru at ${closeFmt}).`
+                : `Currently open at ${dispEn}: our ${prevDayEn} late-night shift closes at ${closeFmt}.`,
             closedPromptEs: "",
             closedPromptEn: ""
           }
@@ -774,15 +795,40 @@ function evaluateStoreSchedule(store: any, specialHours: any[], pt = getPacificN
   const closeFmt = fmt12h(todaySched.close)
 
   if (isOpenNow) {
+    const isJointEarlyClose =
+      todaySched.holidayKey === "thanksgiving" ||
+      todaySched.holidayKey === "christmas_eve" ||
+      todaySched.holidayKey === "new_years_eve" ||
+      (todaySched.isSpecial && todaySched.close === "16:00")
+    const isStore6DtOnly = storeIdNum === 6 && !isJointEarlyClose && closeEffective - pt.totalMin <= 60
+    const drCloseFmt = fmt12h(subtractOneHourBridge(todaySched.close))
+    const s6NoteEs =
+      storeIdNum === 6
+        ? isJointEarlyClose
+          ? ` (Comedor y Drive-Thru cierran JUNTOS ${atTimeEsBridge(closeFmt)})`
+          : isStore6DtOnly
+            ? ` — ATENCIÓN: el Comedor YA CERRÓ ${atTimeEsBridge(drCloseFmt)}; ahorita SOLO Drive-Thru está abierto hasta ${atTimeEsBridge(closeFmt)}`
+            : ` (Comedor cierra ${atTimeEsBridge(drCloseFmt)}, Drive-Thru ${atTimeEsBridge(closeFmt)})`
+        : ""
+    const s6NoteEn =
+      storeIdNum === 6
+        ? isJointEarlyClose
+          ? ` (BOTH Dining Room and Drive-Thru close together at ${closeFmt})`
+          : isStore6DtOnly
+            ? ` — NOTICE: the Dining Room ALREADY CLOSED at ${drCloseFmt}; ONLY Drive-Thru is open until ${closeFmt}`
+            : ` (Dining Room closes at ${drCloseFmt}, Drive-Thru at ${closeFmt})`
+        : ""
     return {
       isOpenNow: true,
+      isSpilloverActive: false,
+      isStore6DriveThruOnlyNow: isStore6DtOnly,
       todayCloseFmt: closeFmt,
       statusEs: todaySched.isSpecial && todaySched.holidayName
-        ? `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} (${todaySched.holidayName}) tenemos horario especial de ${openFmt} a ${closeFmt}.`
-        : `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} nuestro horario es de ${openFmt} a ${closeFmt}.`,
+        ? `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} (${todaySched.holidayName}) tenemos horario especial de ${openFmt} a ${closeFmt}${s6NoteEs}.`
+        : `Abierto en este momento en ${dispEs}; hoy ${todayDayEs} nuestro horario es de ${openFmt} a ${closeFmt}${s6NoteEs}.`,
       statusEn: todaySched.isSpecial && todaySched.holidayName
-        ? `Currently open at ${dispEn}; today (${todayDayEn}, ${todaySched.holidayName}) our special holiday hours are ${openFmt} to ${closeFmt}.`
-        : `Currently open at ${dispEn}; today's (${todayDayEn}) hours are ${openFmt} to ${closeFmt}.`,
+        ? `Currently open at ${dispEn}; today (${todayDayEn}, ${todaySched.holidayName}) our special holiday hours are ${openFmt} to ${closeFmt}${s6NoteEn}.`
+        : `Currently open at ${dispEn}; today's (${todayDayEn}) hours are ${openFmt} to ${closeFmt}${s6NoteEn}.`,
       closedPromptEs: "",
       closedPromptEn: ""
     }
@@ -2742,8 +2788,8 @@ async function buildBridgeSystemPromptAndData(
 
   const baseLangAnchor =
     lang === "en"
-      ? "ACTIVE BASE LANGUAGE: ENGLISH — STRICT ENGLISH LOCK ENABLED. You are speaking with an English-speaking caller. Respond 100% in warm, natural American English throughout the ENTIRE call. STRICTLY FORBIDDEN to switch back to Spanish just because the caller has a Hispanic/bilingual accent, says Mexican food names (champurrado, tamales, mulita, asada, carnitas, quesadilla, horchata, salsa, chiles), or says a brief filler word. Switch to Spanish ONLY if the caller explicitly requests 'en español' / 'habla español' or presses 9. NEVER respond to strange non-Latin characters from road/engine noise ('क्या से है...'). Keep all prices strictly in USD ($)."
-      : "IDIOMA BASE ACTIVO: ESPAÑOL — CAMBIO INMEDIATO A INGLÉS + BLOQUEO ESTRICTO. Ya saludaste en español. REGLA CRÍTICA DE IDIOMA: (1) Si el cliente responde en INGLÉS con una oración clara (ej. 'Hello, I was wondering...', 'Hi, are you open right now?', 'How much is a party tray?', 'I'm calling about my order') SIN haber presionado 9, CAMBIA DE INMEDIATO desde ese MISMO primer turno a inglés americano cálido y natural — NUNCA le respondas en español ni esperes a que diga 'English' — y una vez en inglés, QUÉDATE 100% BLOQUEADO EN INGLÉS el resto de la llamada incluso si el cliente tiene acento hispano o dice nombres de comida mexicana (champurrado, tamales, mulita, carnitas, asada, quesadilla). (2) Si el cliente habla en español, responde en español cálido del Sur de California y JAMÁS saltes al inglés por muletillas aisladas ('okay', 'bye', 'oh my god'). (3) JAMÁS cambies de idioma ni respondas a ruido vial/motor ('क्या से है...'). (4) Si el llamante inicia genuinamente oraciones claras en un 3.er idioma (Coreano, Chino, Japonés, Portugués, Francés, Tagalo, Vietnamita, etc.), mantén session_language fijo en ese idioma, siempre con precios en USD ($)."
+      ? "ACTIVE BASE LANGUAGE: ENGLISH — STRICT ENGLISH LOCK ENABLED. You are speaking with an English-speaking caller. Respond 100% in warm, natural American English throughout the ENTIRE call. STRICTLY FORBIDDEN to switch to Spanish or Portuguese just because the caller has a Hispanic/bilingual accent, says Mexican food names (champurrado, tamales, mulita, asada, carnitas, quesadilla, horchata, salsa, chiles), or STT outputs a 1-word artifact ('Não', '2', 'Aló', 'rain'). Switch to Spanish ONLY if the caller explicitly requests 'en español' / 'habla español' or presses 9. NEVER respond to non-Latin road noise ('क्या से है...'). Keep all prices strictly in USD ($)."
+      : "IDIOMA BASE ACTIVO: ESPAÑOL — CAMBIO INMEDIATO A INGLÉS + BLOQUEO ESTRICTO. Ya saludaste en español. REGLA CRÍTICA DE IDIOMA: (1) Si el cliente responde en INGLÉS con una oración clara de 3+ palabras (ej. 'Hello, I was wondering...', 'Hi, are you open right now?', 'How much is a party tray?') SIN haber presionado 9, CAMBIA DE INMEDIATO desde ese MISMO turno a inglés americano cálido y natural y QUÉDATE 100% BLOQUEADO EN INGLÉS el resto de la llamada incluso si tiene acento hispano o dice platillos mexicanos. (2) Si el cliente habla en español, quédate 100% EN ESPAÑOL cálido del Sur de California: **ESTÁ PROHIBIDO** saltar a inglés o portugués por palabras sueltas o artefactos STT de 1-2 palabras ('Não', '2', '¿Aló?', 'rain', 'okay', 'bye', 'delivery') ni tras mensajes de herramienta. (3) JAMÁS cambies a un 3.er idioma (portugués, coreano, chino, francés, etc.) salvo que el cliente diga una oración completa y clara de 4+ palabras en ese idioma. (4) JAMÁS respondas a ruido vial/motor no latino ('क्या से है...')."
 
   const callbackOutcome = schedEval.isOpenNow
     ? "confírmale con calidez que el gerente en turno ya recibió la alerta prioritaria en su pantalla y se comunicará en cuanto sea posible / as soon as possible (PROHIBIDO prometer 'enseguida', 'de inmediato', 'ahorita', 'right away' o 'immediately')."
@@ -2764,19 +2810,22 @@ async function buildBridgeSystemPromptAndData(
   const systemText = [
     baseLangAnchor,
     "",
-    `Eres Kore, recepcionista telefónica en vivo de **Tacos Gavilan** en **${spokenName}** (#${store.id}${laMeta ? `, esquina: ${lang === "en" ? laMeta.crossEn : laMeta.crossEs}` : ""}), dir: ${spokenAddr}, tel: ${store.phone}, CA, EE. UU. Eres mujer: en español usa siempre adjetivos femeninos ("lista", "atenta", "segura"; jamás "listo"/"atento").`,
+    `Eres Kore, recepcionista telefónica en vivo de **Tacos Gavilan** en **${spokenName}** (#${store.id}${laMeta ? `, esquina: ${lang === "en" ? laMeta.crossEn : laMeta.crossEs}` : ""}), dir: ${spokenAddr}, tel: ${store.phone}, CA, EE. UU. Eres mujer: en español usa SIEMPRE femenino ("lista", "atenta", "segura") y **PROHIBIDO decir "Listo" como muletilla** (di "Perfecto" o "Con gusto").`,
     `REGLAS INQUEBRANTABLES:`,
-    `0. CERO PEDIDOS POR TELÉFONO (BLOQUEO EN 1.ª ORACIÓN — PRIORIDAD MÁXIMA): NUNCA tomamos órdenes nuevas de comida por teléfono ('quiero...', 'dame...', 'puedo pedir...', 'can I order...'). En tu 1.ª oración dile amablemente que **no tomamos órdenes por teléfono** e invítalo a ordenar en **tacosgavilan.com** para recoger${store.has_drive_thru ? " o directamente en caja o Drive-Thru" : " o directamente en caja"}. PROHIBIDO actuar como cajera ('¿Regular o Super?', '¿qué carne?', '¿algo más de tu orden?') o decir 'políticas'/'policy'. Si mencionan platillos, solo da precios unitarios en USD (en burrito/quesadilla/mulita sin especificar Super informa Regular y Super sin preguntar preferencia).`,
+    `0. CERO PEDIDOS POR TELÉFONO (SOLO cuando intenten hacer un pedido NUEVO): Aplica esta regla ÚNICAMENTE si el cliente realmente intenta pedir comida nueva por teléfono ('quiero dos tacos...', 'dame...', 'puedo pedir...', 'can I order...'). **NO la dispares** ante saludos ('Hola'/'Hello'), preguntas de horario/precio/menú, quejas de higiene/comida o notas de órdenes ya hechas. Cuando sí intenten ordenar por teléfono: ${schedEval.isOpenNow ? `dile amablemente (SIN decir 'por el momento' ni 'políticas'/'policy') que **no tomamos órdenes por teléfono** e invítalo a ordenar en **tacosgavilan.com** (para recoger o delivery vía order.online)${store.has_drive_thru ? " o directamente en caja o Drive-Thru" : " o directamente en caja"}` : `aclara PRIMERO que **en este momento estamos cerrados** (no le pidas ordenar ahorita en tacosgavilan.com como si estuviéramos abiertos; indícale cuándo reabrimos para ordenar en tacosgavilan.com${store.has_drive_thru ? ", caja o Drive-Thru" : " o caja"})`}. PROHIBIDO actuar como cajera ('¿Regular o Super?', '¿qué carne?') o decir 'políticas'/'policy'. Si mencionan platillos, solo da precios unitarios en USD (Regular y Super sin preguntar preferencia).`,
     `1. MARCA Y MONEDA: Estrictamente **Tacos Gavilan** (JAMÁS 'Tacos El Gavilan'). Precios siempre en **USD ($)** (JAMÁS 'pesos'/'MXN').`,
-    `2. VOZ EN VIVO: Cálida, directa, 1-2 oraciones (8-20 palabras; hasta 55 al cotizar varios ítems o Fiesta Platters). CERO muletillas iniciales ('¡Sí!', '¡Claro que sí!', '¡Por supuesto!', '¡Hola!'). Ya saludaste: NO re-saludes. Si preguntan si grabamos su voz: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto al momento para atenderte.'`,
-    `3. LOS ÁNGELES (#5, #6 y #7): PROHIBIDO decir solo 'Broadway', 'Central' o 'Slauson'. Di SIEMPRE **Los Ángeles** + esquina oficial sin abreviar calles: #5 **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, Drive-Thru; salón comedor cierra 1h antes que Drive-Thru en días regulares, EXCEPTO Thanksgiving, 24 dic y 31 dic donde Comedor y Drive-Thru cierran juntos a las 4:00 PM); #7 **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway).`,
-    `4. HORARIOS Y DESAYUNOS AQUÍ (Hoy ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek]} ${pt.dateStr}, ${String(pt.hour).padStart(2, "0")}:${String(pt.minute).padStart(2, "0")} PT${pt.hour < 6 ? " — MADRUGADA: si reabrimos esta mañana di 'hoy'/'today', JAMÁS 'mañana'/'tomorrow'" : ""}):`,
-    `   - Estado actual aquí: ${schedEval.statusEs} / ${schedEval.statusEn}`,
+    `2. VOZ EN VIVO: Cálida, directa, 1-2 oraciones (8-20 palabras; hasta 55 al cotizar varios ítems o Fiesta Platters). CERO muletillas iniciales ('¡Sí!', '¡Claro que sí!', '¡Por supuesto!', '¡Hola!'). Ya saludaste: NO re-saludes. CERO etiquetas de control (nunca escribas <speech> ni {pause}). Si preguntan si grabamos su voz: 'No guardamos grabaciones de tu voz; la llamada solo se transcribe en texto al momento para atenderte.'`,
+    `3. LOS ÁNGELES (#5, #6 y #7): PROHIBIDO decir solo 'Broadway', 'Central', 'Slauson', 'sucursal de Vernon y Broadway' o 'sucursal de Slauson y Broadway'. Di SIEMPRE **Los Ángeles** + esquina oficial sin abreviar calles: #5 **Los Ángeles, en la esquina de Vernon y Broadway** (4380 South Broadway); #6 **Los Ángeles, en la esquina de Central y Washington** (1900 South Central Avenue, Drive-Thru; salón comedor cierra 1h antes que Drive-Thru en días regulares y Black Friday/1 ene — SIEMPRE menciona ambas horas en #6 — EXCEPTO Thanksgiving, 24 dic y 31 dic donde Comedor y Drive-Thru cierran juntos a las 4:00 PM); #7 **Los Ángeles, en la esquina de Slauson y Broadway** (5833 South Broadway).`,
+    `4. HORARIOS Y DESAYUNOS AQUÍ — ⚠️ **RELOJ OFICIAL DE CALIFORNIA (IGNORA TU RELOJ UTC)**: AHORA MISMO ES **${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek].toUpperCase()} ${pt.dateStr}, ${fmt12h(`${pt.hour}:${pt.minute}`)} PT** (${BRIDGE_DAY_NAMES_EN[pt.dayOfWeek]} ${pt.dateStr}, ${fmt12h(`${pt.hour}:${pt.minute}`)} PT)${pt.hour < 6 ? " — MADRUGADA: si reabrimos esta mañana di 'hoy'/'today', JAMÁS 'mañana'/'tomorrow'" : ""}:`,
+    `   - **ESTADO ACTUAL AHORA MISMO (${fmt12h(`${pt.hour}:${pt.minute}`)} PT)**: ${schedEval.statusEs} / ${schedEval.statusEn}`,
+    (schedEval as any).isSpilloverActive
+      ? `   - **⚠️ TURNO NOCTURNO ACTIVO AHORA (PRIORIDAD #1 EN MADRUGADA)**: Si el cliente pregunta a qué hora cerramos ahorita o por qué está cerrado el comedor, responde PRIMERO con el turno nocturno activo arriba (ej. Comedor 1:00 AM / Drive-Thru 2:00 AM) y JAMÁS digas que "ya cerramos a las 4 PM" en plena madrugada.`
+      : "",
+    !schedEval.isOpenNow
+      ? `   - **⚠️ ANCLA ANTI-ERROR DE DÍA Y POLARIDAD (CERRADO AHORA)**: AUNQUE YA CERRAMOS POR HOY, **HOY SIGUE SIENDO ${BRIDGE_DAY_NAMES_ES[pt.dayOfWeek].toUpperCase()} ${pt.dateStr}** y **MAÑANA ES ${(next7Days[1]?.dayEs || "").toUpperCase()} ${next7Days[1]?.dateStr || ""}** — JAMÁS llames 'hoy' al día de mañana ni 'mañana' a pasado mañana (ante pregunta de 'horarios', INVOCA \`get_store_hours_and_status\`). Si preguntan '¿están abiertos?' / 'are you open right now?', inicia rotundo: **"No, en este momento estamos CERRADOS..."** / **"No, we are currently CLOSED right now..."**. Si preguntan '¿están cerrados?' / 'are you closed?', responde: **"Así es, en este momento estamos cerrados..."** / **"Yes, we are currently closed..."** (JAMÁS digas "No, estamos cerrados").`
+      : "",
     `   - **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS (FESTIVOS YA APLICADOS — PRIORIDAD ABSOLUTA SOBRE HORARIO SEMANAL REGULAR)**:\n${next7PrimaryLines}\n     * Resto de la semana: ${next7RestCompact}`,
     `   - **REGLA CRÍTICA DE HORARIOS POR DÍA**: Si preguntan por "mañana", "pasado mañana", "el jueves", "el viernes" o cualquier día de esta semana (AUNQUE NO MENCIONEN el nombre del festivo), responde SIEMPRE con el horario del **CALENDARIO REAL DE LOS PRÓXIMOS 7 DÍAS** de arriba (JAMÁS uses el horario semanal regular para una fecha marcada con ⚠️ FESTIVO ESPECIAL).`,
-    !schedEval.isOpenNow
-      ? `   - **ALERTA ROJA — CERRADO AHORA**: Si preguntan 'are you open right now?' o '¿están abiertos?', PROHIBIDO iniciar con 'Yes'/'Sí'. Inicia rotundo: **"No, we are currently CLOSED right now..."** / **"No, en este momento estamos CERRADOS..."** e indica apertura.`
-      : "",
     `   - Próximos festivos con fecha exacta: ${upcomingHolidaysExactLine || "Cerrado Viernes Santo y Navidad (25 dic); cierra 4:00 PM Thanksgiving, 24 dic y 31 dic; abre 11:00 AM 1 ene y Black Friday."}`,
     `   - Horario semanal regular (SOLO días SIN festivo): ${compactWeeklySummary(store.weekly_hours)}. Desayunos en las 15 tiendas: apertura a **2:00 PM** (${pt.isBreakfastOpen && schedEval.isOpenNow ? "DISPONIBLES AHORA" : "YA TERMINARON HOY"}). **Café de Olla tradicional, Café Regular (16 oz) y Champurrado (16 oz y Caja 96 oz) TODO EL DÍA**.`,
     `5. DRIVE-THRU, EBT Y OTRAS SUCURSALES:`,
@@ -2787,12 +2836,13 @@ async function buildBridgeSystemPromptAndData(
     `   - **RECITA EL MENÚ POR VOZ**: Si preguntan qué vendemos o el menú completo, NUNCA los mandes a tacosgavilan.com a verlo ni omitas categorías: incluye **Taco Plate (3 tacos con arroz y frijol)**, **Platos completos**, **Desayunos (hasta 2 PM)**, **Tacos, Burritos (Regular, Super y Meat Only), Quesadillas, Mulitas, Tortas (Asada, Pastor, Milanesa, Cubana, etc.), Sopes (sin lechuga), Super Nachos**, **8 carnes** (Asada, Pastor, Pollo, Cabeza, Lengua, Buche, Chorizo, Carnitas), **Aguas Frescas (Horchata, Jamaica, Piña, Tamarindo), sodas, agua, Café y Champurrado todo el día**, **Flan y Cheesecake** individuales y **Fiesta Platters**.`,
     `   - Jamás digas 'tamaño'/'size' en comida: es **Regular** o **Super** (Burrito Reg = carne/arroz/frijol; Super +queso/guacamole/crema; Mulita/Quesadilla Reg ya llevan queso y Super +guacamole/crema). **BURRITOS MITAD Y MITAD ($0.00 EXTRA)**: en todos los Burritos (Regular, Super, Meat Only y Meat Only Super) SÍ se puede combinar mitad y mitad (50%/50%) de 2 carnes sin cargo extra, además de opciones sin costo en caja como Carne Dorada, Tortilla Dorada y Partido en Dos. **CAFÉ DE OLLA (16 oz)**: manejamos tanto **Café de Olla tradicional** como **Café Regular** todo el día (mismo precio de Coffee; JAMÁS niegues Café de Olla!). Bebidas frías: SOLO **Mediana 22 oz**, **Grande 32 oz** y **Galón 128 oz** (PROHIBIDO 'chica'/'small'); Champurrado solo vaso **16 oz** o Caja **96 oz**. Postres: SOLO **Flan y Cheesecake** (sin pasteles de cumpleaños ni ingreso de pasteles externos, sin churros/menudo/birria/pozole/suadero/tripa/alcohol ni descuentos por volumen). Prep pickup ~7-15 min; nacimos en 1992 (Gage y Main, LA); animales de servicio bienvenidos; empleo en tienda o tacosgavilan.com. Para dudas detalladas invoca \`search_menu_item_price\`.`,
     `   - **Fiesta Platters**: en caja, **tacosgavilan.com** (pickup o delivery vía order.online) o Uber Eats/DoorDash/Grubhub con **1h de anticipación** (invoca SIEMPRE \`get_fiesta_platter_packages\`). **Si necesitan comida para grupo en MENOS de 1h**, NO cierres la venta: ofrece **(a)** pasar al mostrador${store.has_drive_thru ? " o Drive-Thru" : ""} por órdenes individuales al momento, **O (b)** registrar \`create_manager_callback\` (\`urgency: 'high'\`) para que el gerente revise capacidad de cocina.`,
-    `   - Fonética STT: 'fe de la hoya'/'cafe de la hoya'='café de olla', 'torta corona'/'crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'malita'='mulita', 'soapy'='sope', 'a plan'='flan', 'whole/pot beans'='frijol de la olla ($0)', 'Dortmund'='DoorDash', 'ibt'/'evt'/'abc'='EBT', 'dritro'='Drive-Thru'.`,
-    `7. RECADOS AL GERENTE Y VALIDACIÓN DE TICKET (CERO TRANSFERENCIAS):`,
-    `   - Usa \`create_manager_callback\` con \`reason_summary\` **SIEMPRE EN ESPAÑOL** claro.`,
+    `   - **Aclaraciones clave de menú**: NO vendemos charolas individuales de solo arroz ni champurrado por galón (arroz solo en porción individual $2.49 o incluido en Fiesta Platters; Champurrado solo vaso 16 oz $4.09 o Caja 96 oz = 3/4 galón $27.89). **Frijoles de la olla** (vasito cortesía $0) sí se pueden incluir gratis como condimento en ES y EN (distinto a un lado pagado extra).`,
+    `   - Fonética STT: 'fe de la hoya'/'cafe de la hoya'/'cafe hoy'='café de olla', 'torta corona'/'crota'='torta cubana', 'sasada'/'a sada'/'salad burrito'/'pasada'/'hadas'='asada', 'adobada'/'al pasture'='pastor', 'muleta'/'malita'/'molita'='mulita', 'soapy'='sope', 'a plan'/'plans'='flan', 'whole/pot beans'='frijol de la olla ($0)', 'Dortmund'='DoorDash', 'host'/'post'='Toast', 'ibt'/'evt'/'abc'='EBT', 'dritro'/'have driver'='Drive-Thru', 'costado'='es todo', 'Centralia Washington'='Central y Washington'.`,
+    `7. RECADOS AL GERENTE Y VALIDACIÓN DE TICKET (CERO TRANSFERENCIAS — PROHIBIDO PROMETER CONECTAR):`,
+    `   - **PROHIBIDO** decir 'connect you with the manager', 'transferir la llamada', 'canalizarte' ni dar el teléfono de esta misma tienda (${store.phone}) al que YA está llamando. Aclara siempre que esta línea no transfiere directo al mostrador y que enviarás una **alerta prioritaria** a la pantalla del gerente con \`create_manager_callback\` (\`reason_summary\` SIEMPRE EN ESPAÑOL). **JAMÁS** digas 'ya envié la alerta / notifiqué al gerente' sin haber invocado \`create_manager_callback\` exitosamente primero!`,
     callerIdGuidanceLine,
-    `   - **DETALLE EXACTO ANTES DE GUARDAR + RE-INVOCACIÓN OBLIGATORIA**: Pregunta qué cambio/detalle exacto y en qué platillo ANTES de llamar \`create_manager_callback\`. Si DESPUÉS de guardar el cliente agrega CUALQUIER dato nuevo ('sin queso', 'Taco Plate', código), **VUELVE A INVOCAR \`create_manager_callback\` PRIMERO** con todo acumulado antes de confirmar.`,
-    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (REGLA POR ESTATUS DE PREPARACIÓN)**: Si el cliente llamó sobre una orden de **DoorDash, Uber Eats, Grubhub o tacosgavilan.com**: **(a) Si la orden sigue en estatus PREPARACIÓN (\`IN_KITCHEN\`)**, SÍ se permite **quitar/modificar ingredientes sin costo del platillo** (ej. **sin frijol en el burrito**, sin queso, sin cebolla, sin cilantro, sin arroz, sin crema, salsa aparte, tortillas de harina/maíz — alertando directo a cocina en PREPARADOR y empaque) **Y** **agregar o editar condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, servilletas, utensilios); **(b) Si ya salió de cocina (\`READY\` / \`PACKED_AND_SEALED\`)**, ya NO se pueden quitar ingredientes de un platillo ya preparado (\`ALREADY_PREPARED_NO_ITEM_MOD\` / \`SENT_CONDIMENTS_ONLY_ALREADY_PREPARED\`), pero SÍ se pueden **agregar/editar condimentos gratis** antes de entregar al chofer. **1)** Pregunta en una sola frase plataforma, nombre en la orden, código (o 1–2 platillos) y cambio/condimentos exactos; **2)** **INVOCA DE INMEDIATO \`send_delivery_armor_order_note\`** con \`note_summary_es\` EN ESPAÑOL (pasa \`replace_condiments: true\` si edita condimentos previos); **3)** Responde con total honestidad según el estatus real devuelto (\`ALREADY_PREPARED_NO_ITEM_MOD\`, \`SENT_CONDIMENTS_ONLY_ALREADY_PREPARED\`, \`ALREADY_DELIVERED\`, \`AMBIGUOUS\`, \`SENT_TO_TABLET_REOPEN_BAG\`, \`NOT_FOUND\`). **PROHIBIDO** agregar comida o bebidas con costo por teléfono.`,
+    `   - **DETALLE EXACTO ANTES DE GUARDAR + RE-INVOCACIÓN OBLIGATORIA**: Pregunta qué cambio/detalle exacto y en qué platillo ANTES de llamar \`create_manager_callback\`. Si el cliente da un teléfono alterno de menos de 10 dígitos, pídele repetir los 10 dígitos completos. Si DESPUÉS de guardar el cliente agrega CUALQUIER dato nuevo, **VUELVE A INVOCAR \`create_manager_callback\` PRIMERO**.`,
+    `   - **CONDIMENTOS GRATIS O MODIFICACIÓN SIN COSTO EN DOORDASH / UBER EATS / GRUBHUB / ONLINE (REGLA POR ESTATUS DE PREPARACIÓN)**: **(a) En \`IN_KITCHEN\` (PREPARACIÓN)** se permite **quitar ingredientes sin costo del MISMO platillo** (ej. **sin frijol en el burrito**, sin queso, sin cebolla, sin cilantro, sin arroz, sin crema, salsa aparte, tortillas de harina/maíz) **Y** **agregar/editar condimentos gratis** (salsas roja/verde, chiles, limones, cebollas, rábanos, servilletas, frijol de la olla cortesía); **(b) En \`READY\` / \`PACKED_AND_SEALED\`** ya NO se pueden modificar ingredientes de cocina (ni lechuga aparte, queso o guacamole), SOLO condimentos gratis de estación de empaque. **PROHIBIDO cambiar un platillo por otro distinto o más caro (ej. Burrito por Taco Plate), subir a Super o agregar comida/bebidas con costo** (\`PAID_ITEM_CHANGE_BLOCKED\` -> redirigir a Ayuda/Help de la app). **JAMÁS** digas que una orden ya 'está lista y confirmada' cuando \`send_delivery_armor_order_note\` solo devolvió \`SENT_TO_TABLET\` (solo significa que el aviso se envió a la tableta). **1)** Pide plataforma, nombre, código o 1–2 platillos y cambio/condimentos exactos; **2)** **INVOCA \`send_delivery_armor_order_note\`** (\`replace_condiments: true\` al editar); **3)** Responde con honestidad según el resultado.`,
     `   - **Uber/DoorDash/Grubhub (estatus, retrasos y reembolsos)**: para estatus invoca \`validate_order_ticket\` (código y/o \`customer_name\`). Cambios con costo, agregar comida pagada, dirección, cancelaciones o reembolsos van en **Ayuda (Help)** de su app; retrasos largos esperando repartidor -> \`create_manager_callback\` (\`reason_category: 'delivery_issue'\`).`,
     `   - **Cambio de horario en orden Toast / tacosgavilan.com**: si quiere recoger su pedido más tarde o más temprano, pide nombre, número de orden y la nueva hora exacta e **INVOCA \`request_toast_pickup_time_change\`** (valida horario real y alerta a cocina en PREPARADOR para tenerla lista a esa hora).`,
     `   - **Sucursal equivocada (ALERTA A LAS 2 SUCURSALES)**: siempre ayuda coordinando ambas tiendas: pregunta (1) en qué sucursal cayó por error (\`paid_store_id\`), (2) en cuál quiere recoger (\`prepare_store_id\`, confirmando entrecalles en Los Ángeles), (3) nombre, orden y teléfono, e **INVOCA \`coordinate_wrong_store_order\`** para mandar alerta 🛑 NO PREPARAR a la tienda equivocada y 🍳 PREPARAR AQUÍ con los platillos pagados a la que quiere el cliente. (En delivery con chofer de Uber/DD/GH aclara que el chofer va a la tienda de su app por lo que conviene cancelar en app si busca entrega a domicilio; para pickup o coordinación igual envía la alerta doble.)`,
@@ -3035,7 +3085,8 @@ async function connectGeminiLiveWithHedge(
 }
 
 function cleanUsTenPhone(raw: string): string | null {
-  const digits = String(raw || "").replace(/\D/g, "")
+  const normalized = String(raw || "").replace(/(\d{1,2}):(\d{2})/g, "$1$2")
+  const digits = normalized.replace(/\D/g, "")
   const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits.length === 10 ? digits : ""
   if (ten.length !== 10) return null
   if (Number(ten.slice(0, 3)) < 200 || Number(ten.slice(3, 6)) < 200) return null
@@ -3044,19 +3095,19 @@ function cleanUsTenPhone(raw: string): string | null {
 }
 
 const EXPLICIT_GOODBYE_RE =
-  /\b(es\s+todo|seria\s+todo|eso\s+es\s+todo|ya\s+seria\s+todo|ya\s+es\s+todo|ya\s+estuvo|nada\s+mas|no,?\s*(?:gracias|por\s+ahora|necesito)|adios|bye|hasta\s+luego|nos\s+vemos|cuidate|que\s+tengas|buen\s+dia|buena\s+tarde|buena\s+noche|thats\s+all|that\s+is\s+all|thats\s+it|that\s+is\s+it|nothing\s+else|no,?\s*thank(?:s|\s+you)|(?:im|were)\s+(?:good|fine|all\s+set)|all\s+set|all\s+done|no\s+(?:more|other)\s+questions|have\s+a\s+(?:good|great|nice|wonderful)|goodbye)\b/i
+  /(?:^(?:todo|costado)(?:\s*,?\s*(?:muchas\s+)?gracias)?$|\b(es\s+todo|seria\s+todo|eso\s+es\s+todo|ya\s+seria\s+todo|ya\s+es\s+todo|ya\s+estuvo|testo\s+la\s+frase|nada\s+mas|solo\s+eso|no,?\s*(?:gracias|por\s+ahora|necesito|no\s+esta|no\s+mas\s+(?:queria|eso)|solo\s+(?:queria|eso))|adios|bye|hasta\s+luego|nos\s+vemos|cuidate|cuelgame|hang\s+up|que\s+tengas|buen\s+dia|buena\s+tarde|buena\s+noche|feliz\s+(?:dia|thanksgiving|navidad|ano)|felices\s+fiestas|happy\s+(?:holidays|thanksgiving|new\s+year)|merry\s+christmas|thats\s+all|that\s+is\s+all|thats\s+it|that\s+is\s+it|nothing\s+else|no,?\s*thank(?:s|\s+you)|(?:im|were)\s+(?:good|fine|all\s+set)|all\s+set|all\s+done|no\s+(?:more|other)\s+questions|have\s+a\s+(?:good|great|nice|wonderful)|goodbye)\b)/i
 
 const ACK_ONLY_NO_GOODBYE_RE =
   /^(?:(?:ok(?:ay)?|okey|vale|sale|bien|bueno|esta\s+bien|de\s+acuerdo|muy\s+bien|perfecto|entendido|claro|listo|excelente|genial|va|ya|aha|aja|sip?|yeah?|yep|got\s+it|alright|all\s+right|sounds\s+good|very\s+good|good|nice|cool|fine)(?:[\s,]+(?:muchas\s+)?(?:gracias|thank\s+you|thanks|por\s+favor))?|(?:muchas\s+)?gracias|thank\s+you(?:\s+very\s+much|\s+so\s+much)?|thanks(?:\s+a\s+lot)?)$/i
 
 const OFFERED_FURTHER_HELP_RE =
-  /\b(algo\s+mas|ayud(?:o|arte)\s+con\s+algo|otra\s+(?:pregunta|duda)|anything\s+else|help\s+you\s+with\s+anything|other\s+question)\b/i
+  /\b(algo\s+mas|ayud(?:o|arte)\s+con\s+algo|otra\s+(?:pregunta|duda|consulta)|anything\s+else|help\s+you\s+with\s+anything|assist\s+you\s+with|other\s+question)\b/i
 
 const BRIDGE_FRUSTRATION_NO_HANGUP_RE =
-  /\b(competencia|competitor|otro\s+lado|otro\s+restaurante|otra\s+taqueria|somewhere\s+else|another\s+place|por\s+que\s+me\s+colg(?:aste|aron)|por\s+que\s+(?:me\s+)?cuelgas?|no\s+me\s+cuelgues?|why\s+did\s+you\s+hang\s+up|dont\s+hang\s+up|do\s+not\s+hang\s+up|pesimo|mal\s+servicio|que\s+mal|eso\s+esta\s+mal|terrible|horrible|ridiculo|ridiculous|frustrad[oa]|molest[oa]|enojad[oa]|upset|angry|reclamo|queja|que\s+hago|what\s+do\s+i\s+do|no\s+sirve|no\s+me\s+ayudas?|para\s+ahorita|en\s+media\s+hora)\b/i
+  /\b(competencia|competitor|otro\s+lado|otro\s+restaurante|otra\s+taqueria|somewhere\s+else|another\s+place|por\s+que\s+me\s+colg(?:aste|aron)|por\s+que\s+(?:me\s+)?cuelgas?|no\s+me\s+cuelgues?|why\s+did\s+you\s+hang\s+up|dont\s+hang\s+up|do\s+not\s+hang\s+up|one\s+star|1\s+star|una\s+estrella|yelp|google\s+review|bad\s+review|resena|pesimo|mal\s+servicio|que\s+mal|eso\s+esta\s+mal|terrible|horrible|ridiculo|ridiculous|frustrad[oa]|molest[oa]|enojad[oa]|upset|angry|reclamo|queja|que\s+hago|what\s+do\s+i\s+do|no\s+sirve|no\s+me\s+ayudas?|para\s+ahorita|en\s+media\s+hora)\b/i
 
 const BRIDGE_STRICT_FAREWELL_RE =
-  /\b(adios|bye|goodbye|hasta\s+luego|nos\s+vemos|eso\s+es\s+todo(?:\s*,?\s*gracias)?|es\s+todo\s*,?\s*gracias|seria\s+todo(?:\s*,?\s*gracias)?|no\s*,?\s*gracias\s*,?\s*(?:adios|bye|es\s+todo)|thats\s+all\s*,?\s*thank(?:s|\s+you)|that\s+is\s+all\s*,?\s*thank(?:s|\s+you)|thats\s+it\s*,?\s*thank(?:s|\s+you))\b/i
+  /\b(adios|bye|goodbye|hasta\s+luego|nos\s+vemos|cuelgame|hang\s+up|eso\s+es\s+todo(?:\s*,?\s*gracias)?|es\s+todo\s*,?\s*gracias|seria\s+todo(?:\s*,?\s*gracias)?|no\s*,?\s*gracias\s*,?\s*(?:adios|bye|es\s+todo)|thats\s+all\s*,?\s*thank(?:s|\s+you)|that\s+is\s+all\s*,?\s*thank(?:s|\s+you)|thats\s+it\s*,?\s*thank(?:s|\s+you))\b/i
 
 function isBridgeCallerFrustratedWithoutGoodbye(lastUserText: string): boolean {
   const normU = normalizeSearch(lastUserText)
@@ -3081,7 +3132,10 @@ function shouldAllowEndCall(lastUserText: string, prevAssistantText: string): bo
   if (isBridgeCallerFrustratedWithoutGoodbye(lastUserText)) return false
   if (EXPLICIT_GOODBYE_RE.test(normU)) return true
   const normA = normalizeSearch(prevAssistantText)
-  if (/^(?:no|nop|nope|todo\s+bien|ya\s+no|ninguna)$/i.test(normU) && OFFERED_FURTHER_HELP_RE.test(normA)) {
+  if (
+    /^(?:no|nao|nop|nope|solamente|no\s+solamente|solo\s+eso|todo\s+bien|ya\s+no|ninguna|no\s+esta|no\s+no\s+esta|costado)$/i.test(normU) &&
+    OFFERED_FURTHER_HELP_RE.test(normA)
+  ) {
     return true
   }
   if (ACK_ONLY_NO_GOODBYE_RE.test(normU) && !OFFERED_FURTHER_HELP_RE.test(normA)) {
@@ -3264,6 +3318,47 @@ function resolveBridgeTicketBusinessDate(purchaseDateText?: string | null, pt = 
       let yyyy = slash[3] ? (slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3])) : Number(base.slice(0, 4))
       const cand = `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`
       if (!slash[3] && cand > shiftBridgeIsoDays(base, 2)) yyyy -= 1
+      return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`
+    }
+  }
+  const MONTH_MAP: Record<string, number> = {
+    enero: 1, ene: 1, january: 1, jan: 1,
+    febrero: 2, feb: 2, february: 2,
+    marzo: 3, mar: 3, march: 3,
+    abril: 4, abr: 4, april: 4, apr: 4,
+    mayo: 5, may: 5,
+    junio: 6, jun: 6, june: 6,
+    julio: 7, jul: 7, july: 7,
+    agosto: 8, ago: 8, august: 8, aug: 8,
+    septiembre: 9, setiembre: 9, sep: 9, sept: 9, september: 9,
+    octubre: 10, oct: 10, october: 10,
+    noviembre: 11, nov: 11, november: 11,
+    diciembre: 12, dic: 12, december: 12, dec: 12
+  }
+  const monthNamesPat = Object.keys(MONTH_MAP).join("|")
+  const m1 = norm.match(new RegExp(`\\b(${monthNamesPat})\\s+(?:el\\s+|de\\s+)?(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*(?:de|del|,)?\\s*(20\\d{2}))?\\b`))
+  const m2 = !m1
+    ? norm.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:de\\s+)?(${monthNamesPat})(?:\\s*(?:de|del|,)?\\s*(20\\d{2}))?\\b`))
+    : null
+  if (m1 || m2) {
+    const mm = MONTH_MAP[m1 ? m1[1] : m2![2]]
+    const dd = Number(m1 ? m1[2] : m2![1])
+    const explicitYearRaw = m1 ? m1[3] : m2![3]
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      const baseYear = Number(base.slice(0, 4))
+      let yyyy = explicitYearRaw ? Number(explicitYearRaw) : baseYear
+      const candBaseYear = `${String(baseYear).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`
+      // Si el cliente dijo el año pasado por desliz verbal ("noviembre 24 del 2025" siendo 25 nov 2026), corregir al año actual
+      if (explicitYearRaw && yyyy === baseYear - 1) {
+        const diffDays = Math.abs(
+          Math.round((new Date(`${candBaseYear}T12:00:00Z`).getTime() - new Date(`${base}T12:00:00Z`).getTime()) / 86400000)
+        )
+        if (diffDays <= 21 && candBaseYear <= shiftBridgeIsoDays(base, 1)) {
+          yyyy = baseYear
+        }
+      }
+      const cand = `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`
+      if (!explicitYearRaw && cand > shiftBridgeIsoDays(base, 2)) yyyy -= 1
       return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`
     }
   }
@@ -4028,8 +4123,18 @@ async function validateBridgeOrderTicket(params: {
   const parsed = cleanBridgeSpokenTicket(ticketOrOrderNumber)
   const cleanCust = String(customerName || "").trim()
 
-  if (parsed.isNoTicket) {
-    return { ok: true, skippedNoTicket: true, ticketNumber: "SIN TICKET", businessDate, storeName: storeNameEs, storeNameEn }
+  if (parsed.isNoTicket && cleanCust.length < 3) {
+    return {
+      ok: true,
+      found: false,
+      skippedNoTicket: true,
+      ticketNumber: "SIN TICKET",
+      businessDate,
+      storeName: storeNameEs,
+      storeNameEn,
+      messageEs: `No se buscó ticket porque el cliente indicó SIN TICKET. **PROHIBIDO decirle que localizaste su orden**; continúa tomando el recado al gerente con SIN TICKET.`,
+      messageEn: `No order lookup was matched because the caller has no ticket (SIN TICKET). **DO NOT tell the caller you located their order**; proceed with taking the manager callback using SIN TICKET.`
+    }
   }
   if ((!parsed.ticketNumber || parsed.candidates.length === 0) && cleanCust.length < 3) {
     return {
@@ -4080,6 +4185,33 @@ async function validateBridgeOrderTicket(params: {
   ).catch(() => ({ hit: null, observedRange: null }))
 
   const buildBridgeHitResponse = (hit: BridgeTicketHit, observedRange: BridgeTicketRange | null) => {
+    // Privacidad estricta: si el cliente dio su nombre y NO coincide con el nombre en el ticket, JAMÁS exponer el nombre privado del otro cliente!
+    const normHitCust = normalizeSearch(hit.customerName || "")
+    const normAskedCust = normalizeSearch(cleanCust || "")
+    const hitFirst = normHitCust.split(" ")[0] || ""
+    const askedFirst = normAskedCust.split(" ")[0] || ""
+    const hasNameMismatch = Boolean(
+      hitFirst.length >= 3 &&
+      askedFirst.length >= 3 &&
+      hitFirst !== askedFirst &&
+      !normHitCust.includes(askedFirst) &&
+      !normAskedCust.includes(hitFirst)
+    )
+    if (hasNameMismatch) {
+      return {
+        ok: true,
+        found: false,
+        nameMismatch: true,
+        ticketNumber: hit.ticketNumber,
+        businessDate,
+        storeName: storeNameEs,
+        storeNameEn,
+        observedRange,
+        toastNetworkError: false,
+        messageEs: `El ticket #${hit.ticketNumber} del ${businessDate} en ${storeNameEs} aparece bajo otro nombre distinto a "${cleanCust}" (por privacidad NO menciones el nombre de otra persona). Pídele confirmar la fecha exacta de compra, la sucursal o el número de ticket, y si sigue sin coincidir registra el recado al gerente para revisión.`,
+        messageEn: `Ticket #${hit.ticketNumber} on ${businessDate} at ${storeNameEn} is registered under a different name than "${cleanCust}" (for privacy DO NOT disclose the other customer's name). Ask them to verify the exact purchase date, branch, or ticket number, and offer to log a manager callback to review it.`
+      }
+    }
     const statusSuffix = hit.statusText ? ` — Estatus actual: ${hit.statusText}` : ""
     const custSuffix = hit.customerName ? ` a nombre de ${hit.customerName}` : ""
     return {
@@ -4151,8 +4283,8 @@ async function validateBridgeOrderTicket(params: {
       storeNameEn,
       observedRange: range,
       toastNetworkError: true,
-      messageEs: `La verificación en línea del ticket #${parsed.ticketNumber || cleanCust} no está disponible en este instante${rangeHintEs}; confirma su nombre y su número del Caller ID (o uno alterno de 10 dígitos) para que el gerente en ${storeNameEs} lo revise directamente.`,
-      messageEn: `Live verification for ticket #${parsed.ticketNumber || cleanCust} is momentarily unavailable${rangeHintEn}; confirm their name and Caller ID number (or an alternate 10-digit number) so the manager at ${storeNameEn} can check it directly.`
+      messageEs: `La verificación en línea del ticket #${parsed.ticketNumber || cleanCust} no está disponible en este instante${rangeHintEs} (**PROHIBIDO decir que el ticket no existe**); informa que la consulta en línea no está disponible ahora y confirma su nombre y su Caller ID (o un número alterno de 10 dígitos) para que el gerente en ${storeNameEs} lo revise directamente.`,
+      messageEn: `Live verification for ticket #${parsed.ticketNumber || cleanCust} is momentarily unavailable${rangeHintEn} (**DO NOT tell the caller the ticket does not exist**); explain that live lookup is unavailable right now and confirm their name and Caller ID (or an alternate 10-digit number) so the manager at ${storeNameEn} can check it directly.`
     }
   }
   return {
@@ -4299,6 +4431,56 @@ async function executeLiveTool(params: {
           ok: false,
           outcome: "MISSING_INFO",
           message: "Pregunta primero exactamente qué condimentos gratis o qué modificación sin costo (y en qué platillo) necesita."
+        },
+        shouldEndCall: false,
+        hadCallback: false
+      }
+    }
+
+    // Blindaje determinista en vivo contra cambios de platillo con costo (ej. Burrito -> Taco Plate, Regular -> Super, extras pagados)
+    const bridgeModIntent = normalizeSearch([summaryEs, summaryEn || "", ...rawMods].join(" "))
+    const BRIDGE_DISH_FAMILIES_RE =
+      /(?:taco\s+plates?|fiesta\s+platters?|burritos?|tacos?|platos?|plates?|quesadillas?|mulitas?|tortas?|sopes?|nachos?|charolas?|aguas?\s+frescas?|horchatas?|jamaicas?|champurrados?|flan(?:es)?|cheesecakes?|sodas?|bebidas?|drinks?)/
+    const bridgeSwapMatch =
+      bridgeModIntent.match(
+        /\b(?:cambiar|cambia|change|swap|switch|replace|convertir|convert)\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+|my\s+|the\s+|one\s+|a\s+)?([a-z0-9\s]{2,36}?)\s+(?:por|a|para|to|for|into|with)\s+(?:un\s+|una\s+|el\s+|la\s+|a\s+|an\s+|the\s+)?([a-z0-9\s]{2,36})\b/
+      ) ||
+      bridgeModIntent.match(
+        /\b(?:en\s+vez\s+de|en\s+lugar\s+de|instead\s+of)\s+(?:el\s+|la\s+|un\s+|una\s+|the\s+|a\s+|an\s+)?([a-z0-9\s]{2,36}?)\s+(?:quiere|quiero|poner|pon|dar|make\s+it|wants?|give\s+me|send)?\s*(?:un\s+|una\s+|el\s+|la\s+|a\s+|an\s+|the\s+)?([a-z0-9\s]{2,36})\b/
+      )
+    let bridgePaidDishSwap = false
+    if (bridgeSwapMatch) {
+      const ld = bridgeSwapMatch[1].trim().match(BRIDGE_DISH_FAMILIES_RE)?.[0] || ""
+      const rd = bridgeSwapMatch[2].trim().match(BRIDGE_DISH_FAMILIES_RE)?.[0] || ""
+      const normFam = (d: string) =>
+        /taco\s+plate/.test(d) ? "taco_plate"
+        : /^taco/.test(d) ? "taco"
+        : /^burrito/.test(d) ? "burrito"
+        : /^plato|^plate/.test(d) ? "plate"
+        : /^quesadilla/.test(d) ? "quesadilla"
+        : /^mulita/.test(d) ? "mulita"
+        : /^torta/.test(d) ? "torta"
+        : /^sope/.test(d) ? "sope"
+        : /^nacho/.test(d) ? "nachos"
+        : /fiesta|charola/.test(d) ? "platter"
+        : /agua|horchata|jamaica|champurrado|soda|bebida|drink/.test(d) ? "drink"
+        : /flan|cheesecake/.test(d) ? "dessert"
+        : d
+      if (ld && rd && normFam(ld) !== normFam(rd)) bridgePaidDishSwap = true
+    }
+    const bridgePaidUpgradeOrAdd =
+      /\b(?:hacerlo\s+super|cambiar(?:lo)?\s+a\s+super|upgrade\s+(?:to\s+)?super|make\s+(?:it|the\s+\w+)\s+super|extra\s+(?:carne|meat|asada|pastor|pollo|queso|cheese|guacamole|aguacate|avocado|crema|sour\s+cream|arroz|rice)|(?:agregar|anadir|add)\s+(?:un|una|unos|unas|dos|tres|\d+|a|an|one|two|extra)\s+(?:burrito|taco|torta|quesadilla|mulita|sope|plato|plate|nacho|bebida|drink|horchata|jamaica|champurrado|flan|cheesecake|arroz|rice|guacamole|queso))\b/.test(
+        bridgeModIntent
+      )
+    if (bridgePaidDishSwap || bridgePaidUpgradeOrAdd) {
+      return {
+        response: {
+          ok: false,
+          outcome: "PAID_ITEM_CHANGE_BLOCKED",
+          messageEs:
+            "No podemos cambiar un platillo por otro distinto, subir de Regular a Super ni agregar comida, bebidas o extras con costo por teléfono en una orden pagada. Esos cambios deben hacerse directamente en la sección de Ayuda (Help) de tu aplicación de delivery (DoorDash, Uber Eats o Grubhub). Por teléfono solo podemos quitar ingredientes sin costo si sigue en preparación o agregar condimentos gratis (salsas, chiles, limones, servilletas).",
+          messageEn:
+            "We cannot swap one dish for a different menu item, upgrade Regular to Super, or add paid food, drinks, or paid extras over the phone on an already-paid order. Please make paid item changes or cancellations directly in the Help section of your delivery app (DoorDash, Uber Eats, or Grubhub). By phone we can only remove no-cost ingredients while still in kitchen prep or add free condiments (salsas, jalapeños, limes, napkins)."
         },
         shouldEndCall: false,
         hadCallback: false
@@ -4610,6 +4792,9 @@ async function executeLiveTool(params: {
     const rawQ = String(toolArgs?.query || "")
       .replace(/\bfe\s+de\s+(?:la\s+)?(?:hoya|olla)\b/gi, "cafe de olla")
       .replace(/\bcaf[eé]\s+de\s+(?:la\s+)?hoya\b/gi, "cafe de olla")
+      .replace(/\bcaf[eé]\s+hoy\b/gi, "cafe de olla")
+      .replace(/\bsupreme\b|\bsupremo\b/gi, "super")
+      .replace(/\bmolita(s?)\b/gi, "mulita$1")
     const qNorm = normalizeSearch(rawQ)
     const asksCoffeeOrOlla =
       !/\bfrijol(?:es)?\b|\bbeans?\b/.test(qNorm) &&
@@ -4839,14 +5024,18 @@ async function executeLiveTool(params: {
 
   if (toolName === "flag_unanswered_question") {
     const q = String(toolArgs?.question_text || "").trim().slice(0, 500)
-    if (q) {
+    const isSpamRobocall =
+      /\b(?:reduce\s+the\s+interest|accruing\s+on\s+your\s+balance|resolution\s+specialist|press\s+2\s+to\s+speak|debt\s+relief|auto\s+warranty|extended\s+warranty|merchant\s+cash\s+advance|social\s+security|telemarketing|robocall)\b/i.test(
+        q
+      )
+    if (q && !isSpamRobocall) {
       await fetch(`${SUPABASE_URL}/rest/v1/phone_calls?call_sid=eq.${encodeURIComponent(callSid)}`, {
         method: "PATCH",
         headers: dbHeaders(),
         body: JSON.stringify({ unanswered_question: q })
       }).catch(() => null)
     }
-    return { response: { ok: true, flaggedQuestion: q }, shouldEndCall: false, hadCallback: false }
+    return { response: { ok: true, flaggedQuestion: isSpamRobocall ? "" : q, ignoredSpam: isSpamRobocall }, shouldEndCall: false, hadCallback: false }
   }
 
   if (toolName === "create_manager_callback") {
@@ -4856,13 +5045,21 @@ async function executeLiveTool(params: {
     const validCallerIdE164 = rawCallerIdE164 && !ownTen.has(normalizeDigits10(rawCallerIdE164)) ? rawCallerIdE164 : null
     const rawArgE164 = rawPhone && rawPhone.toUpperCase() !== "CALLER_ID" ? cleanUsTenPhone(rawPhone) : null
     const validArgE164 = rawArgE164 && !ownTen.has(normalizeDigits10(rawArgE164)) ? rawArgE164 : null
+    const rawPhoneDigits = rawPhone.replace(/(\d{1,2}):(\d{2})/g, "$1$2").replace(/\D/g, "")
+    const userAttemptedIncompleteAlternatePhone =
+      Boolean(rawPhone) &&
+      rawPhone.toUpperCase() !== "CALLER_ID" &&
+      !validArgE164 &&
+      rawPhoneDigits.length >= 5 &&
+      !(validCallerIdE164 && isPhoneFragmentOfCallerId(rawPhone, validCallerIdE164))
 
-    const cleanPhone =
-      validArgE164 ||
-      (validCallerIdE164 &&
-      (rawPhone.toUpperCase() === "CALLER_ID" || !rawPhone || isPhoneFragmentOfCallerId(rawPhone, validCallerIdE164))
-        ? validCallerIdE164
-        : null)
+    const cleanPhone = userAttemptedIncompleteAlternatePhone
+      ? null
+      : validArgE164 ||
+        (validCallerIdE164 &&
+        (rawPhone.toUpperCase() === "CALLER_ID" || !rawPhone || isPhoneFragmentOfCallerId(rawPhone, validCallerIdE164))
+          ? validCallerIdE164
+          : null)
 
     if (!cleanPhone) {
       const last4Hint = validCallerIdE164 ? formatBridgeLast4Spoken(validCallerIdE164) : null
@@ -4870,9 +5067,12 @@ async function executeLiveTool(params: {
         response: {
           success: false,
           missingCallerPhone: true,
-          message: last4Hint
-            ? `Confirma si podemos llamarle a este mismo número terminado en ${last4Hint} (enviando caller_phone='CALLER_ID') o pídele el número alterno completo de 10 dígitos.`
-            : "Pídele amablemente su número telefónico real de 10 dígitos con código de área antes de guardar el recado."
+          incompleteAlternatePhone: userAttemptedIncompleteAlternatePhone,
+          message: userAttemptedIncompleteAlternatePhone
+            ? `El número alterno dictado ("${rawPhone}") está incompleto (${rawPhoneDigits.length} dígitos en vez de 10). Pídele amablemente que repita los 10 dígitos completos con código de área antes de confirmar el recado.`
+            : last4Hint
+              ? `Confirma si podemos llamarle a este mismo número terminado en ${last4Hint} (enviando caller_phone='CALLER_ID') o pídele el número alterno completo de 10 dígitos.`
+              : "Pídele amablemente su número telefónico real de 10 dígitos con código de área antes de guardar el recado."
         },
         shouldEndCall: false,
         hadCallback: false
@@ -4914,7 +5114,13 @@ async function executeLiveTool(params: {
       rawCat === "wrong_or_missing_order" || rawCat === "wrong_order" || rawCat === "missing_item"
         ? "missing_or_wrong_item"
         : rawCat
-    const category = validCats.has(mappedCat) ? mappedCat : "other"
+    const rawCategory = validCats.has(mappedCat) ? mappedCat : "other"
+    const userAndSummaryNorm = normalizeSearch(`${allUserText || recentUserText} ${toolArgs?.reason_summary || ""}`)
+    const userExplicitWrongOrderEvidence =
+      /\b(falt[oó]|faltaron|missing|incomplet[oa]|equivocad[oa]|wrong\s+(?:order|item|food|burrito|taco)|orden\s+mal|mal\s+preparad[oa]|frio|cold|cabello|pelo|hair|crudo|raw|quemad[oa]|burned|salsa\s+mal|sin\s+(?:arroz|frijol|queso|salsa|carne|bebida|horchata)|no\s+me\s+dieron|didnt\s+get|forgot\s+my|cobro\s+de\s+mas|overcharged|doble\s+cobro)\b/i.test(
+        userAndSummaryNorm
+      )
+    const category = rawCategory === "missing_or_wrong_item" && !userExplicitWrongOrderEvidence ? "other" : rawCategory
 
     const validCallerTypes = new Set(["customer", "employee", "vendor", "delivery_driver", "corporate"])
     const rawCallerType = String(toolArgs?.caller_type || "customer").trim().toLowerCase()
@@ -4929,7 +5135,12 @@ async function executeLiveTool(params: {
     const rawTicket =
       rawTicketArg ||
       (isBridgeTicketNotFoundAdmission(fullUserContext) ? "SIN TICKET" : "")
-    const rawOrderDate = String(toolArgs?.order_date || "").trim()
+    const rawOrderDateInput = String(toolArgs?.order_date || "").trim()
+    const callerDoesNotKnowDate =
+      /\b(no\s+(?:recuerdo|se|me\s+acuerdo)(?:\s+(?:la\s+)?fecha)?|dont\s+(?:remember|know)\s+(?:the\s+)?date|no\s+estoy\s+segur[oa]\s+de\s+la\s+fecha)\b/i.test(
+        normalizeSearch(allUserText || recentUserText)
+      )
+    const rawOrderDate = rawOrderDateInput || (callerDoesNotKnowDate ? "FECHA NO RECORDADA" : "")
     const isDelivery = /\b(uber|doordash|door dash|grubhub|postmates)\b/i.test(
       normalizeSearch(`${fullUserContext} ${toolArgs?.reason_summary || ""}`)
     )
@@ -5737,6 +5948,12 @@ function handleTwilioWebSocket(req: Request): Response {
         if (sc.inputTranscription?.text) {
           if (!openUserStartedAtIso) openUserStartedAtIso = new Date().toISOString()
           openUserText += sc.inputTranscription.text
+          // Si hay texto latino real junto con ruido no-latino incrustado (ej. Devanagari), limpiar el prefijo no-latino
+          if (/[\p{Script=Latin}]{2,}/u.test(openUserText) && FORBIDDEN_BRIDGE_FOREIGN_SCRIPT_RE.test(openUserText)) {
+            openUserText = openUserText
+              .replace(/[\p{Script=Devanagari}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Armenian}\p{Script=Thai}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Tamil}\p{Script=Telugu}]+/gu, " ")
+              .replace(/\s+/g, " ")
+          }
           const trimmedIn = openUserText.replace(/\s+/g, " ").trim()
           if (/[\p{Script=Latin}0-9]/u.test(trimmedIn)) {
             suppressNoiseReplyTurn = false
@@ -5789,7 +6006,11 @@ function handleTwilioWebSocket(req: Request): Response {
           } else {
             if (openUserText.trim()) flushOpenUserTurn()
             if (!openAssistantStartedAtIso) openAssistantStartedAtIso = new Date().toISOString()
-            openAssistantText += outChunk
+            const sanitizedOutChunk = outChunk
+              .replace(/<\/?speech[^>]*>/gi, "")
+              .replace(/\{\s*pause\s*\}/gi, " ")
+              .replace(/<[^>]{1,40}>/g, "")
+            openAssistantText += sanitizedOutChunk
           }
         }
 
@@ -6482,7 +6703,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v22",
+      version: "v23",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"
