@@ -13,6 +13,10 @@
  *
  * @notes
  * - Hardened 2026-11-21: Cabeceras globales de seguridad HTTP habilitadas sin afectar WebRTC/cámara propia (`(self)`).
+ * - Anti-OOM Vercel Build (2026-11-26): `npm run build` ejecuta secuencialmente `next typegen && tsc --noEmit && next build`.
+ *   La verificación estricta de tipos (`tsc --noEmit`, con caché incremental en `.next/cache/tsconfig.tsbuildinfo`) corre y libera
+ *   toda su RAM ANTES de lanzar Turbopack; `typescript.ignoreBuildErrors: true` evita únicamente el segundo worker duplicado de
+ *   TypeScript en paralelo con Turbopack que superaba el límite de 8 GB RAM del contenedor estándar de Vercel (`SIGKILL OOM`).
  */
 
 import type { NextConfig } from "next";
@@ -20,6 +24,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactCompiler: true,
+  typescript: {
+    // Ejecutado estrictamente ANTES de `next build` en `package.json` (`next typegen && tsc --noEmit && next build`)
+    // para liberar RAM entre TypeScript y Turbopack y evitar OOM en contenedores Vercel de 8 GB.
+    ignoreBuildErrors: true,
+  },
   outputFileTracingExcludes: {
     "/**": [
       "./server-debug.log",

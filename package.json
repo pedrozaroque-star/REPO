@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.0.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start",
     "lint": "eslint",
     "sync:web": "tsx scripts/sync-web.ts",

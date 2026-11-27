@@ -17,6 +17,7 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "tsBuildInfoFile": ".next/cache/tsconfig.tsbuildinfo",
     "plugins": [
       {
         "name": "next"
@@ -30,16 +31,28 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
+    "middleware.ts",
+    "next.config.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "hooks/**/*.ts",
+    "hooks/**/*.tsx",
+    "types/**/*.ts",
     ".next/types/**/*.ts",
-    "**/*.mts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     "scripts",
     "scratch",
-    "supabase/functions"
+    "supabase",
+    "backups",
+    "tests",
+    "tmp",
+    ".tmp"
   ]
 }
