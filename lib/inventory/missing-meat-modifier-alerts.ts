@@ -56,6 +56,10 @@ import {
 } from '@/lib/inventory/portion-control-alerts'
 import { formatShortDateLabelEs } from '@/lib/inventory/toast-meat-sold-resolver'
 import {
+  ENGLISH_PREFERRED_RECIPIENT_EMAILS,
+  formatShortDateLabelEn,
+} from '@/lib/inventory/sobrantes-executive-email'
+import {
   loadEmailDeliverabilityContext,
   resolveDeliverableUserEmail,
   resolveSingleRecipientEmail,
@@ -302,15 +306,135 @@ async function getDiningOptionsMapForStore(token: string, externalStoreId: strin
   return map
 }
 
+function isEnglishSupervisorGroup(group: {
+  supervisorEmail?: string | null
+  supervisorName?: string | null
+}): boolean {
+  const normEmail = normalizeCorporateEmail(group.supervisorEmail)
+  if (normEmail && ENGLISH_PREFERRED_RECIPIENT_EMAILS.has(normEmail)) return true
+  const normName = String(group.supervisorName || '').trim().toLowerCase()
+  return normName.includes('estefani')
+}
+
+function formatLaTimeAmPmEn(timestampIso?: string | null, fallbackLabel?: string): string {
+  if (!timestampIso) return fallbackLabel || '—'
+  const dateObj = new Date(timestampIso)
+  if (Number.isNaN(dateObj.getTime())) return fallbackLabel || '—'
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(dateObj)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00'
+  const hour24 = Number(get('hour')) % 24
+  const minute = get('minute')
+  const calDate = `${get('year')}-${get('month')}-${get('day')}`
+  const suffix = hour24 >= 12 ? 'PM' : 'AM'
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
+  return `${formatShortDateLabelEn(calDate)} · ${hour12}:${minute} ${suffix}`
+}
+
 export function buildLiveShiftAlertEmailHtml(group: StoreShiftMissingMeatGroup): {
   subject: string
   html: string
+  isBilingualEn: boolean
 } {
+  const isBilingualEn = isEnglishSupervisorGroup(group)
+  const cleanStoreName = formatStoreDisplayName({ id: group.storeId, name: group.storeName }) || group.storeName
+
+  if (isBilingualEn) {
+    const shiftLabelEn =
+      group.shift === 'AM'
+        ? 'AM Shift (6:00 AM – 4:59 PM)'
+        : 'PM Shift (5:00 PM – 5:59 AM)'
+    const dateLabelEn = formatShortDateLabelEn(group.businessDate)
+    const subject = `⚠️ Action Required / Obligatorio · ${cleanStoreName} (${group.shift}): Select Meat Type in Toast (${group.ordersCount} ${group.ordersCount === 1 ? 'order' : 'orders'})`
+
+    const rowsHtml = group.incidents
+      .map(
+        (inc) => `<tr style="border-bottom:1px solid #E5E7EB;">
+          <td style="padding:10px;font-size:14px;font-weight:900;color:#111827;">#${escapeHtml(inc.orderNumber)}</td>
+          <td style="padding:10px;font-size:13px;font-weight:700;color:#374151;">${escapeHtml(formatLaTimeAmPmEn(inc.timestampIso, inc.localDateTimeLabel))}</td>
+          <td style="padding:10px;font-size:14px;font-weight:800;color:#991B1B;">${inc.quantity} × ${escapeHtml(inc.itemName)}</td>
+          <td style="padding:10px;font-size:14px;font-weight:800;color:#111827;">${escapeHtml(inc.cashierName)}</td>
+        </tr>`
+      )
+      .join('')
+
+    const assistantDisplay =
+      group.shiftAssistantNames.length > 0 ? group.shiftAssistantNames.join(', ') : 'Shift Assistant'
+
+    const html = `<!DOCTYPE html><html lang="en"><body style="margin:0;padding:16px;background:#F3F4F6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
+      <table width="620" align="center" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #E5E7EB;">
+        <tr>
+          <td style="background:#991B1B;color:#FFFFFF;padding:20px 24px;">
+            <div style="font-size:11px;font-weight:800;color:#FECACA;text-transform:uppercase;letter-spacing:0.8px;">TACOS GAVILAN · MANDATORY POS COMPLIANCE (EN / ES)</div>
+            <div style="font-size:21px;font-weight:900;margin-top:4px;">${escapeHtml(cleanStoreName)} · ${escapeHtml(shiftLabelEn)}</div>
+            <div style="font-size:13px;color:#FEE2E2;margin-top:4px;">Business Day: ${escapeHtml(dateLabelEn)} (${escapeHtml(group.businessDate)})</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:22px 24px;">
+            <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+              <div style="font-size:14px;font-weight:900;color:#991B1B;margin-bottom:6px;">🚨 Immediate Action Required (Manager &amp; Shift Assistant)</div>
+              <div style="font-size:13.5px;line-height:1.5;color:#7F1D1D;">
+                The following orders were charged for <strong>Side Order Carne</strong> or <strong>Meat by the Pound</strong> <strong>WITHOUT selecting the meat type</strong> in Toast POS.<br><br>
+                It is <strong>100% MANDATORY</strong> for cashiers to select the exact meat type so daily meat usage and leftovers remain accurate. When left blank, the system automatically deducts these orders from <strong>Carne Asada</strong>.
+              </div>
+            </div>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;font-size:13px;color:#374151;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:12px 14px;">
+              <tr>
+                <td style="padding:4px 0;"><strong>Store Manager:</strong> ${escapeHtml(group.managerName || 'Store Manager')}</td>
+                <td style="padding:4px 0;"><strong>Supervisor (CC):</strong> ${escapeHtml(group.supervisorName || 'Supervisor')}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 0;"><strong>${group.shift} Assistant (CC):</strong> ${escapeHtml(assistantDisplay)}</td>
+                <td style="padding:4px 0;"><strong>Cashier(s) (CC):</strong> ${escapeHtml(group.cashierNames.join(', '))}</td>
+              </tr>
+            </table>
+
+            <div style="font-size:15px;font-weight:900;color:#111827;margin-bottom:8px;">Orders Missing Meat Type (${group.ordersCount})</div>
+            <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;">
+              <thead>
+                <tr style="background:#F3F4F6;font-size:11px;font-weight:800;text-transform:uppercase;color:#4B5563;border-bottom:1px solid #E5E7EB;">
+                  <th style="padding:10px;text-align:left;">Order #</th>
+                  <th style="padding:10px;text-align:left;">Date &amp; Time</th>
+                  <th style="padding:10px;text-align:left;">Item Charged</th>
+                  <th style="padding:10px;text-align:left;">Cashier</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+
+            <div style="margin-top:16px;font-size:13px;color:#374151;line-height:1.5;">
+              <strong>Action:</strong> Please coach the cashier(s) listed above before their next shift so zero orders are rung up without a meat modifier.
+            </div>
+
+            <div style="margin-top:16px;background:#F8FAFC;border:1px solid #CBD5E1;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#334155;line-height:1.5;">
+              <strong style="color:#0F172A;">🇪🇸 Resumen en Español (Gerente y Cajera):</strong> En las órdenes de arriba se cobró <strong>Side Order Carne</strong> o <strong>Carne por Libra</strong> sin seleccionar el tipo de carne en Toast POS. Favor de entrenar hoy mismo a la(s) cajera(s) para que siempre seleccionen la carne exacta; mientras falte, el sistema la descuenta de <strong>Carne Asada</strong>.
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#F9FAFB;padding:12px 24px;font-size:11px;color:#6B7280;text-align:center;border-top:1px solid #E5E7EB;">
+            Tacos Gavilan · Monitoring System · Daily Automated POS Meat Audit
+          </td>
+        </tr>
+      </table>
+    </body></html>`
+
+    return { subject, html, isBilingualEn: true }
+  }
+
   const shiftLabel =
     group.shift === 'AM'
       ? 'Turno AM (06:00 AM – 04:59 PM)'
       : 'Turno PM (05:00 PM – 05:59 AM)'
-  const cleanStoreName = formatStoreDisplayName({ id: group.storeId, name: group.storeName }) || group.storeName
   const dateLabel = formatShortDateLabelEs(group.businessDate)
   const subject = `⚠️ Obligatorio Tacos Gavilan · ${cleanStoreName} (${group.shift}): Registrar Tipo de Carne en Toast (${group.ordersCount} ${group.ordersCount === 1 ? 'orden' : 'órdenes'})`
 
@@ -384,7 +508,7 @@ export function buildLiveShiftAlertEmailHtml(group: StoreShiftMissingMeatGroup):
     </table>
   </body></html>`
 
-  return { subject, html }
+  return { subject, html, isBilingualEn: false }
 }
 
 export function buildPreviewDigestForCarlosHtml(
@@ -1092,7 +1216,7 @@ export async function scanAndNotifyMissingMeatModifiers(
         const built = buildLiveShiftAlertEmailHtml(grp)
         try {
           const mailRes = await sendSystemEmail({
-            fromName: 'Sistema de Monitoreo',
+            fromName: built.isBilingualEn ? 'Monitoring System' : 'Sistema de Monitoreo',
             to: grp.liveTo,
             cc: grp.liveCc.length > 0 ? grp.liveCc : undefined,
             bcc: grp.liveTo.includes(EXEC_COPY_EMAIL) ? undefined : EXEC_COPY_EMAIL,

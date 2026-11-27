@@ -1,30 +1,39 @@
 /**
  * @module app/api/cron/check-portion-alerts/route
- * @description Cron diario automatizado (`15 19 * * *` UTC — 11:15 AM PST / 12:15 PM PDT, justo después de
+ * @description Cron diario automatizado (`53 17 * * *` UTC — 09:53 AM PST / 10:53 AM PDT, justo después de
  *   `/api/cron/sync-pmix` y `/api/cron/sync-food-cost`) que ejecuta el Balance de Masas Telescópico de 7 días
  *   en las 15 sucursales para Carne Asada (prioridad #1) y las otras 7 proteínas activas, persiste alertas
- *   idempotentes en `public.portion_control_alerts` y despacha avisos ejecutivos a la Escalera de Mando.
+ *   idempotentes en `public.portion_control_alerts` y marca vencimientos SLA (>24h) en base de datos para
+ *   el panel web `/admin/food-cost/meats`.
  *
  * @businessRules
- *   - **Idempotencia Estricta**: Gracias a `UNIQUE(store_id, period_start, period_end, meat_key)` y la verificación
- *     de `email_sent_at`, jamás envía correos duplicados para la misma ventana medida.
- *   - **Modo Seguro de Pruebas**: Soporta `?dry_run=true` (cero escrituras y cero envíos) y `?test_to=...`
+ *   - **Política Anti-Saturación de Correos (2026-11-27)**: Los correos diarios automáticos por proteína
+ *     (`#3` Alerta diaria de porciones 7d y `#7` SLA vencido >24h) permanecen **desactivados permanentemente**
+ *     en este cron (en producción habrían enviado ~94 correos en 48 horas por las 8 carnes). Este cron opera
+ *     en modo **solo base de datos / panel web**. El único correo semanal de sobrantes vive en
+ *     `/api/cron/weekly-sobrantes-digest` (Lunes 10:00 AM LA, ES + EN).
+ *   - **Idempotencia Estricta**: Gracias a `UNIQUE(store_id, period_start, period_end, meat_key)`, jamás
+ *     duplica filas en `public.portion_control_alerts`.
+ *   - **Modo Seguro de Pruebas**: Soporta `?dry_run=true` (cero escrituras y cero envíos) y solo permite envío
+ *     manual de prueba si un admin envía explícitamente `?send_emails=true&manual_email_override=true&test_to=...`
  *     (restringido estrictamente a `@tacosgavilan.com`).
  *
  * @dataFlow
- *   Vercel Cron (`15 19 * * *`) → `GET/POST /api/cron/check-portion-alerts`
- *   → `scanPortionControlAlerts()` + `enforceOverduePortionAlerts()` (SLA obligatorio 24h).
+ *   Vercel Cron (`53 17 * * *`) → `GET/POST /api/cron/check-portion-alerts`
+ *   → `scanPortionControlAlerts({ sendEmails: false })` + `enforceOverduePortionAlerts({ sendEmails: false })`
+ *   → `public.portion_control_alerts` (panel web `/admin/food-cost/meats`).
  *
  * @notes
  *   - Protegido con `verifyStaffAuth(..., { allowedRoles: ['admin', 'supervisor'], allowCron: true })`.
- *   - [2026-11-27] El correo ejecutivo "Resumen Semanal de Sobrantes" (Lunes–Domingo, desglose Supervisor/Sucursal/Día)
- *     se movió a su propio cron semanal `/api/cron/weekly-sobrantes-digest` (lunes 10:00 AM hora California).
+ *   - [2026-11-27] El correo ejecutivo "Resumen Semanal de Sobrantes" (Lunes–Domingo, desglose Supervisor/Sucursal/Día,
+ *     ES + EN) se movió a `/api/cron/weekly-sobrantes-digest` (lunes 10:00 AM hora California).
+ *   - [2026-11-27] Bloqueo permanente anti-saturación: las ejecuciones automáticas de este cron NUNCA despachan
+ *     correos `#3` ni `#7`, incluso si `PORTION_ALERTS_LIVE_RECIPIENTS=true` llegara a activarse.
  */
 
 import { NextResponse } from 'next/server'
 import { verifyStaffAuth } from '@/lib/auth-server'
 import {
-  isPortionAlertsWeeklyTestMode,
   scanPortionControlAlerts,
   validateTestToEmail,
 } from '@/lib/inventory/portion-control-alerts'
@@ -45,8 +54,8 @@ async function handleCheckPortionAlerts(req: Request) {
   try {
     const url = new URL(req.url)
     const dryRun = url.searchParams.get('dry_run') === 'true'
-    const sendEmailsParam = url.searchParams.get('send_emails')
-    const sendEmails = sendEmailsParam !== null ? sendEmailsParam !== 'false' : !dryRun
+    const sendEmailsParam = url.searchParams.get('send_emails') === 'true'
+    const manualEmailOverride = url.searchParams.get('manual_email_override') === 'true'
     const forceResend = url.searchParams.get('force_resend') === 'true'
     const storeId = url.searchParams.get('store_id')?.trim() || null
     const endDate = url.searchParams.get('date')?.trim() || url.searchParams.get('end_date')?.trim() || null
@@ -60,8 +69,12 @@ async function handleCheckPortionAlerts(req: Request) {
       return NextResponse.json({ error: testCheck.error }, { status: 400 })
     }
 
+    // Candado anti-saturación permanente: el cron diario NUNCA dispara correos automáticos #3/#7.
+    // Solo se permite un envío de prueba explícito si se pasa `send_emails=true&manual_email_override=true&test_to=...`.
+    const allowSafePreviewEmail = Boolean(!dryRun && sendEmailsParam && manualEmailOverride && rawTestTo && testCheck.email)
+
     // Pre-cargar UNA SOLA VEZ `loadToastMeatContext` (fragmentado <= 15 filas/lote) para compartirlo
-    // entre `scanPortionControlAlerts` y `computeToastVsFridgeForIngredient` (corta RAM/IO a la mitad).
+    // entre `scanPortionControlAlerts` y el resto del flujo (corta RAM/IO a la mitad).
     const todayLA = getBusinessDateLA()
     const yesterdayLA = addDaysIso(todayLA, -1)
     const resolvedEnd = endDate && isValidIsoDate(endDate) && endDate <= yesterdayLA ? endDate : yesterdayLA
@@ -77,7 +90,6 @@ async function handleCheckPortionAlerts(req: Request) {
       reconcileQbInvoices: true,
     })
 
-    const weeklyTestMode = isPortionAlertsWeeklyTestMode()
     const result = await scanPortionControlAlerts({
       storeId,
       startDate: resolvedStart,
@@ -85,18 +97,18 @@ async function handleCheckPortionAlerts(req: Request) {
       spanDays,
       meatKey,
       dryRun,
-      sendEmails: weeklyTestMode ? false : sendEmails,
+      sendEmails: allowSafePreviewEmail,
       forceResend,
-      testTo: testCheck.email,
+      testTo: allowSafePreviewEmail ? testCheck.email : null,
       toastMeatCtx: sharedToastMeatCtx,
       reconcileQbInvoices: false,
     })
 
     const overdueEnforcement = await enforceOverduePortionAlerts({
       dryRun,
-      sendEmails: weeklyTestMode ? false : sendEmails,
+      sendEmails: allowSafePreviewEmail,
       storeId,
-      testTo: testCheck.email,
+      testTo: allowSafePreviewEmail ? testCheck.email : null,
     })
 
     const sentCount = result.emailsDispatched.filter((e) => e.sent).length

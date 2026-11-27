@@ -48,6 +48,7 @@ import { validateTestToEmail } from '@/lib/inventory/portion-control-alerts'
 import {
   buildSobrantesExecutiveEmailHtml,
   getPreviousCompletedWeekMonSunLA,
+  resolveSobrantesEmailLang,
   sendSobrantesExecutiveDigest,
 } from '@/lib/inventory/sobrantes-executive-email'
 
@@ -139,6 +140,14 @@ async function handleWeeklySobrantesDigest(req: Request) {
     const rawEnd = url.searchParams.get('end_date')?.trim() || null
     const rawMeat = (url.searchParams.get('meat_key')?.trim().toLowerCase() || 'asada') as ActiveProteinKey
     const rawTestTo = url.searchParams.get('test_to')?.trim() || null
+    const rawLang = url.searchParams.get('lang')?.trim().toLowerCase() || null
+
+    if (rawLang && rawLang !== 'es' && rawLang !== 'en') {
+      return NextResponse.json(
+        { success: false, error: `Idioma inválido: ${rawLang} (usa 'es' o 'en')` },
+        { status: 400 }
+      )
+    }
 
     if (!(rawMeat in ACTIVE_PROTEIN_IDS)) {
       return NextResponse.json(
@@ -152,7 +161,10 @@ async function handleWeeklySobrantesDigest(req: Request) {
       return NextResponse.json({ success: false, error: testCheck.error }, { status: 400 })
     }
 
-    const isManualOverride = Boolean(dryRun || forceResend || rawStart || rawEnd || rawTestTo)
+    const resolvedRecipient = testCheck.email || 'carlos@tacosgavilan.com'
+    const resolvedLang = resolveSobrantesEmailLang(resolvedRecipient, rawLang)
+
+    const isManualOverride = Boolean(dryRun || forceResend || rawStart || rawEnd || rawTestTo || rawLang)
     const nowLA = getLANowParts(new Date())
     const laDow = new Date(`${nowLA.calendarDate}T12:00:00Z`).getUTCDay() // 1 = Lunes
 
@@ -226,12 +238,14 @@ async function handleWeeklySobrantesDigest(req: Request) {
         startDate,
         endDate,
         meter,
-        recipientEmail: testCheck.email || 'carlos@tacosgavilan.com',
+        recipientEmail: resolvedRecipient,
+        lang: resolvedLang,
       })
       return NextResponse.json(
         {
           success: true,
           dryRun: true,
+          lang: preview.lang,
           startDate,
           endDate,
           meatKey: rawMeat,
@@ -253,6 +267,7 @@ async function handleWeeklySobrantesDigest(req: Request) {
       endDate,
       meter,
       rawTestTo: testCheck.email,
+      lang: resolvedLang,
     })
 
     if (!rawTestTo) {
@@ -270,6 +285,7 @@ async function handleWeeklySobrantesDigest(req: Request) {
       {
         success: true,
         sent: true,
+        lang: sent.lang,
         startDate,
         endDate,
         meatKey: rawMeat,
