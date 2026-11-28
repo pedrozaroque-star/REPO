@@ -2984,23 +2984,32 @@ export default function BlindajeDeliveryEmpaquePage() {
                                 </div>
                               </div>
                             )}
-                            {note.itemModifications.length > 0 && (
-                              <div>
-                                <div className="text-xs font-black uppercase tracking-wider text-red-700 mb-1.5">
-                                  {t('blindaje_delivery.phone_note_modifications_label')}
+                            {(() => {
+                              const effectiveMods =
+                                note.itemModifications.length > 0
+                                  ? note.itemModifications
+                                  : note.requestType === 'item_modification' && (note.noteSummaryEs || note.noteSummaryEn)
+                                    ? [note.noteSummaryEs || note.noteSummaryEn || '']
+                                    : []
+                              if (effectiveMods.length === 0) return null
+                              return (
+                                <div>
+                                  <div className="text-xs font-black uppercase tracking-wider text-red-700 mb-1.5">
+                                    {t('blindaje_delivery.phone_note_modifications_label')}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {effectiveMods.map((m, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="px-3 py-1 rounded-xl bg-red-100 border border-red-400 text-red-950 text-sm sm:text-base font-black"
+                                      >
+                                        ✏️ {m}
+                                      </span>
+                                    ))}
+                                  </div>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                  {note.itemModifications.map((m, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="px-3 py-1 rounded-xl bg-red-100 border border-red-400 text-red-950 text-sm sm:text-base font-black"
-                                    >
-                                      ✏️ {m}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
+                              )
+                            })()}
                             {order.items.length > 0 && (
                               <div className="pt-2 border-t border-slate-200">
                                 <div className="text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5">

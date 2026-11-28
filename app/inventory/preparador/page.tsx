@@ -83,7 +83,7 @@
  *     Monta `<DeliveryPhoneNotesAlertPanel variant="tablet" />` justo debajo de la barra superior (fuera de `data-orders-hit-zone`
  *     para que el radar de proximidad con guantes no intercepte los botones), replicando exactamente el parpadeo, timbre triple,
  *     aviso de bolsa sellada, botón circular rojo `✕` de cierre individual por orden estilo Preparador y confirmación en tiempo real
- *     (`< 500 ms`) en las 13 sucursales sin tableta física de Delivery Armor (apagado automáticamente en `#7 Slauson` y `#8 Hollywood` que ya cuentan con ella).
+ *     (`< 500 ms`) en las 12 sucursales sin tableta física de Delivery Armor (apagado automáticamente para condimentos en `#6 LA Central`, `#7 Slauson` y `#8 Hollywood` que ya cuentan con tableta dedicada).
  *   - BLINDAJE DE SESIÓN STAFF 24/7 Y CONFIRMACIÓN REAL DE LLAMADO (2026-11-24):
  *     1) `handleCallOrderImpulse`, `sendPrepHeartbeat`, `loadAutoTimerSettings` y el respaldo de `autoTimer` envían siempre `Authorization: Bearer` (`getTabletNoCacheHeaders()`) + `credentials: 'include'` con auto-renovación inmediata en `401` (`ensureFreshTabletAuth(true)`).
  *     2) Eliminado falso positivo verde optimista previo al `fetch`: la tarjeta solo marca verde ("¡Llamada Enviada!") cuando el broadcast WebSocket o `POST /api/order-ready/call` confirma entrega real; si ambos fallan muestra alerta roja de reintento y libera el bloqueo en 400ms.

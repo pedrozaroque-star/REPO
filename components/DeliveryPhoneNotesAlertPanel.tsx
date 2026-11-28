@@ -6,7 +6,7 @@
  *   mientras se despliegan las tabletas dedicadas de empaque en todas las sucursales.
  *
  * @businessRules
- * - **Regla de Sucursales con Tableta Física Delivery Armor**: `#7 Slauson` y `#8 Hollywood` (`STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET`)
+ * - **Regla de Sucursales con Tableta Física Delivery Armor**: `#6 LA Central`, `#7 Slauson` y `#8 Hollywood` (`STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET`)
  *   suprimen aquí las notas regulares de condimentos (atendidas en su tableta Delivery Armor), PERO muestran siempre alertas operativas
  *   críticas dirigidas a parrilla/mostrador (`pickup_time_change`, `wrong_store_stop`, `wrong_store_prepare`, `fiesta_platter_custom`
  *   y modificaciones `IN_KITCHEN`) en las 15 sucursales.
@@ -80,13 +80,14 @@ const STORE_ID_BY_CODE: Record<string, number> = {
  * Al desplegar nuevas tabletas físicas en otras tiendas, basta agregar su `store_id` aquí.
  */
 export const STORES_WITH_PHYSICAL_DELIVERY_ARMOR_TABLET = new Set<number>([
+  6, // #6 LA Central (Los Ángeles - Central y Washington)
   7, // #7 Slauson (Los Ángeles - Slauson y Broadway)
   8  // #8 Hollywood
 ])
 
 /**
  * Tipos de alerta operativa de cocina que SIEMPRE deben mostrarse en la tableta PREPARADOR
- * de las 15 sucursales (INCLUYENDO #7 Slauson y #8 Hollywood), porque van dirigidos directo
+ * de las 15 sucursales (INCLUYENDO #6 LA Central, #7 Slauson y #8 Hollywood), porque van dirigidos directo
  * a los cocineros y mostrador:
  * - `pickup_time_change`: cambio de horario de recolección en orden Toast.
  * - `wrong_store_stop` / `wrong_store_prepare`: alerta dual a las 2 sucursales por sucursal equivocada.
@@ -114,7 +115,7 @@ export function shouldShowDeliveryPhoneNoteOnPreparador(
   if (KITCHEN_ALWAYS_ON_PREPARADOR_REQUEST_TYPES.has(rt)) return true
   // Si la orden delivery sigue en estatus PREPARACIÓN (`IN_KITCHEN`) y el cliente pidió quitar/modificar
   // un ingrediente del platillo (ej. "sin frijol en el burrito"), mostrarlo en PREPARADOR en las 15 tiendas
-  // (incluyendo #7 Slauson y #8 Hollywood) para que los cocineros lo apliquen antes de terminar el platillo.
+  // (incluyendo #6 LA Central, #7 Slauson y #8 Hollywood) para que los cocineros lo apliquen antes de terminar el platillo.
   if (
     (rt === 'item_modification' || rt === 'both') &&
     String(orderStageAtAlert || '').toUpperCase() === 'IN_KITCHEN'
