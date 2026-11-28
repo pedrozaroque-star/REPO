@@ -838,10 +838,10 @@ export async function executePhoneKoreLiveTool(params: {
 }
 
 const CALLER_FRUSTRATION_NO_HANGUP_RE =
-  /\b(competencia|competitor|otro\s+lado|otro\s+restaurante|otra\s+taqueria|somewhere\s+else|another\s+place|por\s+que\s+me\s+colg(?:aste|aron)|por\s+que\s+(?:me\s+)?cuelgas?|no\s+me\s+cuelgues?|why\s+did\s+you\s+hang\s+up|dont\s+hang\s+up|do\s+not\s+hang\s+up|pesimo|mal\s+servicio|que\s+mal|eso\s+esta\s+mal|terrible|horrible|ridiculo|ridiculous|frustrad[oa]|molest[oa]|enojad[oa]|upset|angry|reclamo|queja|que\s+hago|what\s+do\s+i\s+do|no\s+sirve|no\s+me\s+ayudas?|para\s+ahorita|en\s+media\s+hora)\b/i
+  /\b(competencia|competitor|otro\s+lado|otro\s+restaurante|otra\s+taqueria|somewhere\s+else|another\s+place|por\s+que\s+me\s+colg(?:aste|aron)|por\s+que\s+(?:me\s+)?cuelgas?|no\s+me\s+cuelgues?|why\s+did\s+you\s+hang\s+up|dont\s+hang\s+up|do\s+not\s+hang\s+up|one\s+star|1\s+star|una\s+estrella|yelp|google\s+review|bad\s+review|resena|pesimo|mal\s+servicio|que\s+mal|eso\s+esta\s+mal|terrible|horrible|ridiculo|ridiculous|frustrad[oa]|molest[oa]|enojad[oa]|upset|angry|reclamo|queja|que\s+hago|what\s+do\s+i\s+do|no\s+sirve|no\s+me\s+ayudas?|para\s+ahorita|en\s+media\s+hora)\b/i
 
 const STRICT_EXPLICIT_FAREWELL_RE =
-  /\b(adios|bye|goodbye|hasta\s+luego|nos\s+vemos|eso\s+es\s+todo(?:\s*,?\s*gracias)?|es\s+todo\s*,?\s*gracias|seria\s+todo(?:\s*,?\s*gracias)?|no\s*,?\s*gracias\s*,?\s*(?:adios|bye|es\s+todo)|thats\s+all\s*,?\s*thank(?:s|\s+you)|that\s+is\s+all\s*,?\s*thank(?:s|\s+you)|thats\s+it\s*,?\s*thank(?:s|\s+you))\b/i
+  /\b(adios|bye|goodbye|hasta\s+luego|nos\s+vemos|eso\s+es\s+todo(?:\s*,?\s*gracias)?|es\s+todo\s*,?\s*gracias|seria\s+todo(?:\s*,?\s*gracias)?|no\s*,?\s*gracias\s*,?\s*(?:adios|bye|es\s+todo)|thats\s+all(?:\s*,?\s*thank(?:s|\s+you))?|that\s+is\s+all(?:\s*,?\s*thank(?:s|\s+you))?|thats\s+everything(?:\s*,?\s*thank(?:s|\s+you))?|that\s+is\s+everything(?:\s*,?\s*thank(?:s|\s+you))?|thats\s+it\s*,?\s*thank(?:s|\s+you))\b/i
 
 function isCallerFrustratedWithoutExplicitGoodbye(rawUserText: string): boolean {
   const norm = normalizeSearchText(rawUserText)

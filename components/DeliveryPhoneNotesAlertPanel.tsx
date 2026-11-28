@@ -655,6 +655,12 @@ export default function DeliveryPhoneNotesAlertPanel({
             const customerDisplay = note.orderCustomerName || note.callerName
             const summaryText =
               language === 'en' && note.noteSummaryEn ? note.noteSummaryEn : note.noteSummaryEs
+            const effectiveItemModifications =
+              note.itemModifications.length > 0
+                ? note.itemModifications
+                : note.requestType === 'item_modification' && summaryText
+                  ? [summaryText]
+                  : []
             const isReopenBag = note.orderStageAtAlert === 'PACKED_AND_SEALED'
             const isUnmatched = note.matchStatus === 'UNMATCHED'
             const isBusy = busyNoteId === note.id
@@ -887,7 +893,7 @@ export default function DeliveryPhoneNotesAlertPanel({
                 )}
 
                 {/* Chips de Condimentos Gratuitos y Modificaciones Sin Costo */}
-                {(note.requestedCondiments.length > 0 || (!isFiestaPlatterCustom && note.itemModifications.length > 0)) && (
+                {(note.requestedCondiments.length > 0 || (!isFiestaPlatterCustom && effectiveItemModifications.length > 0)) && (
                   <div className="flex flex-wrap gap-3 pt-0.5">
                     {note.requestedCondiments.length > 0 && (
                       <div className="space-y-1">
@@ -915,13 +921,13 @@ export default function DeliveryPhoneNotesAlertPanel({
                       </div>
                     )}
 
-                    {!isFiestaPlatterCustom && note.itemModifications.length > 0 && (
+                    {!isFiestaPlatterCustom && effectiveItemModifications.length > 0 && (
                       <div className="space-y-1">
                         <div className="text-[11px] font-black uppercase tracking-wider text-red-700">
                           {t('blindaje_delivery.phone_note_modifications_label')}
                         </div>
                         <div className="flex flex-wrap gap-1.5">
-                          {note.itemModifications.map((m, idx) => (
+                          {effectiveItemModifications.map((m, idx) => (
                             <span
                               key={idx}
                               className="px-2.5 py-1 rounded-xl bg-red-100 border border-red-400 text-red-950 text-xs sm:text-sm font-black"

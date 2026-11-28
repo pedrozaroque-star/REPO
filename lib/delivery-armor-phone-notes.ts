@@ -745,9 +745,24 @@ export async function createOrUpdateDeliveryArmorPhoneNote(
   const customerName = String(params.customerName || params.callerName || '').replace(/\s+/g, ' ').trim()
   const callerName = String(params.callerName || customerName).replace(/\s+/g, ' ').trim()
   const condiments = dedupeStringArray(params.requestedCondiments || [])
-  const modifications = dedupeStringArray(params.itemModifications || [])
+  const rawModifications = dedupeStringArray(params.itemModifications || [])
   const noteSummaryEs = String(params.noteSummaryEs || '').replace(/\s+/g, ' ').trim()
   const noteSummaryEn = params.noteSummaryEn ? String(params.noteSummaryEn).replace(/\s+/g, ' ').trim() : null
+  const normalizedReqTypeHint = String(params.requestType || '').trim().toLowerCase()
+  const looksLikeModificationSummary =
+    Boolean(noteSummaryEs) &&
+    (normalizedReqTypeHint === 'item_modification' ||
+      /\b(sin\s+(?:hielo|frijol(?:es)?|arroz|queso|cebolla|cilantro|crema|lechuga|tomate|salsa|chile|mayonesa|carne|aguacate|guacamole|picante)|no\s+(?:ice|beans|rice|cheese|onion|cilantro|sour\s*cream|lettuce|tomato|salsa|mayo)|quitar|aparte|on\s+the\s+side|tortillas?\s+de\s+(?:harina|maiz)|mitad\s+y\s+mitad|bien\s+dorad[oa]|partid[oa]\s+en\s+dos)\b/i.test(
+        foldAscii(noteSummaryEs)
+      ))
+  // Si la IA marcó `item_modification` (ej. "Horchata sin hielo") o describió un ajuste sin costo en el resumen
+  // pero dejó `item_modifications` vacío, rellenarlo automáticamente para mostrar el chip rojo ✏️ en la tableta.
+  const modifications =
+    rawModifications.length > 0
+      ? rawModifications
+      : looksLikeModificationSummary && condiments.length === 0
+        ? [noteSummaryEs]
+        : rawModifications
 
   if (!Number.isInteger(storeId) || storeId <= 0) {
     return {

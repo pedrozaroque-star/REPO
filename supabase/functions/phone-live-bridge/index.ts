@@ -3095,19 +3095,25 @@ function cleanUsTenPhone(raw: string): string | null {
 }
 
 const EXPLICIT_GOODBYE_RE =
-  /(?:^(?:todo|costado)(?:\s*,?\s*(?:muchas\s+)?gracias)?$|\b(es\s+todo|seria\s+todo|eso\s+es\s+todo|ya\s+seria\s+todo|ya\s+es\s+todo|ya\s+estuvo|testo\s+la\s+frase|nada\s+mas|solo\s+eso|no,?\s*(?:gracias|por\s+ahora|necesito|no\s+esta|no\s+mas\s+(?:queria|eso)|solo\s+(?:queria|eso))|adios|bye|hasta\s+luego|nos\s+vemos|cuidate|cuelgame|hang\s+up|que\s+tengas|buen\s+dia|buena\s+tarde|buena\s+noche|feliz\s+(?:dia|thanksgiving|navidad|ano)|felices\s+fiestas|happy\s+(?:holidays|thanksgiving|new\s+year)|merry\s+christmas|thats\s+all|that\s+is\s+all|thats\s+it|that\s+is\s+it|nothing\s+else|no,?\s*thank(?:s|\s+you)|(?:im|were)\s+(?:good|fine|all\s+set)|all\s+set|all\s+done|no\s+(?:more|other)\s+questions|have\s+a\s+(?:good|great|nice|wonderful)|goodbye)\b)/i
+  /(?:^(?:todo|costado)(?:\s*,?\s*(?:muchas\s+)?gracias)?$|\b(es\s+todo|seria\s+todo|eso\s+es\s+todo|ya\s+seria\s+todo|ya\s+es\s+todo|ya\s+estuvo|ya\s+con\s+eso|con\s+eso\s+(?:basta|esta\s+bien|es\s+suficiente)|testo\s+la\s+frase|nada\s+mas|solo\s+eso|no,?\s*(?:gracias|por\s+ahora|necesito|no\s+esta|no\s+mas\s+(?:queria|eso)|solo\s+(?:queria|eso))|adios|bye|hasta\s+luego|nos\s+vemos|cuidate|cuelgame|hang\s+up|que\s+tengas|buen\s+dia|buena\s+tarde|buena\s+noche|feliz\s+(?:dia|thanksgiving|navidad|ano)|felices\s+fiestas|happy\s+(?:holidays|thanksgiving|new\s+year)|merry\s+christmas|thats\s+all|that\s+is\s+all|thats\s+everything|that\s+is\s+everything|thats\s+it|that\s+is\s+it|that\s+will\s+be\s+all|nothing\s+else|no,?\s*thank(?:s|\s+you)|(?:im|i\s+am|were|we\s+are)\s+(?:all\s+)?(?:good|fine|set|covered|done)|all\s+good|all\s+set|all\s+done|no\s+(?:more|other)\s+questions|have\s+a\s+(?:good|great|nice|wonderful)|goodbye)\b)/i
 
 const ACK_ONLY_NO_GOODBYE_RE =
   /^(?:(?:ok(?:ay)?|okey|vale|sale|bien|bueno|esta\s+bien|de\s+acuerdo|muy\s+bien|perfecto|entendido|claro|listo|excelente|genial|va|ya|aha|aja|sip?|yeah?|yep|got\s+it|alright|all\s+right|sounds\s+good|very\s+good|good|nice|cool|fine)(?:[\s,]+(?:muchas\s+)?(?:gracias|thank\s+you|thanks|por\s+favor))?|(?:muchas\s+)?gracias|thank\s+you(?:\s+very\s+much|\s+so\s+much)?|thanks(?:\s+a\s+lot)?)$/i
 
 const OFFERED_FURTHER_HELP_RE =
-  /\b(algo\s+mas|ayud(?:o|arte)\s+con\s+algo|otra\s+(?:pregunta|duda|consulta)|anything\s+else|help\s+you\s+with\s+anything|assist\s+you\s+with|other\s+question)\b/i
+  /\b(algo\s+mas|ayud(?:o|arte)\s+con\s+algo|apoyarte\s+con\s+algo|otra\s+(?:pregunta|duda|consulta|cosa)|anything\s+else|something\s+else|help\s+you\s+with\s+anything|assist\s+you\s+with|other\s+question)\b/i
+
+const ACTIVE_QUESTION_OR_NEW_REQUEST_RE =
+  /\b(espera|espere|aguanta|un\s+momento|una\s+pregunta|otra\s+(?:pregunta|duda|cosa)|cuanto\s+(?:cuesta|vale|es|son)|a\s+que\s+hora|donde\s+(?:estan|queda)|quiero|necesito|tambien\s+(?:quiero|necesito|agrega|pon)|me\s+falta|dime|wait|hold\s+on|one\s+more|another\s+question|actually|how\s+much|what\s+time|where\s+are|i\s+(?:want|need)|can\s+i\s+(?:get|add|ask)|also\s+(?:add|can|could))\b/i
+
+const CLOSING_REPLY_AFTER_OFFER_START_RE =
+  /^(?:no|nao|nop|nope|nah|nel|nada|ningun[oa]?|ya|solo|solamente|todo|con\s+eso|asi|esta|estoy|estamos|im|i\s+am|i\s+think|were|we\s+are|thats|that\s+is|you\s+(?:got|answered|helped)|all\s+(?:good|set|done)|perfect|perfecto|listo|gracias|thank|thanks|muchas|mil|appreciate|costado)\b/i
 
 const BRIDGE_FRUSTRATION_NO_HANGUP_RE =
   /\b(competencia|competitor|otro\s+lado|otro\s+restaurante|otra\s+taqueria|somewhere\s+else|another\s+place|por\s+que\s+me\s+colg(?:aste|aron)|por\s+que\s+(?:me\s+)?cuelgas?|no\s+me\s+cuelgues?|why\s+did\s+you\s+hang\s+up|dont\s+hang\s+up|do\s+not\s+hang\s+up|one\s+star|1\s+star|una\s+estrella|yelp|google\s+review|bad\s+review|resena|pesimo|mal\s+servicio|que\s+mal|eso\s+esta\s+mal|terrible|horrible|ridiculo|ridiculous|frustrad[oa]|molest[oa]|enojad[oa]|upset|angry|reclamo|queja|que\s+hago|what\s+do\s+i\s+do|no\s+sirve|no\s+me\s+ayudas?|para\s+ahorita|en\s+media\s+hora)\b/i
 
 const BRIDGE_STRICT_FAREWELL_RE =
-  /\b(adios|bye|goodbye|hasta\s+luego|nos\s+vemos|cuelgame|hang\s+up|eso\s+es\s+todo(?:\s*,?\s*gracias)?|es\s+todo\s*,?\s*gracias|seria\s+todo(?:\s*,?\s*gracias)?|no\s*,?\s*gracias\s*,?\s*(?:adios|bye|es\s+todo)|thats\s+all\s*,?\s*thank(?:s|\s+you)|that\s+is\s+all\s*,?\s*thank(?:s|\s+you)|thats\s+it\s*,?\s*thank(?:s|\s+you))\b/i
+  /\b(adios|bye|goodbye|hasta\s+luego|nos\s+vemos|cuelgame|hang\s+up|eso\s+es\s+todo(?:\s*,?\s*gracias)?|es\s+todo\s*,?\s*gracias|seria\s+todo(?:\s*,?\s*gracias)?|no\s*,?\s*gracias\s*,?\s*(?:adios|bye|es\s+todo)|thats\s+all(?:\s*,?\s*thank(?:s|\s+you))?|that\s+is\s+all(?:\s*,?\s*thank(?:s|\s+you))?|thats\s+everything(?:\s*,?\s*thank(?:s|\s+you))?|that\s+is\s+everything(?:\s*,?\s*thank(?:s|\s+you))?|thats\s+it\s*,?\s*thank(?:s|\s+you))\b/i
 
 function isBridgeCallerFrustratedWithoutGoodbye(lastUserText: string): boolean {
   const normU = normalizeSearch(lastUserText)
@@ -3123,20 +3129,27 @@ function isBridgeCallerFrustratedWithoutGoodbye(lastUserText: string): boolean {
 }
 
 function shouldAllowEndCall(lastUserText: string, prevAssistantText: string): boolean {
-  const normU = normalizeSearch(lastUserText)
+  const rawU = String(lastUserText || "").trim()
+  const normU = normalizeSearch(rawU)
     .replace(/['’]+/g, "")
     .replace(/[.,!?¿¡"]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
   if (!normU) return false
-  if (isBridgeCallerFrustratedWithoutGoodbye(lastUserText)) return false
+  if (isBridgeCallerFrustratedWithoutGoodbye(rawU)) return false
+  // Si el cliente hizo una pregunta activa o pidió algo nuevo, nunca colgar
+  if (/[?¿]/.test(rawU) || (ACTIVE_QUESTION_OR_NEW_REQUEST_RE.test(normU) && !EXPLICIT_GOODBYE_RE.test(normU))) {
+    return false
+  }
   if (EXPLICIT_GOODBYE_RE.test(normU)) return true
   const normA = normalizeSearch(prevAssistantText)
-  if (
-    /^(?:no|nao|nop|nope|solamente|no\s+solamente|solo\s+eso|todo\s+bien|ya\s+no|ninguna|no\s+esta|no\s+no\s+esta|costado)$/i.test(normU) &&
-    OFFERED_FURTHER_HELP_RE.test(normA)
-  ) {
-    return true
+  // Interpretación contextual: si Kore acaba de preguntar "¿Te puedo ayudar con algo más?" y el cliente declina/cierra
+  // de forma natural (<= 14 palabras, sin frustración ni pregunta nueva), permitir colgar sin exigir frase rígida.
+  if (OFFERED_FURTHER_HELP_RE.test(normA)) {
+    const words = normU.split(/\s+/).filter(Boolean)
+    if (words.length <= 14 && CLOSING_REPLY_AFTER_OFFER_START_RE.test(normU)) {
+      return true
+    }
   }
   if (ACK_ONLY_NO_GOODBYE_RE.test(normU) && !OFFERED_FURTHER_HELP_RE.test(normA)) {
     return false
@@ -4399,7 +4412,7 @@ async function executeLiveTool(params: {
     const rawConds = Array.isArray(toolArgs?.requested_condiments)
       ? toolArgs.requested_condiments.map((x: any) => String(x || "").trim()).filter(Boolean)
       : []
-    const rawMods = Array.isArray(toolArgs?.item_modifications)
+    const rawModsInput = Array.isArray(toolArgs?.item_modifications)
       ? toolArgs.item_modifications.map((x: any) => String(x || "").trim()).filter(Boolean)
       : []
     const rawSummary = String(toolArgs?.note_summary_es || "").replace(/\s+/g, " ").trim()
@@ -4407,11 +4420,20 @@ async function executeLiveTool(params: {
       rawSummary ||
         [
           rawConds.length > 0 ? `Condimentos gratis: ${rawConds.join(", ")}` : "",
-          rawMods.length > 0 ? `Modificación: ${rawMods.join("; ")}` : ""
+          rawModsInput.length > 0 ? `Modificación: ${rawModsInput.join("; ")}` : ""
         ]
           .filter(Boolean)
           .join(" | ")
     )
+    const rawReqTypeHint = String(toolArgs?.request_type || "").trim().toLowerCase()
+    const looksLikeBridgeMod =
+      Boolean(summaryEs) &&
+      (rawReqTypeHint === "item_modification" ||
+        /\b(sin\s+(?:hielo|frijol(?:es)?|arroz|queso|cebolla|cilantro|crema|lechuga|tomate|salsa|chile|mayonesa|carne|aguacate|guacamole|picante)|no\s+(?:ice|beans|rice|cheese|onion|cilantro|sour\s*cream|lettuce|tomato|salsa|mayo)|quitar|aparte|on\s+the\s+side|tortillas?\s+de\s+(?:harina|maiz)|mitad\s+y\s+mitad|bien\s+dorad[oa]|partid[oa]\s+en\s+dos)\b/i.test(
+          normalizeSearch(summaryEs)
+        ))
+    const rawMods =
+      rawModsInput.length > 0 ? rawModsInput : looksLikeBridgeMod && rawConds.length === 0 ? [summaryEs] : rawModsInput
     const summaryEn = toolArgs?.note_summary_en ? String(toolArgs.note_summary_en).replace(/\s+/g, " ").trim() : null
 
     if (!customerNameArg || customerNameArg.length < 2) {
@@ -5948,8 +5970,8 @@ function handleTwilioWebSocket(req: Request): Response {
         if (sc.inputTranscription?.text) {
           if (!openUserStartedAtIso) openUserStartedAtIso = new Date().toISOString()
           openUserText += sc.inputTranscription.text
-          // Si hay texto latino real junto con ruido no-latino incrustado (ej. Devanagari), limpiar el prefijo no-latino
-          if (/[\p{Script=Latin}]{2,}/u.test(openUserText) && FORBIDDEN_BRIDGE_FOREIGN_SCRIPT_RE.test(openUserText)) {
+          // Si hay texto latino o código alfanumérico real (ej. B0120) junto con ruido no-latino incrustado (ej. Devanagari), limpiar el prefijo no-latino
+          if (/[\p{Script=Latin}0-9]{2,}/u.test(openUserText) && FORBIDDEN_BRIDGE_FOREIGN_SCRIPT_RE.test(openUserText)) {
             openUserText = openUserText
               .replace(/[\p{Script=Devanagari}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Armenian}\p{Script=Thai}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Tamil}\p{Script=Telugu}]+/gu, " ")
               .replace(/\s+/g, " ")
@@ -6703,7 +6725,7 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({
       ok: true,
       service: "tacos-gavilan-phone-live-bridge",
-      version: "v23",
+      version: "v24",
       model: "gemini-3.8-live",
       voice: "Kore",
       region: "us-west-1"
