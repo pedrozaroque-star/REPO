@@ -7,6 +7,15 @@
  *
  * @businessRules
  *   - **Ventana semanal oficial**: Semana completa inmediata anterior **Lunes a Domingo** (`getPreviousCompletedWeekMonSunLA`).
+ *   - **Distribución Semanal Oficial (Lunes 10:00 AM LA — `sendWeeklySobrantesFullDistribution`)**:
+ *     1. **1 correo personalizado por cada Supervisor Regional** con **ÚNICAMENTE sus 3–4 sucursales**:
+ *        - `Estefani Duran` (`estefani@tacosgavilan.com` — **Inglés `EN`** automático): `Azusa`, `Rialto`, `West Covina`.
+ *        - `Javier Pastor` (`javier@tacosgavilan.com` — **Español `ES`**): `Hollywood`, `LA Broadway`, `LA Central`, `Slauson`.
+ *        - `Ricardo Velazquez` (`ricardo@tacosgavilan.com` — **Español `ES`**): `Huntington Park`, `La Puente`, `Norwalk`, `Santa Ana`.
+ *        - `Willian Aguilar` (`willian@tacosgavilan.com` — **Español `ES`**): `Bell`, `Downey`, `Lynwood`, `South Gate`.
+ *        - Destinatarios en cada correo de Supervisor: `To: [supervisorEmail]`, `CC: [gonzalo@tacosgavilan.com]`, `BCC: [carlos@tacosgavilan.com]` (nunca expone `carlos@` en `From:` ni en `CC:`).
+ *     2. **1 Resumen Ejecutivo Consolidado de las 15 Sucursales (`ES`)**:
+ *        - `To: [carlos@tacosgavilan.com]`, `CC: [gonzalo@tacosgavilan.com]`.
  *   - **Soporte Bilingüe Nativo (`es` / `en`)**:
  *     * `resolveSobrantesEmailLang()` detecta automáticamente idioma inglés (`en`) para destinatarios
  *       angloparlantes (`estefani@tacosgavilan.com` — Estefani Duran) o mediante parámetro explícito `lang: 'en' | 'es'`.
@@ -19,23 +28,24 @@
  *        conciliada al decimal con el tramo telescópico medido (`anchorDate >= t0`), resaltando en rojo los
  *        días exactos con faltante (`<= -1.0` bolsa).
  *     3. **Bloque compacto de tiendas sin conteo** (solo si existen).
- *     4. **Tiendas En Regla en pastillas verdes agrupadas por Supervisor** + nota discreta de 1 línea solo si
- *        alguna tienda en regla tuvo un pico aislado `<= -5` bolsas.
- *   - **Tamaño ultra-ligero anti-recorte Gmail**: HTML compacto (`~15–25 KB`, muy lejos del límite `102 KB` de Gmail).
+ *     4. **Tiendas En Regla en pastillas verdes** + nota discreta de 1 línea solo si alguna tienda en regla
+ *        tuvo un pico aislado `<= -5` bolsas.
+ *   - **Tamaño ultra-ligero anti-recorte Gmail**: HTML compacto (`~8–18 KB`, muy lejos del límite `102 KB` de Gmail).
  *   - **Remitente institucional**: estrictamente `noreply@tacosgavilan.com` (`Sistema de Monitoreo` / `Monitoring System`) vía `sendSystemEmail()`.
- *   - **Destinatarios acordados**: mantiene intacto el destinatario configurado (`carlos@tacosgavilan.com` durante fase ejecutiva/pruebas).
  *
  * @dataFlow
  *   `/api/cron/weekly-sobrantes-digest` (Lunes 10:00 AM LA) -> `computeToastVsFridgeForIngredient()`
- *   -> `buildSobrantesExecutiveEmailHtml({ lang })` -> `sendSystemEmail()` (`noreply@tacosgavilan.com`).
+ *   -> `sendWeeklySobrantesFullDistribution()` -> `buildSobrantesExecutiveEmailHtml()` -> `sendSystemEmail()` (`noreply@tacosgavilan.com`).
  *
  * @notes
  *   - [2026-11-27] Migrado de correo diario móvil de 7 días (promedio `~X/día`) a reporte semanal oficial
  *     Lunes–Domingo enviado los lunes a las 10:00 AM con desglose `Supervisor → Sucursal → Día`.
- *   - [2026-11-27] Simplificado visualmente (desglose diario exclusivo en tiendas con faltante + pastillas verdes)
- *     y agregada versión nativa completa en inglés (`lang: 'en'`) con auto-detección para `estefani@tacosgavilan.com`.
+ *   - [2026-11-27] Simplificado visualmente + soporte bilingüe nativo `ES`/`EN` + distribución semanal por
+ *     Supervisor (Estefani en `EN`, resto en `ES`) con `CC: gonzalo@tacosgavilan.com` y `BCC: carlos@tacosgavilan.com`,
+ *     más Resumen Consolidado de las 15 sucursales para Carlos con `CC: gonzalo@tacosgavilan.com`.
  */
 
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import {
   addDaysIso,
   formatSignedUSD,
@@ -54,10 +64,16 @@ import {
   compareStoreNamesAlphabetically,
   formatStoreDisplayName,
 } from '@/lib/store-display'
-import { validateTestToEmail } from '@/lib/inventory/portion-control-alerts'
+import {
+  CORPORATE_EMAIL_GUARD_REGEX,
+  normalizeCorporateEmail,
+} from '@/lib/inventory/portion-control-alerts'
 
 export type UnifiedMeterResult = Awaited<ReturnType<typeof computeToastVsFridgeForIngredient>>
 export type SobrantesEmailLang = 'es' | 'en'
+
+export const CARLOS_EXEC_EMAIL = 'carlos@tacosgavilan.com'
+export const GONZALO_CC_EMAIL = 'gonzalo@tacosgavilan.com'
 
 /** Destinatarios corporativos cuya preferencia oficial de correo es Inglés (`en`). */
 export const ENGLISH_PREFERRED_RECIPIENT_EMAILS = new Set<string>([
@@ -85,6 +101,35 @@ function formatBags1(val: number | null | undefined): string {
   if (val === null || val === undefined || !Number.isFinite(val)) return '—'
   const rounded = round1(val)
   return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1)
+}
+
+/**
+ * Valida `?test_to=` exclusivamente para el Resumen Semanal de Sobrantes (sin bloquear el envío live
+ * de los lunes con el viejo candado `PORTION_ALERTS_LIVE_RECIPIENTS` de `#3`/`#7`).
+ * - Si no se pasa `rawTestTo`, devuelve `{ valid: true, email: null }` (modo distribución semanal real).
+ * - Si se pasa `rawTestTo`, exige dominio corporativo `@tacosgavilan.com`.
+ */
+export function validateWeeklyDigestTestTo(rawTestTo?: string | null): {
+  valid: boolean
+  email: string | null
+  error?: string
+} {
+  if (!rawTestTo || String(rawTestTo).trim() === '') {
+    return { valid: true, email: null }
+  }
+  const clean = String(rawTestTo).trim().toLowerCase()
+  if (!CORPORATE_EMAIL_GUARD_REGEX.test(clean)) {
+    return {
+      valid: false,
+      email: null,
+      error: 'El parámetro test_to debe ser exclusivamente un correo corporativo @tacosgavilan.com',
+    }
+  }
+  const normalized = normalizeCorporateEmail(clean)
+  if (!normalized) {
+    return { valid: false, email: null, error: 'Correo corporativo inválido en test_to' }
+  }
+  return { valid: true, email: normalized }
 }
 
 export function resolveSobrantesEmailLang(
@@ -192,6 +237,10 @@ export function buildSobrantesExecutiveEmailHtml(params: {
   recipientEmail?: string
   supervisorNameByStoreId?: Map<number, string>
   lang?: SobrantesEmailLang
+  /** Si se define, renderiza el correo enfocado exclusivamente a la zona de ese supervisor (sin barras duplicadas). */
+  scopedSupervisorName?: string | null
+  /** Lista opcional de `storesSummaries` ya filtradas para un supervisor específico. */
+  scopedStoreSummaries?: StoreFridgeVsToastSummary[]
 }): {
   subject: string
   html: string
@@ -199,13 +248,17 @@ export function buildSobrantesExecutiveEmailHtml(params: {
   shortageCount: number
   totalShortageUsd: number
   totalMissingBags: number
+  storesCount: number
   htmlBytes: number
 } {
   const { ingredientName, startDate, endDate, meter, supervisorNameByStoreId } = params
-  const recipientEmail = params.recipientEmail || 'carlos@tacosgavilan.com'
+  const recipientEmail = params.recipientEmail || CARLOS_EXEC_EMAIL
   const lang = resolveSobrantesEmailLang(recipientEmail, params.lang)
   const isEn = lang === 'en'
   const displayIngredient = formatIngredientNameForLang(ingredientName, lang)
+  const scopedSupName = params.scopedSupervisorName?.trim() || null
+  const isSingleSupervisorView = Boolean(scopedSupName)
+  const activeSummaries = params.scopedStoreSummaries ?? meter.storesSummaries
 
   const baseUrl = resolveAppBaseUrl()
   const normIng = ingredientName.toLowerCase()
@@ -246,9 +299,9 @@ export function buildSobrantesExecutiveEmailHtml(params: {
     return raw || (isEn ? 'Unassigned Supervisor' : 'Sin Supervisor')
   }
 
-  const shortageStores = meter.storesSummaries.filter((s) => classifyStoreWeeklyState(s) === 'shortage')
-  const uncountedStores = meter.storesSummaries.filter((s) => classifyStoreWeeklyState(s) === 'uncounted')
-  const okStores = meter.storesSummaries.filter((s) => classifyStoreWeeklyState(s) === 'ok')
+  const shortageStores = activeSummaries.filter((s) => classifyStoreWeeklyState(s) === 'shortage')
+  const uncountedStores = activeSummaries.filter((s) => classifyStoreWeeklyState(s) === 'uncounted')
+  const okStores = activeSummaries.filter((s) => classifyStoreWeeklyState(s) === 'ok')
 
   const totalMissingBags = round1(
     shortageStores.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceBags || 0), 0)
@@ -257,127 +310,141 @@ export function buildSobrantesExecutiveEmailHtml(params: {
     shortageStores.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceDollarStore || 0), 0)
   )
 
-  // 1. Sección principal: SOLO sucursales con faltante, agrupadas por Supervisor (A–Z) -> Sucursal (mayor pérdida primero) -> Día
-  const shortageBySup = new Map<string, StoreFridgeVsToastSummary[]>()
-  for (const s of shortageStores) {
-    const sup = resolveSupervisorName(s)
-    const list = shortageBySup.get(sup) || []
-    list.push(s)
-    shortageBySup.set(sup, list)
+  const renderStoreShortageCard = (s: StoreFridgeVsToastSummary): string => {
+    const storeClean = cleanSummaryName(s)
+    const storeUrl = `${baseUrl}/admin/food-cost/meats?storeId=${encodeURIComponent(String(s.storeId))}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=${meatSlug}`
+    const ledger = getReconciledWeeklyLedgerEntries(s)
+    const missingBags = Math.abs(s.cumulativeFridgeBalanceBags || 0)
+    const lossUsd = Math.round(Math.abs(s.cumulativeFridgeBalanceDollarStore || 0))
+
+    const partialSpanNote =
+      s.hasMeasuredSpan && s.t0 && s.t0 > prevSunday
+        ? `<div style="font-size:11px;color:#92400E;margin-top:2px;">${
+            isEn
+              ? `Measured ${s.spanDays} days (missing count on ${escapeHtml(formatShortDateForLang(prevSunday, 'en'))}).`
+              : `Medido ${s.spanDays} días (faltó conteo el ${escapeHtml(formatShortDateForLang(prevSunday, 'es'))}).`
+          }</div>`
+        : ''
+
+    const dayRowsHtml = ledger
+      .map((entry) => {
+        const bal = entry.fridgeBalanceBags
+        const isPending = entry.status === 'pending_count'
+        const isAnomaly = entry.hasNegativeCountAnomaly
+        const isDeficit = !isPending && !isAnomaly && bal !== null && bal <= -1
+        const isMinorNeg = !isPending && !isAnomaly && bal !== null && bal < -0.25 && bal > -1
+        const rowClass = isDeficit ? ' class="r-def"' : isAnomaly ? ' class="r-anm"' : ''
+
+        const flags: string[] = []
+        if (entry.isBridgedMultiDay) flags.push(isEn ? 'missing prior count' : 'sin conteo previo')
+        if (entry.reboundSuspected) flags.push(isEn ? 'rebound' : 'rebote')
+        const dayNote =
+          flags.length > 0 ? ` <span class="dn">(${escapeHtml(flags.join(' · '))})</span>` : ''
+
+        const soldUsed = `${formatBags1(entry.toastSoldBags)} / ${isPending ? '—' : formatBags1(entry.fridgeUsedBags)}`
+
+        let diffHtml = `<span class="cm">${isEn ? 'Pending' : 'Pendiente'}</span>`
+        let costHtml = '<span class="cm">—</span>'
+        if (isAnomaly) {
+          diffHtml = `<span class="ca">${isEn ? 'Count error' : 'Error conteo'}</span>`
+          costHtml = `<span class="ca">${isEn ? 'Review' : 'Revisar'}</span>`
+        } else if (!isPending && bal !== null) {
+          if (isDeficit) {
+            diffHtml = `<span class="cd">-${formatBags1(Math.abs(bal))} ${bagsWord}</span>`
+            costHtml = `<span class="cd">${formatSignedUSD(-Math.round(Math.abs(entry.fridgeBalanceDollarStore || 0)), { decimals: 0 })}</span>`
+          } else if (isMinorNeg) {
+            diffHtml = `<span class="cw">-${formatBags1(Math.abs(bal))}</span>`
+            costHtml = `<span class="cw">${formatSignedUSD(-Math.round(Math.abs(entry.fridgeBalanceDollarStore || 0)), { decimals: 0 })}</span>`
+          } else if (bal >= 2.5 || entry.reboundSuspected) {
+            diffHtml = `<span class="co">+${formatBags1(bal)}</span>`
+          } else {
+            diffHtml = `<span class="co">${isEn ? 'On track' : 'En regla'}</span>`
+          }
+        }
+
+        const dayLabel = formatLedgerPeriodLabel(entry, lang)
+        return `<tr${rowClass}><td class="${isDeficit ? 'dlb' : 'dl'}">${escapeHtml(dayLabel)}${dayNote}</td><td class="dc">${soldUsed}</td><td class="dr">${diffHtml}</td><td class="dr">${costHtml}</td></tr>`
+      })
+      .join('')
+
+    return `<div style="margin-top:8px;border:1px solid #FECACA;border-radius:10px;overflow:hidden;">
+      <div style="background:#FEF2F2;padding:9px 12px;border-bottom:1px solid #FECACA;">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="font-size:14px;font-weight:900;color:#111827;"><a href="${escapeHtml(storeUrl)}" target="_blank" style="color:#111827;text-decoration:underline;">${escapeHtml(storeClean)}</a></td>
+          <td style="text-align:right;font-size:13px;font-weight:900;color:#DC2626;">-${formatBags1(missingBags)} ${bagsWord} (-$${lossUsd.toLocaleString('en-US')})</td>
+        </tr></table>${partialSpanNote}
+      </div>
+      <table class="dt" width="100%" cellpadding="0" cellspacing="0">
+        <thead><tr><th class="tl">${isEn ? 'Day' : 'Día'}</th><th class="tc">${isEn ? 'POS / Used' : 'Caja / Usó'}</th><th class="tr">${isEn ? 'Variance' : 'Diferencia'}</th><th class="tr">${isEn ? 'Cost' : 'Costo'}</th></tr></thead>
+        <tbody>
+          ${dayRowsHtml}
+          <tr class="rt">
+            <td class="dtl">${isEn ? `Weekly Total (${s.spanDays}d)` : `Total Semana (${s.spanDays}d)`}</td>
+            <td class="dtc">${formatBags1(s.toastSoldSpanBags)} / ${formatBags1(s.fridgeUsedBags)}</td>
+            <td class="dr"><span class="cd">-${formatBags1(missingBags)} ${bagsWord}</span></td>
+            <td class="dr"><span class="cd">-$${lossUsd.toLocaleString('en-US')}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
   }
 
-  const shortageSectionsHtml =
-    shortageBySup.size === 0
-      ? `<div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:14px 16px;text-align:center;color:#065F46;font-size:14px;font-weight:800;margin-bottom:16px;">
-          ${isEn ? '✅ No stores had a shortage this week.' : '✅ Ninguna sucursal tuvo faltante esta semana.'}
+  // 1. Sección principal: SOLO sucursales con faltante
+  let shortageSectionsHtml = ''
+  if (shortageStores.length === 0) {
+    shortageSectionsHtml = `<div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:14px 16px;text-align:center;color:#065F46;font-size:14px;font-weight:800;margin-bottom:16px;">
+      ${
+        isSingleSupervisorView
+          ? isEn
+            ? '✅ None of your stores had a shortage this week.'
+            : '✅ Ninguna de tus sucursales tuvo faltante esta semana.'
+          : isEn
+            ? '✅ No stores had a shortage this week.'
+            : '✅ Ninguna sucursal tuvo faltante esta semana.'
+      }
+    </div>`
+  } else if (isSingleSupervisorView) {
+    const ordered = [...shortageStores].sort((a, b) => {
+      const diff = (a.cumulativeFridgeBalanceBags ?? 0) - (b.cumulativeFridgeBalanceBags ?? 0)
+      if (Math.abs(diff) > 0.01) return diff
+      return compareStoreNamesAlphabetically(cleanSummaryName(a), cleanSummaryName(b))
+    })
+    shortageSectionsHtml = `<div style="margin-bottom:16px;">${ordered.map(renderStoreShortageCard).join('')}</div>`
+  } else {
+    const shortageBySup = new Map<string, StoreFridgeVsToastSummary[]>()
+    for (const s of shortageStores) {
+      const sup = resolveSupervisorName(s)
+      const list = shortageBySup.get(sup) || []
+      list.push(s)
+      shortageBySup.set(sup, list)
+    }
+
+    shortageSectionsHtml = Array.from(shortageBySup.entries())
+      .sort(([a], [b]) => a.localeCompare(b, isEn ? 'en' : 'es', { sensitivity: 'base' }))
+      .map(([supervisorName, stores]) => {
+        const ordered = [...stores].sort((a, b) => {
+          const diff = (a.cumulativeFridgeBalanceBags ?? 0) - (b.cumulativeFridgeBalanceBags ?? 0)
+          if (Math.abs(diff) > 0.01) return diff
+          return compareStoreNamesAlphabetically(cleanSummaryName(a), cleanSummaryName(b))
+        })
+        const supBags = round1(
+          ordered.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceBags || 0), 0)
+        )
+        const supUsd = Math.round(
+          ordered.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceDollarStore || 0), 0)
+        )
+        return `<div style="margin-bottom:16px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:7px 12px;">
+            <tr>
+              <td style="font-size:12px;font-weight:900;color:#111827;text-transform:uppercase;letter-spacing:0.3px;">👔 ${escapeHtml(supervisorName)}</td>
+              <td style="font-size:12px;font-weight:800;color:#B91C1C;text-align:right;">${ordered.length} ${storeWordFor(ordered.length)} · -${formatBags1(supBags)} ${bagsWord} (-$${supUsd.toLocaleString('en-US')})</td>
+            </tr>
+          </table>
+          ${ordered.map(renderStoreShortageCard).join('')}
         </div>`
-      : Array.from(shortageBySup.entries())
-          .sort(([a], [b]) => a.localeCompare(b, isEn ? 'en' : 'es', { sensitivity: 'base' }))
-          .map(([supervisorName, stores]) => {
-            const ordered = [...stores].sort((a, b) => {
-              const diff = (a.cumulativeFridgeBalanceBags ?? 0) - (b.cumulativeFridgeBalanceBags ?? 0)
-              if (Math.abs(diff) > 0.01) return diff
-              return compareStoreNamesAlphabetically(cleanSummaryName(a), cleanSummaryName(b))
-            })
-            const supBags = round1(
-              ordered.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceBags || 0), 0)
-            )
-            const supUsd = Math.round(
-              ordered.reduce((acc, s) => acc + Math.abs(s.cumulativeFridgeBalanceDollarStore || 0), 0)
-            )
-
-            const storeCardsHtml = ordered
-              .map((s) => {
-                const storeClean = cleanSummaryName(s)
-                const storeUrl = `${baseUrl}/admin/food-cost/meats?storeId=${encodeURIComponent(String(s.storeId))}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&meat=${meatSlug}`
-                const ledger = getReconciledWeeklyLedgerEntries(s)
-                const missingBags = Math.abs(s.cumulativeFridgeBalanceBags || 0)
-                const lossUsd = Math.round(Math.abs(s.cumulativeFridgeBalanceDollarStore || 0))
-
-                const partialSpanNote =
-                  s.hasMeasuredSpan && s.t0 && s.t0 > prevSunday
-                    ? `<div style="font-size:11px;color:#92400E;margin-top:2px;">${
-                        isEn
-                          ? `Measured ${s.spanDays} days (missing count on ${escapeHtml(formatShortDateForLang(prevSunday, 'en'))}).`
-                          : `Medido ${s.spanDays} días (faltó conteo el ${escapeHtml(formatShortDateForLang(prevSunday, 'es'))}).`
-                      }</div>`
-                    : ''
-
-                const dayRowsHtml = ledger
-                  .map((entry) => {
-                    const bal = entry.fridgeBalanceBags
-                    const isPending = entry.status === 'pending_count'
-                    const isAnomaly = entry.hasNegativeCountAnomaly
-                    const isDeficit = !isPending && !isAnomaly && bal !== null && bal <= -1
-                    const isMinorNeg = !isPending && !isAnomaly && bal !== null && bal < -0.25 && bal > -1
-                    const rowClass = isDeficit ? ' class="r-def"' : isAnomaly ? ' class="r-anm"' : ''
-
-                    const flags: string[] = []
-                    if (entry.isBridgedMultiDay) flags.push(isEn ? 'missing prior count' : 'sin conteo previo')
-                    if (entry.reboundSuspected) flags.push(isEn ? 'rebound' : 'rebote')
-                    const dayNote =
-                      flags.length > 0 ? ` <span class="dn">(${escapeHtml(flags.join(' · '))})</span>` : ''
-
-                    const soldUsed = `${formatBags1(entry.toastSoldBags)} / ${isPending ? '—' : formatBags1(entry.fridgeUsedBags)}`
-
-                    let diffHtml = `<span class="cm">${isEn ? 'Pending' : 'Pendiente'}</span>`
-                    let costHtml = '<span class="cm">—</span>'
-                    if (isAnomaly) {
-                      diffHtml = `<span class="ca">${isEn ? 'Count error' : 'Error conteo'}</span>`
-                      costHtml = `<span class="ca">${isEn ? 'Review' : 'Revisar'}</span>`
-                    } else if (!isPending && bal !== null) {
-                      if (isDeficit) {
-                        diffHtml = `<span class="cd">-${formatBags1(Math.abs(bal))} ${bagsWord}</span>`
-                        costHtml = `<span class="cd">${formatSignedUSD(-Math.round(Math.abs(entry.fridgeBalanceDollarStore || 0)), { decimals: 0 })}</span>`
-                      } else if (isMinorNeg) {
-                        diffHtml = `<span class="cw">-${formatBags1(Math.abs(bal))}</span>`
-                        costHtml = `<span class="cw">${formatSignedUSD(-Math.round(Math.abs(entry.fridgeBalanceDollarStore || 0)), { decimals: 0 })}</span>`
-                      } else if (bal >= 2.5 || entry.reboundSuspected) {
-                        diffHtml = `<span class="co">+${formatBags1(bal)}</span>`
-                      } else {
-                        diffHtml = `<span class="co">${isEn ? 'On track' : 'En regla'}</span>`
-                      }
-                    }
-
-                    const dayLabel = formatLedgerPeriodLabel(entry, lang)
-                    return `<tr${rowClass}><td class="${isDeficit ? 'dlb' : 'dl'}">${escapeHtml(dayLabel)}${dayNote}</td><td class="dc">${soldUsed}</td><td class="dr">${diffHtml}</td><td class="dr">${costHtml}</td></tr>`
-                  })
-                  .join('')
-
-                return `<div style="margin-top:8px;border:1px solid #FECACA;border-radius:10px;overflow:hidden;">
-                  <div style="background:#FEF2F2;padding:9px 12px;border-bottom:1px solid #FECACA;">
-                    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-                      <td style="font-size:14px;font-weight:900;color:#111827;"><a href="${escapeHtml(storeUrl)}" target="_blank" style="color:#111827;text-decoration:underline;">${escapeHtml(storeClean)}</a></td>
-                      <td style="text-align:right;font-size:13px;font-weight:900;color:#DC2626;">-${formatBags1(missingBags)} ${bagsWord} (-$${lossUsd.toLocaleString('en-US')})</td>
-                    </tr></table>${partialSpanNote}
-                  </div>
-                  <table class="dt" width="100%" cellpadding="0" cellspacing="0">
-                    <thead><tr><th class="tl">${isEn ? 'Day' : 'Día'}</th><th class="tc">${isEn ? 'POS / Used' : 'Caja / Usó'}</th><th class="tr">${isEn ? 'Variance' : 'Diferencia'}</th><th class="tr">${isEn ? 'Cost' : 'Costo'}</th></tr></thead>
-                    <tbody>
-                      ${dayRowsHtml}
-                      <tr class="rt">
-                        <td class="dtl">${isEn ? `Weekly Total (${s.spanDays}d)` : `Total Semana (${s.spanDays}d)`}</td>
-                        <td class="dtc">${formatBags1(s.toastSoldSpanBags)} / ${formatBags1(s.fridgeUsedBags)}</td>
-                        <td class="dr"><span class="cd">-${formatBags1(missingBags)} ${bagsWord}</span></td>
-                        <td class="dr"><span class="cd">-$${lossUsd.toLocaleString('en-US')}</span></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>`
-              })
-              .join('')
-
-            return `<div style="margin-bottom:16px;">
-              <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:7px 12px;">
-                <tr>
-                  <td style="font-size:12px;font-weight:900;color:#111827;text-transform:uppercase;letter-spacing:0.3px;">👔 ${escapeHtml(supervisorName)}</td>
-                  <td style="font-size:12px;font-weight:800;color:#B91C1C;text-align:right;">${ordered.length} ${storeWordFor(ordered.length)} · -${formatBags1(supBags)} ${bagsWord} (-$${supUsd.toLocaleString('en-US')})</td>
-                </tr>
-              </table>
-              ${storeCardsHtml}
-            </div>`
-          })
-          .join('')
+      })
+      .join('')
+  }
 
   // 2. Bloque compacto de sucursales sin conteo (solo si hay >= 1)
   const uncountedSectionHtml =
@@ -399,36 +466,48 @@ export function buildSobrantesExecutiveEmailHtml(params: {
                 : isEn
                   ? 'Insufficient daily counts'
                   : 'Sin capturas suficientes'
-              return `<div style="font-size:12px;color:#78350F;padding:2px 0;">• <strong>${escapeHtml(cleanSummaryName(s))}</strong> (${escapeHtml(resolveSupervisorName(s))}) — ${reason}</div>`
+              const supPart = isSingleSupervisorView ? '' : ` (${escapeHtml(resolveSupervisorName(s))})`
+              return `<div style="font-size:12px;color:#78350F;padding:2px 0;">• <strong>${escapeHtml(cleanSummaryName(s))}</strong>${supPart} — ${reason}</div>`
             })
             .join('')}
         </div>`
 
-  // 3. Sucursales en Regla: pastillas verdes compactas agrupadas por Supervisor (A–Z)
-  const okBySup = new Map<string, StoreFridgeVsToastSummary[]>()
-  for (const s of okStores) {
-    const sup = resolveSupervisorName(s)
-    const list = okBySup.get(sup) || []
-    list.push(s)
-    okBySup.set(sup, list)
+  // 3. Sucursales en Regla: pastillas verdes compactas
+  let okListBodyHtml = ''
+  if (isSingleSupervisorView) {
+    okListBodyHtml = `<div>${[...okStores]
+      .sort((a, b) => compareStoreNamesAlphabetically(cleanSummaryName(a), cleanSummaryName(b)))
+      .map(
+        (s) =>
+          `<span style="display:inline-block;background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;font-size:12px;font-weight:700;padding:4px 9px;border-radius:7px;margin:2px 4px 2px 0;">✅ ${escapeHtml(cleanSummaryName(s))}</span>`
+      )
+      .join('')}</div>`
+  } else {
+    const okBySup = new Map<string, StoreFridgeVsToastSummary[]>()
+    for (const s of okStores) {
+      const sup = resolveSupervisorName(s)
+      const list = okBySup.get(sup) || []
+      list.push(s)
+      okBySup.set(sup, list)
+    }
+    const okRows = Array.from(okBySup.entries())
+      .sort(([a], [b]) => a.localeCompare(b, isEn ? 'en' : 'es', { sensitivity: 'base' }))
+      .map(([supervisorName, stores]) => {
+        const pills = [...stores]
+          .sort((a, b) => compareStoreNamesAlphabetically(cleanSummaryName(a), cleanSummaryName(b)))
+          .map(
+            (s) =>
+              `<span style="display:inline-block;background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;font-size:12px;font-weight:700;padding:4px 9px;border-radius:7px;margin:2px 4px 2px 0;">✅ ${escapeHtml(cleanSummaryName(s))}</span>`
+          )
+          .join('')
+        return `<tr>
+          <td style="padding:6px 0;vertical-align:top;width:155px;font-size:12px;font-weight:800;color:#374151;">${escapeHtml(supervisorName)}</td>
+          <td style="padding:4px 0;">${pills}</td>
+        </tr>`
+      })
+      .join('')
+    okListBodyHtml = `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tbody>${okRows}</tbody></table>`
   }
-
-  const okSupervisorRowsHtml = Array.from(okBySup.entries())
-    .sort(([a], [b]) => a.localeCompare(b, isEn ? 'en' : 'es', { sensitivity: 'base' }))
-    .map(([supervisorName, stores]) => {
-      const pills = [...stores]
-        .sort((a, b) => compareStoreNamesAlphabetically(cleanSummaryName(a), cleanSummaryName(b)))
-        .map(
-          (s) =>
-            `<span style="display:inline-block;background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;font-size:12px;font-weight:700;padding:4px 9px;border-radius:7px;margin:2px 4px 2px 0;">✅ ${escapeHtml(cleanSummaryName(s))}</span>`
-        )
-        .join('')
-      return `<tr>
-        <td style="padding:6px 0;vertical-align:top;width:155px;font-size:12px;font-weight:800;color:#374151;">${escapeHtml(supervisorName)}</td>
-        <td style="padding:4px 0;">${pills}</td>
-      </tr>`
-    })
-    .join('')
 
   // Nota discreta de 1 línea si alguna tienda En Regla tuvo un pico aislado fuerte (<= -5 bolsas) que luego se compensó
   const okSingleDaySpikes: string[] = []
@@ -454,8 +533,15 @@ export function buildSobrantesExecutiveEmailHtml(params: {
         </div>`
       : ''
 
-  const subject =
-    shortageStores.length > 0
+  const subject = isSingleSupervisorView
+    ? shortageStores.length > 0
+      ? isEn
+        ? `📦 Weekly Leftovers — ${scopedSupName} (${displayIngredient} · ${rangeLabel}): ${shortageStores.length} ${storeWordFor(shortageStores.length)} short (-$${totalShortageUsd.toLocaleString('en-US')})`
+        : `📦 Sobrantes Semanales — ${scopedSupName} (${displayIngredient} · ${rangeLabel}): ${shortageStores.length} ${storeWordFor(shortageStores.length)} con faltante (-$${totalShortageUsd.toLocaleString('en-US')})`
+      : isEn
+        ? `📦 Weekly Leftovers — ${scopedSupName} (${displayIngredient} · ${rangeLabel}): ${okStores.length} ${storeWordFor(okStores.length)} on track`
+        : `📦 Sobrantes Semanales — ${scopedSupName} (${displayIngredient} · ${rangeLabel}): ${okStores.length} ${okStores.length === 1 ? 'sucursal' : 'sucursales'} en regla`
+    : shortageStores.length > 0
       ? isEn
         ? `📦 Weekly Leftovers Summary (${displayIngredient} · ${rangeLabel}): ${shortageStores.length} ${storeWordFor(shortageStores.length)} short (-$${totalShortageUsd.toLocaleString('en-US')})`
         : `📦 Resumen Semanal de Sobrantes (${displayIngredient} · ${rangeLabel}): ${shortageStores.length} ${storeWordFor(shortageStores.length)} con faltante (-$${totalShortageUsd.toLocaleString('en-US')})`
@@ -463,23 +549,41 @@ export function buildSobrantesExecutiveEmailHtml(params: {
         ? `📦 Weekly Leftovers Summary (${displayIngredient} · ${rangeLabel}): ${okStores.length} stores on track`
         : `📦 Resumen Semanal de Sobrantes (${displayIngredient} · ${rangeLabel}): ${okStores.length} sucursales en regla`
 
+  const headerKicker = isSingleSupervisorView
+    ? isEn
+      ? `WEEKLY REPORT (MON–SUN) · ${scopedSupName!.toUpperCase()}`
+      : `REPORTE SEMANAL (LUN–DOM) · ${scopedSupName!.toUpperCase()}`
+    : isEn
+      ? 'WEEKLY REPORT (MON–SUN)'
+      : 'REPORTE SEMANAL (LUN–DOM)'
+
+  const headerSubtitle = isSingleSupervisorView
+    ? isEn
+      ? `Week of ${rangeLabel} · Your ${activeSummaries.length} ${storeWordFor(activeSummaries.length)} (Toast Sales vs. Logged Leftovers)`
+      : `Semana del ${rangeLabel} · Tus ${activeSummaries.length} ${activeSummaries.length === 1 ? 'Sucursal' : 'Sucursales'} (Ventas Toast vs. Sobrante Capturado)`
+    : isEn
+      ? `Week of ${rangeLabel} · Toast Sales vs. Logged Leftovers`
+      : `Semana del ${rangeLabel} · Ventas Toast vs. Sobrante Capturado`
+
+  const shortageHeading = isSingleSupervisorView
+    ? isEn
+      ? '🔴 Stores with Meat Shortage (Day by Day)'
+      : '🔴 Sucursales donde Faltó Carne (Día por Día)'
+    : isEn
+      ? '🔴 Stores with Meat Shortage (by Supervisor & Day)'
+      : '🔴 Sucursales donde Faltó Carne (por Supervisor y Día)'
+
   const html = `<!DOCTYPE html><html lang="${lang}"><head><meta charset="utf-8"><style>
 .dt{border-collapse:collapse;background:#fff}.dt th{background:#f9fafb;font-size:10px;font-weight:800;text-transform:uppercase;color:#6b7280;border-bottom:1px solid #e5e7eb;padding:6px 8px}.dt td{font-size:12px;padding:6px 8px;border-bottom:1px solid #f3f4f6}.tl,.dl,.dlb{text-align:left}.tc,.dc,.dtc{text-align:center}.tr,.dr{text-align:right}.dl{color:#374151;font-weight:600}.dlb{color:#111827;font-weight:800}.dc{color:#4b5563}.r-def{background:#fef2f2}.r-anm{background:#fffbeb}.rt{background:#f8fafc}.rt td{border-top:2px solid #e5e7eb;border-bottom:0}.dtl{text-align:left;font-size:11px!important;font-weight:900;color:#111827}.dtc{font-weight:800;color:#374151}.dn{font-size:10px;color:#92400e;font-weight:700}.cd{color:#dc2626;font-weight:900}.cw{color:#b45309;font-weight:700}.ca{color:#b45309;font-weight:800}.co{color:#059669;font-weight:700}.cm{color:#9ca3af}
 </style></head><body style="margin:0;padding:12px;background:#F3F4F6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
     <table width="640" align="center" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #E5E7EB;">
       <tr>
         <td style="background:#111827;color:#FFFFFF;padding:20px 22px;">
-          <div style="font-size:11px;font-weight:800;color:#93C5FD;text-transform:uppercase;letter-spacing:0.7px;">${
-            isEn ? 'WEEKLY REPORT (MON–SUN)' : 'REPORTE SEMANAL (LUN–DOM)'
-          }</div>
+          <div style="font-size:11px;font-weight:800;color:#93C5FD;text-transform:uppercase;letter-spacing:0.7px;">${escapeHtml(headerKicker)}</div>
           <div style="font-size:21px;font-weight:900;margin-top:4px;">${
             isEn ? `📦 ${escapeHtml(displayIngredient)} Leftovers` : `📦 Sobrantes de ${escapeHtml(displayIngredient)}`
           }</div>
-          <div style="font-size:13px;color:#D1D5DB;margin-top:4px;">${
-            isEn
-              ? `Week of ${escapeHtml(rangeLabel)} · Toast Sales vs. Logged Leftovers`
-              : `Semana del ${escapeHtml(rangeLabel)} · Ventas Toast vs. Sobrante Capturado`
-          }</div>
+          <div style="font-size:13px;color:#D1D5DB;margin-top:4px;">${escapeHtml(headerSubtitle)}</div>
         </td>
       </tr>
       <tr>
@@ -514,11 +618,7 @@ export function buildSobrantesExecutiveEmailHtml(params: {
             }
           </div>
 
-          <div style="font-size:14px;font-weight:900;color:#111827;margin-bottom:10px;">${
-            isEn
-              ? '🔴 Stores with Meat Shortage (by Supervisor & Day)'
-              : '🔴 Sucursales donde Faltó Carne (por Supervisor y Día)'
-          }</div>
+          <div style="font-size:14px;font-weight:900;color:#111827;margin-bottom:10px;">${escapeHtml(shortageHeading)}</div>
           ${shortageSectionsHtml}
 
           ${uncountedSectionHtml}
@@ -531,9 +631,7 @@ export function buildSobrantesExecutiveEmailHtml(params: {
                       ? `✅ Stores on Track (${okStores.length} ${storeWordFor(okStores.length)} with no weekly loss)`
                       : `✅ Sucursales en Regla (${okStores.length} ${storeWordFor(okStores.length)} sin pérdida semanal)`
                   }</div>
-                  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-                    <tbody>${okSupervisorRowsHtml}</tbody>
-                  </table>
+                  ${okListBodyHtml}
                   ${okSpikeNoteHtml}
                 </div>`
               : ''
@@ -565,6 +663,7 @@ export function buildSobrantesExecutiveEmailHtml(params: {
     shortageCount: shortageStores.length,
     totalShortageUsd,
     totalMissingBags,
+    storesCount: activeSummaries.length,
     htmlBytes: Buffer.byteLength(html, 'utf8'),
   }
 }
@@ -577,20 +676,354 @@ export async function sendSobrantesExecutiveDigest(params: {
   rawTestTo?: string | null
   supervisorNameByStoreId?: Map<number, string>
   lang?: SobrantesEmailLang
+  scopedSupervisorName?: string | null
+  scopedStoreSummaries?: StoreFridgeVsToastSummary[]
+  cc?: string[]
+  bcc?: string[]
 }) {
-  const recipientCheck = validateTestToEmail(params.rawTestTo)
-  const targetEmail = recipientCheck.email || 'carlos@tacosgavilan.com'
+  const recipientCheck = validateWeeklyDigestTestTo(params.rawTestTo)
+  const targetEmail = recipientCheck.email || CARLOS_EXEC_EMAIL
   const resolvedLang = resolveSobrantesEmailLang(targetEmail, params.lang)
   const built = buildSobrantesExecutiveEmailHtml({
     ...params,
     recipientEmail: targetEmail,
     lang: resolvedLang,
   })
+  const cleanCc = (params.cc || []).filter((e) => e && e.toLowerCase() !== targetEmail.toLowerCase())
+  const cleanBcc = (params.bcc || []).filter(
+    (e) =>
+      e &&
+      e.toLowerCase() !== targetEmail.toLowerCase() &&
+      !cleanCc.some((c) => c.toLowerCase() === e.toLowerCase())
+  )
   const mailRes = await sendSystemEmail({
     fromName: resolvedLang === 'en' ? 'Monitoring System' : 'Sistema de Monitoreo',
     to: [targetEmail],
+    cc: cleanCc.length > 0 ? cleanCc : undefined,
+    bcc: cleanBcc.length > 0 ? cleanBcc : undefined,
     subject: built.subject,
     html: built.html,
   })
-  return { ...built, to: targetEmail, mailRes }
+  return { ...built, to: targetEmail, cc: cleanCc, bcc: cleanBcc, mailRes }
+}
+
+export interface SupervisorWeeklyDispatchItem {
+  scopeKey: string
+  kind: 'supervisor' | 'executive_consolidated'
+  supervisorName: string | null
+  lang: SobrantesEmailLang
+  to: string
+  cc: string[]
+  bcc: string[]
+  storesCount: number
+  shortageCount: number
+  totalMissingBags: number
+  totalShortageUsd: number
+  subject: string
+  htmlBytes: number
+  sent: boolean
+  skippedDuplicate?: boolean
+  dryRun?: boolean
+  messageId?: string
+  providerUsed?: string
+  error?: string
+}
+
+/**
+ * Despacha la distribución semanal oficial de todos los lunes a las 10:00 AM LA:
+ * - 1 correo personalizado por cada Supervisor Regional (únicamente sus 3–4 tiendas; Estefani Duran en EN,
+ *   resto en ES), `CC: gonzalo@tacosgavilan.com`, `BCC: carlos@tacosgavilan.com`.
+ * - 1 Resumen Ejecutivo Consolidado de las 15 sucursales (`To: carlos@tacosgavilan.com`, `CC: gonzalo@tacosgavilan.com`).
+ */
+export async function sendWeeklySobrantesFullDistribution(params: {
+  ingredientName: string
+  startDate: string
+  endDate: string
+  meter: UnifiedMeterResult
+  dryRun?: boolean
+  alreadySentScopes?: Set<string>
+  forceResend?: boolean
+}): Promise<{
+  dispatches: SupervisorWeeklyDispatchItem[]
+  sentScopes: string[]
+  totalSent: number
+  totalFailed: number
+}> {
+  const { ingredientName, startDate, endDate, meter } = params
+  const dryRun = Boolean(params.dryRun)
+  const forceResend = Boolean(params.forceResend)
+  const alreadySent = params.alreadySentScopes || new Set<string>()
+
+  const supabase = await getSupabaseAdminClient()
+  const supervisorIds = Array.from(
+    new Set(
+      meter.storesSummaries
+        .map((s) => s.supervisorId)
+        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
+    )
+  )
+
+  const supEmailById = new Map<number, { email: string; name: string }>()
+  if (supervisorIds.length > 0) {
+    const { data: supUsers } = await supabase
+      .from('users')
+      .select('id, full_name, email, google_email_connected, is_active')
+      .in('id', supervisorIds)
+    for (const u of supUsers || []) {
+      if (u.is_active === false) continue
+      const email = normalizeCorporateEmail(u.google_email_connected || u.email)
+      if (email && CORPORATE_EMAIL_GUARD_REGEX.test(email)) {
+        supEmailById.set(Number(u.id), {
+          email,
+          name: String(u.full_name || '').trim() || 'Supervisor',
+        })
+      }
+    }
+  }
+
+  // Agrupar tiendas activas por supervisor con correo válido (orden alfabético por nombre de supervisor)
+  const groupsBySupId = new Map<number, { supervisorName: string; email: string; stores: StoreFridgeVsToastSummary[] }>()
+  for (const s of meter.storesSummaries) {
+    if (!s.supervisorId) continue
+    const supInfo = supEmailById.get(s.supervisorId)
+    if (!supInfo) continue
+    const existing = groupsBySupId.get(s.supervisorId)
+    if (existing) {
+      existing.stores.push(s)
+    } else {
+      groupsBySupId.set(s.supervisorId, {
+        supervisorName: (s.supervisorName || supInfo.name || '').trim() || supInfo.name,
+        email: supInfo.email,
+        stores: [s],
+      })
+    }
+  }
+
+  const orderedSupervisors = Array.from(groupsBySupId.entries()).sort(([, a], [, b]) =>
+    a.supervisorName.localeCompare(b.supervisorName, 'es', { sensitivity: 'base' })
+  )
+
+  const dispatches: SupervisorWeeklyDispatchItem[] = []
+  const newlySentScopes: string[] = []
+
+  // 1. Correos individuales por Supervisor (CC Gonzalo, BCC Carlos)
+  for (const [supId, grp] of orderedSupervisors) {
+    const scopeKey = `sup:${supId}`
+    const lang = resolveSobrantesEmailLang(grp.email)
+    const cc = grp.email !== GONZALO_CC_EMAIL ? [GONZALO_CC_EMAIL] : []
+    const bcc =
+      grp.email !== CARLOS_EXEC_EMAIL && !cc.includes(CARLOS_EXEC_EMAIL)
+        ? [CARLOS_EXEC_EMAIL]
+        : []
+
+    const built = buildSobrantesExecutiveEmailHtml({
+      ingredientName,
+      startDate,
+      endDate,
+      meter,
+      recipientEmail: grp.email,
+      lang,
+      scopedSupervisorName: grp.supervisorName,
+      scopedStoreSummaries: grp.stores,
+    })
+
+    if (!forceResend && alreadySent.has(scopeKey)) {
+      dispatches.push({
+        scopeKey,
+        kind: 'supervisor',
+        supervisorName: grp.supervisorName,
+        lang: built.lang,
+        to: grp.email,
+        cc,
+        bcc,
+        storesCount: built.storesCount,
+        shortageCount: built.shortageCount,
+        totalMissingBags: built.totalMissingBags,
+        totalShortageUsd: built.totalShortageUsd,
+        subject: built.subject,
+        htmlBytes: built.htmlBytes,
+        sent: false,
+        skippedDuplicate: true,
+      })
+      continue
+    }
+
+    if (dryRun) {
+      dispatches.push({
+        scopeKey,
+        kind: 'supervisor',
+        supervisorName: grp.supervisorName,
+        lang: built.lang,
+        to: grp.email,
+        cc,
+        bcc,
+        storesCount: built.storesCount,
+        shortageCount: built.shortageCount,
+        totalMissingBags: built.totalMissingBags,
+        totalShortageUsd: built.totalShortageUsd,
+        subject: built.subject,
+        htmlBytes: built.htmlBytes,
+        sent: false,
+        dryRun: true,
+      })
+      continue
+    }
+
+    try {
+      const mailRes = await sendSystemEmail({
+        fromName: built.lang === 'en' ? 'Monitoring System' : 'Sistema de Monitoreo',
+        to: [grp.email],
+        cc: cc.length > 0 ? cc : undefined,
+        bcc: bcc.length > 0 ? bcc : undefined,
+        subject: built.subject,
+        html: built.html,
+      })
+      newlySentScopes.push(scopeKey)
+      dispatches.push({
+        scopeKey,
+        kind: 'supervisor',
+        supervisorName: grp.supervisorName,
+        lang: built.lang,
+        to: grp.email,
+        cc,
+        bcc,
+        storesCount: built.storesCount,
+        shortageCount: built.shortageCount,
+        totalMissingBags: built.totalMissingBags,
+        totalShortageUsd: built.totalShortageUsd,
+        subject: built.subject,
+        htmlBytes: built.htmlBytes,
+        sent: true,
+        messageId: mailRes.messageId,
+        providerUsed: mailRes.providerUsed,
+      })
+      await new Promise((r) => setTimeout(r, 400))
+    } catch (err: any) {
+      dispatches.push({
+        scopeKey,
+        kind: 'supervisor',
+        supervisorName: grp.supervisorName,
+        lang: built.lang,
+        to: grp.email,
+        cc,
+        bcc,
+        storesCount: built.storesCount,
+        shortageCount: built.shortageCount,
+        totalMissingBags: built.totalMissingBags,
+        totalShortageUsd: built.totalShortageUsd,
+        subject: built.subject,
+        htmlBytes: built.htmlBytes,
+        sent: false,
+        error: err?.message || String(err),
+      })
+    }
+  }
+
+  // 2. Resumen Ejecutivo Consolidado de las 15 sucursales (To: Carlos, CC: Gonzalo)
+  {
+    const scopeKey = 'exec:all'
+    const execTo = CARLOS_EXEC_EMAIL
+    const execCc = [GONZALO_CC_EMAIL]
+    const built = buildSobrantesExecutiveEmailHtml({
+      ingredientName,
+      startDate,
+      endDate,
+      meter,
+      recipientEmail: execTo,
+      lang: 'es',
+    })
+
+    if (!forceResend && alreadySent.has(scopeKey)) {
+      dispatches.push({
+        scopeKey,
+        kind: 'executive_consolidated',
+        supervisorName: null,
+        lang: 'es',
+        to: execTo,
+        cc: execCc,
+        bcc: [],
+        storesCount: built.storesCount,
+        shortageCount: built.shortageCount,
+        totalMissingBags: built.totalMissingBags,
+        totalShortageUsd: built.totalShortageUsd,
+        subject: built.subject,
+        htmlBytes: built.htmlBytes,
+        sent: false,
+        skippedDuplicate: true,
+      })
+    } else if (dryRun) {
+      dispatches.push({
+        scopeKey,
+        kind: 'executive_consolidated',
+        supervisorName: null,
+        lang: 'es',
+        to: execTo,
+        cc: execCc,
+        bcc: [],
+        storesCount: built.storesCount,
+        shortageCount: built.shortageCount,
+        totalMissingBags: built.totalMissingBags,
+        totalShortageUsd: built.totalShortageUsd,
+        subject: built.subject,
+        htmlBytes: built.htmlBytes,
+        sent: false,
+        dryRun: true,
+      })
+    } else {
+      try {
+        const mailRes = await sendSystemEmail({
+          fromName: 'Sistema de Monitoreo',
+          to: [execTo],
+          cc: execCc,
+          subject: built.subject,
+          html: built.html,
+        })
+        newlySentScopes.push(scopeKey)
+        dispatches.push({
+          scopeKey,
+          kind: 'executive_consolidated',
+          supervisorName: null,
+          lang: 'es',
+          to: execTo,
+          cc: execCc,
+          bcc: [],
+          storesCount: built.storesCount,
+          shortageCount: built.shortageCount,
+          totalMissingBags: built.totalMissingBags,
+          totalShortageUsd: built.totalShortageUsd,
+          subject: built.subject,
+          htmlBytes: built.htmlBytes,
+          sent: true,
+          messageId: mailRes.messageId,
+          providerUsed: mailRes.providerUsed,
+        })
+      } catch (err: any) {
+        dispatches.push({
+          scopeKey,
+          kind: 'executive_consolidated',
+          supervisorName: null,
+          lang: 'es',
+          to: execTo,
+          cc: execCc,
+          bcc: [],
+          storesCount: built.storesCount,
+          shortageCount: built.shortageCount,
+          totalMissingBags: built.totalMissingBags,
+          totalShortageUsd: built.totalShortageUsd,
+          subject: built.subject,
+          htmlBytes: built.htmlBytes,
+          sent: false,
+          error: err?.message || String(err),
+        })
+      }
+    }
+  }
+
+  const allSentScopes = Array.from(new Set([...Array.from(alreadySent), ...newlySentScopes]))
+  return {
+    dispatches,
+    sentScopes: allSentScopes,
+    totalSent: dispatches.filter((d) => d.sent).length,
+    totalFailed: dispatches.filter((d) => Boolean(d.error)).length,
+  }
 }

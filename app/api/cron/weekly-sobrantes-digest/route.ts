@@ -3,8 +3,10 @@
  * @description Cron semanal automatizado (todos los **lunes a las 10:00 AM** hora de Los Ángeles,
  *   California — `3 18 * * 1` UTC en PST y `23 17 * * 1` UTC en PDT, con filtro estricto `laDow === 1`
  *   y `laHour === 10`) que audita la semana completa inmediata anterior (**Lunes a Domingo**) en las
- *   15 sucursales de Tacos Gavilan y envía el **Resumen Semanal de Sobrantes** desglosado por
- *   **Supervisor → Sucursal → Día** desde `noreply@tacosgavilan.com` (`Sistema de Monitoreo`).
+ *   15 sucursales de Tacos Gavilan y despacha desde `noreply@tacosgavilan.com`:
+ *   1) **1 correo semanal por Supervisor Regional** (únicamente sus 3–4 tiendas; Estefani Duran en **EN**,
+ *      Javier / Ricardo / Willian en **ES**) con `CC: gonzalo@tacosgavilan.com` y `BCC: carlos@tacosgavilan.com`.
+ *   2) **1 Resumen Ejecutivo Consolidado de las 15 sucursales (`ES`)** `To: carlos@tacosgavilan.com`, `CC: gonzalo@tacosgavilan.com`.
  *
  * @businessRules
  *   - **Ventana semanal fija (Lunes a Domingo)**: calcula automáticamente la semana cerrada inmediata
@@ -12,22 +14,25 @@
  *   - **Horario exacto PST/PDT**: las dos entradas de `vercel.json` (`23 17 * * 1` y `3 18 * * 1`) se
  *     filtran por `laDow === 1 && laHour === 10` en `America/Los_Angeles` para disparar una sola vez cada
  *     lunes a las 10:00 AM todo el año, siempre después de que `sync-pmix` terminó de guardar el domingo.
- *   - **Idempotencia estricta**: persiste la última semana despachada en `public.integrations`
- *     (`service_name = 'sobrantes_weekly_digest_state'`) evitando envíos duplicados salvo `?force_resend=true`.
+ *   - **Idempotencia granular por destinatario**: persiste en `public.integrations`
+ *     (`service_name = 'sobrantes_weekly_digest_state'`) la clave semanal y los `sentScopes` ya enviados
+ *     (`sup:54`, `sup:52`, `sup:53`, `sup:48`, `exec:all`) para jamás duplicar envíos ni perder reintentos parciales.
  *   - **Protección de servidores (`server-db-protection.md`)**: `force-dynamic`, `maxDuration = 300`,
  *     rango máximo `<= 35` días, `loadToastMeatContext` fragmentado (`<= 15` filas/lote en `pmix_daily_cache`).
  *   - **Seguridad Fail-Closed**: protegido con `verifyStaffAuth(..., { allowedRoles: ['admin', 'supervisor'], allowCron: true })`
- *     y `validateTestToEmail` (restringido a `@tacosgavilan.com`).
+ *     y `validateWeeklyDigestTestTo` (restringido a `@tacosgavilan.com` cuando se usa `?test_to=`).
  *
  * @dataFlow
  *   Vercel Cron (`23 17 * * 1` / `3 18 * * 1`) → `GET/POST /api/cron/weekly-sobrantes-digest`
  *   → `loadToastMeatContext()` + `computeToastVsFridgeForIngredient()`
- *   → `sendSobrantesExecutiveDigest()` (`noreply@tacosgavilan.com`)
+ *   → `sendWeeklySobrantesFullDistribution()` (`noreply@tacosgavilan.com`)
  *   → `public.integrations` (`sobrantes_weekly_digest_state`).
  *
  * @notes
  *   - [2026-11-27] Creado para separar el Resumen Semanal de Sobrantes (lunes 10:00 AM, Lun–Dom,
  *     desglose Supervisor/Sucursal/Día) del monitoreo diario de `/api/cron/check-portion-alerts`.
+ *   - [2026-11-27] Activada distribución semanal oficial a los 4 Supervisores (Estefani en EN, resto en ES)
+ *     con `CC: gonzalo@tacosgavilan.com` y `BCC: carlos@tacosgavilan.com`, más consolidado de 15 sucursales.
  */
 
 import { NextResponse } from 'next/server'
@@ -44,12 +49,13 @@ import {
   computeToastVsFridgeForIngredient,
   loadToastMeatContext,
 } from '@/lib/inventory/toast-meat-sold-resolver'
-import { validateTestToEmail } from '@/lib/inventory/portion-control-alerts'
 import {
   buildSobrantesExecutiveEmailHtml,
   getPreviousCompletedWeekMonSunLA,
   resolveSobrantesEmailLang,
   sendSobrantesExecutiveDigest,
+  sendWeeklySobrantesFullDistribution,
+  validateWeeklyDigestTestTo,
 } from '@/lib/inventory/sobrantes-executive-email'
 
 export const dynamic = 'force-dynamic'
@@ -72,6 +78,7 @@ const PROTEIN_DISPLAY_NAMES: Record<ActiveProteinKey, string> = {
 interface DigestStatePayload {
   lastSentKey?: string
   lastSentAt?: string
+  sentScopes?: string[]
   lastMessageId?: string
   lastRecipient?: string
 }
@@ -141,6 +148,7 @@ async function handleWeeklySobrantesDigest(req: Request) {
     const rawMeat = (url.searchParams.get('meat_key')?.trim().toLowerCase() || 'asada') as ActiveProteinKey
     const rawTestTo = url.searchParams.get('test_to')?.trim() || null
     const rawLang = url.searchParams.get('lang')?.trim().toLowerCase() || null
+    const rawSupervisorFilter = url.searchParams.get('supervisor')?.trim().toLowerCase() || null
 
     if (rawLang && rawLang !== 'es' && rawLang !== 'en') {
       return NextResponse.json(
@@ -156,15 +164,14 @@ async function handleWeeklySobrantesDigest(req: Request) {
       )
     }
 
-    const testCheck = validateTestToEmail(rawTestTo)
+    const testCheck = validateWeeklyDigestTestTo(rawTestTo)
     if (!testCheck.valid) {
       return NextResponse.json({ success: false, error: testCheck.error }, { status: 400 })
     }
 
-    const resolvedRecipient = testCheck.email || 'carlos@tacosgavilan.com'
-    const resolvedLang = resolveSobrantesEmailLang(resolvedRecipient, rawLang)
-
-    const isManualOverride = Boolean(dryRun || forceResend || rawStart || rawEnd || rawTestTo || rawLang)
+    const isManualOverride = Boolean(
+      dryRun || forceResend || rawStart || rawEnd || rawTestTo || rawLang || rawSupervisorFilter
+    )
     const nowLA = getLANowParts(new Date())
     const laDow = new Date(`${nowLA.calendarDate}T12:00:00Z`).getUTCDay() // 1 = Lunes
 
@@ -200,22 +207,12 @@ async function handleWeeklySobrantesDigest(req: Request) {
     }
 
     const idempotencyKey = `${startDate}..${endDate}::${rawMeat}`
-    if (!dryRun && !forceResend && !rawTestTo) {
-      const prevState = await readDigestState()
-      if (prevState?.lastSentKey === idempotencyKey) {
-        return NextResponse.json(
-          {
-            success: true,
-            skippedDuplicate: true,
-            idempotencyKey,
-            lastSentAt: prevState.lastSentAt || null,
-            lastMessageId: prevState.lastMessageId || null,
-            elapsedMs: Date.now() - startedAt,
-          },
-          { headers: { 'Cache-Control': 'no-store' } }
-        )
-      }
-    }
+    const prevState = !rawTestTo ? await readDigestState() : null
+    const alreadySentScopes = new Set<string>(
+      prevState?.lastSentKey === idempotencyKey && Array.isArray(prevState.sentScopes)
+        ? prevState.sentScopes
+        : []
+    )
 
     const ingredientName = PROTEIN_DISPLAY_NAMES[rawMeat]
     const ctx = await loadToastMeatContext({
@@ -232,50 +229,110 @@ async function handleWeeklySobrantesDigest(req: Request) {
       ctx,
     })
 
-    if (dryRun) {
-      const preview = buildSobrantesExecutiveEmailHtml({
+    // MODO PRUEBA AISLADA (`?test_to=...`): envía 1 solo correo a ese buzón sin tocar supervisores ni Gonzalo
+    if (testCheck.email) {
+      let scopedSupName: string | null = null
+      let scopedStores = meter.storesSummaries
+      if (rawSupervisorFilter) {
+        const matched = meter.storesSummaries.filter((s) =>
+          String(s.supervisorName || '').toLowerCase().includes(rawSupervisorFilter)
+        )
+        if (matched.length > 0) {
+          scopedStores = matched
+          scopedSupName = matched[0].supervisorName || null
+        }
+      }
+      const resolvedLang = resolveSobrantesEmailLang(
+        rawSupervisorFilter?.includes('estefani') ? 'estefani@tacosgavilan.com' : testCheck.email,
+        rawLang
+      )
+      if (dryRun) {
+        const preview = buildSobrantesExecutiveEmailHtml({
+          ingredientName,
+          startDate,
+          endDate,
+          meter,
+          recipientEmail: testCheck.email,
+          lang: resolvedLang,
+          scopedSupervisorName: scopedSupName,
+          scopedStoreSummaries: scopedStores,
+        })
+        return NextResponse.json(
+          {
+            success: true,
+            mode: 'single_test_preview',
+            dryRun: true,
+            lang: preview.lang,
+            startDate,
+            endDate,
+            meatKey: rawMeat,
+            scopedSupervisorName: scopedSupName,
+            storesEvaluated: preview.storesCount,
+            subject: preview.subject,
+            shortageCount: preview.shortageCount,
+            totalMissingBags: preview.totalMissingBags,
+            totalShortageUsd: preview.totalShortageUsd,
+            htmlBytes: preview.htmlBytes,
+            elapsedMs: Date.now() - startedAt,
+          },
+          { headers: { 'Cache-Control': 'no-store' } }
+        )
+      }
+
+      const sent = await sendSobrantesExecutiveDigest({
         ingredientName,
         startDate,
         endDate,
         meter,
-        recipientEmail: resolvedRecipient,
+        rawTestTo: testCheck.email,
         lang: resolvedLang,
+        scopedSupervisorName: scopedSupName,
+        scopedStoreSummaries: scopedStores,
       })
       return NextResponse.json(
         {
           success: true,
-          dryRun: true,
-          lang: preview.lang,
+          mode: 'single_test_preview',
+          sent: true,
+          lang: sent.lang,
           startDate,
           endDate,
           meatKey: rawMeat,
-          subject: preview.subject,
-          shortageCount: preview.shortageCount,
-          totalMissingBags: preview.totalMissingBags,
-          totalShortageUsd: preview.totalShortageUsd,
-          htmlBytes: preview.htmlBytes,
-          storesEvaluated: meter.storesSummaries.length,
+          scopedSupervisorName: scopedSupName,
+          to: sent.to,
+          fromEmail: sent.mailRes.fromEmail,
+          providerUsed: sent.mailRes.providerUsed,
+          messageId: sent.mailRes.messageId,
+          subject: sent.subject,
+          shortageCount: sent.shortageCount,
+          totalMissingBags: sent.totalMissingBags,
+          totalShortageUsd: sent.totalShortageUsd,
+          htmlBytes: sent.htmlBytes,
           elapsedMs: Date.now() - startedAt,
         },
         { headers: { 'Cache-Control': 'no-store' } }
       )
     }
 
-    const sent = await sendSobrantesExecutiveDigest({
+    // MODO OFICIAL SEMANAL: 4 Supervisores (zona propia, Estefani en EN, CC Gonzalo, BCC Carlos) + Consolidado 15 tiendas (To Carlos, CC Gonzalo)
+    const distribution = await sendWeeklySobrantesFullDistribution({
       ingredientName,
       startDate,
       endDate,
       meter,
-      rawTestTo: testCheck.email,
-      lang: resolvedLang,
+      dryRun,
+      alreadySentScopes,
+      forceResend,
     })
 
-    if (!rawTestTo) {
+    if (!dryRun && distribution.totalSent > 0) {
+      const lastDispatched = distribution.dispatches.find((d) => d.sent)
       await persistDigestState({
         lastSentKey: idempotencyKey,
         lastSentAt: new Date().toISOString(),
-        lastMessageId: sent.mailRes.messageId,
-        lastRecipient: sent.to,
+        sentScopes: distribution.sentScopes,
+        lastMessageId: lastDispatched?.messageId,
+        lastRecipient: lastDispatched?.to,
       }).catch((err) => {
         console.warn('[WeeklySobrantesDigest] No se pudo guardar estado de idempotencia:', err)
       })
@@ -283,21 +340,18 @@ async function handleWeeklySobrantesDigest(req: Request) {
 
     return NextResponse.json(
       {
-        success: true,
-        sent: true,
-        lang: sent.lang,
+        success: distribution.totalFailed === 0,
+        mode: 'weekly_supervisors_and_exec',
+        dryRun,
         startDate,
         endDate,
         meatKey: rawMeat,
-        to: sent.to,
-        fromEmail: sent.mailRes.fromEmail,
-        providerUsed: sent.mailRes.providerUsed,
-        messageId: sent.mailRes.messageId,
-        subject: sent.subject,
-        shortageCount: sent.shortageCount,
-        totalMissingBags: sent.totalMissingBags,
-        totalShortageUsd: sent.totalShortageUsd,
-        htmlBytes: sent.htmlBytes,
+        idempotencyKey,
+        storesEvaluated: meter.storesSummaries.length,
+        totalSent: distribution.totalSent,
+        totalFailed: distribution.totalFailed,
+        sentScopes: distribution.sentScopes,
+        dispatches: distribution.dispatches,
         elapsedMs: Date.now() - startedAt,
       },
       { headers: { 'Cache-Control': 'no-store' } }
