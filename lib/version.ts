@@ -20,20 +20,38 @@ export interface VersionMilestone {
 }
 
 export const SYSTEM_VERSION = {
-    version: 'v2.37.0',
-    versionNumber: '2.37.0',
+    version: 'v2.38.0',
+    versionNumber: '2.38.0',
     releaseMonthEs: 'Noviembre 2026',
     releaseMonthEn: 'November 2026',
     stage: 'Producción',
     stageEn: 'Production',
     year: '2026',
-    labelEs: 'Noviembre 2026 • SM TEG v2.37.0',
-    labelEn: 'November 2026 • SM TEG v2.37.0',
+    labelEs: 'Noviembre 2026 • SM TEG v2.38.0',
+    labelEn: 'November 2026 • SM TEG v2.38.0',
     brand: 'SM TEG',
-    lastUpdated: '2026-11-26'
+    lastUpdated: '2026-11-27'
 } as const;
 
 export const VERSION_HISTORY: readonly VersionMilestone[] = [
+    {
+        version: 'v2.38.0',
+        date: '27-Nov-2026',
+        titleEs: 'Rediseño Completo UX/UI Web y Móvil de Basecamp (Motor Tipográfico Unificado + Suscriptores 1-Clic), Resumen Semanal Bilingüe ES/EN de Sobrantes (Lunes 10 AM — 4 Supervisores) y Nuevo Cron Perpetuo de Horarios Festivos (43 Crons)',
+        titleEn: 'Complete Basecamp Web & Mobile UX/UI Redesign (Unified Rich-Text Typography + 1-Click Subscriber Picker), Bilingual ES/EN Weekly Leftovers Digest (Mon 10 AM — 4 Supervisors) & New Perpetual Holiday Hours Sync Cron (43 Crons)',
+        highlightsEs: [
+            'Rediseño Completo UX/UI Web y Móvil de Basecamp (17 archivos — verificado en iPhone 390×844, Android 360×800, iPad 768×1024 y Desktop 1440×900 claro/oscuro): nuevo motor tipográfico unificado en lib/basecamp-html.ts eliminando viñetas rotas y saltos excesivos, pulido integral de las 12 vistas y selector nativo de suscriptores en 1 clic con notificaciones Hey! y correo sin duplicados',
+            'Resumen Semanal Bilingüe ES/EN de Sobrantes y Simplificación de Correos Food Cost (commits 40659671 y 5a040dfb + distribución oficial Lunes 10 AM a 4 Supervisores con CC Dirección): reporte ultraligero (11.2 KB) desglosado por Supervisor → Sucursal → Día, traducción EN/ES en alertas de Side Order Carne y desactivación de correos redundantes',
+            'Nuevo Cron Perpetuo de Horarios Festivos (/api/cron/sync-holiday-hours + lib/holiday-platform-sync.ts — 43 crons activos en vercel.json): sincronización automática perpetua de los 7 días festivos oficiales en plataformas delivery y corrección de URLs en Apple Business Connect',
+            'Consolidación ejecutiva de Noviembre 2026 en 188.3h (25 días laborados, 216/216 tablas públicas con RLS activo, 43 crons configurados y 0 errores de TypeScript)'
+        ],
+        highlightsEn: [
+            'Complete Basecamp Web & Mobile UX/UI Redesign (17 files — verified across iPhone 390×844, Android 360×800, iPad 768×1024 & Desktop 1440×900 light/dark): new unified typography engine in lib/basecamp-html.ts fixing broken bullets and excessive gaps, full polish across all 12 views, and native 1-click subscriber picker with Hey! notifications and deduplicated emails',
+            'Bilingual ES/EN Weekly Leftovers Executive Digest & Food Cost Email Simplification (commits 40659671 & 5a040dfb + official Mon 10 AM routing to 4 Supervisors & Leadership CC): ultra-light (11.2 KB) Supervisor → Store → Day breakdown, EN/ES Side Order missing-meat alerts, and redundant auto-email cleanup',
+            'New Perpetual Holiday Hours Sync Cron (/api/cron/sync-holiday-hours + lib/holiday-platform-sync.ts — 43 active crons in vercel.json): perpetual automation of the 7 official holidays across delivery platforms plus Apple Business Connect 15-store URL fixes',
+            'November 2026 executive consolidation at 188.3h (25 active days, 216/216 public RLS tables, 43 active crons, and 0 TypeScript errors)'
+        ]
+    },
     {
         version: 'v2.37.0',
         date: '26-Nov-2026',
