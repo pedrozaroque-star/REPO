@@ -2673,24 +2673,24 @@ export default function BlindajeDeliveryEmpaquePage() {
         )}
 
         {pendingPhoneNotes.length > 0 && (
-          <div className="rounded-3xl border-4 border-amber-500 bg-amber-50 p-4 shadow-lg space-y-2.5 da-phone-alert-blink">
+          <div className="rounded-3xl border-4 border-amber-500 bg-amber-50 p-4 sm:p-5 shadow-lg space-y-3 da-phone-alert-blink">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2.5 text-red-700">
-                <BellRing className="w-7 h-7 flex-shrink-0 animate-bounce" />
-                <span className="text-lg sm:text-xl font-black uppercase tracking-tight">
+              <div className="flex items-center gap-3 text-red-700">
+                <BellRing className="w-8 h-8 flex-shrink-0 animate-bounce" />
+                <span className="text-xl sm:text-2xl font-black uppercase tracking-tight">
                   {t('blindaje_delivery.phone_note_banner_title')} ({pendingPhoneNotes.length})
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => void playPhoneNoteAlertChime()}
-                className="px-3 py-1.5 rounded-xl bg-amber-200 hover:bg-amber-300 text-amber-950 text-xs font-black flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-amber-200 hover:bg-amber-300 text-amber-950 text-sm font-black flex items-center gap-1.5"
               >
-                <Volume2 className="w-4 h-4" />
+                <Volume2 className="w-5 h-5" />
                 <span>🔊</span>
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {pendingPhoneNotes.map(note => {
                 const matchedOrder =
                   (note.toastOrderGuid ? orders.find(o => o.guid === note.toastOrderGuid) : null) ||
@@ -2700,30 +2700,50 @@ export default function BlindajeDeliveryEmpaquePage() {
                 return (
                   <div
                     key={note.id}
-                    className="p-3 rounded-2xl bg-white/95 border-2 border-amber-400 flex flex-wrap items-center justify-between gap-3"
+                    className="p-4 sm:p-5 rounded-2xl bg-white/95 border-2 border-amber-400 flex flex-wrap items-center justify-between gap-4"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-black">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="px-3 py-1 rounded-xl bg-slate-900 text-white text-sm sm:text-base font-black">
                           {label(note.platform)}
                         </span>
-                        <strong className="text-base sm:text-lg font-black text-slate-950">
+                        <strong className="text-xl sm:text-2xl font-black text-slate-950">
                           {matchedOrder?.customer || note.orderCustomerName || note.callerName}
                         </strong>
                         {(matchedOrder?.ticket || note.shortOrderKey || note.toastDisplayNumber) && (
-                          <span className="px-2 py-0.5 rounded-lg bg-amber-100 border border-amber-300 text-amber-950 text-xs font-mono font-black">
+                          <span className="px-3 py-1 rounded-xl bg-amber-100 border-2 border-amber-400 text-amber-950 text-base sm:text-lg font-mono font-black">
                             {matchedOrder
                               ? `Check #${matchedOrder.ticket}`
                               : note.shortOrderKey || `#${note.toastDisplayNumber}`}
                           </span>
                         )}
                         {!matchedOrder && (
-                          <span className="px-2 py-0.5 rounded-lg bg-red-100 text-red-700 text-xs font-black">
+                          <span className="px-3 py-1 rounded-xl bg-red-100 text-red-700 text-sm sm:text-base font-black">
                             {t('blindaje_delivery.phone_note_unmatched_tag')}
                           </span>
                         )}
                       </div>
-                      <p className="text-sm sm:text-base font-extrabold text-red-800 mt-1">{summaryText}</p>
+                      <p className="text-2xl sm:text-3xl font-black text-red-700 leading-snug">{summaryText}</p>
+                      {(note.requestedCondiments.length > 0 || note.itemModifications.length > 0) && (
+                        <div className="flex flex-wrap gap-2 pt-0.5">
+                          {note.requestedCondiments.map((c, idx) => (
+                            <span
+                              key={`banner-cond-${idx}`}
+                              className="px-3.5 py-1.5 rounded-xl bg-amber-100 border-2 border-amber-400 text-amber-950 text-base sm:text-lg font-black"
+                            >
+                              + {c}
+                            </span>
+                          ))}
+                          {note.itemModifications.map((m, idx) => (
+                            <span
+                              key={`banner-mod-${idx}`}
+                              className="px-3.5 py-1.5 rounded-xl bg-red-100 border-2 border-red-400 text-red-950 text-base sm:text-lg font-black"
+                            >
+                              ✏️ {m}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {matchedOrder ? (
@@ -2733,7 +2753,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                             recordCashierActivity()
                             setSelected(matchedOrder.guid)
                           }}
-                          className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm sm:text-base font-black shadow-sm"
+                          className="px-5 py-3.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-base sm:text-lg font-black shadow-md"
                         >
                           {t('blindaje_delivery.phone_note_open_order_btn')} →
                         </button>
@@ -2742,7 +2762,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                           type="button"
                           disabled={applyingPhoneNoteId === note.id}
                           onClick={() => void handleApplyPhoneNote(note, null)}
-                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm sm:text-base font-black disabled:opacity-40 shadow-sm"
+                          className="px-5 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-base sm:text-lg font-black disabled:opacity-40 shadow-md"
                         >
                           {applyingPhoneNoteId === note.id
                             ? t('blindaje_delivery.phone_note_applying_btn')
@@ -2886,16 +2906,16 @@ export default function BlindajeDeliveryEmpaquePage() {
                       </small>
                     )}
                     {hasPendingPhoneNote && (
-                      <div className="mt-2 px-2.5 py-2 rounded-xl bg-amber-600 text-white text-xs font-black space-y-0.5 shadow-sm">
-                        <div className="flex items-center gap-1.5">
-                          <PhoneCall className="w-4 h-4 flex-shrink-0 animate-bounce" />
-                          <span className="truncate uppercase">
+                      <div className="mt-2.5 px-3.5 py-3 rounded-2xl bg-amber-600 text-white space-y-1.5 shadow-md">
+                        <div className="flex items-center gap-2 text-xs sm:text-sm font-black">
+                          <PhoneCall className="w-5 h-5 flex-shrink-0 animate-bounce" />
+                          <span className="uppercase leading-tight">
                             {isSealedWithPhoneNote
                               ? t('blindaje_delivery.phone_note_reopen_bag_badge')
                               : t('blindaje_delivery.phone_note_card_badge')}
                           </span>
                         </div>
-                        <div className="text-[11px] font-bold text-amber-50 line-clamp-2 leading-snug">
+                        <div className="text-base sm:text-lg font-black text-white leading-snug">
                           {cardPendingPhoneNotes
                             .map(n => (language === 'en' && n.noteSummaryEn ? n.noteSummaryEn : n.noteSummaryEs))
                             .join(' • ')}
@@ -2903,9 +2923,16 @@ export default function BlindajeDeliveryEmpaquePage() {
                       </div>
                     )}
                     {!hasPendingPhoneNote && cardAppliedPhoneNotes.length > 0 && (
-                      <div className="mt-2 px-2.5 py-1 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-black flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate">{t('blindaje_delivery.phone_note_applied_badge')}</span>
+                      <div className="mt-2.5 px-3 py-2 rounded-2xl bg-emerald-100 border-2 border-emerald-400 text-emerald-950 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-emerald-900">
+                          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                          <span className="truncate">{t('blindaje_delivery.phone_note_applied_badge')}</span>
+                        </div>
+                        <div className="text-sm sm:text-base font-black text-emerald-950 leading-snug">
+                          {cardAppliedPhoneNotes
+                            .map(n => (language === 'en' && n.noteSummaryEn ? n.noteSummaryEn : n.noteSummaryEs))
+                            .join(' • ')}
+                        </div>
                       </div>
                     )}
                     {hasCollision && (
@@ -2943,40 +2970,40 @@ export default function BlindajeDeliveryEmpaquePage() {
                 {selectedPendingPhoneNotes.length > 0 && (
                   <section className="rounded-3xl border-4 border-amber-500 bg-amber-50 overflow-hidden shadow-xl da-phone-alert-blink">
                     <div className="bg-gradient-to-r from-amber-600 to-red-600 text-white px-5 py-4 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <PhoneCall className="w-8 h-8 flex-shrink-0 animate-bounce" />
+                      <div className="flex items-center gap-3.5">
+                        <PhoneCall className="w-9 h-9 flex-shrink-0 animate-bounce" />
                         <div>
-                          <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight leading-tight">
+                          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight leading-tight">
                             {t('blindaje_delivery.phone_note_detail_title')}
                           </h2>
-                          <p className="text-amber-100 text-sm font-bold">
+                          <p className="text-amber-100 text-base sm:text-lg font-extrabold mt-0.5">
                             {label(order.platform)} • {order.customer} • Check #{order.ticket}
                           </p>
                         </div>
                       </div>
                     </div>
-                    <div className="p-5 space-y-4">
+                    <div className="p-5 sm:p-6 space-y-4">
                       {order.audit?.status === 'ready' && (
-                        <div className="p-3.5 rounded-2xl bg-red-600 text-white text-sm sm:text-base font-black flex items-center gap-2.5">
-                          <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+                        <div className="p-4 rounded-2xl bg-red-600 text-white text-base sm:text-lg font-black flex items-center gap-3">
+                          <AlertTriangle className="w-7 h-7 flex-shrink-0" />
                           <span>{t('blindaje_delivery.phone_note_detail_reopen_warn')}</span>
                         </div>
                       )}
                       {selectedPendingPhoneNotes.map(note => {
                         const summaryText = language === 'en' && note.noteSummaryEn ? note.noteSummaryEn : note.noteSummaryEs
                         return (
-                          <div key={note.id} className="p-4 rounded-2xl bg-white border-2 border-amber-400 space-y-3 shadow-sm">
-                            <p className="text-xl sm:text-2xl font-black text-slate-950 leading-snug">{summaryText}</p>
+                          <div key={note.id} className="p-5 rounded-2xl bg-white border-2 border-amber-400 space-y-4 shadow-sm">
+                            <p className="text-2xl sm:text-3xl lg:text-4xl font-black text-red-700 leading-snug">{summaryText}</p>
                             {note.requestedCondiments.length > 0 && (
                               <div>
-                                <div className="text-xs font-black uppercase tracking-wider text-amber-800 mb-1.5">
+                                <div className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-900 mb-2">
                                   {t('blindaje_delivery.phone_note_condiments_label')}
                                 </div>
-                                <div className="flex flex-wrap gap-2">
+                                <div className="flex flex-wrap gap-2.5">
                                   {note.requestedCondiments.map((c, idx) => (
                                     <span
                                       key={idx}
-                                      className="px-3 py-1 rounded-xl bg-amber-100 border border-amber-400 text-amber-950 text-sm sm:text-base font-black"
+                                      className="px-4 py-2 rounded-2xl bg-amber-100 border-2 border-amber-500 text-amber-950 text-xl sm:text-2xl font-black shadow-2xs"
                                     >
                                       + {c}
                                     </span>
@@ -2994,14 +3021,14 @@ export default function BlindajeDeliveryEmpaquePage() {
                               if (effectiveMods.length === 0) return null
                               return (
                                 <div>
-                                  <div className="text-xs font-black uppercase tracking-wider text-red-700 mb-1.5">
+                                  <div className="text-sm sm:text-base font-black uppercase tracking-wider text-red-800 mb-2">
                                     {t('blindaje_delivery.phone_note_modifications_label')}
                                   </div>
-                                  <div className="flex flex-wrap gap-2">
+                                  <div className="flex flex-wrap gap-2.5">
                                     {effectiveMods.map((m, idx) => (
                                       <span
                                         key={idx}
-                                        className="px-3 py-1 rounded-xl bg-red-100 border border-red-400 text-red-950 text-sm sm:text-base font-black"
+                                        className="px-4 py-2 rounded-2xl bg-red-100 border-2 border-red-500 text-red-950 text-xl sm:text-2xl font-black shadow-2xs"
                                       >
                                         ✏️ {m}
                                       </span>
@@ -3011,19 +3038,19 @@ export default function BlindajeDeliveryEmpaquePage() {
                               )
                             })()}
                             {order.items.length > 0 && (
-                              <div className="pt-2 border-t border-slate-200">
-                                <div className="text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                              <div className="pt-3 border-t border-slate-200">
+                                <div className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-500 mb-2">
                                   {t('blindaje_delivery.phone_note_order_items_label')}
                                 </div>
-                                <ul className="space-y-1 text-sm font-bold text-slate-800">
+                                <ul className="space-y-1.5 text-base sm:text-lg font-bold text-slate-800">
                                   {order.items.map(it => (
-                                    <li key={it.id} className="flex flex-wrap items-baseline gap-1.5">
-                                      <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-900 font-black text-xs">
+                                    <li key={it.id} className="flex flex-wrap items-baseline gap-2">
+                                      <span className="px-2 py-0.5 rounded-lg bg-slate-200 text-slate-950 font-black text-sm sm:text-base">
                                         {it.quantity}×
                                       </span>
                                       <span>{it.name}</span>
                                       {it.modifiers.length > 0 && (
-                                        <span className="text-xs font-semibold text-slate-500">
+                                        <span className="text-sm sm:text-base font-semibold text-slate-500">
                                           ({it.modifiers.join(', ')})
                                         </span>
                                       )}
@@ -3036,7 +3063,7 @@ export default function BlindajeDeliveryEmpaquePage() {
                               type="button"
                               disabled={applyingPhoneNoteId === note.id}
                               onClick={() => void handleApplyPhoneNote(note, order)}
-                              className="w-full h-14 sm:h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-lg sm:text-xl font-black disabled:opacity-40 shadow-md transition-transform touch-manipulation"
+                              className="w-full h-16 sm:h-20 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xl sm:text-2xl font-black disabled:opacity-40 shadow-md transition-transform touch-manipulation"
                             >
                               {applyingPhoneNoteId === note.id
                                 ? t('blindaje_delivery.phone_note_applying_btn')
