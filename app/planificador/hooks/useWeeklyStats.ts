@@ -1,5 +1,21 @@
+/**
+ * @module app/planificador/hooks/useWeeklyStats
+ * @description Calcula horas netas (descontando 30 min de lunch en turnos >5h en California),
+ * overtime diario (>8h por jornada laboral `shift_date`) y overtime semanal (>40h regulares),
+ * además del costo estimado de nómina por empleado y por turno en el Planificador de Tacos Gavilan.
+ * @businessRules
+ * - Reglas laborales de California: descanso de comida no pagado (0.5h) si el turno supera 5h; Daily OT >8h; Weekly OT >40h.
+ * - La jornada laboral (`shift_date`) corre de 6:00 AM a 5:59 AM del día siguiente en `America/Los_Angeles`.
+ * @dataFlow
+ * `shifts` + `employees` + `jobs` -> `{ stats, shiftStats }`
+ * @notes
+ * - [2026-11-27] Reemplazado fallback UTC `toISOString().slice(0, 10)` por `getBusinessDateISOFromTimestamp`
+ *   y normalizadas comparaciones de `employee_id` y `job_id` como `String`.
+ */
+
 import { useMemo } from 'react'
 import { Shift, Employee, Job } from '../lib/types'
+import { getBusinessDateISOFromTimestamp } from '../lib/utils'
 
 export function useWeeklyStats(shifts: Shift[], employees: Employee[], jobs: Job[]) {
     // We calculate all stats once per render to avoid heavy computation in loops
@@ -34,7 +50,7 @@ export function useWeeklyStats(shifts: Shift[], employees: Employee[], jobs: Job
         }
 
         employees.forEach(emp => {
-            const empShifts = shifts.filter(s => s.employee_id === emp.id);
+            const empShifts = shifts.filter(s => !s.is_open && s.employee_id && String(s.employee_id) === String(emp.id));
             // Sort by start time for correct weekly accumulation
             const sorted = [...empShifts].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
@@ -48,7 +64,7 @@ export function useWeeklyStats(shifts: Shift[], employees: Employee[], jobs: Job
 
             sorted.forEach(s => {
                 const duration = calcDuration(s);
-                const dateKey = s.shift_date || new Date(s.start_time).toISOString().slice(0, 10);
+                const dateKey = s.shift_date || getBusinessDateISOFromTimestamp(s.start_time);
 
                 // --- 1. DAILY OT (Acumulado por jornada laboral shift_date) ---
                 let dailyOT = 0;
@@ -80,7 +96,7 @@ export function useWeeklyStats(shifts: Shift[], employees: Employee[], jobs: Job
                 let rate = 16.00;
                 if (emp.wage_data && Array.isArray(emp.wage_data)) {
                     const wEntry = emp.wage_data.find((w: any) => {
-                        const j = jobs.find(job => job.id === s.job_id);
+                        const j = jobs.find(job => String(job.id) === String(s.job_id));
                         return j && (w.job_guid === j.guid || w.job_guid === j.id);
                     });
                     if (wEntry) rate = wEntry.wage;

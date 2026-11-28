@@ -16,12 +16,14 @@
  * @notes
  * - El botón `+` usa `type="button"` y `e.stopPropagation()` para garantizar apertura limpia en modo creación
  *   incluso debajo de un turno ya existente en la misma celda.
+ * - [2026-11-27] Protegido contra `totals` indefinido durante altas instantáneas de empleados prestados,
+ *   normalizadas comparaciones de `job_id` como `String` y llave de celda estable `formatDateISO(day)`.
  */
 
 import React from 'react'
 import { Reorder, useDragControls } from 'framer-motion'
 import { GripVertical, Plus, Mail, Phone } from 'lucide-react'
-import { formatTime12h, stringToColor } from '../lib/utils'
+import { formatDateISO, formatTime12h, stringToColor } from '../lib/utils'
 import { useLanguage } from '@/lib/i18n'
 
 export function EmployeeRow({
@@ -38,6 +40,7 @@ export function EmployeeRow({
 }: any) {
     const controls = useDragControls()
     const { t } = useLanguage()
+    const safeTotals = totals || { totalHours: 0, totalWage: 0, totalOT: 0 }
 
     // Helper to get employee payrate / wage rate
     const getEmployeeWageRate = () => {
@@ -83,7 +86,7 @@ export function EmployeeRow({
 
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-indigo-500/20 relative shrink-0 cursor-help ring-2 ring-white dark:ring-slate-800">
                         {emp.first_name?.[0]}{emp.last_name?.[0]}
-                        {totals.totalOT > 0 &&
+                        {safeTotals.totalOT > 0 &&
                             <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full border-2 border-white dark:border-slate-800 flex items-center justify-center text-[9px] font-bold">!</div>
                         }
                     </div>
@@ -152,11 +155,11 @@ export function EmployeeRow({
                                             {job.title}
                                         </span>
                                         <div className="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-slate-400 font-medium uppercase tracking-tight">
-                                            <span>{totals.totalHours.toFixed(2)} hrs</span>
+                                            <span>{safeTotals.totalHours.toFixed(2)} hrs</span>
                                             {!isManager && (
                                                 <>
                                                     <span className="text-gray-300 dark:text-slate-700">|</span>
-                                                    <span>${totals.totalWage.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                    <span>${safeTotals.totalWage.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                 </>
                                             )}
                                         </div>
@@ -164,9 +167,9 @@ export function EmployeeRow({
                                 );
                             })()}
                         </div>
-                        {totals.totalOT > 0 && (
+                        {safeTotals.totalOT > 0 && (
                             <p className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider mt-0.5">
-                                {totals.totalOT.toFixed(1)}h OT
+                                {safeTotals.totalOT.toFixed(1)}h OT
                             </p>
                         )}
                     </div>
@@ -208,14 +211,14 @@ export function EmployeeRow({
 
                     return (
                         <td
-                            key={`${emp.id}-${day.toISOString()}`}
+                            key={`${emp.id}-${formatDateISO(day)}`}
                             className="group/cell border-r border-b border-gray-200 dark:border-slate-800 h-24 p-1.5 relative transition-colors bg-transparent align-top"
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => handleDrop(e, emp.id, day)}
                         >
                             <div className="w-full min-h-[84px] h-full flex flex-col gap-1.5">
                                 {cellShifts.map((shift: any) => {
-                                    const job = jobs.find((j: any) => j.id === shift.job_id)
+                                    const job = jobs.find((j: any) => String(j.id) === String(shift.job_id))
                                     const jobTitle = job?.title || 'Rol'
                                     const sStats = weeklyStats[shift.id] || { totalOT: 0, dailyOT: 0, weeklyOT: 0 };
                                     const isPublished = shift.status === 'published'

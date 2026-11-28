@@ -11,30 +11,12 @@
  * @notes
  * - Optimización 2026-11-19 (Paquete 2B): polling elevado de 2 min a 5 min con guardia `visibilityState === 'visible'`
  *   y desactivado automáticamente cuando no se visualiza la semana laboral actual (`America/Los_Angeles`, corte 6:00 AM).
+ * - [2026-11-27] Agregado contador monotónico `fetchSeqRef` para evitar que respuestas tardías de semanas/tiendas
+ *   anteriores sobreescriban `sales`/`punches`, y unificado el corte 6:00 AM vía `getBusinessTodayISO()`.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
-import { addDays, formatDateISO } from '../lib/utils'
-
-function getCurrentBusinessDateLA(): string {
-    const now = new Date()
-    const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/Los_Angeles',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        hour12: false
-    }).formatToParts(now)
-    let hour = Number(parts.find(p => p.type === 'hour')?.value ?? '12')
-    if (hour === 24) hour = 0
-    const y = Number(parts.find(p => p.type === 'year')?.value)
-    const m = Number(parts.find(p => p.type === 'month')?.value)
-    const d = Number(parts.find(p => p.type === 'day')?.value)
-    const dateObj = new Date(Date.UTC(y, m - 1, d))
-    if (hour < 6) dateObj.setUTCDate(dateObj.getUTCDate() - 1)
-    return dateObj.toISOString().slice(0, 10)
-}
+import { addDays, formatDateISO, getBusinessTodayISO } from '../lib/utils'
 
 export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
     const [actuals, setActuals] = useState<Record<string, { sales: number, labor: { cost: number, hours: number } }>>({})
@@ -44,9 +26,11 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
     const [punches, setPunches] = useState<any[]>([])
     const [sales, setSales] = useState<any[]>([])
     const [wages, setWages] = useState<Record<string, number>>({})
+    const fetchSeqRef = useRef(0)
 
-    const fetchRawData = useCallback(async () => {
+    const fetchRawData = useCallback(async (providedSeq?: number) => {
         if (!storeGuid) return
+        const seq = providedSeq ?? ++fetchSeqRef.current
         setLoading(true)
         const supabase = await getSupabaseClient()
 
@@ -61,6 +45,8 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
             .gte('business_date', startStr)
             .lte('business_date', endStr)
 
+        if (seq !== fetchSeqRef.current) return
+
         // 2. Fetch Labor (Punches) - Include clock_in/out for manual calc fallback
         const { data: punchData, error: punchError } = await supabase
             .from('punches')
@@ -70,12 +56,15 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
             .lte('business_date', endStr)
 
         if (punchError) console.error('Error loading punches', punchError)
+        if (seq !== fetchSeqRef.current) return
 
         // We need employee rates to calculate cost.
         const { data: empData } = await supabase
             .from('toast_employees')
             .select('toast_guid, wage_data')
             .eq('deleted', false)
+
+        if (seq !== fetchSeqRef.current) return
 
         const wageMap: Record<string, number> = {}
         if (empData) {
@@ -98,6 +87,7 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
     // Force Live Sync
     const forceRefresh = useCallback(async () => {
         if (!storeGuid) return
+        const seq = ++fetchSeqRef.current
         setLoading(true)
         try {
             // 1. Fetch Live Data (Overlay Layer) - Read Only Sales, Write Labor
@@ -107,27 +97,14 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
                 body: JSON.stringify({ storeId: storeGuid })
             })
             const json = await res.json()
+            if (seq !== fetchSeqRef.current) return
 
             // 2. Refresh DB Data (Base Layer) - Get new Punches from DB
-            await fetchRawData()
+            await fetchRawData(seq)
+            if (seq !== fetchSeqRef.current) return
 
             if (json.success && json.sales_data) {
-                // Determine Date from API or fallback to JS logic
-                // The API logic for "today" is robust, but let's re-calculate client side to be safe 
-                // or rely on what matches the current view.
-                // Ideally API sends back the date it queried.
-                // Assuming json.message contains date or we compute it.
-
-                // My debug script showed API doesn't return date explicitly in top level, 
-                // but let's re-use the "getBusinessDate" logic roughly or just update "Today".
-
-                const now = new Date()
-                const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                if (laTime.getHours() < 6) laTime.setDate(laTime.getDate() - 1)
-                const y = laTime.getFullYear()
-                const m = String(laTime.getMonth() + 1).padStart(2, '0')
-                const d = String(laTime.getDate()).padStart(2, '0')
-                const todayStr = `${y}-${m}-${d}`
+                const todayStr = getBusinessTodayISO()
 
                 setSales(prev => {
                     // Remove existing entry for today (stale DB data)
@@ -143,7 +120,9 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         } catch (e) {
             console.error(e)
         } finally {
-            setLoading(false)
+            if (seq === fetchSeqRef.current) {
+                setLoading(false)
+            }
         }
     }, [storeGuid, fetchRawData])
 
@@ -152,7 +131,7 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         setActuals({}) // Reset immediately to avoid stale data from previous store
         setLoading(true)
 
-        const todayStr = getCurrentBusinessDateLA()
+        const todayStr = getBusinessTodayISO()
         const weekStartStr = formatDateISO(weekStart)
         const weekEndStr = formatDateISO(addDays(weekStart, 6))
         const isCurrentWeek = todayStr >= weekStartStr && todayStr <= weekEndStr
@@ -263,7 +242,7 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
                     // Only use punch-based calculation to overwrite the cache if:
                     // 1. We are looking at "Today" (where cache is stale/incomplete)
                     // 2. The cache is totally empty for that day (cost <= 0)
-                    const nowStr = formatDateISO(new Date())
+                    const nowStr = getBusinessTodayISO()
                     const isToday = dayStr === nowStr
                     const cacheIsMaybeMissing = newStats[dayStr].labor.cost <= 0
 

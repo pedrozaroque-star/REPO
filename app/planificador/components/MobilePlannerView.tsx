@@ -21,6 +21,9 @@
  * - Completely refactored to support effortless viewing AND sending of schedules on 360px-430px screens.
  * - All bottom sheets sit at z-[120] with safe-area-inset-bottom padding above BottomTabBar (z-50).
  * - Synced default weekday index uses render-time week-key tracking (React Compiler safe, zero setState in useEffect).
+ * - Bottom sheets derive live shift/employee records from props (promoting temp-* optimistic IDs to DB UUIDs and auto-closing on store/week change).
+ * - All calendar labels, week jumps, and duplicate-to-next-day operations use America/Los_Angeles (6:00 AM -> 5:59 AM business day) with zero browser-TZ or DST drift.
+ * - Split shifts (multiple shifts same day) are individually editable from Daily, Team Week, and Employee Weekly views.
  */
 
 'use client'
@@ -66,6 +69,8 @@ import {
     formatTime12h,
     stringToColor,
     addDays,
+    addCalendarDaysISO,
+    laWallClockToDate,
     formatDateNice,
     formatStoreName,
     getBusinessTodayISO,
@@ -139,6 +144,27 @@ const formatCompactTime = (iso: string) => {
     const ampm = hour >= 12 ? 'p' : 'a'
     const h12 = hour % 12 || 12
     return minute === 0 ? `${h12}${ampm}` : `${h12}:${String(minute).padStart(2, '0')}${ampm}`
+}
+
+const getShiftBusinessDate = (shift: any): string => {
+    if (typeof shift?.shift_date === 'string' && shift.shift_date.length >= 10) {
+        return shift.shift_date.slice(0, 10)
+    }
+    if (shift?.start_time) {
+        const d = new Date(shift.start_time)
+        if (!Number.isNaN(d.getTime())) {
+            const iso = formatDateISO(d)
+            const { hour } = getLAHoursMinutes(d)
+            return hour < 6 ? addCalendarDaysISO(iso, -1) : iso
+        }
+    }
+    return ''
+}
+
+const formatIsoLabel = (isoDate: string, locale: string, options: Intl.DateTimeFormatOptions): string => {
+    if (!isoDate || isoDate.length < 10) return ''
+    return new Intl.DateTimeFormat(locale, { timeZone: 'America/Los_Angeles', ...options })
+        .format(laWallClockToDate(isoDate.slice(0, 10), 12, 0))
 }
 
 const getReadableBadgeProps = (hexColor: string): { className?: string; style?: React.CSSProperties } => {
@@ -241,26 +267,66 @@ export function MobilePlannerView({
     const [teamSearchQuery, setTeamSearchQuery] = useState<string>('')
     const [showOffInTeamWeek, setShowOffInTeamWeek] = useState<boolean>(false)
 
-    // Mobile Bottom Sheets & Drawers
-    const [selectedEmployeeForPreset, setSelectedEmployeeForPreset] = useState<any | null>(null)
-    const [selectedShiftForActions, setSelectedShiftForActions] = useState<{ shift: any; employee: any } | null>(null)
-    const [selectedEmployeeForContact, setSelectedEmployeeForContact] = useState<any | null>(null)
+    // Mobile Bottom Sheets & Drawers (scoped to active store/week and live-synced with shifts/employees props)
+    const [presetSheetState, setPresetSheetState] = useState<{ emp: any; storeId: string; weekKey: string } | null>(null)
+    const [shiftActionsState, setShiftActionsState] = useState<{ shift: any; employee: any; storeId: string; weekKey: string } | null>(null)
+    const [contactSheetState, setContactSheetState] = useState<{ emp: any; storeId: string; weekKey: string } | null>(null)
     const [isSendHubOpen, setIsSendHubOpen] = useState(false)
     const [isToolsDrawerOpen, setIsToolsDrawerOpen] = useState(false)
+    const [isMutatingShift, setIsMutatingShift] = useState(false)
 
-    const [mobileEditingProj, setMobileEditingProj] = useState<string | null>(null)
+    const setSelectedEmployeeForPreset = (emp: any | null) =>
+        setPresetSheetState(emp ? { emp, storeId: selectedStoreId, weekKey } : null)
+    const setSelectedShiftForActions = (payload: { shift: any; employee: any } | null) =>
+        setShiftActionsState(payload ? { ...payload, storeId: selectedStoreId, weekKey } : null)
+    const setSelectedEmployeeForContact = (emp: any | null) =>
+        setContactSheetState(emp ? { emp, storeId: selectedStoreId, weekKey } : null)
+
+    const selectedEmployeeForPreset = useMemo(() => {
+        if (!presetSheetState || presetSheetState.storeId !== selectedStoreId || presetSheetState.weekKey !== weekKey) return null
+        return employees.find(e => String(e.id) === String(presetSheetState.emp.id)) || presetSheetState.emp
+    }, [presetSheetState, selectedStoreId, weekKey, employees])
+
+    const selectedEmployeeForContact = useMemo(() => {
+        if (!contactSheetState || contactSheetState.storeId !== selectedStoreId || contactSheetState.weekKey !== weekKey) return null
+        return employees.find(e => String(e.id) === String(contactSheetState.emp.id)) || contactSheetState.emp
+    }, [contactSheetState, selectedStoreId, weekKey, employees])
+
+    const selectedShiftForActions = useMemo(() => {
+        if (!shiftActionsState || shiftActionsState.storeId !== selectedStoreId || shiftActionsState.weekKey !== weekKey) return null
+        const { shift, employee } = shiftActionsState
+        const liveEmp = employees.find(e => String(e.id) === String(employee.id)) || employee
+        const byId = shifts.find(s => String(s.id) === String(shift.id))
+        if (byId) return { shift: byId, employee: liveEmp }
+        if (String(shift.id || '').startsWith('temp-')) {
+            const targetDate = getShiftBusinessDate(shift)
+            const targetStart = new Date(shift.start_time).getTime()
+            const targetEnd = new Date(shift.end_time).getTime()
+            const promoted = shifts.find(s =>
+                !s.is_open &&
+                String(s.employee_id) === String(shift.employee_id) &&
+                getShiftBusinessDate(s) === targetDate &&
+                new Date(s.start_time).getTime() === targetStart &&
+                new Date(s.end_time).getTime() === targetEnd
+            )
+            if (promoted) return { shift: promoted, employee: liveEmp }
+        }
+        return { shift, employee: liveEmp }
+    }, [shiftActionsState, selectedStoreId, weekKey, shifts, employees])
+
+    const [mobileEditingProj, setMobileEditingProj] = useState<{ dateStr: string; value: string } | null>(null)
 
     const commitMobileProjectionEdit = async () => {
         if (mobileEditingProj === null) return
-        const raw = mobileEditingProj
+        const { dateStr: targetDateStr, value: raw } = mobileEditingProj
         setMobileEditingProj(null)
         const cleaned = raw.replace(/[^0-9]/g, '')
         if (!cleaned || !onSaveManualProjection) return
         const nextNum = Math.round(Number(cleaned))
-        const currNum = Math.round(Number(projections[dateStr] || 0))
+        const currNum = Math.round(Number(projections[targetDateStr] || 0))
         if (!Number.isFinite(nextNum) || nextNum === currNum) return
 
-        const res = await onSaveManualProjection(dateStr, nextNum)
+        const res = await onSaveManualProjection(targetDateStr, nextNum)
         if (res?.ok) {
             showToast(t('planner.mobile.projection_locked_saved').replace('${amount}', `$${Number(res.totalSales ?? nextNum).toLocaleString('en-US')}`))
         } else if (res?.errorCode === 'GUARDRAIL_EXCEEDED') {
@@ -285,13 +351,23 @@ export function MobilePlannerView({
         }, 3200)
     }
 
-    // Shift Duration Helper (fixes 0.0h / fake 8.0h bug by reading `.duration`, NOT `.totalHours` on `shiftStats`)
+    // Scope shifts to the active 7-day week using normalized LA business dates (prevents next-Monday duplicate overflow)
+    const weekDateSet = useMemo(() => new Set(weekDays.map(d => formatDateISO(d))), [weekDays])
+    const weekShifts = useMemo(() => {
+        return shifts.filter(s => {
+            const bDate = getShiftBusinessDate(s)
+            return Boolean(bDate) && weekDateSet.has(bDate)
+        })
+    }, [shifts, weekDateSet])
+
+    // Shift Duration Helper (reads `.duration` on `shiftStats` with CA 5h meal-break fallback)
     const getShiftHours = (shift: any): number => {
         const statDur = shift?.id ? shiftStats[shift.id]?.duration : undefined
         if (typeof statDur === 'number' && !Number.isNaN(statDur)) return statDur
         if (shift?.start_time && shift?.end_time) {
-            const diffMs = new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()
-            if (diffMs > 0) return diffMs / 3600000
+            let rawHours = (new Date(shift.end_time).getTime() - new Date(shift.start_time).getTime()) / 3600000
+            if (rawHours < 0) rawHours += 24
+            if (rawHours > 0) return rawHours > 5 ? rawHours - 0.5 : rawHours
         }
         return 0
     }
@@ -299,26 +375,45 @@ export function MobilePlannerView({
     const getEmpWeeklyHours = (empId: any): number => {
         const statTotal = weeklyEmpStats?.[empId]?.totalHours
         if (typeof statTotal === 'number' && !Number.isNaN(statTotal)) return statTotal
-        return shifts
-            .filter(s => String(s.employee_id) === String(empId))
+        return weekShifts
+            .filter(s => !s.is_open && String(s.employee_id) === String(empId))
             .reduce((acc, s) => acc + getShiftHours(s), 0)
     }
 
-    // Resolve Employee Primary Role Title
-    const getEmployeeJobTitle = (emp: any): string => {
-        const jobGuid = emp.job_references?.[0]?.guid
-        const job = jobs.find(j => j.guid === jobGuid)
-        return job?.title || 'Team Member'
+    // Resolve Employee Primary Job & Role Title (supports job_references + wage_data and guid/id matching)
+    const getEmployeePrimaryJob = (emp: any) => {
+        const primaryGuid = emp?.job_references?.[0]?.guid || emp?.wage_data?.[0]?.job_guid
+        if (primaryGuid) {
+            const direct = jobs.find(j => j.guid === primaryGuid || j.id === primaryGuid)
+            if (direct) return direct
+        }
+        if (Array.isArray(emp?.job_references)) {
+            for (const ref of emp.job_references) {
+                const match = jobs.find(j => j.guid === ref?.guid || j.id === ref?.guid)
+                if (match) return match
+            }
+        }
+        if (Array.isArray(emp?.wage_data)) {
+            for (const w of emp.wage_data) {
+                const match = jobs.find(j => j.guid === w?.job_guid || j.id === w?.job_guid)
+                if (match) return match
+            }
+        }
+        return null
     }
 
-    // Week date range text
-    const weekEndSafe = addDays(weekStartSafe, 6)
-    const weekRangeLabel = `${formatDateNice(weekStartSafe, locale)} - ${formatDateNice(weekEndSafe, locale)}, ${weekStartSafe.getFullYear()}`
+    const getEmployeeJobTitle = (emp: any): string => {
+        return getEmployeePrimaryJob(emp)?.title || 'Team Member'
+    }
+
+    // Week date range text (LA-timezone safe)
+    const weekEndSafe = weekDays[6] || addDays(weekStartSafe, 6)
+    const weekRangeLabel = `${formatDateNice(weekStartSafe, locale)} - ${formatDateNice(weekEndSafe, locale)}, ${weekKey.slice(0, 4)}`
 
     // Shifts for selected day
     const dayShifts = useMemo(() => {
-        return shifts.filter(s => s.shift_date === dateStr)
-    }, [shifts, dateStr])
+        return weekShifts.filter(s => getShiftBusinessDate(s) === dateStr)
+    }, [weekShifts, dateStr])
 
     const openDayShifts = useMemo(() => {
         return dayShifts.filter(s => !s.employee_id || s.is_open)
@@ -333,14 +428,14 @@ export function MobilePlannerView({
     const laborPctProj = dayProjections > 0 ? (daySchedStats.cost / dayProjections) * 100 : 0
     const laborPctAct = dayActuals > 0 ? (dayActStats.cost / dayActuals) * 100 : (dayProjections > 0 ? (dayActStats.cost / dayProjections) * 100 : 0)
 
-    // Scheduled vs Available Counts
+    // Scheduled vs Available Counts (strictly excluding open shifts)
     const scheduledEmpIdSet = useMemo(() => {
-        return new Set(dayShifts.filter(s => s.employee_id).map(s => String(s.employee_id)))
+        return new Set(dayShifts.filter(s => !s.is_open && s.employee_id).map(s => String(s.employee_id)))
     }, [dayShifts])
 
     const weekScheduledEmpIdSet = useMemo(() => {
-        return new Set(shifts.filter(s => s.employee_id).map(s => String(s.employee_id)))
-    }, [shifts])
+        return new Set(weekShifts.filter(s => !s.is_open && s.employee_id).map(s => String(s.employee_id)))
+    }, [weekShifts])
 
     const totalEmployeesCount = employees.length
     const scheduledEmployeesCount = useMemo(() => {
@@ -352,12 +447,13 @@ export function MobilePlannerView({
     const availableJobRoles = useMemo(() => {
         const rolesSet = new Set<string>()
         employees.forEach(emp => {
-            const jobGuid = emp.job_references?.[0]?.guid
-            const job = jobs.find(j => j.guid === jobGuid)
-            if (job?.title) rolesSet.add(job.title)
+            const title = getEmployeePrimaryJob(emp)?.title
+            if (title) rolesSet.add(title)
         })
         return Array.from(rolesSet).sort()
     }, [employees, jobs])
+
+    const effectiveSelectedRole = selectedRole === 'all' || availableJobRoles.includes(selectedRole) ? selectedRole : 'all'
 
     // Filtered Employees List (Tab 1: Daily)
     const filteredEmployees = useMemo(() => {
@@ -368,7 +464,7 @@ export function MobilePlannerView({
             if (filterStatus === 'available' && isScheduled) return false
 
             const jobTitle = getEmployeeJobTitle(emp)
-            if (selectedRole !== 'all' && jobTitle !== selectedRole) return false
+            if (effectiveSelectedRole !== 'all' && jobTitle !== effectiveSelectedRole) return false
 
             if (normQuery) {
                 const fullName = normalizeSearch(`${emp.chosen_name || emp.first_name} ${emp.last_name}`)
@@ -378,7 +474,7 @@ export function MobilePlannerView({
 
             return true
         })
-    }, [employees, scheduledEmpIdSet, filterStatus, selectedRole, searchQuery, jobs])
+    }, [employees, scheduledEmpIdSet, filterStatus, effectiveSelectedRole, searchQuery, jobs])
 
     // Filtered Employees List (Tab 2: Team Week)
     const teamWeekEmployees = useMemo(() => {
@@ -439,29 +535,31 @@ export function MobilePlannerView({
         }
     }, [projections, actuals, laborStats, weekDays])
 
-    // Handler: Jump to Today (updates week AND LA business weekday index)
+    // Handler: Jump to Today (updates week AND LA business weekday index, respecting 6:00 AM business-day rule)
     const handleJumpToday = () => {
-        const now = new Date()
-        onDateChange?.(now)
-        const targetISO = getBusinessTodayISO(now)
+        const targetISO = getBusinessTodayISO(new Date())
+        onDateChange?.(laWallClockToDate(targetISO, 12, 0))
         const idx = weekDays.findIndex(d => formatDateISO(d) === targetISO)
         if (idx >= 0) setSelectedDateIndex(idx)
     }
 
     // Handler: 1-Tap Quick Preset Assignment
     const handleApplyPreset = async (presetType: 'apertura' | 'medio' | 'turno_pm' | 'cierre') => {
-        if (!selectedEmployeeForPreset || !onSaveShift || !canEdit) return
+        if (!selectedEmployeeForPreset || !onSaveShift || !canEdit || isMutatingShift) return
 
         const emp = selectedEmployeeForPreset
-        const defaultJobGuid = emp.job_references?.[0]?.guid
-        const matchedJob = jobs.find(j => j.guid === defaultJobGuid) || jobs[0]
+        const matchedJob = getEmployeePrimaryJob(emp) || jobs[0]
         const jobId = matchedJob?.id || ''
+        if (!jobId) {
+            showToast(t('planner.modal_shift.select_role_error'), 'error')
+            setSelectedEmployeeForPreset(null)
+            return
+        }
 
         let startHour = 7
         let startMin = 0
         let endHour = 15
         let endMin = 30
-        let isOvernight = false
 
         if (presetType === 'medio') {
             startHour = 11
@@ -473,13 +571,11 @@ export function MobilePlannerView({
             startMin = 0
             endHour = 1
             endMin = 30
-            isOvernight = true
         } else if (presetType === 'cierre') {
             startHour = 16
             startMin = 0
             endHour = 0
             endMin = 30
-            isOvernight = true
         }
 
         const startHHMM = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`
@@ -502,6 +598,7 @@ export function MobilePlannerView({
         const shiftPayload = {
             employee_id: emp.id,
             job_id: jobId,
+            shift_date: dateStr,
             start_time: start.toISOString(),
             end_time: end.toISOString(),
             is_open: false,
@@ -509,37 +606,35 @@ export function MobilePlannerView({
             status: 'draft'
         }
 
+        setIsMutatingShift(true)
         try {
             await onSaveShift(shiftPayload)
-            showToast(t('planner.toasts.shift_saved'))
         } catch {
             showToast(t('planner.toasts.shift_save_error'), 'error')
         } finally {
+            setIsMutatingShift(false)
             setSelectedEmployeeForPreset(null)
         }
     }
 
-    // Handler: Duplicate Shift to Next Day (protected against duplicates!)
+    // Handler: Duplicate Shift to Next Day (LA wall-clock & DST safe, protected against overlaps)
     const handleDuplicateToNextDay = async () => {
-        if (!selectedShiftForActions || !onSaveShift || !canEdit) return
+        if (!selectedShiftForActions || !onSaveShift || !canEdit || isMutatingShift) return
         const { shift } = selectedShiftForActions
 
+        setIsMutatingShift(true)
         try {
-            const nextDayDate = addDays(selectedDate, 1)
-            const nextDayStr = formatDateISO(nextDayDate)
+            const baseDateStr = getShiftBusinessDate(shift) || dateStr
+            const nextDayStr = addCalendarDaysISO(baseDateStr, 1)
 
-            const originalStart = new Date(shift.start_time)
-            const originalEnd = new Date(shift.end_time)
-            const durationMs = Math.max(0, originalEnd.getTime() - originalStart.getTime())
-            const origLA = getLAHoursMinutes(shift.start_time)
+            const origStartLA = getLAHoursMinutes(shift.start_time)
+            const origEndLA = getLAHoursMinutes(shift.end_time)
+            const { start: newStart, end: newEnd } = buildShiftTimestampsForBusinessDate(nextDayStr, origStartLA.hhmm, origEndLA.hhmm)
 
-            const { start: newStart } = buildShiftTimestampsForBusinessDate(nextDayStr, origLA.hhmm, origLA.hhmm)
-            const newEnd = new Date(newStart.getTime() + durationMs)
-
-            if (shift.employee_id) {
+            if (!shift.is_open && shift.employee_id) {
                 const overlappingTomorrow = findOverlappingShift(shifts, {
                     employee_id: shift.employee_id,
-                    is_open: shift.is_open || false,
+                    is_open: false,
                     start_time: newStart,
                     end_time: newEnd
                 })
@@ -554,6 +649,7 @@ export function MobilePlannerView({
             const duplicatePayload = {
                 employee_id: shift.employee_id,
                 job_id: shift.job_id,
+                shift_date: nextDayStr,
                 start_time: newStart.toISOString(),
                 end_time: newEnd.toISOString(),
                 is_open: shift.is_open || false,
@@ -562,32 +658,33 @@ export function MobilePlannerView({
             }
 
             await onSaveShift(duplicatePayload)
-            showToast(t('planner.mobile.duplicate_success'))
         } catch {
             showToast(t('planner.mobile.duplicate_error'), 'error')
         } finally {
+            setIsMutatingShift(false)
             setSelectedShiftForActions(null)
         }
     }
 
     // Handler: Delete Shift from Action Sheet
     const handleDeleteCurrentShift = async () => {
-        if (!selectedShiftForActions || !onDeleteShift || !canEdit) return
+        if (!selectedShiftForActions || !onDeleteShift || !canEdit || isMutatingShift) return
         const { shift } = selectedShiftForActions
 
+        setIsMutatingShift(true)
         try {
             await onDeleteShift(shift.id)
-            showToast(t('planner.toasts.shift_deleted'))
         } catch {
             showToast(t('planner.toasts.shift_save_error'), 'error')
         } finally {
+            setIsMutatingShift(false)
             setSelectedShiftForActions(null)
         }
     }
 
     // Share / Copy Helpers (Employee & Team)
     const getEmployeeMessageText = (emp: any) => {
-        const empWeekShifts = shifts.filter(s => String(s.employee_id) === String(emp.id))
+        const empWeekShifts = weekShifts.filter(s => !s.is_open && String(s.employee_id) === String(emp.id))
         const empName = `${emp.chosen_name || emp.first_name} ${emp.last_name}`.trim()
         return buildEmployeeScheduleText({
             empName,
@@ -648,7 +745,7 @@ export function MobilePlannerView({
             storeName: formatStoreName(storeName || 'Tacos Gavilan'),
             weekDays,
             employees,
-            shifts,
+            shifts: weekShifts,
             language
         })
         window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank', 'noopener,noreferrer')
@@ -733,7 +830,7 @@ export function MobilePlannerView({
                     <div className="flex items-center bg-gray-100 dark:bg-slate-800/80 rounded-xl p-0.5 flex-1 min-w-0 justify-between">
                         <button
                             type="button"
-                            onClick={() => onDateChange?.(addDays(currentDate || weekStartSafe, -7))}
+                            onClick={() => onDateChange?.(laWallClockToDate(addCalendarDaysISO(weekKey, -7), 12, 0))}
                             aria-label={t('planner.mobile.previous_week')}
                             className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 active:scale-95 transition-all shrink-0"
                         >
@@ -744,7 +841,7 @@ export function MobilePlannerView({
                         </span>
                         <button
                             type="button"
-                            onClick={() => onDateChange?.(addDays(currentDate || weekStartSafe, 7))}
+                            onClick={() => onDateChange?.(laWallClockToDate(addCalendarDaysISO(weekKey, 7), 12, 0))}
                             aria-label={t('planner.mobile.next_week')}
                             className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 active:scale-95 transition-all shrink-0"
                         >
@@ -822,10 +919,10 @@ export function MobilePlannerView({
                                 {weekDays.map((date, i) => {
                                     const isSelected = i === selectedDateIndex
                                     const dStr = formatDateISO(date)
-                                    const dayName = date.toLocaleDateString(locale, { weekday: 'short' }).replace('.', '').slice(0, 3)
-                                    const dayNum = date.getDate()
+                                    const dayName = formatIsoLabel(dStr, locale, { weekday: 'short' }).replace('.', '').slice(0, 3)
+                                    const dayNum = Number(dStr.split('-')[2])
                                     const dayStaffCount = new Set(
-                                        shifts.filter(s => s.shift_date === dStr && s.employee_id).map(s => String(s.employee_id))
+                                        weekShifts.filter(s => getShiftBusinessDate(s) === dStr && !s.is_open && s.employee_id).map(s => String(s.employee_id))
                                     ).size
                                     const isToday = dStr === businessTodayISO
 
@@ -859,7 +956,7 @@ export function MobilePlannerView({
                             {weather?.[dateStr]?.temp?.max !== undefined && (
                                 <div className="mt-1.5 px-2 pt-1.5 border-t border-gray-100 dark:border-slate-800 flex items-center justify-between text-[11px] font-bold text-gray-500 dark:text-slate-400">
                                     <span className="capitalize">
-                                        {selectedDate.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })}
+                                        {formatIsoLabel(dateStr, locale, { weekday: 'long', month: 'short', day: 'numeric' })}
                                     </span>
                                     <span>
                                         {Math.round(weather[dateStr].temp.max)}° {weather[dateStr].weather?.[0]?.description ? `• ${weather[dateStr].weather[0].description}` : ''}
@@ -957,11 +1054,12 @@ export function MobilePlannerView({
 
                                             {canEdit && onSaveManualProjection ? (
                                                 <input
+                                                    key={dateStr}
                                                     type="text"
                                                     inputMode="numeric"
-                                                    value={mobileEditingProj !== null ? mobileEditingProj : (dayProjections > 0 ? `$${Math.round(Number(dayProjections)).toLocaleString('en-US')}` : '$0')}
-                                                    onFocus={() => setMobileEditingProj(String(Math.round(Number(dayProjections || 0))))}
-                                                    onChange={(e) => setMobileEditingProj(e.target.value.replace(/[^0-9]/g, ''))}
+                                                    value={mobileEditingProj?.dateStr === dateStr ? mobileEditingProj.value : (dayProjections > 0 ? `$${Math.round(Number(dayProjections)).toLocaleString('en-US')}` : '$0')}
+                                                    onFocus={() => setMobileEditingProj({ dateStr, value: String(Math.round(Number(dayProjections || 0))) })}
+                                                    onChange={(e) => setMobileEditingProj({ dateStr, value: e.target.value.replace(/[^0-9]/g, '') })}
                                                     onBlur={commitMobileProjectionEdit}
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter') {
@@ -1068,7 +1166,7 @@ export function MobilePlannerView({
                                 </div>
 
                                 <select
-                                    value={selectedRole}
+                                    value={effectiveSelectedRole}
                                     onChange={(e) => setSelectedRole(e.target.value)}
                                     className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl px-2.5 py-2 text-base font-bold text-gray-700 dark:text-slate-300 flex-1 sm:flex-initial min-w-[130px] max-w-full truncate shadow-2xs cursor-pointer focus:outline-none"
                                 >
@@ -1093,7 +1191,7 @@ export function MobilePlannerView({
                                         const job = jobs.find(j => j.id === os.job_id)
                                         return (
                                             <button
-                                                key={os.id}
+                                                key={os.id || `${os.start_time}-${os.end_time}`}
                                                 type="button"
                                                 disabled={!canEdit}
                                                 onClick={() => canEdit && onEditShift(os, selectedDate, '')}
@@ -1123,7 +1221,7 @@ export function MobilePlannerView({
                             ) : (
                                 filteredEmployees.map((emp) => {
                                     const empShifts = dayShifts
-                                        .filter(s => String(s.employee_id) === String(emp.id))
+                                        .filter(s => !s.is_open && String(s.employee_id) === String(emp.id))
                                         .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                     const hasShift = empShifts.length > 0
                                     const jobTitle = getEmployeeJobTitle(emp)
@@ -1136,7 +1234,7 @@ export function MobilePlannerView({
                                         if (!isoString) return null
                                         return formatTime12h(isoString)
                                     }
-                                    const matchedPunch = punches && punches.length > 0 && hasShift
+                                    const matchedPunch = punches && punches.length > 0 && hasShift && emp.toast_guid
                                         ? punches.find((p: any) => p.employee_toast_guid === emp.toast_guid && p.business_date === dateStr)
                                         : null
                                     const realIn = matchedPunch?.clock_in ? formatRealTime(matchedPunch.clock_in) || '' : ''
@@ -1209,7 +1307,7 @@ export function MobilePlannerView({
                                                         const shiftJob = jobs.find(j => j.id === s.job_id)
                                                         return (
                                                             <div
-                                                                key={s.id}
+                                                                key={s.id || `${s.start_time}-${s.end_time}`}
                                                                 className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border ${
                                                                     isDraft
                                                                         ? 'bg-amber-50/70 dark:bg-amber-950/25 border-dashed border-amber-300 dark:border-amber-700'
@@ -1387,7 +1485,7 @@ export function MobilePlannerView({
                         ) : (
                             <div className="space-y-3">
                                 {teamWeekEmployees.map(emp => {
-                                    const empWeekShifts = shifts.filter(s => String(s.employee_id) === String(emp.id))
+                                    const empWeekShifts = weekShifts.filter(s => !s.is_open && String(s.employee_id) === String(emp.id))
                                     const empTotalHrs = getEmpWeeklyHours(emp.id)
                                     const hasDraft = empWeekShifts.some(s => s.status === 'draft')
                                     const jobTitle = getEmployeeJobTitle(emp)
@@ -1437,12 +1535,44 @@ export function MobilePlannerView({
                                             <div className="grid grid-cols-7 gap-1">
                                                 {weekDays.map((d) => {
                                                     const dIso = formatDateISO(d)
-                                                    const dayLetter = d.toLocaleDateString(locale, { weekday: 'short' }).replace('.', '').slice(0, 2)
+                                                    const dayLetter = formatIsoLabel(dIso, locale, { weekday: 'short' }).replace('.', '').slice(0, 2)
+                                                    const dayNum = Number(dIso.split('-')[2])
                                                     const dayMatches = empWeekShifts
-                                                        .filter(s => s.shift_date === dIso)
+                                                        .filter(s => getShiftBusinessDate(s) === dIso)
                                                         .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                                     const firstShift = dayMatches[0]
                                                     const dayHasDraft = dayMatches.some(s => s.status === 'draft')
+                                                    const cellClasses = `flex flex-col items-center justify-center p-1 rounded-xl border min-h-[52px] transition-all ${
+                                                        firstShift
+                                                            ? dayHasDraft
+                                                                ? 'bg-amber-50 dark:bg-amber-950/30 border-dashed border-amber-300 dark:border-amber-700'
+                                                                : 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800'
+                                                            : 'bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-800 text-gray-400'
+                                                    }`
+
+                                                    if (dayMatches.length > 1) {
+                                                        return (
+                                                            <div key={dIso} className={cellClasses}>
+                                                                <span className="text-[9px] font-black uppercase text-gray-500 dark:text-slate-400">
+                                                                    {dayLetter} {dayNum}
+                                                                </span>
+                                                                <div className="mt-0.5 w-full text-[9px] font-black text-indigo-900 dark:text-indigo-200 leading-tight text-center space-y-0.5">
+                                                                    {dayMatches.map((dm: any) => (
+                                                                        <button
+                                                                            key={dm.id || `${dm.start_time}-${dm.end_time}`}
+                                                                            type="button"
+                                                                            disabled={!canEdit}
+                                                                            onClick={() => canEdit && onEditShift(dm, d, emp.id)}
+                                                                            className="w-full rounded px-0.5 py-0.5 border-b last:border-b-0 border-indigo-200/60 dark:border-indigo-800/60 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/50 active:scale-95 transition-all"
+                                                                        >
+                                                                            <div>{formatCompactTime(dm.start_time)}</div>
+                                                                            <div className="opacity-75">{formatCompactTime(dm.end_time)}</div>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    }
 
                                                     return (
                                                         <button
@@ -1457,25 +1587,15 @@ export function MobilePlannerView({
                                                                     onAddShift(d, emp.id)
                                                                 }
                                                             }}
-                                                            className={`flex flex-col items-center justify-center p-1 rounded-xl border min-h-[52px] transition-all ${
-                                                                firstShift
-                                                                    ? dayHasDraft
-                                                                        ? 'bg-amber-50 dark:bg-amber-950/30 border-dashed border-amber-300 dark:border-amber-700'
-                                                                        : 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800'
-                                                                    : 'bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-800 text-gray-400'
-                                                            }`}
+                                                            className={cellClasses}
                                                         >
                                                             <span className="text-[9px] font-black uppercase text-gray-500 dark:text-slate-400">
-                                                                {dayLetter} {d.getDate()}
+                                                                {dayLetter} {dayNum}
                                                             </span>
                                                             {firstShift ? (
-                                                                <div className="mt-0.5 text-[9px] font-black text-indigo-900 dark:text-indigo-200 leading-tight text-center space-y-0.5">
-                                                                    {dayMatches.map((dm: any) => (
-                                                                        <div key={dm.id} className={dayMatches.length > 1 ? 'border-b last:border-b-0 border-indigo-200/60 dark:border-indigo-800/60 pb-0.5 last:pb-0' : ''}>
-                                                                            <div>{formatCompactTime(dm.start_time)}</div>
-                                                                            <div className="opacity-75">{formatCompactTime(dm.end_time)}</div>
-                                                                        </div>
-                                                                    ))}
+                                                                <div className="mt-0.5 text-[9px] font-black text-indigo-900 dark:text-indigo-200 leading-tight text-center">
+                                                                    <div>{formatCompactTime(firstShift.start_time)}</div>
+                                                                    <div className="opacity-75">{formatCompactTime(firstShift.end_time)}</div>
                                                                 </div>
                                                             ) : (
                                                                 <span className="text-xs font-bold text-gray-300 dark:text-slate-600 mt-1">—</span>
@@ -1665,8 +1785,9 @@ export function MobilePlannerView({
                             <div className="grid grid-cols-1 gap-2">
                                 <button
                                     type="button"
+                                    disabled={isMutatingShift}
                                     onClick={() => handleApplyPreset('apertura')}
-                                    className="flex items-center justify-between p-3 rounded-xl bg-amber-50/70 hover:bg-amber-100/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-left active:scale-98 transition-all"
+                                    className="flex items-center justify-between p-3 rounded-xl bg-amber-50/70 hover:bg-amber-100/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-left active:scale-98 transition-all disabled:opacity-50"
                                 >
                                     <div className="flex items-center gap-2.5">
                                         <Sun size={18} className="text-amber-500 shrink-0" />
@@ -1680,8 +1801,9 @@ export function MobilePlannerView({
 
                                 <button
                                     type="button"
+                                    disabled={isMutatingShift}
                                     onClick={() => handleApplyPreset('medio')}
-                                    className="flex items-center justify-between p-3 rounded-xl bg-blue-50/70 hover:bg-blue-100/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 text-left active:scale-98 transition-all"
+                                    className="flex items-center justify-between p-3 rounded-xl bg-blue-50/70 hover:bg-blue-100/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 text-left active:scale-98 transition-all disabled:opacity-50"
                                 >
                                     <div className="flex items-center gap-2.5">
                                         <Utensils size={18} className="text-blue-500 shrink-0" />
@@ -1695,8 +1817,9 @@ export function MobilePlannerView({
 
                                 <button
                                     type="button"
+                                    disabled={isMutatingShift}
                                     onClick={() => handleApplyPreset('turno_pm')}
-                                    className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 hover:bg-purple-100/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/40 text-left active:scale-98 transition-all"
+                                    className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 hover:bg-purple-100/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/40 text-left active:scale-98 transition-all disabled:opacity-50"
                                 >
                                     <div className="flex items-center gap-2.5">
                                         <Moon size={18} className="text-purple-500 shrink-0" />
@@ -1710,8 +1833,9 @@ export function MobilePlannerView({
 
                                 <button
                                     type="button"
+                                    disabled={isMutatingShift}
                                     onClick={() => handleApplyPreset('cierre')}
-                                    className="flex items-center justify-between p-3 rounded-xl bg-indigo-50/70 hover:bg-indigo-100/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 text-left active:scale-98 transition-all"
+                                    className="flex items-center justify-between p-3 rounded-xl bg-indigo-50/70 hover:bg-indigo-100/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 text-left active:scale-98 transition-all disabled:opacity-50"
                                 >
                                     <div className="flex items-center gap-2.5">
                                         <Lock size={18} className="text-indigo-500 shrink-0" />
@@ -1806,8 +1930,9 @@ export function MobilePlannerView({
 
                                 <button
                                     type="button"
+                                    disabled={isMutatingShift}
                                     onClick={handleDuplicateToNextDay}
-                                    className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-xs active:scale-98 transition-all"
+                                    className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-xs active:scale-98 transition-all disabled:opacity-50"
                                 >
                                     <Copy size={18} />
                                     <span>{t('planner.mobile.duplicate_next_day')}</span>
@@ -1815,8 +1940,9 @@ export function MobilePlannerView({
 
                                 <button
                                     type="button"
+                                    disabled={isMutatingShift}
                                     onClick={handleDeleteCurrentShift}
-                                    className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold text-xs active:scale-98 transition-all"
+                                    className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold text-xs active:scale-98 transition-all disabled:opacity-50"
                                 >
                                     <Trash2 size={18} />
                                     <span>{t('planner.mobile.delete_shift')}</span>
@@ -1834,9 +1960,11 @@ export function MobilePlannerView({
                     const jobTitle = getEmployeeJobTitle(emp)
                     const jobColor = stringToColor(jobTitle)
                     const badgeProps = getReadableBadgeProps(jobColor)
-                    const empWeekShifts = shifts.filter(s => String(s.employee_id) === String(emp.id))
+                    const empWeekShifts = weekShifts.filter(s => !s.is_open && String(s.employee_id) === String(emp.id))
                     const totalWeekHours = getEmpWeeklyHours(emp.id)
-                    const todayShift = empWeekShifts.find(s => s.shift_date === dateStr)
+                    const todayShift = empWeekShifts
+                        .filter(s => getShiftBusinessDate(s) === dateStr)
+                        .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())[0]
                     const posId = emp.external_id || (emp.toast_guid ? emp.toast_guid.slice(0, 8) : null)
                     const isSendingThis = sendingEmpId === String(emp.id)
                     const empMsgText = getEmployeeMessageText(emp)
@@ -1975,9 +2103,9 @@ export function MobilePlannerView({
                                     <div className="divide-y divide-gray-100 dark:divide-slate-800 bg-gray-50 dark:bg-slate-800/40 rounded-2xl border border-gray-100 dark:border-slate-800 text-xs overflow-hidden">
                                         {weekDays.map((d) => {
                                             const dayIso = formatDateISO(d)
-                                            const dayLabel = d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' })
+                                            const dayLabel = formatIsoLabel(dayIso, locale, { weekday: 'short', day: 'numeric' })
                                             const dayMatchShifts = empWeekShifts
-                                                .filter(s => s.shift_date === dayIso)
+                                                .filter(s => getShiftBusinessDate(s) === dayIso)
                                                 .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                                             const isSelectedDay = dayIso === dateStr
 
@@ -2001,16 +2129,27 @@ export function MobilePlannerView({
                                                         {dayLabel} {isSelectedDay && '•'}
                                                     </span>
                                                     {dayMatchShifts.length > 0 ? (
-                                                        <div className="flex flex-col items-end gap-0.5">
+                                                        <div className="flex flex-col items-end gap-1">
                                                             {dayMatchShifts.map((ds) => (
-                                                                <div key={ds.id} className="flex items-center gap-1.5">
+                                                                <button
+                                                                    key={ds.id || `${ds.start_time}-${ds.end_time}`}
+                                                                    type="button"
+                                                                    disabled={!canEdit}
+                                                                    onClick={(e) => {
+                                                                        if (!canEdit) return
+                                                                        e.stopPropagation()
+                                                                        setSelectedEmployeeForContact(null)
+                                                                        onEditShift(ds, d, emp.id)
+                                                                    }}
+                                                                    className="flex items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 active:scale-98 transition-all"
+                                                                >
                                                                     <span className="font-bold text-gray-800 dark:text-slate-200">
                                                                         {formatTime12h(ds.start_time)} - {formatTime12h(ds.end_time)}
                                                                     </span>
                                                                     <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400">
                                                                         ({getShiftHours(ds).toFixed(1)}h)
                                                                     </span>
-                                                                </div>
+                                                                </button>
                                                             ))}
                                                         </div>
                                                     ) : (
@@ -2111,7 +2250,7 @@ export function MobilePlannerView({
                             {/* Status Summary Pill */}
                             <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-gray-50 dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 text-xs font-bold">
                                 <span className="text-gray-700 dark:text-slate-200">
-                                    {t('planner.mobile.shifts_count').replace('{n}', String(totalShiftsCount || shifts.length))} • {weekScheduledEmpIdSet.size} {t('planner.mobile.scheduled')}
+                                    {t('planner.mobile.shifts_count').replace('{n}', String(weekShifts.length || totalShiftsCount))} • {weekScheduledEmpIdSet.size} {t('planner.mobile.scheduled')}
                                 </span>
                                 {googleConnected ? (
                                     <span className="text-emerald-600 dark:text-emerald-400 font-black flex items-center gap-1">
@@ -2167,7 +2306,7 @@ export function MobilePlannerView({
                                             storeName: formatStoreName(storeName || 'Tacos Gavilan'),
                                             weekDays,
                                             employees,
-                                            shifts,
+                                            shifts: weekShifts,
                                             language
                                         })
                                         handleCopyOrShareText(txt, true)

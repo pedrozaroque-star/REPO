@@ -1,12 +1,20 @@
 /**
  * @module app/planificador/lib/utils
  * @description Shared utilities for the Tacos Gavilan schedule planner: Los Angeles timezone/6:00 AM business-day helpers,
- * non-blocking DOM toast notifications, role weighting, and WhatsApp/SMS schedule text formatters.
+ * pure shift state reconciliation & Realtime payload reducers, non-blocking DOM toast notifications, role weighting,
+ * and WhatsApp/SMS schedule text formatters.
  *
  * @businessRules
  * - Workday runs 6:00 AM to 5:59 AM next calendar day in America/Los_Angeles.
  * - Afternoon/night (PM) shift starts at 5:00 PM (17:00).
  * - Brand name is strictly Tacos Gavilan.
+ *
+ * @notes
+ * - [2026-11-27] Added `getBusinessDateISOFromTimestamp` (fixes V8 `hour12: false` returning `"24"` at midnight `00:00`),
+ *   made `getBusinessTodayISO` and `getMonday` strictly browser-timezone-independent (anchored to 12:00 PM `America/Los_Angeles`),
+ *   and added pure helpers `resolveEditShiftIdsForDays`, `reconcileShiftsUpsert`, `applyRealtimeShiftPayload`, and
+ *   `shiftsMatchCoreFields` so desktop/mobile state updates and Realtime `postgres_changes` (`REPLICA IDENTITY FULL`)
+ *   remain deterministic without clobbering active-week edits.
  */
 
 import { Shift } from './types'
@@ -169,36 +177,238 @@ export const findOverlappingShift = (
     return null;
 }
 
-export const getBusinessTodayISO = (now: Date = new Date()): string => {
-    const { hour } = getLAParts(now);
-    const todayISO = formatDateISO(now);
-    if (hour < 6) {
-        const yesterday = new Date(todayISO + 'T12:00:00');
-        yesterday.setDate(yesterday.getDate() - 1);
-        return formatDateISO(yesterday);
-    }
-    return todayISO;
+export const getBusinessDateISOFromTimestamp = (input: string | Date): string => {
+    const d = typeof input === 'string' ? new Date(input) : input;
+    if (Number.isNaN(d.getTime())) return formatDateISO(new Date());
+    const { year, month, day, hour } = getLAParts(d);
+    const calDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return hour < 6 ? addCalendarDaysISO(calDate, -1) : calDate;
 }
 
+export const getBusinessTodayISO = (now: Date = new Date()): string => {
+    return getBusinessDateISOFromTimestamp(now);
+}
+
+const LA_WEEKDAY_TO_MONDAY_OFFSET: Record<string, number> = {
+    Mon: 0,
+    Tue: -1,
+    Wed: -2,
+    Thu: -3,
+    Fri: -4,
+    Sat: -5,
+    Sun: -6,
+};
+
 export const getMonday = (d: Date) => {
-    // Create a date object that represents the same wall-clock time in UTC as LA time
-    // This is a common trick to do "local" math safely without complex library
-    // But here we just want to find Monday based on LA day of week.
+    // Compute LA calendar date and weekday directly so result is immune to browser local timezone & DST boundaries
+    const { year, month, day, weekday } = getLAParts(d);
+    const calDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const offset = LA_WEEKDAY_TO_MONDAY_OFFSET[weekday || 'Mon'] ?? 0;
+    const mondayISO = addCalendarDaysISO(calDate, offset);
+    // Anchor at 12:00 PM America/Los_Angeles so formatDateISO() and addDays() never cross midnight boundaries
+    return laWallClockToDate(mondayISO, 12, 0);
+}
 
-    // 1. Get current day of week in LA (0=Sun, 1=Mon...)
-    const laDateString = d.toLocaleString('en-US', { timeZone: TIMEZONE });
-    const laDate = new Date(laDateString);
-    const day = laDate.getDay();
+/**
+ * Resolves which shift ID (if any) each selected business date should receive when saving from ShiftModal.
+ * - Create Mode (`!initialData?.id`): every day gets `undefined` so 2nd/split shifts always insert cleanly.
+ * - Edit Mode (`initialData?.id` present):
+ *   * If the original business date is still selected, ONLY that date preserves `initialData.id` (extra days insert new copies).
+ *   * If the original business date was toggled OFF (user moved the shift to another day/days), the first selected day
+ *     preserves `initialData.id` so the shift is moved cleanly without leaving an orphaned copy on the old day.
+ */
+export const resolveEditShiftIdsForDays = (params: {
+    selectedDayDates: string[];
+    initialData?: { id?: string; shift_date?: string; start_time?: string } | null;
+}): Array<{ dateStr: string; shiftId: string | undefined }> => {
+    const { selectedDayDates, initialData } = params;
+    if (!initialData?.id) {
+        return selectedDayDates.map(dateStr => ({ dateStr, shiftId: undefined }));
+    }
 
-    // 2. Calculate diff to Monday
-    const diff = laDate.getDate() - day + (day === 0 ? -6 : 1);
+    const initialBusinessDate =
+        initialData.shift_date ||
+        (initialData.start_time ? getBusinessDateISOFromTimestamp(initialData.start_time) : '');
 
-    // 3. Set date
-    laDate.setDate(diff);
-    // 4. Return as native Date (careful, this "laDate" object has browser's timezone offset but holds LA's wall clock numbers)
-    // The consumer likely expects a real Date object. 
-    // Best approach for Planner is usually treating Dates as "Noons" to avoid boundary jumps.
-    return laDate;
+    const keepsOriginalDay = Boolean(initialBusinessDate && selectedDayDates.includes(initialBusinessDate));
+
+    return selectedDayDates.map((dateStr, idx) => {
+        if (keepsOriginalDay) {
+            return { dateStr, shiftId: dateStr === initialBusinessDate ? initialData.id : undefined };
+        }
+        return { dateStr, shiftId: idx === 0 ? initialData.id : undefined };
+    });
+}
+
+/**
+ * Pure, idempotent shift-array reconciler used after optimistic saves, DB responses, drag/drop, and Realtime upserts.
+ * Guarantees saved rows are never silently dropped (unlike `.map()`), deduplicates IDs, removes replaced `temp-*`
+ * placeholders, and enforces active store + `[weekStartStr..weekEndStr]` boundaries.
+ */
+export const reconcileShiftsUpsert = (
+    prev: Shift[],
+    incoming: Shift[],
+    options?: {
+        replaceTempIds?: string[];
+        activeStoreGuid?: string | null;
+        weekStartStr?: string;
+        weekEndStr?: string;
+    }
+): Shift[] => {
+    const replaceSet = new Set((options?.replaceTempIds || []).map(id => String(id)));
+    const next: Shift[] = prev.filter(s => !replaceSet.has(String(s.id || '')));
+
+    for (const rawRow of incoming) {
+        if (!rawRow) continue;
+        const rowId = rawRow.id !== undefined && rawRow.id !== null ? String(rawRow.id) : '';
+        const rowDate = rawRow.shift_date || (rawRow.start_time ? getBusinessDateISOFromTimestamp(rawRow.start_time) : '');
+        const normalized: Shift = rowDate && rowDate !== rawRow.shift_date ? { ...rawRow, shift_date: rowDate } : rawRow;
+
+        const wrongStore = Boolean(
+            options?.activeStoreGuid &&
+            normalized.store_id &&
+            String(normalized.store_id) !== String(options.activeStoreGuid)
+        );
+        const outsideWeek = Boolean(
+            options?.weekStartStr &&
+            options?.weekEndStr &&
+            (!rowDate || rowDate < options.weekStartStr || rowDate > options.weekEndStr)
+        );
+
+        if (wrongStore || outsideWeek) {
+            if (rowId) {
+                for (let i = next.length - 1; i >= 0; i--) {
+                    if (String(next[i].id || '') === rowId) next.splice(i, 1);
+                }
+            }
+            continue;
+        }
+
+        if (rowId) {
+            let replaced = false;
+            for (let i = next.length - 1; i >= 0; i--) {
+                if (String(next[i].id || '') === rowId) {
+                    if (!replaced) {
+                        next[i] = normalized;
+                        replaced = true;
+                    } else {
+                        next.splice(i, 1);
+                    }
+                }
+            }
+            if (!replaced) {
+                next.push(normalized);
+            }
+        } else {
+            next.push(normalized);
+        }
+    }
+
+    return next;
+}
+
+/**
+ * Compares core schedule fields between two shift snapshots to identify idempotent Realtime self-echoes.
+ */
+export const shiftsMatchCoreFields = (
+    a?: Partial<Shift> | null,
+    b?: Partial<Shift> | null
+): boolean => {
+    if (!a || !b) return false;
+    const ms = (v?: string) => (v ? new Date(v).getTime() : NaN);
+    const sameTime = (x?: string, y?: string) => {
+        const mx = ms(x);
+        const my = ms(y);
+        return Number.isFinite(mx) && Number.isFinite(my) ? mx === my : (x || '') === (y || '');
+    };
+    return (
+        String(a.id || '') === String(b.id || '') &&
+        String(a.employee_id || '') === String(b.employee_id || '') &&
+        String(a.job_id || '') === String(b.job_id || '') &&
+        String(a.store_id || '') === String(b.store_id || '') &&
+        String(a.shift_date || '') === String(b.shift_date || '') &&
+        String(a.status || '') === String(b.status || '') &&
+        Boolean(a.is_open) === Boolean(b.is_open) &&
+        String(a.notes || '') === String(b.notes || '') &&
+        sameTime(a.start_time, b.start_time) &&
+        sameTime(a.end_time, b.end_time)
+    );
+}
+
+/**
+ * Pure reducer for Supabase Realtime `postgres_changes` events on `public.shifts` (`REPLICA IDENTITY FULL`).
+ * Strictly scopes updates to the currently active `{ storeGuid, startStr, endStr }` so mutations in another week
+ * never overwrite or wipe the active week's React state.
+ */
+export const applyRealtimeShiftPayload = (
+    prev: Shift[],
+    payload: { eventType?: string; new?: any; old?: any },
+    activeContext: { storeGuid: string; startStr: string; endStr: string }
+): {
+    nextShifts: Shift[];
+    changed: boolean;
+    employeeIdToCheck?: string | null;
+    needsFullReload?: boolean;
+} => {
+    const eventType = String(payload?.eventType || '').toUpperCase();
+    const { storeGuid, startStr, endStr } = activeContext;
+    if (!storeGuid || !startStr || !endStr) {
+        return { nextShifts: prev, changed: false };
+    }
+
+    if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        const row = payload?.new;
+        if (!row || !row.id) {
+            return { nextShifts: prev, changed: false, needsFullReload: true };
+        }
+        if (row.store_id && String(row.store_id) !== String(storeGuid)) {
+            return { nextShifts: prev, changed: false };
+        }
+
+        const rowDate = row.shift_date || (row.start_time ? getBusinessDateISOFromTimestamp(row.start_time) : '');
+        const inCurrentWeek = Boolean(rowDate && rowDate >= startStr && rowDate <= endStr);
+        const existsInPrev = prev.some(s => String(s.id || '') === String(row.id));
+
+        if (!inCurrentWeek) {
+            if (!existsInPrev) {
+                return { nextShifts: prev, changed: false };
+            }
+            return {
+                nextShifts: prev.filter(s => String(s.id || '') !== String(row.id)),
+                changed: true,
+            };
+        }
+
+        const normalizedRow: Shift = { ...row, shift_date: rowDate };
+        const nextShifts = reconcileShiftsUpsert(prev, [normalizedRow], {
+            activeStoreGuid: storeGuid,
+            weekStartStr: startStr,
+            weekEndStr: endStr,
+        });
+
+        return {
+            nextShifts,
+            changed: true,
+            employeeIdToCheck: normalizedRow.employee_id || null,
+        };
+    }
+
+    if (eventType === 'DELETE') {
+        const deletedId = payload?.old?.id;
+        if (!deletedId) {
+            return { nextShifts: prev, changed: false, needsFullReload: true };
+        }
+        const existsInPrev = prev.some(s => String(s.id || '') === String(deletedId));
+        if (!existsInPrev) {
+            return { nextShifts: prev, changed: false };
+        }
+        return {
+            nextShifts: prev.filter(s => String(s.id || '') !== String(deletedId)),
+            changed: true,
+        };
+    }
+
+    return { nextShifts: prev, changed: false };
 }
 
 export const addDays = (d: Date, days: number) => {

@@ -27,6 +27,7 @@
  * - Fixed past-midnight shift cloning bug preventing 24-hour backward regression.
  * - Shifts are not marked published until Gmail notification dispatch succeeds, preventing lockout.
  * - Resets `breaks_schedule: []` when cloning weeks, dragging/dropping shifts, or editing shift times/employee/role so Motor V30 Universal recalculates fresh breaks using latest `break_manual_overrides`.
+ * - [2026-11-27] Fixed critical Realtime stale-closure bug (`useEffect([storeGuid])` calling stale `loadStoreData()` closed over initial `weekStart`, which wiped edits on other weeks once `public.shifts` joined `supabase_realtime` with `REPLICA IDENTITY FULL`). Added `loadSeqRef` monotonic load guard, fresh `activeContextRef`, buffered Realtime payload reconciliation via `applyRealtimeShiftPayload`, `reconcileShiftsUpsert` (fixing single-shift `.map()` drop bug + DB error rollback), `getBusinessDateISOFromTimestamp` (fixing V8 `hour12: false` returning `"24"` at `00:00` midnight), DST-safe LA cloning/templates/drag-drop, and synced `Reorder.Group values={visibleEmployees}`.
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -39,7 +40,26 @@ import { useLanguage } from '@/lib/i18n'
 
 // Libs & Types
 import { Shift, Employee, Job } from './lib/types'
-import { toast, formatDateISO, formatDateNice, formatTime12h, addDays, getMonday, getRoleWeight, formatStoreName, getLAHoursMinutes, buildShiftTimestampsForBusinessDate, findOverlappingShift } from './lib/utils'
+import {
+    toast,
+    formatDateISO,
+    formatDateNice,
+    formatTime12h,
+    addDays,
+    addCalendarDaysISO,
+    laWallClockToDate,
+    getMonday,
+    getRoleWeight,
+    formatStoreName,
+    getLAHoursMinutes,
+    getBusinessDateISOFromTimestamp,
+    getBusinessTodayISO,
+    buildShiftTimestampsForBusinessDate,
+    findOverlappingShift,
+    reconcileShiftsUpsert,
+    applyRealtimeShiftPayload,
+    shiftsMatchCoreFields
+} from './lib/utils'
 import { evaluatePunchBreakViolation } from '@/lib/break-violations-policy'
 
 // Components
@@ -141,9 +161,14 @@ export default function SchedulePlanner() {
     const [jobs, setJobs] = useState<Job[]>([])
     const [shifts, setShifts] = useState<Shift[]>([])
 
-    // Derived
-    const weekStart = useMemo(() => getMonday(currentDate), [currentDate])
-    const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart])
+    // Derived (anchored strictly to 12:00 PM America/Los_Angeles so weekStart/weekDays never drift across timezones or DST)
+    const weekStartStr = useMemo(() => formatDateISO(getMonday(currentDate)), [currentDate])
+    const weekEndStr = useMemo(() => addCalendarDaysISO(weekStartStr, 6), [weekStartStr])
+    const weekStart = useMemo(() => laWallClockToDate(weekStartStr, 12, 0), [weekStartStr])
+    const weekDays = useMemo(
+        () => Array.from({ length: 7 }).map((_, i) => laWallClockToDate(addCalendarDaysISO(weekStartStr, i), 12, 0)),
+        [weekStartStr]
+    )
     const currentStore = useMemo(() => stores.find(s => String(s.id) === String(selectedStoreId)), [stores, selectedStoreId])
     const storeGuid = currentStore?.external_id
 
@@ -249,6 +274,28 @@ export default function SchedulePlanner() {
     const [lastAnalyzedPunches, setLastAnalyzedPunches] = useState<string>('')
     const lastAlertedStore = useRef<string | null>(null)
     const isAutoGeneratingRef = useRef(false)
+
+    // Fresh refs preventing stale closures in Realtime listeners and async mutations
+    const activeContextRef = useRef({ storeGuid: '', startStr: '', endStr: '' })
+    activeContextRef.current = {
+        storeGuid: storeGuid || '',
+        startStr: weekStartStr,
+        endStr: weekEndStr
+    }
+    const shiftsRef = useRef<Shift[]>(shifts)
+    shiftsRef.current = shifts
+    const employeesRef = useRef<Employee[]>(employees)
+    employeesRef.current = employees
+    const jobsRef = useRef<Job[]>(jobs)
+    jobsRef.current = jobs
+    const loadSeqRef = useRef(0)
+    const pendingLocalMutationsRef = useRef(0)
+    const queuedRealtimeEventsRef = useRef<Array<{ payload: any; receivedAt: number }>>([])
+    const recentLocalWritesRef = useRef<Map<string, { at: number; shift: Shift | null }>>(new Map())
+    const suppressBulkRealtimeUntilRef = useRef(0)
+    const realtimeReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const loadStoreDataRef = useRef<() => Promise<void>>(async () => {})
+    const processRealtimePayloadRef = useRef<(payload: any) => void>(() => {})
 
     // 🚦 BREAK/LUNCH VIOLATIONS ALARM
     useEffect(() => {
@@ -533,8 +580,10 @@ export default function SchedulePlanner() {
             // DATE PERSISTENCE
             const savedDate = searchParams?.get('date') || localStorage.getItem('planner_date')
             if (savedDate) {
-                // Parse YYYY-MM-DD safely forcing noon to avoid TZ shift
-                const d = new Date(savedDate + 'T12:00:00')
+                // Parse YYYY-MM-DD strictly at 12:00 PM America/Los_Angeles to avoid browser TZ shift
+                const d = /^\d{4}-\d{2}-\d{2}$/.test(savedDate)
+                    ? laWallClockToDate(savedDate, 12, 0)
+                    : new Date(savedDate)
                 if (!isNaN(d.getTime())) {
                     setCurrentDate(d)
                 }
@@ -622,173 +671,338 @@ export default function SchedulePlanner() {
         }
     }, [selectedStoreId, currentDate, loading])
 
+    // --- REALTIME & LOCAL-MUTATION RECONCILIATION HELPERS ---
+    const recordLocalShiftWrite = (id: string | undefined | null, shift: Shift | null) => {
+        if (!id) return
+        const now = Date.now()
+        const map = recentLocalWritesRef.current
+        map.set(String(id), { at: now, shift })
+        if (map.size > 60) {
+            for (const [key, entry] of map.entries()) {
+                if (now - entry.at > 5000) map.delete(key)
+            }
+        }
+    }
+
+    const ensureEmployeeLoaded = async (employeeId: string | null | undefined) => {
+        if (!employeeId) return
+        const targetId = String(employeeId)
+        if (employeesRef.current.some(e => String(e.id) === targetId)) return
+        const expectedStoreGuid = activeContextRef.current.storeGuid
+        if (!expectedStoreGuid) return
+        try {
+            const supabase = await getSupabaseClient()
+            const { data: empRow } = await supabase
+                .from('toast_employees')
+                .select('*')
+                .eq('id', targetId)
+                .maybeSingle()
+            if (!empRow) return
+            if (activeContextRef.current.storeGuid !== expectedStoreGuid) return
+            setEmployees(prev => {
+                if (prev.some(e => String(e.id) === String(empRow.id))) return prev
+                return [...prev, empRow].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+            })
+        } catch (err) {
+            console.warn('Could not load borrowed employee row:', err)
+        }
+    }
+
+    const scheduleDebouncedReload = (delayMs = 500) => {
+        if (realtimeReloadTimerRef.current) {
+            clearTimeout(realtimeReloadTimerRef.current)
+        }
+        realtimeReloadTimerRef.current = setTimeout(() => {
+            realtimeReloadTimerRef.current = null
+            if (pendingLocalMutationsRef.current === 0) {
+                loadStoreDataRef.current()
+            }
+        }, delayMs)
+    }
+
+    const processRealtimePayload = (payload: any) => {
+        if (isAutoGeneratingRef.current || Date.now() < suppressBulkRealtimeUntilRef.current) return
+        const ctx = activeContextRef.current
+        if (!ctx.storeGuid || !ctx.startStr || !ctx.endStr) return
+
+        const now = Date.now()
+        for (const [key, entry] of recentLocalWritesRef.current.entries()) {
+            if (now - entry.at > 5000) recentLocalWritesRef.current.delete(key)
+        }
+
+        const eventType = String(payload?.eventType || '').toUpperCase()
+        if (eventType === 'INSERT' || eventType === 'UPDATE') {
+            const row = payload?.new
+            if (row?.id) {
+                const recent = recentLocalWritesRef.current.get(String(row.id))
+                if (recent && now - recent.at < 3000) {
+                    if (recent.shift && shiftsMatchCoreFields(recent.shift, row)) {
+                        // Idempotent self-echo from our own save — state is already authoritative
+                        return
+                    }
+                    // Delayed echo from a rapid double-edit or concurrent edit: converge cleanly without overwriting newer state
+                    scheduleDebouncedReload(800)
+                    return
+                }
+            }
+        } else if (eventType === 'DELETE') {
+            const deletedId = payload?.old?.id
+            if (deletedId) {
+                const recent = recentLocalWritesRef.current.get(String(deletedId))
+                if (recent && recent.shift === null && now - recent.at < 3000) {
+                    return
+                }
+            }
+        }
+
+        const preview = applyRealtimeShiftPayload(shiftsRef.current, payload, ctx)
+        if (preview.needsFullReload) {
+            scheduleDebouncedReload(400)
+            return
+        }
+
+        setShifts(prev => {
+            const res = applyRealtimeShiftPayload(prev, payload, activeContextRef.current)
+            return res.changed ? res.nextShifts : prev
+        })
+
+        if (preview.employeeIdToCheck) {
+            ensureEmployeeLoaded(preview.employeeIdToCheck)
+        }
+    }
+    processRealtimePayloadRef.current = processRealtimePayload
+
+    const beginLocalMutation = () => {
+        pendingLocalMutationsRef.current += 1
+    }
+
+    const endLocalMutation = () => {
+        pendingLocalMutationsRef.current = Math.max(0, pendingLocalMutationsRef.current - 1)
+        if (pendingLocalMutationsRef.current === 0 && queuedRealtimeEventsRef.current.length > 0) {
+            const queued = queuedRealtimeEventsRef.current.splice(0, queuedRealtimeEventsRef.current.length)
+            for (const item of queued) {
+                const ev = item.payload
+                const evId = ev?.new?.id || ev?.old?.id
+                if (evId) {
+                    const recent = recentLocalWritesRef.current.get(String(evId))
+                    if (recent && recent.at >= item.receivedAt) {
+                        // Already superseded by our own HTTP mutation response
+                        continue
+                    }
+                }
+                processRealtimePayloadRef.current(ev)
+            }
+        }
+    }
+
     // --- DATA LOADING ---
     async function loadStoreData() {
-        if (!storeGuid) return;
+        const { storeGuid: reqStoreGuid, startStr, endStr } = activeContextRef.current
+        if (!reqStoreGuid || !startStr || !endStr) return
+
+        const seq = ++loadSeqRef.current
+        const isStale = () =>
+            seq !== loadSeqRef.current ||
+            activeContextRef.current.storeGuid !== reqStoreGuid ||
+            activeContextRef.current.startStr !== startStr
 
         setSyncing(true)
-        const supabase = await getSupabaseClient()
-        const startStr = formatDateISO(weekStart)
-        const endStr = formatDateISO(addDays(weekStart, 6))
+        try {
+            const supabase = await getSupabaseClient()
+            if (isStale()) return
 
-        let filteredEmployees: any[] = []
+            let filteredEmployees: any[] = []
 
-        // 1. Fetch store employees directly using JSONB contains filter (optimized from 2,200+ global loop)
-        const { data: storeEmployees, error: empError } = await supabase
-            .from('toast_employees')
-            .select('*')
-            .contains('store_ids', JSON.stringify([storeGuid]))
-            .order('sort_order', { ascending: true })
-            .order('first_name', { ascending: true })
+            // 1. Fetch store employees directly using JSONB contains filter (optimized from 2,200+ global loop)
+            const { data: storeEmployees, error: empError } = await supabase
+                .from('toast_employees')
+                .select('*')
+                .contains('store_ids', JSON.stringify([reqStoreGuid]))
+                .order('sort_order', { ascending: true })
+                .order('first_name', { ascending: true })
 
-        if (empError) {
-            console.error('Error fetching store employees:', empError)
-        }
-
-        filteredEmployees = storeEmployees || []
-
-        // 2. Fetch Shifts for this store & week
-        const { data: shiftData } = await supabase
-            .from('shifts')
-            .select('*')
-            .eq('store_id', storeGuid)
-            .gte('shift_date', startStr)
-            .lte('shift_date', endStr)
-
-        // 3. Ensure jobs are loaded
-        let activeJobs = jobs
-        if (activeJobs.length === 0) {
-            const { data: jobsData } = await supabase.from('toast_jobs').select('*').order('title')
-            if (jobsData) {
-                setJobs(jobsData)
-                activeJobs = jobsData
+            if (isStale()) return
+            if (empError) {
+                console.error('Error fetching store employees:', empError)
             }
-        }
 
-        // 4. Fetch actual Toast punches for this store & week
-        const { data: punchData } = await supabase
-            .from('punches')
-            .select('business_date, employee_toast_guid, job_toast_guid, clock_in, clock_out')
-            .eq('store_id', storeGuid)
-            .gte('business_date', startStr)
-            .lte('business_date', endStr)
+            filteredEmployees = storeEmployees || []
 
-        // 5. Include any borrowed / cross-store employees who have shifts or punches in this store
-        const existingEmpIds = new Set(filteredEmployees.map((e: any) => e.id))
-        const existingEmpGuids = new Set(filteredEmployees.map((e: any) => e.toast_guid))
+            // 2. Fetch Shifts for this store & week
+            const { data: shiftData, error: shiftError } = await supabase
+                .from('shifts')
+                .select('*')
+                .eq('store_id', reqStoreGuid)
+                .gte('shift_date', startStr)
+                .lte('shift_date', endStr)
 
-        const missingIds = (shiftData || [])
-            .map((s: any) => s.employee_id)
-            .filter((id: any) => id && !existingEmpIds.has(id))
-
-        const missingGuids = (punchData || [])
-            .map((p: any) => p.employee_toast_guid)
-            .filter((guid: any) => guid && !existingEmpGuids.has(guid))
-
-        if (missingIds.length > 0 || missingGuids.length > 0) {
-            let missingEmps: any[] = []
-            if (missingIds.length > 0) {
-                const { data: byId } = await supabase.from('toast_employees').select('*').in('id', missingIds)
-                if (byId) missingEmps.push(...byId)
+            if (isStale()) return
+            if (shiftError) {
+                console.error('Error fetching shifts:', shiftError)
             }
-            if (missingGuids.length > 0) {
-                const { data: byGuid } = await supabase.from('toast_employees').select('*').in('toast_guid', missingGuids)
-                if (byGuid) {
-                    byGuid.forEach((b: any) => {
-                        if (!missingEmps.some((m: any) => m.id === b.id)) {
-                            missingEmps.push(b)
+
+            // 3. Ensure jobs are loaded
+            let activeJobs = jobsRef.current
+            if (activeJobs.length === 0) {
+                const { data: jobsData } = await supabase.from('toast_jobs').select('*').order('title')
+                if (isStale()) return
+                if (jobsData) {
+                    setJobs(jobsData)
+                    activeJobs = jobsData
+                }
+            }
+
+            // 4. Fetch actual Toast punches for this store & week
+            const { data: punchData } = await supabase
+                .from('punches')
+                .select('business_date, employee_toast_guid, job_toast_guid, clock_in, clock_out')
+                .eq('store_id', reqStoreGuid)
+                .gte('business_date', startStr)
+                .lte('business_date', endStr)
+
+            if (isStale()) return
+
+            // 5. Include any borrowed / cross-store employees who have shifts or punches in this store
+            const existingEmpIds = new Set(filteredEmployees.map((e: any) => String(e.id)))
+            const existingEmpGuids = new Set(filteredEmployees.map((e: any) => e.toast_guid))
+
+            const missingIds = [...new Set(
+                (shiftData || [])
+                    .map((s: any) => s.employee_id)
+                    .filter((id: any) => id && !existingEmpIds.has(String(id)))
+            )]
+
+            const missingGuids = [...new Set(
+                (punchData || [])
+                    .map((p: any) => p.employee_toast_guid)
+                    .filter((guid: any) => guid && !existingEmpGuids.has(guid))
+            )]
+
+            if (missingIds.length > 0 || missingGuids.length > 0) {
+                const missingEmps: any[] = []
+                if (missingIds.length > 0) {
+                    const { data: byId } = await supabase.from('toast_employees').select('*').in('id', missingIds)
+                    if (isStale()) return
+                    if (byId) missingEmps.push(...byId)
+                }
+                if (missingGuids.length > 0) {
+                    const { data: byGuid } = await supabase.from('toast_employees').select('*').in('toast_guid', missingGuids)
+                    if (isStale()) return
+                    if (byGuid) {
+                        byGuid.forEach((b: any) => {
+                            if (!missingEmps.some((m: any) => String(m.id) === String(b.id))) {
+                                missingEmps.push(b)
+                            }
+                        })
+                    }
+                }
+                if (missingEmps.length > 0) {
+                    filteredEmployees = [...filteredEmployees, ...missingEmps]
+                }
+            }
+
+            filteredEmployees.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+            if (isStale()) return
+            setEmployees(filteredEmployees)
+
+            // 6. Auto-detect missing planned shifts from actual Toast punches
+            if (shiftData) {
+                const resolvedShifts = [...shiftData]
+                const missingShifts: any[] = []
+                if (punchData && filteredEmployees.length > 0 && activeJobs && activeJobs.length > 0) {
+                    punchData.forEach((p: any) => {
+                        if (!p.employee_toast_guid || !p.clock_in) return
+                        // Find matching employee in our store or borrowed list
+                        const emp = filteredEmployees.find((e: any) => e.toast_guid === p.employee_toast_guid)
+                        if (!emp) return
+
+                        // Check if shift already exists on this day for this employee
+                        const hasShift = resolvedShifts.some((s: any) => String(s.employee_id) === String(emp.id) && s.shift_date === p.business_date)
+                        if (!hasShift) {
+                            // Find matching job
+                            let matchedJob = activeJobs.find((j: any) => j.guid === p.job_toast_guid)
+                            if (!matchedJob && emp.job_references && emp.job_references.length > 0) {
+                                matchedJob = activeJobs.find((j: any) => j.guid === emp.job_references[0].guid)
+                            }
+                            const jobId = matchedJob?.id || activeJobs[0]?.id
+
+                            if (jobId) {
+                                // Calculate end time: 8 hours after start_time if clock_out is null
+                                let endTime = p.clock_out
+                                if (!endTime && p.clock_in) {
+                                    endTime = new Date(new Date(p.clock_in).getTime() + 8 * 60 * 60 * 1000).toISOString()
+                                }
+
+                                missingShifts.push({
+                                    employee_id: emp.id,
+                                    job_id: jobId,
+                                    store_id: reqStoreGuid,
+                                    start_time: p.clock_in,
+                                    end_time: endTime,
+                                    status: 'draft',
+                                    shift_date: p.business_date,
+                                    notes: 'Auto-generado por asistencia real (Punch Toast)'
+                                })
+                            }
                         }
                     })
                 }
-            }
-            if (missingEmps.length > 0) {
-                filteredEmployees = [...filteredEmployees, ...missingEmps]
-            }
-        }
 
-        filteredEmployees.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
-        setEmployees(filteredEmployees)
+                if (missingShifts.length > 0 && !isStale()) {
+                    isAutoGeneratingRef.current = true
+                    const { data: insertedShifts, error: insertErr } = await supabase
+                        .from('shifts')
+                        .insert(missingShifts)
+                        .select()
 
-        // 6. Auto-detect missing planned shifts from actual Toast punches
-        if (shiftData) {
-            const missingShifts: any[] = []
-            if (punchData && filteredEmployees.length > 0 && activeJobs && activeJobs.length > 0) {
-                punchData.forEach((p: any) => {
-                    if (!p.employee_toast_guid) return
-                    // Find matching employee in our store or borrowed list
-                    const emp = filteredEmployees.find((e: any) => e.toast_guid === p.employee_toast_guid)
-                    if (!emp) return
-
-                    // Check if shift already exists on this day for this employee
-                    const hasShift = shiftData.some((s: any) => s.employee_id === emp.id && s.shift_date === p.business_date)
-                    if (!hasShift) {
-                        // Find matching job
-                        let matchedJob = activeJobs.find((j: any) => j.guid === p.job_toast_guid)
-                        if (!matchedJob && emp.job_references && emp.job_references.length > 0) {
-                            matchedJob = activeJobs.find((j: any) => j.guid === emp.job_references[0].guid)
-                        }
-                        const jobId = matchedJob?.id || activeJobs[0]?.id
-
-                        if (jobId) {
-                            // Calculate end time: 8 hours after start_time if clock_out is null
-                            let endTime = p.clock_out
-                            if (!endTime && p.clock_in) {
-                                endTime = new Date(new Date(p.clock_in).getTime() + 8 * 60 * 60 * 1000).toISOString()
-                            }
-
-                            missingShifts.push({
-                                employee_id: emp.id,
-                                job_id: jobId,
-                                store_id: storeGuid,
-                                start_time: p.clock_in,
-                                end_time: endTime,
-                                status: 'draft',
-                                shift_date: p.business_date,
-                                notes: 'Auto-generado por asistencia real (Punch Toast)'
-                            })
-                        }
+                    if (insertErr) {
+                        console.error('Error inserting missing shifts:', insertErr)
+                    } else if (insertedShifts) {
+                        resolvedShifts.push(...insertedShifts)
                     }
-                })
-            }
-
-            if (missingShifts.length > 0) {
-                isAutoGeneratingRef.current = true
-                const { data: insertedShifts, error: insertErr } = await supabase
-                    .from('shifts')
-                    .insert(missingShifts)
-                    .select()
-
-                if (insertErr) {
-                    console.error('Error inserting missing shifts:', insertErr)
-                } else if (insertedShifts) {
-                    shiftData.push(...insertedShifts)
+                    setTimeout(() => {
+                        isAutoGeneratingRef.current = false
+                    }, 1500)
                 }
-                setTimeout(() => {
-                    isAutoGeneratingRef.current = false
-                }, 1500)
+
+                if (isStale()) return
+                setShifts(resolvedShifts)
             }
-
-            setShifts(shiftData)
+        } catch (err) {
+            console.error('Error in loadStoreData:', err)
+        } finally {
+            if (seq === loadSeqRef.current) {
+                setSyncing(false)
+            }
         }
-
-        setSyncing(false)
     }
+    loadStoreDataRef.current = loadStoreData
 
     useEffect(() => {
-        loadStoreData()
-    }, [storeGuid, weekStart])
+        if (realtimeReloadTimerRef.current) {
+            clearTimeout(realtimeReloadTimerRef.current)
+            realtimeReloadTimerRef.current = null
+        }
+        queuedRealtimeEventsRef.current = []
+        setDeletedPublishedEmpIds([])
+        setShifts([])
+        loadStoreDataRef.current()
+    }, [storeGuid, weekStartStr])
 
-    // --- REALTIME: Auto-refresh when shifts change (e.g., from self-scheduling) ---
+    // --- REALTIME: Live sync when shifts change (strictly scoped to active store & week via fresh refs) ---
     useEffect(() => {
         if (!storeGuid) return
 
+        let cancelled = false
+        let supabaseClient: any = null
         let channel: any = null
 
         const setupRealtime = async () => {
-            const supabase = await getSupabaseClient()
+            supabaseClient = await getSupabaseClient()
+            if (cancelled) return
 
             // Subscribe to changes on shifts table for this store
-            channel = supabase
+            channel = supabaseClient
                 .channel(`shifts-${storeGuid}`)
                 .on(
                     'postgres_changes',
@@ -799,23 +1013,41 @@ export default function SchedulePlanner() {
                         filter: `store_id=eq.${storeGuid}`
                     },
                     (payload: any) => {
-                        if (isAutoGeneratingRef.current) {
-                            // Ignore our own auto-draft inserts to prevent recursive double-loading
+                        if (cancelled) return
+                        if (isAutoGeneratingRef.current || Date.now() < suppressBulkRealtimeUntilRef.current) {
+                            // Ignore our own auto-draft / bulk inserts to prevent recursive double-loading
                             return
                         }
-                        // Reload data when any shift changes
-                        loadStoreData()
+                        if (pendingLocalMutationsRef.current > 0) {
+                            // Defer Realtime events while local optimistic saves are in flight
+                            queuedRealtimeEventsRef.current.push({ payload, receivedAt: Date.now() })
+                            return
+                        }
+                        processRealtimePayloadRef.current(payload)
                     }
                 )
                 .subscribe()
+
+            if (cancelled && channel) {
+                supabaseClient.removeChannel(channel)
+            }
         }
 
         setupRealtime()
 
         // Cleanup on unmount or store change
         return () => {
+            cancelled = true
+            if (realtimeReloadTimerRef.current) {
+                clearTimeout(realtimeReloadTimerRef.current)
+                realtimeReloadTimerRef.current = null
+            }
             if (channel) {
-                channel.unsubscribe()
+                if (supabaseClient?.removeChannel) {
+                    supabaseClient.removeChannel(channel)
+                } else {
+                    channel.unsubscribe()
+                }
             }
         }
     }, [storeGuid])
@@ -842,7 +1074,7 @@ export default function SchedulePlanner() {
                     const data = await res.json()
                     if (data.success) {
                         const count = data.employees?.count ?? 0
-                        loadStoreData()
+                        await loadStoreDataRef.current()
 
                         // Success Modal
                         setConfirmModal({
@@ -871,8 +1103,8 @@ export default function SchedulePlanner() {
     const handleGenerateSmart = async () => {
 
         if (!storeGuid) return toast.error(t('planner.toasts.no_store'))
-        const startStr = formatDateISO(weekStart)
-        const endStr = formatDateISO(addDays(weekStart, 6))
+        const startStr = activeContextRef.current.startStr || formatDateISO(weekStart)
+        const endStr = activeContextRef.current.endStr || addCalendarDaysISO(startStr, 6)
 
         setConfirmModal({
             isOpen: true,
@@ -882,6 +1114,8 @@ export default function SchedulePlanner() {
             icon: Bot,
             onConfirm: async () => {
                 setIsGeneratingAPI(true)
+                beginLocalMutation()
+                suppressBulkRealtimeUntilRef.current = Date.now() + 15000
                 try {
                     const res = await fetch('/api/scheduler/generate-smart', {
                         method: 'POST',
@@ -891,7 +1125,8 @@ export default function SchedulePlanner() {
                     })
                     const data = await res.json()
                     if (data.success) {
-                        loadStoreData()
+                        suppressBulkRealtimeUntilRef.current = Date.now() + 2500
+                        await loadStoreDataRef.current()
                         // Celebration Modal!
                         setConfirmModal({
                             isOpen: true,
@@ -902,13 +1137,16 @@ export default function SchedulePlanner() {
                             onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                         })
                     } else {
+                        suppressBulkRealtimeUntilRef.current = 0
                         toast.error(t('planner.toasts.gen_error') + ': ' + data.error)
                         setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                     }
                 } catch (e: any) {
+                    suppressBulkRealtimeUntilRef.current = 0
                     toast.error(t('planner.toasts.conn_error') + ': ' + e.message)
                     setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                 } finally {
+                    endLocalMutation()
                     setIsGeneratingAPI(false)
                     // Do NOT auto-close modal here anymore, because success case keeps it open!
                 }
@@ -917,48 +1155,44 @@ export default function SchedulePlanner() {
     }
 
     const handleSaveShift = async (shiftData: Shift | Shift[]) => {
-        if (!storeGuid) return
+        const reqStoreGuid = activeContextRef.current.storeGuid || storeGuid
+        const reqStartStr = activeContextRef.current.startStr
+        if (!reqStoreGuid) return
         const supabase = await getSupabaseClient()
+        const currentShiftsSnapshot = shiftsRef.current
 
-        // Helper to format payload and calculate shift_date with America/Los_Angeles and 6:00 AM rule
+        // Helper to build a clean DB payload & compute shift_date via LA 6:00 AM business-day rule
         const formatShiftPayload = (s: Shift) => {
-            const payload: any = { ...s, store_id: storeGuid, status: 'draft' }
-            if (typeof payload.start_time === 'object') payload.start_time = (payload.start_time as Date).toISOString()
-            if (typeof payload.end_time === 'object') payload.end_time = (payload.end_time as Date).toISOString()
+            const rawStart = typeof (s.start_time as any) === 'object' ? (s.start_time as any as Date).toISOString() : s.start_time
+            const rawEnd = typeof (s.end_time as any) === 'object' ? (s.end_time as any as Date).toISOString() : s.end_time
+
+            const payload: Record<string, any> = {
+                employee_id: s.is_open ? null : (s.employee_id || null),
+                job_id: s.job_id,
+                store_id: reqStoreGuid,
+                start_time: rawStart,
+                end_time: rawEnd,
+                status: 'draft',
+                notes: s.notes ?? null,
+                is_open: Boolean(s.is_open || !s.employee_id),
+                shift_date: rawStart ? getBusinessDateISOFromTimestamp(rawStart) : s.shift_date
+            }
 
             const isNewShift = !s.id || String(s.id).startsWith('temp-')
-            const existing = !isNewShift ? shifts.find(prev => String(prev.id) === String(s.id)) : undefined
+            const existing = !isNewShift ? currentShiftsSnapshot.find(prev => String(prev.id) === String(s.id)) : undefined
             const scheduleChanged =
                 isNewShift ||
                 !existing ||
                 new Date(existing.start_time).getTime() !== new Date(payload.start_time).getTime() ||
                 new Date(existing.end_time).getTime() !== new Date(payload.end_time).getTime() ||
                 String(existing.employee_id || '') !== String(payload.employee_id || '') ||
-                String(existing.job_id || '') !== String(payload.job_id || '')
+                String(existing.job_id || '') !== String(payload.job_id || '') ||
+                String(existing.shift_date || '') !== String(payload.shift_date || '')
 
             if (scheduleChanged) {
                 payload.breaks_schedule = []
             }
 
-            if (payload.start_time) {
-                const d = new Date(payload.start_time)
-                const laParts = new Intl.DateTimeFormat('en-US', {
-                    timeZone: 'America/Los_Angeles',
-                    hour12: false,
-                    hour: 'numeric',
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                }).formatToParts(d)
-                const partMap: Record<string, string> = {}
-                laParts.forEach(p => partMap[p.type] = p.value)
-                const hour = parseInt(partMap.hour, 10)
-                const baseDate = new Date(`${partMap.year}-${partMap.month}-${partMap.day}T12:00:00`)
-                if (hour < 6) {
-                    baseDate.setDate(baseDate.getDate() - 1)
-                }
-                payload.shift_date = formatDateISO(baseDate)
-            }
             return payload
         }
 
@@ -969,150 +1203,236 @@ export default function SchedulePlanner() {
             // Track any reassignments from published shifts to notify the previous employee
             shiftData.forEach(s => {
                 if (s.id) {
-                    const existing = shifts.find(prev => prev.id === s.id)
-                    if (existing && existing.status === 'published' && existing.employee_id && existing.employee_id !== s.employee_id) {
+                    const existing = currentShiftsSnapshot.find(prev => String(prev.id) === String(s.id))
+                    if (existing && existing.status === 'published' && existing.employee_id && String(existing.employee_id) !== String(s.employee_id || '')) {
                         setDeletedPublishedEmpIds(prev => [...new Set([...prev, existing.employee_id!])])
                     }
                 }
             })
 
-            // 1. Generate optimistic shifts with computed shift_date (supports multiple shifts on the same day without overwriting!)
-            const optimisticItems: Shift[] = shiftData.map((s, idx) => {
-                const formatted = formatShiftPayload(s)
+            const preparedItems = shiftData.map((s, idx) => {
+                const dbPayload = formatShiftPayload(s)
+                const isUpdate = Boolean(s.id && !String(s.id).startsWith('temp-'))
+                const tempOrRealId = isUpdate
+                    ? String(s.id)
+                    : `temp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`
                 return {
-                    ...formatted,
-                    id: s.id || `temp-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-                    store_id: storeGuid,
-                    status: 'draft'
+                    isUpdate,
+                    id: tempOrRealId,
+                    dbPayload,
+                    optimistic: {
+                        ...dbPayload,
+                        id: tempOrRealId,
+                        store_id: reqStoreGuid,
+                        status: 'draft' as const
+                    } as Shift
                 }
             })
 
-            setShifts(prev => {
-                const updated = [...prev]
-                optimisticItems.forEach(opt => {
-                    const optId = opt.id || ''
-                    const isTemp = optId.startsWith('temp-')
-                    if (!isTemp) {
-                        const matchIdx = updated.findIndex(s => String(s.id || '') === optId)
-                        if (matchIdx >= 0) {
-                            updated[matchIdx] = opt
-                            return
-                        }
+            const previousShiftsBackup = [...currentShiftsSnapshot]
+            const tempInsertIds = preparedItems.filter(p => !p.isUpdate).map(p => p.id)
+
+            setShifts(prev =>
+                reconcileShiftsUpsert(
+                    prev,
+                    preparedItems.map(p => p.optimistic),
+                    {
+                        activeStoreGuid: activeContextRef.current.storeGuid,
+                        weekStartStr: activeContextRef.current.startStr,
+                        weekEndStr: activeContextRef.current.endStr
                     }
-                    updated.push(opt)
-                })
-                return updated
-            })
+                )
+            )
 
-            // 2. Separate into updates and inserts
-            const toUpdate = optimisticItems.filter(s => s.id && !s.id.startsWith('temp-'))
-            const toInsert = optimisticItems.filter(s => !s.id || s.id.startsWith('temp-'))
-            const tempInsertIds = toInsert.map(s => s.id!)
-
+            beginLocalMutation()
             try {
-                // Execute individual updates
-                const updatePromises = toUpdate.map(async (u) => {
-                    const payload = formatShiftPayload(u)
-                    const shiftId = u.id!
-                    delete payload.id
-                    return supabase.from('shifts').update(payload).eq('id', shiftId).select().single()
-                })
+                const toUpdate = preparedItems.filter(p => p.isUpdate)
+                const toInsert = preparedItems.filter(p => !p.isUpdate)
+                const savedRows: Shift[] = []
 
-                const updateResults = await Promise.all(updatePromises)
+                // Execute updates sequentially (<=7 items, clean DB concurrency)
+                for (const u of toUpdate) {
+                    const { data, error } = await supabase
+                        .from('shifts')
+                        .update(u.dbPayload)
+                        .eq('id', u.id)
+                        .select()
+                        .single()
+                    if (error) throw error
+                    if (data) savedRows.push({ ...data, status: 'draft' as const })
+                }
 
                 // Execute batch insert
-                let insertedRows: any[] = []
                 if (toInsert.length > 0) {
-                    const insertPayloads = toInsert.map(i => {
-                        const payload = formatShiftPayload(i)
-                        delete payload.id
-                        return payload
-                    })
-                    const { data, error } = await supabase.from('shifts').insert(insertPayloads).select()
+                    const { data, error } = await supabase
+                        .from('shifts')
+                        .insert(toInsert.map(i => i.dbPayload))
+                        .select()
                     if (error) throw error
-                    if (data) insertedRows = data
+                    if (data) {
+                        data.forEach((row: any) => savedRows.push({ ...row, status: 'draft' as const }))
+                    }
                 }
 
-                const savedRows: any[] = []
-                updateResults.forEach(r => { if (r.data) savedRows.push(r.data) })
-                if (insertedRows.length > 0) savedRows.push(...insertedRows)
-
                 if (savedRows.length > 0) {
-                    setShifts(prev => {
-                        // Remove temporary placeholders created for this batch before merging real DB rows
-                        const current = prev.filter(s => !tempInsertIds.includes(String(s.id || '')))
-                        savedRows.forEach(row => {
-                            const matchIdx = current.findIndex(s => String(s.id || '') === String(row.id))
-                            const rowWithDraft = { ...row, status: 'draft' as const }
-                            if (matchIdx >= 0) current[matchIdx] = rowWithDraft
-                            else current.push(rowWithDraft)
+                    savedRows.forEach(row => recordLocalShiftWrite(row.id, row))
+                    setShifts(prev =>
+                        reconcileShiftsUpsert(prev, savedRows, {
+                            replaceTempIds: tempInsertIds,
+                            activeStoreGuid: activeContextRef.current.storeGuid,
+                            weekStartStr: activeContextRef.current.startStr,
+                            weekEndStr: activeContextRef.current.endStr
                         })
-                        return current
-                    })
+                    )
+                    const uniqueEmpIds = [...new Set(savedRows.map(r => r.employee_id).filter(Boolean))] as string[]
+                    uniqueEmpIds.forEach(empId => { ensureEmployeeLoaded(empId) })
+
                     const countMsg = savedRows.length === 1
                         ? t('planner.toasts.shift_saved')
                         : (language === 'en' ? `${savedRows.length} shifts saved` : `${savedRows.length} turnos guardados`)
                     toast.success(countMsg)
                 } else {
+                    if (activeContextRef.current.storeGuid === reqStoreGuid && activeContextRef.current.startStr === reqStartStr) {
+                        setShifts(previousShiftsBackup)
+                    }
                     toast.error(t('planner.toasts.shift_save_error'))
                 }
             } catch (err: any) {
+                console.error('Error saving shift batch:', err)
+                if (activeContextRef.current.storeGuid === reqStoreGuid && activeContextRef.current.startStr === reqStartStr) {
+                    setShifts(previousShiftsBackup)
+                }
                 toast.error(t('planner.toasts.shift_save_error'))
+            } finally {
+                endLocalMutation()
             }
             return
         }
 
         // SINGLE SHIFT FLOW
+        const isUpdate = Boolean(shiftData.id && !String(shiftData.id).startsWith('temp-'))
+        const existingShift = isUpdate
+            ? currentShiftsSnapshot.find(prev => String(prev.id) === String(shiftData.id))
+            : undefined
+
         // If an already published shift changed employee, track previous employee
-        if (shiftData.id) {
-            const existing = shifts.find(prev => prev.id === shiftData.id)
-            if (existing && existing.status === 'published' && existing.employee_id && existing.employee_id !== shiftData.employee_id) {
-                setDeletedPublishedEmpIds(prev => [...new Set([...prev, existing.employee_id!])])
-            }
+        if (existingShift && existingShift.status === 'published' && existingShift.employee_id && String(existingShift.employee_id) !== String(shiftData.employee_id || '')) {
+            setDeletedPublishedEmpIds(prev => [...new Set([...prev, existingShift.employee_id!])])
         }
 
         const payload = formatShiftPayload(shiftData)
-        const tempId = shiftData.id || `temp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
+        const tempId = isUpdate
+            ? String(shiftData.id)
+            : `temp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
         const optimisticShift: Shift = {
-            ...shiftData,
-            shift_date: payload.shift_date,
+            ...payload,
             id: tempId,
-            store_id: storeGuid,
+            store_id: reqStoreGuid,
             status: 'draft'
-        }
+        } as Shift
 
-        if (shiftData.id) setShifts(prev => prev.map(s => s.id === shiftData.id ? optimisticShift : s))
-        else setShifts(prev => [...prev, optimisticShift])
+        setShifts(prev =>
+            reconcileShiftsUpsert(prev, [optimisticShift], {
+                activeStoreGuid: activeContextRef.current.storeGuid,
+                weekStartStr: activeContextRef.current.startStr,
+                weekEndStr: activeContextRef.current.endStr
+            })
+        )
 
-        delete payload.id
+        beginLocalMutation()
+        try {
+            const result = isUpdate
+                ? await supabase.from('shifts').update(payload).eq('id', shiftData.id!).select().single()
+                : await supabase.from('shifts').insert(payload).select().single()
 
-        let result;
-        if (shiftData.id && !shiftData.id.startsWith('temp-')) {
-            result = await supabase.from('shifts').update(payload).eq('id', shiftData.id).select().single()
-        } else {
-            result = await supabase.from('shifts').insert(payload).select().single()
-        }
+            if (result.error || !result.data) {
+                console.error('Error saving shift:', result.error)
+                setShifts(prev => {
+                    const withoutTemp = prev.filter(s => String(s.id || '') !== tempId)
+                    if (existingShift) {
+                        return reconcileShiftsUpsert(withoutTemp, [existingShift], {
+                            activeStoreGuid: activeContextRef.current.storeGuid,
+                            weekStartStr: activeContextRef.current.startStr,
+                            weekEndStr: activeContextRef.current.endStr
+                        })
+                    }
+                    return withoutTemp
+                })
+                toast.error(t('planner.toasts.shift_save_error'))
+                return
+            }
 
-        if (result.data) {
-            setShifts(prev => prev.map(s => s.id === tempId || s.id === result.data.id ? { ...result.data, status: 'draft' } : s))
+            const savedRow: Shift = { ...result.data, status: 'draft' as const }
+            recordLocalShiftWrite(savedRow.id, savedRow)
+            setShifts(prev =>
+                reconcileShiftsUpsert(prev, [savedRow], {
+                    replaceTempIds: isUpdate ? [] : [tempId],
+                    activeStoreGuid: activeContextRef.current.storeGuid,
+                    weekStartStr: activeContextRef.current.startStr,
+                    weekEndStr: activeContextRef.current.endStr
+                })
+            )
+            if (savedRow.employee_id) {
+                ensureEmployeeLoaded(savedRow.employee_id)
+            }
             toast.success(t('planner.toasts.shift_saved'))
-        } else {
+        } catch (err: any) {
+            console.error('Unexpected error saving shift:', err)
+            setShifts(prev => {
+                const withoutTemp = prev.filter(s => String(s.id || '') !== tempId)
+                if (existingShift) {
+                    return reconcileShiftsUpsert(withoutTemp, [existingShift], {
+                        activeStoreGuid: activeContextRef.current.storeGuid,
+                        weekStartStr: activeContextRef.current.startStr,
+                        weekEndStr: activeContextRef.current.endStr
+                    })
+                }
+                return withoutTemp
+            })
             toast.error(t('planner.toasts.shift_save_error'))
+        } finally {
+            endLocalMutation()
         }
     }
 
     const handleDeleteShift = async (id: string) => {
         const supabase = await getSupabaseClient()
-        const shiftToDelete = shifts.find(s => s.id === id)
+        const shiftToDelete = shiftsRef.current.find(s => String(s.id) === String(id))
 
         // Track if we are deleting a published shift to enable re-publish
         if (shiftToDelete?.status === 'published' && shiftToDelete.employee_id) {
             setDeletedPublishedEmpIds(prev => [...new Set([...prev, shiftToDelete.employee_id!])])
         }
 
-        setShifts(prev => prev.filter(s => s.id !== id))
-        await supabase.from('shifts').delete().eq('id', id)
-        toast.success(t('planner.toasts.shift_deleted'))
+        setShifts(prev => prev.filter(s => String(s.id) !== String(id)))
+
+        if (String(id).startsWith('temp-')) {
+            toast.success(t('planner.toasts.shift_deleted'))
+            return
+        }
+
+        beginLocalMutation()
+        try {
+            const { error } = await supabase.from('shifts').delete().eq('id', id)
+            if (error) {
+                console.error('Error deleting shift:', error)
+                if (shiftToDelete) {
+                    setShifts(prev =>
+                        reconcileShiftsUpsert(prev, [shiftToDelete], {
+                            activeStoreGuid: activeContextRef.current.storeGuid,
+                            weekStartStr: activeContextRef.current.startStr,
+                            weekEndStr: activeContextRef.current.endStr
+                        })
+                    )
+                }
+                toast.error(t('planner.toasts.shift_save_error'))
+                return
+            }
+            recordLocalShiftWrite(id, null)
+            toast.success(t('planner.toasts.shift_deleted'))
+        } finally {
+            endLocalMutation()
+        }
     }
 
     // --- TEMPLATE HANDLERS ---
@@ -1135,18 +1455,19 @@ export default function SchedulePlanner() {
             if (error) throw error
 
             const items = shifts.map(s => {
-                const startTime = new Date(s.start_time)
-                const endTime = new Date(s.end_time)
-                const d = new Date(s.shift_date + 'T12:00:00')
-                let day = d.getDay()
-                const dayOffset = day === 0 ? 6 : day - 1
+                const startLA = getLAHoursMinutes(s.start_time)
+                const endLA = getLAHoursMinutes(s.end_time)
+                const d = laWallClockToDate(s.shift_date, 12, 0)
+                const dayStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' }).format(d)
+                const dayOffsetMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 }
+                const dayOffset = dayOffsetMap[dayStr] ?? 0
                 return {
                     template_id: template.id,
                     employee_id: s.employee_id,
                     job_id: s.job_id,
                     day_of_week: dayOffset,
-                    start_time: startTime.toTimeString().slice(0, 5),
-                    end_time: endTime.toTimeString().slice(0, 5),
+                    start_time: startLA.hhmm,
+                    end_time: endLA.hhmm,
                     is_open: s.is_open
                 }
             })
@@ -1179,60 +1500,54 @@ export default function SchedulePlanner() {
                         return
                     }
 
-                    const startStr = formatDateISO(weekStart)
-                    const endStr = formatDateISO(addDays(weekStart, 6))
+                    const startStr = activeContextRef.current.startStr || formatDateISO(weekStart)
+                    const endStr = activeContextRef.current.endStr || addCalendarDaysISO(startStr, 6)
 
-                    // Nuclear delete for the specific range before applying template
-                    // Similar to clear-week API but we can do it here if we want to trust client id
-                    // Or call the API? Let's stick to client for templates as it's usually smaller than 1000 items
-                    // Actually, let's be safe and use loop if needed, but template application is destructive
-                    // The clear-week API is safer.
-                    const clearRes = await fetch('/api/scheduler/clear-week', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: getPlannerAuthHeaders(),
-                        body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
-                    })
-                    if (!clearRes.ok) throw new Error('Failed to clear existing shifts')
-
-                    // Prepare new shifts
+                    // Prepare new shifts strictly in America/Los_Angeles (6:00 AM business-day rule)
                     const newShifts: any[] = []
 
-                    for (const item of items) {
-                        // Calculate date based on weekStart + item.day_of_week
-                        // item.day_of_week is 0 (Mon) to 6 (Sun) or similar.
-                        // My formatDateISO uses Monday as start?
-                        // Let's assume weekStart is Monday.
-                        const targetDate = addDays(weekStart, item.day_of_week)
-                        const dateStr = formatDateISO(targetDate)
+                    beginLocalMutation()
+                    suppressBulkRealtimeUntilRef.current = Date.now() + 4000
+                    try {
+                        const clearRes = await fetch('/api/scheduler/clear-week', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: getPlannerAuthHeaders(),
+                            body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
+                        })
+                        if (!clearRes.ok) throw new Error('Failed to clear existing shifts')
 
-                        // Construct full ISO strings
-                        const startDateTime = new Date(`${dateStr}T${item.start_time}`)
-                        const endDateTime = new Date(`${dateStr}T${item.end_time}`)
+                        for (const item of items) {
+                            const dateStr = addCalendarDaysISO(startStr, Number(item.day_of_week) || 0)
+                            const { start: startDateTime, end: endDateTime } = buildShiftTimestampsForBusinessDate(
+                                dateStr,
+                                String(item.start_time || '09:00').slice(0, 5),
+                                String(item.end_time || '17:00').slice(0, 5)
+                            )
 
-                        // Handle overnight
-                        if (endDateTime < startDateTime) {
-                            endDateTime.setDate(endDateTime.getDate() + 1)
+                            newShifts.push({
+                                employee_id: item.employee_id,
+                                job_id: item.job_id,
+                                store_id: storeGuid,
+                                start_time: startDateTime.toISOString(),
+                                end_time: endDateTime.toISOString(),
+                                shift_date: dateStr,
+                                is_open: item.is_open,
+                                breaks_schedule: [],
+                                status: 'draft'
+                            })
                         }
 
-                        newShifts.push({
-                            employee_id: item.employee_id,
-                            job_id: item.job_id,
-                            store_id: storeGuid,
-                            start_time: startDateTime.toISOString(),
-                            end_time: endDateTime.toISOString(),
-                            shift_date: dateStr,
-                            is_open: item.is_open,
-                            status: 'draft'
-                        })
+                        const { error } = await supabase.from('shifts').insert(newShifts)
+                        if (error) throw error
+
+                        suppressBulkRealtimeUntilRef.current = Date.now() + 2500
+                        toast.success(t('planner.toasts.template_applied'))
+                        setShowTemplateModal(false)
+                        await loadStoreDataRef.current()
+                    } finally {
+                        endLocalMutation()
                     }
-
-                    const { error } = await supabase.from('shifts').insert(newShifts)
-                    if (error) throw error
-
-                    toast.success(t('planner.toasts.template_applied'))
-                    setShowTemplateModal(false)
-                    await loadStoreData()
 
                     // Success Modal
                     setConfirmModal({
@@ -1306,36 +1621,22 @@ export default function SchedulePlanner() {
                 return
             }
 
-            const targetStartStr = formatDateISO(weekStart)
-            const targetEndStr = formatDateISO(addDays(weekStart, 6))
+            const targetStartStr = activeContextRef.current.startStr || formatDateISO(weekStart)
+            const targetEndStr = activeContextRef.current.endStr || addCalendarDaysISO(targetStartStr, 6)
 
-            // 2. If overwrite mode is true, clear current target week shifts first
-            if (overwrite) {
-                const clearRes = await fetch('/api/scheduler/clear-week', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: getPlannerAuthHeaders(),
-                    body: JSON.stringify({ storeId: storeGuid, startDate: targetStartStr, endDate: targetEndStr })
-                })
-                if (!clearRes.ok) throw new Error('Failed to clear current week shifts')
-            }
-
-            // 3. Map shifts to the target week preserving exact days difference (handles overnight / midnight shifts)
-            const daysDiff = Math.round((weekStart.getTime() - sourceWeekStart.getTime()) / (24 * 3600 * 1000))
+            // Exact calendar day difference between LA Mondays (DST-proof)
+            const [sy, sm, sd] = sourceStartStr.split('-').map(Number)
+            const [ty, tm, td] = targetStartStr.split('-').map(Number)
+            const daysDiff = Math.round(
+                (Date.UTC(ty, tm - 1, td, 12, 0, 0) - Date.UTC(sy, sm - 1, sd, 12, 0, 0)) / (24 * 3600 * 1000)
+            )
 
             const newShifts = validSourceShifts.map((s: any) => {
-                const origStart = new Date(s.start_time)
-                const origEnd = new Date(s.end_time)
-                const duration = origEnd.getTime() - origStart.getTime()
-
-                const newStart = addDays(origStart, daysDiff)
-                const newEnd = new Date(newStart.getTime() + duration)
-
-                // Shift the business date exactly by daysDiff
-                const [origY, origM, origD] = s.shift_date.split('-').map(Number)
-                const origBusinessDate = new Date(origY, origM - 1, origD, 12, 0, 0)
-                const targetBusinessDate = addDays(origBusinessDate, daysDiff)
-                const dateStr = formatDateISO(targetBusinessDate)
+                const origBusinessDateStr = s.shift_date || getBusinessDateISOFromTimestamp(s.start_time)
+                const dateStr = addCalendarDaysISO(origBusinessDateStr, daysDiff)
+                const startLA = getLAHoursMinutes(s.start_time)
+                const endLA = getLAHoursMinutes(s.end_time)
+                const { start: newStart, end: newEnd } = buildShiftTimestampsForBusinessDate(dateStr, startLA.hhmm, endLA.hhmm)
 
                 // Limpiar breaks_schedule al clonar borradores para que al publicar o abrir /descansos
                 // el Motor V30 Universal aplique las últimas preferencias aprendidas con fechas reales de la nueva semana
@@ -1353,12 +1654,30 @@ export default function SchedulePlanner() {
                 }
             })
 
-            // 4. Insert new shifts
-            const { error: insertErr } = await supabase.from('shifts').insert(newShifts)
-            if (insertErr) throw insertErr
+            beginLocalMutation()
+            suppressBulkRealtimeUntilRef.current = Date.now() + 4000
+            try {
+                // 2. If overwrite mode is true, clear current target week shifts first
+                if (overwrite) {
+                    const clearRes = await fetch('/api/scheduler/clear-week', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: getPlannerAuthHeaders(),
+                        body: JSON.stringify({ storeId: storeGuid, startDate: targetStartStr, endDate: targetEndStr })
+                    })
+                    if (!clearRes.ok) throw new Error('Failed to clear current week shifts')
+                }
 
-            // 5. Reload data and notify success
-            await loadStoreData()
+                // 4. Insert new shifts
+                const { error: insertErr } = await supabase.from('shifts').insert(newShifts)
+                if (insertErr) throw insertErr
+
+                suppressBulkRealtimeUntilRef.current = Date.now() + 2500
+                // 5. Reload data and notify success
+                await loadStoreDataRef.current()
+            } finally {
+                endLocalMutation()
+            }
             setShowCloneModal(false)
 
             setConfirmModal({
@@ -1448,16 +1767,23 @@ export default function SchedulePlanner() {
                     const endStr = formatDateISO(addDays(weekStart, 6))
 
                     // NUCLEAR OPTION VIA API: Force clear everything
-                    const res = await fetch('/api/scheduler/clear-week', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: getPlannerAuthHeaders(),
-                        body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
-                    })
+                    beginLocalMutation()
+                    suppressBulkRealtimeUntilRef.current = Date.now() + 3000
+                    try {
+                        const res = await fetch('/api/scheduler/clear-week', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: getPlannerAuthHeaders(),
+                            body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
+                        })
 
-                    if (!res.ok) throw new Error('Failed to clear shifts')
+                        if (!res.ok) throw new Error('Failed to clear shifts')
 
-                    setShifts([]) // Clear client state completely
+                        suppressBulkRealtimeUntilRef.current = Date.now() + 2500
+                        setShifts([]) // Clear client state completely
+                    } finally {
+                        endLocalMutation()
+                    }
 
                     setIsProcessing(false)
 
@@ -1537,8 +1863,24 @@ export default function SchedulePlanner() {
 
             // ONLY mark shifts as published in database after notification succeeds
             if (ids.length > 0) {
-                await supabase.from('shifts').update({ status: 'published' }).in('id', ids)
-                setShifts(prev => prev.map(s => ids.includes(s.id) ? { ...s, status: 'published' } : s))
+                beginLocalMutation()
+                try {
+                    const { error: pubErr } = await supabase.from('shifts').update({ status: 'published' }).in('id', ids)
+                    if (pubErr) throw pubErr
+                    const idSet = new Set(ids.map(id => String(id)))
+                    setShifts(prev =>
+                        prev.map(s => {
+                            if (s.id && idSet.has(String(s.id))) {
+                                const updated = { ...s, status: 'published' as const }
+                                recordLocalShiftWrite(updated.id, updated)
+                                return updated
+                            }
+                            return s
+                        })
+                    )
+                } finally {
+                    endLocalMutation()
+                }
             }
 
             // SAVE BUDGET SNAPSHOT
@@ -1681,7 +2023,17 @@ export default function SchedulePlanner() {
                 return false
             }
             if (empDraftIds.length > 0) {
-                setShifts(prev => prev.map(s => empDraftIds.includes(s.id) ? { ...s, status: 'published' } : s))
+                const draftIdSet = new Set(empDraftIds.map(id => String(id)))
+                setShifts(prev =>
+                    prev.map(s => {
+                        if (s.id && draftIdSet.has(String(s.id))) {
+                            const updated = { ...s, status: 'published' as const }
+                            recordLocalShiftWrite(updated.id, updated)
+                            return updated
+                        }
+                        return s
+                    })
+                )
             }
             const sentCount = data?.stats?.email ?? 0
             if (sentCount > 0) {
@@ -1750,57 +2102,121 @@ export default function SchedulePlanner() {
     }
     const handleDrop = async (e: any, targetEmpId: string | null, targetDate: Date) => {
         e.preventDefault()
-        if (!draggedShift || !storeGuid) return
+        const reqStoreGuid = activeContextRef.current.storeGuid || storeGuid
+        if (!draggedShift || !reqStoreGuid) return
+        const shiftBeingDragged = draggedShift
+        setDraggedShift(null)
+
         const isCopy = isCtrlPressed
         const supabase = await getSupabaseClient()
-        const duration = new Date(draggedShift.end_time).getTime() - new Date(draggedShift.start_time).getTime()
+        const duration = new Date(shiftBeingDragged.end_time).getTime() - new Date(shiftBeingDragged.start_time).getTime()
         const targetDateStr = formatDateISO(targetDate)
 
-        const origLA = getLAHoursMinutes(draggedShift.start_time)
-        const { start: newStart } = buildShiftTimestampsForBusinessDate(targetDateStr, origLA.hhmm, origLA.hhmm)
-        const newEnd = new Date(newStart.getTime() + duration)
+        const origLA = getLAHoursMinutes(shiftBeingDragged.start_time)
+        const origEndLA = getLAHoursMinutes(shiftBeingDragged.end_time)
+        const { start: newStart, end: builtEnd } = buildShiftTimestampsForBusinessDate(
+            targetDateStr,
+            origLA.hhmm,
+            origEndLA.hhmm !== origLA.hhmm ? origEndLA.hhmm : origLA.hhmm
+        )
+        const newEnd = origEndLA.hhmm !== origLA.hhmm ? builtEnd : new Date(newStart.getTime() + duration)
 
-        const conflict = findOverlappingShift(shifts, {
+        const conflict = findOverlappingShift(shiftsRef.current, {
             employee_id: targetEmpId,
             is_open: !targetEmpId,
             start_time: newStart,
             end_time: newEnd,
-            excludeId: isCopy ? null : draggedShift.id
+            excludeId: isCopy ? null : shiftBeingDragged.id
         })
 
         if (conflict) {
             const conflictTime = `${formatTime12h(conflict.start_time)} - ${formatTime12h(conflict.end_time)}`
             toast.error(t('planner.modal_shift.overlap_error').replace('{time}', conflictTime))
-            setDraggedShift(null)
             return
         }
 
         const payload: any = {
             employee_id: targetEmpId,
-            job_id: draggedShift.job_id,
-            store_id: storeGuid,
+            job_id: shiftBeingDragged.job_id,
+            store_id: reqStoreGuid,
             start_time: newStart.toISOString(),
             end_time: newEnd.toISOString(),
             shift_date: targetDateStr,
             status: 'draft',
             is_open: !targetEmpId,
-            notes: draggedShift.notes,
+            notes: shiftBeingDragged.notes ?? null,
             breaks_schedule: []
         }
 
-        if (isCopy) {
-            const { data } = await supabase.from('shifts').insert(payload).select().single()
-            if (data) setShifts(prev => [...prev, data])
-        } else {
-            // Move: If previously published shift changed employee, track previous employee
-            if (draggedShift?.status === 'published' && draggedShift.employee_id && draggedShift.employee_id !== targetEmpId) {
-                setDeletedPublishedEmpIds(prev => [...new Set([...prev, draggedShift.employee_id!])])
+        beginLocalMutation()
+        try {
+            if (isCopy) {
+                const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
+                const optimisticCopy: Shift = { ...payload, id: tempId }
+                setShifts(prev =>
+                    reconcileShiftsUpsert(prev, [optimisticCopy], {
+                        activeStoreGuid: activeContextRef.current.storeGuid,
+                        weekStartStr: activeContextRef.current.startStr,
+                        weekEndStr: activeContextRef.current.endStr
+                    })
+                )
+                const { data, error } = await supabase.from('shifts').insert(payload).select().single()
+                if (error || !data) {
+                    console.error('Error copying shift via drag/drop:', error)
+                    setShifts(prev => prev.filter(s => String(s.id || '') !== tempId))
+                    toast.error(t('planner.toasts.shift_save_error'))
+                    return
+                }
+                const savedCopy: Shift = { ...data, status: 'draft' as const }
+                recordLocalShiftWrite(savedCopy.id, savedCopy)
+                setShifts(prev =>
+                    reconcileShiftsUpsert(prev, [savedCopy], {
+                        replaceTempIds: [tempId],
+                        activeStoreGuid: activeContextRef.current.storeGuid,
+                        weekStartStr: activeContextRef.current.startStr,
+                        weekEndStr: activeContextRef.current.endStr
+                    })
+                )
+            } else {
+                // Move: If previously published shift changed employee, track previous employee
+                if (shiftBeingDragged?.status === 'published' && shiftBeingDragged.employee_id && String(shiftBeingDragged.employee_id) !== String(targetEmpId || '')) {
+                    setDeletedPublishedEmpIds(prev => [...new Set([...prev, shiftBeingDragged.employee_id!])])
+                }
+                const previousSnapshot = { ...shiftBeingDragged }
+                const optimisticMove: Shift = { ...shiftBeingDragged, ...payload, id: shiftBeingDragged.id }
+                setShifts(prev =>
+                    reconcileShiftsUpsert(prev, [optimisticMove], {
+                        activeStoreGuid: activeContextRef.current.storeGuid,
+                        weekStartStr: activeContextRef.current.startStr,
+                        weekEndStr: activeContextRef.current.endStr
+                    })
+                )
+                const { data, error } = await supabase.from('shifts').update(payload).eq('id', shiftBeingDragged.id).select().single()
+                if (error || !data) {
+                    console.error('Error moving shift via drag/drop:', error)
+                    setShifts(prev =>
+                        reconcileShiftsUpsert(prev, [previousSnapshot], {
+                            activeStoreGuid: activeContextRef.current.storeGuid,
+                            weekStartStr: activeContextRef.current.startStr,
+                            weekEndStr: activeContextRef.current.endStr
+                        })
+                    )
+                    toast.error(t('planner.toasts.shift_save_error'))
+                    return
+                }
+                const savedMove: Shift = { ...data, status: 'draft' as const }
+                recordLocalShiftWrite(savedMove.id, savedMove)
+                setShifts(prev =>
+                    reconcileShiftsUpsert(prev, [savedMove], {
+                        activeStoreGuid: activeContextRef.current.storeGuid,
+                        weekStartStr: activeContextRef.current.startStr,
+                        weekEndStr: activeContextRef.current.endStr
+                    })
+                )
             }
-            setShifts(prev => prev.map(s => s.id === draggedShift.id ? { ...s, ...payload, id: s.id } : s))
-            const { data } = await supabase.from('shifts').update(payload).eq('id', draggedShift.id).select().single()
-            if (data) setShifts(prev => prev.map(s => s.id === data.id ? data : s))
+        } finally {
+            endLocalMutation()
         }
-        setDraggedShift(null)
     }
 
     // Keyboard
@@ -2062,22 +2478,31 @@ export default function SchedulePlanner() {
                                             const w = weather[dateStr]
                                             const staffCount = new Set(
                                                 shifts
-                                                    .filter(s => s.shift_date === dateStr && s.employee_id)
-                                                    .map(s => s.employee_id)
+                                                    .filter(s => !s.is_open && s.shift_date === dateStr && s.employee_id)
+                                                    .map(s => String(s.employee_id))
                                             ).size
-                                            const isToday = [date.getDate(), date.getMonth()].join('-') === [new Date().getDate(), new Date().getMonth()].join('-')
+                                            const isToday = dateStr === getBusinessTodayISO()
+                                            const dayLabelsMonToSun = [
+                                                t('planner.days.mon'),
+                                                t('planner.days.tue'),
+                                                t('planner.days.wed'),
+                                                t('planner.days.thu'),
+                                                t('planner.days.fri'),
+                                                t('planner.days.sat'),
+                                                t('planner.days.sun')
+                                            ]
 
                                             return (
-                                                <th key={i} className={`p-3 border-l border-gray-200 dark:border-slate-800 align-top transition-colors bg-gray-50 dark:bg-slate-900 ${isToday ? 'bg-blue-50/50 dark:bg-slate-800 relative overflow-hidden' : ''}`}>
+                                                <th key={dateStr} className={`p-3 border-l border-gray-200 dark:border-slate-800 align-top transition-colors bg-gray-50 dark:bg-slate-900 ${isToday ? 'bg-blue-50/50 dark:bg-slate-800 relative overflow-hidden' : ''}`}>
                                                     {isToday && <div className="absolute top-0 left-0 w-full h-0.5 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />}
                                                     <div className="flex flex-col h-full min-h-[60px]">
                                                         <div className="flex justify-between items-start mb-2 gap-2">
                                                             <div className="text-left">
                                                                 <div className={`text-base font-black leading-tight tracking-tight ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-slate-200'}`}>
-                                                                    {[t('planner.days.sun'), t('planner.days.mon'), t('planner.days.tue'), t('planner.days.wed'), t('planner.days.thu'), t('planner.days.fri'), t('planner.days.sat')][date.getDay()]}
+                                                                    {dayLabelsMonToSun[i]}
                                                                 </div>
                                                                 <div className={`text-xs font-bold capitalize mt-0.5 ${isToday ? 'text-blue-600/80 dark:text-blue-400/80' : 'text-gray-400 dark:text-slate-500'}`}>
-                                                                    {date.toLocaleString(language === 'en' ? 'en-US' : 'es-US', { month: 'short' }).replace('.', '')} {date.getDate()}
+                                                                    {date.toLocaleString(language === 'en' ? 'en-US' : 'es-US', { timeZone: 'America/Los_Angeles', month: 'short' }).replace('.', '')} {Number(dateStr.slice(8, 10))}
                                                                 </div>
                                                             </div>
                                                             {w && (
@@ -2097,14 +2522,21 @@ export default function SchedulePlanner() {
                                         })}
                                     </tr>
                                 </thead>
-                                <Reorder.Group as="tbody" axis="y" values={employees} onReorder={handleReorder}>
+                                <Reorder.Group as="tbody" axis="y" values={visibleEmployees} onReorder={handleReorder}>
                                     {visibleEmployees.map(emp => (
                                         <EmployeeRow
                                             key={emp.id}
                                             emp={emp}
-                                            totals={laborStats[emp.id]}
+                                            totals={laborStats[emp.id] || { totalHours: 0, totalWage: 0, totalOT: 0 }}
                                             weekDays={weekDays}
-                                            getShiftsForCell={(id: string | null, d: Date) => shifts.filter(s => (s.employee_id === id) && s.shift_date === formatDateISO(d)).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())}
+                                            getShiftsForCell={(id: string | null, d: Date) =>
+                                                shifts
+                                                    .filter(s =>
+                                                        (id ? (!s.is_open && String(s.employee_id || '') === String(id)) : (Boolean(s.is_open) || !s.employee_id)) &&
+                                                        s.shift_date === formatDateISO(d)
+                                                    )
+                                                    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+                                            }
                                             jobs={jobs}
                                             weeklyStats={shiftStats}
                                             punches={punches}

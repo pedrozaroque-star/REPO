@@ -1,3 +1,16 @@
+/**
+ * @module app/planificador/hooks/useVisibleEmployees
+ * @description Filtra y ordena la lista visible de empleados para el Planificador semanal de Tacos Gavilan.
+ * @businessRules
+ * - Muestra siempre a cualquier empleado que tenga al menos un turno en la semana activa (incluidos prestados o inactivos).
+ * - Los empleados activos sin turnos solo se muestran si tienen un rol operativo permitido en Toast.
+ * - Ordena por peso de rol (`Manager -> AM -> PM`, donde el turno PM comienza a las 5:00 PM en `America/Los_Angeles`).
+ * @dataFlow
+ * `employees` + `shifts` + `jobs` -> `visibleEmployees`
+ * @notes
+ * - [2026-11-27] Normalizadas las comparaciones de `employee_id` con `String(...)` para evitar desajustes de tipo.
+ */
+
 import { useMemo } from 'react'
 import { Employee, Shift, Job } from '../lib/types'
 import { getRoleWeight } from '../lib/utils'
@@ -9,7 +22,7 @@ export function useVisibleEmployees(employees: Employee[], shifts: Shift[], jobs
 
         const filtered = employees.filter(emp => {
             // 1. ALWAYS SHOW if they have a shift this week
-            const hasShift = shifts.some(s => s.employee_id === emp.id);
+            const hasShift = shifts.some(s => !s.is_open && s.employee_id && String(s.employee_id) === String(emp.id));
             if (hasShift) return true;
 
             // 2. If no shift, ONLY SHOW if NOT deleted AND has a relevant role
@@ -48,10 +61,9 @@ export function useVisibleEmployees(employees: Employee[], shifts: Shift[], jobs
                 return j?.title || '';
             }
 
-            const shiftsA = shifts.filter(s => s.employee_id === a.id);
-            const shiftsB = shifts.filter(s => s.employee_id === b.id);
+            const shiftsA = shifts.filter(s => !s.is_open && s.employee_id && String(s.employee_id) === String(a.id));
+            const shiftsB = shifts.filter(s => !s.is_open && s.employee_id && String(s.employee_id) === String(b.id));
 
-            // Import helper locally or assume it's imported at top (need to add import)
             const weightA = getRoleWeight(getTitle(a), shiftsA);
             const weightB = getRoleWeight(getTitle(b), shiftsB);
 
