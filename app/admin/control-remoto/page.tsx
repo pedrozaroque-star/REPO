@@ -59,6 +59,7 @@ import {
 } from 'lucide-react'
 import {
   DEFAULT_PC_WATCHDOG_CONFIG,
+  REMOTE_AGENT_LATEST_VERSION,
   REMOTE_STORE_OPTIONS,
   sanitizePcWatchdogConfig,
   type PcWatchdogConfig,
@@ -74,6 +75,7 @@ import {
   PowerShellModal,
   type FleetDeviceUI,
 } from '@/components/remote-control/RemoteControlModals'
+import LiveScreenModal from '@/components/remote-control/LiveScreenModal'
 
 interface FleetCommandUI extends RemoteFleetCommand {
   storeName: string
@@ -151,6 +153,7 @@ function RemoteControlContent() {
   const [installerDevice, setInstallerDevice] = useState<FleetDeviceUI | null>(null)
   const [configDevice, setConfigDevice] = useState<FleetDeviceUI | null>(null)
   const [psDevice, setPsDevice] = useState<FleetDeviceUI | null>(null)
+  const [liveScreenDevice, setLiveScreenDevice] = useState<FleetDeviceUI | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
 
   // Acciones masivas (15 sucursales)
@@ -166,6 +169,7 @@ function RemoteControlContent() {
   // Configuración Global
   const [a1OrgUrl, setA1OrgUrl] = useState('')
   const [a1MsiUrl, setA1MsiUrl] = useState('')
+  const [a1InstallToken, setA1InstallToken] = useState('')
   const [rdHost, setRdHost] = useState('')
   const [rdKey, setRdKey] = useState('')
   const [globalWd, setGlobalWd] = useState<PcWatchdogConfig>(DEFAULT_PC_WATCHDOG_CONFIG)
@@ -197,6 +201,7 @@ function RemoteControlContent() {
         setSettings(data.settings)
         setA1OrgUrl(data.settings.action1_org_url || '')
         setA1MsiUrl(data.settings.action1_installer_url || '')
+        setA1InstallToken(data.settings.action1_install_token || '')
         setRdHost(data.settings.rustdesk_relay_host || '')
         setRdKey(data.settings.rustdesk_public_key || '')
         setGlobalWd(sanitizePcWatchdogConfig(data.settings.default_pc_watchdog))
@@ -324,6 +329,7 @@ function RemoteControlContent() {
         body: JSON.stringify({
           action1OrgUrl: a1OrgUrl,
           action1InstallerUrl: a1MsiUrl,
+          action1InstallToken: a1InstallToken,
           rustdeskRelayHost: rdHost,
           rustdeskPublicKey: rdKey,
           defaultPcWatchdog: globalWd,
@@ -838,27 +844,47 @@ function RemoteControlContent() {
                       {/* Botones de Acción según Tipo */}
                       {d.device_type === 'windows_pc' && (
                         <div className="flex flex-wrap gap-1.5">
-                          {d.remote_tool_url ? (
+                          {d.enrollment_status === 'enrolled' && (
+                            <button
+                              type="button"
+                              onClick={() => setLiveScreenDevice(d)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm cursor-pointer"
+                            >
+                              <Monitor className="w-3.5 h-3.5" />
+                              <span>{t('remoteControl.btn_view_screen_here')}</span>
+                            </button>
+                          )}
+
+                          {d.remote_tool_url && (
                             <a
                               href={d.remote_tool_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 text-[11px] font-bold"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
-                              <span>{t('remoteControl.btn_view_screen')}</span>
+                              <span>{t('remoteControl.btn_open_action1')}</span>
                             </a>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setConfigDevice(d)}
-                              title={t('remoteControl.btn_view_screen_hint')}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold cursor-pointer"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              <span>{t('remoteControl.btn_view_screen')}</span>
-                            </button>
                           )}
+
+                          {d.enrollment_status === 'enrolled' &&
+                            d.agent_version &&
+                            d.agent_version !== REMOTE_AGENT_LATEST_VERSION && (
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => void sendSingleCommand(d, 'update_agent')}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-black cursor-pointer"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>
+                                  {t('remoteControl.btn_upgrade_agent_badge').replace(
+                                    '{ver}',
+                                    REMOTE_AGENT_LATEST_VERSION
+                                  )}
+                                </span>
+                              </button>
+                            )}
 
                           <button
                             type="button"
@@ -1427,6 +1453,22 @@ function RemoteControlContent() {
               </p>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                {t('remoteControl.setup_action1_token_label')}
+              </label>
+              <input
+                type="password"
+                value={a1InstallToken}
+                onChange={(e) => setA1InstallToken(e.target.value)}
+                placeholder="eyJ..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-900 dark:text-white"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                {t('remoteControl.setup_action1_token_hint')}
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -1563,6 +1605,12 @@ function RemoteControlContent() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onCreated={() => void fetchFleet(true)}
+        notify={notify}
+      />
+      <LiveScreenModal
+        device={liveScreenDevice}
+        onClose={() => setLiveScreenDevice(null)}
+        onSendQuickCommand={sendSingleCommand}
         notify={notify}
       />
     </div>

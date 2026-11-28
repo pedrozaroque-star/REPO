@@ -20,7 +20,11 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { checkRateLimit, getServerUser, safeTimingEqual, verifyAdminAuth } from '@/lib/auth-server'
-import { getRemoteBroadcastTopic, type RemoteFleetDevice } from '@/lib/remote-control'
+import {
+  getRemoteBroadcastTopic,
+  getRemoteScreenBroadcastTopic,
+  type RemoteFleetDevice,
+} from '@/lib/remote-control'
 
 export const AGENT_TOKEN_PREFIX_TAG = 'teg_dev_'
 export const MAX_COMMAND_OUTPUT_CHARS = 16_000
@@ -271,6 +275,62 @@ export async function broadcastRemoteControlWakeup(
 }
 
 /**
+ * Reenvía un cuadro JPEG efímero en RAM vía Supabase Realtime Broadcast hacia el visor
+ * del Administrador en `/admin/control-remoto` sin escribir blobs en PostgreSQL ni en Storage.
+ */
+export async function broadcastRemoteScreenFrame(params: {
+  deviceId: string
+  sessionId: string
+  frameSeq: number
+  imageBase64: string
+  origWidth: number
+  origHeight: number
+  sentWidth: number
+  sentHeight: number
+  byteSize: number
+  capturedAt: string
+}): Promise<boolean> {
+  const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/+$/, '')
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  if (!baseUrl || !serviceKey) return false
+
+  const topic = getRemoteScreenBroadcastTopic(params.deviceId, params.sessionId)
+  try {
+    const res = await fetch(`${baseUrl}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(4_000),
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic,
+            event: 'screen_frame',
+            payload: {
+              sessionId: params.sessionId,
+              frameSeq: params.frameSeq,
+              imageBase64: params.imageBase64,
+              origWidth: params.origWidth,
+              origHeight: params.origHeight,
+              sentWidth: params.sentWidth,
+              sentHeight: params.sentHeight,
+              byteSize: params.byteSize,
+              capturedAt: params.capturedAt,
+            },
+          },
+        ],
+      }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/**
  * Sanitiza un registro de dispositivo para nunca devolver `agent_token_hash` a la UI.
  */
 export function stripDeviceSecrets<T extends Record<string, any>>(row: T): Omit<T, 'agent_token_hash'> {
@@ -289,5 +349,5 @@ export function resolvePublicBaseUrl(request: Request): string {
   if (host) {
     return `${proto}://${host}`.replace(/\/+$/, '')
   }
-  return 'https://tacosgavilan.com'
+  return 'https://tacosgavilan.vercel.app'
 }

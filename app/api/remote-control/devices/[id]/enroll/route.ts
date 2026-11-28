@@ -132,6 +132,7 @@ export async function POST(
       agentToken: plainToken,
       watchdog,
       action1InstallerUrl: settings?.action1_installer_url || null,
+      action1InstallToken: settings?.action1_install_token || null,
     }
 
     const installerCmd = buildWindowsInstallerCmd(installerParams)

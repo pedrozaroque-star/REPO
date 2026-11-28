@@ -37,7 +37,7 @@ export type RemoteCommandStatus =
   | 'expired'
   | 'cancelled'
 
-export const REMOTE_AGENT_LATEST_VERSION = '1.0.0'
+export const REMOTE_AGENT_LATEST_VERSION = '1.1.0'
 
 export const REMOTE_ONLINE_THRESHOLDS_MS: Record<RemoteDeviceType, number> = {
   windows_pc: 420_000,
@@ -55,6 +55,94 @@ export function getRemoteBroadcastTopic(storeCode: string, deviceRole: string): 
   return `remote-control-${cleanStore}-${cleanRole}`
 }
 
+/**
+ * Tópico efímero privado de Supabase Realtime Broadcast para transmisión de pantalla en vivo
+ * dentro de SM TEG. Incluye el UUID criptográfico `sessionId` generado exclusivamente para Admin.
+ */
+export function getRemoteScreenBroadcastTopic(deviceId: string, sessionId: string): string {
+  return `teg-remote-screen-${String(deviceId).trim()}-${String(sessionId).trim()}`
+}
+
+export const ALLOWED_SCREEN_HOTKEYS = [
+  'enter',
+  'backspace',
+  'tab',
+  'escape',
+  'f5',
+  'f11',
+  'ctrl_r',
+  'ctrl_shift_r',
+  'ctrl_l',
+  'ctrl_a',
+  'ctrl_c',
+  'ctrl_v',
+  'alt_f4',
+  'alt_tab',
+  'win_d',
+  'up',
+  'down',
+  'left',
+  'right',
+  'space',
+] as const
+
+export type RemoteScreenHotkey = (typeof ALLOWED_SCREEN_HOTKEYS)[number]
+
+export type RemoteScreenInputEvent =
+  | { type: 'click'; button: 'left' | 'right'; xPct: number; yPct: number }
+  | { type: 'dblclick'; xPct: number; yPct: number }
+  | { type: 'scroll'; xPct: number; yPct: number; delta: number }
+  | { type: 'type'; text: string }
+  | { type: 'hotkey'; key: RemoteScreenHotkey }
+
+const SCREEN_HOTKEY_SET = new Set<string>(ALLOWED_SCREEN_HOTKEYS)
+
+export function sanitizeScreenInputEvent(raw: unknown): RemoteScreenInputEvent | null {
+  if (!raw || typeof raw !== 'object') return null
+  const src = raw as Record<string, unknown>
+  const t = String(src.type || '').trim().toLowerCase()
+
+  const clampPct = (v: unknown): number | null => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return null
+    return Math.max(0, Math.min(1, Math.round(n * 10000) / 10000))
+  }
+
+  if (t === 'click') {
+    const xPct = clampPct(src.xPct)
+    const yPct = clampPct(src.yPct)
+    if (xPct === null || yPct === null) return null
+    const button = src.button === 'right' ? 'right' : 'left'
+    return { type: 'click', button, xPct, yPct }
+  }
+  if (t === 'dblclick') {
+    const xPct = clampPct(src.xPct)
+    const yPct = clampPct(src.yPct)
+    if (xPct === null || yPct === null) return null
+    return { type: 'dblclick', xPct, yPct }
+  }
+  if (t === 'scroll') {
+    const xPct = clampPct(src.xPct)
+    const yPct = clampPct(src.yPct)
+    const deltaNum = Number(src.delta)
+    if (xPct === null || yPct === null || !Number.isFinite(deltaNum)) return null
+    const delta = Math.max(-1200, Math.min(1200, Math.round(deltaNum)))
+    return { type: 'scroll', xPct, yPct, delta }
+  }
+  if (t === 'type') {
+    if (typeof src.text !== 'string') return null
+    const clean = src.text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, 300)
+    if (!clean) return null
+    return { type: 'type', text: clean }
+  }
+  if (t === 'hotkey') {
+    const key = String(src.key || '').trim().toLowerCase()
+    if (!SCREEN_HOTKEY_SET.has(key)) return null
+    return { type: 'hotkey', key: key as RemoteScreenHotkey }
+  }
+  return null
+}
+
 export const WINDOWS_COMMANDS = [
   'set_volume',
   'unmute_audio',
@@ -69,6 +157,7 @@ export const WINDOWS_COMMANDS = [
   'reboot_pc',
   'run_powershell',
   'update_agent',
+  'start_screen_session',
 ] as const
 
 export const TABLET_COMMANDS = [
@@ -124,6 +213,7 @@ export interface RemoteFleetSettings {
   id: string
   action1_org_url: string | null
   action1_installer_url: string | null
+  action1_install_token?: string | null
   rustdesk_relay_host: string | null
   rustdesk_public_key: string | null
   default_pc_watchdog: PcWatchdogConfig

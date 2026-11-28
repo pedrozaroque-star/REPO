@@ -36,6 +36,7 @@ export interface InstallerBuildParams {
   agentToken: string
   watchdog: PcWatchdogConfig
   action1InstallerUrl?: string | null
+  action1InstallToken?: string | null
 }
 
 function escapePsSingleQuoted(val: string): string {
@@ -169,6 +170,262 @@ try {
     Write-TegLog "Advertencia cargando TegAudio COM API: $($_.Exception.Message)" 'WARN'
 }
 
+# Cargar motor nativo GDI+ DPI-Aware y control de raton/teclado (user32.dll) para Visor en Vivo dentro de SM TEG
+$screenCode = @"
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Forms;
+
+namespace TegScreen {
+    public class CaptureResult {
+        public string ImageBase64;
+        public int OrigWidth;
+        public int OrigHeight;
+        public int SentWidth;
+        public int SentHeight;
+        public int ByteSize;
+    }
+
+    public static class ScreenCapturer {
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+
+        private static bool _dpiInit = false;
+
+        public static void EnsureDpiAware() {
+            if (!_dpiInit) {
+                try { SetProcessDPIAware(); } catch {}
+                _dpiInit = true;
+            }
+        }
+
+        private static ImageCodecInfo GetJpegCodec() {
+            ImageCodecInfo[] codecs = ImageCodecInfo.GetImageEncoders();
+            for (int i = 0; i < codecs.Length; i++) {
+                if (codecs[i].MimeType == "image/jpeg") return codecs[i];
+            }
+            return null;
+        }
+
+        public static CaptureResult CaptureJpegBase64(int maxWidth, long quality) {
+            EnsureDpiAware();
+            if (maxWidth < 640) maxWidth = 640;
+            if (maxWidth > 1920) maxWidth = 1920;
+            if (quality < 25) quality = 25;
+            if (quality > 85) quality = 85;
+
+            Rectangle bounds = Screen.PrimaryScreen.Bounds;
+            int origW = bounds.Width;
+            int origH = bounds.Height;
+            int targetW = origW;
+            int targetH = origH;
+
+            if (origW > maxWidth) {
+                double ratio = (double)maxWidth / (double)origW;
+                targetW = maxWidth;
+                targetH = Math.Max(1, (int)Math.Round(origH * ratio));
+            }
+
+            using (Bitmap rawBmp = new Bitmap(origW, origH, PixelFormat.Format24bppRgb)) {
+                using (Graphics g = Graphics.FromImage(rawBmp)) {
+                    bool capturedDesktop = false;
+                    try {
+                        g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, new Size(origW, origH), CopyPixelOperation.SourceCopy);
+                        capturedDesktop = true;
+                    } catch {
+                        g.Clear(Color.FromArgb(15, 23, 42));
+                        using (Font f1 = new Font("Segoe UI", 26f, FontStyle.Bold))
+                        using (Font f2 = new Font("Segoe UI", 16f, FontStyle.Regular))
+                        using (Brush b1 = new SolidBrush(Color.White))
+                        using (Brush b2 = new SolidBrush(Color.FromArgb(148, 163, 184))) {
+                            g.DrawString("Windows Lock Screen / Escritorio Seguro", f1, b1, new PointF(60f, 120f));
+                            g.DrawString("Usa el boton Action1 (60 FPS) arriba para desbloquear sesion Windows.", f2, b2, new PointF(60f, 180f));
+                        }
+                    }
+                    if (capturedDesktop) {
+                        try {
+                            Point cur = Cursor.Position;
+                            int cx = cur.X - bounds.Left;
+                            int cy = cur.Y - bounds.Top;
+                            if (cx >= 0 && cy >= 0 && cx < origW && cy < origH) {
+                                using (Pen outerPen = new Pen(Color.White, 3f))
+                                using (Pen innerPen = new Pen(Color.FromArgb(239, 68, 68), 2f)) {
+                                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                                    g.DrawEllipse(outerPen, cx - 8, cy - 8, 16, 16);
+                                    g.DrawEllipse(innerPen, cx - 6, cy - 6, 12, 12);
+                                }
+                            }
+                        } catch {}
+                    }
+                }
+
+                Bitmap finalBmp = rawBmp;
+                Bitmap resizedBmp = null;
+                try {
+                    if (targetW != origW || targetH != origH) {
+                        resizedBmp = new Bitmap(targetW, targetH, PixelFormat.Format24bppRgb);
+                        using (Graphics rg = Graphics.FromImage(resizedBmp)) {
+                            rg.InterpolationMode = InterpolationMode.Bilinear;
+                            rg.CompositingQuality = CompositingQuality.HighSpeed;
+                            rg.DrawImage(rawBmp, 0, 0, targetW, targetH);
+                        }
+                        finalBmp = resizedBmp;
+                    }
+
+                    using (MemoryStream ms = new MemoryStream()) {
+                        ImageCodecInfo codec = GetJpegCodec();
+                        if (codec != null) {
+                            using (EncoderParameters ep = new EncoderParameters(1)) {
+                                ep.Param[0] = new EncoderParameter(Encoder.Quality, quality);
+                                finalBmp.Save(ms, codec, ep);
+                            }
+                        } else {
+                            finalBmp.Save(ms, ImageFormat.Jpeg);
+                        }
+                        byte[] bytes = ms.ToArray();
+                        CaptureResult res = new CaptureResult();
+                        res.ImageBase64 = Convert.ToBase64String(bytes);
+                        res.OrigWidth = origW;
+                        res.OrigHeight = origH;
+                        res.SentWidth = targetW;
+                        res.SentHeight = targetH;
+                        res.ByteSize = bytes.Length;
+                        return res;
+                    }
+                } finally {
+                    if (resizedBmp != null) resizedBmp.Dispose();
+                }
+            }
+        }
+    }
+
+    public static class InputController {
+        [DllImport("user32.dll")]
+        private static extern bool SetCursorPos(int X, int Y);
+
+        [DllImport("user32.dll")]
+        private static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, UIntPtr dwExtraInfo);
+
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+        private const uint MOUSEEVENTF_LEFTDOWN  = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP    = 0x0004;
+        private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+        private const uint MOUSEEVENTF_RIGHTUP   = 0x0010;
+        private const uint MOUSEEVENTF_WHEEL     = 0x0800;
+        private const uint KEYEVENTF_KEYUP       = 0x0002;
+        private const byte VK_LWIN               = 0x5B;
+        private const byte VK_D                  = 0x44;
+
+        private static Point ToScreenPoint(double xPct, double yPct) {
+            ScreenCapturer.EnsureDpiAware();
+            Rectangle b = Screen.PrimaryScreen.Bounds;
+            if (xPct < 0.0) xPct = 0.0;
+            if (xPct > 1.0) xPct = 1.0;
+            if (yPct < 0.0) yPct = 0.0;
+            if (yPct > 1.0) yPct = 1.0;
+            int px = b.Left + (int)Math.Round(xPct * (b.Width - 1));
+            int py = b.Top + (int)Math.Round(yPct * (b.Height - 1));
+            return new Point(px, py);
+        }
+
+        public static void Click(double xPct, double yPct, string button, bool doubleClick) {
+            Point p = ToScreenPoint(xPct, yPct);
+            SetCursorPos(p.X, p.Y);
+            Thread.Sleep(25);
+            if (button == "right") {
+                mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(25);
+                mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+            } else {
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(25);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                if (doubleClick) {
+                    Thread.Sleep(60);
+                    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                    Thread.Sleep(25);
+                    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                }
+            }
+        }
+
+        public static void Scroll(double xPct, double yPct, int delta) {
+            Point p = ToScreenPoint(xPct, yPct);
+            SetCursorPos(p.X, p.Y);
+            Thread.Sleep(15);
+            mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta, UIntPtr.Zero);
+        }
+
+        public static void SendPlainText(string text) {
+            if (string.IsNullOrEmpty(text)) return;
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 0; i < text.Length; i++) {
+                char c = text[i];
+                if (c == '+' || c == '^' || c == '%' || c == '~' || c == '(' || c == ')' || c == '{' || c == '}' || c == '[' || c == ']') {
+                    sb.Append('{').Append(c).Append('}');
+                } else {
+                    sb.Append(c);
+                }
+            }
+            SendKeys.SendWait(sb.ToString());
+        }
+
+        public static void SendHotkey(string key) {
+            if (string.IsNullOrEmpty(key)) return;
+            string k = key.Trim().ToLowerInvariant();
+            if (k == "win_d") {
+                keybd_event(VK_LWIN, 0, 0, UIntPtr.Zero);
+                keybd_event(VK_D, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(35);
+                keybd_event(VK_D, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                return;
+            }
+            string mapped = null;
+            if (k == "enter") mapped = "{ENTER}";
+            else if (k == "backspace") mapped = "{BACKSPACE}";
+            else if (k == "tab") mapped = "{TAB}";
+            else if (k == "escape") mapped = "{ESC}";
+            else if (k == "f5") mapped = "{F5}";
+            else if (k == "f11") mapped = "{F11}";
+            else if (k == "ctrl_r") mapped = "^r";
+            else if (k == "ctrl_shift_r") mapped = "^+r";
+            else if (k == "ctrl_l") mapped = "^l";
+            else if (k == "ctrl_a") mapped = "^a";
+            else if (k == "ctrl_c") mapped = "^c";
+            else if (k == "ctrl_v") mapped = "^v";
+            else if (k == "alt_f4") mapped = "%{F4}";
+            else if (k == "alt_tab") mapped = "%{TAB}";
+            else if (k == "up") mapped = "{UP}";
+            else if (k == "down") mapped = "{DOWN}";
+            else if (k == "left") mapped = "{LEFT}";
+            else if (k == "right") mapped = "{RIGHT}";
+            else if (k == "space") mapped = " ";
+            if (mapped != null) {
+                SendKeys.SendWait(mapped);
+            }
+        }
+    }
+}
+"@
+
+$screenReady = $false
+try {
+    if (-not ([System.Management.Automation.PSTypeName]'TegScreen.ScreenCapturer').Type) {
+        Add-Type -TypeDefinition $screenCode -Language CSharp -ReferencedAssemblies @('System.Drawing', 'System.Windows.Forms') -ErrorAction Stop
+    }
+    $screenReady = $true
+} catch {
+    Write-TegLog "Advertencia cargando TegScreen GDI+/Input API: $($_.Exception.Message)" 'WARN'
+}
+
 if (-not (Test-Path $ConfigPath)) {
     Write-TegLog "Archivo config.json no encontrado en $ConfigPath. Deteniendo." 'ERROR'
     exit 1
@@ -244,9 +501,10 @@ function Apply-WindowsHardening {
             Set-ItemProperty -Path $regRoot -Name 'HighEfficiencyModeEnabled' -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
             $allowList = Join-Path $regRoot 'AutoplayAllowlist'
             if (-not (Test-Path $allowList)) { New-Item -Path $allowList -Force | Out-Null }
-            Set-ItemProperty -Path $allowList -Name '1' -Value 'https://tacosgavilan.com' -Type String -Force
-            Set-ItemProperty -Path $allowList -Name '2' -Value 'https://www.tacosgavilan.com' -Type String -Force
-            Set-ItemProperty -Path $allowList -Name '3' -Value $originPattern -Type String -Force
+            Set-ItemProperty -Path $allowList -Name '1' -Value 'https://tacosgavilan.vercel.app' -Type String -Force
+            Set-ItemProperty -Path $allowList -Name '2' -Value 'https://tacosgavilan.com' -Type String -Force
+            Set-ItemProperty -Path $allowList -Name '3' -Value 'https://www.tacosgavilan.com' -Type String -Force
+            Set-ItemProperty -Path $allowList -Name '4' -Value $originPattern -Type String -Force
         }
         $actions.Add('AutoplayAllowlist de Chrome/Edge configurado para Tacos Gavilan')
     } catch {
@@ -567,6 +825,15 @@ function Invoke-RemoteCommand {
                 $agentMutex.ReleaseMutex()
                 exit 0
             }
+            'start_screen_session' {
+                if (-not $screenReady) { throw 'API nativa TegScreen (GDI+/Input) no disponible en esta sesion.' }
+                $sid = [string]$payload.sessionId
+                if ([string]::IsNullOrWhiteSpace($sid)) { throw 'Falta sessionId para visor de pantalla.' }
+                $q = if ($payload.quality) { [int]$payload.quality } else { 55 }
+                $mw = if ($payload.maxWidth) { [int]$payload.maxWidth } else { 1280 }
+                Send-CommandAck -CommandId $cmdId -Status 'succeeded' -ExitCode 0 -Output "Sesion de pantalla en vivo iniciada ($sid)."
+                Start-LiveScreenSession -SessionId $sid -InitialQuality $q -InitialMaxWidth $mw
+            }
             default {
                 Send-CommandAck -CommandId $cmdId -Status 'failed' -ExitCode 1 -ErrorMessage "Tipo de comando no soportado por el agente Windows: $cmdType"
             }
@@ -576,6 +843,96 @@ function Invoke-RemoteCommand {
         Write-TegLog "Error ejecutando [$cmdType]: $errMsg" 'ERROR'
         Send-CommandAck -CommandId $cmdId -Status 'failed' -ExitCode 1 -ErrorMessage $errMsg
     }
+}
+
+function Invoke-ScreenInputEvents {
+    param($Events)
+    if (-not $screenReady -or -not $Events) { return }
+    foreach ($ev in $Events) {
+        try {
+            $t = [string]$ev.type
+            if ($t -eq 'click') {
+                $btn = if ($ev.button -eq 'right') { 'right' } else { 'left' }
+                [TegScreen.InputController]::Click([double]$ev.xPct, [double]$ev.yPct, $btn, $false)
+            } elseif ($t -eq 'dblclick') {
+                [TegScreen.InputController]::Click([double]$ev.xPct, [double]$ev.yPct, 'left', $true)
+            } elseif ($t -eq 'scroll') {
+                [TegScreen.InputController]::Scroll([double]$ev.xPct, [double]$ev.yPct, [int]$ev.delta)
+            } elseif ($t -eq 'type') {
+                [TegScreen.InputController]::SendPlainText([string]$ev.text)
+            } elseif ($t -eq 'hotkey') {
+                [TegScreen.InputController]::SendHotkey([string]$ev.key)
+            }
+            Start-Sleep -Milliseconds 30
+        } catch {
+            Write-TegLog "Aviso ejecutando evento pantalla ($($ev.type)): $($_.Exception.Message)" 'WARN'
+        }
+    }
+}
+
+function Start-LiveScreenSession {
+    param(
+        [string]$SessionId,
+        [int]$InitialQuality = 55,
+        [int]$InitialMaxWidth = 1280
+    )
+    Write-TegLog "Iniciando transmision de pantalla en vivo ($SessionId)..." 'INFO'
+    $quality = $InitialQuality
+    $maxWidth = $InitialMaxWidth
+    $consecutiveErrs = 0
+    $startedAt = Get-Date
+    $frameUrl = "$($Config.baseUrl.TrimEnd('/'))/api/remote-control/agent/screen-frame"
+
+    while (((Get-Date) - $startedAt).TotalMinutes -lt 12) {
+        try {
+            $cap = [TegScreen.ScreenCapturer]::CaptureJpegBase64($maxWidth, $quality)
+            if ($cap.ImageBase64.Length -gt 210000) {
+                $cap = [TegScreen.ScreenCapturer]::CaptureJpegBase64([math]::Min($maxWidth, 1024), 38)
+            }
+            $bodyObj = @{
+                sessionId   = $SessionId
+                imageBase64 = $cap.ImageBase64
+                origWidth   = $cap.OrigWidth
+                origHeight  = $cap.OrigHeight
+                sentWidth   = $cap.SentWidth
+                sentHeight  = $cap.SentHeight
+                byteSize    = $cap.ByteSize
+                capturedAt  = (Get-Date).ToUniversalTime().ToString('o')
+            } | ConvertTo-Json -Depth 4 -Compress
+
+            $resp = Invoke-RestMethod -Uri $frameUrl -Method Post -Headers $Headers -Body ([System.Text.Encoding]::UTF8.GetBytes($bodyObj)) -TimeoutSec 15
+            $consecutiveErrs = 0
+
+            if (-not $resp -or -not $resp.active) {
+                Write-TegLog "Sesion de pantalla en vivo cerrada por el servidor ($SessionId)." 'INFO'
+                break
+            }
+
+            if ($resp.quality) { $quality = [int]$resp.quality }
+            if ($resp.maxWidth) { $maxWidth = [int]$resp.maxWidth }
+
+            $hadInputs = $false
+            if ($resp.inputEvents -and $resp.inputEvents.Count -gt 0) {
+                $hadInputs = $true
+                Invoke-ScreenInputEvents -Events $resp.inputEvents
+            }
+
+            if ($hadInputs) {
+                Start-Sleep -Milliseconds 250
+            } else {
+                Start-Sleep -Milliseconds 950
+            }
+        } catch {
+            $consecutiveErrs++
+            Write-TegLog "Error en sesion pantalla ($consecutiveErrs): $($_.Exception.Message)" 'WARN'
+            if ($consecutiveErrs -ge 6) {
+                Write-TegLog "Sesion de pantalla terminada tras 6 errores consecutivos." 'WARN'
+                break
+            }
+            Start-Sleep -Milliseconds 1200
+        }
+    }
+    Write-TegLog "Transmision de pantalla finalizada ($SessionId)." 'INFO'
 }
 
 Write-TegLog "TEG Store Remote Agent v$AgentVersion iniciado para $($Config.storeCode) ($($Config.deviceKey))" 'INFO'
@@ -596,7 +953,7 @@ while ($true) {
         $minsOfDay = ($now.Hour * 60) + $now.Minute
         $isDeadHours = ($minsOfDay -ge 255 -and $minsOfDay -lt 420)
         $hbIntervalSec   = if ($isDeadHours) { 300 } else { 180 }
-        $pollIntervalSec = if ($isDeadHours) { 180 } else { 60 }
+        $pollIntervalSec = if ($isDeadHours) { 120 } else { 20 }
 
         # 1. Watchdog local cada 30 segundos (100% local, cero consumo de red/Vercel)
         if (($now - $lastWatchdog).TotalSeconds -ge 30) {
@@ -618,7 +975,7 @@ while ($true) {
             $lastHeartbeat = $now
         }
 
-        # 3. Polling de comandos pendientes cada 60s (180s en madrugada)
+        # 3. Polling de comandos pendientes cada 20s (120s en madrugada)
         if (($now - $lastPoll).TotalSeconds -ge $pollIntervalSec) {
             $pollRes = Invoke-RestMethod -Uri "$($Config.baseUrl.TrimEnd('/'))/api/remote-control/agent/poll" -Method Get -Headers $Headers -TimeoutSec 20
             if ($pollRes -and $pollRes.commands) {
@@ -632,7 +989,7 @@ while ($true) {
         Write-TegLog "Error en ciclo principal: $($_.Exception.Message)" 'WARN'
     }
 
-    Start-Sleep -Seconds 30
+    Start-Sleep -Seconds 10
 }
 `
 }
@@ -650,6 +1007,7 @@ export function buildWindowsInstallerPs1(params: InstallerBuildParams): string {
   const cleanBaseUrl = params.baseUrl.trim().replace(/\/+$/, '')
   const agentSourceB64 = Buffer.from(buildWindowsAgentScriptSource(), 'utf8').toString('base64')
   const action1Url = (params.action1InstallerUrl || '').trim()
+  const action1Token = (params.action1InstallToken || '').trim()
 
   const configObject = {
     baseUrl: cleanBaseUrl,
@@ -699,9 +1057,9 @@ $agentBytes = [System.Convert]::FromBase64String('${agentSourceB64}')
 $agentPath = Join-Path $InstallDir 'teg-agent.ps1'
 [System.IO.File]::WriteAllBytes($agentPath, $agentBytes)
 
-# Proteger config.json (Administradores + SYSTEM + usuario actual)
+# Proteger config.json (Administradores + SYSTEM control total; usuarios locales solo lectura para Watchdog multi-usuario)
 try {
-    & icacls (Join-Path $InstallDir 'config.json') /inheritance:r /grant:r "SYSTEM:(F)" "Administrators:(F)" "$env:USERNAME:(R)" | Out-Null
+    & icacls (Join-Path $InstallDir 'config.json') /inheritance:r /grant:r "SYSTEM:(F)" "Administrators:(F)" "BUILTIN\\Users:(R)" | Out-Null
 } catch {}
 
 # 2. Aplicar politicas base de energia 24/7 y Chrome/Edge AutoplayAllowlist
@@ -715,21 +1073,36 @@ foreach ($regRoot in @('HKLM:\\SOFTWARE\\Policies\\Google\\Chrome', 'HKLM:\\SOFT
     Set-ItemProperty -Path $regRoot -Name 'AutoplayAllowed' -Value 1 -Type DWord -Force
     $allowList = Join-Path $regRoot 'AutoplayAllowlist'
     if (-not (Test-Path $allowList)) { New-Item -Path $allowList -Force | Out-Null }
-    Set-ItemProperty -Path $allowList -Name '1' -Value 'https://tacosgavilan.com' -Type String -Force
-    Set-ItemProperty -Path $allowList -Name '2' -Value 'https://www.tacosgavilan.com' -Type String -Force
-    Set-ItemProperty -Path $allowList -Name '3' -Value '${escapePsSingleQuoted(cleanBaseUrl)}' -Type String -Force
+    Set-ItemProperty -Path $allowList -Name '1' -Value 'https://tacosgavilan.vercel.app' -Type String -Force
+    Set-ItemProperty -Path $allowList -Name '2' -Value 'https://tacosgavilan.com' -Type String -Force
+    Set-ItemProperty -Path $allowList -Name '3' -Value 'https://www.tacosgavilan.com' -Type String -Force
+    Set-ItemProperty -Path $allowList -Name '4' -Value '${escapePsSingleQuoted(cleanBaseUrl)}' -Type String -Force
 }
 
 # 3. Instalar Action1 Agent silenciosamente si se configuro URL de MSI en SM TEG
 $action1Url = '${escapePsSingleQuoted(action1Url)}'
+$action1Token = '${escapePsSingleQuoted(action1Token)}'
 if (-not [string]::IsNullOrWhiteSpace($action1Url)) {
     Write-Host '[3/5] Descargando e instalando Action1 Remote Desktop Agent...' -ForegroundColor Yellow
     try {
         $msiPath = Join-Path $env:TEMP 'Action1_TacosGavilan_Agent.msi'
-        Invoke-WebRequest -Uri $action1Url -OutFile $msiPath -UseBasicParsing -TimeoutSec 120
-        $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "\`"$msiPath\`"", '/qn', '/norestart') -Wait -PassThru
+        Remove-Item -Path $msiPath -Force -ErrorAction SilentlyContinue
+        $curlExe = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
+        if ($curlExe) {
+            & curl.exe -fSL --connect-timeout 30 --max-time 180 -o $msiPath $action1Url
+        } else {
+            Invoke-WebRequest -Uri $action1Url -OutFile $msiPath -UseBasicParsing -TimeoutSec 180
+        }
+        if (-not (Test-Path $msiPath) -or ((Get-Item $msiPath).Length -lt 100000)) {
+            throw 'La descarga del archivo Action1 .msi quedo incompleta.'
+        }
+        $msiArgs = @('/i', "\`"$msiPath\`"", '/quiet', '/qn', '/norestart')
+        if (-not [string]::IsNullOrWhiteSpace($action1Token)) {
+            $msiArgs += "INSTALLATION_TOKEN=$action1Token"
+        }
+        $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -PassThru
         if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
-            Write-Host '      Action1 instalado correctamente.' -ForegroundColor Green
+            Write-Host '      Action1 instalado y registrado correctamente.' -ForegroundColor Green
         } else {
             Write-Host "      Action1 devolvio codigo $($p.ExitCode) (revisar en consola Action1)." -ForegroundColor DarkYellow
         }
@@ -741,21 +1114,24 @@ if (-not [string]::IsNullOrWhiteSpace($action1Url)) {
     Write-Host '[3/5] URL de instalador Action1 no configurada aun (se omitio; puedes instalarlo despues desde SM TEG).' -ForegroundColor DarkGray
 }
 
-# 4. Registrar Tarea Programada con auto-arranque al iniciar sesion + reinicio automatico si falla
+# 4. Registrar Tarea Programada multi-usuario (arranca al iniciar sesion CUALQUIER usuario en la PC + reinicio automatico)
 Write-Host '[4/5] Registrando servicio programado TEG-Remote-Agent...' -ForegroundColor Yellow
 $taskName = 'TEG-Remote-Agent'
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$agentPath\`""
 $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+$principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\\Users' -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggerLogon -Principal $principal -Settings $settings -Force | Out-Null
 
 # 5. Arrancar el agente inmediatamente y verificar conexion con SM TEG
 Write-Host '[5/5] Iniciando agente y verificando conexion con SM TEG...' -ForegroundColor Yellow
-Start-ScheduledTask -TaskName $taskName
+try {
+    Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+} catch {}
+Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $agentPath) -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 3
 
 Write-Host ''

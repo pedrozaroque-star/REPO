@@ -71,6 +71,11 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'URL del instalador .msi de Action1 inválida' }, { status: 400 })
     }
 
+    const action1InstallToken =
+      typeof body?.action1InstallToken === 'string'
+        ? body.action1InstallToken.trim().slice(0, 512) || null
+        : undefined
+
     const rustdeskRelayHost =
       typeof body?.rustdeskRelayHost === 'string'
         ? body.rustdeskRelayHost.trim().slice(0, 180) || null
@@ -82,21 +87,23 @@ export async function PATCH(request: Request) {
 
     const defaultPcWatchdog = sanitizePcWatchdogConfig(body?.defaultPcWatchdog)
 
+    const upsertRow: Record<string, any> = {
+      id: 'global',
+      action1_org_url: action1OrgUrl || null,
+      action1_installer_url: action1InstallerUrl || null,
+      rustdesk_relay_host: rustdeskRelayHost,
+      rustdesk_public_key: rustdeskPublicKey,
+      default_pc_watchdog: defaultPcWatchdog,
+      updated_by: auth.userName || auth.email || 'Admin',
+      updated_at: new Date().toISOString(),
+    }
+    if (action1InstallToken !== undefined) {
+      upsertRow.action1_install_token = action1InstallToken
+    }
+
     const { data, error } = await supabaseAdmin
       .from('remote_fleet_settings')
-      .upsert(
-        {
-          id: 'global',
-          action1_org_url: action1OrgUrl || null,
-          action1_installer_url: action1InstallerUrl || null,
-          rustdesk_relay_host: rustdeskRelayHost,
-          rustdesk_public_key: rustdeskPublicKey,
-          default_pc_watchdog: defaultPcWatchdog,
-          updated_by: auth.userName || auth.email || 'Admin',
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
-      )
+      .upsert(upsertRow, { onConflict: 'id' })
       .select('*')
       .single()
 
