@@ -17,6 +17,7 @@
  *   - Fix 2026-11-21: reubicados `handleConsumeReplicateTodo` y `handleConsumeReplicateMessage` (`useCallback`) antes de los retornos tempranos (`if (loading)` / `if (isAuthorized === false)`) para cumplir estrictamente las Reglas de Hooks de React en todos los renders.
  *   - Fix 2026-11-21 (Cold-Load Deep-Link): hidratación resiliente de `project`, `tool`, `todoId`, `messageId` y `docId` desde `useSearchParams` + `window.location.search` en carga fría, soporte de `project` por `bc_id` o `UUID` (incluyendo proyectos archivados) e inferencia automática de herramienta cuando viene `todoId`/`messageId`/`docId`.
  *   - Autonomía Basecamp Standalone (2026-11-21): cero bloqueo OAuth al apagar Basecamp 3, switch Admin (`Modo Híbrido` <-> `Modo 100% Independiente TEG` + auto-corte), privacidad estricta por `bc_memberships` en Home/URLs/Buscador/Hey!/Mi Espacio, e interceptor delegado de enlaces históricos `https://(app|3).basecamp.com/5052386/buckets/...`.
+ *   - Rediseño SaaS Web + Móvil (2026-11-28): superficie única sin doble encajonado de paddings (`-mx-2 sm:mx-auto max-w-[1360px]`), barra superior sticky compacta `h-12` de 1 fila y modal Spotlight `Shift+J` adaptado a móvil (`max-h-[86dvh]`, títulos `line-clamp-2`).
  */
 
 'use client'
@@ -1370,9 +1371,9 @@ function BasecampWorkspace() {
 
     if (loading || authLoading) {
         return (
-            <div className="w-full min-h-[60vh] flex items-center justify-center bg-[#f4f1ea] dark:bg-slate-950 rounded-2xl">
+            <div className="-mx-2 sm:mx-auto sm:w-full max-w-[1360px] min-h-[60vh] flex items-center justify-center bg-white dark:bg-slate-900 sm:bg-[#FAF9F6] sm:dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1D7DB5] mx-auto mb-4"></div>
+                    <div className="animate-spin rounded-full h-9 w-9 border-2 border-slate-200 dark:border-slate-700 border-t-[#1D7DB5] mx-auto mb-3"></div>
                     <p className="text-slate-600 dark:text-slate-400 text-sm font-semibold">{t('basecamp.loading_bc')}</p>
                 </div>
             </div>
@@ -1381,7 +1382,7 @@ function BasecampWorkspace() {
 
     if (isAuthorized === false && !isStandaloneMode && !hasLocalData) {
         return (
-            <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
+            <div className="-mx-2 sm:mx-auto sm:w-full max-w-[1360px] min-h-[70vh] bg-white dark:bg-slate-900 sm:bg-[#FAF9F6] sm:dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-6 rounded-2xl flex items-center justify-center font-sans shadow-sm">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
                     <div className="w-16 h-16 rounded-2xl bg-blue-100 dark:bg-blue-950/40 text-[#1D7DB5] dark:text-blue-400 flex items-center justify-center mx-auto mb-6 shadow-inner">
                         <KeyRound size={32} />
@@ -1403,7 +1404,7 @@ function BasecampWorkspace() {
 
     if (allProjects.length === 0 && !syncing && !isStandaloneMode && oauthConnected && isAdmin) {
         return (
-            <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
+            <div className="-mx-2 sm:mx-auto sm:w-full max-w-[1360px] min-h-[70vh] bg-white dark:bg-slate-900 sm:bg-[#FAF9F6] sm:dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-6 rounded-2xl flex items-center justify-center font-sans shadow-sm">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
                     <div className="w-16 h-16 rounded-2xl bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-6 shadow-inner">
                         <RefreshCw size={32} />
@@ -1426,7 +1427,7 @@ function BasecampWorkspace() {
 
     if (syncing && allProjects.length === 0 && !isStandaloneMode) {
         return (
-            <div className="w-full min-h-[70vh] bg-[#f4f1ea] dark:bg-slate-950 p-6 rounded-2xl flex items-center justify-center font-sans">
+            <div className="-mx-2 sm:mx-auto sm:w-full max-w-[1360px] min-h-[70vh] bg-white dark:bg-slate-900 sm:bg-[#FAF9F6] sm:dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-6 rounded-2xl flex items-center justify-center font-sans shadow-sm">
                 <div className="max-w-md w-full bg-[#fffdf9] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-xl">
                     <div className="w-16 h-16 rounded-2xl bg-blue-100 dark:bg-blue-950/40 text-[#1D7DB5] flex items-center justify-center mx-auto mb-6 shadow-inner">
                         <RefreshCw size={32} className="animate-spin" />
@@ -1452,47 +1453,72 @@ function BasecampWorkspace() {
 
     const renderBasecampHeader = () => {
         const userInitial = String(currentUserName || '?').trim()[0] || '?'
+        const activeSectionLabel =
+            section === 'mystuff'
+                ? t('basecamp.my_stuff')
+                : section === 'pings' || pingUser
+                    ? t('basecamp.pings_short')
+                    : section === 'hey'
+                        ? t('basecamp.hey_short')
+                        : null
+
         return (
-            <header className="w-full bg-[#fcfaf6] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-2.5 px-3 sm:px-6 flex items-center justify-between gap-3 rounded-t-2xl shadow-sm">
-                <div className="flex items-center gap-2 shrink-0">
+            <header className="sticky top-14 lg:static z-30 w-full h-12 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)] px-2 sm:px-5 flex items-center justify-between gap-1.5 sm:gap-2 rounded-t-2xl">
+                <div className="min-w-0 flex items-center gap-1 sm:gap-1.5 flex-1">
                     <button
+                        type="button"
                         onClick={() => navigateTo({})}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-xs font-semibold text-slate-700 dark:text-slate-200"
+                        title={t('basecamp.home')}
+                        className="inline-flex items-center gap-1.5 h-8 px-1.5 sm:px-2.5 rounded-lg bg-slate-100/90 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors shrink-0 cursor-pointer"
                     >
-                        <Home size={14} />
+                        <Home size={14} className="text-[#1D7DB5] dark:text-sky-400 shrink-0" />
                         <span className="hidden sm:inline">{t('basecamp.home')}</span>
                     </button>
+
                     {projectId && currentProject && (
-                        <button
-                            onClick={() => navigateTo({ project: projectId })}
-                            className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-                        >
-                            <ArrowLeft size={12} />
-                            <span className="truncate max-w-[90px] sm:max-w-xs font-semibold">{currentProject.name}</span>
-                        </button>
+                        <>
+                            <span className="text-slate-300 dark:text-slate-700 text-sm font-medium select-none shrink-0">/</span>
+                            <button
+                                type="button"
+                                onClick={() => navigateTo({ project: projectId })}
+                                title={currentProject.name}
+                                className="truncate max-w-[140px] sm:max-w-[240px] md:max-w-[300px] text-xs sm:text-[13px] font-bold text-slate-800 dark:text-slate-100 hover:text-[#1D7DB5] dark:hover:text-sky-400 transition-colors cursor-pointer text-left"
+                            >
+                                {currentProject.name}
+                            </button>
+                        </>
+                    )}
+
+                    {!projectId && activeSectionLabel && (
+                        <>
+                            <span className="text-slate-300 dark:text-slate-700 text-sm font-medium select-none shrink-0">/</span>
+                            <span className="truncate max-w-[130px] sm:max-w-[220px] text-xs sm:text-[13px] font-bold text-slate-800 dark:text-slate-100">
+                                {activeSectionLabel}
+                            </span>
+                        </>
                     )}
                 </div>
 
-                <div className="flex items-center justify-end gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1">
+                <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
                     {isAdmin ? (
                         <button
                             type="button"
                             onClick={() => setShowModeModal(true)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-extrabold transition-all shrink-0 cursor-pointer ${
+                            className={`inline-flex items-center justify-center gap-1.5 h-8 px-1.5 sm:px-2 md:px-2.5 rounded-lg border text-[11px] font-extrabold transition-all shrink-0 cursor-pointer ${
                                 isStandaloneMode
-                                    ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
-                                    : 'bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border-blue-300 dark:border-blue-700 text-[#1D7DB5] dark:text-blue-300'
+                                    ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60 border-emerald-200/90 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border-blue-200/90 dark:border-blue-800 text-[#1D7DB5] dark:text-sky-300'
                             }`}
                             title={t('basecamp.mode_settings_title')}
                         >
-                            <span>{isStandaloneMode ? '🛡️' : '🔗'}</span>
-                            <span className="hidden sm:inline">
+                            <span className="text-xs leading-none">{isStandaloneMode ? '🛡️' : '🔗'}</span>
+                            <span className="hidden md:inline truncate md:max-w-[165px] lg:max-w-none">
                                 {isStandaloneMode ? t('basecamp.mode_standalone_badge') : t('basecamp.mode_hybrid_badge')}
                             </span>
                         </button>
                     ) : (
                         <div
-                            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0"
+                            className="hidden xl:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 shrink-0"
                             title={isStandaloneMode ? t('basecamp.mode_standalone_badge') : t('basecamp.auto_sync_tooltip')}
                         >
                             <span className={`w-1.5 h-1.5 rounded-full ${syncing && !isStandaloneMode ? 'bg-blue-500 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
@@ -1507,78 +1533,93 @@ function BasecampWorkspace() {
                     )}
 
                     <button
+                        type="button"
+                        onClick={() => setShowSearchModal(true)}
+                        title={`${t('basecamp.find')} (Shift + J)`}
+                        className="inline-flex items-center justify-center gap-1.5 h-8 px-1.5 sm:px-2.5 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                    >
+                        <Search size={15} className="shrink-0" />
+                        <span className="hidden md:inline">{t('basecamp.find')}</span>
+                        <kbd className="hidden lg:inline-flex items-center px-1 py-0.5 text-[10px] font-bold rounded bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200/80 dark:border-slate-700 leading-none">
+                            ⇧J
+                        </kbd>
+                    </button>
+
+                    <button
+                        type="button"
                         onClick={() => setHeyDrawerOpen(true)}
-                        className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
+                        title={t('basecamp.hey_short')}
+                        className={`relative inline-flex items-center justify-center gap-1.5 h-8 px-1.5 sm:px-2.5 rounded-lg text-xs font-bold transition-colors shrink-0 cursor-pointer ${
                             section === 'hey' || heyDrawerOpen
-                                ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                ? 'bg-blue-50 text-[#1D7DB5] dark:bg-blue-950/50 dark:text-sky-300'
+                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <Bell size={13} />
-                        <span className="hidden sm:inline">{t('basecamp.hey_short')}</span>
+                        <Bell size={15} className="shrink-0" />
+                        <span className="hidden md:inline">{t('basecamp.hey_short')}</span>
                         {unreadHeyCount > 0 && (
-                            <span className="bg-red-500 text-white font-black text-[9px] min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+                            <span className="absolute -top-0.5 -right-0.5 md:static bg-red-500 text-white font-black text-[9px] min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center leading-none shadow-xs">
                                 {unreadHeyCount}
                             </span>
                         )}
                     </button>
 
                     <button
+                        type="button"
                         onClick={() => navigateTo({ section: 'pings' })}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
+                        title={t('basecamp.pings_short')}
+                        className={`inline-flex items-center justify-center gap-1.5 h-8 px-1.5 sm:px-2.5 rounded-lg text-xs font-bold transition-colors shrink-0 cursor-pointer ${
                             section === 'pings' || pingUser
-                                ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                ? 'bg-blue-50 text-[#1D7DB5] dark:bg-blue-950/50 dark:text-sky-300'
+                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <MessageSquare size={13} />
-                        <span className="hidden sm:inline">{t('basecamp.pings_short')}</span>
+                        <MessageSquare size={15} className="shrink-0" />
+                        <span className="hidden md:inline">{t('basecamp.pings_short')}</span>
                     </button>
 
                     <button
+                        type="button"
                         onClick={() => navigateTo({ section: 'mystuff' })}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
+                        title={t('basecamp.my_stuff')}
+                        className={`inline-flex items-center justify-center gap-1.5 h-8 px-1.5 sm:px-2.5 rounded-lg text-xs font-bold transition-colors shrink-0 cursor-pointer ${
                             section === 'mystuff'
-                                ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                ? 'bg-blue-50 text-[#1D7DB5] dark:bg-blue-950/50 dark:text-sky-300'
+                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <User size={13} />
-                        <span className="hidden sm:inline">{t('basecamp.my_stuff')}</span>
-                    </button>
-
-                    <button
-                        onClick={() => setShowSearchModal(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shrink-0"
-                    >
-                        <Search size={13} />
-                        <span className="hidden sm:inline">{t('basecamp.find')}</span>
+                        <User size={15} className="shrink-0" />
+                        <span className="hidden md:inline">{t('basecamp.my_stuff')}</span>
                     </button>
 
                     {isAdmin && !isStandaloneMode && (
                         <button
+                            type="button"
                             onClick={() => void handleSync({ projectId: projectId || undefined })}
                             disabled={syncing}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shrink-0 ${
-                                syncing
-                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-800 cursor-not-allowed opacity-80'
-                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-dashed border-blue-300 dark:border-slate-700 hover:border-blue-400'
-                            }`}
                             title={syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}
+                            className={`inline-flex items-center justify-center gap-1.5 h-8 px-1.5 sm:px-2 xl:px-2.5 rounded-lg text-xs font-bold border transition-all shrink-0 ${
+                                syncing
+                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-[#1D7DB5] dark:text-sky-300 border-blue-200 dark:border-blue-800 cursor-not-allowed opacity-80'
+                                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200/90 dark:border-slate-700 cursor-pointer'
+                            }`}
                         >
-                            <RefreshCw size={13} className={syncing ? 'animate-spin text-blue-500' : ''} />
-                            <span>{syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}</span>
+                            <RefreshCw size={14} className={syncing ? 'animate-spin text-[#1D7DB5]' : ''} />
+                            <span className="hidden xl:inline">{syncing ? t('basecamp.syncing_in_progress') : t('basecamp.sync_btn')}</span>
                         </button>
                     )}
-                </div>
 
-                <div className="hidden md:flex items-center gap-2 shrink-0">
-                    <div className="w-8 h-8 rounded-full bg-[#1D7DB5] text-white font-bold flex items-center justify-center text-xs shadow-inner uppercase">
-                        {userInitial}
+                    <div
+                        className="hidden lg:flex items-center gap-1.5 pl-1.5 ml-0.5 border-l border-slate-200/80 dark:border-slate-800 shrink-0"
+                        title={currentUserName}
+                    >
+                        <div className="w-7 h-7 rounded-full bg-[#1D7DB5] text-white font-bold flex items-center justify-center text-[11px] uppercase">
+                            {userInitial}
+                        </div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate max-w-[90px]">
+                            {String(currentUserName || '').trim().split(/\s+/)[0]}
+                        </span>
                     </div>
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
-                        {String(currentUserName || '').trim().split(/\s+/)[0]}
-                    </span>
                 </div>
             </header>
         )
@@ -1790,11 +1831,11 @@ function BasecampWorkspace() {
     return (
         <div
             onClickCapture={(e) => void handleContainerLinkClick(e)}
-            className="relative w-full min-h-[85vh] bg-[#f4f1ea] dark:bg-slate-950 p-2 sm:p-4 md:p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-2xl flex flex-col font-sans pb-16"
+            className="-mx-2 sm:mx-auto sm:w-full max-w-[1360px] relative min-h-[82vh] bg-white dark:bg-slate-900 sm:bg-[#FAF9F6] sm:dark:bg-slate-950/90 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-x-clip flex flex-col font-sans"
         >
             {!isHome && renderBasecampHeader()}
 
-            <main className={`flex-1 bg-[#fffdf9] dark:bg-slate-900 rounded-2xl p-4 sm:p-6 md:p-8 min-h-[60vh] flex flex-col ${!isHome ? 'border-x border-b border-slate-200 dark:border-slate-800 rounded-t-none' : 'border border-slate-200/60 dark:border-slate-800'}`}>
+            <main className="flex-1 px-2.5 py-3 sm:px-5 sm:py-5 md:px-7 md:py-6 pb-8 min-w-0 flex flex-col">
                 {renderWorkspaceContent()}
             </main>
 
@@ -1812,46 +1853,55 @@ function BasecampWorkspace() {
             {/* Modal de Búsqueda global (Find / Shift + J) */}
             {showSearchModal && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                    className="fixed inset-0 z-[110] flex items-start pt-3 sm:pt-0 sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/50 backdrop-blur-xs"
                     onClick={(e) => { if (e.target === e.currentTarget) closeSearchModal() }}
                 >
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
-                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-                            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                                <Search size={20} className="text-[#1D7DB5]" />
-                                {t('basecamp.find')}
-                            </h3>
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl max-w-2xl w-full max-h-[86dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+                        <div className="px-3.5 sm:px-5 py-3 border-b border-slate-200/80 dark:border-slate-800 flex items-center gap-2.5 shrink-0">
+                            <Search size={18} className="text-[#1D7DB5] dark:text-sky-400 shrink-0" />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => handleSearchInput(e.target.value)}
+                                placeholder={t('basecamp.search_placeholder')}
+                                className="flex-1 min-w-0 bg-transparent text-sm sm:text-[15px] font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
+                                autoFocus
+                            />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleSearchInput('')}
+                                    className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 cursor-pointer"
+                                    title={t('basecamp.clear_filter')}
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
                             <button
+                                type="button"
                                 onClick={closeSearchModal}
-                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-700"
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold text-[11px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer"
                             >
                                 {t('basecamp.esc_key')}
                             </button>
                         </div>
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => handleSearchInput(e.target.value)}
-                            placeholder={t('basecamp.search_placeholder')}
-                            className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5]"
-                            autoFocus
-                        />
 
+                        <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-3">
                         {searchQuery.trim().length > 0 && searchQuery.trim().length < 3 && (
-                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 text-center">
+                            <p className="text-xs text-slate-400 dark:text-slate-500 py-4 text-center">
                                 {t('basecamp.search_min_chars')}
                             </p>
                         )}
 
                         {searchLoading && (
-                            <div className="flex items-center justify-center gap-2 py-6">
+                            <div className="flex items-center justify-center gap-2 py-8">
                                 <Loader2 size={18} className="animate-spin text-[#1D7DB5]" />
                                 <span className="text-sm text-slate-500 dark:text-slate-400 font-semibold">{t('basecamp.search_searching')}</span>
                             </div>
                         )}
 
                         {!searchLoading && searchQuery.trim().length >= 3 && (
-                            <div className="mt-4 max-h-[480px] overflow-y-auto flex flex-col gap-4">
+                            <div className="flex flex-col gap-4">
                                 {searchResults.length === 0 ? (
                                     <div className="text-center py-6">
                                         <Search size={32} className="mx-auto mb-2 text-slate-400" />
@@ -1906,23 +1956,44 @@ function BasecampWorkspace() {
                                                                         closeSearchModal()
                                                                     }
                                                                 }}
-                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm cursor-pointer"
+                                                                className="w-full flex flex-col gap-2 p-3 sm:p-3.5 rounded-xl bg-slate-50/70 hover:bg-slate-100/80 dark:bg-slate-800/40 dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-800 text-left transition-all duration-150 cursor-pointer min-w-0"
                                                             >
-                                                                <div className="flex items-start justify-between gap-2.5 w-full">
-                                                                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+                                                                <div className="flex items-start justify-between gap-2 w-full min-w-0">
+                                                                    <div className="flex items-start gap-2 min-w-0 flex-1">
                                                                         <CheckSquare
                                                                             size={16}
-                                                                            className={r.isCompleted ? 'text-emerald-600 flex-shrink-0' : 'text-[#1D7DB5] flex-shrink-0'}
+                                                                            className={`mt-0.5 shrink-0 ${r.isCompleted ? 'text-emerald-600' : 'text-[#1D7DB5]'}`}
                                                                         />
                                                                         <span
-                                                                            className={`text-sm font-extrabold truncate max-w-[280px] sm:max-w-[340px] ${
+                                                                            className={`text-sm font-bold leading-snug line-clamp-2 break-words min-w-0 flex-1 ${
                                                                                 r.isCompleted
                                                                                     ? 'text-slate-600 dark:text-slate-300 line-through decoration-slate-400/70'
-                                                                                    : 'text-slate-800 dark:text-slate-100'
+                                                                                    : 'text-slate-900 dark:text-slate-100'
                                                                             }`}
                                                                         >
                                                                             {r.label}
                                                                         </span>
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            closeSearchModal()
+                                                                            navigateTo({
+                                                                                project: r.projectId,
+                                                                                tool: 'todos',
+                                                                                replicateTodoId: r.id,
+                                                                            })
+                                                                        }}
+                                                                        title={t('basecamp.replicate_task_tooltip')}
+                                                                        className="inline-flex items-center gap-1 h-7 px-2 sm:px-2.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] active:bg-[#0E4A6E] text-white text-[11px] font-bold shadow-xs transition-all shrink-0 cursor-pointer"
+                                                                    >
+                                                                        <span>📋</span>
+                                                                        <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
+                                                                    </button>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold min-w-0 flex-wrap">
                                                                         <span
                                                                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border shrink-0 ${
                                                                                 r.isCompleted
@@ -1938,27 +2009,6 @@ function BasecampWorkspace() {
                                                                                 {r.imageCount > 1 && <span>{r.imageCount}</span>}
                                                                             </span>
                                                                         )}
-                                                                    </div>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation()
-                                                                            closeSearchModal()
-                                                                            navigateTo({
-                                                                                project: r.projectId,
-                                                                                tool: 'todos',
-                                                                                replicateTodoId: r.id,
-                                                                            })
-                                                                        }}
-                                                                        title={t('basecamp.replicate_task_tooltip')}
-                                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] active:bg-[#0E4A6E] text-white text-[11px] font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
-                                                                    >
-                                                                        <span>📋</span>
-                                                                        <span>{t('basecamp.replicate_task')}</span>
-                                                                    </button>
-                                                                </div>
-                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold min-w-0 flex-wrap">
                                                                         <span className="bg-blue-50 dark:bg-blue-950/30 text-[#1D7DB5] dark:text-blue-300 px-1.5 py-0.5 rounded truncate max-w-[180px]">
                                                                             {r.projectName}
                                                                         </span>
@@ -2017,14 +2067,35 @@ function BasecampWorkspace() {
                                                                         closeSearchModal()
                                                                     }
                                                                 }}
-                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm cursor-pointer"
+                                                                className="w-full flex flex-col gap-2 p-3 sm:p-3.5 rounded-xl bg-slate-50/70 hover:bg-slate-100/80 dark:bg-slate-800/40 dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-800 text-left transition-all duration-150 cursor-pointer min-w-0"
                                                             >
-                                                                <div className="flex items-start justify-between gap-2.5 w-full">
-                                                                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
-                                                                        <Mail size={16} className="text-amber-500 flex-shrink-0" />
-                                                                        <span className="text-sm font-extrabold text-slate-800 dark:text-slate-100 truncate max-w-[280px] sm:max-w-[340px]">
+                                                                <div className="flex items-start justify-between gap-2 w-full min-w-0">
+                                                                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                                                                        <Mail size={16} className="mt-0.5 text-amber-500 shrink-0" />
+                                                                        <span className="text-sm font-bold leading-snug line-clamp-2 break-words min-w-0 flex-1 text-slate-900 dark:text-slate-100">
                                                                             {r.label}
                                                                         </span>
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            closeSearchModal()
+                                                                            navigateTo({
+                                                                                project: r.projectId,
+                                                                                tool: 'messages',
+                                                                                replicateMessageId: r.id,
+                                                                            })
+                                                                        }}
+                                                                        title={t('basecamp.replicate_message_tooltip')}
+                                                                        className="inline-flex items-center gap-1 h-7 px-2 sm:px-2.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] active:bg-[#0E4A6E] text-white text-[11px] font-bold shadow-xs transition-all shrink-0 cursor-pointer"
+                                                                    >
+                                                                        <span>📋</span>
+                                                                        <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
+                                                                    </button>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold min-w-0 flex-wrap">
                                                                         {r.isPinned && (
                                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[10px] font-extrabold text-amber-700 dark:text-amber-300 shrink-0">
                                                                                 <span>📌</span>
@@ -2046,27 +2117,6 @@ function BasecampWorkspace() {
                                                                                 {r.videoCount > 1 && <span>{r.videoCount}</span>}
                                                                             </span>
                                                                         )}
-                                                                    </div>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation()
-                                                                            closeSearchModal()
-                                                                            navigateTo({
-                                                                                project: r.projectId,
-                                                                                tool: 'messages',
-                                                                                replicateMessageId: r.id,
-                                                                            })
-                                                                        }}
-                                                                        title={t('basecamp.replicate_message_tooltip')}
-                                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] active:bg-[#0E4A6E] text-white text-[11px] font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
-                                                                    >
-                                                                        <span>📋</span>
-                                                                        <span>{t('basecamp.replicate_message')}</span>
-                                                                    </button>
-                                                                </div>
-                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold min-w-0 flex-wrap">
                                                                         <span className="bg-blue-50 dark:bg-blue-950/30 text-[#1D7DB5] dark:text-blue-300 px-1.5 py-0.5 rounded truncate max-w-[200px]">
                                                                             {r.projectName}
                                                                         </span>
@@ -2109,24 +2159,26 @@ function BasecampWorkspace() {
                                                             <button
                                                                 key={`doc-${r.id}`}
                                                                 onClick={() => { navigateTo({ project: r.projectId, tool: 'docs', docId: r.id }); closeSearchModal() }}
-                                                                className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200 dark:border-slate-800 text-left transition-all duration-200 shadow-sm"
+                                                                className="w-full flex flex-col gap-2 p-3 sm:p-3.5 rounded-xl bg-slate-50/70 hover:bg-slate-100/80 dark:bg-slate-800/40 dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-800 text-left transition-all duration-150 cursor-pointer min-w-0"
                                                             >
-                                                                <div className="flex items-center gap-2 w-full">
-                                                                    <FolderOpen size={16} className="text-blue-500 flex-shrink-0" />
-                                                                    <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex-1 truncate">
+                                                                <div className="flex items-start gap-2 w-full min-w-0">
+                                                                    <FolderOpen size={16} className="mt-0.5 text-amber-500 shrink-0" />
+                                                                    <span className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100 flex-1 min-w-0 line-clamp-2 break-words">
                                                                         {r.label}
                                                                     </span>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2 flex-wrap w-full">
+                                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#1D7DB5] dark:text-blue-300 min-w-0">
+                                                                        <span className="text-[10px] uppercase tracking-wider text-slate-400 shrink-0">{t('basecamp.search_in_project')}:</span>
+                                                                        <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded truncate max-w-[200px]">
+                                                                            {r.projectName}
+                                                                        </span>
+                                                                    </div>
                                                                     {r.createdAt && (
-                                                                        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex-shrink-0">
+                                                                        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 shrink-0">
                                                                             {formatSearchDateTime(r.createdAt, language)}
                                                                         </span>
                                                                     )}
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1D7DB5] uppercase tracking-wider">
-                                                                    <span>{t('basecamp.search_in_project')}:</span>
-                                                                    <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded">
-                                                                        {r.projectName}
-                                                                    </span>
                                                                 </div>
                                                                 {cleanSnippet && (
                                                                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
@@ -2167,10 +2219,11 @@ function BasecampWorkspace() {
                         )}
 
                         {searchQuery.trim().length === 0 && (
-                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 text-center">
+                            <p className="text-xs text-slate-400 dark:text-slate-500 py-4 text-center">
                                 {t('basecamp.jump_description')}
                             </p>
                         )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -2178,10 +2231,10 @@ function BasecampWorkspace() {
             {/* Modal Admin: Modo de Operación y Autonomía (z-[120]) */}
             {isAdmin && showModeModal && (
                 <div
-                    className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    className="fixed inset-0 z-[120] flex items-center justify-center p-2.5 sm:p-4 bg-black/50 backdrop-blur-sm"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowModeModal(false) }}
                 >
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full max-h-[90dvh] overflow-y-auto p-4 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
                             <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                                 <span>{isStandaloneMode ? '🛡️' : '🔗'}</span>
@@ -2308,9 +2361,9 @@ export default function BasecampPage() {
     const { t } = useLanguage()
     return (
         <Suspense fallback={
-            <div className="w-full min-h-[60vh] flex items-center justify-center bg-[#f4f1ea] dark:bg-slate-950 rounded-2xl">
+            <div className="-mx-2 sm:mx-auto sm:w-full max-w-[1360px] min-h-[60vh] flex items-center justify-center bg-white dark:bg-slate-900 sm:bg-[#FAF9F6] sm:dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1D7DB5] mx-auto mb-4"></div>
+                    <div className="animate-spin rounded-full h-9 w-9 border-2 border-slate-200 dark:border-slate-700 border-t-[#1D7DB5] mx-auto mb-3"></div>
                     <p className="text-slate-600 dark:text-slate-400 text-sm font-semibold">{t('basecamp.loading_bc')}</p>
                 </div>
             </div>

@@ -50,6 +50,9 @@ import {
     injectImageDownloadOverlays,
     triggerBasecampDownload,
     buildBasecampDirectDownloadHref,
+    transformBasecampMentionsToPills,
+    formatBasecampRichHtmlForDisplay,
+    BASECAMP_RICH_CONTENT_CSS,
     BASECAMP_IMAGE_HOVER_CSS,
 } from '@/lib/basecamp-html'
 
@@ -204,7 +207,9 @@ function parseEventDescriptionAndLocation(rawDesc?: string | null): {
     )
     let safeHtml: string
     if (hasHtmlTags) {
-        safeHtml = rewriteBasecampHtmlUrls(withoutLoc).replace(
+        safeHtml = rewriteBasecampHtmlUrls(
+            transformBasecampMentionsToPills(withoutLoc)
+        ).replace(
             /<bc-attachment\b[^>]*>([\s\S]*?)<\/bc-attachment>/gi,
             '$1'
         )
@@ -269,7 +274,15 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
             return
         }
         if (target.tagName === 'IMG') {
-            const imgSrc = (target as HTMLImageElement).src
+            const imgEl = target as HTMLImageElement
+            if (
+                imgEl.classList.contains('avatar') ||
+                imgEl.hasAttribute('data-avatar-for-person-id') ||
+                imgEl.hasAttribute('data-bc-avatar')
+            ) {
+                return
+            }
+            const imgSrc = imgEl.src
             if (imgSrc) {
                 e.preventDefault()
                 e.stopPropagation()
@@ -669,7 +682,7 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
         const pacificToday = getPacificTodayStr()
 
         return (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl p-2 sm:p-4 shadow-sm">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-2 sm:p-4 shadow-xs min-w-0 overflow-hidden">
                 {/* Month navigation */}
                 <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-800 pb-2">
                     <h4 className="text-sm font-black text-slate-800 dark:text-slate-200 capitalize">
@@ -706,7 +719,7 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                 </div>
 
                 {/* Calendar Days */}
-                <div className="grid grid-cols-7 gap-0.5 sm:gap-1 bg-slate-100/50 dark:bg-slate-800 p-0.5 sm:p-1 rounded-xl">
+                <div className="grid grid-cols-7 gap-0.5 sm:gap-1 bg-slate-100/50 dark:bg-slate-800 p-0.5 sm:p-1 rounded-xl min-w-0">
                     {gridCells.map((cell, idx) => {
                         const cellYear = cell.date.getFullYear()
                         const cellMonth = String(cell.date.getMonth() + 1).padStart(2, '0')
@@ -730,7 +743,7 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                                         openAddFormForDate(cellDateStr)
                                     }
                                 }}
-                                className={`min-h-[56px] sm:min-h-[76px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/40 p-1 sm:p-1.5 rounded-md sm:rounded-lg flex flex-col justify-between transition-colors ${
+                                className={`min-w-0 min-h-[56px] sm:min-h-[76px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/40 p-1 sm:p-1.5 rounded-md sm:rounded-lg flex flex-col justify-between transition-colors ${
                                     cell.isCurrentMonth
                                         ? 'cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/70'
                                         : 'opacity-40'
@@ -771,8 +784,8 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
     }
 
     return (
-        <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col gap-6">
-            <style dangerouslySetInnerHTML={{ __html: BASECAMP_IMAGE_HOVER_CSS }} />
+        <div className="flex-1 max-w-4xl mx-auto px-0 sm:px-2 w-full min-w-0 flex flex-col gap-4 sm:gap-6">
+            <style dangerouslySetInnerHTML={{ __html: `${BASECAMP_RICH_CONTENT_CSS}\n${BASECAMP_IMAGE_HOVER_CSS}` }} />
             {/* Cabecera */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center gap-3">
@@ -849,7 +862,7 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
 
             {/* Modal / Tarjeta de Detalle de Evento seleccionado desde Calendario */}
             {selectedEvent && !showAddForm && (
-                <div className="bg-[#fcfaf6] dark:bg-slate-900 border border-purple-200 dark:border-purple-900/60 p-5 rounded-2xl shadow-md">
+                <div className="bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900/60 p-4 sm:p-5 rounded-2xl shadow-sm min-w-0">
                     <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-2.5 mb-3">
                         <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400">
                             {t('basecamp.event_details_title')}
@@ -910,8 +923,13 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                                 {parsed.notesHtml && (
                                     <div
                                         onClick={handleScheduleHtmlClick}
-                                        className="text-xs text-slate-700 dark:text-slate-300 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 leading-relaxed break-words [&_a]:text-purple-600 dark:[&_a]:text-purple-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-2"
-                                        dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(parsed.notesHtml, t('basecamp.download_btn')) }}
+                                        className="bc-rich-text w-full min-w-0 !text-[13.5px] sm:!text-[14.5px] text-slate-700 dark:text-slate-300 mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800"
+                                        dangerouslySetInnerHTML={{
+                                            __html: injectImageDownloadOverlays(
+                                                formatBasecampRichHtmlForDisplay(parsed.notesHtml),
+                                                t('basecamp.download_btn')
+                                            ),
+                                        }}
                                     />
                                 )}
 
@@ -941,7 +959,7 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
 
             {/* ── 1. FORMULARIO DE CREACIÓN ── */}
             {showAddForm && (
-                <div className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 p-6 rounded-2xl shadow-sm">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6 rounded-2xl shadow-xs min-w-0">
                     <button
                         type="button"
                         onClick={() => setShowAddForm(false)}
@@ -1149,9 +1167,12 @@ export default function ToolSchedule({ project }: ToolScheduleProps) {
                                                 {parsed.notesHtml && (
                                                     <div
                                                         onClick={handleScheduleHtmlClick}
-                                                        className="text-[11px] text-slate-600 dark:text-slate-300 mt-2 leading-relaxed break-words [&_a]:text-purple-600 dark:[&_a]:text-purple-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-1.5"
+                                                        className="bc-rich-text w-full min-w-0 !text-[13px] sm:!text-[13.5px] text-slate-600 dark:text-slate-300 mt-2"
                                                         dangerouslySetInnerHTML={{
-                                                            __html: injectImageDownloadOverlays(parsed.notesHtml, t('basecamp.download_btn')),
+                                                            __html: injectImageDownloadOverlays(
+                                                                formatBasecampRichHtmlForDisplay(parsed.notesHtml),
+                                                                t('basecamp.download_btn')
+                                                            ),
                                                         }}
                                                     />
                                                 )}

@@ -27,7 +27,7 @@
  *   - `complete_todo` / `uncomplete_todo` / `create_todo` / `update_todo` / `move_todo`
  *   - `create_todolist` / `update_todolist`
  *   - `create_todolist_group` / `update_todolist_group`
- *   - `create_message` / `update_message` / `pin_message` / `unpin_message`
+ *   - `create_message` / `update_message` / `pin_message` / `unpin_message` / `get_message_subscribers` / `update_message_subscribers`
  *   - `create_comment` / `update_comment`
  *   - `create_boost` / `delete_boost`
  *   - `create_campfire_line` / `create_answer` / `create_schedule_entry`
@@ -63,6 +63,8 @@ import {
   fetchMessageCategories as bcFetchMessageCategories,
   pinRecordingRemote as bcPinRecordingRemote,
   unpinRecordingRemote as bcUnpinRecordingRemote,
+  fetchRecordingSubscription as bcFetchRecordingSubscription,
+  updateRecordingSubscription as bcUpdateRecordingSubscription,
   createCampfireLine as bcCreateCampfireLine,
   createComment as bcCreateComment,
   updateCommentRemote as bcUpdateCommentRemote,
@@ -3232,6 +3234,174 @@ export async function POST(request: Request) {
           id: existingMsg.id,
           bc_id: existingMsg.bc_id,
           is_pinned: targetPinned,
+        })
+      }
+
+      case 'get_message_subscribers': {
+        const messageDbId = args.messageDbId || args.messageId || args.id
+        if (!messageDbId) throw new Error('Missing required parameter: messageDbId')
+
+        const [{ data: existingMsg }, { data: peopleRows }, { data: notifRows }] = await Promise.all([
+          supabase
+            .from('bc_messages')
+            .select('id, bc_id, project_id, author_person_id')
+            .eq('id', messageDbId)
+            .eq('project_id', projectUuid)
+            .maybeSingle(),
+          supabase
+            .from('bc_people')
+            .select('id, bc_id, name, email, is_active')
+            .eq('is_active', true)
+            .limit(5000),
+          supabase
+            .from('bc_notifications')
+            .select('person_id')
+            .eq('recording_id', messageDbId)
+            .eq('recording_type', 'message'),
+        ])
+
+        if (!existingMsg) {
+          return NextResponse.json({ error: 'Message not found in project' }, { status: 404 })
+        }
+
+        const uuidByBcId = new Map<number, string>()
+        for (const p of peopleRows || []) {
+          if (p.bc_id != null && p.id) uuidByBcId.set(Number(p.bc_id), String(p.id))
+        }
+
+        const subUuids = new Set<string>()
+        if (existingMsg.author_person_id) subUuids.add(String(existingMsg.author_person_id))
+        for (const n of notifRows || []) {
+          if (n.person_id) subUuids.add(String(n.person_id))
+        }
+
+        let remoteCount: number | null = null
+        let source: 'hybrid' | 'standalone' = 'standalone'
+        if (!args.skipRemoteMirror && isRealBasecampId(existingMsg.bc_id) && isRealBasecampId(bcProjectId)) {
+          const remoteSub = await basecampBestEffort('get_message_subscribers', () =>
+            bcFetchRecordingSubscription(bcProjectId, Number(existingMsg.bc_id))
+          )
+          if (remoteSub && Array.isArray(remoteSub.subscribers)) {
+            source = 'hybrid'
+            remoteCount = Number(remoteSub.count ?? remoteSub.subscribers.length)
+            for (const sp of remoteSub.subscribers) {
+              const localUuid = uuidByBcId.get(Number(sp.id))
+              if (localUuid) subUuids.add(localUuid)
+            }
+          }
+        }
+
+        return NextResponse.json({
+          success: true,
+          messageDbId: existingMsg.id,
+          subscriberPersonUuids: Array.from(subUuids),
+          remoteCount,
+          source,
+        })
+      }
+
+      case 'update_message_subscribers': {
+        const messageDbId = args.messageDbId || args.messageId || args.id
+        if (!messageDbId) throw new Error('Missing required parameter: messageDbId')
+
+        const { data: existingMsg } = await supabase
+          .from('bc_messages')
+          .select('id, bc_id, project_id, title')
+          .eq('id', messageDbId)
+          .eq('project_id', projectUuid)
+          .maybeSingle()
+
+        if (!existingMsg) {
+          return NextResponse.json({ error: 'Message not found in project' }, { status: 404 })
+        }
+
+        const [addPersonUuids, removePersonUuids] = await Promise.all([
+          validatePersonIdsInDb(supabase, args.addPersonUuids),
+          validatePersonIdsInDb(supabase, args.removePersonUuids),
+        ])
+        const addSet = new Set(addPersonUuids)
+        const finalRemoveUuids = removePersonUuids.filter((id) => !addSet.has(id))
+        const notifyNewPeople = args.notifyNewPeople !== false
+
+        let remoteSynced = false
+        let remoteSubscriberCount: number | null = null
+
+        const targetUuids = Array.from(new Set([...addPersonUuids, ...finalRemoveUuids]))
+        if (targetUuids.length > 0 && !args.skipRemoteMirror && isRealBasecampId(existingMsg.bc_id) && isRealBasecampId(bcProjectId)) {
+          const { data: targetPeople } = await supabase
+            .from('bc_people')
+            .select('id, bc_id')
+            .in('id', targetUuids)
+
+          const bcIdByUuid = new Map<string, number>()
+          for (const p of targetPeople || []) {
+            if (p.id && isRealBasecampId(p.bc_id)) bcIdByUuid.set(String(p.id), Number(p.bc_id))
+          }
+
+          const addBcIds = addPersonUuids.map((u) => bcIdByUuid.get(u)).filter((n): n is number => Boolean(n))
+          const removeBcIds = finalRemoveUuids.map((u) => bcIdByUuid.get(u)).filter((n): n is number => Boolean(n))
+
+          if (addBcIds.length > 0 || removeBcIds.length > 0) {
+            const remoteRes = await basecampBestEffort('update_message_subscribers', () =>
+              bcUpdateRecordingSubscription(bcProjectId, Number(existingMsg.bc_id), {
+                subscriptions: addBcIds,
+                unsubscriptions: removeBcIds,
+              })
+            )
+            if (remoteRes) {
+              remoteSynced = true
+              remoteSubscriberCount = Number(remoteRes.count ?? remoteRes.subscribers?.length ?? 0)
+            }
+          }
+        }
+
+        let emailSent = false
+        let emailRecipients: string[] = []
+        let inAppInsertedCount = 0
+
+        if (notifyNewPeople && addPersonUuids.length > 0) {
+          if (args.skipEmailNotification) {
+            const inAppRes = await createBasecampInAppNotifications({
+              projectUuid,
+              recordingType: 'message',
+              recordingUuid: existingMsg.id,
+              actorPersonId: authorPersonId,
+              actorName: authorDisplayName,
+              actorEmail: user.email,
+              title: existingMsg.title || 'Anuncio',
+              involvedPersonIds: addPersonUuids,
+              defaultType: 'message',
+              allowActorInTargets: true,
+            })
+            inAppInsertedCount = inAppRes.insertedCount
+          } else {
+            const notifyRes = await sendBasecampMessageNotificationEmail({
+              event: 'published',
+              messageDbId: existingMsg.id,
+              actorPersonId: authorPersonId,
+              actorName: authorDisplayName,
+              actorEmail: user.email,
+              notifyMode: 'selected',
+              selectedPersonIds: addPersonUuids,
+              appOrigin: reqOrigin,
+              skipInAppNotifications: false,
+            })
+            emailSent = Boolean(notifyRes?.sent)
+            emailRecipients = notifyRes?.recipients || []
+            inAppInsertedCount = notifyRes?.inAppInsertedCount || 0
+          }
+        }
+
+        return NextResponse.json({
+          success: true,
+          messageDbId: existingMsg.id,
+          addedPersonUuids: addPersonUuids,
+          removedPersonUuids: finalRemoveUuids,
+          remoteSynced,
+          remoteSubscriberCount,
+          emailSent,
+          emailRecipients,
+          inAppInsertedCount,
         })
       }
 

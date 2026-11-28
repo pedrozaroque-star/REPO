@@ -19,6 +19,7 @@
  *   - `supabase` está memoizado con `useMemo` para evitar ciclos infinitos de re-render y re-suscripción Realtime.
  *   - Limpia banners `<p data-teg-author=...>` y entidades HTML en las vistas previas, y usa clases Tailwind estándar.
  *   - Autonomía Standalone (2026-11-21): modales nativos para Admin (`z-[120]`) de `👥 Personas y accesos` (`update_project_members` + `list_manageable_people`) y `⚙️ Configurar proyecto` (`update_project`, herramientas `enabled_tools` y archivar).
+ *   - Rediseño Dashboard Proyecto Web + Móvil (2026-11-28): cabecera compacta con avatares y controles Admin en 1 sola fila, estado `loadingPreviews` con skeletons para evitar parpadeos falsos de vacío, tarjetas con badges suaves por herramienta (`min-w-0 overflow-hidden`) y línea de tiempo escaneable.
  */
 
 'use client'
@@ -315,6 +316,7 @@ export default function BasecampProject({
     const [manualProgress, setManualProgress] = useState(0)
 
     // ───── Enriched state variables ─────
+    const [loadingPreviews, setLoadingPreviews] = useState(true)
     const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
     const [activePeopleCount, setActivePeopleCount] = useState(0)
     const [activePeopleAvatars, setActivePeopleAvatars] = useState<string[]>([])
@@ -380,9 +382,14 @@ export default function BasecampProject({
     // ───── Data Fetching ─────
     useEffect(() => {
         let cancelled = false
+        let initialLoad = true
+        setLoadingPreviews(true)
 
         const fetchProjectDetails = async () => {
-            if (!project.db_id) return
+            if (!project.db_id) {
+                if (!cancelled) setLoadingPreviews(false)
+                return
+            }
 
             try {
                 const sevenDaysAgo = new Date()
@@ -745,6 +752,11 @@ export default function BasecampProject({
                 }
             } catch (err: any) {
                 console.error('Error loading project dashboard:', err.message)
+            } finally {
+                if (!cancelled && initialLoad) {
+                    initialLoad = false
+                    setLoadingPreviews(false)
+                }
             }
         }
 
@@ -1153,7 +1165,18 @@ export default function BasecampProject({
         }
     }
 
-    const hintShortParts = t('basecamp.search_jump_hint_short').split('Shift + J')
+    void onOpenSearch
+
+    const renderToolSkeleton = (rows: number = 3) => (
+        <div className="space-y-2.5 py-1 flex-1" aria-hidden="true">
+            {Array.from({ length: rows }).map((_, idx) => (
+                <div key={idx} className="space-y-1.5">
+                    <div className={`animate-pulse bg-slate-100 dark:bg-slate-800 rounded h-3.5 ${idx % 2 === 0 ? 'w-4/5' : 'w-3/5'}`} />
+                    <div className="animate-pulse bg-slate-100/70 dark:bg-slate-800/70 rounded h-2.5 w-1/2" />
+                </div>
+            ))}
+        </div>
+    )
 
     if (replicateMessageId || selectedMessageId || latchedMessagesTool) {
         return (
@@ -1184,105 +1207,95 @@ export default function BasecampProject({
     }
 
     return (
-        <div className="flex-1 flex flex-col gap-6">
+        <div className="flex-1 flex flex-col gap-4 sm:gap-5 min-w-0">
             {/* ════════════════════════════════════════════════
-                SECTION 1: PROJECT HEADER
+                SECTION 1: COMPACT PROJECT HEADER (1 Row Desktop, 2 Compact Rows Mobile)
             ════════════════════════════════════════════════ */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-3 sm:pb-4 min-w-0">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                         <button
+                            type="button"
                             onClick={() => navigateTo({})}
-                            className="text-sm text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-bold"
+                            className="text-xs font-semibold text-slate-400 dark:text-slate-500 hover:text-[#1D7DB5] dark:hover:text-sky-400 transition-colors cursor-pointer shrink-0"
                         >
                             {t('basecamp.home')}
                         </button>
-                        <span className="text-slate-300">/</span>
-                        <span className="text-sm text-slate-400 font-bold uppercase tracking-wider">{project.name}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <h1 className="text-3xl font-black text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
+                        <span className="text-slate-300 dark:text-slate-700 text-sm select-none shrink-0">/</span>
+                        <h1 className="text-lg sm:text-2xl md:text-[26px] font-extrabold text-slate-900 dark:text-slate-50 tracking-tight leading-tight truncate min-w-0">
                             {project.name}
                         </h1>
                         <button
+                            type="button"
                             onClick={togglePin}
-                            className={`p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 ${
-                                project.is_pinned ? 'text-amber-500' : 'text-slate-400'
+                            className={`p-1.5 rounded-lg border border-slate-200/90 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 shrink-0 cursor-pointer transition-colors ${
+                                project.is_pinned ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'
                             }`}
                             title={project.is_pinned ? t('basecamp.unstar_project') : t('basecamp.star_project')}
                         >
-                            <Star size={16} fill={project.is_pinned ? 'currentColor' : 'none'} />
+                            <Star size={14} fill={project.is_pinned ? 'currentColor' : 'none'} />
                         </button>
                     </div>
+                    {project.description && String(project.description).trim() && (
+                        <p className="text-xs sm:text-[13px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+                            {project.description}
+                        </p>
+                    )}
                 </div>
 
-                <div className="flex flex-col md:items-end gap-2.5">
-                    <div className="flex items-center gap-2.5 flex-wrap md:justify-end">
-                        <div
-                            onClick={isAdmin ? () => void openMembersModal() : undefined}
-                            role={isAdmin ? 'button' : undefined}
-                            tabIndex={isAdmin ? 0 : undefined}
-                            onKeyDown={isAdmin ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); void openMembersModal() } } : undefined}
-                            className={`flex -space-x-2 ${isAdmin ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
-                            title={isAdmin ? t('basecamp.manage_members_btn') : undefined}
-                        >
-                            {membersToShow.slice(0, 5).map((m: any, idx: number) => {
-                                const mName = m?.name || t('basecamp.unknown_user')
-                                return (
-                                    <div
-                                        key={m?.id || idx}
-                                        className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-black text-white"
-                                        style={{ backgroundColor: getAvatarColor(mName) }}
-                                        title={mName}
-                                    >
-                                        {getInitials(mName)}
-                                    </div>
-                                )
-                            })}
-                            {memberCount > 5 && (
-                                <div className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                                    +{memberCount - 5}
+                {/* Single Compact Row: Avatars + [👥 N] + [⚙️] */}
+                <div className="flex items-center justify-between sm:justify-start md:justify-end gap-2 shrink-0 min-w-0">
+                    <div
+                        onClick={isAdmin ? () => void openMembersModal() : undefined}
+                        role={isAdmin ? 'button' : undefined}
+                        tabIndex={isAdmin ? 0 : undefined}
+                        onKeyDown={isAdmin ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); void openMembersModal() } } : undefined}
+                        className={`flex -space-x-1.5 overflow-hidden ${isAdmin ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+                        title={isAdmin ? t('basecamp.manage_members_btn') : undefined}
+                    >
+                        {membersToShow.slice(0, 5).map((m: any, idx: number) => {
+                            const mName = m?.name || t('basecamp.unknown_user')
+                            return (
+                                <div
+                                    key={m?.id || idx}
+                                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full ring-2 ring-white dark:ring-slate-900 flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                    style={{ backgroundColor: getAvatarColor(mName) }}
+                                    title={mName}
+                                >
+                                    {getInitials(mName)}
                                 </div>
-                            )}
-                        </div>
-                        {isAdmin && (
-                            <>
-                                <button
-                                    type="button"
-                                    onClick={() => void openMembersModal()}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[#1D7DB5] dark:text-blue-300 text-xs font-extrabold transition-colors cursor-pointer"
-                                >
-                                    <Users size={14} />
-                                    <span>{t('basecamp.manage_members_btn')}</span>
-                                    <span className="px-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 text-[10px] font-black">
-                                        {memberCount}
-                                    </span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={openConfigModal}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-extrabold transition-colors cursor-pointer"
-                                >
-                                    <Settings size={14} />
-                                    <span>{t('basecamp.edit_project_btn')}</span>
-                                </button>
-                            </>
+                            )
+                        })}
+                        {memberCount > 5 && (
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[10px] font-extrabold text-slate-600 dark:text-slate-300 shrink-0">
+                                +{memberCount - 5}
+                            </div>
                         )}
                     </div>
-                    {onOpenSearch && (
-                        <div
-                            onClick={onOpenSearch}
-                            className="border border-slate-200/60 dark:border-slate-800 bg-[#fffdf9] dark:bg-slate-900 px-3 py-1 rounded-lg text-[11px] font-semibold text-slate-500 dark:text-slate-400 shadow-inner cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all flex items-center gap-1.5"
-                        >
-                            {hintShortParts.length > 1 ? (
-                                <span>
-                                    {hintShortParts[0]}
-                                    <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[9px] mx-0.5 font-bold">J</kbd>
-                                    {hintShortParts[1]}
+
+                    {isAdmin && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => void openMembersModal()}
+                                title={t('basecamp.manage_members_btn')}
+                                className="inline-flex items-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800 text-[#1D7DB5] dark:text-sky-300 text-xs font-bold transition-colors cursor-pointer shrink-0"
+                            >
+                                <Users size={14} className="shrink-0" />
+                                <span className="hidden lg:inline">{t('basecamp.manage_members_btn')}</span>
+                                <span className="px-1.5 py-0.5 rounded-md bg-white dark:bg-slate-900 text-[10px] font-extrabold leading-none">
+                                    {memberCount}
                                 </span>
-                            ) : (
-                                <span>{t('basecamp.search_jump_hint_short')}</span>
-                            )}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={openConfigModal}
+                                title={t('basecamp.edit_project_btn')}
+                                className="inline-flex items-center justify-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-lg bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors cursor-pointer shrink-0"
+                            >
+                                <Settings size={14} className="shrink-0" />
+                                <span className="hidden lg:inline">{t('basecamp.edit_project_btn')}</span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -1292,40 +1305,44 @@ export default function BasecampProject({
                 SECTION 2: COMPACT PROGRESS BAR & ACTIVE TEAM SUMMARY
             ════════════════════════════════════════════════ */}
             {visibleTools.includes('todos') && (
-                <div className="bg-[#fcfaf6] dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-800/60 px-5 py-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="relative w-[88px] h-[44px] overflow-hidden select-none shrink-0">
-                            <svg className="absolute w-[88px] h-[44px] top-0 overflow-visible" viewBox="0 0 200 100">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 shadow-2xs">
+                    <div className="flex items-center gap-3">
+                        <div className="relative w-[72px] h-[38px] overflow-hidden select-none shrink-0">
+                            <svg className="absolute w-[72px] h-[36px] top-0 overflow-visible" viewBox="0 0 200 100">
                                 <path
-                                    d="M 10 100 A 90 90 0 0 1 190 100"
+                                    d="M 14 96 A 86 86 0 0 1 186 96"
                                     fill="none"
                                     stroke="#e2e8f0"
-                                    strokeWidth="12"
+                                    strokeWidth="14"
+                                    strokeLinecap="round"
                                     className="dark:stroke-slate-700"
                                 />
                                 <path
-                                    d="M 10 100 A 90 90 0 0 1 190 100"
+                                    d="M 14 96 A 86 86 0 0 1 186 96"
                                     fill="none"
-                                    stroke="#4BAE4F"
-                                    strokeWidth="12"
-                                    strokeDasharray="282"
-                                    strokeDashoffset={282 - (safeProgress / 100) * 282}
+                                    stroke="#10b981"
+                                    strokeWidth="14"
+                                    strokeLinecap="round"
+                                    strokeDasharray="270"
+                                    strokeDashoffset={270 - (safeProgress / 100) * 270}
                                     style={{ transition: 'stroke-dashoffset 0.5s ease' }}
                                 />
                             </svg>
                             <div
-                                className="absolute bottom-1 left-[42px] w-1 h-8 bg-slate-800 dark:bg-slate-200 origin-bottom rounded-t-full z-10 transition-transform duration-500 ease-out"
+                                className="absolute bottom-1 left-[34px] w-1 h-6 bg-slate-800 dark:bg-slate-200 origin-bottom rounded-t-full z-10 transition-transform duration-500 ease-out"
                                 style={{ transform: `rotate(${needleRotationAngle}deg)` }}
                             />
+                            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-slate-800 dark:bg-slate-200 ring-2 ring-white dark:ring-slate-900 z-20" />
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-lg font-black text-slate-800 dark:text-slate-100">{safeProgress}%</span>
-                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{t('basecamp.project_progress')}</span>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">{safeProgress}%</span>
+                                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{t('basecamp.project_progress')}</span>
                             </div>
                             <button
+                                type="button"
                                 onClick={() => setShowNeedleModal(true)}
-                                className="text-[10px] font-black uppercase text-[#1D7DB5] hover:underline"
+                                className="text-[10px] font-bold uppercase tracking-wider text-[#1D7DB5] dark:text-sky-400 hover:underline cursor-pointer"
                             >
                                 {t('basecamp.move_needle')}
                             </button>
@@ -1333,12 +1350,12 @@ export default function BasecampProject({
                     </div>
 
                     {activePeopleCount > 0 && (
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <div className="flex -space-x-1">
-                                {activePeopleAvatars.slice(0, 6).map((name, idx) => (
+                        <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800/80 min-w-0">
+                            <div className="flex -space-x-1.5 shrink-0">
+                                {activePeopleAvatars.slice(0, 5).map((name, idx) => (
                                     <div
                                         key={idx}
-                                        className="w-6 h-6 rounded-full border border-white dark:border-slate-800 flex items-center justify-center text-[8px] font-black text-white"
+                                        className="w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-900 flex items-center justify-center text-[8px] font-bold text-white"
                                         style={{ backgroundColor: getAvatarColor(name) }}
                                         title={name}
                                     >
@@ -1346,10 +1363,10 @@ export default function BasecampProject({
                                     </div>
                                 ))}
                             </div>
-                            {activePeopleCount > 6 && (
-                                <span className="text-[10px] font-bold text-slate-500">+{activePeopleCount - 6}</span>
+                            {activePeopleCount > 5 && (
+                                <span className="text-[10px] font-bold text-slate-500 shrink-0">+{activePeopleCount - 5}</span>
                             )}
-                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">
                                 {activePeopleCount} {t('basecamp.people_active_last_7_days')}
                             </span>
                         </div>
@@ -1361,7 +1378,7 @@ export default function BasecampProject({
                 SECTION 4: TOOL CARDS GRID (filtered & ordered by Basecamp 3 enabled_tools)
             ════════════════════════════════════════════════ */}
             <div
-                className={`grid gap-6 ${
+                className={`grid gap-3.5 sm:gap-5 min-w-0 ${
                     visibleTools.length === 1
                         ? 'grid-cols-1 max-w-2xl mx-auto w-full'
                         : visibleTools.length === 2
@@ -1376,38 +1393,42 @@ export default function BasecampProject({
                                 <div
                                     key="tool-todos"
                                     onClick={() => navigateTo({ project: project.id, tool: 'todos' })}
-                                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col min-w-0 overflow-hidden"
                                 >
-                                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                                            <ClipboardList size={18} />
+                                    <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800/85 pb-2.5 mb-3 min-w-0">
+                                        <span className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                                            <ClipboardList size={17} />
+                                        </span>
+                                        <h2 className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
                                             {t('basecamp.todos')}
                                         </h2>
                                     </div>
 
-                                    {todoListsSummary.length > 0 ? (
-                                        <div className="flex-1 space-y-4">
+                                    {loadingPreviews ? (
+                                        renderToolSkeleton(4)
+                                    ) : todoListsSummary.length > 0 ? (
+                                        <div className="flex-1 space-y-3.5 min-w-0">
                                             {todoListsSummary.map((list) => (
                                                 <div
                                                     key={list.id}
-                                                    className="border-b border-slate-100 dark:border-slate-800/60 pb-3 last:border-b-0 last:pb-0"
+                                                    className="border-b border-slate-100 dark:border-slate-800/60 pb-3 last:border-b-0 last:pb-0 min-w-0"
                                                 >
-                                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                                    <div className="flex items-center justify-between gap-2 mb-1.5 min-w-0">
                                                         <div className="flex items-center gap-2 min-w-0">
                                                             <span
-                                                                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getTodolistDotClass(list.color)}`}
+                                                                className={`w-2.5 h-2.5 rounded-full shrink-0 ${getTodolistDotClass(list.color)}`}
                                                             />
-                                                            <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 truncate">
+                                                            <span className="text-xs sm:text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate">
                                                                 {list.name || t('basecamp.todos')}
                                                             </span>
                                                         </div>
-                                                        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0">
+                                                        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
                                                             {list.ratioLabel}
                                                         </span>
                                                     </div>
 
                                                     {list.tasks.length > 0 ? (
-                                                        <div className="space-y-1.5 pl-1">
+                                                        <div className="space-y-1 pl-0.5 min-w-0">
                                                             {list.tasks.map((todo: any) => (
                                                                 <div
                                                                     key={todo.id}
@@ -1415,25 +1436,25 @@ export default function BasecampProject({
                                                                         ev.stopPropagation()
                                                                         navigateTo({ project: project.id, tool: 'todos', todoId: todo.id })
                                                                     }}
-                                                                    className="flex items-center gap-2 text-sm group/todo hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded px-1 py-0.5 -mx-1 transition-colors"
+                                                                    className="flex items-center gap-2 text-xs sm:text-[13px] group/todo hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-lg px-1.5 py-1 -mx-1.5 transition-colors min-w-0"
                                                                 >
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={Boolean(todo.is_completed)}
                                                                         readOnly
-                                                                        className="rounded text-green-600 focus:ring-green-500 w-3.5 h-3.5 flex-shrink-0 pointer-events-none"
+                                                                        className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 shrink-0 pointer-events-none"
                                                                     />
                                                                     <span
-                                                                        className={`truncate flex-1 group-hover/todo:text-[#1D7DB5] ${
+                                                                        className={`line-clamp-1 flex-1 min-w-0 group-hover/todo:text-[#1D7DB5] dark:group-hover/todo:text-sky-400 ${
                                                                             todo.is_completed
                                                                                 ? 'line-through text-slate-400 dark:text-slate-600'
-                                                                                : 'text-slate-700 dark:text-slate-300'
+                                                                                : 'text-slate-700 dark:text-slate-300 font-medium'
                                                                         }`}
                                                                     >
                                                                         {todo.title}
                                                                     </span>
                                                                     {(todo.due_date || todo.created_at) && (
-                                                                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
+                                                                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
                                                                             {todo.due_date
                                                                                 ? formatShortDate(todo.due_date, true)
                                                                                 : formatShortDate(todo.created_at)}
@@ -1450,14 +1471,14 @@ export default function BasecampProject({
                                                                             })
                                                                         }}
                                                                         title={t('basecamp.replicate_task_tooltip')}
-                                                                        className="opacity-0 group-hover/todo:opacity-100 focus:opacity-100 transition-opacity inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white text-[#1D7DB5] dark:text-blue-300 text-[10px] font-extrabold flex-shrink-0 cursor-pointer"
+                                                                        className="hidden sm:inline-flex opacity-0 group-hover/todo:opacity-100 focus:opacity-100 transition-opacity items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white text-[#1D7DB5] dark:text-sky-300 text-[10px] font-extrabold shrink-0 cursor-pointer"
                                                                     >
                                                                         <span>📋</span>
                                                                     </button>
                                                                 </div>
                                                             ))}
                                                             {list.openCount > list.tasks.length && (
-                                                                <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 pl-5 pt-0.5">
+                                                                <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 pl-5 pt-0.5">
                                                                     +{list.openCount - list.tasks.length} {t('basecamp.more_todos')}
                                                                 </p>
                                                             )}
@@ -1471,13 +1492,14 @@ export default function BasecampProject({
                                             ))}
                                         </div>
                                     ) : (
-                                        <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center flex-1">
+                                        <p className="text-xs sm:text-sm text-slate-400 dark:text-slate-500 italic my-auto py-4 text-center">
                                             {t('basecamp.no_todos')}
                                         </p>
                                     )}
-                                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">
-                                        {t('basecamp.manage_tasks')} →
-                                    </span>
+                                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider">
+                                        <span>{t('basecamp.manage_tasks')}</span>
+                                        <span>→</span>
+                                    </div>
                                 </div>
                             )
 
@@ -1486,19 +1508,24 @@ export default function BasecampProject({
                                 <div
                                     key="tool-messages"
                                     onClick={() => navigateTo({ project: project.id, tool: 'messages' })}
-                                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col min-w-0 overflow-hidden"
                                 >
-                                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                                            <Mail size={18} />
+                                    <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800/85 pb-2.5 mb-3 min-w-0">
+                                        <span className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-[#1D7DB5] dark:text-sky-400 flex items-center justify-center shrink-0">
+                                            <Mail size={17} />
+                                        </span>
+                                        <h2 className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
                                             {t('basecamp.message_board')}
                                         </h2>
                                     </div>
 
-                                    <div className="space-y-3.5 flex-1">
-                                        {lastMessages.length > 0 ? (
+                                    <div className="space-y-3 flex-1 min-w-0 flex flex-col">
+                                        {loadingPreviews ? (
+                                            renderToolSkeleton(3)
+                                        ) : lastMessages.length > 0 ? (
                                             lastMessages.slice(0, 3).map((msg) => {
                                                 const msgAuthor = msg.author || t('basecamp.unknown_user')
+                                                const snippet = stripHtml(msg.content).slice(0, 120)
                                                 return (
                                                     <div
                                                         key={msg.id}
@@ -1506,27 +1533,20 @@ export default function BasecampProject({
                                                             ev.stopPropagation()
                                                             navigateTo({ project: project.id, tool: 'messages', messageId: msg.id })
                                                         }}
-                                                        className="group/msg flex items-start gap-3 border-b border-slate-100 dark:border-slate-800/30 pb-3 last:border-0 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 rounded-lg px-1 -mx-1 transition-colors"
+                                                        className="group/msg flex items-start gap-2.5 border-b border-slate-100 dark:border-slate-800/50 pb-2.5 last:border-0 last:pb-0 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 rounded-lg px-1.5 py-1 -mx-1.5 transition-colors min-w-0"
                                                     >
                                                         <div
-                                                            className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white flex-shrink-0 mt-0.5 shadow-sm"
+                                                            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-0.5"
                                                             style={{ backgroundColor: getAvatarColor(msgAuthor) }}
                                                         >
                                                             {getInitials(msgAuthor)}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center justify-between gap-1.5">
-                                                                <div className="flex items-baseline gap-1.5 min-w-0">
-                                                                    <span className="text-xs font-bold text-slate-600 dark:text-slate-400 truncate">
-                                                                        {msgAuthor}
-                                                                    </span>
-                                                                    <span className="text-[10px] text-slate-400 shrink-0">
-                                                                        {formatShortDate(msg.created_at)}
-                                                                    </span>
-                                                                    {msg.is_pinned && (
-                                                                        <span className="text-[10px]" title={t('basecamp.pinned_badge')}>📌</span>
-                                                                    )}
-                                                                </div>
+                                                            <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                                                <p className="text-[13.5px] font-bold text-slate-900 dark:text-slate-100 group-hover/msg:text-[#1D7DB5] dark:group-hover/msg:text-sky-400 line-clamp-2 leading-snug min-w-0 flex-1 break-words">
+                                                                    {msg.is_pinned && <span className="mr-1" title={t('basecamp.pinned_badge')}>📌</span>}
+                                                                    {msg.title}
+                                                                </p>
                                                                 <button
                                                                     type="button"
                                                                     onClick={(ev) => {
@@ -1538,30 +1558,35 @@ export default function BasecampProject({
                                                                         })
                                                                     }}
                                                                     title={t('basecamp.replicate_message_tooltip')}
-                                                                    className="opacity-0 group-hover/msg:opacity-100 focus:opacity-100 transition-opacity inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white text-[#1D7DB5] dark:text-blue-300 text-[10px] font-extrabold flex-shrink-0 cursor-pointer"
+                                                                    className="hidden sm:inline-flex opacity-0 group-hover/msg:opacity-100 focus:opacity-100 transition-opacity items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white text-[#1D7DB5] dark:text-sky-300 text-[10px] font-extrabold shrink-0 cursor-pointer"
                                                                 >
                                                                     <span>📋</span>
                                                                 </button>
                                                             </div>
-                                                            <p className="text-sm font-bold text-slate-800 dark:text-slate-200 group-hover/msg:text-[#1D7DB5] truncate leading-snug">
-                                                                {msg.title}
-                                                            </p>
-                                                            <p className="text-xs text-slate-500 dark:text-slate-500 line-clamp-2 leading-relaxed">
-                                                                {stripHtml(msg.content).slice(0, 120)}
-                                                            </p>
+                                                            {snippet && (
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed mt-0.5">
+                                                                    {snippet}
+                                                                </p>
+                                                            )}
+                                                            <div className="flex items-center gap-1.5 mt-1 text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                                                                <span className="truncate max-w-[130px]">{msgAuthor}</span>
+                                                                <span>·</span>
+                                                                <span className="shrink-0">{formatShortDate(msg.created_at)}</span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )
                                             })
                                         ) : (
-                                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
+                                            <p className="text-xs sm:text-sm text-slate-400 dark:text-slate-500 italic my-auto py-4 text-center">
                                                 {t('basecamp.no_messages')}
                                             </p>
                                         )}
                                     </div>
-                                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">
-                                        {t('basecamp.view_board')} →
-                                    </span>
+                                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider">
+                                        <span>{t('basecamp.view_board')}</span>
+                                        <span>→</span>
+                                    </div>
                                 </div>
                             )
 
@@ -1570,50 +1595,55 @@ export default function BasecampProject({
                                 <div
                                     key="tool-docs"
                                     onClick={() => navigateTo({ project: project.id, tool: 'docs' })}
-                                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col min-w-0 overflow-hidden"
                                 >
-                                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                                            <FolderOpen size={18} />
+                                    <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800/85 pb-2.5 mb-3 min-w-0">
+                                        <span className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                                            <FolderOpen size={17} />
+                                        </span>
+                                        <h2 className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
                                             {t('basecamp.docs_files')}
                                         </h2>
                                     </div>
 
-                                    <div className="space-y-2.5 flex-1">
-                                        {docsAndFiles.length > 0 ? (
+                                    <div className="space-y-2.5 flex-1 min-w-0 flex flex-col">
+                                        {loadingPreviews ? (
+                                            renderToolSkeleton(4)
+                                        ) : docsAndFiles.length > 0 ? (
                                             docsAndFiles.slice(0, 5).map((doc) => {
                                                 const typeInfo = getFileTypeIcon(doc.file_type)
                                                 const docAuthor =
                                                     (doc.author || t('basecamp.unknown_user')).trim().split(/\s+/)[0] ||
                                                     t('basecamp.unknown_user')
                                                 return (
-                                                    <div key={doc.id} className="flex items-center gap-2.5 text-sm">
+                                                    <div key={doc.id} className="flex items-center gap-2.5 min-w-0">
                                                         <div
-                                                            className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0 shadow-sm"
+                                                            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
                                                             style={{ backgroundColor: typeInfo.color + '18' }}
                                                         >
                                                             <FileText size={14} style={{ color: typeInfo.color }} />
                                                         </div>
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate leading-none mb-0.5">
+                                                            <p className="text-xs sm:text-[13px] font-bold text-slate-800 dark:text-slate-200 line-clamp-1 leading-snug">
                                                                 {doc.title || t('basecamp.attached_file_fallback')}
                                                             </p>
-                                                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
-                                                                {typeInfo.label} • {docAuthor} • {formatShortDate(doc.created_at)}
+                                                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate">
+                                                                {typeInfo.label} · {docAuthor} · {formatShortDate(doc.created_at)}
                                                             </p>
                                                         </div>
                                                     </div>
                                                 )
                                             })
                                         ) : (
-                                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
+                                            <p className="text-xs sm:text-sm text-slate-400 dark:text-slate-500 italic my-auto py-4 text-center">
                                                 {t('basecamp.no_docs')}
                                             </p>
                                         )}
                                     </div>
-                                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">
-                                        {t('basecamp.explore_docs')} →
-                                    </span>
+                                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider">
+                                        <span>{t('basecamp.explore_docs')}</span>
+                                        <span>→</span>
+                                    </div>
                                 </div>
                             )
 
@@ -1622,44 +1652,49 @@ export default function BasecampProject({
                                 <div
                                     key="tool-campfire"
                                     onClick={() => navigateTo({ project: project.id, tool: 'campfire' })}
-                                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col min-w-0 overflow-hidden"
                                 >
-                                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                                            <MessageSquare size={18} />
+                                    <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800/85 pb-2.5 mb-3 min-w-0">
+                                        <span className="w-8 h-8 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                                            <MessageSquare size={17} />
+                                        </span>
+                                        <h2 className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
                                             {t('basecamp.campfire')}
                                         </h2>
                                     </div>
-                                    <div className="flex-1 space-y-2">
-                                        {lastChat && lastChat.length > 0 ? (
+                                    <div className="flex-1 space-y-2 min-w-0 flex flex-col">
+                                        {loadingPreviews ? (
+                                            renderToolSkeleton(3)
+                                        ) : lastChat && lastChat.length > 0 ? (
                                             lastChat.slice(0, 4).map((line: any) => {
                                                 const chatAuthor = line.author || t('basecamp.unknown_user')
                                                 const previewText =
-                                                    stripHtml(line.message || line.content).slice(0, 80) ||
+                                                    stripHtml(line.message || line.content).slice(0, 90) ||
                                                     `📎 ${t('basecamp.attached_file_fallback')}`
                                                 return (
-                                                    <div key={line.id} className="flex items-start gap-2 text-sm">
+                                                    <div key={line.id} className="flex items-start gap-2 text-xs sm:text-[13px] min-w-0">
                                                         <div
-                                                            className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-black text-white flex-shrink-0 mt-0.5"
+                                                            className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0 mt-0.5"
                                                             style={{ backgroundColor: getAvatarColor(chatAuthor) }}
                                                         >
                                                             {getInitials(chatAuthor)}
                                                         </div>
-                                                        <p className="text-slate-600 dark:text-slate-400 line-clamp-1 flex-1">
+                                                        <p className="text-slate-600 dark:text-slate-300 line-clamp-1 flex-1 min-w-0 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-xl">
                                                             {previewText}
                                                         </p>
                                                     </div>
                                                 )
                                             })
                                         ) : (
-                                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
+                                            <p className="text-xs sm:text-sm text-slate-400 dark:text-slate-500 italic my-auto py-4 text-center">
                                                 {t('basecamp.no_chat')}
                                             </p>
                                         )}
                                     </div>
-                                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">
-                                        {t('basecamp.open_campfire')} →
-                                    </span>
+                                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider">
+                                        <span>{t('basecamp.open_campfire')}</span>
+                                        <span>→</span>
+                                    </div>
                                 </div>
                             )
 
@@ -1668,25 +1703,31 @@ export default function BasecampProject({
                                 <div
                                     key="tool-schedule"
                                     onClick={() => navigateTo({ project: project.id, tool: 'schedule' })}
-                                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col min-w-0 overflow-hidden"
                                 >
-                                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                                            <Calendar size={18} />
+                                    <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800/85 pb-2.5 mb-3 min-w-0">
+                                        <span className="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                                            <Calendar size={17} />
+                                        </span>
+                                        <h2 className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
                                             {t('basecamp.schedule')}
                                         </h2>
                                     </div>
-                                    <div className="flex-1 space-y-2">
+                                    <div className="flex-1 space-y-2 min-w-0">
                                         <MiniCalendar events={calendarEvents} t={t} />
-                                        {calendarEvents && calendarEvents.length > 0 ? (
-                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                                        {loadingPreviews ? (
+                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5" aria-hidden="true">
+                                                <div className="animate-pulse bg-slate-100 dark:bg-slate-800 rounded h-3 w-3/4" />
+                                            </div>
+                                        ) : calendarEvents && calendarEvents.length > 0 ? (
+                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1 min-w-0">
                                                 {calendarEvents.slice(0, 2).map((evt: any) => (
-                                                    <div key={evt.id} className="flex items-center gap-2 text-xs">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                                                        <span className="text-slate-600 dark:text-slate-400 truncate flex-1 font-medium">
+                                                    <div key={evt.id} className="flex items-center gap-2 text-xs min-w-0">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+                                                        <span className="text-slate-700 dark:text-slate-300 line-clamp-1 flex-1 min-w-0 font-medium">
                                                             {evt.title}
                                                         </span>
-                                                        <span className="text-[10px] text-slate-400 flex-shrink-0">
+                                                        <span className="text-[10px] text-slate-400 shrink-0">
                                                             {formatShortDate(evt.starts_at, Boolean(evt.all_day))}
                                                         </span>
                                                     </div>
@@ -1694,9 +1735,10 @@ export default function BasecampProject({
                                             </div>
                                         ) : null}
                                     </div>
-                                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">
-                                        {t('basecamp.view_schedule')} →
-                                    </span>
+                                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider">
+                                        <span>{t('basecamp.view_schedule')}</span>
+                                        <span>→</span>
+                                    </div>
                                 </div>
                             )
 
@@ -1705,22 +1747,25 @@ export default function BasecampProject({
                                 <div
                                     key="tool-checkins"
                                     onClick={() => navigateTo({ project: project.id, tool: 'checkins' })}
-                                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col min-w-0 overflow-hidden"
                                 >
-                                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                                            <HelpCircle size={18} />
+                                    <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800/85 pb-2.5 mb-3 min-w-0">
+                                        <span className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                                            <HelpCircle size={17} />
+                                        </span>
+                                        <h2 className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
                                             {t('basecamp.checkins')}
                                         </h2>
                                     </div>
-                                    <div className="flex-1 flex items-center justify-center">
-                                        <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
+                                    <div className="flex-1 flex flex-col items-center justify-center py-4 px-2">
+                                        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 text-center leading-relaxed">
                                             {t('basecamp.checkins_desc')}
                                         </p>
                                     </div>
-                                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">
-                                        {t('basecamp.view_checkins')} →
-                                    </span>
+                                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] font-bold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider">
+                                        <span>{t('basecamp.view_checkins')}</span>
+                                        <span>→</span>
+                                    </div>
                                 </div>
                             )
                     }
@@ -1728,25 +1773,37 @@ export default function BasecampProject({
             </div>
 
             {/* ════════════════════════════════════════════════
-                SECTION 5: LATEST ACTIVITY TIMELINE (Grouped by Day, Basecamp 3/4 Replica)
+                SECTION 5: LATEST ACTIVITY TIMELINE (Clean & Scannable on Mobile + Web)
             ════════════════════════════════════════════════ */}
-            <div className="mt-4 pt-6 border-t border-slate-200/80 dark:border-slate-800 max-w-4xl mx-auto w-full">
-                <div className="flex items-center justify-center gap-3 mb-6">
+            <div className="mt-2 pt-5 border-t border-slate-200/80 dark:border-slate-800 max-w-4xl mx-auto w-full min-w-0">
+                <div className="flex items-center justify-center gap-3 mb-5">
                     <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-                    <h3 className="text-xs font-black uppercase tracking-widest text-red-600 dark:text-red-400 px-3 py-1 rounded-full bg-red-50/70 dark:bg-red-950/30 border border-red-200/60 dark:border-red-900/40">
+                    <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-600 dark:text-slate-300 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
                         {t('basecamp.recent_activity')}
                     </h3>
                     <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
                 </div>
 
-                {groupedActivityByDay.length > 0 ? (
-                    <div className="space-y-7">
+                {loadingPreviews ? (
+                    <div className="space-y-3" aria-hidden="true">
+                        {[0, 1, 2].map((i) => (
+                            <div key={i} className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-full animate-pulse bg-slate-100 dark:bg-slate-800 shrink-0" />
+                                <div className="flex-1 space-y-2">
+                                    <div className="animate-pulse bg-slate-100 dark:bg-slate-800 rounded h-3.5 w-3/4" />
+                                    <div className="animate-pulse bg-slate-100/70 dark:bg-slate-800/70 rounded h-3 w-1/2" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : groupedActivityByDay.length > 0 ? (
+                    <div className="space-y-6">
                         {groupedActivityByDay.map((group) => (
-                            <div key={group.dayKey}>
-                                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200/70 dark:border-slate-800 pb-1.5 mb-3 capitalize">
+                            <div key={group.dayKey} className="min-w-0">
+                                <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 pb-1.5 mb-2.5 border-b border-slate-100 dark:border-slate-800 capitalize">
                                     {group.dayLabel}
                                 </div>
-                                <div className="space-y-3.5">
+                                <div className="space-y-2.5">
                                     {group.items.map((act) => {
                                         const authorDisplay = act.author_name || t('basecamp.unknown_user')
                                         const cleanSnippet = stripHtml(act.content)
@@ -1758,40 +1815,87 @@ export default function BasecampProject({
                                         else if (act.parent_type === 'message') actionVerb = t('basecamp.activity_comment_message')
                                         else if (act.parent_type === 'document') actionVerb = t('basecamp.activity_comment_document')
 
+                                        const canReplicateTodo = Boolean(act.parent_type?.toLowerCase().includes('todo') && act.parent_id)
+                                        const canReplicateMsg = Boolean(
+                                            (act.kind === 'message_created' || act.parent_type?.toLowerCase().includes('message')) && act.parent_id
+                                        )
+
                                         return (
                                             <div
                                                 key={act.id}
                                                 onClick={() => navigateToActivityTarget(act)}
-                                                className="group/act flex items-start gap-3 p-3 rounded-xl bg-[#fcfaf6] dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800/70 hover:bg-white dark:hover:bg-slate-800/60 hover:shadow-sm transition-all cursor-pointer"
+                                                className="group/act flex items-start gap-2.5 sm:gap-3 p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-2xs hover:shadow-xs transition-all cursor-pointer min-w-0"
                                             >
-                                                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-bold w-16 shrink-0 pt-1">
-                                                    {formatActivityTime(act.created_at)}
-                                                </span>
-
                                                 <div
-                                                    className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 mt-0.5 shadow-sm"
+                                                    className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-0.5"
                                                     style={{ backgroundColor: getAvatarColor(authorDisplay) }}
                                                 >
                                                     {getInitials(authorDisplay)}
                                                 </div>
 
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="text-sm text-slate-700 dark:text-slate-300 leading-snug">
-                                                        <strong className="text-slate-900 dark:text-slate-100">
-                                                            {formatAbbreviatedAuthor(act.author_name, t('basecamp.unknown_user'))}
-                                                        </strong>{' '}
-                                                        <span className="text-slate-500 dark:text-slate-400">{actionVerb}</span>{' '}
-                                                        <span className="font-extrabold text-[#1D7DB5] hover:underline dark:text-blue-400">
-                                                            {act.kind === 'todo_completed' && (
-                                                                <CheckSquare size={13} className="inline text-emerald-600 mr-1 -mt-0.5" />
-                                                            )}
-                                                            {act.parent_title || act.parent_type}
-                                                        </span>
-                                                        {act.list_name && (
-                                                            <span className="ml-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                                                                {act.list_name}
+                                                    <div className="flex items-start justify-between gap-2 min-w-0">
+                                                        <div className="text-[13px] sm:text-sm text-slate-700 dark:text-slate-300 leading-snug min-w-0 flex-1 break-words">
+                                                            <strong className="text-slate-900 dark:text-slate-100 font-bold">
+                                                                {formatAbbreviatedAuthor(act.author_name, t('basecamp.unknown_user'))}
+                                                            </strong>{' '}
+                                                            <span className="text-slate-500 dark:text-slate-400">{actionVerb}</span>{' '}
+                                                            <span className="font-bold text-[#1D7DB5] hover:underline dark:text-sky-400">
+                                                                {act.kind === 'todo_completed' && (
+                                                                    <CheckSquare size={13} className="inline text-emerald-600 mr-1 -mt-0.5" />
+                                                                )}
+                                                                {act.parent_title || act.parent_type}
                                                             </span>
-                                                        )}
+                                                            {act.list_name && (
+                                                                <span className="ml-1.5 inline-block text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded align-middle">
+                                                                    {act.list_name}
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                            <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
+                                                                {formatActivityTime(act.created_at)}
+                                                            </span>
+
+                                                            {canReplicateTodo && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(ev) => {
+                                                                        ev.stopPropagation()
+                                                                        navigateTo({
+                                                                            project: project.id,
+                                                                            tool: 'todos',
+                                                                            replicateTodoId: act.parent_id || undefined,
+                                                                        })
+                                                                    }}
+                                                                    title={t('basecamp.replicate_task_tooltip')}
+                                                                    className="hidden sm:inline-flex opacity-0 group-hover/act:opacity-100 focus:opacity-100 transition-opacity items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white border border-blue-200/70 dark:border-blue-800 text-[#1D7DB5] dark:text-sky-300 text-[10px] font-bold shrink-0 cursor-pointer"
+                                                                >
+                                                                    <span>📋</span>
+                                                                    <span className="hidden md:inline">{t('basecamp.replicate_task')}</span>
+                                                                </button>
+                                                            )}
+
+                                                            {canReplicateMsg && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(ev) => {
+                                                                        ev.stopPropagation()
+                                                                        navigateTo({
+                                                                            project: project.id,
+                                                                            tool: 'messages',
+                                                                            replicateMessageId: act.parent_id || undefined,
+                                                                        })
+                                                                    }}
+                                                                    title={t('basecamp.replicate_message_tooltip')}
+                                                                    className="hidden sm:inline-flex opacity-0 group-hover/act:opacity-100 focus:opacity-100 transition-opacity items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white border border-blue-200/70 dark:border-blue-800 text-[#1D7DB5] dark:text-sky-300 text-[10px] font-bold shrink-0 cursor-pointer"
+                                                                >
+                                                                    <span>📋</span>
+                                                                    <span className="hidden md:inline">{t('basecamp.replicate_message')}</span>
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </div>
 
                                                     {cleanSnippet && (
@@ -1807,50 +1911,12 @@ export default function BasecampProject({
                                                                     key={iIdx}
                                                                     src={imgUrl}
                                                                     alt={t('basecamp.preview_thumbnail')}
-                                                                    className="h-16 w-auto max-w-[140px] rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white shadow-sm"
+                                                                    className="h-14 sm:h-16 w-auto max-w-[128px] rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white shadow-2xs"
                                                                 />
                                                             ))}
                                                         </div>
                                                     )}
                                                 </div>
-
-                                                {act.parent_type?.toLowerCase().includes('todo') && act.parent_id && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={(ev) => {
-                                                            ev.stopPropagation()
-                                                            navigateTo({
-                                                                project: project.id,
-                                                                tool: 'todos',
-                                                                replicateTodoId: act.parent_id || undefined,
-                                                            })
-                                                        }}
-                                                        title={t('basecamp.replicate_task_tooltip')}
-                                                        className="opacity-0 group-hover/act:opacity-100 focus:opacity-100 transition-opacity inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white border border-blue-200/70 dark:border-blue-800 text-[#1D7DB5] dark:text-blue-300 text-[11px] font-extrabold shrink-0 cursor-pointer"
-                                                    >
-                                                        <span>📋</span>
-                                                        <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
-                                                    </button>
-                                                )}
-
-                                                {(act.kind === 'message_created' || act.parent_type?.toLowerCase().includes('message')) && act.parent_id && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={(ev) => {
-                                                            ev.stopPropagation()
-                                                            navigateTo({
-                                                                project: project.id,
-                                                                tool: 'messages',
-                                                                replicateMessageId: act.parent_id || undefined,
-                                                            })
-                                                        }}
-                                                        title={t('basecamp.replicate_message_tooltip')}
-                                                        className="opacity-0 group-hover/act:opacity-100 focus:opacity-100 transition-opacity inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 hover:bg-[#1D7DB5] hover:text-white border border-blue-200/70 dark:border-blue-800 text-[#1D7DB5] dark:text-blue-300 text-[11px] font-extrabold shrink-0 cursor-pointer"
-                                                    >
-                                                        <span>📋</span>
-                                                        <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
-                                                    </button>
-                                                )}
                                             </div>
                                         )
                                     })}
@@ -1870,10 +1936,10 @@ export default function BasecampProject({
             ════════════════════════════════════════════════ */}
             {showNeedleModal && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                    className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/40 backdrop-blur-sm"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowNeedleModal(false) }}
                 >
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-4 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200">
                         <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">
                             {t('basecamp.move_needle')}
                         </h3>
@@ -1919,10 +1985,10 @@ export default function BasecampProject({
             ════════════════════════════════════════════════ */}
             {isAdmin && showMembersModal && (
                 <div
-                    className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    className="fixed inset-0 z-[120] flex items-center justify-center p-2.5 sm:p-4 bg-black/50 backdrop-blur-sm"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowMembersModal(false) }}
                 >
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full max-h-[90dvh] overflow-y-auto p-4 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
                         <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
                             <div>
                                 <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
@@ -2063,10 +2129,10 @@ export default function BasecampProject({
             ════════════════════════════════════════════════ */}
             {isAdmin && showConfigModal && (
                 <div
-                    className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    className="fixed inset-0 z-[120] flex items-center justify-center p-2.5 sm:p-4 bg-black/50 backdrop-blur-sm"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowConfigModal(false) }}
                 >
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full max-h-[90dvh] overflow-y-auto p-4 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
                             <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                                 <Settings size={18} className="text-[#1D7DB5]" />

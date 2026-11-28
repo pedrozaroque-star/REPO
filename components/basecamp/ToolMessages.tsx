@@ -31,6 +31,9 @@
  *     (sobre hermanos `relative z-0` y compositor `relative z-10`) e inversión hacia arriba cerca del borde inferior.
  *   - Deep-link en carga fría (`selectedMessageId` / `messageId`): soporta tanto `UUID` (`id`) como `bc_id` numérico,
  *     con fallback directo a `bc_messages` cuando el anuncio no está en el lote cargado en memoria.
+ *   - Rediseño Editorial Basecamp 4 / Linear (Web + Móvil): tarjeta blanca de lectura a ancho completo sin avatar lateral
+ *     duplicado, `BASECAMP_RICH_CONTENT_CSS` + `formatBasecampRichHtmlForDisplay` (cero viñetas flotantes y cero huecos de 44px),
+ *     tarjetas de listado con `line-clamp-2`, barra de navegación superior de 1 sola fila y panel íntegro de Suscriptores.
  */
 
 'use client'
@@ -39,7 +42,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import {
     Mail, Plus, MessageSquare, Trash2, Loader2, FileText, Paperclip,
-    Pencil, MoreHorizontal, Reply, Rocket, Link2, Check, Download, Pin, Search, X
+    Pencil, MoreHorizontal, Reply, Rocket, Link2, Check, Download, Pin, Search, X, Users,
+    ArrowLeft, ChevronDown
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { stripTegAuthorBanner, normalizePersonName, isMaskedOrEmptyEmail } from '@/lib/basecamp-person-resolver'
@@ -58,6 +62,8 @@ import {
     prepareHtmlForTaskReplication,
     isVideoMimeOrFilename,
     BASECAMP_IMAGE_HOVER_CSS,
+    BASECAMP_RICH_CONTENT_CSS,
+    formatBasecampRichHtmlForDisplay,
 } from '@/lib/basecamp-html'
 import BasecampRichEditor, { type BasecampPersonOption } from '@/components/basecamp/BasecampRichEditor'
 
@@ -647,6 +653,16 @@ export default function ToolMessages({
     const [openRowMenuId, setOpenRowMenuId] = useState<string | null>(null)
     const [rowMenuUp, setRowMenuUp] = useState(false)
     const [pinBusyId, setPinBusyId] = useState<string | null>(null)
+
+    // Suscriptores / notificación de personas en anuncio existente (get_message_subscribers / update_message_subscribers)
+    const [showSubscribersPanel, setShowSubscribersPanel] = useState(false)
+    const [subscribersLoading, setSubscribersLoading] = useState(false)
+    const [subscribersSaving, setSubscribersSaving] = useState(false)
+    const [initialSubscriberUuids, setInitialSubscriberUuids] = useState<string[]>([])
+    const [draftSubscriberUuids, setDraftSubscriberUuids] = useState<string[]>([])
+    const [subscriberSearchQuery, setSubscriberSearchQuery] = useState('')
+    const [notifyAddedSubscribers, setNotifyAddedSubscribers] = useState(true)
+    const [subscribersFeedback, setSubscribersFeedback] = useState<string | null>(null)
 
     // Formulario de comentario, edición de comentario y filtros
     const [commentText, setCommentText] = useState('')
@@ -1300,24 +1316,101 @@ export default function ToolMessages({
         return () => window.removeEventListener('keydown', handleEsc)
     }, [lightboxUrl, showCategoryMenu, showSortMenu, showDetailMoreMenu, openRowMenuId, openCommentMenuId, activeBoostPickerKey, selectedMessage, showCreateForm, closeMessageDetail])
 
-    // Load comments & boosts when selectedMessage ID changes
+    // Load comments, boosts & subscribers when selectedMessage ID changes
+    const fetchMessageSubscribers = useCallback(async (msgId: string) => {
+        setSubscribersLoading(true)
+        try {
+            const res = await fetch('/api/basecamp/action', {
+                method: 'POST',
+                headers: buildActionHeaders(),
+                body: JSON.stringify({
+                    action: 'get_message_subscribers',
+                    projectId: project.id,
+                    messageDbId: msgId,
+                }),
+            })
+            if (!res.ok) return
+            const data = await res.json()
+            const uuids: string[] = Array.isArray(data?.subscriberPersonUuids) ? data.subscriberPersonUuids : []
+            setInitialSubscriberUuids(uuids)
+            setDraftSubscriberUuids(uuids)
+        } catch {
+            // silent non-fatal
+        } finally {
+            setSubscribersLoading(false)
+        }
+    }, [project.id])
+
+    const handleSaveSubscribers = async () => {
+        if (!selectedMessage?.id || subscribersSaving) return
+        const initialSet = new Set(initialSubscriberUuids)
+        const draftSet = new Set(draftSubscriberUuids)
+        const addPersonUuids = draftSubscriberUuids.filter((id) => !initialSet.has(id))
+        const removePersonUuids = initialSubscriberUuids.filter((id) => !draftSet.has(id))
+        if (addPersonUuids.length === 0 && removePersonUuids.length === 0) {
+            setSubscribersFeedback(t('basecamp.msg_subscribers_none_change'))
+            return
+        }
+        setSubscribersSaving(true)
+        setSubscribersFeedback(null)
+        setMutationError(null)
+        try {
+            const res = await fetch('/api/basecamp/action', {
+                method: 'POST',
+                headers: buildActionHeaders(),
+                body: JSON.stringify({
+                    action: 'update_message_subscribers',
+                    projectId: project.id,
+                    messageDbId: selectedMessage.id,
+                    addPersonUuids,
+                    removePersonUuids,
+                    notifyNewPeople: notifyAddedSubscribers,
+                }),
+            })
+            if (!res.ok) throw new Error(await res.text())
+            const data = await res.json()
+            setInitialSubscriberUuids(draftSubscriberUuids)
+            const baseMsg = t('basecamp.msg_subscribers_saved')
+                .replace('{added}', String(addPersonUuids.length))
+                .replace('{removed}', String(removePersonUuids.length))
+            const emailedCount = Array.isArray(data?.emailRecipients) ? data.emailRecipients.length : 0
+            const extraMsg = emailedCount > 0
+                ? ` ${t('basecamp.msg_subscribers_emailed').replace('{count}', String(emailedCount))}`
+                : ''
+            setSubscribersFeedback(`${baseMsg}${extraMsg}`)
+        } catch (err: any) {
+            console.error('❌ [ToolMessages Subscribers] Error:', err?.message)
+            setMutationError(`${t('basecamp.sync_error_prefix')}${err?.message || t('basecamp.action_error')}`)
+        } finally {
+            setSubscribersSaving(false)
+        }
+    }
+
     useEffect(() => {
         setIsEditingMessage(false)
         setShowDetailMoreMenu(false)
         setEditingCommentId(null)
         setOpenCommentMenuId(null)
         setActiveBoostPickerKey(null)
+        setShowSubscribersPanel(false)
+        setSubscriberSearchQuery('')
+        setSubscribersFeedback(null)
         if (selectedMessage?.id) {
             setSelectedMessageComments([])
             setMessageNativeBoosts([])
             setCommentBoostsById({})
+            setInitialSubscriberUuids([])
+            setDraftSubscriberUuids([])
             fetchSelectedMessageComments(selectedMessage.id)
+            fetchMessageSubscribers(selectedMessage.id)
         } else {
             setSelectedMessageComments([])
             setMessageNativeBoosts([])
             setCommentBoostsById({})
+            setInitialSubscriberUuids([])
+            setDraftSubscriberUuids([])
         }
-    }, [selectedMessage?.id, fetchSelectedMessageComments])
+    }, [selectedMessage?.id, fetchSelectedMessageComments, fetchMessageSubscribers])
 
     const handleRichImgClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement
@@ -1965,72 +2058,8 @@ export default function ToolMessages({
     const totalProjectMembersCount = (project?.people || []).length
 
     return (
-        <div className="flex-1 max-w-4xl mx-auto px-4 w-full flex flex-col gap-6">
-            <style dangerouslySetInnerHTML={{ __html: `
-                .bc-rich-text {
-                    white-space: pre-wrap;
-                }
-                .bc-rich-text a {
-                    color: #1D7DB5;
-                    text-decoration: none;
-                    font-weight: 500;
-                }
-                .bc-rich-text a:hover {
-                    text-decoration: underline;
-                }
-                .bc-rich-text p {
-                    margin: 0 0 16px 0;
-                    line-height: 1.7;
-                    font-size: 16px;
-                }
-                .bc-rich-text p:last-child {
-                    margin-bottom: 0;
-                }
-                .bc-rich-text ul {
-                    margin: 0 0 16px 0;
-                    padding-left: 24px;
-                    list-style-type: disc;
-                    font-size: 16px;
-                    line-height: 1.7;
-                }
-                .bc-rich-text ol {
-                    margin: 0 0 16px 0;
-                    padding-left: 24px;
-                    list-style-type: decimal;
-                    font-size: 15px;
-                    line-height: 1.7;
-                }
-                .bc-rich-text blockquote {
-                    border-left: 4px solid #E8E6E1;
-                    padding-left: 16px;
-                    margin: 0 0 16px 0;
-                    color: #6B7B8D;
-                    font-style: italic;
-                }
-                .bc-rich-text img {
-                    max-width: 100%;
-                    height: auto;
-                    border-radius: 8px;
-                    margin: 16px 0;
-                    cursor: pointer;
-                    transition: opacity 0.15s;
-                    display: block;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-                }
-                .bc-rich-text img:hover {
-                    opacity: 0.9;
-                }
-                .bc-rich-text figure {
-                    margin: 16px 0;
-                }
-                .bc-rich-text figcaption {
-                    font-size: 12px;
-                    color: #6B7B8D;
-                    text-align: center;
-                    margin-top: 4px;
-                }
-                ${BASECAMP_IMAGE_HOVER_CSS}
-            ` }} />
+        <div className="flex-1 max-w-4xl mx-auto px-0 sm:px-2 w-full flex flex-col gap-4 sm:gap-6 min-w-0">
+            <style dangerouslySetInnerHTML={{ __html: `${BASECAMP_RICH_CONTENT_CSS}\n${BASECAMP_IMAGE_HOVER_CSS}` }} />
 
             {mutationError && (
                 <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-bold flex items-center justify-between gap-3">
@@ -2045,145 +2074,146 @@ export default function ToolMessages({
                 </div>
             )}
 
-            {/* Cabecera del tablero */}
+            {/* Cabecera moderna y barra compacta de filtros del tablero */}
             {!showCreateForm && !selectedMessage && (
-                <div className={`relative ${showCategoryMenu || showSortMenu ? 'z-40' : 'z-20'} flex flex-col items-center gap-4 text-center border-b border-slate-100 dark:border-slate-800/80 pb-6`}>
-                    <div className="flex flex-col items-center gap-1">
-                        <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                            {t('basecamp.message_board_sub')}
-                        </span>
-                        <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-100 font-serif">
-                            {t('basecamp.message_board')}
-                        </h3>
-                    </div>
+                <div className={`relative ${showCategoryMenu || showSortMenu ? 'z-40' : 'z-20'} flex flex-col gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-4 min-w-0`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 min-w-0">
+                        <div className="min-w-0">
+                            <span className="block text-[10.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                {t('basecamp.message_board_sub')}
+                            </span>
+                            <h3 className="text-[20px] sm:text-[24px] font-extrabold tracking-tight text-slate-900 dark:text-slate-100 leading-tight break-words">
+                                {t('basecamp.message_board')}
+                            </h3>
+                        </div>
 
-                    {/* Fila de controles de Basecamp */}
-                    <div className="relative z-40 flex flex-wrap items-center justify-center gap-2 mt-2 w-full max-w-3xl text-xs">
                         <button
                             type="button"
                             onClick={openFreshCreateForm}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#1D7DB5] hover:bg-[#155D8A] text-white font-extrabold shadow-sm transition-all cursor-pointer"
+                            className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs sm:text-[13px] font-extrabold shadow-xs transition-all cursor-pointer w-full sm:w-auto"
                         >
-                            <Plus size={14} />
+                            <Plus size={15} className="shrink-0" />
                             <span>{t('basecamp.new_message_btn')}</span>
                         </button>
+                    </div>
 
-                        <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
-
-                        <button
-                            type="button"
-                            onClick={() => { setCategoryFilter(null); setFilterText(''); setShowCategoryMenu(false) }}
-                            className={`px-3 py-2 rounded-full border text-xs font-bold transition-all cursor-pointer ${
-                                !categoryFilter && !filterText
-                                    ? 'border-[#1D7DB5] bg-[#1D7DB5]/10 text-[#1D7DB5] dark:text-sky-400'
-                                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                            }`}
-                        >
-                            {t('basecamp.all_messages')}
-                        </button>
-
-                        {/* Dropdown de las 5 Categorías de Basecamp + General */}
-                        <div ref={categoryMenuRef} className="relative z-40">
-                            <button
-                                type="button"
-                                onClick={() => { setShowCategoryMenu(prev => !prev); setShowSortMenu(false); setOpenRowMenuId(null) }}
-                                className={`px-3 py-2 rounded-full border text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                    categoryFilter
-                                        ? 'border-[#1D7DB5] bg-[#1D7DB5]/10 text-[#1D7DB5] dark:text-sky-400'
-                                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                }`}
-                            >
-                                <span>{categoryFilter ? getCategoryDisplayLabel(categoryFilter) : t('basecamp.categories')}</span>
-                                <span className="text-[9px]">▼</span>
-                            </button>
-
-                            {showCategoryMenu && (
-                                <div className="absolute left-0 top-full mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-50 text-left">
-                                    <button
-                                        type="button"
-                                        onClick={() => { setCategoryFilter(null); setShowCategoryMenu(false) }}
-                                        className={`w-full px-3 py-1.5 text-xs font-bold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer ${
-                                            !categoryFilter ? 'text-[#1D7DB5] dark:text-sky-400' : 'text-slate-700 dark:text-slate-300'
-                                        }`}
-                                    >
-                                        <span>{t('basecamp.all_messages')}</span>
-                                        {!categoryFilter && <span>✓</span>}
-                                    </button>
-                                    {CATEGORY_FILTER_OPTIONS.map(opt => {
-                                        const isSelected = categoryFilter ? getCanonicalCategory(categoryFilter) === opt.canonical : false
-                                        return (
-                                            <button
-                                                key={opt.value}
-                                                type="button"
-                                                onClick={() => { setCategoryFilter(opt.value); setShowCategoryMenu(false) }}
-                                                className={`w-full px-3 py-1.5 text-xs font-bold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer ${
-                                                    isSelected ? 'text-[#1D7DB5] dark:text-sky-400' : 'text-slate-700 dark:text-slate-300'
-                                                }`}
-                                            >
-                                                <span>{getCategoryDisplayLabel(opt.value)}</span>
-                                                {isSelected && <span>✓</span>}
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Selector de Ordenamiento (4 opciones reales de Basecamp) */}
-                        <div ref={sortMenuRef} className="relative z-40">
-                            <button
-                                type="button"
-                                onClick={() => { setShowSortMenu(prev => !prev); setShowCategoryMenu(false); setOpenRowMenuId(null) }}
-                                className="px-3 py-2 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-1 cursor-pointer transition-all"
-                            >
-                                <span>{getSortOrderLabel(sortOrder)}</span>
-                                <span className="text-[9px]">▼</span>
-                            </button>
-
-                            {showSortMenu && (
-                                <div className="absolute left-0 top-full mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-50 text-left">
-                                    {(['newest', 'latest_comment', 'oldest', 'alphabetical'] as MessageSortOrder[]).map((mode) => {
-                                        const isSelected = sortOrder === mode
-                                        return (
-                                            <button
-                                                key={mode}
-                                                type="button"
-                                                onClick={() => { setSortOrder(mode); setShowSortMenu(false) }}
-                                                className={`w-full px-3 py-1.5 text-xs font-bold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer ${
-                                                    isSelected ? 'text-[#1D7DB5] dark:text-sky-400' : 'text-slate-700 dark:text-slate-300'
-                                                }`}
-                                            >
-                                                <span>{getSortOrderLabel(mode)}</span>
-                                                {isSelected && <span>✓</span>}
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Input de filtro */}
-                        <div className="relative flex-1 min-w-[160px] max-w-[240px]">
+                    {/* Barra compacta de búsqueda + filtros */}
+                    <div className="relative z-40 flex flex-col sm:flex-row sm:items-center gap-2 w-full min-w-0 text-xs">
+                        {/* Buscador */}
+                        <div className="relative flex-1 min-w-0">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                             <input
                                 type="text"
                                 value={filterText}
                                 onChange={(e) => setFilterText(e.target.value)}
                                 placeholder={t('basecamp.filter_placeholder')}
-                                className="w-full pl-7 pr-7 py-2 border border-slate-200 dark:border-slate-700 rounded-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#1D7DB5] text-xs font-bold"
+                                className="w-full min-w-0 pl-8.5 pr-8 py-2 border border-slate-200/90 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D7DB5]/25 focus:border-[#1D7DB5] text-xs font-semibold shadow-2xs"
                             />
-                            <div className="absolute left-2.5 top-2.5 text-slate-400">
-                                <Search size={13} />
-                            </div>
                             {filterText && (
                                 <button
                                     type="button"
                                     onClick={() => setFilterText('')}
                                     title={t('basecamp.clear_filter')}
-                                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold cursor-pointer"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold cursor-pointer"
                                 >
                                     ✕
                                 </button>
                             )}
+                        </div>
+
+                        {/* Fila compacta [Todos (desktop)] [Categorías ▾] [Más recientes ▾] */}
+                        <div className="flex items-center gap-2 shrink-0 min-w-0">
+                            <button
+                                type="button"
+                                onClick={() => { setCategoryFilter(null); setFilterText(''); setShowCategoryMenu(false) }}
+                                className={`hidden md:inline-flex items-center px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                    !categoryFilter && !filterText
+                                        ? 'border-[#1D7DB5] bg-[#1D7DB5]/10 text-[#1D7DB5] dark:text-sky-400'
+                                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                {t('basecamp.all_messages')}
+                            </button>
+
+                            {/* Dropdown de las 5 Categorías de Basecamp + General */}
+                            <div ref={categoryMenuRef} className="relative z-40 flex-1 sm:flex-none min-w-0">
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowCategoryMenu(prev => !prev); setShowSortMenu(false); setOpenRowMenuId(null) }}
+                                    className={`w-full sm:w-auto px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-between gap-1.5 min-w-0 ${
+                                        categoryFilter
+                                            ? 'border-[#1D7DB5] bg-[#1D7DB5]/10 text-[#1D7DB5] dark:text-sky-400'
+                                            : 'border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                    }`}
+                                >
+                                    <span className="truncate">{categoryFilter ? getCategoryDisplayLabel(categoryFilter) : t('basecamp.categories')}</span>
+                                    <ChevronDown size={13} className="shrink-0 opacity-70" />
+                                </button>
+
+                                {showCategoryMenu && (
+                                    <div className="absolute left-0 top-full mt-1.5 w-56 max-w-[calc(100vw-24px)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-50 text-left">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setCategoryFilter(null); setShowCategoryMenu(false) }}
+                                            className={`w-full px-3 py-1.5 text-xs font-bold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${
+                                                !categoryFilter ? 'text-[#1D7DB5] dark:text-sky-400' : 'text-slate-700 dark:text-slate-300'
+                                            }`}
+                                        >
+                                            <span>{t('basecamp.all_messages')}</span>
+                                            {!categoryFilter && <span>✓</span>}
+                                        </button>
+                                        {CATEGORY_FILTER_OPTIONS.map(opt => {
+                                            const isSelected = categoryFilter ? getCanonicalCategory(categoryFilter) === opt.canonical : false
+                                            return (
+                                                <button
+                                                    key={opt.value}
+                                                    type="button"
+                                                    onClick={() => { setCategoryFilter(opt.value); setShowCategoryMenu(false) }}
+                                                    className={`w-full px-3 py-1.5 text-xs font-bold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${
+                                                        isSelected ? 'text-[#1D7DB5] dark:text-sky-400' : 'text-slate-700 dark:text-slate-300'
+                                                    }`}
+                                                >
+                                                    <span>{getCategoryDisplayLabel(opt.value)}</span>
+                                                    {isSelected && <span>✓</span>}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Selector de Ordenamiento (4 opciones reales de Basecamp) */}
+                            <div ref={sortMenuRef} className="relative z-40 flex-1 sm:flex-none min-w-0">
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowSortMenu(prev => !prev); setShowCategoryMenu(false); setOpenRowMenuId(null) }}
+                                    className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-1.5 cursor-pointer transition-all min-w-0"
+                                >
+                                    <span className="truncate">{getSortOrderLabel(sortOrder)}</span>
+                                    <ChevronDown size={13} className="shrink-0 opacity-70" />
+                                </button>
+
+                                {showSortMenu && (
+                                    <div className="absolute right-0 top-full mt-1.5 w-52 max-w-[calc(100vw-24px)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-50 text-left">
+                                        {(['newest', 'latest_comment', 'oldest', 'alphabetical'] as MessageSortOrder[]).map((mode) => {
+                                            const isSelected = sortOrder === mode
+                                            return (
+                                                <button
+                                                    key={mode}
+                                                    type="button"
+                                                    onClick={() => { setSortOrder(mode); setShowSortMenu(false) }}
+                                                    className={`w-full px-3 py-1.5 text-xs font-bold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${
+                                                        isSelected ? 'text-[#1D7DB5] dark:text-sky-400' : 'text-slate-700 dark:text-slate-300'
+                                                    }`}
+                                                >
+                                                    <span>{getSortOrderLabel(mode)}</span>
+                                                    {isSelected && <span>✓</span>}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2193,7 +2223,7 @@ export default function ToolMessages({
             {showCreateForm && (
                 <div
                     ref={createFormRef}
-                    className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 p-4 sm:p-6 rounded-2xl shadow-sm"
+                    className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-7 rounded-2xl shadow-xs min-w-0"
                 >
                     <div className="flex items-center gap-2 mb-3">
                         <button
@@ -2238,10 +2268,11 @@ export default function ToolMessages({
                                     ref={createTitleInputRef}
                                     type="text"
                                     required
+                                    maxLength={400}
                                     value={newTitle}
                                     onChange={(e) => setNewTitle(e.target.value)}
                                     placeholder={t('basecamp.new_message_title')}
-                                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-sm font-bold"
+                                    className="w-full min-w-0 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-sm font-bold"
                                 />
                             </div>
                             <div>
@@ -2489,48 +2520,44 @@ export default function ToolMessages({
                 const isPinnedSelected = Boolean(selectedMessage.is_pinned)
 
                 return (
-                    <div className="flex-1 flex flex-col gap-6">
-                        {/* Header: Breadcrumbs & Actions */}
-                        <div className={`relative ${showDetailMoreMenu ? 'z-50' : 'z-20'} flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3`}>
-                            <div className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                                <span
-                                    onClick={closeMessageDetail}
-                                    className="text-[#1D7DB5] hover:underline cursor-pointer"
-                                >
-                                    {project.name || t('basecamp.all_projects')}
-                                </span>
-                                <span className="text-slate-300 font-normal">/</span>
-                                <span
-                                    onClick={closeMessageDetail}
-                                    className="text-[#1D7DB5] hover:underline cursor-pointer"
-                                >
-                                    {t('basecamp.message_board')}
-                                </span>
-                            </div>
+                    <div className="flex-1 flex flex-col gap-4 sm:gap-5 min-w-0">
+                        {/* Barra superior de navegación del anuncio (1 sola fila limpia en móvil y web) */}
+                        <div className={`relative ${showDetailMoreMenu ? 'z-50' : 'z-20'} flex items-center justify-between gap-2 min-w-0`}>
+                            <button
+                                type="button"
+                                onClick={closeMessageDetail}
+                                className="min-w-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 rounded-xl text-xs sm:text-[13px] font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] dark:hover:text-sky-400 hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            >
+                                <ArrowLeft size={15} className="shrink-0" />
+                                <span className="truncate capitalize">{t('basecamp.tool_announcements').toLowerCase()}</span>
+                            </button>
 
-                            <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                     type="button"
                                     disabled={replicatingMsgId === selectedMessage.id}
                                     onClick={() => void handleReplicateMessage(selectedMessage)}
                                     title={t('basecamp.replicate_message_tooltip')}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer"
+                                    aria-label={t('basecamp.replicate_message')}
+                                    className="inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer"
                                 >
                                     {replicatingMsgId === selectedMessage.id ? (
                                         <Loader2 size={13} className="animate-spin" />
                                     ) : (
-                                        <span>📋</span>
+                                        <span className="leading-none">📋</span>
                                     )}
-                                    <span>{t('basecamp.replicate_message')}</span>
+                                    <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
                                 </button>
 
                                 <button
                                     type="button"
                                     onClick={() => startEditMessage()}
-                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+                                    title={t('basecamp.edit_message')}
+                                    aria-label={t('basecamp.edit_message')}
+                                    className="inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 h-8 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
                                 >
-                                    <Pencil size={13} />
-                                    <span>{t('basecamp.edit_message')}</span>
+                                    <Pencil size={13} className="shrink-0" />
+                                    <span className="hidden sm:inline">{t('basecamp.edit_message')}</span>
                                 </button>
 
                                 {/* Menú ••• completo estilo Basecamp */}
@@ -2543,13 +2570,14 @@ export default function ToolMessages({
                                             setShowDetailMoreMenu(prev => !prev)
                                         }}
                                         title={t('basecamp.more_actions')}
-                                        className="w-8 h-8 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all flex items-center justify-center cursor-pointer"
+                                        aria-label={t('basecamp.more_actions')}
+                                        className="w-8 h-8 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all flex items-center justify-center cursor-pointer"
                                     >
                                         <MoreHorizontal size={16} />
                                     </button>
 
                                     {showDetailMoreMenu && (
-                                        <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-[90] text-left">
+                                        <div className="absolute right-0 top-full mt-1.5 w-60 max-w-[calc(100vw-24px)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-[90] text-left">
                                             <button
                                                 type="button"
                                                 onClick={() => void handleReplicateMessage(selectedMessage)}
@@ -2618,7 +2646,7 @@ export default function ToolMessages({
                         {isEditingMessage ? (
                             <form
                                 onSubmit={handleUpdateMessage}
-                                className="relative z-10 bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 p-4 sm:p-6 rounded-2xl space-y-4 shadow-sm"
+                                className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-7 rounded-2xl space-y-4 shadow-xs min-w-0"
                             >
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <div className="sm:col-span-2">
@@ -2628,10 +2656,11 @@ export default function ToolMessages({
                                         <input
                                             type="text"
                                             required
+                                            maxLength={400}
                                             value={editMsgTitle}
                                             onChange={(e) => setEditMsgTitle(e.target.value)}
                                             placeholder={t('basecamp.new_message_title')}
-                                            className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-sm font-bold"
+                                            className="w-full min-w-0 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-sm font-bold"
                                         />
                                     </div>
                                     <div>
@@ -2687,130 +2716,141 @@ export default function ToolMessages({
                                 </div>
                             </form>
                         ) : (
-                            <div className={`w-full flex flex-col gap-6 ${activeBoostPickerKey === `message:${selectedMessage.id}` ? 'relative z-40' : 'relative z-10'}`}>
-                                {/* Title and Subtitle */}
-                                <div className="border-b border-slate-100 dark:border-slate-800 pb-4">
-                                    <div className="flex items-center gap-2 flex-wrap mb-2">
-                                        {isPinnedSelected && (
-                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs font-extrabold text-amber-700 dark:text-amber-300">
-                                                <span>📌</span>
-                                                <span>{t('basecamp.pinned_badge')}</span>
-                                            </span>
-                                        )}
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-extrabold text-slate-700 dark:text-slate-200">
-                                            {getCategoryDisplayLabel(selectedMessage.category)}
+                            <article className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs p-4 sm:p-7 md:p-9 w-full min-w-0 ${activeBoostPickerKey === `message:${selectedMessage.id}` ? 'relative z-40' : 'relative z-10'}`}>
+                                {/* Fila de badges: Categoría + Fijado */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-[11px] sm:text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                        {getCategoryDisplayLabel(selectedMessage.category)}
+                                    </span>
+                                    {isPinnedSelected && (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] sm:text-xs font-extrabold text-amber-700 dark:text-amber-300">
+                                            <span>📌</span>
+                                            <span>{t('basecamp.pinned_badge')}</span>
                                         </span>
-                                    </div>
-                                    <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-50 font-sans tracking-tight leading-tight mb-2">
-                                        {selectedMessage.title}
-                                    </h2>
-                                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-bold flex items-center gap-1.5 flex-wrap">
-                                        <span>
-                                            {selectedAuthorName} {t('basecamp.on_date')} {formatMessageDate(selectedMessage.created_at)} {t('basecamp.time_at')} {formatMessageTime(selectedMessage.created_at)}
-                                        </span>
-                                        {wasRecordEdited(selectedMessage.created_at, selectedMessage.updated_at) && (
-                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                                                {t('basecamp.edited_badge')}
-                                            </span>
-                                        )}
-                                    </p>
+                                    )}
                                 </div>
 
-                                {/* Flex container for Message content (Avatar on Left, Content on Right) */}
-                                <div className="flex gap-3 sm:gap-4 items-start w-full">
+                                {/* Título Editorial Responsivo */}
+                                <h2 className="text-[19px] sm:text-[23px] md:text-[26px] font-extrabold leading-[1.3] tracking-tight text-slate-900 dark:text-slate-50 mt-2.5 break-words">
+                                    {selectedMessage.title}
+                                </h2>
+
+                                {/* Byline del Autor debajo del título */}
+                                <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-5 mt-3.5 min-w-0">
                                     <div
-                                        className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-xs sm:text-sm font-black text-white flex-shrink-0 shadow-sm"
+                                        className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-black text-white shrink-0 shadow-xs"
                                         style={{ backgroundColor: getAvatarColor(selectedAuthorName) }}
                                     >
                                         {getInitials(selectedAuthorName)}
                                     </div>
-
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex flex-col gap-4">
-                                            {richHtml && (
-                                                <div
-                                                    className="bc-rich-text text-[16px] sm:text-[17px] text-slate-800 dark:text-slate-200 leading-relaxed font-sans"
-                                                    onClick={handleRichImgClick}
-                                                    dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(richHtml, t('basecamp.download_btn')) }}
-                                                />
+                                    <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center sm:gap-2 text-xs">
+                                        <span className="font-bold text-[13px] sm:text-sm text-slate-900 dark:text-slate-100 truncate">
+                                            {selectedAuthorName}
+                                        </span>
+                                        <div className="flex items-center gap-1.5 flex-wrap text-slate-500 dark:text-slate-400 font-medium">
+                                            <span className="hidden sm:inline text-slate-300 dark:text-slate-600">•</span>
+                                            <span>
+                                                {formatMessageDate(selectedMessage.created_at)} {t('basecamp.time_at')} {formatMessageTime(selectedMessage.created_at)}
+                                            </span>
+                                            {wasRecordEdited(selectedMessage.created_at, selectedMessage.updated_at) && (
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                                    {t('basecamp.edited_badge')}
+                                                </span>
                                             )}
-
-                                            {/* Inline Video Players (<video controls preload="metadata" playsInline> + ⬇ Descargar video) */}
-                                            {renderVideoAttachments(videoAttachments)}
-
-                                            {/* Non-image/non-video attachments (PDFs, files) as cards */}
-                                            {nonImageAttachments.length > 0 && (
-                                                <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
-                                                    <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase mb-2">
-                                                        📎 {nonImageAttachments.length} {nonImageAttachments.length === 1 ? t('basecamp.file_count') : t('basecamp.files_count')}
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {nonImageAttachments.map((file, i) => {
-                                                            const rawFileUrl = sanitizeAttachmentHref(file.url || file.href)
-                                                            const cleanName = safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')
-                                                            return (
-                                                                <a
-                                                                    key={i}
-                                                                    href={buildBasecampDirectDownloadHref(rawFileUrl, cleanName)}
-                                                                    onClick={(ev) => {
-                                                                        ev.preventDefault()
-                                                                        triggerBasecampDownload(rawFileUrl, cleanName)
-                                                                    }}
-                                                                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 rounded-xl text-xs font-bold text-[#1D7DB5] hover:text-[#155D8A] transition-all cursor-pointer"
-                                                                >
-                                                                    <FileText size={14} className="text-slate-400 flex-shrink-0" />
-                                                                    <span className="max-w-[220px] truncate">
-                                                                        {cleanName}
-                                                                    </span>
-                                                                </a>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Native Boosts (bc_boosts + create_boost / delete_boost) */}
-                                            {renderBoostsRow('message', selectedMessage.id, messageNativeBoosts)}
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Legacy short-ack comments summary (only if no native boosts yet) */}
-                                {messageNativeBoosts.length === 0 && messageBoosts.length > 0 && (
-                                    <div className="flex items-center gap-2.5 flex-wrap pl-14 mt-1 pb-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex -space-x-1.5">
-                                                {messageBoosts.map((boost: any, i: number) => {
-                                                    const boostAuthor = getAuthorObj(boost.author)?.name || t('basecamp.unknown_user')
+                                {/* Cuerpo del Anuncio a Ancho Completo (100% libre, sin avatar repetido a la izquierda) */}
+                                <div className="w-full min-w-0 flex flex-col gap-4">
+                                    {richHtml && (
+                                        <div
+                                            className="bc-rich-text w-full min-w-0 text-slate-800 dark:text-slate-200 font-sans"
+                                            onClick={handleRichImgClick}
+                                            dangerouslySetInnerHTML={{
+                                                __html: injectImageDownloadOverlays(
+                                                    formatBasecampRichHtmlForDisplay(richHtml),
+                                                    t('basecamp.download_btn')
+                                                ),
+                                            }}
+                                        />
+                                    )}
+
+                                    {/* Inline Video Players (<video controls preload="metadata" playsInline> + ⬇ Descargar video) */}
+                                    {renderVideoAttachments(videoAttachments)}
+
+                                    {/* Non-image/non-video attachments (PDFs, files) as cards */}
+                                    {nonImageAttachments.length > 0 && (
+                                        <div className="mt-2 border-t border-slate-100 dark:border-slate-800 pt-4">
+                                            <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase mb-2">
+                                                📎 {nonImageAttachments.length} {nonImageAttachments.length === 1 ? t('basecamp.file_count') : t('basecamp.files_count')}
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {nonImageAttachments.map((file, i) => {
+                                                    const rawFileUrl = sanitizeAttachmentHref(file.url || file.href)
+                                                    const cleanName = safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')
                                                     return (
-                                                        <div
-                                                            key={boost.id || i}
-                                                            title={`${boostAuthor} — Ok`}
-                                                            className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-black text-white shadow-sm shrink-0"
-                                                            style={{ backgroundColor: getAvatarColor(boostAuthor) }}
+                                                        <a
+                                                            key={i}
+                                                            href={buildBasecampDirectDownloadHref(rawFileUrl, cleanName)}
+                                                            onClick={(ev) => {
+                                                                ev.preventDefault()
+                                                                triggerBasecampDownload(rawFileUrl, cleanName)
+                                                            }}
+                                                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 rounded-xl text-xs font-bold text-[#1D7DB5] hover:text-[#155D8A] transition-all cursor-pointer max-w-full"
                                                         >
-                                                            {getInitials(boostAuthor)}
-                                                        </div>
+                                                            <FileText size={14} className="text-slate-400 shrink-0" />
+                                                            <span className="max-w-[220px] truncate">
+                                                                {cleanName}
+                                                            </span>
+                                                        </a>
                                                     )
                                                 })}
                                             </div>
-                                            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                                                {messageBoosts.length} {messageBoosts.length === 1 ? t('basecamp.said_ok_singular') : t('basecamp.said_ok_plural')}
-                                            </span>
                                         </div>
+                                    )}
+
+                                    {/* Native Boosts + Legacy short-ack summary */}
+                                    <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-800/80">
+                                        {renderBoostsRow('message', selectedMessage.id, messageNativeBoosts)}
+
+                                        {messageNativeBoosts.length === 0 && messageBoosts.length > 0 && (
+                                            <div className="flex items-center gap-2.5 flex-wrap mt-2.5">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex -space-x-1.5">
+                                                        {messageBoosts.map((boost: any, i: number) => {
+                                                            const boostAuthor = getAuthorObj(boost.author)?.name || t('basecamp.unknown_user')
+                                                            return (
+                                                                <div
+                                                                    key={boost.id || i}
+                                                                    title={`${boostAuthor} — Ok`}
+                                                                    className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-black text-white shadow-xs shrink-0"
+                                                                    style={{ backgroundColor: getAvatarColor(boostAuthor) }}
+                                                                >
+                                                                    {getInitials(boostAuthor)}
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                    <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                                        {messageBoosts.length} {messageBoosts.length === 1 ? t('basecamp.said_ok_singular') : t('basecamp.said_ok_plural')}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            </article>
                         )}
 
                         {/* Hilo de comentarios de este anuncio */}
-                        <div className={`relative ${openCommentMenuId || activeBoostPickerKey?.startsWith('comment:') ? 'z-40' : 'z-10'} border-t border-slate-100 dark:border-slate-800 pt-6`}>
-                            <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-6 flex items-center gap-1.5">
-                                <MessageSquare size={14} />
-                                {t('basecamp.comments_title')} ({Math.max(Number(selectedMessage.comments_count || 0), selectedMessageComments.length)})
+                        <div className={`relative ${openCommentMenuId || activeBoostPickerKey?.startsWith('comment:') ? 'z-40' : 'z-10'} flex flex-col gap-3.5 pt-1 min-w-0`}>
+                            <h4 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5 px-1">
+                                <MessageSquare size={14} className="text-[#1D7DB5] dark:text-sky-400" />
+                                <span>{t('basecamp.comments_title')} ({Math.max(Number(selectedMessage.comments_count || 0), selectedMessageComments.length)})</span>
                             </h4>
 
-                            <div className="space-y-6 mb-6">
+                            <div className="space-y-3">
                                 {commentsLoading && selectedMessageComments.length === 0 ? (
                                     <div className="flex justify-center py-6">
                                         <Loader2 className="w-6 h-6 text-[#1D7DB5] animate-spin" />
@@ -2831,31 +2871,30 @@ export default function ToolMessages({
                                         return (
                                             <div
                                                 key={c.id || idx}
-                                                className={`${isCommentMenuOpen || isCommentBoostOpen ? 'relative z-40' : 'relative z-0'} flex gap-3 sm:gap-4 items-start text-xs border-b border-slate-100 dark:border-slate-800/40 pb-5 last:border-0 last:pb-0`}
+                                                className={`${isCommentMenuOpen || isCommentBoostOpen ? 'relative z-40' : 'relative z-0'} py-3.5 px-3.5 sm:px-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/75 dark:border-slate-800 shadow-2xs text-xs min-w-0`}
                                             >
-                                                {/* Comment avatar */}
-                                                <div
-                                                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 uppercase shadow-sm"
-                                                    style={{ backgroundColor: getAvatarColor(commentAuthor) }}
-                                                >
-                                                    {getInitials(commentAuthor)}
-                                                </div>
-
-                                                {/* Comment Content */}
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                                                        <div className="flex items-baseline gap-1.5 flex-wrap">
-                                                            <span className="font-extrabold text-sm text-slate-800 dark:text-slate-200">
-                                                                {commentAuthor}
-                                                            </span>
-                                                            <span className="text-[11px] text-slate-400">
-                                                                • {formatMessageDate(c.created_at)} {t('basecamp.time_at')} {formatMessageTime(c.created_at)}
-                                                            </span>
-                                                            {wasRecordEdited(c.created_at, c.updated_at) && (
-                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                                                                    {t('basecamp.edited_badge')}
+                                                <div className="w-full min-w-0">
+                                                    <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <div
+                                                                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-black text-white shrink-0 uppercase shadow-2xs"
+                                                                style={{ backgroundColor: getAvatarColor(commentAuthor) }}
+                                                            >
+                                                                {getInitials(commentAuthor)}
+                                                            </div>
+                                                            <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
+                                                                <span className="font-extrabold text-[13px] sm:text-sm text-slate-800 dark:text-slate-100 truncate">
+                                                                    {commentAuthor}
                                                                 </span>
-                                                            )}
+                                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                                    • {formatMessageDate(c.created_at)} {t('basecamp.time_at')} {formatMessageTime(c.created_at)}
+                                                                </span>
+                                                                {wasRecordEdited(c.created_at, c.updated_at) && (
+                                                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                                                        {t('basecamp.edited_badge')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </div>
 
                                                         <div data-msg-comment-menu="true" className="flex items-center gap-1 shrink-0 relative">
@@ -2943,17 +2982,24 @@ export default function ToolMessages({
                                                         <>
                                                             {commentHtml && (
                                                                 <div
-                                                                    className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-sans"
+                                                                    className="bc-rich-text w-full min-w-0 !text-[14px] sm:!text-[14.5px] text-slate-700 dark:text-slate-300 font-sans sm:pl-10"
                                                                     onClick={handleRichImgClick}
-                                                                    dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(commentHtml, t('basecamp.download_btn')) }}
+                                                                    dangerouslySetInnerHTML={{
+                                                                        __html: injectImageDownloadOverlays(
+                                                                            formatBasecampRichHtmlForDisplay(commentHtml),
+                                                                            t('basecamp.download_btn')
+                                                                        ),
+                                                                    }}
                                                                 />
                                                             )}
 
                                                             {/* Inline Video Players in Comments */}
-                                                            {renderVideoAttachments(commentVideos, true)}
+                                                            <div className="sm:pl-10">
+                                                                {renderVideoAttachments(commentVideos, true)}
+                                                            </div>
 
                                                             {commentFiles.length > 0 && (
-                                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                                <div className="mt-2 flex flex-wrap gap-2 sm:pl-10">
                                                                     {commentFiles.map((file: any, fIdx: number) => {
                                                                         const rawFileUrl = sanitizeAttachmentHref(file.url || file.href)
                                                                         const cleanName = safeDecodeFilename(file.filename) || t('basecamp.attached_file_fallback')
@@ -2977,7 +3023,11 @@ export default function ToolMessages({
                                                                 </div>
                                                             )}
 
-                                                            {c.id && renderBoostsRow('comment', String(c.id), cBoosts)}
+                                                            {c.id && (
+                                                                <div className="sm:pl-10">
+                                                                    {renderBoostsRow('comment', String(c.id), cBoosts)}
+                                                                </div>
+                                                            )}
                                                         </>
                                                     )}
                                                 </div>
@@ -2985,14 +3035,16 @@ export default function ToolMessages({
                                         )
                                     })
                                 ) : (
-                                    <p className="text-xs text-slate-400 italic text-center py-6">
-                                        {t('basecamp.no_comments_yet')}
-                                    </p>
+                                    <div className="rounded-xl bg-white/70 dark:bg-slate-900/60 border border-dashed border-slate-200 dark:border-slate-800 py-6 px-4 text-center">
+                                        <p className="text-xs text-slate-400 italic">
+                                            {t('basecamp.no_comments_yet')}
+                                        </p>
+                                    </div>
                                 )}
                             </div>
 
                             {/* Publicar comentario enriquecido con BasecampRichEditor */}
-                            <form onSubmit={handleAddComment} className="relative z-10 space-y-3">
+                            <form onSubmit={handleAddComment} className="relative z-10 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-3.5 sm:p-5 shadow-2xs space-y-3 min-w-0">
                                 <BasecampRichEditor
                                     compact
                                     editorKey={`new-msg-comment-${selectedMessage.id}-${commentEditorKey}`}
@@ -3017,12 +3069,139 @@ export default function ToolMessages({
                                 </div>
                             </form>
 
-                            {/* Pie informativo de notificaciones estilo Basecamp */}
-                            <div className="mt-8 pt-5 border-t border-slate-100 dark:border-slate-800 flex items-start gap-2.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl p-4">
-                                <Mail size={15} className="text-[#1D7DB5] shrink-0 mt-0.5" />
-                                <p className="leading-relaxed font-medium">
-                                    {t('basecamp.msg_subscribers_footer')}
-                                </p>
+                            {/* Pie informativo y gestión de suscriptores estilo Basecamp */}
+                            <div className="mt-1 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3 min-w-0">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex items-start gap-2.5 text-xs text-slate-600 dark:text-slate-300">
+                                        <Mail size={15} className="text-[#1D7DB5] shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="font-bold text-slate-700 dark:text-slate-200">
+                                                {subscribersLoading
+                                                    ? t('basecamp.msg_subscribers_loading')
+                                                    : t('basecamp.msg_subscribers_count').replace('{count}', String(initialSubscriberUuids.length))}
+                                            </p>
+                                            <p className="leading-relaxed text-slate-500 dark:text-slate-400 mt-0.5">
+                                                {t('basecamp.msg_subscribers_footer')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowSubscribersPanel((prev) => !prev)
+                                            setSubscribersFeedback(null)
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#1D7DB5] text-xs font-extrabold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer shrink-0"
+                                    >
+                                        <Users size={13} className="text-[#1D7DB5]" />
+                                        <span>{t('basecamp.msg_manage_subscribers')}</span>
+                                    </button>
+                                </div>
+
+                                {subscribersFeedback && (
+                                    <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2 flex items-center gap-1.5">
+                                        <Check size={14} className="shrink-0" />
+                                        <span>{subscribersFeedback}</span>
+                                    </div>
+                                )}
+
+                                {showSubscribersPanel && (
+                                    <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 space-y-3">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                                {t('basecamp.msg_subscribers_panel_title')}
+                                            </span>
+                                            <div className="relative w-full sm:w-64">
+                                                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                <input
+                                                    type="text"
+                                                    value={subscriberSearchQuery}
+                                                    onChange={(e) => setSubscriberSearchQuery(e.target.value)}
+                                                    placeholder={t('basecamp.msg_subscribers_search')}
+                                                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#1D7DB5]/30"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
+                                            {projectPeople
+                                                .filter((p) => {
+                                                    const q = normalizeSearch(subscriberSearchQuery)
+                                                    if (!q) return true
+                                                    return normalizeSearch(p.name).includes(q) || normalizeSearch(p.email).includes(q) || normalizeSearch(p.title).includes(q)
+                                                })
+                                                .map((p) => {
+                                                    const isChecked = draftSubscriberUuids.includes(p.id)
+                                                    const wasInitial = initialSubscriberUuids.includes(p.id)
+                                                    return (
+                                                        <label
+                                                            key={p.id}
+                                                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                                                                isChecked
+                                                                    ? 'bg-sky-50/80 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800'
+                                                                    : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-700/80 hover:border-slate-300'
+                                                            }`}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={() => {
+                                                                    setDraftSubscriberUuids((prev) =>
+                                                                        prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                                                                    )
+                                                                }}
+                                                                className="rounded border-slate-300 text-[#1D7DB5] focus:ring-[#1D7DB5]"
+                                                            />
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="font-bold text-slate-700 dark:text-slate-200 truncate">{p.name}</p>
+                                                                {(p.title || p.email) && (
+                                                                    <p className="text-[10px] text-slate-400 truncate">{p.title || p.email}</p>
+                                                                )}
+                                                            </div>
+                                                            {wasInitial && (
+                                                                <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+                                                                    {t('basecamp.msg_subscribers_status_badge')}
+                                                                </span>
+                                                            )}
+                                                        </label>
+                                                    )
+                                                })}
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={notifyAddedSubscribers}
+                                                    onChange={(e) => setNotifyAddedSubscribers(e.target.checked)}
+                                                    className="rounded border-slate-300 text-[#1D7DB5] focus:ring-[#1D7DB5]"
+                                                />
+                                                <span>{t('basecamp.msg_subscribers_notify_now')}</span>
+                                            </label>
+                                            <div className="flex items-center gap-2 justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDraftSubscriberUuids(initialSubscriberUuids)
+                                                        setShowSubscribersPanel(false)
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                                >
+                                                    {t('common.cancel')}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={subscribersSaving}
+                                                    onClick={() => void handleSaveSubscribers()}
+                                                    className="px-4 py-1.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] disabled:opacity-60 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    {subscribersSaving && <Loader2 size={12} className="animate-spin" />}
+                                                    <span>{subscribersSaving ? t('basecamp.msg_subscribers_saving') : t('basecamp.msg_subscribers_save')}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -3031,7 +3210,7 @@ export default function ToolMessages({
 
             {/* ── 3. LISTADO DE ANUNCIOS ── */}
             {!showCreateForm && !selectedMessage && (
-                <div className={`relative ${openRowMenuId ? 'z-30' : 'z-10'} flex flex-col w-full`}>
+                <div className={`relative ${openRowMenuId ? 'z-30' : 'z-10'} flex flex-col gap-2.5 w-full min-w-0`}>
                     {loading ? (
                         <div className="flex justify-center py-12">
                             <Loader2 className="w-8 h-8 text-[#1D7DB5] animate-spin" />
@@ -3045,109 +3224,94 @@ export default function ToolMessages({
                             const hasRowVideos = rowAttachments.some((a) => a.kind === 'video')
                             const isPinned = Boolean(m.is_pinned)
                             const isRowMenuOpen = openRowMenuId === m.id
+                            const excerpt = stripHtml(m.content)
+                            const hasActiveSearch = Boolean(filterText.trim())
 
                             return (
                                 <div
                                     key={m.id}
                                     onClick={() => setSelectedMessage(m)}
-                                    className={`${isRowMenuOpen ? 'relative z-40' : 'relative z-0'} group/row border-b border-slate-100 dark:border-slate-800 py-5 px-2 -mx-2 rounded-xl flex items-start gap-3 sm:gap-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors cursor-pointer ${
-                                        isPinned ? 'bg-amber-50/30 dark:bg-amber-950/10' : ''
+                                    className={`${isRowMenuOpen ? 'relative z-40' : 'relative z-0'} group/row rounded-2xl border p-3.5 sm:p-4.5 flex items-start gap-3.5 transition-all cursor-pointer min-w-0 ${
+                                        isPinned
+                                            ? 'bg-amber-50/40 dark:bg-amber-950/15 border-amber-200/90 dark:border-amber-800/70 hover:border-amber-300 dark:hover:border-amber-700 shadow-2xs'
+                                            : 'bg-white dark:bg-slate-900 border-slate-200/85 dark:border-slate-800 hover:border-[#1D7DB5]/45 dark:hover:border-sky-500/45 shadow-2xs'
                                     }`}
                                 >
-                                    {/* Left side: Avatar */}
+                                    {/* Desktop Avatar (hidden on < sm so mobile title gets 100% width) */}
                                     <div
-                                        className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-sm mt-0.5"
+                                        className="hidden sm:flex w-9 h-9 rounded-full items-center justify-center text-xs font-black text-white shrink-0 shadow-xs mt-0.5"
                                         style={{ backgroundColor: getAvatarColor(authorName) }}
                                     >
                                         {getInitials(authorName)}
                                     </div>
 
-                                    {/* Middle: Content */}
+                                    {/* Main Card Content */}
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                                            {isPinned && (
-                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/80 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-extrabold text-amber-800 dark:text-amber-300 shrink-0">
-                                                    <span>📌</span>
-                                                    <span>{t('basecamp.pinned_badge')}</span>
-                                                </span>
-                                            )}
-                                            <h4 className="text-[18px] sm:text-[19px] font-bold text-slate-900 dark:text-slate-100 group-hover/row:text-[#1D7DB5] group-hover/row:underline leading-snug font-sans truncate max-w-full">
-                                                {m.title}
-                                            </h4>
-                                            {hasRowPhotos && (
-                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
-                                                    📷
-                                                </span>
-                                            )}
-                                            {hasRowVideos && (
-                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-[10px] font-bold text-purple-700 dark:text-purple-300 shrink-0">
-                                                    🎬
-                                                </span>
-                                            )}
-                                        </div>
-                                        <p className="text-[14px] text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
-                                            <span className="font-bold text-slate-700 dark:text-slate-300">
-                                                {getCategoryDisplayLabel(m.category)} {t('basecamp.by')} {authorName} • {formattedDate} •{' '}
-                                            </span>
-                                            <span className="text-slate-500 dark:text-slate-400">
-                                                {stripHtml(m.content)}
-                                            </span>
-                                        </p>
-                                    </div>
+                                        {/* Top row: Title (line-clamp-2, full free width on mobile) + Right actions */}
+                                        <div className="flex items-start justify-between gap-2 min-w-0">
+                                            <div className="flex-1 min-w-0">
+                                                {isPinned && (
+                                                    <div className="mb-1">
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/90 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-extrabold text-amber-800 dark:text-amber-300">
+                                                            <span>📌</span>
+                                                            <span>{t('basecamp.pinned_badge')}</span>
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <h4 className="text-[15px] sm:text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100 group-hover/row:text-[#1D7DB5] dark:group-hover/row:text-sky-400 break-words line-clamp-2">
+                                                    {m.title}
+                                                </h4>
+                                            </div>
 
-                                    {/* Right side: Quick Replicate button + ••• menu + Comments count circle badge */}
-                                    <div
-                                        data-msg-row-menu="true"
-                                        onClick={(ev) => ev.stopPropagation()}
-                                        className="flex items-center gap-1.5 flex-shrink-0 mt-0.5 relative"
-                                    >
-                                        <button
-                                            type="button"
-                                            disabled={replicatingMsgId === m.id}
-                                            onClick={(ev) => {
-                                                ev.stopPropagation()
-                                                void handleReplicateMessage(m)
-                                            }}
-                                            title={t('basecamp.replicate_message_tooltip')}
-                                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-extrabold transition-all cursor-pointer ${
-                                                filterText.trim() || categoryFilter
-                                                    ? 'bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-sm'
-                                                    : 'opacity-80 group-hover/row:opacity-100 bg-sky-50 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:text-white border-sky-200 dark:border-sky-800 text-[#1D7DB5] dark:text-sky-300'
-                                            }`}
-                                        >
-                                            {replicatingMsgId === m.id ? (
-                                                <Loader2 size={12} className="animate-spin" />
-                                            ) : (
-                                                <span>📋</span>
-                                            )}
-                                            <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
-                                        </button>
+                                            {/* Quick Replicate (hover on Desktop, icon-only on Mobile when searching; always inside •••) + ••• menu */}
+                                            <div
+                                                data-msg-row-menu="true"
+                                                onClick={(ev) => ev.stopPropagation()}
+                                                className="flex items-center gap-1 shrink-0 -mt-0.5 -mr-1 relative"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    disabled={replicatingMsgId === m.id}
+                                                    onClick={(ev) => {
+                                                        ev.stopPropagation()
+                                                        void handleReplicateMessage(m)
+                                                    }}
+                                                    title={t('basecamp.replicate_message_tooltip')}
+                                                    aria-label={t('basecamp.replicate_message')}
+                                                    className={`items-center justify-center gap-1 rounded-lg border text-[11px] font-extrabold transition-all cursor-pointer ${
+                                                        hasActiveSearch
+                                                            ? 'inline-flex px-2 sm:px-2.5 py-1 bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
+                                                            : 'hidden sm:inline-flex px-2.5 py-1 opacity-0 group-hover/row:opacity-100 focus:opacity-100 bg-sky-50 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:text-white hover:border-[#1D7DB5] border-sky-200/90 dark:border-sky-800 text-[#1D7DB5] dark:text-sky-300'
+                                                    }`}
+                                                >
+                                                    {replicatingMsgId === m.id ? (
+                                                        <Loader2 size={12} className="animate-spin" />
+                                                    ) : (
+                                                        <span className="leading-none">📋</span>
+                                                    )}
+                                                    <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
+                                                </button>
 
-                                        <button
-                                            type="button"
-                                            onClick={(ev) => {
-                                                ev.stopPropagation()
-                                                const btnRect = ev.currentTarget.getBoundingClientRect()
-                                                const vh = typeof window !== 'undefined' ? window.innerHeight : 800
-                                                setRowMenuUp(vh - btnRect.bottom < 240)
-                                                setShowCategoryMenu(false)
-                                                setShowSortMenu(false)
-                                                setOpenRowMenuId(prev => prev === m.id ? null : m.id)
-                                            }}
-                                            title={t('basecamp.more_actions')}
-                                            className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                                        >
-                                            <MoreHorizontal size={15} />
-                                        </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={(ev) => {
+                                                        ev.stopPropagation()
+                                                        const btnRect = ev.currentTarget.getBoundingClientRect()
+                                                        const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+                                                        setRowMenuUp(vh - btnRect.bottom < 240)
+                                                        setShowCategoryMenu(false)
+                                                        setShowSortMenu(false)
+                                                        setOpenRowMenuId(prev => prev === m.id ? null : m.id)
+                                                    }}
+                                                    title={t('basecamp.more_actions')}
+                                                    aria-label={t('basecamp.more_actions')}
+                                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                >
+                                                    <MoreHorizontal size={15} />
+                                                </button>
 
-                                        {m.comments_count > 0 && (
-                                            <span className="w-5 h-5 rounded-full bg-[#1D7DB5] text-white font-extrabold text-[10px] flex items-center justify-center shadow-sm">
-                                                {m.comments_count}
-                                            </span>
-                                        )}
-
-                                        {isRowMenuOpen && (
-                                            <div className={`absolute right-0 ${rowMenuUp ? 'bottom-full mb-1.5' : 'top-full mt-1'} w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-50 text-left`}>
+                                                {isRowMenuOpen && (
+                                                    <div className={`absolute right-0 ${rowMenuUp ? 'bottom-full mb-1.5' : 'top-full mt-1'} w-56 max-w-[calc(100vw-24px)] rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-50 text-left`}>
                                                 <button
                                                     type="button"
                                                     onClick={(ev) => {
@@ -3214,6 +3378,53 @@ export default function ToolMessages({
                                                 </button>
                                             </div>
                                         )}
+                                            </div>
+                                        </div>
+
+                                        {/* Clean 2-line excerpt */}
+                                        {excerpt && (
+                                            <p className="line-clamp-2 text-[13px] sm:text-[13.5px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed break-words">
+                                                {excerpt}
+                                            </p>
+                                        )}
+
+                                        {/* Metadata footer: Category · Author · Date · Media · Comments */}
+                                        <div className="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/70 text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400 min-w-0">
+                                            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 shrink-0">
+                                                    {getCategoryDisplayLabel(m.category)}
+                                                </span>
+                                                <span className="text-slate-300 dark:text-slate-600">·</span>
+                                                <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300 min-w-0">
+                                                    <span
+                                                        className="sm:hidden w-4 h-4 rounded-full inline-flex items-center justify-center text-[8px] font-black text-white shrink-0"
+                                                        style={{ backgroundColor: getAvatarColor(authorName) }}
+                                                    >
+                                                        {getInitials(authorName)}
+                                                    </span>
+                                                    <span className="truncate max-w-[130px] sm:max-w-[200px]">{authorName}</span>
+                                                </span>
+                                                <span className="text-slate-300 dark:text-slate-600">·</span>
+                                                <span className="shrink-0">{formattedDate}</span>
+                                                {hasRowVideos && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/60 text-[10px] font-bold text-purple-700 dark:text-purple-300 shrink-0">
+                                                        🎬
+                                                    </span>
+                                                )}
+                                                {hasRowPhotos && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                                                        📷
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {Number(m.comments_count) > 0 && (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1D7DB5]/10 dark:bg-sky-400/15 text-[#1D7DB5] dark:text-sky-300 font-extrabold text-[11px] shrink-0">
+                                                    <MessageSquare size={11} className="shrink-0" />
+                                                    <span>{m.comments_count}</span>
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             )

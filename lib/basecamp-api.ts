@@ -1572,6 +1572,47 @@ export async function unpinRecordingRemote(projectId: number, recordingId: numbe
   })
 }
 
+export interface BasecampRecordingSubscription {
+  subscribed: boolean
+  count: number
+  url: string
+  subscribers: BasecampPersonRef[]
+}
+
+/** Obtiene las suscripciones actuales de un recording (Message, Todo, Document, etc.) en Basecamp 3 */
+export async function fetchRecordingSubscription(
+  projectId: number,
+  recordingId: number
+): Promise<BasecampRecordingSubscription> {
+  return basecampFetch<BasecampRecordingSubscription>(
+    `/buckets/${projectId}/recordings/${recordingId}/subscription.json`,
+    { noPaginate: true }
+  )
+}
+
+/** Agrega y/o quita suscriptores en un recording existente en Basecamp 3 (sin re-enviar correo duplicado a existentes) */
+export async function updateRecordingSubscription(
+  projectId: number,
+  recordingId: number,
+  payload: { subscriptions?: number[]; unsubscriptions?: number[] }
+): Promise<BasecampRecordingSubscription> {
+  const body: Record<string, number[]> = {}
+  if (Array.isArray(payload.subscriptions) && payload.subscriptions.length > 0) {
+    body.subscriptions = payload.subscriptions
+  }
+  if (Array.isArray(payload.unsubscriptions) && payload.unsubscriptions.length > 0) {
+    body.unsubscriptions = payload.unsubscriptions
+  }
+  return basecampFetch<BasecampRecordingSubscription>(
+    `/buckets/${projectId}/recordings/${recordingId}/subscription.json`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(body),
+      noPaginate: true,
+    }
+  )
+}
+
 /** Envía cualquier recording (Todo, Comment, Message, Document, Todolist, etc.) a la papelera de Basecamp 3 */
 export async function trashRecording(projectId: number, recordingId: number): Promise<void> {
   await basecampFetch(`/buckets/${projectId}/recordings/${recordingId}/status/trashed.json`, {

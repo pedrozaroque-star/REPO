@@ -16,6 +16,7 @@
  * @notes
  *   - Soporte multilingüe (ES/EN) con `useLanguage()` y zona horaria `America/Los_Angeles`.
  *   - Corrige colisión de `bc_id` al enviar mensajes rápidos y duplicación visual con Realtime.
+ *   - Rediseño Móvil + Web (2026-11-28): panel dividido responsivo (`min-w-0`), burbujas adaptables y soporte de HTML enriquecido de Basecamp con `BASECAMP_RICH_CONTENT_CSS` + `formatBasecampRichHtmlForDisplay`.
  */
 
 'use client'
@@ -33,7 +34,41 @@ import {
     isBasecampOAuthOwner,
     normalizePersonName,
     isMaskedOrEmptyEmail,
+    stripTegAuthorBanner,
 } from '@/lib/basecamp-person-resolver'
+import {
+    BASECAMP_RICH_CONTENT_CSS,
+    BASECAMP_IMAGE_HOVER_CSS,
+    formatBasecampRichHtmlForDisplay,
+    rewriteBasecampHtmlUrls,
+    transformBasecampMentionsToPills,
+    sanitizeBasecampHtml,
+} from '@/lib/basecamp-html'
+
+const PING_HTML_TAG_RE = /<(?:div|p|br|ul|ol|li|strong|em|b|i|a|img|video|figure|bc-attachment|span|blockquote|code|pre)\b/i
+
+const AVATAR_COLORS = ['#2563EB', '#DC2626', '#059669', '#D97706', '#7C3AED', '#0D9488', '#DB2777', '#0284C7']
+const getAvatarColor = (name: string): string => {
+    const clean = (name || '?').trim() || '?'
+    let hash = 0
+    for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash)
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+const getInitials = (name: string): string => {
+    const clean = (name || '').trim()
+    if (!clean) return '?'
+    const parts = clean.split(/\s+/).filter(Boolean)
+    return parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : clean.slice(0, 2).toUpperCase()
+}
+
+const renderSafePingRichHtml = (rawHtml: string): string => {
+    const { cleanHtml } = stripTegAuthorBanner(rawHtml)
+    return formatBasecampRichHtmlForDisplay(
+        sanitizeBasecampHtml(transformBasecampMentionsToPills(rewriteBasecampHtmlUrls(cleanHtml)))
+    )
+}
 
 interface PingsDrawerProps {
     activeUser: string | null
@@ -344,25 +379,26 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
     }
 
     return (
-        <div className="flex-1 flex flex-col md:flex-row min-h-[60vh] gap-6 text-left">
+        <div className="flex-1 flex flex-col md:flex-row min-h-[62vh] gap-4 sm:gap-5 min-w-0 text-left">
+            <style dangerouslySetInnerHTML={{ __html: `${BASECAMP_RICH_CONTENT_CSS}\n${BASECAMP_IMAGE_HOVER_CSS}` }} />
             {/* Barra lateral de Chats Activos */}
-            <div className={`w-full md:w-[280px] flex flex-col border-r border-slate-100 dark:border-slate-800/80 pr-0 md:pr-6 ${activePartner ? 'hidden md:flex' : 'flex'}`}>
-                <h2 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">
+            <div className={`w-full md:w-[280px] lg:w-[300px] shrink-0 min-w-0 flex flex-col md:border-r border-slate-200/80 dark:border-slate-800 pr-0 md:pr-4 ${activePartner ? 'hidden md:flex' : 'flex'}`}>
+                <h2 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">
                     {t('basecamp.pings')}
                 </h2>
 
                 <div className="relative mb-3">
-                    <Search size={13} className="absolute left-3 top-2.5 text-slate-400" />
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
                     <input
                         type="text"
                         value={partnerFilter}
                         onChange={(e) => setPartnerFilter(e.target.value)}
                         placeholder={t('basecamp.filter_people_placeholder')}
-                        className="w-full pl-8 pr-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-[#1D7DB5]"
+                        className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-[#1D7DB5]"
                     />
                 </div>
 
-                <div className="space-y-1 overflow-y-auto no-scrollbar flex-1 max-h-[520px]">
+                <div className="space-y-1 overflow-y-auto no-scrollbar flex-1 max-h-[64dvh] md:max-h-[520px] min-w-0">
                     {loading ? (
                         <div className="flex justify-center py-6">
                             <Loader2 className="w-6 h-6 text-[#1D7DB5] animate-spin" />
@@ -374,22 +410,26 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                     ) : (
                         chatPartners.map((partner) => {
                             const isSelected = activePartner?.id === partner.id
-                            const initial = String(partner.name || '?').trim()[0] || '?'
+                            const initials = getInitials(partner.name || '?')
                             return (
                                 <button
                                     key={partner.id}
+                                    type="button"
                                     onClick={() => navigateTo({ section: 'pings', ping: partner.name })}
-                                    className={`w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 border transition-all text-left ${
+                                    className={`w-full flex items-center gap-3 p-2.5 sm:p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 border transition-all text-left cursor-pointer min-w-0 ${
                                         isSelected
                                             ? 'bg-blue-50/75 border-blue-200 dark:bg-slate-800 dark:border-slate-700'
                                             : 'border-transparent hover:border-slate-100 dark:hover:border-slate-800'
                                     }`}
                                 >
-                                    <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-200 text-blue-600 font-extrabold flex items-center justify-center text-xs shadow-inner uppercase shrink-0">
-                                        {initial}
+                                    <div
+                                        className="w-9 h-9 rounded-full text-white font-bold flex items-center justify-center text-[11px] shadow-2xs uppercase shrink-0"
+                                        style={{ backgroundColor: getAvatarColor(partner.name || '?') }}
+                                    >
+                                        {initials}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-extrabold text-slate-700 dark:text-slate-200 truncate">{partner.name}</p>
+                                        <p className="text-xs font-extrabold text-slate-800 dark:text-slate-200 truncate">{partner.name}</p>
                                         <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{partner.title || partner.role || t('basecamp.staff_role')}</p>
                                     </div>
                                 </button>
@@ -400,21 +440,25 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
             </div>
 
             {/* Ventana de Chat */}
-            <div className={`flex-1 flex flex-col bg-[#fffdfb] dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl ${activePartner ? 'flex' : 'hidden md:flex items-center justify-center p-8'}`}>
+            <div className={`flex-1 min-w-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden ${activePartner ? 'flex' : 'hidden md:flex items-center justify-center p-8'}`}>
                 {activePartner ? (
                     <>
                         {/* Cabecera del chat */}
-                        <div className="flex items-center gap-3 p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900 rounded-t-2xl">
+                        <div className="flex items-center gap-2.5 sm:gap-3 px-3 sm:px-4 py-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 min-w-0">
                             <button
+                                type="button"
                                 onClick={() => navigateTo({ section: 'pings' })}
-                                className="md:hidden p-1.5 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                className="md:hidden p-1.5 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 cursor-pointer"
                             >
                                 <ArrowLeft size={16} />
                             </button>
-                            <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-200 text-blue-600 font-extrabold flex items-center justify-center text-sm shadow-sm uppercase shrink-0">
-                                {String(activePartner.name || '?').trim()[0] || '?'}
+                            <div
+                                className="w-9 h-9 rounded-full text-white font-bold flex items-center justify-center text-xs shadow-2xs uppercase shrink-0"
+                                style={{ backgroundColor: getAvatarColor(activePartner.name || '?') }}
+                            >
+                                {getInitials(activePartner.name || '?')}
                             </div>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                                 <h3 className="text-sm font-extrabold text-slate-800 dark:text-slate-100 truncate">
                                     {t('basecamp.ping_with').replace('{name}', activePartner.name)}
                                 </h3>
@@ -432,7 +476,7 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                         )}
 
                         {/* Contenedor de mensajes */}
-                        <div className="flex-1 p-4 overflow-y-auto space-y-4 max-h-[450px] min-h-[300px] no-scrollbar">
+                        <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3.5 max-h-[54dvh] md:max-h-[460px] min-h-[260px] no-scrollbar min-w-0">
                             {chatLoading && messages.length === 0 ? (
                                 <div className="flex justify-center items-center h-full">
                                     <Loader2 className="w-6 h-6 text-[#1D7DB5] animate-spin" />
@@ -440,19 +484,30 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                             ) : messages.length > 0 ? (
                                 messages.map((m) => {
                                     const isMe = m.sender_person_id === currentPerson?.id
+                                    const rawText = String(m.content || '')
+                                    const isRichHtml = PING_HTML_TAG_RE.test(rawText)
                                     return (
                                         <div
                                             key={m.id}
-                                            className={`flex flex-col max-w-[75%] ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}
+                                            className={`flex flex-col max-w-[86%] sm:max-w-[75%] min-w-0 ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}
                                         >
                                             <div
-                                                className={`p-3 rounded-2xl shadow-sm text-xs ${
+                                                className={`px-3.5 py-2.5 rounded-2xl shadow-2xs text-xs min-w-0 max-w-full ${
                                                     isMe
-                                                        ? 'bg-[#1D7DB5] text-white rounded-br-none border border-blue-600'
-                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-200/40 dark:border-slate-700/50'
+                                                        ? 'bg-[#1D7DB5] text-white rounded-br-sm border border-blue-600 [&_a]:text-white! [&_a]:underline! [&_.bc-mention-pill]:bg-white/20! [&_.bc-mention-pill]:text-white! [&_.bc-mention-pill]:border-white/30!'
+                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200/60 dark:border-slate-700/60'
                                                 }`}
                                             >
-                                                <p className="leading-relaxed whitespace-pre-wrap break-words">{m.content}</p>
+                                                {isRichHtml ? (
+                                                    <div
+                                                        className="bc-rich-text text-xs! leading-relaxed!"
+                                                        dangerouslySetInnerHTML={{
+                                                            __html: renderSafePingRichHtml(rawText),
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <p className="leading-relaxed whitespace-pre-wrap break-words">{rawText}</p>
+                                                )}
                                             </div>
                                             <span className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 uppercase tracking-wider">
                                                 {formatPingTimestamp(m.created_at)}
@@ -470,7 +525,7 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                         </div>
 
                         {/* Input de envío */}
-                        <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2">
+                        <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2 min-w-0">
                             <input
                                 type="text"
                                 value={inputText}
@@ -480,7 +535,7 @@ export default function PingsDrawer({ activeUser, navigateTo, currentUserName }:
                                 }}
                                 disabled={sending || !currentPerson?.id}
                                 placeholder={t('basecamp.type_ping_placeholder')}
-                                className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-xs disabled:opacity-50"
+                                className="flex-1 min-w-0 px-3.5 sm:px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-xs disabled:opacity-50"
                             />
                             <button
                                 type="submit"

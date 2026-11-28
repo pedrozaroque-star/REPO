@@ -51,6 +51,9 @@ import {
     injectImageDownloadOverlays,
     triggerBasecampDownload,
     buildBasecampDirectDownloadHref,
+    transformBasecampMentionsToPills,
+    formatBasecampRichHtmlForDisplay,
+    BASECAMP_RICH_CONTENT_CSS,
     BASECAMP_IMAGE_HOVER_CSS,
 } from '@/lib/basecamp-html'
 
@@ -116,7 +119,9 @@ function renderDocContentHtml(raw?: string | null): {
     )
     let safeHtml: string
     if (hasHtmlTags) {
-        safeHtml = rewriteBasecampHtmlUrls(cleanHtml).replace(
+        safeHtml = rewriteBasecampHtmlUrls(
+            transformBasecampMentionsToPills(cleanHtml)
+        ).replace(
             /<bc-attachment\b[^>]*>([\s\S]*?)<\/bc-attachment>/gi,
             '$1'
         )
@@ -204,7 +209,15 @@ export default function ToolDocs({
             return
         }
         if (target.tagName === 'IMG') {
-            const imgSrc = (target as HTMLImageElement).src
+            const imgEl = target as HTMLImageElement
+            if (
+                imgEl.classList.contains('avatar') ||
+                imgEl.hasAttribute('data-avatar-for-person-id') ||
+                imgEl.hasAttribute('data-bc-avatar')
+            ) {
+                return
+            }
+            const imgSrc = imgEl.src
             if (imgSrc) {
                 e.preventDefault()
                 e.stopPropagation()
@@ -914,12 +927,12 @@ export default function ToolDocs({
     }
 
     return (
-        <div className="flex flex-col flex-1 max-w-5xl mx-auto w-full gap-5">
-            <style dangerouslySetInnerHTML={{ __html: BASECAMP_IMAGE_HOVER_CSS }} />
+        <div className="flex flex-col flex-1 max-w-5xl mx-auto px-0 sm:px-2 w-full min-w-0 gap-4 sm:gap-5">
+            <style dangerouslySetInnerHTML={{ __html: `${BASECAMP_RICH_CONTENT_CSS}\n${BASECAMP_IMAGE_HOVER_CSS}` }} />
             {/* 1. CABECERA CON BREADCRUMBS Y ACCIONES */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-                <div className="flex flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3 min-w-0">
+                <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[13px] min-w-0">
                         {pathHistory.map((step, idx) => {
                             const isActive = step.id === currentVaultId
                             return (
@@ -1061,17 +1074,17 @@ export default function ToolDocs({
                         </button>
                     </div>
 
-                    <article className="bg-[#FCFAF6] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-sm">
-                        <span className="inline-block text-[9px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-800">
+                    <article className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-7 md:p-8 rounded-2xl shadow-xs min-w-0">
+                        <span className="inline-block text-[10px] font-extrabold text-amber-700 dark:text-amber-300 uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
                             {selectedDoc.type === 'doc'
                                 ? t('basecamp.text_document')
                                 : t('basecamp.external_file')}
                         </span>
-                        <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-3 mb-3 font-serif break-words">
+                        <h2 className="text-[19px] sm:text-[23px] font-extrabold tracking-tight leading-[1.3] text-slate-900 dark:text-slate-100 mt-2.5 mb-3 break-words">
                             {selectedDoc.name}
                         </h2>
 
-                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 border-t border-b border-slate-200 dark:border-slate-800 py-2 mb-5">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-500 dark:text-slate-400 border-t border-b border-slate-100 dark:border-slate-800 py-2.5 mb-5">
                             <span>
                                 {t('basecamp.author_label')}:{' '}
                                 <strong className="text-slate-800 dark:text-slate-200">
@@ -1096,12 +1109,17 @@ export default function ToolDocs({
                             (() => {
                                 const rendered = renderDocContentHtml(selectedDoc.content)
                                 return (
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 min-w-0">
                                         {rendered.html ? (
                                             <div
                                                 onClick={handleDocHtmlClick}
-                                                className="text-[13px] text-slate-800 dark:text-slate-200 leading-relaxed break-words [&_a]:text-[#1D7DB5] dark:[&_a]:text-sky-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-3 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5"
-                                                dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(rendered.html, t('basecamp.download_btn')) }}
+                                                className="bc-rich-text w-full min-w-0 text-slate-800 dark:text-slate-200 font-sans"
+                                                dangerouslySetInnerHTML={{
+                                                    __html: injectImageDownloadOverlays(
+                                                        formatBasecampRichHtmlForDisplay(rendered.html),
+                                                        t('basecamp.download_btn')
+                                                    ),
+                                                }}
                                             />
                                         ) : (
                                             <p className="text-xs italic text-slate-400 dark:text-slate-500">
@@ -1183,7 +1201,7 @@ export default function ToolDocs({
 
             {/* 3. FORMULARIO CREAR DOCUMENTO */}
             {showCreateForm && (
-                <div className="bg-[#FCFAF6] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-sm">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6 rounded-2xl shadow-xs min-w-0">
                     <button
                         type="button"
                         onClick={() => setShowCreateForm(false)}
@@ -1245,7 +1263,7 @@ export default function ToolDocs({
 
             {/* 4. FORMULARIO CREAR CARPETA */}
             {showCreateFolderForm && (
-                <div className="bg-[#FCFAF6] dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-sm">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-6 rounded-2xl shadow-xs min-w-0">
                     <button
                         type="button"
                         onClick={() => setShowCreateFolderForm(false)}

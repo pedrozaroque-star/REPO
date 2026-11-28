@@ -44,6 +44,11 @@
  *   - Deep-link en carga fría (`selectedTodoId`): soporta tanto `UUID` (`id`) como `bc_id` numérico en `fetchLists` y en
  *     apertura automática del Modal de Detalle, incluyendo fallback directo a `bc_todos` para tareas completadas históricas
  *     o fuera del lote inicial en memoria.
+ *   - Rediseño UI/UX Web + Móvil estilo Linear / Basecamp 4 / Apple Reminders (2026-11-28): cero desborde horizontal en
+ *     `360px`/`390px`, grid responsivo `grid-cols-1 lg:grid-cols-2`, filas de tareas sin aplastamiento de títulos con botón
+ *     `📋 Replicar tarea` adaptativo (hover en Desktop, búsqueda en 1 clic con icono compacto en Móvil, menú `•••` en móvil),
+ *     cabecera y barra de herramientas en 1 fila responsiva, modal tipo sheet en móvil con cabecera sticky compacta y tipografía
+ *     editorial `BASECAMP_RICH_CONTENT_CSS` + `formatBasecampRichHtmlForDisplay`.
  */
 
 'use client'
@@ -72,6 +77,11 @@ import {
     Reply,
     Mail,
     X,
+    Search,
+    ArrowLeft,
+    ArrowUpDown,
+    LayoutGrid,
+    List,
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
@@ -99,6 +109,8 @@ import {
     hasRichContentOrMedia,
     prepareHtmlForTaskReplication,
     BASECAMP_IMAGE_HOVER_CSS,
+    BASECAMP_RICH_CONTENT_CSS,
+    formatBasecampRichHtmlForDisplay,
 } from '@/lib/basecamp-html'
 import BasecampRichEditor, { BasecampPersonOption } from '@/components/basecamp/BasecampRichEditor'
 
@@ -3222,39 +3234,14 @@ export default function ToolTodos({
         return (
             <div
                 ref={opts.boxRef}
-                className={opts.showMenu ? 'relative z-40' : 'relative z-10'}
-                style={{ position: 'relative', zIndex: opts.showMenu ? 40 : 10, flex: 1, maxWidth: 580 }}
+                className={`${opts.showMenu ? 'relative z-40' : 'relative z-10'} flex-1 min-w-0 max-w-[580px]`}
             >
-                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                    <div
-                        style={{
-                            flex: '1 1 280px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            flexWrap: 'wrap',
-                            gap: 6,
-                            padding: '5px 8px',
-                            borderRadius: 8,
-                            border: '1px solid #CBD5E1',
-                            background: '#fff',
-                            minHeight: 36,
-                        }}
-                    >
+                <div className="flex items-center flex-wrap gap-2 min-w-0">
+                    <div className="flex-1 min-w-[180px] flex items-center flex-wrap gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 min-h-[38px] focus-within:border-[#1D7DB5] focus-within:ring-2 focus-within:ring-[#1D7DB5]/15 transition-all">
                         {opts.selected.map((person) => (
                             <span
                                 key={person.id}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    padding: '2px 8px 2px 4px',
-                                    borderRadius: 14,
-                                    background: '#F8FAFC',
-                                    border: '1px solid #CBD5E1',
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    color: '#1E293B',
-                                }}
+                                className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap"
                             >
                                 {renderPersonAvatar(person.name || 'U', person.avatar_url || person.avatar, 18)}
                                 <span>{person.name}</span>
@@ -3263,15 +3250,7 @@ export default function ToolTodos({
                                     onClick={() =>
                                         opts.setSelected((prev) => prev.filter((p) => p.id !== person.id))
                                     }
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        cursor: 'pointer',
-                                        fontSize: 11,
-                                        color: '#EF4444',
-                                        padding: '0 2px',
-                                        fontWeight: 700,
-                                    }}
+                                    className="text-[11px] text-rose-500 hover:text-rose-700 dark:text-rose-400 px-0.5 font-bold cursor-pointer"
                                 >
                                     ✕
                                 </button>
@@ -3314,15 +3293,7 @@ export default function ToolTodos({
                                     opts.setShowMenu(false)
                                 }
                             }}
-                            style={{
-                                flex: 1,
-                                minWidth: 130,
-                                border: 'none',
-                                outline: 'none',
-                                fontSize: 13,
-                                color: '#1E293B',
-                                background: 'transparent',
-                            }}
+                            className="flex-1 min-w-[110px] border-none outline-none text-[13px] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 bg-transparent"
                         />
                     </div>
 
@@ -3337,17 +3308,7 @@ export default function ToolTodos({
                                         : [...prev, currentPersonOption]
                                 )
                             }}
-                            style={{
-                                padding: '6px 11px',
-                                borderRadius: 16,
-                                border: '1px solid #BAE6FD',
-                                background: '#F0F9FF',
-                                color: '#0369A1',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                            }}
+                            className="px-3 py-1.5 rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-[#0369A1] dark:text-sky-300 text-xs font-bold whitespace-nowrap cursor-pointer transition-colors"
                         >
                             + {t('basecamp.assign_to_me')}
                         </button>
@@ -3355,22 +3316,7 @@ export default function ToolTodos({
                 </div>
 
                 {opts.showMenu && (
-                    <div
-                        className="bg-white border border-slate-300"
-                        style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            right: 0,
-                            marginTop: 4,
-                            background: '#ffffff',
-                            borderRadius: 8,
-                            boxShadow: '0 14px 32px rgba(15,23,42,0.18)',
-                            zIndex: 70,
-                            maxHeight: 210,
-                            overflowY: 'auto',
-                        }}
-                    >
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-[70] max-h-[210px] overflow-y-auto py-1">
                         {suggestions.length > 0 ? (
                             suggestions.map((person, idx) => (
                                 <div
@@ -3383,30 +3329,23 @@ export default function ToolTodos({
                                         opts.setHighlightedIdx(0)
                                     }}
                                     onMouseEnter={() => opts.setHighlightedIdx(idx)}
-                                    style={{
-                                        padding: '8px 12px',
-                                        cursor: 'pointer',
-                                        fontSize: 13,
-                                        color: idx === opts.highlightedIdx ? '#fff' : '#1E293B',
-                                        background: idx === opts.highlightedIdx ? '#1D7DB5' : '#fff',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: 8,
-                                    }}
+                                    className={`px-3 py-2 cursor-pointer text-[13px] flex items-center justify-between gap-2 transition-colors ${
+                                        idx === opts.highlightedIdx
+                                            ? 'bg-[#1D7DB5] text-white'
+                                            : 'text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                    }`}
                                 >
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                    <span className="inline-flex items-center gap-2 min-w-0">
                                         {renderPersonAvatar(person.name || 'U', person.avatar_url || person.avatar, 20)}
-                                        <span style={{ fontWeight: idx === opts.highlightedIdx ? 600 : 500 }}>
+                                        <span className={`truncate ${idx === opts.highlightedIdx ? 'font-semibold' : 'font-medium'}`}>
                                             {person.name}
                                         </span>
                                     </span>
                                     {person.title && (
                                         <span
-                                            style={{
-                                                fontSize: 11,
-                                                color: idx === opts.highlightedIdx ? '#E0F2FE' : '#94A3B8',
-                                            }}
+                                            className={`text-[11px] truncate max-w-[140px] shrink-0 ${
+                                                idx === opts.highlightedIdx ? 'text-sky-100' : 'text-slate-400'
+                                            }`}
                                         >
                                             {person.title}
                                         </span>
@@ -3414,7 +3353,7 @@ export default function ToolTodos({
                                 </div>
                             ))
                         ) : (
-                            <div style={{ padding: '8px 12px', fontSize: 13, color: '#94A3B8', fontStyle: 'italic' }}>
+                            <div className="px-3 py-2 text-[13px] text-slate-400 italic">
                                 {t('basecamp.no_people_found')}
                             </div>
                         )}
@@ -3434,8 +3373,8 @@ export default function ToolTodos({
         setDueDate: (v: string) => void
         sectionRef?: React.RefObject<HTMLDivElement | null>
     }) => (
-        <div ref={opts.sectionRef} style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+        <div ref={opts.sectionRef} className="flex flex-col gap-2 flex-1 min-w-0">
+            <div className="flex items-center flex-wrap gap-3.5">
                 {(['none', 'single', 'range'] as DateMode[]).map((m) => {
                     const labelKey =
                         m === 'none'
@@ -3446,22 +3385,18 @@ export default function ToolTodos({
                     return (
                         <label
                             key={m}
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                fontSize: 13,
-                                fontWeight: opts.mode === m ? 700 : 500,
-                                color: opts.mode === m ? '#0F172A' : '#475569',
-                                cursor: 'pointer',
-                            }}
+                            className={`inline-flex items-center gap-1.5 text-[13px] cursor-pointer ${
+                                opts.mode === m
+                                    ? 'font-bold text-slate-900 dark:text-white'
+                                    : 'font-medium text-slate-600 dark:text-slate-400'
+                            }`}
                         >
                             <input
                                 type="radio"
                                 name={opts.radioName}
                                 checked={opts.mode === m}
                                 onChange={() => opts.setMode(m)}
-                                style={{ accentColor: '#1D7DB5', cursor: 'pointer' }}
+                                className="accent-[#1D7DB5] cursor-pointer"
                             />
                             <span>{t(labelKey)}</span>
                         </label>
@@ -3470,20 +3405,12 @@ export default function ToolTodos({
             </div>
 
             {opts.mode === 'single' && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div className="inline-flex items-center gap-2 flex-wrap">
                     <input
                         type="date"
                         value={opts.dueDate}
                         onChange={(e) => opts.setDueDate(e.target.value)}
-                        style={{
-                            padding: '5px 10px',
-                            borderRadius: 6,
-                            border: '1px solid #CBD5E1',
-                            fontSize: 13,
-                            outline: 'none',
-                            background: '#fff',
-                            color: '#1E293B',
-                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[13px] outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:border-[#1D7DB5]"
                     />
                     {opts.dueDate && (
                         <button
@@ -3493,14 +3420,7 @@ export default function ToolTodos({
                                 opts.setMode('none')
                             }}
                             title={t('basecamp.clear_due_date')}
-                            style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#94A3B8',
-                                cursor: 'pointer',
-                                fontSize: 12,
-                                fontWeight: 700,
-                            }}
+                            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold cursor-pointer px-1"
                         >
                             ✕
                         </button>
@@ -3509,8 +3429,8 @@ export default function ToolTodos({
             )}
 
             {opts.mode === 'range' && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12.5, color: '#64748B', fontWeight: 600 }}>
+                <div className="inline-flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
                         {t('basecamp.runs_from')}
                     </span>
                     <input
@@ -3523,32 +3443,16 @@ export default function ToolTodos({
                                 opts.setDueDate(val)
                             }
                         }}
-                        style={{
-                            padding: '5px 10px',
-                            borderRadius: 6,
-                            border: '1px solid #CBD5E1',
-                            fontSize: 13,
-                            outline: 'none',
-                            background: '#fff',
-                            color: '#1E293B',
-                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[13px] outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:border-[#1D7DB5]"
                     />
-                    <span style={{ fontSize: 12.5, color: '#64748B', fontWeight: 600 }}>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
                         {t('basecamp.runs_to')}
                     </span>
                     <input
                         type="date"
                         value={opts.dueDate}
                         onChange={(e) => opts.setDueDate(e.target.value)}
-                        style={{
-                            padding: '5px 10px',
-                            borderRadius: 6,
-                            border: '1px solid #CBD5E1',
-                            fontSize: 13,
-                            outline: 'none',
-                            background: '#fff',
-                            color: '#1E293B',
-                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[13px] outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:border-[#1D7DB5]"
                     />
                 </div>
             )}
@@ -3783,71 +3687,30 @@ export default function ToolTodos({
             <form
                 ref={addTaskFormRef}
                 onSubmit={(e) => handleAddTask(list.id, list.bc_id, groupId, e)}
-                style={{ paddingTop: 2 }}
+                className="p-3.5 sm:p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/80 min-w-0"
             >
                 {isReplicatingHere && replicatingBanner && (
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            justifyContent: 'space-between',
-                            gap: 10,
-                            padding: '10px 14px',
-                            marginBottom: 10,
-                            borderRadius: 10,
-                            background: 'linear-gradient(90deg, #EFF6FF 0%, #ECFDF5 100%)',
-                            border: '1px solid #BAE6FD',
-                            color: '#0F172A',
-                            fontSize: 12.5,
-                            lineHeight: 1.45,
-                        }}
-                    >
-                        <div>
-                            <strong style={{ color: '#0369A1', fontWeight: 700 }}>
+                    <div className="flex items-start justify-between gap-2.5 px-3.5 py-2.5 mb-3 rounded-xl bg-gradient-to-r from-sky-50 to-emerald-50 dark:from-sky-950/50 dark:to-emerald-950/40 border border-sky-200 dark:border-sky-800/80 text-xs leading-relaxed">
+                        <div className="min-w-0">
+                            <strong className="text-[#0369A1] dark:text-sky-300 font-bold">
                                 📋 {t('basecamp.replicating_in_list')} {replicatingBanner.listName}
                             </strong>{' '}
-                            <span style={{ color: '#334155', fontWeight: 500 }}>
+                            <span className="text-slate-600 dark:text-slate-300 font-medium">
                                 — {t('basecamp.replicating_hint')}
                             </span>
                         </div>
                         <button
                             type="button"
                             onClick={() => setReplicatingBanner(null)}
-                            style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#64748B',
-                                cursor: 'pointer',
-                                fontSize: 13,
-                                fontWeight: 700,
-                                padding: '0 2px',
-                                flexShrink: 0,
-                            }}
+                            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-bold shrink-0 cursor-pointer px-1"
                             title={t('basecamp.cancel')}
                         >
                             ✕
                         </button>
                     </div>
                 )}
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                        padding: '8px 0 12px',
-                        borderBottom: '1px solid #E2E8F0',
-                    }}
-                >
-                    <span
-                        style={{
-                            width: 18,
-                            height: 18,
-                            border: '2px solid #CBD5E1',
-                            borderRadius: 4,
-                            flexShrink: 0,
-                            background: '#fff',
-                        }}
-                    />
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
+                    <span className="w-5 h-5 border-2 border-slate-300 dark:border-slate-600 rounded-md shrink-0 bg-white dark:bg-slate-900" />
                     <input
                         type="text"
                         required
@@ -3855,24 +3718,14 @@ export default function ToolTodos({
                         value={newTaskName}
                         onChange={(e) => setNewTaskName(e.target.value)}
                         placeholder={t('basecamp.describe_todo')}
-                        style={{
-                            flex: 1,
-                            padding: '2px 0',
-                            border: 'none',
-                            fontSize: 15,
-                            fontWeight: 500,
-                            color: '#1E293B',
-                            outline: 'none',
-                            background: 'transparent',
-                            lineHeight: '22px',
-                        }}
+                        className="flex-1 min-w-0 py-0.5 text-[15px] font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 bg-transparent outline-none"
                     />
                 </div>
 
                 {/* Basecamp Fields: Assigned to, Due on (3 radios), Notes (BasecampRichEditor + @mentions), Subtasks — NO When done */}
-                <div className="flex flex-col gap-3.5 mt-3 pt-1 pb-2 pl-0 sm:pl-7">
-                    <div className="relative z-30 flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-1.5">
+                <div className="flex flex-col gap-3.5 mt-3.5 pt-0.5 pb-1 pl-0 sm:pl-7 min-w-0">
+                    <div className="relative z-30 flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-0 min-w-0">
+                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[12.5px] text-slate-600 dark:text-slate-400 sm:pt-2">
                             {t('basecamp.assigned_to')}
                         </label>
                         {renderAssigneePicker({
@@ -3889,8 +3742,8 @@ export default function ToolTodos({
                         })}
                     </div>
 
-                    <div className="relative z-20 flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-0.5">
+                    <div className="relative z-20 flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-0 min-w-0">
+                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[12.5px] text-slate-600 dark:text-slate-400 sm:pt-0.5">
                             {t('basecamp.due_on')}
                         </label>
                         {renderBasecampDateRadioSelector({
@@ -3904,11 +3757,11 @@ export default function ToolTodos({
                         })}
                     </div>
 
-                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-2">
+                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-0 min-w-0">
+                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[12.5px] text-slate-600 dark:text-slate-400 sm:pt-2">
                             {t('basecamp.notes_short_label')}
                         </label>
-                        <div className="w-full" style={{ maxWidth: 680 }}>
+                        <div className="w-full min-w-0 max-w-[680px]">
                             <BasecampRichEditor
                                 editorKey={`new-todo-${list.id}-${groupId || 'root'}-${newTaskEditorSeed}`}
                                 initialHtml={newTaskInitialHtml}
@@ -3925,11 +3778,11 @@ export default function ToolTodos({
                         </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
-                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#475569] sm:pt-1">
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-0 min-w-0">
+                        <label className="w-auto sm:w-[112px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[12.5px] text-slate-600 dark:text-slate-400 sm:pt-1">
                             {t('basecamp.subtasks_label')}
                         </label>
-                        <div style={{ flex: 1, maxWidth: 540 }}>
+                        <div className="flex-1 min-w-0 max-w-[540px]">
                             {!showSubtasksInput ? (
                                 <button
                                     type="button"
@@ -3937,32 +3790,15 @@ export default function ToolTodos({
                                         setShowSubtasksInput(true)
                                         if (newTaskSubtasks.length === 0) setNewTaskSubtasks([''])
                                     }}
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        padding: '4px 0',
-                                        fontSize: 13.5,
-                                        color: '#64748B',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                    }}
+                                    className="py-1 text-[13px] text-slate-500 dark:text-slate-400 hover:text-[#1D7DB5] dark:hover:text-sky-400 cursor-pointer text-left transition-colors"
                                 >
                                     {t('basecamp.add_subtasks_placeholder')}
                                 </button>
                             ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <div className="flex flex-col gap-1.5">
                                     {newTaskSubtasks.map((st, stIdx) => (
-                                        <div key={stIdx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span
-                                                style={{
-                                                    width: 14,
-                                                    height: 14,
-                                                    borderRadius: 3,
-                                                    border: '1.5px solid #CBD5E1',
-                                                    flexShrink: 0,
-                                                    background: '#fff',
-                                                }}
-                                            />
+                                        <div key={stIdx} className="flex items-center gap-2">
+                                            <span className="w-3.5 h-3.5 rounded-[4px] border-[1.5px] border-slate-300 dark:border-slate-600 shrink-0 bg-white dark:bg-slate-900" />
                                             <input
                                                 type="text"
                                                 value={st}
@@ -3984,16 +3820,7 @@ export default function ToolTodos({
                                                     }
                                                 }}
                                                 placeholder={t('basecamp.add_subtask_item_placeholder')}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '5px 8px',
-                                                    borderRadius: 5,
-                                                    border: '1px solid #CBD5E1',
-                                                    fontSize: 13,
-                                                    color: '#1E293B',
-                                                    background: '#fff',
-                                                    outline: 'none',
-                                                }}
+                                                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[13px] text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 outline-none focus:border-[#1D7DB5]"
                                             />
                                             <button
                                                 type="button"
@@ -4007,14 +3834,7 @@ export default function ToolTodos({
                                                         )
                                                     }
                                                 }}
-                                                style={{
-                                                    border: 'none',
-                                                    background: 'transparent',
-                                                    color: '#94A3B8',
-                                                    cursor: 'pointer',
-                                                    fontSize: 13,
-                                                    fontWeight: 700,
-                                                }}
+                                                className="text-slate-400 hover:text-rose-500 cursor-pointer text-xs font-bold px-1"
                                             >
                                                 ✕
                                             </button>
@@ -4024,15 +3844,7 @@ export default function ToolTodos({
                                         <button
                                             type="button"
                                             onClick={() => setNewTaskSubtasks((prev) => [...prev, ''])}
-                                            style={{
-                                                border: 'none',
-                                                background: 'transparent',
-                                                color: '#1D7DB5',
-                                                fontSize: 12.5,
-                                                fontWeight: 600,
-                                                cursor: 'pointer',
-                                                padding: '2px 0',
-                                            }}
+                                            className="text-[#1D7DB5] dark:text-sky-400 hover:underline text-xs font-semibold cursor-pointer py-0.5"
                                         >
                                             {t('basecamp.add_another_subtask')}
                                         </button>
@@ -4043,24 +3855,11 @@ export default function ToolTodos({
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 mt-3 pt-1 pb-1 pl-0 sm:pl-[156px]">
+                <div className="flex items-center gap-2.5 mt-4 pt-1 pl-0 sm:pl-[156px]">
                     <button
                         type="submit"
                         disabled={loading || actionLoading === loadKey}
-                        style={{
-                            padding: '8px 18px',
-                            borderRadius: 18,
-                            border: 'none',
-                            background: '#1DAB45',
-                            color: '#fff',
-                            fontSize: 13.5,
-                            fontWeight: 600,
-                            cursor: loading ? 'not-allowed' : 'pointer',
-                            opacity: loading || actionLoading === loadKey ? 0.65 : 1,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-[13px] font-bold shadow-2xs transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                         {actionLoading === loadKey && <Loader2 size={14} className="animate-spin" />}
                         {t('basecamp.add_todo_btn_label')}
@@ -4072,16 +3871,7 @@ export default function ToolTodos({
                             setAddingTaskGroupId(null)
                             resetAddTaskForm()
                         }}
-                        style={{
-                            padding: '7px 16px',
-                            borderRadius: 18,
-                            border: '1px solid #CBD5E1',
-                            background: '#fff',
-                            color: '#475569',
-                            fontSize: 13.5,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                        }}
+                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs sm:text-[13px] font-semibold transition-colors cursor-pointer"
                     >
                         {t('basecamp.cancel')}
                     </button>
@@ -4095,286 +3885,181 @@ export default function ToolTodos({
         const commentCount = task.comments_count || (task.comments ? task.comments.length : 0)
         const dateBadgeText = formatTaskDateRangeBadge(task.starts_on, task.due_date)
         const { textSnippet, attachmentNames } = extractTaskRowSnippet(task.description)
-        const hasRowSnippet = Boolean(textSnippet || attachmentNames.length > 0)
         const isRowMenuOpen = openRowMenuTaskId === task.id
+        const isSearching = Boolean(todoFilterQuery.trim())
+        const hasMetadataRow = Boolean(
+            (task.assigneeList && task.assigneeList.length > 0) ||
+                dateBadgeText ||
+                task.created_at ||
+                hasComments ||
+                task.boosts_count > 0 ||
+                attachmentNames.length > 0
+        )
 
         return (
             <div
                 key={task.id}
-                className={isRowMenuOpen ? 'relative z-40' : 'relative z-0'}
-                style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    padding: '10px 24px',
-                    borderBottom: '1px solid #F7F7F5',
-                    transition: 'background 0.12s',
-                    position: 'relative',
-                    zIndex: isRowMenuOpen ? 40 : 0,
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = '#F9FAFB')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                className={`group relative ${isRowMenuOpen ? 'z-40' : 'z-0'} flex items-start gap-2.5 sm:gap-3 px-2.5 sm:px-4 py-3 rounded-xl hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors min-w-0`}
             >
+                {/* Left: Crisp 20x20 Checkbox */}
                 <button
+                    type="button"
                     onClick={() => handleToggleTask(list.id, task)}
                     disabled={actionLoading === task.id}
-                    style={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: 4,
-                        border: '1.5px solid #CBD5E1',
-                        background: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        marginTop: 2,
-                        flexShrink: 0,
-                        padding: 0,
-                    }}
+                    className="w-5 h-5 mt-0.5 shrink-0 rounded-md border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:border-emerald-500 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/30 flex items-center justify-center cursor-pointer transition-colors"
                     title={t('basecamp.mark_as_done')}
                 >
                     {actionLoading === task.id ? <Loader2 size={12} className="animate-spin text-slate-400" /> : null}
                 </button>
 
+                {/* Center: 100% Free-Width Title + Optional Note Snippet + Compact Metadata Chips */}
                 <div
                     onClick={() => {
                         setSelectedTask(task)
                         setSelectedTaskListId(list.id)
                     }}
-                    style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
+                    className="min-w-0 flex-1 cursor-pointer"
                 >
-                    {/* Primary row: Title + Created + Date Range + Boosts + Comments */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span
-                            style={{
-                                fontSize: 14.5,
-                                fontWeight: 500,
-                                color: '#1E293B',
-                                lineHeight: 1.35,
-                            }}
-                        >
-                            {task.task_name}
-                        </span>
-
-                        {task.created_at && (
-                            <span
-                                title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}${
-                                    task.creator_name ? ` — ${t('basecamp.added_by')} ${task.creator_name}` : ''
-                                }`}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 3.5,
-                                    padding: '1.5px 7px',
-                                    borderRadius: 10,
-                                    background: '#F1F5F9',
-                                    border: '1px solid #E2E8F0',
-                                    color: '#64748B',
-                                    fontSize: 11,
-                                    fontWeight: 500,
-                                    whiteSpace: 'nowrap',
-                                }}
-                            >
-                                <Clock size={10} style={{ color: '#94A3B8', flexShrink: 0 }} />
-                                {formatCreatedDateTime(task.created_at)}
-                                {task.creator_name && (
-                                    <span style={{ color: '#475569', fontWeight: 600 }}>
-                                        · {getShortName(task.creator_name)}
-                                    </span>
-                                )}
-                            </span>
-                        )}
-
-                        {dateBadgeText && (
-                            <span
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    openRowTaskDetailWithAction(list.id, task, 'edit', 'dates')
-                                }}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 3.5,
-                                    padding: '2px 7px',
-                                    borderRadius: 12,
-                                    background: '#FEF3C7',
-                                    color: '#92400E',
-                                    fontSize: 11,
-                                    fontWeight: 600,
-                                }}
-                            >
-                                <Calendar size={11} />
-                                {dateBadgeText}
-                            </span>
-                        )}
-
-                        {task.boosts_count > 0 && (
-                            <span
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 3,
-                                    padding: '1.5px 6px',
-                                    borderRadius: 10,
-                                    background: '#EFF6FF',
-                                    color: '#1D4ED8',
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                }}
-                            >
-                                🚀 {task.boosts_count}
-                            </span>
-                        )}
-
-                        {hasComments && (
-                            <span
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    color: '#1D7DB5',
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                }}
-                            >
-                                <MessageSquare size={13} />
-                                {commentCount}
-                            </span>
-                        )}
+                    {/* Line 1: Clean, Uncrushed Title */}
+                    <div className="text-[14.5px] sm:text-[15px] font-semibold leading-snug text-slate-900 dark:text-slate-100 break-words">
+                        {task.task_name}
                     </div>
 
-                    {/* Secondary 1-line Notes + Attachment filenames snippet (#37 — click opens quick edit on notes) */}
-                    {hasRowSnippet && (
-                        <div
+                    {/* Line 2: 1-line Note Snippet (click opens quick-edit on notes) */}
+                    {textSnippet && (
+                        <p
                             onClick={(e) => {
                                 e.stopPropagation()
                                 openRowTaskDetailWithAction(list.id, task, 'edit', 'notes')
                             }}
                             title={t('basecamp.edit_todo')}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                marginTop: 3,
-                                fontSize: 12,
-                                color: '#64748B',
-                                overflow: 'hidden',
-                            }}
+                            className="line-clamp-1 text-[12.5px] sm:text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                         >
-                            {textSnippet && (
+                            {textSnippet}
+                        </p>
+                    )}
+
+                    {/* Line 3: Compact Assignees (whitespace-nowrap), Date, Creator, Comments, Boosts & Attachments */}
+                    {hasMetadataRow && (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            {task.assigneeList &&
+                                task.assigneeList.length > 0 &&
+                                task.assigneeList.map((a: any, aIdx: number) => (
+                                    <span
+                                        key={a.id || aIdx}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            openRowTaskDetailWithAction(list.id, task, 'edit', 'assignees')
+                                        }}
+                                        title={`${a.name} — ${t('basecamp.edit_todo')}`}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700/80 whitespace-nowrap hover:border-[#1D7DB5]/60 transition-colors"
+                                    >
+                                        {renderPersonAvatar(a.name || 'U', a.avatar_url, 16)}
+                                        <span>{getShortName(a.name || '')}</span>
+                                    </span>
+                                ))}
+
+                            {dateBadgeText && (
                                 <span
-                                    style={{
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        maxWidth: 520,
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openRowTaskDetailWithAction(list.id, task, 'edit', 'dates')
                                     }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 border border-amber-200/80 dark:border-amber-800/70 text-amber-800 dark:text-amber-300 text-[11px] font-semibold whitespace-nowrap"
                                 >
-                                    {textSnippet}
+                                    <Calendar size={11} className="shrink-0" />
+                                    <span>{dateBadgeText}</span>
                                 </span>
                             )}
+
+                            {task.created_at && (
+                                <span
+                                    title={`${t('basecamp.created_at_label')}: ${formatCreatedDateTime(task.created_at)}${
+                                        task.creator_name ? ` — ${t('basecamp.added_by')} ${task.creator_name}` : ''
+                                    }`}
+                                    className="inline-flex items-center gap-1 text-[11.5px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap"
+                                >
+                                    <Clock size={10.5} className="shrink-0 opacity-80" />
+                                    <span>{formatCreatedDateTime(task.created_at)}</span>
+                                    {task.creator_name && (
+                                        <span className="text-slate-500 dark:text-slate-400 font-semibold">
+                                            · {getShortName(task.creator_name)}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
+
+                            {hasComments && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/40 text-[#1D7DB5] dark:text-sky-400 text-[11px] font-bold whitespace-nowrap">
+                                    <MessageSquare size={11} className="shrink-0" />
+                                    <span>{commentCount}</span>
+                                </span>
+                            )}
+
+                            {task.boosts_count > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold whitespace-nowrap">
+                                    🚀 {task.boosts_count}
+                                </span>
+                            )}
+
                             {attachmentNames.map((fn, fIdx) => (
                                 <span
                                     key={fIdx}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 3,
-                                        padding: '1px 6px',
-                                        borderRadius: 6,
-                                        background: '#F8FAFC',
-                                        border: '1px solid #E2E8F0',
-                                        fontSize: 10.5,
-                                        color: '#475569',
-                                        fontWeight: 600,
-                                        whiteSpace: 'nowrap',
-                                        flexShrink: 0,
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openRowTaskDetailWithAction(list.id, task, 'edit', 'notes')
                                     }}
+                                    title={fn}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300 max-w-[130px]"
                                 >
-                                    <Paperclip size={10} style={{ color: '#1D7DB5' }} />
-                                    {fn}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Assignees pills (#37 — click opens quick edit on assignees) */}
-                    {task.assigneeList && task.assigneeList.length > 0 && (
-                        <div
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                openRowTaskDetailWithAction(list.id, task, 'edit', 'assignees')
-                            }}
-                            title={t('basecamp.edit_todo')}
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                flexWrap: 'wrap',
-                                gap: 6,
-                                marginTop: 5,
-                            }}
-                        >
-                            {task.assigneeList.map((a: any, aIdx: number) => (
-                                <span
-                                    key={a.id || aIdx}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        padding: '2px 8px',
-                                        borderRadius: 12,
-                                        background: '#F1F5F9',
-                                        border: '1px solid #E2E8F0',
-                                        color: '#475569',
-                                        fontSize: 11,
-                                        fontWeight: 600,
-                                    }}
-                                    title={a.name}
-                                >
-                                    {renderPersonAvatar(a.name || 'U', a.avatar_url, 14)}
-                                    {getShortName(a.name || '')}
+                                    <Paperclip size={10} className="text-[#1D7DB5] shrink-0" />
+                                    <span className="truncate">{fn}</span>
                                 </span>
                             ))}
                         </div>
                     )}
                 </div>
 
-                {/* Direct Replicate button + Per-Row ••• Actions Menu */}
-                <div
-                    data-bc-row-menu="true"
-                    style={{ position: 'relative', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                >
-                    <button
-                        type="button"
-                        disabled={replicatingTaskId === task.id}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            void handleReplicateTask(task)
-                        }}
-                        title={t('basecamp.replicate_task_tooltip')}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: todoFilterQuery.trim() ? '4px 10px' : '3px 8px',
-                            borderRadius: 8,
-                            border: todoFilterQuery.trim() ? '1px solid #1D7DB5' : '1px solid #BAE6FD',
-                            background: todoFilterQuery.trim() ? '#1D7DB5' : '#F0F9FF',
-                            color: todoFilterQuery.trim() ? '#fff' : '#0369A1',
-                            fontSize: 11.5,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                        }}
-                    >
-                        {replicatingTaskId === task.id ? (
-                            <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                            <span>📋</span>
-                        )}
-                        <span>{t('basecamp.replicate_task')}</span>
-                    </button>
+                {/* Right: Adaptive Replicate (Search = 1-click icon/text; Normal = Desktop hover-only) + ••• Menu */}
+                <div data-bc-row-menu="true" className="relative shrink-0 flex items-center gap-1">
+                    {isSearching ? (
+                        <button
+                            type="button"
+                            disabled={replicatingTaskId === task.id}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                void handleReplicateTask(task)
+                            }}
+                            title={t('basecamp.replicate_task')}
+                            className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 disabled:opacity-60"
+                        >
+                            {replicatingTaskId === task.id ? (
+                                <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                                <span className="text-[13px] leading-none">📋</span>
+                            )}
+                            <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            disabled={replicatingTaskId === task.id}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                void handleReplicateTask(task)
+                            }}
+                            title={t('basecamp.replicate_task_tooltip')}
+                            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sky-200/90 dark:border-sky-800/80 bg-sky-50/90 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:border-[#1D7DB5] hover:text-white text-[#0369A1] dark:text-sky-300 text-xs font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-all cursor-pointer shrink-0 disabled:opacity-60"
+                        >
+                            {replicatingTaskId === task.id ? (
+                                <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                                <span className="text-[12px] leading-none">📋</span>
+                            )}
+                            <span>{t('basecamp.replicate_task')}</span>
+                        </button>
+                    )}
+
                     <button
                         type="button"
                         onClick={(e) => {
@@ -4389,17 +4074,11 @@ export default function ToolTodos({
                             setOpenRowMenuTaskId((prev) => (prev === task.id ? null : task.id))
                         }}
                         title={t('basecamp.more_actions')}
-                        style={{
-                            border: 'none',
-                            background: isRowMenuOpen ? '#F1F5F9' : 'transparent',
-                            color: '#64748B',
-                            cursor: 'pointer',
-                            padding: '4px 6px',
-                            borderRadius: 6,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+                            isRowMenuOpen
+                                ? 'bg-slate-200/80 dark:bg-slate-700 text-slate-900 dark:text-white'
+                                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
                     >
                         {actionLoading === `bubble_${task.id}` ? (
                             <Loader2 size={14} className="animate-spin text-[#1D7DB5]" />
@@ -4411,39 +4090,14 @@ export default function ToolTodos({
                     {isRowMenuOpen && (
                         <div
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-white border border-slate-300"
-                            style={{
-                                position: 'absolute',
-                                ...(rowMenuUp
-                                    ? { bottom: '100%', marginBottom: 4 }
-                                    : { top: '100%', marginTop: 4 }),
-                                right: 0,
-                                minWidth: 225,
-                                background: '#ffffff',
-                                borderRadius: 10,
-                                boxShadow: '0 16px 34px rgba(15,23,42,0.2)',
-                                padding: 5,
-                                zIndex: 80,
-                            }}
+                            className={`absolute right-0 ${
+                                rowMenuUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                            } min-w-[220px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 z-[80]`}
                         >
                             <button
                                 type="button"
                                 onClick={() => void handleReplicateTask(task)}
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '7px 10px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: '#0369A1',
-                                    fontSize: 12.5,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-bold text-[#0369A1] dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer text-left transition-colors"
                             >
                                 <span>📋</span>
                                 <span>{t('basecamp.replicate_task')}</span>
@@ -4451,43 +4105,15 @@ export default function ToolTodos({
                             <button
                                 type="button"
                                 onClick={() => openRowTaskDetailWithAction(list.id, task, 'edit', 'title')}
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '7px 10px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: '#1E293B',
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left transition-colors"
                             >
-                                <Pencil size={13} className="text-slate-500" />
+                                <Pencil size={13} className="text-slate-500 dark:text-slate-400" />
                                 <span>{t('basecamp.edit_todo')}</span>
                             </button>
                             <button
                                 type="button"
                                 onClick={() => handleBubbleUpTask(list.id, task)}
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '7px 10px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: '#1E293B',
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left transition-colors"
                             >
                                 <ArrowUp size={13} className="text-[#1D7DB5]" />
                                 <span>{t('basecamp.bubble_up')}</span>
@@ -4495,21 +4121,7 @@ export default function ToolTodos({
                             <button
                                 type="button"
                                 onClick={() => openRowTaskDetailWithAction(list.id, task, 'move')}
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '7px 10px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: '#1E293B',
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left transition-colors"
                             >
                                 <FolderOpen size={13} className="text-amber-600" />
                                 <span>{t('basecamp.move_todo')}</span>
@@ -4517,21 +4129,11 @@ export default function ToolTodos({
                             <button
                                 type="button"
                                 onClick={() => handleCopyTaskLink(task.id, false)}
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '7px 10px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: copiedRowTaskId === task.id ? '#16A34A' : '#1E293B',
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
+                                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left transition-colors ${
+                                    copiedRowTaskId === task.id
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : 'text-slate-800 dark:text-slate-200'
+                                }`}
                             >
                                 <Copy size={13} />
                                 <span>
@@ -4540,25 +4142,11 @@ export default function ToolTodos({
                                         : t('basecamp.copy_link')}
                                 </span>
                             </button>
-                            <div style={{ height: 1, background: '#F1F5F9', margin: '4px 0' }} />
+                            <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
                             <button
                                 type="button"
                                 onClick={(e) => handleDeleteTask(list.id, task, e)}
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '7px 10px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: '#DC2626',
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer text-left transition-colors"
                             >
                                 <Trash2 size={13} />
                                 <span>{t('basecamp.put_in_trash')}</span>
@@ -4598,64 +4186,187 @@ export default function ToolTodos({
             Boolean(openGroupMenuId && listGroups.some((g: any) => g.id === openGroupMenuId)) ||
             Boolean(openRowMenuTaskId && openTasks.some((tk: any) => tk.id === openRowMenuTaskId))
 
+        const renderListMoreMenu = () => (
+            <div data-bc-list-menu="true" className="relative shrink-0">
+                <button
+                    type="button"
+                    onClick={() => {
+                        setOpenGroupMenuId(null)
+                        setOpenRowMenuTaskId(null)
+                        setShowViewAsMenu(false)
+                        setShowSortMenu(false)
+                        setOpenListMenuId((prev) => (prev === list.id ? null : list.id))
+                    }}
+                    title={t('basecamp.more_actions')}
+                    className={`w-8 h-8 rounded-xl border border-slate-200 dark:border-slate-700 inline-flex items-center justify-center cursor-pointer transition-colors ${
+                        isListMenuOpen
+                            ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white'
+                            : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                >
+                    <MoreHorizontal size={16} />
+                </button>
+
+                {isListMenuOpen && (
+                    <div className="absolute top-full right-0 mt-1.5 min-w-[230px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 z-[70]">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setOpenListMenuId(null)
+                                setEditingListModal({
+                                    id: list.id,
+                                    bc_id: Number(list.bc_id),
+                                    name: list.list_name || '',
+                                    description: list.description || '',
+                                    color: list.color || 'blue',
+                                })
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left transition-colors"
+                        >
+                            <Pencil size={13} className="text-slate-500 dark:text-slate-400" />
+                            <span>{t('basecamp.edit_list')}</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setOpenListMenuId(null)
+                                setCreatingGroupModal({
+                                    listId: list.id,
+                                    listBcId: Number(list.bc_id),
+                                    name: '',
+                                    color: list.color || 'blue',
+                                })
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-bold text-[#1D7DB5] dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer text-left transition-colors"
+                        >
+                            <Plus size={13} />
+                            <span>{t('basecamp.new_group')}</span>
+                        </button>
+
+                        <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
+
+                        {(['position', 'newest', 'oldest'] as SortOrderMode[]).map((mode) => {
+                            const label =
+                                mode === 'position'
+                                    ? t('basecamp.sort_by_position')
+                                    : mode === 'newest'
+                                    ? t('basecamp.sort_newest_first')
+                                    : t('basecamp.sort_oldest_first')
+                            return (
+                                <button
+                                    key={mode}
+                                    type="button"
+                                    onClick={() => {
+                                        setSortOrder(mode)
+                                        setOpenListMenuId(null)
+                                    }}
+                                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[12.5px] cursor-pointer text-left transition-colors ${
+                                        sortOrder === mode
+                                            ? 'bg-sky-50 dark:bg-sky-950/50 text-[#0369A1] dark:text-sky-300 font-bold'
+                                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium'
+                                    }`}
+                                >
+                                    <span>{label}</span>
+                                    {sortOrder === mode && <Check size={13} />}
+                                </button>
+                            )
+                        })}
+
+                        <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
+                        <button
+                            type="button"
+                            onClick={() =>
+                                handleDeleteListOrGroup('bc_todolists', {
+                                    id: list.id,
+                                    bc_id: Number(list.bc_id),
+                                })
+                            }
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer text-left transition-colors"
+                        >
+                            <Trash2 size={13} />
+                            <span>{t('basecamp.put_in_trash')}</span>
+                        </button>
+                    </div>
+                )}
+            </div>
+        )
+
         return (
             <div
                 key={list.id}
-                className={isListElevated ? 'relative z-30' : 'relative z-0'}
-                style={{
-                    position: 'relative',
-                    zIndex: isListElevated ? 30 : 0,
-                    background: '#fff',
-                    borderRadius: 10,
-                    border: '1px solid #E8E6E1',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                    overflow: 'visible',
-                }}
+                className={`relative ${isListElevated ? 'z-30' : 'z-0'} w-full min-w-0 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xs overflow-visible`}
             >
-                {/* ── List Header ── */}
+                {/* ── Compact List Header ── */}
                 <div
-                    className={isListMenuOpen ? 'relative z-30' : 'relative'}
-                    style={{
-                        position: 'relative',
-                        zIndex: isListMenuOpen ? 30 : undefined,
-                        padding: showBackBtn ? '24px 28px 18px' : '20px 24px 16px',
-                        borderBottom: '1px solid #F0EFEB',
-                        background: '#FAFAF8',
-                        borderTopLeftRadius: 10,
-                        borderTopRightRadius: 10,
-                    }}
+                    className={`relative ${isListMenuOpen ? 'z-30' : 'z-10'} px-3.5 sm:px-6 pt-3.5 sm:pt-5 pb-3.5 sm:pb-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 rounded-t-2xl space-y-3 min-w-0`}
                 >
-                    {showBackBtn && (
-                        <div
-                            style={{
-                                marginBottom: 14,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 10,
-                                flexWrap: 'wrap',
-                            }}
-                        >
-                            <button
-                                onClick={() => setSelectedListId(null)}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '6px 12px',
-                                    borderRadius: 6,
-                                    border: '1px solid #D5D3CE',
-                                    background: '#fff',
-                                    color: '#1D7DB5',
-                                    fontSize: 13,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                ← {t('basecamp.todos')}
-                            </button>
+                    {showBackBtn ? (
+                        <>
+                            {/* Row 1: [← Lists] + Counter Badge + [•••] in 1 clean line */}
+                            <div className="flex items-center justify-between gap-2 min-w-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedListId(null)}
+                                    className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-[#1D7DB5] dark:text-sky-400 text-xs sm:text-[13px] font-bold shadow-2xs transition-colors cursor-pointer shrink-0"
+                                >
+                                    <ArrowLeft size={14} className="shrink-0" />
+                                    <span>{t('basecamp.todos')}</span>
+                                </button>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {ratioInfo.label && (
+                                        <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 tabular-nums whitespace-nowrap">
+                                            {ratioInfo.label}
+                                        </span>
+                                    )}
+                                    {renderListMoreMenu()}
+                                </div>
+                            </div>
+
+                            {/* Row 2: Color dot + List Title + Optional Description */}
+                            <div className="flex items-start gap-2.5 min-w-0">
+                                <span
+                                    className="w-3 h-3 rounded-full mt-1.5 sm:mt-2 shrink-0"
+                                    style={{ backgroundColor: dotColor }}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight break-words">
+                                        {list.list_name}
+                                    </h2>
+                                    {list.description && (
+                                        <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed break-words">
+                                            {list.description}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Row 3: Responsive 1-Row Toolbar (Search + Sort + Add Task) */}
+                            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 pt-0.5 min-w-0">
+                                <div className="relative flex-1 min-w-[150px] flex items-center">
+                                    <Search
+                                        size={14}
+                                        className="absolute left-3 text-slate-400 pointer-events-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={todoFilterQuery}
+                                        onChange={(e) => setTodoFilterQuery(e.target.value)}
+                                        placeholder={t('basecamp.filter_placeholder')}
+                                        className="w-full h-9 pl-8 pr-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 text-[13px] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:border-[#1D7DB5] focus:ring-2 focus:ring-[#1D7DB5]/15 transition-all"
+                                    />
+                                    {todoFilterQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setTodoFilterQuery('')}
+                                            className="absolute right-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer text-xs font-bold"
+                                            title={t('basecamp.clear_filter')}
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -4664,336 +4375,93 @@ export default function ToolTodos({
                                         )
                                     }
                                     title={t('basecamp.sort_by_created_tooltip')}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        padding: '6px 12px',
-                                        borderRadius: 6,
-                                        border: '1px solid #D5D3CE',
-                                        background: '#fff',
-                                        color: '#334155',
-                                        fontSize: 12.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="h-9 px-2.5 sm:px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs shrink-0 max-w-[160px] sm:max-w-none cursor-pointer transition-colors"
                                 >
-                                    <Clock size={13} style={{ color: '#1D7DB5' }} />
-                                    <span>{renderSortOrderLabel()}</span>
+                                    <ArrowUpDown size={13} className="text-[#1D7DB5] shrink-0" />
+                                    <span className="truncate">{renderSortOrderLabel()}</span>
                                 </button>
 
-                                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                                    <input
-                                        type="text"
-                                        value={todoFilterQuery}
-                                        onChange={(e) => setTodoFilterQuery(e.target.value)}
-                                        placeholder={t('basecamp.filter_placeholder')}
-                                        style={{
-                                            padding: todoFilterQuery ? '6px 28px 6px 11px' : '6px 11px',
-                                            borderRadius: 6,
-                                            border: '1px solid #D5D3CE',
-                                            background: '#fff',
-                                            color: '#1D2D35',
-                                            fontSize: 13,
-                                            width: 195,
-                                            outline: 'none',
-                                        }}
-                                    />
-                                    {todoFilterQuery && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setTodoFilterQuery('')}
-                                            style={{
-                                                position: 'absolute',
-                                                right: 8,
-                                                border: 'none',
-                                                background: 'transparent',
-                                                color: '#94A3B8',
-                                                cursor: 'pointer',
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                            }}
-                                            title={t('basecamp.clear_filter')}
-                                        >
-                                            ✕
-                                        </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        resetAddTaskForm()
+                                        setAddingTaskGroupId(null)
+                                        setAddingTaskId(list.id)
+                                        setTimeout(() => {
+                                            addTaskFormRef.current?.scrollIntoView({
+                                                behavior: 'smooth',
+                                                block: 'center',
+                                            })
+                                        }, 60)
+                                    }}
+                                    className="h-9 px-3 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs shrink-0 cursor-pointer transition-colors whitespace-nowrap"
+                                >
+                                    <Plus size={14} className="shrink-0" />
+                                    <span>{t('basecamp.add_todo')}</span>
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex items-start justify-between gap-2.5 min-w-0">
+                            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                <span
+                                    className="w-2.5 h-2.5 rounded-full mt-2 shrink-0"
+                                    style={{ backgroundColor: dotColor }}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <h2
+                                        onClick={() => setSelectedListId(list.id)}
+                                        className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900 dark:text-white hover:text-[#1D7DB5] dark:hover:text-sky-400 leading-snug cursor-pointer break-words transition-colors"
+                                    >
+                                        {list.list_name}
+                                    </h2>
+                                    {list.description && (
+                                        <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed break-words">
+                                            {list.description}
+                                        </p>
                                     )}
                                 </div>
                             </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                {ratioInfo.label && (
+                                    <span className="px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 tabular-nums whitespace-nowrap">
+                                        {ratioInfo.label}
+                                    </span>
+                                )}
+                                {renderListMoreMenu()}
+                            </div>
                         </div>
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                            <span
-                                style={{
-                                    width: 12,
-                                    height: 12,
-                                    borderRadius: '50%',
-                                    backgroundColor: dotColor,
-                                    display: 'inline-block',
-                                    flexShrink: 0,
-                                }}
-                            />
-                            <h2
-                                onClick={() => {
-                                    if (!showBackBtn) setSelectedListId(list.id)
-                                }}
-                                style={{
-                                    fontSize: showBackBtn ? 26 : 20,
-                                    fontWeight: 700,
-                                    color: '#1D2D35',
-                                    margin: 0,
-                                    lineHeight: 1.2,
-                                    cursor: showBackBtn ? 'default' : 'pointer',
-                                }}
-                            >
-                                {list.list_name}
-                            </h2>
-                            {ratioInfo.label && (
-                                <span
-                                    style={{
-                                        padding: '2px 8px',
-                                        borderRadius: 999,
-                                        background: '#F1F5F9',
-                                        border: '1px solid #E2E8F0',
-                                        color: '#64748B',
-                                        fontSize: 11.5,
-                                        fontWeight: 700,
-                                    }}
-                                >
-                                    {ratioInfo.label}
-                                </span>
-                            )}
-                        </div>
-
-                        {/* List ••• Menu (Edit list, + New group, Sort, Trash) */}
-                        <div data-bc-list-menu="true" style={{ position: 'relative' }}>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setOpenGroupMenuId(null)
-                                    setOpenRowMenuTaskId(null)
-                                    setShowViewAsMenu(false)
-                                    setShowSortMenu(false)
-                                    setOpenListMenuId((prev) => (prev === list.id ? null : list.id))
-                                }}
-                                title={t('basecamp.more_actions')}
-                                style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: 8,
-                                    border: '1px solid #E2E8F0',
-                                    background: '#fff',
-                                    color: '#475569',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                <MoreHorizontal size={16} />
-                            </button>
-
-                            {isListMenuOpen && (
-                                <div
-                                    style={{
-                                        position: 'absolute',
-                                        top: '100%',
-                                        right: 0,
-                                        marginTop: 6,
-                                        minWidth: 235,
-                                        background: '#fff',
-                                        border: '1px solid #CBD5E1',
-                                        borderRadius: 10,
-                                        boxShadow: '0 14px 32px rgba(15,23,42,0.16)',
-                                        padding: 6,
-                                        zIndex: 70,
-                                    }}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setOpenListMenuId(null)
-                                            setEditingListModal({
-                                                id: list.id,
-                                                bc_id: Number(list.bc_id),
-                                                name: list.list_name || '',
-                                                description: list.description || '',
-                                                color: list.color || 'blue',
-                                            })
-                                        }}
-                                        style={{
-                                            width: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            padding: '7px 10px',
-                                            borderRadius: 6,
-                                            border: 'none',
-                                            background: 'transparent',
-                                            color: '#1E293B',
-                                            fontSize: 13,
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                        }}
-                                    >
-                                        <Pencil size={13} className="text-slate-500" />
-                                        <span>{t('basecamp.edit_list')}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setOpenListMenuId(null)
-                                            setCreatingGroupModal({
-                                                listId: list.id,
-                                                listBcId: Number(list.bc_id),
-                                                name: '',
-                                                color: list.color || 'blue',
-                                            })
-                                        }}
-                                        style={{
-                                            width: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            padding: '7px 10px',
-                                            borderRadius: 6,
-                                            border: 'none',
-                                            background: 'transparent',
-                                            color: '#1D7DB5',
-                                            fontSize: 13,
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                        }}
-                                    >
-                                        <span>{t('basecamp.new_group')}</span>
-                                    </button>
-
-                                    <div style={{ height: 1, background: '#F1F5F9', margin: '5px 0' }} />
-
-                                    {(['position', 'newest', 'oldest'] as SortOrderMode[]).map((mode) => {
-                                        const label =
-                                            mode === 'position'
-                                                ? t('basecamp.sort_by_position')
-                                                : mode === 'newest'
-                                                ? t('basecamp.sort_newest_first')
-                                                : t('basecamp.sort_oldest_first')
-                                        return (
-                                            <button
-                                                key={mode}
-                                                type="button"
-                                                onClick={() => {
-                                                    setSortOrder(mode)
-                                                    setOpenListMenuId(null)
-                                                }}
-                                                style={{
-                                                    width: '100%',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    padding: '6px 10px',
-                                                    borderRadius: 6,
-                                                    border: 'none',
-                                                    background: sortOrder === mode ? '#F0F9FF' : 'transparent',
-                                                    color: sortOrder === mode ? '#0369A1' : '#475569',
-                                                    fontSize: 12.5,
-                                                    fontWeight: sortOrder === mode ? 700 : 500,
-                                                    cursor: 'pointer',
-                                                    textAlign: 'left',
-                                                }}
-                                            >
-                                                <span>{label}</span>
-                                                {sortOrder === mode && <Check size={13} />}
-                                            </button>
-                                        )
-                                    })}
-
-                                    <div style={{ height: 1, background: '#F1F5F9', margin: '5px 0' }} />
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            handleDeleteListOrGroup('bc_todolists', {
-                                                id: list.id,
-                                                bc_id: Number(list.bc_id),
-                                            })
-                                        }
-                                        style={{
-                                            width: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            padding: '7px 10px',
-                                            borderRadius: 6,
-                                            border: 'none',
-                                            background: 'transparent',
-                                            color: '#DC2626',
-                                            fontSize: 12.5,
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                        }}
-                                    >
-                                        <Trash2 size={13} />
-                                        <span>{t('basecamp.put_in_trash')}</span>
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {list.description && (
-                        <p
-                            style={{
-                                fontSize: 14,
-                                color: '#6B7B8D',
-                                margin: '8px 0 0 22px',
-                                lineHeight: 1.4,
-                            }}
-                        >
-                            {list.description}
-                        </p>
                     )}
                 </div>
 
                 {/* ── 1. Ungrouped Active Tasks + Root Add To-Do ── */}
-                <div style={{ padding: '8px 0 0' }}>
+                <div className="px-1.5 sm:px-2 py-1.5 min-w-0">
                     {ungroupedOpenTasks.length === 0 && listGroups.length === 0 && addingTaskId !== list.id && (
-                        <div style={{ padding: '18px 24px', color: '#94A3B8', fontSize: 13.5, fontStyle: 'italic' }}>
+                        <div className="px-3.5 sm:px-4 py-5 text-slate-400 dark:text-slate-500 text-[13.5px] italic">
                             {t('basecamp.no_todos_in_list')}
                         </div>
                     )}
 
-                    {ungroupedOpenTasks.map((task: any) => renderActiveTaskRow(list, task))}
+                    <div className="divide-y divide-slate-100/90 dark:divide-slate-800/70">
+                        {ungroupedOpenTasks.map((task: any) => renderActiveTaskRow(list, task))}
+                    </div>
 
-                    <div style={{ padding: '12px 24px 16px' }}>
+                    <div className="px-2 sm:px-4 pt-2.5 pb-2">
                         {addingTaskId === list.id && !addingTaskGroupId ? (
                             renderInlineAddTaskForm(list, null)
                         ) : (
                             <button
+                                type="button"
                                 onClick={() => {
                                     resetAddTaskForm()
                                     setAddingTaskGroupId(null)
                                     setAddingTaskId(list.id)
                                 }}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '6px 12px',
-                                    borderRadius: 6,
-                                    border: '1px dashed #CBD5E1',
-                                    background: '#fff',
-                                    color: '#1D7DB5',
-                                    fontSize: 13.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#1D7DB5] hover:bg-sky-50/50 dark:hover:bg-sky-950/30 text-[#1D7DB5] dark:text-sky-400 text-[13px] font-semibold cursor-pointer transition-colors"
                             >
-                                <Plus size={15} />
-                                {t('basecamp.add_todo')}
+                                <Plus size={14} />
+                                <span>{t('basecamp.add_todo')}</span>
                             </button>
                         )}
                     </div>
@@ -5012,58 +4480,26 @@ export default function ToolTodos({
                     return (
                         <div
                             key={group.id}
-                            className={isGroupElevated ? 'relative z-30' : 'relative'}
-                            style={{
-                                position: 'relative',
-                                zIndex: isGroupElevated ? 30 : undefined,
-                                borderTop: `2px solid ${groupColorHex}`,
-                                background: '#FFFFFF',
-                            }}
+                            className={`relative ${isGroupElevated ? 'z-30' : 'z-0'} bg-white dark:bg-slate-900 min-w-0`}
+                            style={{ borderTop: `2px solid ${groupColorHex}` }}
                         >
                             <div
-                                className={isGroupMenuOpen ? 'relative z-30' : 'relative'}
-                                style={{
-                                    position: 'relative',
-                                    zIndex: isGroupMenuOpen ? 30 : undefined,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    padding: '10px 24px',
-                                    background: '#F8FAFC',
-                                    borderBottom: '1px solid #F1F5F9',
-                                }}
+                                className={`relative ${isGroupMenuOpen ? 'z-30' : 'z-10'} flex items-center justify-between gap-2 px-3.5 sm:px-6 py-2.5 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800`}
                             >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div className="flex items-center gap-2 min-w-0">
                                     <span
-                                        style={{
-                                            width: 10,
-                                            height: 10,
-                                            borderRadius: '50%',
-                                            background: groupColorHex,
-                                            flexShrink: 0,
-                                        }}
+                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                        style={{ backgroundColor: groupColorHex }}
                                     />
-                                    <strong style={{ fontSize: 14.5, fontWeight: 700, color: '#0F172A' }}>
+                                    <strong className="text-[14px] font-bold text-slate-900 dark:text-white truncate">
                                         {group.name}
                                     </strong>
-                                    <span
-                                        style={{
-                                            fontSize: 11,
-                                            fontWeight: 700,
-                                            color: '#64748B',
-                                            background: '#E2E8F0',
-                                            padding: '1px 7px',
-                                            borderRadius: 999,
-                                        }}
-                                    >
+                                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-700 px-2 py-0.5 rounded-full tabular-nums shrink-0">
                                         {groupOpenTasks.length}
                                     </span>
                                 </div>
 
-                                <div
-                                    data-bc-group-menu="true"
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}
-                                >
+                                <div data-bc-group-menu="true" className="relative flex items-center gap-1 shrink-0">
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -5073,33 +4509,12 @@ export default function ToolTodos({
                                             setShowSortMenu(false)
                                             setOpenGroupMenuId((prev) => (prev === group.id ? null : group.id))
                                         }}
-                                        style={{
-                                            border: 'none',
-                                            background: 'transparent',
-                                            color: '#64748B',
-                                            cursor: 'pointer',
-                                            padding: '3px 6px',
-                                            borderRadius: 5,
-                                        }}
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-700 cursor-pointer transition-colors"
                                     >
                                         <MoreHorizontal size={15} />
                                     </button>
                                     {isGroupMenuOpen && (
-                                        <div
-                                            style={{
-                                                position: 'absolute',
-                                                top: '100%',
-                                                right: 0,
-                                                marginTop: 4,
-                                                minWidth: 185,
-                                                background: '#fff',
-                                                border: '1px solid #CBD5E1',
-                                                borderRadius: 8,
-                                                boxShadow: '0 10px 24px rgba(15,23,42,0.14)',
-                                                padding: 5,
-                                                zIndex: 70,
-                                            }}
-                                        >
+                                        <div className="absolute top-full right-0 mt-1 min-w-[185px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 z-[70]">
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -5111,21 +4526,7 @@ export default function ToolTodos({
                                                         color: group.color || 'blue',
                                                     })
                                                 }}
-                                                style={{
-                                                    width: '100%',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    padding: '6px 10px',
-                                                    borderRadius: 6,
-                                                    border: 'none',
-                                                    background: 'transparent',
-                                                    color: '#1E293B',
-                                                    fontSize: 12.5,
-                                                    fontWeight: 600,
-                                                    cursor: 'pointer',
-                                                    textAlign: 'left',
-                                                }}
+                                                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12.5px] font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left transition-colors"
                                             >
                                                 <Pencil size={12} />
                                                 <span>{t('basecamp.edit_group')}</span>
@@ -5138,21 +4539,7 @@ export default function ToolTodos({
                                                         bc_id: Number(group.bc_id),
                                                     })
                                                 }
-                                                style={{
-                                                    width: '100%',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    padding: '6px 10px',
-                                                    borderRadius: 6,
-                                                    border: 'none',
-                                                    background: 'transparent',
-                                                    color: '#DC2626',
-                                                    fontSize: 12.5,
-                                                    fontWeight: 600,
-                                                    cursor: 'pointer',
-                                                    textAlign: 'left',
-                                                }}
+                                                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12.5px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer text-left transition-colors"
                                             >
                                                 <Trash2 size={12} />
                                                 <span>{t('basecamp.put_in_trash')}</span>
@@ -5162,34 +4549,25 @@ export default function ToolTodos({
                                 </div>
                             </div>
 
-                            {groupOpenTasks.map((task: any) => renderActiveTaskRow(list, task))}
+                            <div className="px-1.5 sm:px-2 py-1 divide-y divide-slate-100/90 dark:divide-slate-800/70">
+                                {groupOpenTasks.map((task: any) => renderActiveTaskRow(list, task))}
+                            </div>
 
-                            <div style={{ padding: '10px 24px 14px' }}>
+                            <div className="px-3.5 sm:px-6 pt-1.5 pb-3">
                                 {addingTaskId === list.id && addingTaskGroupId === group.id ? (
                                     renderInlineAddTaskForm(list, group.id)
                                 ) : (
                                     <button
+                                        type="button"
                                         onClick={() => {
                                             resetAddTaskForm()
                                             setAddingTaskId(list.id)
                                             setAddingTaskGroupId(group.id)
                                         }}
-                                        style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 5,
-                                            padding: '4px 10px',
-                                            borderRadius: 6,
-                                            border: '1px dashed #CBD5E1',
-                                            background: '#fff',
-                                            color: '#1D7DB5',
-                                            fontSize: 12.5,
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                        }}
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#1D7DB5] text-[#1D7DB5] dark:text-sky-400 text-xs font-semibold cursor-pointer transition-colors"
                                     >
-                                        <Plus size={14} />
-                                        {t('basecamp.add_todo')}
+                                        <Plus size={13} />
+                                        <span>{t('basecamp.add_todo')}</span>
                                     </button>
                                 )}
                             </div>
@@ -5199,159 +4577,110 @@ export default function ToolTodos({
 
                 {/* ── 3. Completed Tasks Accordion ── */}
                 {displayCompletedCount > 0 && (
-                    <div
-                        style={{
-                            borderTop: '1px solid #F0EFEB',
-                            background: '#FAFAF8',
-                            borderBottomLeftRadius: 10,
-                            borderBottomRightRadius: 10,
-                        }}
-                    >
+                    <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 rounded-b-2xl min-w-0">
                         <button
+                            type="button"
                             onClick={() =>
                                 toggleCompletedSection(list, completedTasks.length, displayCompletedCount)
                             }
-                            style={{
-                                width: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '12px 24px',
-                                border: 'none',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                                color: '#64748B',
-                                fontSize: 13,
-                                fontWeight: 600,
-                            }}
+                            className="w-full flex items-center justify-between px-3.5 sm:px-6 py-3 text-left text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-[13px] font-semibold cursor-pointer transition-colors"
                         >
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span className="inline-flex items-center gap-1.5">
                                 {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                {displayCompletedCount.toLocaleString()} {t('basecamp.completed_todos')}
+                                <span className="tabular-nums">
+                                    {displayCompletedCount.toLocaleString()} {t('basecamp.completed_todos')}
+                                </span>
                             </span>
                         </button>
 
                         {isExpanded && (
-                            <div style={{ padding: '4px 0 12px' }}>
+                            <div className="px-1.5 sm:px-2 pb-3 min-w-0">
                                 {loadingCompletedByList[list.id] && completedTasks.length === 0 && (
-                                    <div
-                                        style={{
-                                            padding: '10px 24px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            color: '#64748B',
-                                            fontSize: 12.5,
-                                        }}
-                                    >
-                                        <Loader2 size={14} className="animate-spin" style={{ color: '#1D7DB5' }} />
+                                    <div className="px-3.5 sm:px-4 py-2.5 flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs">
+                                        <Loader2 size={14} className="animate-spin text-[#1D7DB5]" />
                                         <span>{t('basecamp.loading_bc')}</span>
                                     </div>
                                 )}
-                                {completedTasks.map((task: any) => (
-                                    <div
-                                        key={task.id}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 12,
-                                            padding: '8px 24px',
-                                            color: '#94A3B8',
-                                        }}
-                                    >
-                                        <button
-                                            onClick={() => handleToggleTask(list.id, task)}
-                                            disabled={actionLoading === task.id}
-                                            style={{
-                                                width: 18,
-                                                height: 18,
-                                                borderRadius: 4,
-                                                border: '1.5px solid #22C55E',
-                                                background: '#22C55E',
-                                                color: '#fff',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                cursor: 'pointer',
-                                                padding: 0,
-                                                flexShrink: 0,
-                                            }}
-                                            title={t('basecamp.mark_incomplete')}
+                                <div className="divide-y divide-slate-200/50 dark:divide-slate-800/60">
+                                    {completedTasks.map((task: any) => (
+                                        <div
+                                            key={task.id}
+                                            className="group flex items-start gap-2.5 sm:gap-3 px-2.5 sm:px-4 py-2.5 rounded-xl hover:bg-white/80 dark:hover:bg-slate-800/40 transition-colors min-w-0"
                                         >
-                                            <Check size={12} strokeWidth={3} />
-                                        </button>
-                                        <span
-                                            onClick={() => {
-                                                setSelectedTask(task)
-                                                setSelectedTaskListId(list.id)
-                                            }}
-                                            style={{
-                                                fontSize: 14,
-                                                textDecoration: 'line-through',
-                                                cursor: 'pointer',
-                                                flex: 1,
-                                            }}
-                                        >
-                                            {task.task_name}
-                                        </span>
-                                        {(task.completed_at || task.created_at) && (
-                                            <span
-                                                title={`${t('basecamp.completed_label')}: ${formatCreatedDateTime(
-                                                    task.completed_at || task.created_at
-                                                )}`}
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 3,
-                                                    padding: '1px 6px',
-                                                    borderRadius: 8,
-                                                    background: '#F8FAFC',
-                                                    border: '1px solid #E2E8F0',
-                                                    color: '#94A3B8',
-                                                    fontSize: 10.5,
-                                                    fontWeight: 500,
-                                                    whiteSpace: 'nowrap',
-                                                    flexShrink: 0,
-                                                }}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleTask(list.id, task)}
+                                                disabled={actionLoading === task.id}
+                                                className="w-5 h-5 mt-0.5 shrink-0 rounded-md border-2 border-emerald-500 bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center cursor-pointer transition-colors"
+                                                title={t('basecamp.mark_incomplete')}
                                             >
-                                                <Clock size={9.5} style={{ color: '#94A3B8', flexShrink: 0 }} />
-                                                {formatCreatedDateTime(task.completed_at || task.created_at)}
-                                            </span>
-                                        )}
-                                        <button
-                                            type="button"
-                                            disabled={replicatingTaskId === task.id}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                void handleReplicateTask(task)
-                                            }}
-                                            title={t('basecamp.replicate_task_tooltip')}
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 4,
-                                                padding: '3px 9px',
-                                                borderRadius: 8,
-                                                border: '1px solid #BAE6FD',
-                                                background: '#F0F9FF',
-                                                color: '#0369A1',
-                                                fontSize: 11,
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                                whiteSpace: 'nowrap',
-                                                flexShrink: 0,
-                                            }}
-                                        >
-                                            {replicatingTaskId === task.id ? (
-                                                <Loader2 size={11} className="animate-spin" />
-                                            ) : (
-                                                <span>📋</span>
-                                            )}
-                                            <span>{t('basecamp.replicate_task')}</span>
-                                        </button>
-                                    </div>
-                                ))}
+                                                <Check size={12} strokeWidth={3} />
+                                            </button>
+
+                                            <div
+                                                onClick={() => {
+                                                    setSelectedTask(task)
+                                                    setSelectedTaskListId(list.id)
+                                                }}
+                                                className="min-w-0 flex-1 cursor-pointer"
+                                            >
+                                                <div className="text-[14px] sm:text-[14.5px] font-medium line-through text-slate-500 dark:text-slate-400 leading-snug break-words">
+                                                    {task.task_name}
+                                                </div>
+                                                {(task.completed_at || task.created_at) && (
+                                                    <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
+                                                        <Clock size={10} className="shrink-0 opacity-80" />
+                                                        <span>
+                                                            {formatCreatedDateTime(task.completed_at || task.created_at)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="shrink-0 flex items-center">
+                                                {isFiltering ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={replicatingTaskId === task.id}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            void handleReplicateTask(task)
+                                                        }}
+                                                        title={t('basecamp.replicate_task')}
+                                                        className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 disabled:opacity-60"
+                                                    >
+                                                        {replicatingTaskId === task.id ? (
+                                                            <Loader2 size={12} className="animate-spin" />
+                                                        ) : (
+                                                            <span className="text-[12px] leading-none">📋</span>
+                                                        )}
+                                                        <span className="hidden sm:inline">
+                                                            {t('basecamp.replicate_task')}
+                                                        </span>
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={replicatingTaskId === task.id}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            void handleReplicateTask(task)
+                                                        }}
+                                                        title={t('basecamp.replicate_task_tooltip')}
+                                                        className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sky-200/90 dark:border-sky-800/80 bg-sky-50/90 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:border-[#1D7DB5] hover:text-white text-[#0369A1] dark:text-sky-300 text-xs font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-all cursor-pointer shrink-0 disabled:opacity-60"
+                                                    >
+                                                        {replicatingTaskId === task.id ? (
+                                                            <Loader2 size={11} className="animate-spin" />
+                                                        ) : (
+                                                            <span className="text-[12px] leading-none">📋</span>
+                                                        )}
+                                                        <span>{t('basecamp.replicate_task')}</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -5438,58 +4767,28 @@ export default function ToolTodos({
         if (!historySearchLoading && visibleHistoryMatches.length === 0) return null
 
         return (
-            <div
-                style={{
-                    marginTop: 20,
-                    marginBottom: 40,
-                    background: '#FFFFFF',
-                    borderRadius: 14,
-                    border: '1.5px solid #CBD5E1',
-                    boxShadow: '0 4px 16px rgba(15,23,42,0.05)',
-                    overflow: 'hidden',
-                }}
-            >
-                <div
-                    style={{
-                        padding: '14px 20px',
-                        background: 'linear-gradient(90deg, #F8FAFC 0%, #EFF6FF 100%)',
-                        borderBottom: '1px solid #E2E8F0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 10,
-                        flexWrap: 'wrap',
-                    }}
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>📋</span>
-                        <span style={{ fontSize: 14, fontWeight: 800, color: '#0F172A' }}>
+            <div className="mt-4 mb-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xs overflow-hidden min-w-0">
+                <div className="px-4 sm:px-5 py-3 bg-gradient-to-r from-slate-50 to-sky-50/70 dark:from-slate-900 dark:to-sky-950/30 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base leading-none">📋</span>
+                        <span className="text-[13.5px] font-extrabold text-slate-900 dark:text-white truncate">
                             {t('basecamp.completed_matches_title')}
                         </span>
                         {!historySearchLoading && (
-                            <span
-                                style={{
-                                    padding: '2px 8px',
-                                    borderRadius: 999,
-                                    background: '#DBEAFE',
-                                    color: '#1D4ED8',
-                                    fontSize: 11.5,
-                                    fontWeight: 800,
-                                }}
-                            >
+                            <span className="px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/70 text-[#1D7DB5] dark:text-sky-300 text-[11px] font-extrabold tabular-nums">
                                 {visibleHistoryMatches.length}
                             </span>
                         )}
                     </div>
                     {historySearchLoading && (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#0369A1', fontWeight: 600 }}>
-                            <Loader2 size={14} className="animate-spin" />
+                        <div className="inline-flex items-center gap-1.5 text-xs text-[#0369A1] dark:text-sky-300 font-semibold">
+                            <Loader2 size={13} className="animate-spin" />
                             <span>{t('basecamp.searching_completed_history')}</span>
                         </div>
                     )}
                 </div>
 
-                <div>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
                     {visibleHistoryMatches.map((task: any) => {
                         const origListIdx = lists.findIndex((l) => l.id === task.todolist_id)
                         const origList = origListIdx >= 0 ? lists[origListIdx] : null
@@ -5505,191 +4804,82 @@ export default function ToolTodos({
                                     setSelectedTask(task)
                                     setSelectedTaskListId(task.todolist_id)
                                 }}
-                                style={{
-                                    padding: '12px 20px',
-                                    borderBottom: '1px solid #F1F5F9',
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    justifyContent: 'space-between',
-                                    gap: 14,
-                                    cursor: 'pointer',
-                                    transition: 'background 0.12s',
-                                }}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = '#F8FAFC')}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                                className="px-3.5 sm:px-5 py-3 flex items-start justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 cursor-pointer transition-colors min-w-0"
                             >
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                        <span
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 5,
-                                                padding: '2px 8px',
-                                                borderRadius: 6,
-                                                background: '#F8FAFC',
-                                                border: '1px solid #E2E8F0',
-                                                fontSize: 11.5,
-                                                fontWeight: 700,
-                                                color: '#334155',
-                                            }}
-                                        >
+                                <div className="min-w-0 flex-1 space-y-1">
+                                    <div
+                                        className={`text-[14.5px] font-semibold leading-snug break-words ${
+                                            task.is_completed
+                                                ? 'line-through text-slate-600 dark:text-slate-400 decoration-slate-400'
+                                                : 'text-slate-900 dark:text-slate-100'
+                                        }`}
+                                    >
+                                        {task.task_name}
+                                    </div>
+
+                                    {textSnippet && (
+                                        <p className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                                            {textSnippet}
+                                        </p>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 max-w-[160px]">
                                             <span
-                                                style={{
-                                                    width: 8,
-                                                    height: 8,
-                                                    borderRadius: '50%',
-                                                    backgroundColor: origDotHex,
-                                                    flexShrink: 0,
-                                                }}
+                                                className="w-2 h-2 rounded-full shrink-0"
+                                                style={{ backgroundColor: origDotHex }}
                                             />
-                                            <span>{origListName}</span>
+                                            <span className="truncate">{origListName}</span>
                                         </span>
 
                                         <span
-                                            style={{
-                                                padding: '2px 7px',
-                                                borderRadius: 999,
-                                                fontSize: 10.5,
-                                                fontWeight: 800,
-                                                background: task.is_completed ? '#ECFDF5' : '#EFF6FF',
-                                                color: task.is_completed ? '#047857' : '#1D4ED8',
-                                                border: task.is_completed ? '1px solid #A7F3D0' : '1px solid #BFDBFE',
-                                            }}
+                                            className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold border whitespace-nowrap ${
+                                                task.is_completed
+                                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                                    : 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
+                                            }`}
                                         >
                                             {task.is_completed
                                                 ? `✓ ${t('basecamp.status_completed_badge')}`
                                                 : t('basecamp.status_open_badge')}
                                         </span>
 
-                                        <span
-                                            style={{
-                                                fontSize: 14.5,
-                                                fontWeight: 700,
-                                                color: task.is_completed ? '#334155' : '#0F172A',
-                                                textDecoration: task.is_completed ? 'line-through' : 'none',
-                                                textDecorationColor: '#94A3B8',
-                                            }}
-                                        >
-                                            {task.task_name}
-                                        </span>
-
                                         {previewImages.length > 0 && (
-                                            <span
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 3,
-                                                    padding: '1.5px 6px',
-                                                    borderRadius: 6,
-                                                    background: '#FFFBEB',
-                                                    border: '1px solid #FDE68A',
-                                                    color: '#B45309',
-                                                    fontSize: 11,
-                                                    fontWeight: 700,
-                                                }}
-                                            >
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[11px] font-bold whitespace-nowrap">
                                                 📷 {previewImages.length}
                                             </span>
                                         )}
 
                                         {(task.completed_at || task.created_at) && (
-                                            <span
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 3.5,
-                                                    fontSize: 11,
-                                                    color: '#64748B',
-                                                    fontWeight: 500,
-                                                }}
-                                            >
-                                                <Clock size={10} style={{ color: '#94A3B8' }} />
+                                            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
+                                                <Clock size={10} className="shrink-0" />
                                                 {formatCreatedDateTime(task.completed_at || task.created_at)}
                                             </span>
                                         )}
+
+                                        {attachmentNames.map((fn, fIdx) => (
+                                            <span
+                                                key={fIdx}
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10.5px] font-medium text-slate-600 dark:text-slate-300 max-w-[130px]"
+                                            >
+                                                <Paperclip size={10} className="text-[#1D7DB5] shrink-0" />
+                                                <span className="truncate">{fn}</span>
+                                            </span>
+                                        ))}
                                     </div>
 
-                                    {(textSnippet || attachmentNames.length > 0) && (
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 8,
-                                                flexWrap: 'wrap',
-                                                marginTop: 5,
-                                                fontSize: 12.5,
-                                                color: '#64748B',
-                                            }}
-                                        >
-                                            {textSnippet && (
-                                                <span
-                                                    style={{
-                                                        overflow: 'hidden',
-                                                        textOverflow: 'ellipsis',
-                                                        whiteSpace: 'nowrap',
-                                                        maxWidth: 620,
-                                                    }}
-                                                >
-                                                    {textSnippet}
-                                                </span>
-                                            )}
-                                            {attachmentNames.map((fn, fIdx) => (
-                                                <span
-                                                    key={fIdx}
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 3,
-                                                        padding: '1px 6px',
-                                                        borderRadius: 6,
-                                                        background: '#F8FAFC',
-                                                        border: '1px solid #E2E8F0',
-                                                        fontSize: 10.5,
-                                                        color: '#475569',
-                                                        fontWeight: 600,
-                                                    }}
-                                                >
-                                                    <Paperclip size={10} style={{ color: '#1D7DB5' }} />
-                                                    {fn}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-
                                     {previewImages.length > 0 && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                                        <div className="flex items-center gap-1.5 pt-1.5 flex-wrap">
                                             {previewImages.slice(0, 4).map((imgUrl, idx) => (
                                                 <img
                                                     key={idx}
                                                     src={imgUrl}
                                                     alt={t('basecamp.preview_thumbnail')}
-                                                    style={{
-                                                        width: 44,
-                                                        height: 44,
-                                                        borderRadius: 8,
-                                                        objectFit: 'cover',
-                                                        border: '1px solid #CBD5E1',
-                                                        background: '#fff',
-                                                    }}
+                                                    className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                                                 />
                                             ))}
                                             {previewImages.length > 4 && (
-                                                <span
-                                                    style={{
-                                                        width: 44,
-                                                        height: 44,
-                                                        borderRadius: 8,
-                                                        background: '#F1F5F9',
-                                                        border: '1px solid #CBD5E1',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        fontSize: 11,
-                                                        fontWeight: 700,
-                                                        color: '#475569',
-                                                    }}
-                                                >
+                                                <span className="w-11 h-11 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 inline-flex items-center justify-center text-[11px] font-bold text-slate-600 dark:text-slate-300">
                                                     +{previewImages.length - 4}
                                                 </span>
                                             )}
@@ -5704,30 +4894,15 @@ export default function ToolTodos({
                                         e.stopPropagation()
                                         void handleReplicateTask(task)
                                     }}
-                                    title={t('basecamp.replicate_task_tooltip')}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        padding: '7px 13px',
-                                        borderRadius: 10,
-                                        border: 'none',
-                                        background: '#1D7DB5',
-                                        color: '#fff',
-                                        fontSize: 12,
-                                        fontWeight: 800,
-                                        cursor: 'pointer',
-                                        whiteSpace: 'nowrap',
-                                        flexShrink: 0,
-                                        boxShadow: '0 2px 6px rgba(29,125,181,0.25)',
-                                    }}
+                                    title={t('basecamp.replicate_task')}
+                                    className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 disabled:opacity-60"
                                 >
                                     {replicatingTaskId === task.id ? (
                                         <Loader2 size={13} className="animate-spin" />
                                     ) : (
-                                        <span>📋</span>
+                                        <span className="text-[13px] leading-none">📋</span>
                                     )}
-                                    <span>{t('basecamp.replicate_task')}</span>
+                                    <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
                                 </button>
                             </div>
                         )
@@ -5738,53 +4913,31 @@ export default function ToolTodos({
     }
 
     return (
-        <div style={{ maxWidth: 1280, width: '100%', margin: '0 auto', padding: '0 12px' }}>
+        <div className="w-full max-w-5xl mx-auto px-0 sm:px-2 flex flex-col gap-4 sm:gap-6 min-w-0">
             <style
                 dangerouslySetInnerHTML={{
                     __html: `
-                .bc-rich-text a { color: #1D7DB5; text-decoration: none; font-weight: 500; }
-                .bc-rich-text a:hover { text-decoration: underline; }
-                .bc-rich-text img:not(.avatar):not([data-bc-avatar="true"]) { max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; cursor: pointer; display: block; }
-                .bc-rich-text h1 { font-size: 1.35rem; font-weight: 700; margin: 6px 0; line-height: 1.3; }
-                .bc-rich-text h2 { font-size: 1.12rem; font-weight: 600; margin: 5px 0; line-height: 1.35; }
-                .bc-rich-text ul { padding-left: 20px; list-style-type: disc; margin: 6px 0; }
-                .bc-rich-text ol { padding-left: 20px; list-style-type: decimal; margin: 6px 0; }
-                .bc-rich-text blockquote { border-left: 3px solid #CBD5E1; padding-left: 12px; margin: 8px 0; color: #64748B; font-style: italic; }
-                .bc-rich-text table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-                .bc-rich-text td, .bc-rich-text th { border: 1px solid #CBD5E1; padding: 6px 8px; }
+                ${BASECAMP_RICH_CONTENT_CSS}
+                .bc-rich-text img.avatar,
+                .bc-rich-text img[data-bc-avatar="true"] {
+                    display: inline-block;
+                    margin: 0;
+                    border-radius: 9999px;
+                    border: none;
+                    box-shadow: none;
+                }
                 ${BASECAMP_IMAGE_HOVER_CSS}
             `,
                 }}
             />
 
             {mutationError && (
-                <div
-                    style={{
-                        marginTop: 12,
-                        padding: '10px 14px',
-                        borderRadius: 8,
-                        background: '#FEF2F2',
-                        border: '1px solid #FECACA',
-                        color: '#B91C1C',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                    }}
-                >
-                    <span>{mutationError}</span>
+                <div className="mt-1 px-3.5 py-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/80 text-red-700 dark:text-red-300 text-xs sm:text-[13px] font-semibold flex items-center justify-between gap-3">
+                    <span className="min-w-0 break-words">{mutationError}</span>
                     <button
                         type="button"
                         onClick={() => setMutationError(null)}
-                        style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#B91C1C',
-                            cursor: 'pointer',
-                            fontWeight: 800,
-                        }}
+                        className="text-red-700 dark:text-red-300 hover:opacity-75 cursor-pointer font-extrabold shrink-0"
                     >
                         ✕
                     </button>
@@ -5803,30 +4956,23 @@ export default function ToolTodos({
                             : rawActiveList
                     if (!activeList) {
                         return (
-                            <div style={{ padding: '36px 0', textAlign: 'center' }}>
-                                <p style={{ color: '#64748B', fontSize: 15, marginBottom: 16 }}>
+                            <div className="py-10 text-center space-y-3">
+                                <p className="text-slate-500 dark:text-slate-400 text-[15px]">
                                     {t('basecamp.list_not_found')}
                                 </p>
                                 <button
+                                    type="button"
                                     onClick={() => setSelectedListId(null)}
-                                    style={{
-                                        padding: '8px 16px',
-                                        borderRadius: 6,
-                                        background: '#1D7DB5',
-                                        color: '#fff',
-                                        border: 'none',
-                                        fontSize: 13.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs sm:text-[13.5px] font-bold cursor-pointer transition-colors"
                                 >
-                                    ← {t('basecamp.back_to_todos')}
+                                    <ArrowLeft size={14} />
+                                    <span>{t('basecamp.back_to_todos')}</span>
                                 </button>
                             </div>
                         )
                     }
                     return (
-                        <div style={{ padding: '24px 0 48px' }}>
+                        <div className="pb-10 min-w-0">
                             {renderFullList(activeList, activeListIdx >= 0 ? activeListIdx : 0, true)}
                             {renderHistoricalMatchesSection()}
                         </div>
@@ -5834,57 +4980,65 @@ export default function ToolTodos({
                 })()
             ) : (
                 <>
-                    {/* Header Controls */}
-                    <div style={{ padding: '28px 0 20px' }}>
-                        <h1
-                            style={{
-                                fontSize: 36,
-                                fontWeight: 700,
-                                color: '#1D2D35',
-                                margin: 0,
-                                lineHeight: 1.1,
-                                fontFamily: 'system-ui, -apple-system, sans-serif',
-                            }}
-                        >
-                            {t('basecamp.todos')}
-                        </h1>
+                    {/* ── Compact All-Lists Header & 1-Row Responsive Toolbar ── */}
+                    <div className="pt-1 sm:pt-2 flex flex-col gap-3 min-w-0">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                <h1 className="text-xl sm:text-[26px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight break-words">
+                                    {t('basecamp.todos')}
+                                </h1>
+                                {lists.length > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 tabular-nums shrink-0">
+                                        {lists.length}
+                                    </span>
+                                )}
+                            </div>
 
-                        <div
-                            className={showViewAsMenu || showSortMenu ? 'relative z-40' : 'relative z-20'}
-                            style={{
-                                position: 'relative',
-                                zIndex: showViewAsMenu || showSortMenu ? 40 : 20,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 12,
-                                marginTop: 16,
-                                marginBottom: 8,
-                                flexWrap: 'wrap',
-                            }}
-                        >
                             <button
+                                type="button"
                                 onClick={() => setShowAddList(true)}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '8px 16px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: '#1D7DB5',
-                                    color: '#fff',
-                                    fontSize: 13.5,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                }}
+                                className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs sm:text-[13px] font-bold shadow-xs transition-colors cursor-pointer shrink-0 whitespace-nowrap w-full sm:w-auto"
                             >
-                                <Plus size={15} />
-                                {t('basecamp.add_list')}
+                                <Plus size={15} className="shrink-0" />
+                                <span>{t('basecamp.add_list')}</span>
                             </button>
+                        </div>
+
+                        {/* Single-row responsive toolbar: Search + View Mode + Sort */}
+                        <div
+                            className={`relative ${
+                                showViewAsMenu || showSortMenu ? 'z-40' : 'z-20'
+                            } flex flex-wrap sm:flex-nowrap items-center gap-2 min-w-0`}
+                        >
+                            {/* Search Input */}
+                            <div className="relative flex-1 min-w-[150px] flex items-center">
+                                <Search
+                                    size={14}
+                                    className="absolute left-3 text-slate-400 pointer-events-none"
+                                />
+                                <input
+                                    type="text"
+                                    value={todoFilterQuery}
+                                    onChange={(e) => setTodoFilterQuery(e.target.value)}
+                                    placeholder={t('basecamp.filter_placeholder')}
+                                    className="w-full h-9 pl-8 pr-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[13px] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:border-[#1D7DB5] focus:ring-2 focus:ring-[#1D7DB5]/15 transition-all"
+                                />
+                                {todoFilterQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setTodoFilterQuery('')}
+                                        className="absolute right-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer text-xs font-bold"
+                                        title={t('basecamp.clear_filter')}
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
 
                             {/* View As Menu */}
-                            <div style={{ position: 'relative' }} ref={viewAsMenuRef}>
+                            <div className="relative shrink-0" ref={viewAsMenuRef}>
                                 <button
+                                    type="button"
                                     onClick={() => {
                                         setShowSortMenu(false)
                                         setOpenListMenuId(null)
@@ -5892,109 +5046,59 @@ export default function ToolTodos({
                                         setOpenRowMenuTaskId(null)
                                         setShowViewAsMenu(!showViewAsMenu)
                                     }}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        padding: '8px 14px',
-                                        borderRadius: 6,
-                                        border: '1px solid #D5D3CE',
-                                        background: '#fff',
-                                        color: '#1D2D35',
-                                        fontSize: 13.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    title={t('basecamp.view_as')}
+                                    className="inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
                                 >
-                                    <span>{t('basecamp.view_as')}</span>
-                                    <ChevronDown size={14} style={{ color: '#77858C' }} />
+                                    {viewMode === 'cards' ? (
+                                        <LayoutGrid size={14} className="text-[#1D7DB5] shrink-0" />
+                                    ) : (
+                                        <List size={14} className="text-[#1D7DB5] shrink-0" />
+                                    )}
+                                    <span className="hidden sm:inline">{t('basecamp.view_as')}</span>
+                                    <ChevronDown size={13} className="text-slate-400 shrink-0" />
                                 </button>
 
                                 {showViewAsMenu && (
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            marginTop: 6,
-                                            minWidth: 190,
-                                            background: '#1E293B',
-                                            color: '#fff',
-                                            borderRadius: 10,
-                                            padding: '8px 6px',
-                                            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)',
-                                            zIndex: 50,
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                padding: '4px 10px 8px',
-                                                fontSize: 11,
-                                                fontWeight: 700,
-                                                color: '#94A3B8',
-                                                textTransform: 'uppercase',
-                                                borderBottom: '1px solid rgba(255,255,255,0.1)',
-                                                marginBottom: 4,
-                                            }}
-                                        >
+                                    <div className="absolute top-full right-0 sm:left-0 sm:right-auto mt-1.5 min-w-[195px] bg-slate-900 text-white rounded-xl p-1.5 shadow-2xl border border-slate-700/80 z-50">
+                                        <div className="px-2.5 pt-1 pb-2 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider border-b border-white/10 mb-1">
                                             {t('basecamp.view_todos_prompt')}
                                         </div>
                                         <button
+                                            type="button"
                                             onClick={() => {
                                                 setViewMode('list')
                                                 setShowViewAsMenu(false)
                                             }}
-                                            style={{
-                                                width: '100%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                padding: '8px 10px',
-                                                borderRadius: 6,
-                                                border: 'none',
-                                                background:
-                                                    viewMode === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent',
-                                                color: '#fff',
-                                                fontSize: 13.5,
-                                                fontWeight: viewMode === 'list' ? 700 : 500,
-                                                cursor: 'pointer',
-                                                textAlign: 'left',
-                                            }}
+                                            className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[13px] cursor-pointer text-left transition-colors ${
+                                                viewMode === 'list'
+                                                    ? 'bg-white/10 font-bold text-white'
+                                                    : 'font-medium text-slate-200 hover:bg-white/5'
+                                            }`}
                                         >
                                             <span>{t('basecamp.view_in_list')}</span>
-                                            {viewMode === 'list' && <Check size={16} style={{ color: '#38BDF8' }} />}
+                                            {viewMode === 'list' && <Check size={15} className="text-sky-400" />}
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={() => {
                                                 setViewMode('cards')
                                                 setShowViewAsMenu(false)
                                             }}
-                                            style={{
-                                                width: '100%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                padding: '8px 10px',
-                                                borderRadius: 6,
-                                                border: 'none',
-                                                background:
-                                                    viewMode === 'cards' ? 'rgba(255,255,255,0.1)' : 'transparent',
-                                                color: '#fff',
-                                                fontSize: 13.5,
-                                                fontWeight: viewMode === 'cards' ? 700 : 500,
-                                                cursor: 'pointer',
-                                                textAlign: 'left',
-                                            }}
+                                            className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[13px] cursor-pointer text-left transition-colors ${
+                                                viewMode === 'cards'
+                                                    ? 'bg-white/10 font-bold text-white'
+                                                    : 'font-medium text-slate-200 hover:bg-white/5'
+                                            }`}
                                         >
                                             <span>{t('basecamp.view_as_cards')}</span>
-                                            {viewMode === 'cards' && <Check size={16} style={{ color: '#38BDF8' }} />}
+                                            {viewMode === 'cards' && <Check size={15} className="text-sky-400" />}
                                         </button>
                                     </div>
                                 )}
                             </div>
 
                             {/* Sort Dropdown (Basecamp Position / Newest / Oldest) */}
-                            <div style={{ position: 'relative' }} ref={sortMenuRef}>
+                            <div className="relative shrink-0" ref={sortMenuRef}>
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -6004,41 +5108,15 @@ export default function ToolTodos({
                                         setOpenRowMenuTaskId(null)
                                         setShowSortMenu((prev) => !prev)
                                     }}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        padding: '8px 14px',
-                                        borderRadius: 6,
-                                        border: '1px solid #D5D3CE',
-                                        background: '#fff',
-                                        color: '#1D2D35',
-                                        fontSize: 13.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-2xs transition-colors cursor-pointer max-w-[165px] sm:max-w-none"
                                 >
-                                    <Clock size={14} style={{ color: '#1D7DB5' }} />
-                                    <span>{renderSortOrderLabel()}</span>
-                                    <ChevronDown size={13} style={{ color: '#77858C' }} />
+                                    <ArrowUpDown size={13} className="text-[#1D7DB5] shrink-0" />
+                                    <span className="truncate">{renderSortOrderLabel()}</span>
+                                    <ChevronDown size={13} className="text-slate-400 shrink-0" />
                                 </button>
 
                                 {showSortMenu && (
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            marginTop: 6,
-                                            minWidth: 210,
-                                            background: '#fff',
-                                            border: '1px solid #CBD5E1',
-                                            borderRadius: 10,
-                                            boxShadow: '0 10px 25px rgba(15,23,42,0.14)',
-                                            padding: 6,
-                                            zIndex: 55,
-                                        }}
-                                    >
+                                    <div className="absolute top-full right-0 mt-1.5 min-w-[205px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 z-[55]">
                                         {(['position', 'newest', 'oldest'] as SortOrderMode[]).map((mode) => {
                                             const label =
                                                 mode === 'position'
@@ -6054,21 +5132,11 @@ export default function ToolTodos({
                                                         setSortOrder(mode)
                                                         setShowSortMenu(false)
                                                     }}
-                                                    style={{
-                                                        width: '100%',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'space-between',
-                                                        padding: '7px 10px',
-                                                        borderRadius: 6,
-                                                        border: 'none',
-                                                        background: sortOrder === mode ? '#F0F9FF' : 'transparent',
-                                                        color: sortOrder === mode ? '#0369A1' : '#334155',
-                                                        fontSize: 13,
-                                                        fontWeight: sortOrder === mode ? 700 : 500,
-                                                        cursor: 'pointer',
-                                                        textAlign: 'left',
-                                                    }}
+                                                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] cursor-pointer text-left transition-colors ${
+                                                        sortOrder === mode
+                                                            ? 'bg-sky-50 dark:bg-sky-950/50 text-[#0369A1] dark:text-sky-300 font-bold'
+                                                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium'
+                                                    }`}
                                                 >
                                                     <span>{label}</span>
                                                     {sortOrder === mode && <Check size={14} />}
@@ -6078,71 +5146,24 @@ export default function ToolTodos({
                                     </div>
                                 )}
                             </div>
-
-                            {/* Filter Input */}
-                            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                                <input
-                                    type="text"
-                                    value={todoFilterQuery}
-                                    onChange={(e) => setTodoFilterQuery(e.target.value)}
-                                    placeholder={t('basecamp.filter_placeholder')}
-                                    style={{
-                                        padding: todoFilterQuery ? '8px 28px 8px 12px' : '8px 12px',
-                                        borderRadius: 6,
-                                        border: '1px solid #D5D3CE',
-                                        background: '#fff',
-                                        color: '#1D2D35',
-                                        fontSize: 13.5,
-                                        width: 170,
-                                        outline: 'none',
-                                    }}
-                                />
-                                {todoFilterQuery && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setTodoFilterQuery('')}
-                                        style={{
-                                            position: 'absolute',
-                                            right: 8,
-                                            border: 'none',
-                                            background: 'transparent',
-                                            color: '#94A3B8',
-                                            cursor: 'pointer',
-                                            fontSize: 12,
-                                            fontWeight: 700,
-                                        }}
-                                        title={t('basecamp.clear_filter')}
-                                    >
-                                        ✕
-                                    </button>
-                                )}
-                            </div>
                         </div>
                     </div>
 
                     {/* Lists Grid / Stack */}
                     {loading && lists.length === 0 ? (
-                        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                            <Loader2 className="animate-spin" style={{ width: 32, height: 32, color: '#1D7DB5' }} />
+                        <div className="flex justify-center py-12">
+                            <Loader2 className="animate-spin w-8 h-8 text-[#1D7DB5]" />
                         </div>
                     ) : lists.length > 0 ? (
                         filteredLists.length === 0 && !historySearchLoading && visibleHistoryMatches.length === 0 ? (
-                            <div style={{ padding: '48px 0', textAlign: 'center', color: '#64748B' }}>
-                                <p style={{ fontSize: 15, fontWeight: 600, color: '#1E293B', marginBottom: 8 }}>
+                            <div className="py-12 px-4 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                                <p className="text-[15px] font-bold text-slate-800 dark:text-slate-100 mb-3">
                                     {t('basecamp.no_matching_todos')}
                                 </p>
                                 <button
+                                    type="button"
                                     onClick={() => setTodoFilterQuery('')}
-                                    style={{
-                                        padding: '6px 14px',
-                                        borderRadius: 6,
-                                        background: '#F1F5F9',
-                                        border: '1px solid #CBD5E1',
-                                        color: '#1D7DB5',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-4 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[#1D7DB5] dark:text-sky-400 text-xs font-bold cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700 transition-colors"
                                 >
                                     {t('basecamp.clear_filter')}
                                 </button>
@@ -6150,15 +5171,7 @@ export default function ToolTodos({
                         ) : filteredLists.length === 0 ? (
                             renderHistoricalMatchesSection()
                         ) : viewMode === 'cards' ? (
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-                                    gap: 24,
-                                    alignItems: 'start',
-                                    paddingBottom: 48,
-                                }}
-                            >
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0 pb-10">
                                 {filteredLists.map((list, listIdx) => {
                                     const openTasks = list.tasks.filter((tk: any) => !tk.is_completed)
                                     const completedTasks = list.tasks.filter((tk: any) => tk.is_completed)
@@ -6182,321 +5195,171 @@ export default function ToolTodos({
                                         <div
                                             key={list.id}
                                             onClick={() => setSelectedListId(list.id)}
-                                            style={{
-                                                background: '#fff',
-                                                borderRadius: 12,
-                                                border: '1.5px solid #E8E6E1',
-                                                borderTop: `4px solid ${dotColor}`,
-                                                padding: '18px 22px 20px',
-                                                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s ease',
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                minHeight: 220,
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                e.currentTarget.style.transform = 'translateY(-2px)'
-                                                e.currentTarget.style.boxShadow = '0 10px 25px rgba(0,0,0,0.08)'
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.transform = 'none'
-                                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)'
-                                            }}
+                                            className="group min-w-0 w-full overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200 cursor-pointer flex flex-col"
                                         >
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'flex-start',
-                                                    justifyContent: 'space-between',
-                                                    gap: 10,
-                                                    marginBottom: 12,
-                                                }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
-                                                    <span
-                                                        style={{
-                                                            width: 10,
-                                                            height: 10,
-                                                            borderRadius: '50%',
-                                                            backgroundColor: dotColor,
-                                                            marginTop: 6,
-                                                            flexShrink: 0,
-                                                        }}
-                                                    />
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <h3
-                                                            style={{
-                                                                fontSize: 18,
-                                                                fontWeight: 700,
-                                                                color: '#1D2D35',
-                                                                margin: 0,
-                                                                lineHeight: 1.3,
-                                                            }}
-                                                        >
-                                                            {list.list_name}
-                                                        </h3>
-                                                        {list.description && (
-                                                            <p
-                                                                style={{
-                                                                    fontSize: 13,
-                                                                    color: '#64748B',
-                                                                    margin: '4px 0 0',
-                                                                    overflow: 'hidden',
-                                                                    textOverflow: 'ellipsis',
-                                                                    whiteSpace: 'nowrap',
-                                                                }}
-                                                            >
-                                                                {list.description}
-                                                            </p>
-                                                        )}
+                                            <div className="h-1 w-full shrink-0" style={{ backgroundColor: dotColor }} />
+
+                                            <div className="p-4 sm:p-5 flex-1 flex flex-col min-w-0">
+                                                {/* Card Header */}
+                                                <div className="flex items-start justify-between gap-2.5 mb-3 min-w-0">
+                                                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                                        <span
+                                                            className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0"
+                                                            style={{ backgroundColor: dotColor }}
+                                                        />
+                                                        <div className="min-w-0 flex-1">
+                                                            <h3 className="text-[16px] sm:text-[17px] font-bold text-slate-900 dark:text-slate-100 group-hover:text-[#1D7DB5] dark:group-hover:text-sky-400 leading-snug break-words transition-colors">
+                                                                {list.list_name}
+                                                            </h3>
+                                                            {list.description && (
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                                                                    {list.description}
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
 
-                                                {ratioInfo.label && (
-                                                    <span
-                                                        style={{
-                                                            padding: '2px 7px',
-                                                            borderRadius: 999,
-                                                            background: '#F8FAFC',
-                                                            border: '1px solid #E2E8F0',
-                                                            color: '#64748B',
-                                                            fontSize: 11,
-                                                            fontWeight: 700,
-                                                            flexShrink: 0,
-                                                        }}
-                                                    >
-                                                        {ratioInfo.label}
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div
-                                                style={{
-                                                    flex: 1,
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    gap: 8,
-                                                    margin: '8px 0 16px',
-                                                }}
-                                            >
-                                                {openTasks.length === 0 ? (
-                                                    <div
-                                                        style={{
-                                                            color: '#94A3B8',
-                                                            fontSize: 13,
-                                                            fontStyle: 'italic',
-                                                            padding: '12px 0',
-                                                        }}
-                                                    >
-                                                        {t('basecamp.no_open_todos')}
-                                                    </div>
-                                                ) : (
-                                                    previewTasks.map((task: any) => {
-                                                        const hasComments =
-                                                            task.comments_count > 0 ||
-                                                            (task.comments && task.comments.length > 0)
-                                                        const commentCount =
-                                                            task.comments_count ||
-                                                            (task.comments ? task.comments.length : 0)
-
-                                                        return (
-                                                            <div
-                                                                key={task.id}
-                                                                style={{
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: 8,
-                                                                    fontSize: 13.5,
-                                                                    color: '#334155',
-                                                                }}
-                                                            >
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        handleToggleTask(list.id, task)
-                                                                    }}
-                                                                    disabled={actionLoading === task.id}
-                                                                    style={{
-                                                                        width: 15,
-                                                                        height: 15,
-                                                                        borderRadius: 3,
-                                                                        border: '1.5px solid #CBD5E1',
-                                                                        background: '#fff',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        cursor: 'pointer',
-                                                                        flexShrink: 0,
-                                                                        padding: 0,
-                                                                    }}
-                                                                >
-                                                                    {actionLoading === task.id ? (
-                                                                        <Loader2
-                                                                            size={10}
-                                                                            className="animate-spin text-slate-400"
-                                                                        />
-                                                                    ) : null}
-                                                                </button>
-                                                                <span
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        setSelectedTask(task)
-                                                                        setSelectedTaskListId(list.id)
-                                                                    }}
-                                                                    style={{
-                                                                        overflow: 'hidden',
-                                                                        textOverflow: 'ellipsis',
-                                                                        whiteSpace: 'nowrap',
-                                                                        flex: 1,
-                                                                        cursor: 'pointer',
-                                                                    }}
-                                                                >
-                                                                    {task.task_name}
-                                                                </span>
-
-                                                                {task.created_at && (
-                                                                    <span
-                                                                        style={{
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            gap: 2.5,
-                                                                            padding: '1px 5px',
-                                                                            borderRadius: 6,
-                                                                            background: '#F8FAFC',
-                                                                            border: '1px solid #E2E8F0',
-                                                                            color: '#64748B',
-                                                                            fontSize: 10,
-                                                                            fontWeight: 500,
-                                                                            whiteSpace: 'nowrap',
-                                                                            flexShrink: 0,
-                                                                        }}
-                                                                    >
-                                                                        <Clock size={9} style={{ color: '#94A3B8' }} />
-                                                                        {formatCreatedDateTime(task.created_at, false)}
-                                                                    </span>
-                                                                )}
-
-                                                                {hasComments && (
-                                                                    <span
-                                                                        style={{
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            gap: 3,
-                                                                            color: '#1D7DB5',
-                                                                            fontSize: 11,
-                                                                            fontWeight: 600,
-                                                                            flexShrink: 0,
-                                                                        }}
-                                                                    >
-                                                                        <MessageSquare size={11} />
-                                                                        {commentCount}
-                                                                    </span>
-                                                                )}
-
-                                                                {todoFilterQuery.trim() && (
-                                                                    <button
-                                                                        type="button"
-                                                                        disabled={replicatingTaskId === task.id}
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation()
-                                                                            void handleReplicateTask(task)
-                                                                        }}
-                                                                        title={t('basecamp.replicate_task_tooltip')}
-                                                                        style={{
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            gap: 3,
-                                                                            padding: '2px 7px',
-                                                                            borderRadius: 6,
-                                                                            border: '1px solid #1D7DB5',
-                                                                            background: '#1D7DB5',
-                                                                            color: '#fff',
-                                                                            fontSize: 10.5,
-                                                                            fontWeight: 700,
-                                                                            cursor: 'pointer',
-                                                                            flexShrink: 0,
-                                                                        }}
-                                                                    >
-                                                                        <span>📋</span>
-                                                                        <span>{t('basecamp.replicate_task')}</span>
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )
-                                                    })
-                                                )}
-                                            </div>
-
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    paddingTop: 12,
-                                                    borderTop: '1px solid #F1F5F9',
-                                                    fontSize: 12,
-                                                    color: '#64748B',
-                                                    fontWeight: 600,
-                                                }}
-                                            >
-                                                <div>
-                                                    {remainingCount > 0 && (
-                                                        <span style={{ color: '#1D7DB5' }}>
-                                                            +{remainingCount} {t('basecamp.more_todos')}
+                                                    {ratioInfo.label && (
+                                                        <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 tabular-nums whitespace-nowrap">
+                                                            {ratioInfo.label}
                                                         </span>
                                                     )}
                                                 </div>
-                                                {doneDisplayCount > 0 && (
-                                                    <span
-                                                        style={{
-                                                            color: '#16A34A',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: 4,
-                                                        }}
-                                                    >
-                                                        <Check size={12} />
-                                                        {doneDisplayCount.toLocaleString()} {t('basecamp.done_short')}
-                                                    </span>
-                                                )}
+
+                                                {/* Preview Tasks (0px overflow guaranteed at 360px/390px) */}
+                                                <div className="flex-1 flex flex-col gap-1 mb-3.5 min-w-0">
+                                                    {openTasks.length === 0 ? (
+                                                        <div className="text-slate-400 dark:text-slate-500 text-[13px] italic py-3">
+                                                            {t('basecamp.no_open_todos')}
+                                                        </div>
+                                                    ) : (
+                                                        previewTasks.map((task: any) => {
+                                                            const hasComments =
+                                                                task.comments_count > 0 ||
+                                                                (task.comments && task.comments.length > 0)
+                                                            const commentCount =
+                                                                task.comments_count ||
+                                                                (task.comments ? task.comments.length : 0)
+
+                                                            return (
+                                                                <div
+                                                                    key={task.id}
+                                                                    className="flex items-center gap-2.5 py-1.5 px-1.5 -mx-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors min-w-0"
+                                                                >
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            handleToggleTask(list.id, task)
+                                                                        }}
+                                                                        disabled={actionLoading === task.id}
+                                                                        className="w-[17px] h-[17px] rounded-[5px] border-[1.5px] border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:border-emerald-500 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+                                                                        title={t('basecamp.mark_as_done')}
+                                                                    >
+                                                                        {actionLoading === task.id ? (
+                                                                            <Loader2
+                                                                                size={10}
+                                                                                className="animate-spin text-slate-400"
+                                                                            />
+                                                                        ) : null}
+                                                                    </button>
+
+                                                                    <span
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            setSelectedTask(task)
+                                                                            setSelectedTaskListId(list.id)
+                                                                        }}
+                                                                        className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-800 dark:text-slate-100 cursor-pointer"
+                                                                    >
+                                                                        {task.task_name}
+                                                                    </span>
+
+                                                                    <div className="shrink-0 flex items-center gap-1.5">
+                                                                        {task.created_at && (
+                                                                            <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 text-[10.5px] font-medium whitespace-nowrap">
+                                                                                <Clock size={9.5} className="shrink-0" />
+                                                                                {formatCreatedDateTime(
+                                                                                    task.created_at,
+                                                                                    false
+                                                                                )}
+                                                                            </span>
+                                                                        )}
+
+                                                                        {hasComments && (
+                                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/40 text-[#1D7DB5] dark:text-sky-400 text-[11px] font-bold whitespace-nowrap">
+                                                                                <MessageSquare size={10.5} />
+                                                                                {commentCount}
+                                                                            </span>
+                                                                        )}
+
+                                                                        {todoFilterQuery.trim() && (
+                                                                            <button
+                                                                                type="button"
+                                                                                disabled={replicatingTaskId === task.id}
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation()
+                                                                                    void handleReplicateTask(task)
+                                                                                }}
+                                                                                title={t('basecamp.replicate_task')}
+                                                                                className="inline-flex items-center justify-center gap-1 w-7 h-7 sm:w-auto sm:h-auto sm:px-2 sm:py-0.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-[11px] font-bold cursor-pointer shrink-0 transition-colors"
+                                                                            >
+                                                                                <span>📋</span>
+                                                                                <span className="hidden sm:inline">
+                                                                                    {t('basecamp.replicate_task')}
+                                                                                </span>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            )
+                                                        })
+                                                    )}
+                                                </div>
+
+                                                {/* Card Footer */}
+                                                <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs font-semibold min-w-0">
+                                                    <div className="min-w-0 truncate">
+                                                        {remainingCount > 0 && (
+                                                            <span className="text-[#1D7DB5] dark:text-sky-400">
+                                                                +{remainingCount} {t('basecamp.more_todos')}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {doneDisplayCount > 0 && (
+                                                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 shrink-0 whitespace-nowrap tabular-nums">
+                                                            <Check size={12} />
+                                                            {doneDisplayCount.toLocaleString()}{' '}
+                                                            {t('basecamp.done_short')}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     )
                                 })}
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 36, paddingBottom: 24 }}>
+                            <div className="flex flex-col gap-5 sm:gap-6 pb-8 min-w-0">
                                 {filteredLists.map((list, listIdx) => renderFullList(list, listIdx, false))}
                             </div>
                         )
                     ) : (
-                        <div style={{ padding: '60px 0', textAlign: 'center', color: '#64748B' }}>
-                            <ClipboardList style={{ width: 48, height: 48, margin: '0 auto 16px', color: '#CBD5E1' }} />
-                            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1E293B', marginBottom: 6 }}>
+                        <div className="py-14 px-6 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                            <ClipboardList className="w-12 h-12 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1.5">
                                 {t('basecamp.no_todolists')}
                             </h3>
-                            <p style={{ fontSize: 14, color: '#64748B', maxWidth: 400, margin: '0 auto 20px' }}>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-5">
                                 {t('basecamp.no_todolists_desc')}
                             </p>
                             <button
+                                type="button"
                                 onClick={() => setShowAddList(true)}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '10px 20px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: '#1D7DB5',
-                                    color: '#fff',
-                                    fontSize: 14,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                }}
+                                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-sm font-bold shadow-xs cursor-pointer transition-colors"
                             >
                                 <Plus size={16} />
-                                {t('basecamp.add_first_list')}
+                                <span>{t('basecamp.add_first_list')}</span>
                             </button>
                         </div>
                     )}
@@ -6510,63 +5373,25 @@ export default function ToolTodos({
                     onClick={(e) => {
                         if (e.target === e.currentTarget) setShowAddList(false)
                     }}
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        zIndex: 50,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 16,
-                        background: 'rgba(15,23,42,0.5)',
-                    }}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/55 backdrop-blur-xs"
                 >
-                    <div
-                        style={{
-                            background: '#fff',
-                            borderRadius: 14,
-                            maxWidth: 520,
-                            width: '100%',
-                            padding: '26px 30px',
-                            boxShadow: '0 20px 40px rgba(0,0,0,0.18)',
-                        }}
-                    >
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 18,
-                            }}
-                        >
-                            <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1D2D35', margin: 0 }}>
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
                                 {t('basecamp.new_list_title')}
                             </h2>
                             <button
+                                type="button"
                                 onClick={() => setShowAddList(false)}
-                                style={{
-                                    border: 'none',
-                                    background: 'transparent',
-                                    cursor: 'pointer',
-                                    color: '#94A3B8',
-                                    fontSize: 18,
-                                }}
+                                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                             >
-                                ✕
+                                <X size={16} />
                             </button>
                         </div>
 
-                        <form onSubmit={handleAddList}>
-                            <div style={{ marginBottom: 14 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 6,
-                                    }}
-                                >
+                        <form onSubmit={handleAddList} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                     {t('basecamp.list_name_label')}
                                 </label>
                                 <input
@@ -6576,28 +5401,12 @@ export default function ToolTodos({
                                     value={newListName}
                                     onChange={(e) => setNewListName(e.target.value)}
                                     placeholder={t('basecamp.new_list_placeholder')}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        borderRadius: 8,
-                                        border: '1.5px solid #CBD5E1',
-                                        fontSize: 14.5,
-                                        outline: 'none',
-                                        color: '#1E293B',
-                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white outline-none focus:border-[#1D7DB5] focus:ring-2 focus:ring-[#1D7DB5]/15"
                                 />
                             </div>
 
-                            <div style={{ marginBottom: 14 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 6,
-                                    }}
-                                >
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                     {t('basecamp.list_desc_label')}
                                 </label>
                                 <textarea
@@ -6605,64 +5414,29 @@ export default function ToolTodos({
                                     onChange={(e) => setNewListDesc(e.target.value)}
                                     placeholder={t('basecamp.list_desc_placeholder')}
                                     rows={3}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        borderRadius: 8,
-                                        border: '1.5px solid #CBD5E1',
-                                        fontSize: 14,
-                                        outline: 'none',
-                                        color: '#1E293B',
-                                        resize: 'vertical',
-                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white outline-none focus:border-[#1D7DB5] resize-y"
                                 />
                             </div>
 
-                            <div style={{ marginBottom: 20 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 8,
-                                    }}
-                                >
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                                     {t('basecamp.list_color')}
                                 </label>
                                 {renderColorSwatchSelector(newListColor, setNewListColor)}
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                            <div className="flex justify-end gap-2 pt-2">
                                 <button
                                     type="button"
                                     onClick={() => setShowAddList(false)}
-                                    style={{
-                                        padding: '8px 16px',
-                                        borderRadius: 8,
-                                        border: '1px solid #CBD5E1',
-                                        background: '#fff',
-                                        color: '#64748B',
-                                        fontSize: 13.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs sm:text-[13px] font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
                                 >
                                     {t('basecamp.cancel')}
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={loading}
-                                    style={{
-                                        padding: '8px 20px',
-                                        borderRadius: 8,
-                                        border: 'none',
-                                        background: '#22C55E',
-                                        color: '#fff',
-                                        fontSize: 13.5,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-[13px] font-bold cursor-pointer transition-colors disabled:opacity-60"
                                 >
                                     {t('basecamp.create_list')}
                                 </button>
@@ -6678,63 +5452,25 @@ export default function ToolTodos({
                     onClick={(e) => {
                         if (e.target === e.currentTarget) setEditingListModal(null)
                     }}
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        zIndex: 55,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 16,
-                        background: 'rgba(15,23,42,0.5)',
-                    }}
+                    className="fixed inset-0 z-[55] flex items-center justify-center p-3 sm:p-4 bg-slate-900/55 backdrop-blur-xs"
                 >
-                    <div
-                        style={{
-                            background: '#fff',
-                            borderRadius: 14,
-                            maxWidth: 520,
-                            width: '100%',
-                            padding: '26px 30px',
-                            boxShadow: '0 20px 40px rgba(0,0,0,0.18)',
-                        }}
-                    >
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 18,
-                            }}
-                        >
-                            <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1D2D35', margin: 0 }}>
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
                                 {t('basecamp.edit_list')}
                             </h2>
                             <button
+                                type="button"
                                 onClick={() => setEditingListModal(null)}
-                                style={{
-                                    border: 'none',
-                                    background: 'transparent',
-                                    cursor: 'pointer',
-                                    color: '#94A3B8',
-                                    fontSize: 18,
-                                }}
+                                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                             >
-                                ✕
+                                <X size={16} />
                             </button>
                         </div>
 
-                        <form onSubmit={handleUpdateList}>
-                            <div style={{ marginBottom: 14 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 6,
-                                    }}
-                                >
+                        <form onSubmit={handleUpdateList} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                     {t('basecamp.list_name_label')}
                                 </label>
                                 <input
@@ -6747,28 +5483,12 @@ export default function ToolTodos({
                                             prev ? { ...prev, name: e.target.value } : null
                                         )
                                     }
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        borderRadius: 8,
-                                        border: '1.5px solid #CBD5E1',
-                                        fontSize: 14.5,
-                                        outline: 'none',
-                                        color: '#1E293B',
-                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white outline-none focus:border-[#1D7DB5]"
                                 />
                             </div>
 
-                            <div style={{ marginBottom: 14 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 6,
-                                    }}
-                                >
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                     {t('basecamp.list_desc_label')}
                                 </label>
                                 <textarea
@@ -6779,29 +5499,12 @@ export default function ToolTodos({
                                         )
                                     }
                                     rows={3}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        borderRadius: 8,
-                                        border: '1.5px solid #CBD5E1',
-                                        fontSize: 14,
-                                        outline: 'none',
-                                        color: '#1E293B',
-                                        resize: 'vertical',
-                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white outline-none focus:border-[#1D7DB5] resize-y"
                                 />
                             </div>
 
-                            <div style={{ marginBottom: 20 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 8,
-                                    }}
-                                >
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                                     {t('basecamp.list_color')}
                                 </label>
                                 {renderColorSwatchSelector(editingListModal.color, (val) =>
@@ -6809,36 +5512,18 @@ export default function ToolTodos({
                                 )}
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                            <div className="flex justify-end gap-2 pt-2">
                                 <button
                                     type="button"
                                     onClick={() => setEditingListModal(null)}
-                                    style={{
-                                        padding: '8px 16px',
-                                        borderRadius: 8,
-                                        border: '1px solid #CBD5E1',
-                                        background: '#fff',
-                                        color: '#64748B',
-                                        fontSize: 13.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs sm:text-[13px] font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
                                 >
                                     {t('basecamp.cancel')}
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={actionLoading === `update_list_${editingListModal.id}`}
-                                    style={{
-                                        padding: '8px 20px',
-                                        borderRadius: 8,
-                                        border: 'none',
-                                        background: '#1D7DB5',
-                                        color: '#fff',
-                                        fontSize: 13.5,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-5 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs sm:text-[13px] font-bold cursor-pointer transition-colors disabled:opacity-60"
                                 >
                                     {t('basecamp.save_changes')}
                                 </button>
@@ -6857,66 +5542,28 @@ export default function ToolTodos({
                             setEditingGroupModal(null)
                         }
                     }}
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        zIndex: 55,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 16,
-                        background: 'rgba(15,23,42,0.5)',
-                    }}
+                    className="fixed inset-0 z-[55] flex items-center justify-center p-3 sm:p-4 bg-slate-900/55 backdrop-blur-xs"
                 >
-                    <div
-                        style={{
-                            background: '#fff',
-                            borderRadius: 14,
-                            maxWidth: 460,
-                            width: '100%',
-                            padding: '24px 28px',
-                            boxShadow: '0 20px 40px rgba(0,0,0,0.18)',
-                        }}
-                    >
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 16,
-                            }}
-                        >
-                            <h2 style={{ fontSize: 19, fontWeight: 700, color: '#1D2D35', margin: 0 }}>
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
                                 {creatingGroupModal ? t('basecamp.new_group') : t('basecamp.edit_group')}
                             </h2>
                             <button
+                                type="button"
                                 onClick={() => {
                                     setCreatingGroupModal(null)
                                     setEditingGroupModal(null)
                                 }}
-                                style={{
-                                    border: 'none',
-                                    background: 'transparent',
-                                    cursor: 'pointer',
-                                    color: '#94A3B8',
-                                    fontSize: 18,
-                                }}
+                                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                             >
-                                ✕
+                                <X size={16} />
                             </button>
                         </div>
 
-                        <form onSubmit={creatingGroupModal ? handleCreateGroup : handleUpdateGroup}>
-                            <div style={{ marginBottom: 14 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 6,
-                                    }}
-                                >
+                        <form onSubmit={creatingGroupModal ? handleCreateGroup : handleUpdateGroup} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                     {t('basecamp.group_label')}
                                 </label>
                                 <input
@@ -6933,28 +5580,12 @@ export default function ToolTodos({
                                         }
                                     }}
                                     placeholder={t('basecamp.group_name_placeholder')}
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px 12px',
-                                        borderRadius: 8,
-                                        border: '1.5px solid #CBD5E1',
-                                        fontSize: 14.5,
-                                        outline: 'none',
-                                        color: '#1E293B',
-                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-white outline-none focus:border-[#1D7DB5]"
                                 />
                             </div>
 
-                            <div style={{ marginBottom: 20 }}>
-                                <label
-                                    style={{
-                                        display: 'block',
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: '#1D2D35',
-                                        marginBottom: 8,
-                                    }}
-                                >
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                                     {t('basecamp.group_color')}
                                 </label>
                                 {renderColorSwatchSelector(
@@ -6969,38 +5600,20 @@ export default function ToolTodos({
                                 )}
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                            <div className="flex justify-end gap-2 pt-2">
                                 <button
                                     type="button"
                                     onClick={() => {
                                         setCreatingGroupModal(null)
                                         setEditingGroupModal(null)
                                     }}
-                                    style={{
-                                        padding: '8px 16px',
-                                        borderRadius: 8,
-                                        border: '1px solid #CBD5E1',
-                                        background: '#fff',
-                                        color: '#64748B',
-                                        fontSize: 13.5,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs sm:text-[13px] font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
                                 >
                                     {t('basecamp.cancel')}
                                 </button>
                                 <button
                                     type="submit"
-                                    style={{
-                                        padding: '8px 20px',
-                                        borderRadius: 8,
-                                        border: 'none',
-                                        background: '#1DAB45',
-                                        color: '#fff',
-                                        fontSize: 13.5,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                    }}
+                                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-[13px] font-bold cursor-pointer transition-colors"
                                 >
                                     {creatingGroupModal ? t('basecamp.create_group_btn') : t('basecamp.save_changes')}
                                 </button>
@@ -7044,7 +5657,7 @@ export default function ToolTodos({
                             onClick={(e) => {
                                 if (e.target === e.currentTarget) closeTaskDetail()
                             }}
-                            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200"
+                            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2 sm:p-6 overflow-y-auto animate-in fade-in duration-200"
                             style={{
                                 background: 'rgba(15, 23, 42, 0.65)',
                                 backdropFilter: 'blur(8px)',
@@ -7052,56 +5665,45 @@ export default function ToolTodos({
                             }}
                         >
                             <div
-                                className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+                                className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full sm:max-w-3xl max-h-[92dvh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
                                 style={{ boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)' }}
                             >
-                                {/* ── 1. Top Bar: Breadcrumb + Edit + ••• Menu + Close ── */}
-                                <div className="relative z-50 px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md flex-shrink-0">
-                                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                {/* ── 1. Sticky 1-Row Compact Top Bar: ← List + Adaptive Actions + ••• Menu + Close ── */}
+                                <div className="relative z-50 px-3 sm:px-5 py-3 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md flex-shrink-0 min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                         <button
+                                            type="button"
                                             onClick={() => closeTaskDetail()}
-                                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-xs font-bold text-[#1D7DB5] hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-all shadow-sm cursor-pointer"
+                                            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-xs font-bold text-[#1D7DB5] dark:text-sky-400 hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-all shadow-2xs cursor-pointer min-w-0"
                                         >
                                             <span
-                                                style={{
-                                                    width: 8,
-                                                    height: 8,
-                                                    borderRadius: '50%',
-                                                    backgroundColor: listColorHex,
-                                                    flexShrink: 0,
-                                                }}
+                                                className="w-2 h-2 rounded-full shrink-0"
+                                                style={{ backgroundColor: listColorHex }}
                                             />
-                                            <span className="truncate max-w-[200px]">← {listName}</span>
+                                            <span className="truncate max-w-[120px] sm:max-w-[220px]">
+                                                ← {listName}
+                                            </span>
                                         </button>
 
                                         {activeGroupObj && (
-                                            <span
-                                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border"
-                                                style={{
-                                                    borderColor: '#E2E8F0',
-                                                    background: '#F8FAFC',
-                                                    color: '#334155',
-                                                }}
-                                            >
+                                            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shrink-0 max-w-[150px]">
                                                 <span
+                                                    className="w-[7px] h-[7px] rounded-full shrink-0"
                                                     style={{
-                                                        width: 7,
-                                                        height: 7,
-                                                        borderRadius: '50%',
                                                         backgroundColor: resolveBasecampColorHex(
                                                             activeGroupObj.color,
                                                             2
                                                         ),
                                                     }}
                                                 />
-                                                {activeGroupObj.name}
+                                                <span className="truncate">{activeGroupObj.name}</span>
                                             </span>
                                         )}
                                     </div>
 
-                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
                                         {linkCopiedToast && (
-                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
+                                            <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold">
                                                 <Check size={12} />
                                                 {t('basecamp.link_copied')}
                                             </span>
@@ -7112,14 +5714,14 @@ export default function ToolTodos({
                                             disabled={replicatingTaskId === selectedTask.id}
                                             onClick={() => void handleReplicateTask(selectedTask)}
                                             title={t('basecamp.replicate_task_tooltip')}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer"
+                                            className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-8 sm:px-3 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-all cursor-pointer shrink-0 disabled:opacity-60"
                                         >
                                             {replicatingTaskId === selectedTask.id ? (
                                                 <Loader2 size={13} className="animate-spin" />
                                             ) : (
-                                                <span>📋</span>
+                                                <span className="text-[13px] leading-none">📋</span>
                                             )}
-                                            <span>{t('basecamp.replicate_task')}</span>
+                                            <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
                                         </button>
 
                                         <button
@@ -7131,14 +5733,15 @@ export default function ToolTodos({
                                                     openTaskEditMode(selectedTask, 'title')
                                                 }
                                             }}
-                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                            title={t('basecamp.edit_todo')}
+                                            className={`inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-8 sm:px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer shrink-0 ${
                                                 isEditingTask
                                                     ? 'bg-[#1D7DB5] border-[#1D7DB5] text-white'
-                                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
                                             }`}
                                         >
                                             <Pencil size={13} />
-                                            <span>{t('basecamp.edit_todo')}</span>
+                                            <span className="hidden sm:inline">{t('basecamp.edit_todo')}</span>
                                         </button>
 
                                         {/* ••• Basecamp Actions Dropdown */}
@@ -7152,13 +5755,13 @@ export default function ToolTodos({
                                                     setShowTaskMoreMenu((prev) => !prev)
                                                 }}
                                                 title={t('basecamp.more_actions')}
-                                                className="w-8 h-8 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all flex items-center justify-center cursor-pointer"
+                                                className="w-8 h-8 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all flex items-center justify-center cursor-pointer"
                                             >
                                                 <MoreHorizontal size={16} />
                                             </button>
 
                                             {showTaskMoreMenu && (
-                                                <div className="absolute right-0 top-full mt-1.5 min-w-[250px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 z-[90]">
+                                                <div className="absolute right-0 top-full mt-1.5 min-w-[240px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 z-[90]">
                                                     <button
                                                         type="button"
                                                         onClick={() => void handleReplicateTask(selectedTask)}
@@ -7253,8 +5856,9 @@ export default function ToolTodos({
                                         </div>
 
                                         <button
+                                            type="button"
                                             onClick={() => closeTaskDetail()}
-                                            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold transition-all flex items-center justify-center cursor-pointer text-sm"
+                                            className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold transition-all flex items-center justify-center cursor-pointer shrink-0"
                                             title={t('basecamp.close_esc')}
                                         >
                                             <X size={16} />
@@ -7263,7 +5867,13 @@ export default function ToolTodos({
                                 </div>
 
                                 {/* ── 2. Scrollable Body Content ── */}
-                                <div className="relative z-10 overflow-y-auto flex-1 p-6 sm:p-8 space-y-6">
+                                <div className="relative z-10 overflow-y-auto flex-1 p-4 sm:p-7 space-y-5 min-w-0">
+                                    {linkCopiedToast && (
+                                        <div className="sm:hidden inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold">
+                                            <Check size={12} />
+                                            <span>{t('basecamp.link_copied')}</span>
+                                        </div>
+                                    )}
                                     {movedBannerText && (
                                         <div className="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between">
                                             <span>✓ {movedBannerText}</span>
@@ -7390,7 +6000,7 @@ export default function ToolTodos({
                                     {isEditingTask ? (
                                         <form
                                             onSubmit={handleSaveTaskEdit}
-                                            className="p-5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-4"
+                                            className="p-3.5 sm:p-5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-4 min-w-0"
                                         >
                                             <div className="flex items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
                                                 <span className="w-6 h-6 rounded-lg border-2 border-slate-300 bg-white flex-shrink-0" />
@@ -7518,8 +6128,9 @@ export default function ToolTodos({
                                         <>
                                             {/* ── Hero Title Section (Click title -> Edit Mode #37) ── */}
                                             <div className="space-y-3">
-                                                <div className="flex items-start gap-4">
+                                                <div className="flex items-start gap-3 sm:gap-4 min-w-0">
                                                     <button
+                                                        type="button"
                                                         onClick={() =>
                                                             handleToggleTask(
                                                                 selectedTaskListId || '',
@@ -7527,7 +6138,7 @@ export default function ToolTodos({
                                                             )
                                                         }
                                                         disabled={actionLoading === selectedTask.id}
-                                                        className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 cursor-pointer transition-all duration-200 shadow-sm ${
+                                                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 cursor-pointer transition-all duration-200 shadow-2xs ${
                                                             selectedTask.is_completed
                                                                 ? 'bg-emerald-500 border-2 border-emerald-500 text-white hover:bg-emerald-600'
                                                                 : 'border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
@@ -7556,7 +6167,7 @@ export default function ToolTodos({
                                                                 openTaskEditMode(selectedTask, 'title')
                                                             }
                                                             title={t('basecamp.edit_todo')}
-                                                            className={`text-2xl sm:text-3xl font-extrabold tracking-tight leading-snug transition-all cursor-pointer hover:text-[#1D7DB5] ${
+                                                            className={`text-xl sm:text-2xl font-extrabold tracking-tight leading-snug break-words transition-all cursor-pointer hover:text-[#1D7DB5] dark:hover:text-sky-400 ${
                                                                 selectedTask.is_completed
                                                                     ? 'line-through text-slate-400 dark:text-slate-500'
                                                                     : 'text-slate-900 dark:text-white'
@@ -7681,7 +6292,7 @@ export default function ToolTodos({
                                             </div>
 
                                             {/* ── 4. Description / Notes Section (Always visible with inline quick-add) + To-Do Boosts ── */}
-                                            <div className={`${openBoostPopoverKey === 'todo' ? 'relative z-30' : 'relative z-10'} rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-5 space-y-3`}>
+                                            <div className={`${openBoostPopoverKey === 'todo' ? 'relative z-30' : 'relative z-10'} rounded-2xl bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 space-y-3 min-w-0`}>
                                                 <div className="flex items-center justify-between">
                                                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                                                         {t('basecamp.notes_label')}
@@ -7704,11 +6315,11 @@ export default function ToolTodos({
                                                     <>
                                                         {richHtml && (
                                                             <div
-                                                                className="bc-rich-text text-sm text-slate-800 dark:text-slate-200 leading-relaxed"
+                                                                className="bc-rich-text text-slate-800 dark:text-slate-200 min-w-0"
                                                                 onClick={handleHtmlClick}
                                                                 dangerouslySetInnerHTML={{
                                                                     __html: injectImageDownloadOverlays(
-                                                                        richHtml,
+                                                                        formatBasecampRichHtmlForDisplay(richHtml),
                                                                         t('basecamp.download_btn')
                                                                     ),
                                                                 }}
@@ -7820,7 +6431,7 @@ export default function ToolTodos({
                                                     return (
                                                         <div
                                                             key={c.id || idx}
-                                                            className={`${isCommentMenuOpen || isCommentBoostOpen ? 'relative z-40' : 'relative z-0'} flex items-start gap-3.5 p-4 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 shadow-2xs`}
+                                                            className={`${isCommentMenuOpen || isCommentBoostOpen ? 'relative z-40' : 'relative z-0'} flex items-start gap-2.5 sm:gap-3.5 p-3 sm:p-4 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 shadow-2xs min-w-0`}
                                                         >
                                                             <div className="flex-shrink-0 mt-0.5">
                                                                 {renderPersonAvatar(
@@ -8010,11 +6621,13 @@ export default function ToolTodos({
                                                                     <>
                                                                         {commentHtml && (
                                                                             <div
-                                                                                className="bc-rich-text text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
+                                                                                className="bc-rich-text text-slate-700 dark:text-slate-300 min-w-0"
                                                                                 onClick={handleHtmlClick}
                                                                                 dangerouslySetInnerHTML={{
                                                                                     __html: injectImageDownloadOverlays(
-                                                                                        commentHtml,
+                                                                                        formatBasecampRichHtmlForDisplay(
+                                                                                            commentHtml
+                                                                                        ),
                                                                                         t('basecamp.download_btn')
                                                                                     ),
                                                                                 }}
@@ -8133,10 +6746,10 @@ export default function ToolTodos({
                                 {/* ── 7. Bottom Sticky Rich Comment Input Form (Trix + Photos/Files + @Mentions) ── */}
                                 <div
                                     ref={commentFormRef}
-                                    className="relative z-20 p-4 sm:p-5 bg-slate-50/95 dark:bg-slate-900/95 border-t border-slate-100 dark:border-slate-800 backdrop-blur-md flex-shrink-0"
+                                    className="relative z-20 p-3 sm:p-4 bg-slate-50/95 dark:bg-slate-900/95 border-t border-slate-100 dark:border-slate-800 backdrop-blur-md flex-shrink-0"
                                 >
-                                    <form onSubmit={handleAddComment} className="flex gap-3 items-start">
-                                        <div className="flex-shrink-0 mt-1">
+                                    <form onSubmit={handleAddComment} className="flex gap-2.5 sm:gap-3 items-start min-w-0">
+                                        <div className="hidden sm:block flex-shrink-0 mt-1">
                                             {renderPersonAvatar(
                                                 currentPersonOption?.name || effectiveUserName || 'User',
                                                 currentPersonOption?.avatar_url,

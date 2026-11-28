@@ -297,6 +297,7 @@ export function BasecampRichEditor({
   const [textSizeMenuOffsetX, setTextSizeMenuOffsetX] = useState(0)
   const [showColorMenu, setShowColorMenu] = useState(false)
   const [colorMenuOffsetX, setColorMenuOffsetX] = useState(0)
+  const [showMobileMoreTools, setShowMobileMoreTools] = useState(false)
 
   const computeToolbarMenuOffsetX = useCallback((btnEl: HTMLElement, menuWidth: number): number => {
     if (typeof window === 'undefined') return 0
@@ -1351,37 +1352,40 @@ export function BasecampRichEditor({
         dangerouslySetInnerHTML={{
           __html: `
             ${BASECAMP_IMAGE_HOVER_CSS}
-            .bc-trix-surface a { color: #1D7DB5; text-decoration: underline; font-weight: 500; }
-            .bc-trix-surface img { max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0; display: block; }
-            .bc-trix-surface h1 { font-size: 1.32rem; font-weight: 700; margin: 6px 0; line-height: 1.3; }
-            .bc-trix-surface h2 { font-size: 1.12rem; font-weight: 600; margin: 5px 0; line-height: 1.35; }
-            .bc-trix-surface ul { padding-left: 20px; list-style-type: disc; margin: 6px 0; }
-            .bc-trix-surface ol { padding-left: 20px; list-style-type: decimal; margin: 6px 0; }
+            .bc-trix-surface a { color: #1D7DB5; text-decoration: underline; font-weight: 600; }
+            .bc-trix-surface img { max-width: 100%; height: auto; border-radius: 10px; margin: 8px 0; display: block; }
+            .bc-trix-surface h1 { font-size: 1.28rem; font-weight: 800; margin: 6px 0; line-height: 1.3; }
+            .bc-trix-surface h2 { font-size: 1.1rem; font-weight: 700; margin: 5px 0; line-height: 1.35; }
+            .bc-trix-surface ul { padding-left: 22px; list-style-type: disc !important; margin: 6px 0; }
+            .bc-trix-surface ol { padding-left: 22px; list-style-type: decimal !important; margin: 6px 0; }
+            .bc-trix-surface li { display: list-item; margin: 3px 0; line-height: 1.6; }
+            .bc-trix-surface li > p, .bc-trix-surface li > div { display: inline; margin: 0; }
             .bc-trix-surface blockquote { border-left: 3px solid #CBD5E1; padding-left: 12px; margin: 8px 0; color: #64748B; font-style: italic; }
             .bc-trix-surface table { border-collapse: collapse; width: 100%; margin: 8px 0; }
             .bc-trix-surface td, .bc-trix-surface th { border: 1px solid #CBD5E1; padding: 6px 8px; }
+            @media (max-width: 639px) {
+              .bc-toolbar-adv-hidden { display: none !important; }
+            }
           `,
         }}
       />
 
       <div
-        className="rounded-lg bg-white dark:bg-slate-900 transition-colors"
+        className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700 shadow-xs transition-all focus-within:border-[#1D7DB5] focus-within:ring-2 focus-within:ring-[#1D7DB5]/15"
         style={{
-          border: isDraggingOver ? '2px dashed #1D7DB5' : '1px solid #CBD5E1',
+          border: isDraggingOver ? '2px dashed #1D7DB5' : undefined,
           opacity: disabled ? 0.72 : 1,
         }}
       >
-        {/* Basecamp 4 Trix Toolbar */}
+        {/* Basecamp 4 Responsive Toolbar */}
         <div
-          className="relative z-20 bg-[#FAFAF8] dark:bg-slate-800/90 border-b border-[#E2E8F0] dark:border-slate-700"
+          className="relative z-20 bg-slate-50/90 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700 rounded-t-xl"
           style={{
             display: 'flex',
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: 2,
-            padding: compact ? '4px 6px' : '5px 8px',
-            borderTopLeftRadius: 8,
-            borderTopRightRadius: 8,
+            padding: compact ? '5px 8px' : '6px 10px',
           }}
         >
           {/* Group 1: Photo, Attachment, @Mention */}
@@ -1458,13 +1462,14 @@ export function BasecampRichEditor({
             onClick={() => execCmd('strikeThrough')}
             disabled={disabled}
             title={t('basecamp.editor_strikethrough')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={toolbarBtnStyle}
           >
             <Strikethrough size={iconSize} color="#475569" />
           </button>
 
           {/* Text Size Dropdown */}
-          <div ref={textSizeMenuRef} style={{ position: 'relative' }}>
+          <div ref={textSizeMenuRef} className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'} style={{ position: 'relative' }}>
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
@@ -1574,7 +1579,7 @@ export function BasecampRichEditor({
           </div>
 
           {/* 6-Color Highlighter Dropdown */}
-          <div ref={colorMenuRef} style={{ position: 'relative' }}>
+          <div ref={colorMenuRef} className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'} style={{ position: 'relative' }}>
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
@@ -1677,6 +1682,7 @@ export function BasecampRichEditor({
             onClick={editorToggleLinkBar}
             disabled={disabled}
             title={t('basecamp.editor_link')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={{
               ...toolbarBtnStyle,
               background: showLinkBar ? '#1D7DB5' : 'transparent',
@@ -1685,7 +1691,7 @@ export function BasecampRichEditor({
             <Link size={iconSize} color={showLinkBar ? '#ffffff' : '#475569'} />
           </button>
 
-          <span style={dividerStyle} />
+          <span className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'} style={dividerStyle} />
 
           {/* Group 3: Quote & Code */}
           <button
@@ -1694,6 +1700,7 @@ export function BasecampRichEditor({
             onClick={editorInsertQuote}
             disabled={disabled}
             title={t('basecamp.editor_quote')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={toolbarBtnStyle}
           >
             <Quote size={iconSize} color="#475569" />
@@ -1704,12 +1711,13 @@ export function BasecampRichEditor({
             onClick={editorInsertCode}
             disabled={disabled}
             title={t('basecamp.editor_code')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={toolbarBtnStyle}
           >
             <Code size={iconSize} color="#475569" />
           </button>
 
-          <span style={dividerStyle} />
+          <span className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'} style={dividerStyle} />
 
           {/* Group 4: Unordered & Ordered Lists */}
           <button
@@ -1742,6 +1750,7 @@ export function BasecampRichEditor({
             onClick={editorInsertTable}
             disabled={disabled}
             title={t('basecamp.editor_table')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={{
               ...toolbarBtnStyle,
               background: showTableControls ? '#2C3E50' : 'transparent',
@@ -1755,6 +1764,7 @@ export function BasecampRichEditor({
             onClick={editorCycleAlign}
             disabled={disabled}
             title={t('basecamp.editor_align')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={toolbarBtnStyle}
           >
             <AlignLeft size={iconSize} color="#475569" />
@@ -1773,14 +1783,25 @@ export function BasecampRichEditor({
             <Mic size={iconSize} color={isDictating ? '#DC2626' : '#475569'} />
           </button>
 
-          {/* Right-aligned Undo / Redo */}
+          {/* Right-aligned Mobile "Aa" toggle + Undo / Redo */}
           <div style={{ flex: 1 }} />
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setShowMobileMoreTools((v) => !v)}
+            disabled={disabled}
+            title={t('basecamp.editor_text_size')}
+            className="sm:hidden inline-flex items-center justify-center px-2 h-7 rounded-md text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/80"
+          >
+            Aa{showMobileMoreTools ? ' −' : ' +'}
+          </button>
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={editorUndo}
             disabled={disabled}
             title={t('basecamp.editor_undo')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={toolbarBtnStyle}
           >
             <Undo2 size={iconSize} color="#475569" />
@@ -1791,6 +1812,7 @@ export function BasecampRichEditor({
             onClick={editorRedo}
             disabled={disabled}
             title={t('basecamp.editor_redo')}
+            className={showMobileMoreTools ? '' : 'bc-toolbar-adv-hidden'}
             style={toolbarBtnStyle}
           >
             <Redo2 size={iconSize} color="#475569" />

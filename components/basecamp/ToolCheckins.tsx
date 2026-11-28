@@ -31,6 +31,13 @@ import {
     rewriteBasecampHtmlUrls,
     proxyBasecampUrl,
     safeDecodeFilename,
+    injectImageDownloadOverlays,
+    triggerBasecampDownload,
+    buildBasecampDirectDownloadHref,
+    transformBasecampMentionsToPills,
+    formatBasecampRichHtmlForDisplay,
+    BASECAMP_RICH_CONTENT_CSS,
+    BASECAMP_IMAGE_HOVER_CSS,
 } from '@/lib/basecamp-html'
 
 interface ToolCheckinsProps {
@@ -135,7 +142,9 @@ function renderAnswerContentHtml(raw?: string | null): {
     )
     let safeHtml: string
     if (hasHtmlTags) {
-        safeHtml = rewriteBasecampHtmlUrls(cleanHtml).replace(
+        safeHtml = rewriteBasecampHtmlUrls(
+            transformBasecampMentionsToPills(cleanHtml)
+        ).replace(
             /<bc-attachment\b[^>]*>([\s\S]*?)<\/bc-attachment>/gi,
             '$1'
         )
@@ -174,7 +183,49 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
     const [answersLoading, setAnswersLoading] = useState(false)
     const [sending, setSending] = useState(false)
     const [errorBanner, setErrorBanner] = useState<string | null>(null)
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
     const [_questionnaire, setQuestionnaire] = useState<{ id: string; bc_id: number } | null>(null)
+
+    const handleCheckinHtmlClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement
+        const dlAnchor = target.closest('a[data-bc-download="true"]') as HTMLAnchorElement | null
+        if (dlAnchor) {
+            e.preventDefault()
+            e.stopPropagation()
+            const rawSrc = dlAnchor.getAttribute('data-bc-src') || dlAnchor.href
+            const rawFilename = dlAnchor.getAttribute('data-bc-filename') || undefined
+            triggerBasecampDownload(rawSrc, rawFilename)
+            return
+        }
+        if (target.tagName === 'IMG') {
+            const imgEl = target as HTMLImageElement
+            if (
+                imgEl.classList.contains('avatar') ||
+                imgEl.hasAttribute('data-avatar-for-person-id') ||
+                imgEl.hasAttribute('data-bc-avatar')
+            ) {
+                return
+            }
+            const imgSrc = imgEl.src
+            if (imgSrc) {
+                e.preventDefault()
+                e.stopPropagation()
+                setLightboxUrl(imgSrc)
+            }
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!lightboxUrl) return
+        const onKey = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape') {
+                ev.preventDefault()
+                setLightboxUrl(null)
+            }
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [lightboxUrl])
 
     const creatingQuestionnaireRef = useRef<Record<string, boolean>>({})
     const activeProjectDbIdRef = useRef<string | null>(project?.db_id || null)
@@ -472,13 +523,14 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
     )
 
     return (
-        <div className="flex-1 max-w-4xl mx-auto px-4 w-full flex flex-col gap-6">
+        <div className="flex-1 max-w-4xl mx-auto px-0 sm:px-2 w-full min-w-0 flex flex-col gap-4 sm:gap-6">
+            <style dangerouslySetInnerHTML={{ __html: `${BASECAMP_RICH_CONTENT_CSS}\n${BASECAMP_IMAGE_HOVER_CSS}` }} />
             {/* Header */}
-            <div className="flex flex-col items-center gap-1 text-center border-b border-slate-100 dark:border-slate-800 pb-6">
-                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+            <div className="flex flex-col gap-0.5 border-b border-slate-200/80 dark:border-slate-800 pb-4 min-w-0">
+                <span className="text-[10.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider truncate">
                     {t('basecamp.checkins_sub')}
                 </span>
-                <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-100 font-serif">
+                <h3 className="text-[20px] sm:text-[24px] font-extrabold tracking-tight text-slate-900 dark:text-slate-100 leading-tight truncate">
                     {t('basecamp.checkins')}
                 </h3>
             </div>
@@ -505,9 +557,9 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                     <Loader2 className="w-8 h-8 text-[#1D7DB5] animate-spin" />
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 min-w-0">
                     {/* Left Column: Questions List */}
-                    <div className="md:col-span-1 flex flex-col gap-2">
+                    <div className="md:col-span-1 flex flex-col gap-2 min-w-0">
                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
                             {t('basecamp.active_questions')} ({activeCount}/{questions.length})
                         </h4>
@@ -569,11 +621,11 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                     </div>
 
                     {/* Right Column: Question Details & Answers */}
-                    <div className="md:col-span-2 flex flex-col gap-6">
+                    <div className="md:col-span-2 flex flex-col gap-5 min-w-0">
                         {selectedQuestion && (
                             <>
                                 {/* Active Question Header */}
-                                <div className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 p-4 sm:p-5 rounded-2xl shadow-inner text-left">
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 rounded-2xl shadow-xs text-left min-w-0">
                                     <div className="flex items-center justify-between gap-2 mb-1.5">
                                         <h4 className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest">
                                             {t('basecamp.checkins')}
@@ -585,10 +637,10 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+                                    <p className="text-[15px] sm:text-base font-extrabold text-slate-900 dark:text-slate-100 break-words">
                                         {formatQuestionTitle(selectedQuestion.title, language)}
                                     </p>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wider font-semibold">
+                                    <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wider font-semibold">
                                         {formatQuestionSchedule(
                                             selectedQuestion.schedule_text,
                                             language,
@@ -598,15 +650,15 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                 </div>
 
                                 {/* Answers feed */}
-                                <div className="space-y-4">
-                                    <h4 className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <div className="space-y-3.5 min-w-0">
+                                    <h4 className="text-[10.5px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-2">
                                         {t('basecamp.team_answers').replace(
                                             '{count}',
                                             String(answers.length)
                                         )}
                                     </h4>
 
-                                    <div className="space-y-4">
+                                    <div className="space-y-3">
                                         {answersLoading && answers.length === 0 ? (
                                             <div className="flex justify-center py-6">
                                                 <Loader2 className="w-6 h-6 text-[#1D7DB5] animate-spin" />
@@ -622,17 +674,17 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                                 return (
                                                     <div
                                                         key={ans.id}
-                                                        className="flex gap-3 sm:gap-4 p-3 sm:p-4 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl shadow-sm items-start text-left"
+                                                        className="flex gap-3 p-3.5 sm:p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs items-start text-left min-w-0"
                                                     >
                                                         <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 uppercase">
                                                             {(authorName[0] || 'U').toUpperCase()}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
-                                                                <span className="text-xs font-black text-slate-800 dark:text-slate-100">
+                                                            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                                                <span className="text-[13px] font-extrabold text-slate-800 dark:text-slate-100">
                                                                     {authorName}
                                                                 </span>
-                                                                <span className="text-[10px] text-slate-400 flex items-center gap-1 font-medium">
+                                                                <span className="text-[10.5px] text-slate-400 flex items-center gap-1 font-medium">
                                                                     <Clock size={10} />
                                                                     <span>
                                                                         {formatAnswerTimestamp(
@@ -644,9 +696,13 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                                             </div>
                                                             {rendered.html && (
                                                                 <div
-                                                                    className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words [&_a]:text-[#1D7DB5] dark:[&_a]:text-sky-400 [&_a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-2 [&_p]:my-1"
+                                                                    onClick={handleCheckinHtmlClick}
+                                                                    className="bc-rich-text w-full min-w-0 !text-[13.5px] sm:!text-[14px] text-slate-700 dark:text-slate-300"
                                                                     dangerouslySetInnerHTML={{
-                                                                        __html: rendered.html,
+                                                                        __html: injectImageDownloadOverlays(
+                                                                            formatBasecampRichHtmlForDisplay(rendered.html),
+                                                                            t('basecamp.download_btn')
+                                                                        ),
                                                                     }}
                                                                 />
                                                             )}
@@ -656,13 +712,15 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                                                         (att, idx) => (
                                                                             <a
                                                                                 key={idx}
-                                                                                href={att.url}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+                                                                                href={buildBasecampDirectDownloadHref(att.url, att.filename)}
+                                                                                onClick={(ev) => {
+                                                                                    ev.preventDefault()
+                                                                                    triggerBasecampDownload(att.url, att.filename)
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 max-w-full"
                                                                             >
-                                                                                <Paperclip size={11} />
-                                                                                <span>
+                                                                                <Paperclip size={11} className="shrink-0" />
+                                                                                <span className="truncate max-w-[180px] sm:max-w-[240px]">
                                                                                     {att.filename}
                                                                                 </span>
                                                                             </a>
@@ -683,7 +741,7 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                 </div>
 
                                 {/* Form to answer */}
-                                <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs min-w-0">
                                     <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
                                         {t('basecamp.your_answer_label')}
                                     </h4>
@@ -694,13 +752,13 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                                             onChange={(e) => setInputText(e.target.value)}
                                             disabled={sending}
                                             placeholder={t('basecamp.checkin_answer_placeholder')}
-                                            className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-950 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-xs h-24 disabled:opacity-50"
+                                            className="w-full min-w-0 px-3.5 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-950 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D7DB5] text-xs sm:text-[13px] h-24 disabled:opacity-50"
                                         />
                                         <div className="flex justify-end">
                                             <button
                                                 type="submit"
                                                 disabled={sending || !inputText.trim()}
-                                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] disabled:bg-blue-300 text-white font-extrabold text-xs shadow-sm transition-all"
+                                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] disabled:bg-blue-300 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer"
                                             >
                                                 {sending ? (
                                                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -715,6 +773,61 @@ export default function ToolCheckins({ project }: ToolCheckinsProps) {
                             </>
                         )}
                     </div>
+                </div>
+            )}
+
+            {lightboxUrl && (
+                <div
+                    onClick={() => setLightboxUrl(null)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 100,
+                        background: 'rgba(0,0,0,0.85)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        cursor: 'zoom-out',
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
+                        style={{
+                            position: 'absolute', top: 20, right: 20,
+                            width: 40, height: 40, borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 20, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                    >
+                        ✕
+                    </button>
+                    <img
+                        src={lightboxUrl}
+                        alt={t('basecamp.fullscreen_view')}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '90vw', maxHeight: '90vh',
+                            objectFit: 'contain', borderRadius: 8,
+                            boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                            cursor: 'default',
+                        }}
+                    />
+                    <a
+                        href={buildBasecampDirectDownloadHref(lightboxUrl)}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            triggerBasecampDownload(lightboxUrl)
+                        }}
+                        style={{
+                            position: 'absolute', bottom: 20,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 18px', borderRadius: 20,
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 13, fontWeight: 600,
+                            textDecoration: 'none', cursor: 'pointer',
+                        }}
+                    >
+                        {t('basecamp.download_btn')}
+                    </a>
                 </div>
             )}
         </div>

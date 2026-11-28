@@ -1553,3 +1553,191 @@ export function buildBasecampJsonHeaders(): Record<string, string> {
   }
   return headers
 }
+
+/**
+ * Shared editorial typography & list stylesheet for Basecamp rich HTML (`.bc-rich-text`).
+ * Eliminates `white-space: pre-wrap` phantom line breaks inside `<ul>`/`<ol>`/`<li>`,
+ * keeps `<li> > <p>` inline next to bullets, collapses Trix `<p><br></p>` spacer voids,
+ * and styles inline `<code>`, `<pre>`, `<blockquote>`, tables, images, and videos cleanly.
+ */
+export const BASECAMP_RICH_CONTENT_CSS = `
+  .bc-rich-text {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    font-size: 14.5px;
+    line-height: 1.65;
+  }
+  @media (min-width: 640px) {
+    .bc-rich-text {
+      font-size: 15.5px;
+      line-height: 1.72;
+    }
+  }
+  .bc-rich-text a {
+    color: #1D7DB5;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .bc-rich-text a:hover {
+    text-decoration: underline;
+  }
+  .dark .bc-rich-text a {
+    color: #38bdf8;
+  }
+  .bc-rich-text p {
+    margin: 0 0 0.65em 0;
+  }
+  .bc-rich-text p:last-child,
+  .bc-rich-text div:last-child {
+    margin-bottom: 0;
+  }
+  .bc-rich-text .bc-spacer,
+  .bc-rich-text p:empty {
+    height: 0.45rem;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 0;
+  }
+  .bc-rich-text h1 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+    margin: 1rem 0 0.45rem 0;
+  }
+  .bc-rich-text h2,
+  .bc-rich-text h3 {
+    font-size: 1.08rem;
+    font-weight: 700;
+    line-height: 1.35;
+    margin: 0.85rem 0 0.35rem 0;
+  }
+  .bc-rich-text ul {
+    list-style-type: disc !important;
+    list-style-position: outside;
+    margin: 0.5rem 0 0.85rem 0;
+    padding-left: 1.35rem;
+  }
+  .bc-rich-text ol {
+    list-style-type: decimal !important;
+    list-style-position: outside;
+    margin: 0.5rem 0 0.85rem 0;
+    padding-left: 1.45rem;
+  }
+  .bc-rich-text li {
+    display: list-item;
+    margin: 0.35rem 0;
+    padding-left: 0.2rem;
+    line-height: 1.62;
+  }
+  .bc-rich-text li > p,
+  .bc-rich-text li > div {
+    display: inline;
+    margin: 0;
+  }
+  .bc-rich-text li ul,
+  .bc-rich-text li ol {
+    margin: 0.3rem 0;
+  }
+  .bc-rich-text code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.86em;
+    background: rgba(15, 23, 42, 0.06);
+    border: 1px solid rgba(15, 23, 42, 0.09);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  .dark .bc-rich-text code {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  .bc-rich-text pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 0.85rem 1rem;
+    border-radius: 0.75rem;
+    overflow-x: auto;
+    font-size: 0.84rem;
+    margin: 0.75rem 0;
+  }
+  .bc-rich-text pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+  }
+  .bc-rich-text blockquote {
+    border-left: 3px solid #cbd5e1;
+    padding: 0.15rem 0 0.15rem 0.9rem;
+    margin: 0.65rem 0;
+    color: #64748b;
+    font-style: italic;
+  }
+  .dark .bc-rich-text blockquote {
+    border-left-color: #475569;
+    color: #94a3b8;
+  }
+  .bc-rich-text img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 10px;
+    margin: 0.75rem 0;
+    cursor: pointer;
+    display: block;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  }
+  .bc-rich-text figure {
+    margin: 0.75rem 0;
+  }
+  .bc-rich-text figcaption {
+    font-size: 12px;
+    color: #64748b;
+    text-align: center;
+    margin-top: 4px;
+  }
+  .bc-rich-text table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.75rem 0;
+    font-size: 0.92em;
+    display: block;
+    overflow-x: auto;
+  }
+  .bc-rich-text td,
+  .bc-rich-text th {
+    border: 1px solid #cbd5e1;
+    padding: 6px 10px;
+  }
+  .dark .bc-rich-text td,
+  .dark .bc-rich-text th {
+    border-color: #334155;
+  }
+`
+
+const BLOCK_OR_INLINE_HTML_TAG_RE = /<(?:p|div|ul|ol|li|blockquote|h[1-6]|pre|table|figure|bc-attachment|br|img|video|span|strong|em|a|code)\b/i
+
+/**
+ * Normalizes Basecamp/Trix HTML (or plain text) right before `dangerouslySetInnerHTML`:
+ * - Plain text without HTML tags converts `\n` -> `<br />` so multi-line plain comments keep line breaks.
+ * - Rich HTML strips pretty-printed newlines immediately inside list containers (`<ul>\n<li>\n...`)
+ *   and collapses Trix spacer blocks (`<p dir="auto"><br></p>`) into compact `.bc-spacer` rhythm breaks.
+ */
+export function formatBasecampRichHtmlForDisplay(html?: string | null): string {
+  if (!html || typeof html !== 'string') return ''
+  const trimmed = html.trim()
+  if (!trimmed) return ''
+
+  if (!BLOCK_OR_INLINE_HTML_TAG_RE.test(trimmed)) {
+    return trimmed.replace(/\r?\n/g, '<br />')
+  }
+
+  return trimmed
+    .replace(/<(?:p|div)(?:\s+[^>]*)?>\s*<br\s*\/?>\s*<\/(?:p|div)>/gi, '<div class="bc-spacer" aria-hidden="true"></div>')
+    .replace(/(<(?:ul|ol)\b[^>]*>)\s+/gi, '$1')
+    .replace(/\s+(<\/(?:ul|ol)>)/gi, '$1')
+    .replace(/(<\/li>)\s+(<li\b)/gi, '$1$2')
+    .replace(/(<li\b[^>]*>)\s+/gi, '$1')
+    .replace(/\s+(<\/li>)/gi, '$1')
+}

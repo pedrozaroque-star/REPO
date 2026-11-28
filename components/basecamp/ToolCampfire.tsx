@@ -43,6 +43,9 @@ import {
     injectImageDownloadOverlays,
     triggerBasecampDownload,
     buildBasecampDirectDownloadHref,
+    transformBasecampMentionsToPills,
+    formatBasecampRichHtmlForDisplay,
+    BASECAMP_RICH_CONTENT_CSS,
     BASECAMP_IMAGE_HOVER_CSS,
 } from '@/lib/basecamp-html'
 
@@ -132,7 +135,9 @@ function renderCampfireLineHtml(raw?: string | null): {
     )
     let safeHtml: string
     if (hasHtmlTags) {
-        safeHtml = rewriteBasecampHtmlUrls(cleanHtml).replace(
+        safeHtml = rewriteBasecampHtmlUrls(
+            transformBasecampMentionsToPills(cleanHtml)
+        ).replace(
             /<bc-attachment\b[^>]*>([\s\S]*?)<\/bc-attachment>/gi,
             '$1'
         )
@@ -241,7 +246,15 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             return
         }
         if (target.tagName === 'IMG') {
-            const imgSrc = (target as HTMLImageElement).src
+            const imgEl = target as HTMLImageElement
+            if (
+                imgEl.classList.contains('avatar') ||
+                imgEl.hasAttribute('data-avatar-for-person-id') ||
+                imgEl.hasAttribute('data-bc-avatar')
+            ) {
+                return
+            }
+            const imgSrc = imgEl.src
             if (imgSrc) {
                 e.preventDefault()
                 e.stopPropagation()
@@ -534,18 +547,19 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
     }
 
     return (
-        <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col bg-[#fffdfb] dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl shadow-sm">
-            <style dangerouslySetInnerHTML={{ __html: BASECAMP_IMAGE_HOVER_CSS }} />
+        <div className="flex-1 max-w-3xl mx-auto px-0 sm:px-2 w-full min-w-0 flex flex-col">
+        <div className="flex-1 w-full min-w-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <style dangerouslySetInnerHTML={{ __html: `${BASECAMP_RICH_CONTENT_CSS}\n${BASECAMP_IMAGE_HOVER_CSS}` }} />
             {/* Header del Campfire */}
-            <div className="flex items-center gap-3 p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900 rounded-t-2xl">
-                <div className="w-10 h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center border border-orange-200/30">
-                    <MessageSquare size={20} />
+            <div className="flex items-center gap-3 p-3.5 sm:p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900 rounded-t-2xl min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center border border-orange-200/30 shrink-0">
+                    <MessageSquare size={19} />
                 </div>
-                <div>
-                    <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                <div className="min-w-0">
+                    <h3 className="text-base font-extrabold tracking-tight text-slate-900 dark:text-slate-100 truncate">
                         {t('basecamp.campfire')}
                     </h3>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
                         {t('basecamp.campfire_sub')}
                     </p>
                 </div>
@@ -569,7 +583,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             )}
 
             {/* Panel de mensajes */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-4 max-h-[480px] min-h-[350px] no-scrollbar">
+            <div className="flex-1 p-3 sm:p-4 overflow-y-auto overflow-x-hidden space-y-3.5 max-h-[500px] min-h-[340px] no-scrollbar">
                 {loading ? (
                     <div className="flex justify-center items-center h-full py-12">
                         <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
@@ -591,7 +605,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                         return (
                             <div
                                 key={m.id}
-                                className={`flex gap-3 items-start ${isMe ? 'flex-row-reverse' : ''}`}
+                                className={`flex gap-2.5 sm:gap-3 items-start min-w-0 ${isMe ? 'flex-row-reverse' : ''}`}
                             >
                                 {/* Avatar */}
                                 <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 uppercase border border-slate-300/30">
@@ -600,24 +614,24 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
 
                                 {/* Detalle */}
                                 <div
-                                    className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${
+                                    className={`flex flex-col min-w-0 max-w-[84%] sm:max-w-[76%] ${
                                         isMe ? 'items-end' : 'items-start'
                                     }`}
                                 >
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="text-[10px] font-black text-slate-800 dark:text-slate-200">
+                                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                                        <span className="text-[10.5px] font-extrabold text-slate-800 dark:text-slate-200">
                                             {authorName}
                                         </span>
-                                        <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                                        <span className="text-[9.5px] text-slate-400 dark:text-slate-500 font-medium">
                                             {formatCampfireTimestamp(m.created_at, locale)}
                                         </span>
                                     </div>
 
                                     <div
-                                        className={`p-2.5 sm:p-3 rounded-2xl text-xs mt-1 leading-relaxed border break-words ${
+                                        className={`p-2.5 sm:p-3 rounded-2xl text-xs mt-1 leading-relaxed border break-words max-w-full min-w-0 ${
                                             isMe
-                                                ? 'bg-orange-500 text-white border-orange-600 rounded-tr-none [&_a]:underline [&_a]:text-white'
-                                                : 'bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 border-slate-200/40 dark:border-slate-800 rounded-tl-none [&_a]:underline [&_a]:text-blue-600 dark:[&_a]:text-blue-400'
+                                                ? 'bg-orange-500 text-white border-orange-600 rounded-tr-none [&_a]:underline [&_a]:!text-white'
+                                                : 'bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 border-slate-200/60 dark:border-slate-800 rounded-tl-none'
                                         }`}
                                     >
                                         {rendered.hasVisibleContent ? (
@@ -625,8 +639,17 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                                                 {rendered.html && (
                                                     <div
                                                         onClick={handleCampfireHtmlClick}
-                                                        className="[&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-1 [&_p]:my-0.5"
-                                                        dangerouslySetInnerHTML={{ __html: injectImageDownloadOverlays(rendered.html, t('basecamp.download_btn')) }}
+                                                        className={`bc-rich-text !text-[13px] sm:!text-[13.5px] !leading-relaxed ${
+                                                            isMe
+                                                                ? '[&_a]:!text-white [&_blockquote]:!text-orange-100 [&_blockquote]:!border-orange-200/60 [&_.bc-mention-pill]:!bg-white/20 [&_.bc-mention-pill]:!text-white [&_.bc-mention-pill]:!border-white/30'
+                                                                : ''
+                                                        }`}
+                                                        dangerouslySetInnerHTML={{
+                                                            __html: injectImageDownloadOverlays(
+                                                                formatBasecampRichHtmlForDisplay(rendered.html),
+                                                                t('basecamp.download_btn')
+                                                            ),
+                                                        }}
                                                     />
                                                 )}
                                                 {rendered.fileAttachments.length > 0 && (
@@ -677,7 +700,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
             {/* Input */}
             <form
                 onSubmit={handleSendMessage}
-                className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2"
+                className="p-2.5 sm:p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-b-2xl flex gap-2 min-w-0"
             >
                 <input
                     type="text"
@@ -685,12 +708,12 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                     onChange={(e) => setInputText(e.target.value)}
                     disabled={sending || !campfire}
                     placeholder={t('basecamp.send_campfire_placeholder')}
-                    className="flex-1 px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-950 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-xs disabled:opacity-50"
+                    className="flex-1 min-w-0 px-3.5 sm:px-4 py-2.5 sm:py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-950 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-xs sm:text-[13px] disabled:opacity-50"
                 />
                 <button
                     type="submit"
                     disabled={sending || !campfire || !inputText.trim()}
-                    className="p-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white shadow transition-all flex items-center justify-center shrink-0 w-11 h-11"
+                    className="p-3 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white shadow-xs transition-all flex items-center justify-center shrink-0 w-10 h-10 sm:w-11 sm:h-11 cursor-pointer"
                 >
                     {sending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -699,6 +722,7 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                     )}
                 </button>
             </form>
+        </div>
 
             {lightboxUrl && (
                 <div

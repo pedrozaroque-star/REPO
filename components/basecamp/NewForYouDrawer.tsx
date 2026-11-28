@@ -16,6 +16,7 @@
  *   - `cleanFeedSnippet` transforma menciones Basecamp (`application/vnd.basecamp.mention`) y TEG (`data-teg-mention-person-id`) a texto `@Nombre` antes de limpiar etiquetas HTML.
  *   - Sin consultas `.single()` frágiles que arrojen errores HTTP 406.
  *   - Privacidad estricta por proyecto (`bc_memberships` / `allowedProjectIds`): usuarios no-admin jamás ven notificaciones, tareas ni actividad de proyectos privados ajenos.
+ *   - Rediseño Móvil + Web (2026-11-28): cajón `w-full sm:max-w-md h-[100dvh] z-[110]`, filas `min-w-0` con títulos de 2 líneas (`line-clamp-2`) y soporte completo dark mode.
  */
 
 'use client'
@@ -111,6 +112,22 @@ export function cleanFeedSnippet(raw?: string | null): string {
         .replace(/&#39;/gi, "'")
         .replace(/\s+/g, ' ')
         .trim()
+}
+
+const AVATAR_COLORS = ['#2563EB', '#DC2626', '#059669', '#D97706', '#7C3AED', '#0D9488', '#DB2777', '#0284C7']
+function getAvatarColor(name: string): string {
+    const clean = (name || '?').trim() || '?'
+    let hash = 0
+    for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash)
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+function getInitials(name: string): string {
+    const clean = (name || '').trim()
+    if (!clean) return '?'
+    const parts = clean.split(/\s+/).filter(Boolean)
+    return parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : clean.slice(0, 2).toUpperCase()
 }
 
 function stripAccentsLower(s?: string | null): string {
@@ -509,7 +526,7 @@ export default function NewForYouDrawer({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
-                        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
+                        className="fixed inset-0 z-[100] bg-slate-950/35 backdrop-blur-[1px]"
                     />
 
                     {/* Drawer container */}
@@ -517,17 +534,27 @@ export default function NewForYouDrawer({
                         initial={{ x: '100%' }}
                         animate={{ x: 0 }}
                         exit={{ x: '100%' }}
-                        transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-                        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[380px] bg-[#f4f7f6] dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col font-sans"
+                        transition={{ type: 'spring', damping: 26, stiffness: 240 }}
+                        className="fixed right-0 top-0 bottom-0 z-[110] w-full sm:max-w-md h-[100dvh] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col font-sans"
                     >
                         {/* Header: Pings */}
-                        <div className="p-4 border-b border-slate-200/60 dark:border-slate-800">
-                            <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">
-                                {t('basecamp.pings')}
-                            </h3>
+                        <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 shrink-0">
+                            <div className="flex items-center justify-between gap-2 mb-2.5">
+                                <h3 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                                    {t('basecamp.pings')}
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title={t('basecamp.close_esc')}
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
 
-                            {/* Yellow helper sticky-note box */}
-                            <div className="bg-[#fffccf] border border-[#f0ea99] text-slate-700 p-3 rounded-lg text-[10px] leading-relaxed mb-4 shadow-sm text-left">
+                            {/* Helper sticky-note box */}
+                            <div className="bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 text-slate-700 dark:text-amber-200/90 p-2.5 rounded-xl text-[11px] leading-relaxed mb-3.5 text-left">
                                 {t('basecamp.pings_helper_note')}
                             </div>
 
@@ -546,18 +573,20 @@ export default function NewForYouDrawer({
                                 </button>
 
                                 {/* Collaborator quick list */}
-                                <div className="flex -space-x-1.5 overflow-hidden">
-                                    {otherCollaborators.slice(0, 4).map((c) => (
+                                <div className="flex -space-x-1.5 overflow-hidden py-0.5">
+                                    {otherCollaborators.slice(0, 5).map((c) => (
                                         <button
                                             key={c.id}
+                                            type="button"
                                             onClick={() => {
                                                 navigateTo({ section: 'pings', ping: c.name })
                                                 onClose()
                                             }}
-                                            className="w-10 h-10 rounded-full bg-blue-500 text-white font-extrabold border-2 border-[#f4f7f6] dark:border-slate-900 flex items-center justify-center text-[10px] uppercase shadow-sm hover:-translate-y-0.5 transition-transform"
+                                            className="w-10 h-10 rounded-full text-white font-bold ring-2 ring-white dark:ring-slate-900 flex items-center justify-center text-[11px] uppercase shadow-xs hover:-translate-y-0.5 transition-transform cursor-pointer shrink-0"
+                                            style={{ backgroundColor: getAvatarColor(c.name || '?') }}
                                             title={c.name}
                                         >
-                                            {String(c.name || '?').trim()[0] || '?'}
+                                            {getInitials(c.name || '?')}
                                         </button>
                                     ))}
                                 </div>
@@ -659,36 +688,36 @@ export default function NewForYouDrawer({
                                                         onClose()
                                                     }
                                                 }}
-                                                className={`flex gap-3 p-3 rounded-xl border transition-all cursor-pointer hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm relative text-left ${
+                                                className={`flex gap-3 p-3 rounded-xl border transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 hover:shadow-2xs relative text-left min-w-0 ${
                                                     !isRead
-                                                        ? 'bg-orange-50/20 border-orange-200/50 dark:bg-orange-950/10 dark:border-orange-900/20'
-                                                        : 'bg-slate-100/50 border-transparent dark:bg-slate-800/30'
+                                                        ? 'bg-amber-50/40 border-amber-200/70 dark:bg-amber-950/15 dark:border-amber-900/30'
+                                                        : 'bg-slate-50/70 border-slate-200/60 dark:bg-slate-800/30 dark:border-slate-800'
                                                 }`}
                                             >
                                                 {!isRead && (
-                                                    <span className="absolute top-3 right-3 w-1.5 h-1.5 rounded-full bg-orange-500" />
+                                                    <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-amber-500" />
                                                 )}
 
-                                                <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center shadow-inner shrink-0 border border-slate-200/40 dark:border-slate-700/50">
+                                                <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200/70 dark:border-slate-700/60">
                                                     {getIcon(n.type, n.recording_type)}
                                                 </div>
 
                                                 <div className="flex-1 min-w-0 text-xs">
-                                                    <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate leading-tight pr-4">
+                                                    <h4 className="font-bold text-slate-900 dark:text-slate-100 line-clamp-2 break-words leading-snug pr-4">
                                                         {n.title}
                                                     </h4>
                                                     {n.description && (
-                                                        <p className="text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                                        <p className="text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 leading-relaxed break-words">
                                                             {n.description}
                                                         </p>
                                                     )}
                                                     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                                                         {n.project?.name && (
-                                                            <span className="text-[9px] font-black text-[#1D7DB5] dark:text-blue-400 uppercase tracking-wider bg-blue-50/50 dark:bg-blue-950/20 px-1.5 py-0.5 rounded border border-blue-100/30">
+                                                            <span className="text-[9px] font-extrabold text-[#1D7DB5] dark:text-sky-400 uppercase tracking-wider bg-blue-50/70 dark:bg-blue-950/30 px-1.5 py-0.5 rounded border border-blue-200/50 dark:border-blue-800/50 truncate max-w-[180px]">
                                                                 {n.project.name}
                                                             </span>
                                                         )}
-                                                        <span className="text-[8px] text-slate-400 dark:text-slate-500 font-semibold">
+                                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
                                                             {formatDrawerTime(n.created_at)}
                                                         </span>
                                                     </div>
@@ -701,8 +730,8 @@ export default function NewForYouDrawer({
                         </div>
 
                         {/* Footer Section: Filter, Snooze, Close */}
-                        <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-[#eef2f1] dark:bg-slate-900/90 flex gap-2 items-center">
-                            <div className="relative flex-1">
+                        <div className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex gap-2 items-center shrink-0 min-w-0">
+                            <div className="relative flex-1 min-w-0">
                                 <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
                                 <input
                                     type="text"
