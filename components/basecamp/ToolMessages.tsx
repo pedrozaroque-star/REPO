@@ -43,7 +43,7 @@ import { useLanguage } from '@/lib/i18n'
 import {
     Mail, Plus, MessageSquare, Trash2, Loader2, FileText, Paperclip,
     Pencil, MoreHorizontal, Reply, Rocket, Link2, Check, Download, Pin, Search, X, Users,
-    ArrowLeft, ChevronDown
+    ArrowLeft, ChevronDown, Copy
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 import { stripTegAuthorBanner, normalizePersonName, isMaskedOrEmptyEmail } from '@/lib/basecamp-person-resolver'
@@ -2539,14 +2539,14 @@ export default function ToolMessages({
                                     onClick={() => void handleReplicateMessage(selectedMessage)}
                                     title={t('basecamp.replicate_message_tooltip')}
                                     aria-label={t('basecamp.replicate_message')}
-                                    className="inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer"
+                                    className="inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer whitespace-nowrap disabled:opacity-60"
                                 >
                                     {replicatingMsgId === selectedMessage.id ? (
-                                        <Loader2 size={13} className="animate-spin" />
+                                        <Loader2 size={13} className="animate-spin shrink-0" />
                                     ) : (
-                                        <span className="leading-none">📋</span>
+                                        <Copy size={12.5} className="shrink-0" />
                                     )}
-                                    <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
+                                    <span>{t('basecamp.replicate_message')}</span>
                                 </button>
 
                                 <button
@@ -3263,35 +3263,12 @@ export default function ToolMessages({
                                                 </h4>
                                             </div>
 
-                                            {/* Quick Replicate (hover on Desktop, icon-only on Mobile when searching; always inside •••) + ••• menu */}
+                                            {/* ••• menu (top-right only so titles stay 100% unobstructed on Web & Mobile) */}
                                             <div
                                                 data-msg-row-menu="true"
                                                 onClick={(ev) => ev.stopPropagation()}
                                                 className="flex items-center gap-1 shrink-0 -mt-0.5 -mr-1 relative"
                                             >
-                                                <button
-                                                    type="button"
-                                                    disabled={replicatingMsgId === m.id}
-                                                    onClick={(ev) => {
-                                                        ev.stopPropagation()
-                                                        void handleReplicateMessage(m)
-                                                    }}
-                                                    title={t('basecamp.replicate_message_tooltip')}
-                                                    aria-label={t('basecamp.replicate_message')}
-                                                    className={`items-center justify-center gap-1 rounded-lg border text-[11px] font-extrabold transition-all cursor-pointer ${
-                                                        hasActiveSearch
-                                                            ? 'inline-flex px-2 sm:px-2.5 py-1 bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
-                                                            : 'hidden sm:inline-flex px-2.5 py-1 opacity-0 group-hover/row:opacity-100 focus:opacity-100 bg-sky-50 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:text-white hover:border-[#1D7DB5] border-sky-200/90 dark:border-sky-800 text-[#1D7DB5] dark:text-sky-300'
-                                                    }`}
-                                                >
-                                                    {replicatingMsgId === m.id ? (
-                                                        <Loader2 size={12} className="animate-spin" />
-                                                    ) : (
-                                                        <span className="leading-none">📋</span>
-                                                    )}
-                                                    <span className="hidden sm:inline">{t('basecamp.replicate_message')}</span>
-                                                </button>
-
                                                 <button
                                                     type="button"
                                                     onClick={(ev) => {
@@ -3388,8 +3365,8 @@ export default function ToolMessages({
                                             </p>
                                         )}
 
-                                        {/* Metadata footer: Category · Author · Date · Media · Comments */}
-                                        <div className="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/70 text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400 min-w-0">
+                                        {/* Metadata footer: Category · Author · Date · Media + Always-Visible Calm Replicar anuncio + Comments */}
+                                        <div className="flex items-center justify-between flex-wrap gap-2 mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/70 text-[11.5px] sm:text-xs text-slate-500 dark:text-slate-400 min-w-0">
                                             <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 shrink-0">
                                                     {getCategoryDisplayLabel(m.category)}
@@ -3418,12 +3395,42 @@ export default function ToolMessages({
                                                 )}
                                             </div>
 
-                                            {Number(m.comments_count) > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1D7DB5]/10 dark:bg-sky-400/15 text-[#1D7DB5] dark:text-sky-300 font-extrabold text-[11px] shrink-0">
-                                                    <MessageSquare size={11} className="shrink-0" />
-                                                    <span>{m.comments_count}</span>
-                                                </span>
-                                            )}
+                                            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                                                <button
+                                                    type="button"
+                                                    disabled={replicatingMsgId === m.id}
+                                                    onClick={(ev) => {
+                                                        ev.stopPropagation()
+                                                        void handleReplicateMessage(m)
+                                                    }}
+                                                    title={t('basecamp.replicate_message_tooltip')}
+                                                    aria-label={t('basecamp.replicate_message')}
+                                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-60 ${
+                                                        hasActiveSearch
+                                                            ? 'bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
+                                                            : 'bg-slate-50/90 dark:bg-slate-800/70 border-slate-200/90 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:bg-sky-50 hover:border-sky-300 hover:text-[#0369A1] dark:hover:bg-sky-950/50 dark:hover:border-sky-700 dark:hover:text-sky-300'
+                                                    }`}
+                                                >
+                                                    {replicatingMsgId === m.id ? (
+                                                        <Loader2 size={11.5} className="animate-spin shrink-0" />
+                                                    ) : (
+                                                        <Copy
+                                                            size={11.5}
+                                                            className={`shrink-0 ${
+                                                                hasActiveSearch ? 'text-white' : 'text-[#1D7DB5] dark:text-sky-400'
+                                                            }`}
+                                                        />
+                                                    )}
+                                                    <span>{t('basecamp.replicate_message')}</span>
+                                                </button>
+
+                                                {Number(m.comments_count) > 0 && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1D7DB5]/10 dark:bg-sky-400/15 text-[#1D7DB5] dark:text-sky-300 font-extrabold text-[11px] shrink-0">
+                                                        <MessageSquare size={11} className="shrink-0" />
+                                                        <span>{m.comments_count}</span>
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

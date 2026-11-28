@@ -4018,29 +4018,9 @@ export default function ToolTodos({
                             ))}
                         </div>
                     )}
-                </div>
 
-                {/* Right: Adaptive Replicate (Search = 1-click icon/text; Normal = Desktop hover-only) + ••• Menu */}
-                <div data-bc-row-menu="true" className="relative shrink-0 flex items-center gap-1">
-                    {isSearching ? (
-                        <button
-                            type="button"
-                            disabled={replicatingTaskId === task.id}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                void handleReplicateTask(task)
-                            }}
-                            title={t('basecamp.replicate_task')}
-                            className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 disabled:opacity-60"
-                        >
-                            {replicatingTaskId === task.id ? (
-                                <Loader2 size={13} className="animate-spin" />
-                            ) : (
-                                <span className="text-[13px] leading-none">📋</span>
-                            )}
-                            <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
-                        </button>
-                    ) : (
+                    {/* Mobile Always-Visible Calm Action Row (keeps title 100% unobstructed on < sm) */}
+                    <div className="sm:hidden mt-2 flex items-center">
                         <button
                             type="button"
                             disabled={replicatingTaskId === task.id}
@@ -4049,16 +4029,55 @@ export default function ToolTodos({
                                 void handleReplicateTask(task)
                             }}
                             title={t('basecamp.replicate_task_tooltip')}
-                            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sky-200/90 dark:border-sky-800/80 bg-sky-50/90 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:border-[#1D7DB5] hover:text-white text-[#0369A1] dark:text-sky-300 text-xs font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-all cursor-pointer shrink-0 disabled:opacity-60"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11.5px] font-semibold transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60 ${
+                                isSearching
+                                    ? 'bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
+                                    : 'bg-slate-50/90 dark:bg-slate-800/70 border-slate-200/90 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:bg-sky-50 hover:border-sky-300 hover:text-[#0369A1] dark:hover:bg-sky-950/50 dark:hover:border-sky-700 dark:hover:text-sky-300'
+                            }`}
                         >
                             {replicatingTaskId === task.id ? (
-                                <Loader2 size={12} className="animate-spin" />
+                                <Loader2 size={12} className="animate-spin shrink-0" />
                             ) : (
-                                <span className="text-[12px] leading-none">📋</span>
+                                <Copy
+                                    size={12}
+                                    className={`shrink-0 ${
+                                        isSearching ? 'text-white' : 'text-[#1D7DB5] dark:text-sky-400'
+                                    }`}
+                                />
                             )}
                             <span>{t('basecamp.replicate_task')}</span>
                         </button>
-                    )}
+                    </div>
+                </div>
+
+                {/* Right: Always-Visible Calm Replicate Pill (Desktop) + ••• Menu */}
+                <div data-bc-row-menu="true" className="relative shrink-0 flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        disabled={replicatingTaskId === task.id}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            void handleReplicateTask(task)
+                        }}
+                        title={t('basecamp.replicate_task_tooltip')}
+                        className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11.5px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-60 ${
+                            isSearching
+                                ? 'bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
+                                : 'bg-slate-50/90 dark:bg-slate-800/70 border-slate-200/90 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:bg-sky-50 hover:border-sky-300 hover:text-[#0369A1] dark:hover:bg-sky-950/50 dark:hover:border-sky-700 dark:hover:text-sky-300'
+                        }`}
+                    >
+                        {replicatingTaskId === task.id ? (
+                            <Loader2 size={12} className="animate-spin shrink-0" />
+                        ) : (
+                            <Copy
+                                size={12}
+                                className={`shrink-0 ${
+                                    isSearching ? 'text-white' : 'text-[#1D7DB5] dark:text-sky-400'
+                                }`}
+                            />
+                        )}
+                        <span>{t('basecamp.replicate_task')}</span>
+                    </button>
 
                     <button
                         type="button"
@@ -4627,38 +4646,18 @@ export default function ToolTodos({
                                                 <div className="text-[14px] sm:text-[14.5px] font-medium line-through text-slate-500 dark:text-slate-400 leading-snug break-words">
                                                     {task.task_name}
                                                 </div>
-                                                {(task.completed_at || task.created_at) && (
-                                                    <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
-                                                        <Clock size={10} className="shrink-0 opacity-80" />
-                                                        <span>
-                                                            {formatCreatedDateTime(task.completed_at || task.created_at)}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
+                                                <div className="mt-1.5 flex items-center justify-between flex-wrap gap-2">
+                                                    {(task.completed_at || task.created_at) ? (
+                                                        <div className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
+                                                            <Clock size={10} className="shrink-0 opacity-80" />
+                                                            <span>
+                                                                {formatCreatedDateTime(task.completed_at || task.created_at)}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span />
+                                                    )}
 
-                                            <div className="shrink-0 flex items-center">
-                                                {isFiltering ? (
-                                                    <button
-                                                        type="button"
-                                                        disabled={replicatingTaskId === task.id}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            void handleReplicateTask(task)
-                                                        }}
-                                                        title={t('basecamp.replicate_task')}
-                                                        className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 disabled:opacity-60"
-                                                    >
-                                                        {replicatingTaskId === task.id ? (
-                                                            <Loader2 size={12} className="animate-spin" />
-                                                        ) : (
-                                                            <span className="text-[12px] leading-none">📋</span>
-                                                        )}
-                                                        <span className="hidden sm:inline">
-                                                            {t('basecamp.replicate_task')}
-                                                        </span>
-                                                    </button>
-                                                ) : (
                                                     <button
                                                         type="button"
                                                         disabled={replicatingTaskId === task.id}
@@ -4667,16 +4666,54 @@ export default function ToolTodos({
                                                             void handleReplicateTask(task)
                                                         }}
                                                         title={t('basecamp.replicate_task_tooltip')}
-                                                        className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sky-200/90 dark:border-sky-800/80 bg-sky-50/90 dark:bg-sky-950/40 hover:bg-[#1D7DB5] hover:border-[#1D7DB5] hover:text-white text-[#0369A1] dark:text-sky-300 text-xs font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-all cursor-pointer shrink-0 disabled:opacity-60"
+                                                        className={`sm:hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-60 ${
+                                                            isFiltering
+                                                                ? 'bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
+                                                                : 'bg-white dark:bg-slate-800/80 border-slate-200/90 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:bg-sky-50 hover:border-sky-300 hover:text-[#0369A1]'
+                                                        }`}
                                                     >
                                                         {replicatingTaskId === task.id ? (
-                                                            <Loader2 size={11} className="animate-spin" />
+                                                            <Loader2 size={11} className="animate-spin shrink-0" />
                                                         ) : (
-                                                            <span className="text-[12px] leading-none">📋</span>
+                                                            <Copy
+                                                                size={11}
+                                                                className={`shrink-0 ${
+                                                                    isFiltering ? 'text-white' : 'text-[#1D7DB5] dark:text-sky-400'
+                                                                }`}
+                                                            />
                                                         )}
                                                         <span>{t('basecamp.replicate_task')}</span>
                                                     </button>
-                                                )}
+                                                </div>
+                                            </div>
+
+                                            <div className="hidden sm:flex shrink-0 items-center">
+                                                <button
+                                                    type="button"
+                                                    disabled={replicatingTaskId === task.id}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        void handleReplicateTask(task)
+                                                    }}
+                                                    title={t('basecamp.replicate_task_tooltip')}
+                                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11.5px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-60 ${
+                                                        isFiltering
+                                                            ? 'bg-[#1D7DB5] hover:bg-[#155D8A] border-[#1D7DB5] text-white shadow-2xs'
+                                                            : 'bg-white dark:bg-slate-800/80 border-slate-200/90 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:bg-sky-50 hover:border-sky-300 hover:text-[#0369A1] dark:hover:bg-sky-950/50 dark:hover:border-sky-700 dark:hover:text-sky-300'
+                                                    }`}
+                                                >
+                                                    {replicatingTaskId === task.id ? (
+                                                        <Loader2 size={11.5} className="animate-spin shrink-0" />
+                                                    ) : (
+                                                        <Copy
+                                                            size={11.5}
+                                                            className={`shrink-0 ${
+                                                                isFiltering ? 'text-white' : 'text-[#1D7DB5] dark:text-sky-400'
+                                                            }`}
+                                                        />
+                                                    )}
+                                                    <span>{t('basecamp.replicate_task')}</span>
+                                                </button>
                                             </div>
                                         </div>
                                     ))}
@@ -4804,7 +4841,7 @@ export default function ToolTodos({
                                     setSelectedTask(task)
                                     setSelectedTaskListId(task.todolist_id)
                                 }}
-                                className="px-3.5 sm:px-5 py-3 flex items-start justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 cursor-pointer transition-colors min-w-0"
+                                className="px-3.5 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 cursor-pointer transition-colors min-w-0"
                             >
                                 <div className="min-w-0 flex-1 space-y-1">
                                     <div
@@ -4894,15 +4931,15 @@ export default function ToolTodos({
                                         e.stopPropagation()
                                         void handleReplicateTask(task)
                                     }}
-                                    title={t('basecamp.replicate_task')}
-                                    className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 disabled:opacity-60"
+                                    title={t('basecamp.replicate_task_tooltip')}
+                                    className="self-start inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-60"
                                 >
                                     {replicatingTaskId === task.id ? (
-                                        <Loader2 size={13} className="animate-spin" />
+                                        <Loader2 size={13} className="animate-spin shrink-0" />
                                     ) : (
-                                        <span className="text-[13px] leading-none">📋</span>
+                                        <Copy size={12.5} className="shrink-0" />
                                     )}
-                                    <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
+                                    <span>{t('basecamp.replicate_task')}</span>
                                 </button>
                             </div>
                         )
@@ -5301,11 +5338,11 @@ export default function ToolTodos({
                                                                                     e.stopPropagation()
                                                                                     void handleReplicateTask(task)
                                                                                 }}
-                                                                                title={t('basecamp.replicate_task')}
-                                                                                className="inline-flex items-center justify-center gap-1 w-7 h-7 sm:w-auto sm:h-auto sm:px-2 sm:py-0.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-[11px] font-bold cursor-pointer shrink-0 transition-colors"
+                                                                                title={t('basecamp.replicate_task_tooltip')}
+                                                                                className="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-lg bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-[11px] font-bold cursor-pointer shrink-0 whitespace-nowrap transition-colors"
                                                                             >
-                                                                                <span>📋</span>
-                                                                                <span className="hidden sm:inline">
+                                                                                <Copy size={11} className="shrink-0" />
+                                                                                <span>
                                                                                     {t('basecamp.replicate_task')}
                                                                                 </span>
                                                                             </button>
@@ -5714,14 +5751,14 @@ export default function ToolTodos({
                                             disabled={replicatingTaskId === selectedTask.id}
                                             onClick={() => void handleReplicateTask(selectedTask)}
                                             title={t('basecamp.replicate_task_tooltip')}
-                                            className="inline-flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-8 sm:px-3 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-all cursor-pointer shrink-0 disabled:opacity-60"
+                                            className="inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-xl border border-[#1D7DB5] bg-[#1D7DB5] hover:bg-[#155D8A] text-white text-xs font-bold shadow-2xs transition-all cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-60"
                                         >
                                             {replicatingTaskId === selectedTask.id ? (
-                                                <Loader2 size={13} className="animate-spin" />
+                                                <Loader2 size={13} className="animate-spin shrink-0" />
                                             ) : (
-                                                <span className="text-[13px] leading-none">📋</span>
+                                                <Copy size={12.5} className="shrink-0" />
                                             )}
-                                            <span className="hidden sm:inline">{t('basecamp.replicate_task')}</span>
+                                            <span>{t('basecamp.replicate_task')}</span>
                                         </button>
 
                                         <button
