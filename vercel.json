@@ -170,6 +170,10 @@
         {
             "path": "/api/cron/retention-cleanup",
             "schedule": "45 12 * * *"
+        },
+        {
+            "path": "/api/cron/sync-holiday-hours",
+            "schedule": "17 11 1 * *"
         }
     ]
 }
